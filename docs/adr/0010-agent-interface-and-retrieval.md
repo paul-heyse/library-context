@@ -1,13 +1,13 @@
 ---
 id: ADR-0010
 title: FastMCP interface with in-process hybrid retrieval and one Qwen3 embedding spec
-status: proposed
+status: accepted
 date: 2026-09-22
 supersedes: []
 superseded-by: null
 design: [§B13, §B14, §11]
-evidence: Interface-checked
-revisit: The corpus exceeds a few thousand briefs, ANN or managed FTS is needed (adopt LanceDB), or the Rust and Python embedding clients disagree beyond tolerance on the conformance vectors.
+evidence: Tested
+revisit: The corpus exceeds a few thousand briefs, ANN or managed FTS is needed (adopt LanceDB), the Rust and Python embedding clients disagree beyond tolerance on the conformance vectors, or the embedding model or revision changes (a new spec hash, so every cached vector is re-derived).
 ---
 
 ## Context
@@ -25,10 +25,27 @@ Verified 2026-09-22:
 - **LanceDB v0.39.0 Python** (read from the tagged source): hybrid search, FTS, `RRFReranker(K=60)`,
   `bypass_vector_index`, cosine. Python's RRF uses 1-based ranks; Rust's uses 0-based.
 - **vLLM 0.30.0** (installed source):
-  - `--runner pooling` L2-normalizes Qwen3-Embedding-4B's 2,560-dimension output;
+  - `--runner pooling` L2-normalizes the output;
   - `dimensions` is rejected without Matryoshka overrides;
   - the query format is `Instruct: …\nQuery:…`, with no space. The research input's template is
     wrong.
+
+**Model change (operator decision, 2026-09-22).** The model is Qwen3-Embedding-8B instead of 4B:
+the same family, instruction format and 32K context, at 4,096 dimensions. Context7
+(`/qwenlm/qwen3-embedding`) gives the specifications.
+
+Spike results (2026-09-22, branch `spike/pyrefly-inproc`, `analysis/SPIKE_RESULTS.md`, E1–E3;
+all passed):
+- **E1.** vLLM 0.30.0 serves revision `1d8ad4ca` on the RTX 5090: ~15.5 GiB of weights and ~27 GB
+  in total at 0.80 utilization. Every vector has norm 1 ± 1e-7 (pooling `LAST` plus normalize,
+  from the model's sentence-transformers config). That contradicts Context7's "not normalized by
+  default" for this model and version.
+- **E2.** The Rust (`reqwest`) and Python (`httpx`) clients build byte-identical request texts.
+  **vLLM is not bitwise deterministic across requests**: identical inputs differed by up to
+  3.8e-3 in a component (cosine ≥ 0.99988). The clients agree to cosine ≥ 0.99991.
+- **E3.** `fastmcp.Client` round trips work in both eras (`2026-07-28` and `2025-11-25`), with
+  object outputs and annotations. Generations with a mismatched schema or spec fail at connect.
+  pyarrow was 25.0.1.
 
 ## Options
 
@@ -60,12 +77,15 @@ Verified 2026-09-22:
 - **Retrieval.** DESIGN §11.2, including a degraded lexical-only mode and recorded exact-symbol
   promotion.
 - **Embeddings.**
-  - Qwen3-Embedding-4B, served by a **separate vLLM 0.30.0 service**. vLLM is never a
-    dependency of `lctx_mcp`; the uncommitted `vllm>=0.30.0` project dependency moves to a
-    `uvx`-run service recipe in increment 1.
+  - Qwen3-Embedding-8B at revision `1d8ad4ca…`, served by a **separate vLLM 0.30.0 service**.
+    vLLM is never a dependency of `lctx_mcp`; the uncommitted `vllm>=0.30.0` project dependency
+    moves to a `uvx`-run service recipe in increment 1.
+  - The spec also hashes the vLLM version and the served dtype (bfloat16).
   - One hashed spec governs every vector. Compile-time vectors come from Rust (`reqwest`,
-    already locked), query-time vectors from Python (`httpx`). Both are checked against shared
-    conformance vectors.
+    already locked), query-time vectors from Python (`httpx`).
+  - **Conformance oracle.** Over shared inputs, both clients must build byte-identical request
+    texts, apply the same rejections, and produce vectors that agree to cosine ≥ 0.9995. An
+    exact vector match is not a valid oracle, because vLLM is not bitwise deterministic (E2).
   - Vectors are cached by `spec_hash + input_hash` in the canonical `embedding_cache` Delta
     table and copied into each bundle.
   - A deterministic fake embedder keeps `just check` GPU-free.
@@ -76,8 +96,6 @@ Verified 2026-09-22:
   Retrieval is testable with `fastmcp.Client` against a fixture bundle.
 - **Two client implementations** (Rust and Python) are the price of avoiding a language crossing
   in the compile pipeline. The conformance vectors are the oracle that keeps them honest.
-- **Spikes before acceptance:**
-  - vLLM serving Qwen3-Embedding-4B on the RTX 5090;
-  - conformance vectors agree across both clients;
-  - an MCP round trip through `Client(mcp)` in both protocol eras, plus schema-mismatch and
-    spec-mismatch fixtures that must fail at startup.
+- **The spikes before acceptance passed** (E1–E3 above). The 8B model fits the 5090 with room
+  for KV cache. It still competes with other GPU work, which is one more reason vLLM runs as its
+  own service.

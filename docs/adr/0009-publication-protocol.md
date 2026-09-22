@@ -1,12 +1,12 @@
 ---
 id: ADR-0009
 title: Abort-on-error compile attempts published by a snapshots append; file-based serving generations
-status: proposed
+status: accepted
 date: 2026-09-22
 supersedes: []
 superseded-by: null
 design: [§B7, §B12, §6]
-evidence: Interface-checked
+evidence: Tested
 revisit: The local probe shows Binary columns lack Delta statistics and snapshot filtering becomes a full scan at pilot scale, or an injected failure test finds a reader seeing unpublished rows.
 ---
 
@@ -68,10 +68,17 @@ Delta has no multi-table commit. deltalake skill evidence at our exact pin (2026
   only. A later `gc` is an ADR if it matters.
 - **Pinned reads.** Versions pinned in `snapshots` remain readable as long as we don't vacuum.
   That's acceptable because we don't vacuum.
-- **Spike before acceptance:** a local Delta probe that checks
-  - Binary column statistics;
-  - BinaryView on read;
-  - that an injected validation failure publishes nothing, and a later snapshot's reader sees
-    zero rows from it;
-  - that an injected error after the `snapshots` commit is classified as published;
-  - that a generation rebuilt from Delta is byte-identical.
+- **Spike results** (2026-09-22, branch `spike/pyrefly-inproc`, `analysis/SPIKE_RESULTS.md`,
+  S6 and P1–P4; all passed):
+  - **Binary statistics (P1).** Delta log statistics carry no min/max for the Binary
+    `snapshot_id`, so Delta skips no files. The Parquet footers do carry them, and row groups
+    were pruned (3 → 1). A `snapshot_id` filter costs one footer read per file, not a full scan,
+    so the first half of the revisit trigger is met and the second half is not.
+  - **BinaryView on read (S6).** Ids read back as `BinaryView`. The two-step cast back to
+    `FixedSizeBinary(16)` works; a direct cast is unsupported.
+  - **Injected validation failure (P2).** It publishes nothing. A later snapshot's reader sees
+    zero rows from it, although those rows are physically in the read version.
+  - **Ambiguous append (P3).** An append whose result is lost is classified `published` by
+    re-reading `snapshots`. An attempt that never appended is classified `unpublished`.
+  - **Rebuild (P4).** A bundle rebuilt from Delta at the recorded versions is byte-identical,
+    even after later appends and publications.

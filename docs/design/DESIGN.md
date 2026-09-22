@@ -385,7 +385,7 @@ Deferred until a consumer exists: `record_fields`, full type structure, CFG and 
 | Optional factual flag | nullable `Boolean` | nullable `Boolean` | null (unknown) is distinct from `false` |
 | Score or weight | `Float64` | `Float64` | finite |
 | Timestamp | `Timestamp(µs, "UTC")` | same | timezone string exactly `"UTC"` |
-| Embedding vector | `FixedSizeList<Float32, 2560>` | `List<Float32>` in `embedding_cache` (child renamed `element`) | length 2560, finite, unit norm, checked on read |
+| Embedding vector | `FixedSizeList<Float32, 4096>` | `List<Float32>` in `embedding_cache` (child renamed `element`) | length 4096, finite, unit norm, checked on read |
 
 **Conversion happens only at the Delta boundary**, checked in both directions.
 - **Tested** (spike S6, 2026-09-22): FixedSizeBinary is written as generic BINARY and read back
@@ -615,12 +615,10 @@ one process.
 
 ### §4.2.1 Driver
 
-1. **Refuse ambient knobs.**
-   - The driver exits before any analysis if `PYREFLY_STACK_SIZE`, `PYREFLY_FIXPOINT_DETAILS` or
-     any `PYSA_DUMP*` variable is set. Clearing them would need `unsafe` (edition 2024), which
-     the workspace forbids.
-   - Every path passed in is absolute, because Pyrefly reads the working directory to absolutize
-     relative paths.
+1. **Refuse ambient knobs.** The driver exits before any analysis if `PYREFLY_STACK_SIZE`,
+   `PYREFLY_FIXPOINT_DETAILS` or any `PYSA_DUMP*` is set; clearing them would need `unsafe`
+   (edition 2024), which the workspace forbids. Every path passed in is absolute, because Pyrefly
+   reads the working directory to absolutize relative paths.
 2. **Configuration.** Build a `ConfigFile` with:
    - `search_path_from_args`;
    - `disable_search_path_heuristics: true`, `disable_project_excludes_heuristics: true` and
@@ -631,21 +629,17 @@ one process.
 
    `configure()` must return no errors. `ConfigFinder::new_constant` rules out discovery and
    walk-up.
-3. **State.** `State::new(finder, ThreadCount::Inline)`, called on a driver-owned thread whose
-   stack size is part of the producer config (the spike used 512 MiB).
-   - Everything runs on that one thread: the check and the lazy solves during extraction.
-   - The setting is fixed; changing it changes `producer_id`.
-   - Why one thread: upstream's cycle placeholders are per thread, so above one thread the
-     inferred types in import cycles depend on evaluation order.
-   - **Tested** on FastMCP: identical output with `Inline`, with `NumThreads(1)` and with
-     `NumThreads(4)`. FastMCP cannot discriminate, so the contract's oracle is an import-cycle
-     fixture run in shuffled order and in separate processes.
+3. **State.** `State::new(finder, ThreadCount::Inline)` on a driver-owned thread whose stack size
+   is part of the producer config (the spike used 512 MiB). The check and the lazy solves all run
+   on that thread, and the setting is fixed: changing it changes `producer_id`. Upstream's cycle
+   placeholders are per thread, so above one thread the types in import cycles depend on
+   evaluation order. **Tested** on FastMCP with identical output at `Inline`, `NumThreads(1)` and
+   `NumThreads(4)`. FastMCP can't discriminate, so the oracle is an import-cycle fixture run in
+   shuffled order and in separate processes.
 4. **Handles.** One per project module, from `cfg.handle_from_module_path`, sorted by module name.
-5. **Run.**
-   - Install a `PysaReporter` with `write_files: false` and `ModuleIds::new(&handles)`.
-   - Call `transaction.run(&handles, Require::Everything, None)`.
-   - Keep the reporter installed during extraction, borrowing it with `pysa_reporter()`.
-     Dependency modules solve lazily and need it.
+5. **Run.** Install a `PysaReporter` with `write_files: false` and `ModuleIds::new(&handles)`, then
+   call `transaction.run(&handles, Require::Everything, None)`. Keep the reporter installed during
+   extraction (borrow it with `pysa_reporter()`), because dependency modules solve lazily.
 6. **Extract** per module, in sorted order (§4.2.2–§4.2.3). Then emit coverage (§3.7).
 
 **Measured** (spike S7; FastMCP 4.0.3, 257 modules, release build): 5.4 s cold at `NumThreads(1)`
@@ -665,13 +659,11 @@ one process.
     always unset, so it can't be used;
   - the qualified-name stack;
   - the `@overload` decorator match.
-- **Recovered and unreadable files.**
-  - A module whose acquired bytes fail our own UTF-8 check is `unavailable` for every family.
-    Pyrefly would load it as an empty module, which must not read as "no API".
-  - Parse errors are read from Pyrefly's per-module errors (the `parse-error` kind).
-  - A recovered tree still yields facts, but **every** family of that module is `partial`, with a
-    `boundaries` row. Recovery artefacts, such as an artificial call on a truncated expression,
-    must not read as complete.
+- **Recovered and unreadable files.** A module whose acquired bytes fail our own UTF-8 check is
+  `unavailable` for every family; Pyrefly would load it as an empty module, which must not read as
+  "no API". Parse errors are read from Pyrefly's per-module errors (the `parse-error` kind). A
+  recovered tree still yields facts, but **every** family of that module is `partial`, with a
+  `boundaries` row, so recovery artefacts never read as complete.
 
 ### §4.2.3 Semantics: Pyrefly's own collectors
 
@@ -701,14 +693,12 @@ one process.
   | `Target::FormatString`, `Return` shims, `global_targets`, `captured_variables`, `return_type` | **not carried** in v1: synthetic or no consumer | — | — | — |
   | `Define` | **not carried**: it links a nested `def` to the function it creates, which `declarations` already records | — | — | — |
 
-- **Unmatched calls.** The walker marks calls inside annotations (`visit_annotation`).
-  - An unmatched call inside an annotation is a `boundaries` row with `outside_provider_model`.
-  - Any other unmatched call is a `boundaries` row with `missing_evidence`, and that module's
-    `calls` coverage is `partial`.
-- **Target identity.** Function targets resolve to spans through `Bindings::function_def_range`,
-  class targets through `ClassRef.class.range()`. Dependency modules are keyed by (module name,
-  path relative to the site-packages root), never by Pysa's `ModuleId`, which a parallel counter
-  assigns.
+- **Unmatched calls.** The walker marks calls inside annotations (`visit_annotation`). An
+  unmatched call there is a `boundaries` row with `outside_provider_model`. Any other unmatched
+  call is a `missing_evidence` boundary, and that module's `calls` coverage is `partial`.
+- **Target identity.** Spans come from `Bindings::function_def_range` (functions) and
+  `ClassRef.class.range()` (classes). Dependency modules are keyed by (module name, site-relative
+  path), never by Pysa's `ModuleId`, which a parallel counter assigns.
 - **Set-valued lists** (`captured_variables`, a union's `class_names`) come out of hash sets in
   varying order. Every record set is sorted by its declared key.
 - **Public names.**
@@ -747,15 +737,14 @@ one process.
 
 ### §4.2.5 Failure, determinism and the parity oracle
 
-- **Panics abort the attempt.**
-  - This covers any panic in code that touches Pyrefly: `run`, the collectors, the public-name
-    helpers and the lazy solves during extraction. Nothing from the attempt is published (§6.1).
-  - There is no `catch_unwind`. Pyrefly treats its state as unsupported after any panic (a
-    poisoned lock, unpublished cycle answers), so continuing with the next module is unsafe.
+- **Panics abort the attempt.** Any panic in code that touches Pyrefly (`run`, the collectors, the
+  public-name helpers, lazy solves during extraction) aborts it, and nothing is published (§6.1).
+  There is no `catch_unwind`: Pyrefly treats its state as unsupported after any panic (a poisoned
+  lock, unpublished cycle answers), so continuing with the next module is unsafe.
   - Load and parse errors are not panics; they still become coverage rows (§4.2.2). Per-module
     isolation would need ADR-0012's Option 4, a separate process.
-- **Determinism oracle.** Reruns, shuffled handle order and perturbed ambient variables all give
-  byte-identical sorted tables (S2, S3).
+- **Determinism oracle.** Reruns, shuffled order and perturbed ambient variables give byte-identical
+  sorted tables (S2, S3).
 - **Harness-equivalence oracle.** A test runs the pinned Pyrefly CLI (the `uv` dev group, same
   revision) with an equivalent generated `pyrefly.toml`. For each project module it asserts that:
   - the in-process Pysa structs equal the CLI's `--report-pysa-format json` output as sets, with
@@ -822,8 +811,9 @@ write.
 - Raw Parquet scans.
 - Vacuum or optimize.
 
-**Known limit.** Delta log statistics skip Binary columns, so files are not skipped by
-`snapshot_id`. This is ADR-0009's revisit trigger.
+**Known limit (Tested, P1).** Delta log statistics skip the Binary `snapshot_id`, so Delta skips
+no files. The Parquet footers do carry binary statistics, and row groups are pruned (3 → 1 in
+P1). A `snapshot_id` filter therefore costs one footer read per file, not a full scan.
 
 **Deferred.** `datafusion-tracing`, a new dependency.
 
@@ -879,9 +869,10 @@ The vertex universe is selected separately from the edges, so isolated public AP
 
 ## §6 Persistence and publication
 
-**Interface-checked** (deltalake skill probes). Source: IP L1603–L1623, L2967–L3006. Spike S6
-(ADR-0012) ran the CHECK and read-cast parts of the ADR-0009 Delta probe. Its Binary-statistics,
-injected-failure and rebuild parts remain.
+**Tested** where a line cites a spike, otherwise **Interface-checked** (deltalake skill probes).
+Source: IP L1603–L1623, L2967–L3006. The ADR-0009 Delta probe ran in full on 2026-09-22: S6
+(CHECK, read cast), P1 (Binary statistics), P2 (a failed validation publishes nothing), P3 (an
+ambiguous append is classified by re-reading) and P4 (a byte-identical bundle rebuild).
 
 ### §6.1 Canonical tables and publication
 
@@ -1300,19 +1291,24 @@ Repository text is treated as untrusted data. It is never an instruction to the 
 
 ## §11 Serving and agent interface
 
-**Interface-checked** (fastmcp skill 4.0.3 vs installed 4.0.5; vLLM 0.30.0 source; Qwen3 model
-card). Source: IP L2037–L2071, L2640–L2965. Pending the ADR-0010 spikes.
+**Tested** where a line cites spike E1–E3 (`spike/pyrefly-inproc`, 2026-09-22). Otherwise
+**Interface-checked** (fastmcp skill 4.0.3 vs installed 4.0.5; vLLM 0.30.0 source; model card).
+Source: IP L2037–L2071, L2640–L2965.
 
 ### §11.1 Embedding spec and vectors
 
-**Model.** Qwen3-Embedding-4B, served by a **separate vLLM 0.30.0 service**
-(`vllm serve Qwen/Qwen3-Embedding-4B --runner pooling`).
-- Output: 2,560 dimensions, `Float32`, cosine.
-- vLLM L2-normalizes by default under pooling.
-- Never send `dimensions`: the model is not Matryoshka-enabled without overrides.
+**Model.** Qwen3-Embedding-8B at a pinned revision (`docs/pins.md`), served by a **separate vLLM
+0.30.0 service** (`vllm serve … --runner pooling --max-model-len 8192`).
+- **Output:** 4,096 dimensions, `Float32`, cosine.
+- **Normalization (Tested, E1).** vLLM L2-normalizes: every norm was 1 ± 1e-7. The pooling
+  (`LAST`, with activation) comes from the model's sentence-transformers config.
+- **Never send `dimensions`.** We use the full 4,096, and vLLM rejects the parameter without a
+  Matryoshka override.
+- **Measured (E1):** ~15.5 GiB of weights, ~27 GB of the 5090 at 0.80 utilization, 85 s to start.
 
-**Spec.** The spec (model and revision, tokenizer revision, pooling, instruction template,
-document template, dimensions, dtype, normalization) is hashed into `spec_hash`.
+**Spec.** The spec is hashed into `spec_hash`. It covers the model and revision, tokenizer
+revision, vLLM version and served dtype (bfloat16), pooling, instruction template, document
+template, dimensions, output dtype and normalization.
 - **Query template (query only):** `Instruct: {task_description}\nQuery:{query}`. There is no
   space after `Query:`. Documents take no prefix.
 - **Document text** is the deterministic brief projection (IP L2666–L2689): outcome, applicable
@@ -1324,11 +1320,13 @@ document template, dimensions, dtype, normalization) is hashed into `spec_hash`.
 **Clients.**
 - Compile-time vectors come from Rust (`reqwest` + `tokio`).
 - Query-time vectors come from Python (`httpx`).
-- Both clients check the spec against the same **conformance vectors** (fixed inputs → expected
-  vectors within tolerance).
+- **Conformance (Tested, E2).** Over the fixed conformance inputs, both clients build
+  byte-identical request texts, apply the same rejections, and return vectors that agree to cosine
+  ≥ 0.9995. vLLM is not bitwise deterministic across requests (identical inputs differed by up to
+  3.8e-3 in a component), so an exact vector match is never expected.
 
 **Cache.** Vectors are keyed by `spec_hash + input_hash` in the canonical `embedding_cache` Delta
-table (§3.2), because vLLM numerics vary with batching. Snapshots record the cache version they
+table (§3.2), because vLLM numerics vary between requests (E2). Snapshots record the cache version they
 read, and bundles copy the vectors they need from it.
 - A **deterministic fake embedder**, with its own spec hash, is used by tests and `just check`.
 - Mixing spec hashes within one generation is rejected.
@@ -1358,7 +1356,7 @@ thousand briefs, or ANN / managed FTS needed.
 
 ### §11.3 FastMCP contract
 
-- **Package.** `python/lctx_mcp`. It depends on `fastmcp` 4.0.x, `pyarrow` (pinned; the bundle
+- **Package.** `python/lctx_mcp`. It depends on `fastmcp` 4.0.x, `pyarrow` 25.0.1 (the bundle
   reader), `numpy` and `httpx`, never on vLLM.
 - **Startup checks.** The lifespan rejects a generation whose per-file schema digests differ from
   the canonical schemas it expects, or whose `embedding_spec` hash differs from its query
@@ -1381,7 +1379,10 @@ thousand briefs, or ANN / managed FTS needed.
 - **Errors.** `ToolError` for unknown ids or a snapshot mismatch; `mask_error_details=True`.
 - **Transport.** stdio. Nothing may write to stdout.
 - **Tests.** `fastmcp.Client(mcp)` in both the auto and legacy protocol modes, asserting
-  `.structured_content`.
+  `.structured_content`, plus generations with a mismatched schema or spec, which must fail at
+  connect.
+  **Tested** (E3): `auto` negotiated `2026-07-28` and `legacy` `2025-11-25`; both mismatch
+  fixtures failed at connect.
 
 > Decision: ADR-0010
 
@@ -1449,4 +1450,5 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | Restored increment-1 rules dropped in condensation; placed validators (baseline review F2, F6, O1) | — |
 | 2026-09-22 | Rewritten for the capability-compiler target: §1, §B1/§B4/§B8/§B10 revised, §B11–§B14 added, §3–§6 and §8 detailed, §9–§13 added | ADR-0004 … ADR-0011 |
 | 2026-09-22 | Pyrefly (patched fork) and Ruff 0.0.11 linked in-process: §B1, §B2, §B8 revised; §3.2–§3.5, §4.0, §4.1 amended; §4.2 rewritten as §4.2.1–§4.2.6; §4.3 added; §6.1, §6.2, §8 and §13 amended; budget raised to ~1,450 lines | ADR-0012 |
+| 2026-09-22 | ADR-0009 probe ran in full (P1–P4) and ADR-0009 was accepted. ADR-0010 spikes (E1–E3) ran and ADR-0010 was accepted, with the embedding model changed to Qwen3-Embedding-8B (4,096 dimensions) by operator decision: §3.3, §4.3, §6 and §11 amended | ADR-0009, ADR-0010 |
 | 2026-09-22 | ADR-0012 standard review F1–F11, O1: abort on any panic; full Pysa variant table and `Overrides` as open candidates (§3.6); `__all__` completeness detector; immutable CHECKs verified at open; fidelity definitions; `Inline` thread; root-relative context paths; labels corrected | ADR-0012 |

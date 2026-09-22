@@ -17,7 +17,7 @@ DESIGN §7 / ADR-0002. A row without a date is not verified.
 | buoyant_kernel | 0.25.1, git 8ba063f8f84fec222000f66d40d70911d7c79675 (branch `buoyant/main`, pinned by `Cargo.lock` only) | 2026-09-22 | `Cargo.lock`; matches the skill's kernel pin |
 | petgraph | =0.8.3 | 2026-09-22 | resolves; no code uses it yet |
 
-## Analyzers (ADR-0012, proposed)
+## Analyzers (ADR-0012, accepted)
 
 Neither analyzer is a workspace dependency yet; `Cargo.toml` gains them in increment 1, slice 1.
 These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and checked.
@@ -31,7 +31,7 @@ These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and 
 | git sources | `github.com/paul-heyse/pyrefly`; `github.com/yangdanny97/lsp-types` rev `395d6bfcd6c3696a64cfe9cd93b86f981fb85112` (used by `pyrefly_python` and `pyrefly_util`) | 2026-09-22 | spike `deny.toml` `allow-git`. Licenses pyrefly adds: 0BSD, ISC, Unicode-DFS-2016, BSL-1.0 |
 | research-input revisions | ruff `660350be…`, pyrefly `9733bdcf…` (1.4.0-dev.1) | — | **not adopted**: untagged; revisit when 1.4.x is on PyPI |
 
-## Pilot subject (ADR-0004, proposed)
+## Pilot subject (ADR-0004, accepted)
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
@@ -45,14 +45,14 @@ These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and 
 | leiden-rs | `=0.8.1`, `default-features = false, features = ["petgraph"]` | 2026-09-22 (source read) | crates.io source: seed option, CPM, multiplex, rayon optional, petgraph `^0.8` |
 | rand | pin whatever leiden-rs 0.8.1 resolves (0.9.x) exactly | — | increment 2 |
 
-## Serving and embeddings (ADR-0010, proposed)
+## Serving and embeddings (ADR-0010, accepted)
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
 | FastMCP (served) | 4.0.x (4.0.5 installed) | 2026-09-22 | skill 4.0.3 vs installed 4.0.5 diff: logging only |
-| vLLM | 0.30.0, **separate service environment**, `--runner pooling` | 2026-09-22 (source read) | installed source in `.venv`; to move out of project deps in increment 1 |
-| Qwen/Qwen3-Embedding-4B | 2,560 dims, float32, L2-normalized; model revision to pin | — | model card + `config.json`/`modules.json` read; revision hash pinned at the increment-1 spike |
-| pyarrow | pin at increment 1 (the bundle reader in `lctx_mcp`; 25.0.1 has cp314 wheels) | — | to be locked when `pyproject.toml` is restructured |
+| vLLM | 0.30.0, **separate service environment**, `--runner pooling` | 2026-09-22 | spike E1 ran `vllm serve Qwen/Qwen3-Embedding-8B --revision … --runner pooling --max-model-len 8192` on the RTX 5090 (from the project `.venv`; it moves to its own environment in increment 1) |
+| Qwen/Qwen3-Embedding-8B | revision `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; 4,096 dims; bf16 weights (15 GB), float32 output, L2-normalized (pooling `LAST` + sentence-transformers normalize). Operator choice over 4B (ADR-0010) | 2026-09-22 | HF API `sha` at that revision; `hf download … --revision`; spike E1 served it with vLLM 0.30.0 and every norm was 1 ± 1e-7 |
+| pyarrow | 25.0.1 (the bundle reader in `lctx_mcp`; cp314 wheels) | 2026-09-22 | spike E3 ran the MCP round trip on it through `uv run --with pyarrow`; locked when `pyproject.toml` is restructured in increment 1 |
 | LanceDB | 0.39.0 (Python) — **deferred** behind a size trigger | 2026-09-22 (source read at tag) | hybrid/FTS/RRF chain; bundles Arrow 58 / DataFusion 54 |
 
 ## Dev tools

@@ -127,7 +127,7 @@ DESIGN section or ADR changes what it points at. Line numbers refer to the 2026-
 | 2582 | A finding is not a generated claim | adopted | §10.1 |
 | 2605 | Constrain the interpreter | adapted | grounding checks and the manual review of the initial corpus kept (§10.4, IP L2634); the LLM is deferred (§B11) |
 | 2640 | 5. Embedding design | adopted | §11.1 |
-| 2642 | 5.1 Model choice | adopted | Qwen3-Embedding-4B, 2,560 dimensions (§11.1) |
+| 2642 | 5.1 Model choice | adapted | Qwen3-Embedding-8B (operator choice over the input's 4B), 4,096 dimensions (§11.1) |
 | 2664 | 5.2 Embed the interpreted capability, not the raw graph | adopted | §11.1 document text |
 | 2703 | 5.3 Query/document asymmetry | adapted | fixed: no space after `Query:` (§11.1, ADR-0010) |
 | 2718 | 5.4 Store an immutable embedding specification | adopted | §B14, §11.1 |

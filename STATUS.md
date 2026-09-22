@@ -13,9 +13,13 @@ _Updated 2026-09-22 by the handoff skill._
     `b9f28575`.
   - DESIGN §4.2.1–§4.2.6 and §4.3 detail the driver, the mappers and the Arrow → DataFusion →
     Delta built-ins.
-- **Spike evidence** is on branch `spike/pyrefly-inproc` (`dcdc969`), worktree
-  `../lc-spike-pyrefly`, summarized in `analysis/SPIKE_RESULTS.md`. S0–S6 passed and S7 was
-  measured, on FastMCP 4.0.3: 257 modules, CLI parity 257/257, 4.1 s and ~765 MB at `Inline`.
+- **Spike evidence** is on branch `spike/pyrefly-inproc` (`5fb2eed`), worktree
+  `../lc-spike-pyrefly`, summarized in `analysis/SPIKE_RESULTS.md`:
+  - ADR-0012: S0–S7;
+  - ADR-0009: P1–P4;
+  - ADR-0010: E1–E3.
+- **The embedding model is Qwen3-Embedding-8B** (operator decision, 4,096 dims), revision
+  `1d8ad4ca`. It is in the local HF cache (15 GB) and served by vLLM 0.30.0 on the 5090.
 
 ## Last verified (2026-09-22, after ADR-0012 acceptance)
 
@@ -25,6 +29,8 @@ _Updated 2026-09-22 by the handoff skill._
 | `just rules-scan` / `just fixtures-check` | not_run (no rules or fixtures yet) |
 | spike `cargo test -p spike-pyrefly --test s6_delta` | passed (3/3; re-run by the reviewer) |
 | spike build by `git`/`rev` on the fork + `check_family.py` + `cargo deny` + FastMCP run h | passed; output byte-identical to the local-clone runs |
+| spike `cargo test --test p_publication` (ADR-0009 P1–P4) | passed (4/4) |
+| spike `pytest analysis/mcp` (ADR-0010 E3), `py_client.py` + `embed_client` + `compare.py` (E1, E2) | passed (8/8; clients agree to cosine ≥ 0.9999) |
 
 ## Known blocks and uncommitted changes
 
@@ -41,16 +47,19 @@ _Updated 2026-09-22 by the handoff skill._
   operator confirmed the four author decisions. Its oracles are slice-1 work (ADR-0012
   Consequences). Its revisit trigger is manual; a `just` recipe for fork identity and the env
   list is one of those oracles.
-- **Still `proposed`, pending their spikes:** ADR-0008, ADR-0009, ADR-0010, ADR-0011.
-- **ADR-0009's Delta probe:** the CHECK and cast parts ran in spike S6. The Binary-statistics,
-  injected-failure, post-commit-error and bundle-rebuild parts remain.
+- **ADR-0009 and ADR-0010 are accepted** on their spike evidence.
+  - ADR-0010 now names Qwen3-Embedding-8B.
+  - ADR-0010's conformance oracle is identical request texts plus cosine ≥ 0.9995, because
+    vLLM is not bitwise deterministic.
+- **Still `proposed`:**
+  - ADR-0008 (fact-slice schema), settled by slice 1's `cpg-schema` snapshots;
+  - ADR-0011 (analytics), settled by its increment-2 spike.
 - **Review deferred rows:** sidecar isolation (Option 4), dropping `State` before Stage C, and
   end-to-end cost. Each reopens on the trigger in the review's §11.
 
 ## Next
 
-Run the remaining ADR-0009 Delta probe parts and the ADR-0010 spikes. Then start slice 1 from the
-spike branch:
+Increment 1, slice 1, from the spike branch:
 - the workspace dependencies, and the `deny.toml` and `check_family.py` changes;
 - `cpg-schema` families with insta snapshots;
 - the ADR-0012 oracles.
