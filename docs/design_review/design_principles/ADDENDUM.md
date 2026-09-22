@@ -21,14 +21,14 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a `
 
 | ID | Binding decision (DESIGN.md is authoritative) | DESIGN | Bears on |
 |---|---|---|---|
-| §B1 | Ruff library crates for syntax, Pyrefly reports for semantics, our own recognizer for binding history; no second parser or type checker | §2, §4.2 | DM-04, DM-41, DM-57, DM-58 · G7 |
+| §B1 | Pyrefly (in-process, pinned patched fork) for semantics and Ruff 0.0.11 crates for syntax, both over one parse; our own recognizer for binding history; no second parser or type checker | §2, §4.2 | DM-02, DM-04, DM-41, DM-57, DM-58 · G1, G7 |
 | §B2 | Arrow schemas in `cpg-schema` are the authoritative data contract; codebooks are append-only; nothing is inferred | §2, §3 | DM-02, DM-06, DM-09, DM-51, DM-52 · G1, G2 |
 | §B3 | DataFusion constructs and validates relations; one query per rule, shared by tests and publication | §2, §4, §8 | DM-07, DM-20, DM-22, DM-53 · G3 |
 | §B4 | Graph algorithms have named owners (petgraph traversal and `page_rank`, leiden-rs communities, own FCA/RCA), each with a named consumer | §2, §5, §9 | DM-34, DM-38, DM-40, DM-46 · G6 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | §2, §9 | DM-13, DM-24, DM-40, DM-59 · G2, G7 |
 | §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained | §2, §3 | DM-08, DM-13, DM-23, DM-46, DM-47 · G1, G2 |
 | §B7 | Delta canonical store, published by one `snapshots` append; readers pin versions and filter by `snapshot_id` | §2, §6 | DM-12, DM-14, DM-29, DM-30 · G5 |
-| §B8 | Pyrefly runs as a pinned subprocess with an explicit config; everything else is one workspace | §2, §4.2 | DM-28, DM-31, DM-41, DM-42, DM-48 · G2, G4, G6 |
+| §B8 | Pyrefly and Ruff link in-process from a pinned fork with a constructed, explicit config; one workspace, one process; the Pyrefly CLI is only a parity-test oracle | §2, §4.2 | DM-28, DM-31, DM-41, DM-42, DM-43, DM-48 · G2, G4, G6 |
 | §B9 | One pinned Rust dependency family (DataFusion 55.1 / Arrow 59.3 / delta-rs git) | §2, §7 | DM-31, DM-48 · G6 |
 | §B10 | Exclusions: no graph DB, workflow engine, JSON-inferred schemas, whole-ontology graph, composition planner, constraint solver, neural reranking or graph embeddings | §2 | DM-57, DM-58 · — |
 | §B11 | Insight synthesis is programmatic (templates, extractive selection); no generative model in v1, and never in the query path | §2, §10 | DM-08, DM-22, DM-40, DM-59 · G2, G7 |

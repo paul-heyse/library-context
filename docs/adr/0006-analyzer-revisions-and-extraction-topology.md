@@ -1,10 +1,10 @@
 ---
 id: ADR-0006
 title: Ruff crates in-process, Pyrefly 1.3.1 as a subprocess, one workspace
-status: proposed
+status: superseded
 date: 2026-09-22
 supersedes: [ADR-0003]
-superseded-by: null
+superseded-by: ADR-0012
 design: [§B1, §B8, §4.2]
 evidence: Interface-checked
 revisit: The increment-1 spikes fail (Pysa column units on non-ASCII source, sorted-output determinism, dependency resolution through the locked venv), or a pyrefly release after 1.3.1 is tagged and on PyPI with a needed report change.

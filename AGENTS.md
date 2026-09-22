@@ -6,7 +6,8 @@ through a FastMCP server with two tools, `search_capabilities` and `get_capabili
 (`docs/design/DESIGN.md` §1).
 
 The pieces:
-- **Extraction:** Ruff crates in-process and Pyrefly as a pinned subprocess.
+- **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
+  in-process over one parse (ADR-0012). The Pyrefly CLI is only a parity-test oracle.
 - **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
   Delta stores them.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -34,9 +35,10 @@ real consumer.
 | `docs/design_review/design_principles/` | Charter (DM-01–60, gates G1–G7), with the repo layer in `ADDENDUM.md` |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts. Extraction, construction, analytics and publication crates are added as increments need them (ADR-0006) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts. Extraction, construction, analytics and publication crates are added as increments need them (ADR-0012) |
 | `docs/initial_plan/` | Research input (don't edit it) and `DISPOSITION.md`, which maps each input section to where it landed |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
+| `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0012, `docs/pins.md`) |
 | `scripts/` | `adr.py`, `check_family.py`, `check_agents.py`, and the format hook |
 | `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
 
@@ -62,7 +64,8 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `datafusion` (DataFusion, Arrow, object_store)
 - `deltalake` (this repo's exact delta-rs git profile)
 - `petgraph`
-- `pyrefly-ruff`
+- `pyrefly-ruff`. It indexes ruff crates 0.0.13, but we link 0.0.11 (Pyrefly's line). The deltas are
+  listed in `docs/pins.md`
 - `rust-code-model`
 - `ast-grep-ripgrep`
 - `datafusion-tracing`

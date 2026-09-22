@@ -3,7 +3,7 @@
 **This file is the current truth.** It says what the system *is*. `docs/adr/` says *why*, and what
 was rejected. Change a governed section only in the same commit as the ADR that decides it, and
 end the section with `> Decision: ADR-NNNN`. Sections are never renumbered: insert `§3.2.1` rather
-than shifting `§3.3`. Budget: about 1,200 lines (ADR-0004). Column-level contracts live in
+than shifting `§3.3`. Budget: about 1,450 lines (ADR-0012). Column-level contracts live in
 `cpg-schema` and are snapshot-tested; they are not repeated here.
 
 **Labels.** Every claim carries a charter §D label (`Proposed`, `Interface-checked`,
@@ -124,17 +124,23 @@ Changing one needs an ADR and a `standard` review.
 
 ### §B1 Ruff and Pyrefly are the only semantic front ends
 
-**Interface-checked.** Source: IP L1–L425, L886–L897.
+**Tested** (spike `spike/pyrefly-inproc`, 2026-09-22). Source: IP L1–L425, L886–L897.
 
-- **Ruff library crates** (in-process) supply source, tokens and syntax.
-- **Pyrefly** (a pinned CLI run as a subprocess, §B8) supplies definitions, signatures, call
-  resolution, class order and types, through its reports.
-- **Binding history** comes from our own scope-aware recognizer over the Ruff AST (§4.2). Ruff's
-  semantic model has no public driver.
+- **Pyrefly**, linked in-process from a pinned, minimally patched fork (§B8, §4.2), supplies:
+  - definitions and signatures;
+  - call resolution, through its own Pysa collectors;
+  - class order;
+  - public names;
+  - types, when a consumer needs them.
+- **Ruff library crates** (`=0.0.11`, the line Pyrefly compiles against) supply syntax. They walk
+  Pyrefly's own parse, so there is one parse and one byte coordinate system.
+- **Binding history** comes from our own scope-aware recognizer over the Ruff AST (§4.2.4).
+  Pyrefly's binding IR drops statically decided branches, so it is not conservative enough for
+  this, and Ruff's semantic model has no public driver.
 - **No second parser or type checker.** Gaps are closed with adapters, normalization and our own
   analyses.
 
-> Decision: ADR-0006
+> Decision: ADR-0012
 
 ### §B2 Arrow schemas are the authoritative data contract
 
@@ -148,9 +154,12 @@ Changing one needs an ADR and a `standard` review.
   - the family → node/edge view mapping (§3.2);
   - physical storage mappings;
   - Arrow-only batch builders and local validators.
-- **Dependencies:** `arrow-*` only. DataFusion validators live in a core-only crate (§8).
+- **Dependencies:** `arrow-*`, plus `blake3` for id derivation (§3.4.1). DataFusion validators
+  live in a core-only crate (§8).
 - **No inferred schemas.** No schema is inferred from JSON or from a first batch. That includes
   the serving bundle's schema (§6.4) and the embedding exchange (§11.1).
+
+> Decision: ADR-0012
 
 ### §B3 DataFusion constructs and validates relations
 
@@ -203,17 +212,23 @@ Changing one needs an ADR and a `standard` review.
 
 > Decision: ADR-0009
 
-### §B8 Pyrefly runs as a pinned subprocess; everything else is one workspace
+### §B8 Pyrefly and Ruff link in-process; one workspace, one process
 
-**Interface-checked.**
+**Tested** (spike, 2026-09-22).
 
-- **Pyrefly** runs as a pinned CLI with a generated, explicit configuration. Its reports are
-  decoded in Rust.
-- **Ruff** library crates link in-process.
-- **One core Rust workspace** holds extraction, construction, analytics and publication.
-  Isolation from Pyrefly's internals comes from the process boundary.
+- **Pyrefly** is a git dependency on the fork `paul-heyse/pyrefly`, pinned by revision. The fork
+  is tag 1.3.1 plus `third_party/pyrefly-1.3.1.patch`, which changes visibility, adds a
+  no-write reporter switch and a reporter borrow, and changes no logic.
+- **Ruff** library crates are pinned to the ruff line Pyrefly compiles against.
+- **One workspace, one process.** Extraction, construction, analytics and publication live in
+  one core Rust workspace and run in one process. There is no IPC.
+- **Isolation is by contract, not by process:**
+  - an explicit configuration (§4.2.1);
+  - refusal of the ambient variables that cannot be cleared;
+  - panic handling (§4.2.5).
+- **The CLI** of the same revision is kept only as a parity-test oracle (§4.2.5).
 
-> Decision: ADR-0006
+> Decision: ADR-0012
 
 ### §B9 One pinned Rust dependency family
 
@@ -341,9 +356,9 @@ declaration, and an AST node is not an execution point.
 | Family | Tables | First increment |
 |---|---|---|
 | `provenance` | `releases`, `distributions`, `source_files`, `contexts`, `producers`, `runs`, `facts` | 1 |
-| `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: `__all__`, import aliases), `public_names` (Pyrefly `coverage report --public-only`). Derived: `exports` (public access path → declaration) | 1 |
-| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `parameter_semantics` (Pysa: kind, required, resolved annotation). Derived: `signatures`, `parameters` | 1 |
-| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span), `pysa_calls` (Pysa: candidates, receiver, phase, unresolved reasons). Derived: `call_sites`, `resolutions` (§3.6), `call_targets` (joined on span) | 1 |
+| `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → declaration) | 1 |
+| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `parameter_semantics` (Pyrefly Pysa definitions: kind, required, annotation, function flags). Derived: `signatures`, `parameters` | 1 |
+| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `call_sites`, `resolutions` (§3.6), `call_targets` (joined on the full call-expression range, §4.2.3) | 1 |
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `syntax` | `syntax_nodes` needed by recognizers: branches, raises, assignments, with their structural occurrence paths | 2 |
@@ -354,7 +369,7 @@ declaration, and an AST node is not an execution point.
 
 Deferred until a consumer exists: `record_fields`, full type structure, CFG and dataflow tables.
 
-> Decision: ADR-0008
+> Decision: ADR-0008, ADR-0012
 
 ### §3.3 Physical profiles
 
@@ -372,9 +387,11 @@ Deferred until a consumer exists: `record_fields`, full type structure, CFG and 
 | Embedding vector | `FixedSizeList<Float32, 2560>` | `List<Float32>` in `embedding_cache` (child renamed `element`) | length 2560, finite, unit norm, checked on read |
 
 **Conversion happens only at the Delta boundary**, checked in both directions.
-- **Interface-checked:** FixedSizeBinary is written as generic BINARY and comes back as `Binary`
-  (likely as `BinaryView`, because DataFusion forces view types).
-- **Read path:** BinaryView → Binary → FixedSizeBinary(16), with `CastOptions { safe: false }`.
+- **Tested** (spike S6, 2026-09-22): FixedSizeBinary is written as generic BINARY and read back
+  through the DataFusion provider as `BinaryView`. A direct `BinaryView → FixedSizeBinary` cast is
+  unsupported.
+- **Read path:** BinaryView → Binary → FixedSizeBinary(16), two `cast_with_options` steps with
+  `CastOptions { safe: false }`. A wrong length is an error.
 - **Timestamps:** µs normalization is lossy for ns, so only µs is ever written.
 
 ### §3.4 Identity rules
@@ -385,12 +402,16 @@ Deferred until a consumer exists: `record_fields`, full type structure, CFG and 
   occurrence path.
 - **Provider-local IDs** are mapped through `(run, module, provider kind, local key)`.
 - **Codebooks are append-only.** Codes are never regenerated or reordered.
-- **Source coordinates** are byte offsets into the exact UTF-8 parser input, with explicit source
-  maps. Other providers' coordinates are converted, never assumed to match. Pysa's `line:col` is
-  converted through a per-file line table.
+- **Source coordinates** are byte offsets into the exact UTF-8 parser input: the text Pyrefly
+  loaded and parsed (BOM included), which is also the text the Ruff walk sees (§4.2.2). Other
+  coordinates are converted, never assumed to match. Pysa locations (1-based line, 1-based UTF-8
+  byte column) are converted with that module's own `LineIndex::offset(.., Utf8)`, the exact
+  inverse of how Pyrefly produced them (**Tested**, spike S5: 29,279 of 29,279 exact).
 - **Type variables keep binder identity:** two unrelated parameters named `T` are distinct.
 - **Deduplicate repeated ingestion of the *same* assertion only.** Assertions from independent
   providers are separate facts, even when they agree.
+
+> Decision: ADR-0012
 
 ### §3.4.1 ID derivation
 
@@ -437,19 +458,24 @@ migration (DM-51).
 | `resolution_status` | resolved, partial, unresolved, not_attempted |
 | `resolution_domain` | call, attribute, import, name, type |
 | `invocation_phase` | call, new, init, decorator, property_get, property_set |
-| `boundary_reason` | native_unavailable, unresolved_target, unsupported_unpacking, ambiguous_binding, unsupported_control_flow, scope_boundary, budget_reached, missing_evidence, not_requested, provider_disagreement |
+| `boundary_reason` | native_unavailable, unresolved_target, unsupported_unpacking, ambiguous_binding, unsupported_control_flow, scope_boundary, budget_reached, missing_evidence, not_requested, provider_disagreement, outside_provider_model (a construct the provider's model does not cover, e.g. a call inside an annotation) |
 | `pysa_unresolved_reason` | the 14 variants of Pysa's unresolved-call reason at the pinned pyrefly, spelled as Pysa spells them; appended when the pin moves |
 | `evidence_status` | structurally_observed, documented, statistically_derived, fixture_checked, unresolved |
 | `finding_kind`, `assertion_kind`, `analytic_method`, `fact_family`, `type_role` | Defined in `cpg-schema` as their consumers land (§9, §10) |
 
 - **Missing output is not negative evidence.** "Unavailable", "not requested", "failed" and
   "unresolved" are recorded separately.
-- **`model_id` is not a codebook.** It is `<producer_id>/<surface>` (e.g. `pysa-json`,
-  `coverage-public`, `ruff-ast`, `lctx-compiler/pass-a`), validated against `producers`.
+- **`model_id` is not a codebook.** It is `<producer_id>/<surface>` (e.g. `ruff-ast`,
+  `pyrefly-pysa`, `pyrefly-public`, `lctx-compiler/pass-a`), validated against `producers`.
+- **Extractor tables use `extraction_mode = native_traversal`.** `report_decode` stays in the
+  append-only codebook, unused in v1.
+- **Pyrefly-sourced values map through exhaustive matches.** Every Pyrefly enum → codebook mapping
+  is a `match` with no wildcard arm, so a new upstream variant (a 15th unresolved reason, a new
+  `OriginKind`) fails the build instead of degrading silently.
 - **`type_role` target values:** annotation, computed, expected, narrowed, unnarrowed, contextual,
   parameter, return, and further values from IP L576–623.
 
-> Decision: ADR-0008
+> Decision: ADR-0008, ADR-0012
 
 ### §3.5.1 Type observations and class order
 
@@ -513,68 +539,225 @@ context records:
 **Explicit inputs only.** Extractors receive their environment and configuration as arguments.
 - **A separate analysis venv.** Each release gets its own venv, built from its own acquisition
   lock (for FastMCP 4.0.3, not the project's `uv.lock`, which serves 4.0.5).
-- **Pyrefly's generated config fixes everything ambient:**
-  - the interpreter path points into that venv;
-  - search-path heuristics and walk-up fallback are disabled;
-  - ignore-file handling is fixed;
-  - config discovery never runs.
-- **Recorded.** The `pyrefly dump-config` output digest is stored in `contexts`.
+- **Pyrefly reads only the venv's `site-packages`.** It never runs the venv's interpreter.
+- **Pyrefly's configuration is a constructed value, not a discovered file** (§4.2.1):
+  - explicit search path and site-package path;
+  - explicit Python version and platform;
+  - heuristics, walk-up fallback and the interpreter query all disabled.
+- **Recorded.** `contexts` stores a digest of the canonical serialization of the configured
+  `ConfigFile`, plus the resolved search path, site-package path and sys info.
 
-So nothing ambient (`PATH`, `VIRTUAL_ENV`, an upward `pyproject.toml`) can change an answer
-without changing `context_id` (G4).
+So nothing ambient can change an answer without changing `context_id` (G4). That covers `PATH`,
+`VIRTUAL_ENV`, `PYTHONPATH`, `CONDA_PREFIX`, the working directory and an upward
+`pyproject.toml`. **Tested** (spike S2, 2026-09-22): no process was spawned, and output was
+byte-identical with each of them perturbed.
 
 **Run.** A run is one producer applied to one context for a declared set of families under one
-analysis configuration. `runs` records that; `producers` records tool, revision and adapter build
-digest.
+analysis configuration. `runs` records that. `producers` records the tool, the revision (for the
+extractor: the fork revision, patch digest and ruff version) and the adapter build digest.
 
-> Decision: ADR-0007
+> Decision: ADR-0007, ADR-0012
 
 ### §4.1 Stages
 
 | Stage | Owner | Output |
 |---|---|---|
 | A. Source and analysis universe | Rust + Arrow, then DataFusion checks | `provenance` family |
-| B. Typed provider facts | extractors (§4.2) + Arrow builders | family batches |
+| B. Typed provider facts | Pyrefly and Ruff in-process (§4.2) + Arrow builders (§4.3) | raw family batches, written to Delta |
 | C. Provider-local identity | Rust identity logic + DataFusion joins | `provider_node_map`, with keys checked unique before use |
-| D. Semantic relationships | DataFusion | family tables and derived views |
+| D. Semantic relationships | DataFusion over the written raw tables, written back through Delta (§4.3) | derived family tables and views |
 | E. Projections and analytics | DataFusion → petgraph / leiden-rs / FCA → DataFusion (§5, §9) | `findings` family, with lineage |
 | F. Synthesis | Rust templates + extractive selection (§10) | assertions, briefs |
 | G. Publication | Rust (§6) | `snapshots` row; serving bundle |
 
 Unmapped or ambiguous rows become `boundaries` rows. They are never dropped by an inner join.
 
+> Decision: ADR-0012
+
 ### §4.2 Extraction
 
-**Interface-checked** (pyrefly-ruff skill; installed pyrefly 1.3.1; 2026-09-22). Pending the ADR-0006 spikes.
+**Tested** unless marked: spike `spike/pyrefly-inproc`, run on FastMCP 4.0.3 and a non-ASCII
+fixture, 2026-09-22. Pyrefly is linked from the pinned fork (§B8). A run is one call of the driver
+over one context, and everything below happens in one process.
 
-| Provider surface | Mode | Families (v1) |
+| Provider surface (`model_id` suffix) | Mode | Raw tables (v1) |
 |---|---|---|
-| Ruff library crates `=0.0.13`: parser, AST, tokens | in-process native traversal | raw `declarations` (with docstrings), `export_syntax`, `parameter_syntax`, `call_syntax`, `arguments`; `syntax` (increment 2) |
-| Our local-binding recognizer over the Ruff AST | in-process `recognizer` | `lexical` (bindings and shadowed history within a scope) |
-| Pyrefly `check --report-pysa DIR --report-pysa-format json` | subprocess + `report_decode` | raw `parameter_semantics`, `pysa_calls` (candidates, receivers, overrides, unresolved reasons), class ancestry; `types` (increment 3) |
-| Pyrefly `coverage report --public-only` | subprocess + `report_decode` | raw `public_names`. **This defines "public"**; Ruff's `__all__` corroborates, and a disagreement becomes a `provider_disagreement` boundary |
-| Pyrefly `check --report-glean DIR` | subprocess + `report_decode` | cross-references and docstrings. **Added only when a consumer needs references**, not in increment 1 |
+| Ruff `=0.0.11` walk over Pyrefly's parse (`ruff-ast`) | `native_traversal` | `declarations` (with docstrings), `export_syntax`, `parameter_syntax`, `call_syntax`, `arguments`; `syntax_nodes` (increment 2) |
+| Pyrefly's Pysa collectors, in memory (`pyrefly-pysa`) | `native_traversal` | `parameter_semantics`, `pysa_calls`, class ancestry; `type_observations` (increment 3) |
+| Pyrefly's public-name helpers (`pyrefly-public`) | `native_traversal` | `public_names`. **This defines "public"** |
+| Our local-binding recognizer over the Ruff AST | `recognizer` | `lexical` (increment 2) |
 
-**Decoder rules**
-- Output order varies between runs, so decoders **sort** every record set by canonical key.
-- Absolute paths are normalized to release-relative ones.
-- Glean offsets are UTF-8 bytes, matching Ruff's `TextRange`. Pysa positions are `line:col` and
-  are converted (§3.4).
-- A report field omitted because it equals the report's documented default takes that default.
-  It is not "unknown".
-- **Pysa is authoritative for call targets.** Glean's caller→callee pairs are per function and
-  silently drop unresolved calls, so they are never used for `calls`.
+### §4.2.1 Driver
 
-**Binding rule (conservative)**
-- Any binding of a parameter's name that appears lexically before a guard or forwarding site in
-  the same scope marks that site `ambiguous_binding` (a boundary).
-- The motivating case is pyarrow's `write_dataset`. Its `schema` guard only applies to
+1. **Refuse ambient knobs.**
+   - The driver exits before any analysis if `PYREFLY_STACK_SIZE`, `PYREFLY_FIXPOINT_DETAILS` or
+     any `PYSA_DUMP*` variable is set. Clearing them would need `unsafe` (edition 2024), which
+     the workspace forbids.
+   - Every path passed in is absolute, because Pyrefly reads the working directory to absolutize
+     relative paths.
+2. **Configuration.** Build a `ConfigFile` with:
+   - `search_path_from_args`;
+   - `disable_search_path_heuristics: true`, `disable_project_excludes_heuristics: true` and
+     `enable_fallback_search_path: false`;
+   - `python_environment.{python_version, python_platform, site_package_path: Some(..)}`;
+   - `interpreters.skip_interpreter_query = true`;
+   - no build system.
+
+   `configure()` must return no errors. `ConfigFinder::new_constant` rules out discovery and
+   walk-up.
+3. **State.** `State::new(finder, ThreadCount::NumThreads(1))`. One thread is the contract,
+   because upstream documents inferred types in import cycles that depend on evaluation order.
+   Four threads gave identical FastMCP output, which does not make it a guarantee.
+4. **Handles.** One per project module, from `cfg.handle_from_module_path`, sorted by module name.
+5. **Run.**
+   - Install a `PysaReporter` with `write_files: false` and `ModuleIds::new(&handles)`.
+   - Call `transaction.run(&handles, Require::Everything, None)`.
+   - Keep the reporter installed during extraction, borrowing it with `pysa_reporter()`.
+     Dependency modules solve lazily and need it.
+6. **Extract** per module, in sorted order (§4.2.2–§4.2.3). Then emit coverage (§3.7).
+
+**Measured** (spike S7). FastMCP 4.0.3, 257 modules, release build, one thread:
+- 5.4 s cold: 2.5 s for the check and 2.8 s for extraction;
+- peak RSS about 918 MB.
+
+### §4.2.2 Syntax: one walk over Pyrefly's parse
+
+- **One walk.** A single `SourceOrderVisitor` walks `Transaction::get_ast(handle)`, the unmodified
+  ruff parse Pyrefly analyzed, which is kept at `Require::Everything`. The text is
+  `get_module_info(handle)`'s contents. There is no second parse.
+- **Built-ins used:**
+  - `Parameters::iter_source_order` and `AnyParameterRef`;
+  - `Arguments::iter_source_order` and `ArgOrKeyword`;
+  - `helpers::is_docstring_stmt`, `StringLiteralValue::to_str` and `Docstring::range_from_stmts`;
+  - `Ast::if_branches`. Never `stmt_if::if_elif_branches`, which panics on a recovered empty
+    body.
+- **Ours:**
+  - the structural occurrence path (parent, field role, child ordinal). Ruff's `node_index` is
+    always unset, so it can't be used;
+  - the qualified-name stack;
+  - the `@overload` decorator match.
+- **Recovered and unreadable files.** A parse error still leaves a recovered tree, so facts are
+  emitted and that module's syntax families are `partial`. Pyrefly loads a non-UTF-8 file as an
+  empty module; it is `unavailable`.
+
+### §4.2.3 Semantics: Pyrefly's own collectors
+
+- **Collectors.** Per module: `PysaResolver::new`, `ModuleAnswersContext::create`,
+  `collect_captured_variables_for_module`, `create_reversed_override_graph_for_module`, then
+  `export_module_definitions` and `export_module_call_graphs`.
+  - These are the functions behind `--report-pysa`.
+  - The in-memory structs equal the CLI's JSON (S4: 257/257 modules; definitions equal as sets).
+- **Locations → bytes.** Every `PysaLocation` is converted with its module's `LineIndex` (§3.4).
+- **Join key.** `pysa_calls` joins `call_syntax` on the **full call-expression range**. This
+  matched 13,104 of 13,292 calls (S5). Every unmatched call is inside an annotation, which Pysa's
+  call model does not cover. Each becomes a `boundaries` row with `outside_provider_model`.
+- **Mapping** (§3.6):
+
+  | Pysa field | Becomes |
+  |---|---|
+  | `call_targets` | phase `call` |
+  | `init_targets`, `new_targets` | phases `init`, `new` |
+  | `higher_order_parameters` | targets on the argument |
+  | `if_called` | `potential` targets on a `Reference` |
+  | property getters, setters | phases `property_get`, `property_set` |
+  | `ArtificialCall` and format-string callees | `origin = synthetic_model`, with the `OriginKind` |
+  | `Unresolved::True` | `has_unresolved_remainder`, plus the reason |
+- **Target identity.**
+  - Function targets resolve to spans through `Bindings::function_def_range`.
+  - Class targets resolve through `ClassRef.class.range()`.
+  - Dependency modules are keyed by (module name, path), never by Pysa's `ModuleId`, which a
+    parallel counter assigns.
+- **Set-valued lists** (`captured_variables`, a union's `class_names`) come out of hash sets in
+  varying order. Every record set is sorted by its declared key.
+- **Public names.**
+  - For each public module (`is_public_module`), take `__all__` (`explicit_dunder_all_names`) if
+    present. Otherwise take local definitions plus explicit re-exports.
+  - Trace each name to its origin with `trace_export_origin`. Rows are (access path, origin,
+    `via_dunder_all`).
+  - The flattened set must equal `compute_public_fqns`, the function behind
+    `coverage report --public-only`, or the run fails.
+  - Ruff's `__all__` no longer corroborates the public set, because both sides would be Pyrefly.
+- **Fidelity.** Pysa-model facts are `report_projection` even though they stay in memory. Pysa's
+  types are a projection: a display string, scalar properties and class names. Native
+  `pyrefly_types::Type` (`native_structural`) is reachable through `Answers` when a consumer needs
+  it (§13).
+
+### §4.2.4 Binding rule (conservative)
+
+- **The rule.** Any binding of a parameter's name that appears lexically before a guard or
+  forwarding site in the same scope marks that site `ambiguous_binding` (a boundary).
+- **The motivating case** is pyarrow's `write_dataset`. Its `schema` guard only applies to
   caller-supplied scanners, because earlier branches rebind `schema`.
+- **Pyrefly's flow-sensitive `Bindings` are not used for this rule.** Its binding pass drops
+  branches it decides statically (`TYPE_CHECKING`, `sys.version_info`), so a rebinding there is
+  invisible.
 
-**Deferred:** Ruff's full semantic model. Its building blocks are public, but nothing public
-drives them. It is deferred until binding kinds or typing-only contexts are needed.
+**Deferred:** Ruff's full semantic model, which nothing public drives (§13).
 
-> Decision: ADR-0006
+### §4.2.5 Failure, determinism and the parity oracle
+
+- **Panics.**
+  - A panic inside Pyrefly's `run` fails the extractor run and aborts the compile attempt.
+    Nothing partial is written.
+  - A panic in one module's extraction is caught with `catch_unwind`. It becomes
+    `coverage = failed` for that module and family, plus a `boundaries` row.
+- **Determinism oracle.** Reruns, shuffled handle order and perturbed ambient variables all give
+  byte-identical sorted tables (S2, S3).
+- **Parity oracle.** A test runs the pinned Pyrefly CLI (the `uv` dev group, same revision) with
+  an equivalent generated `pyrefly.toml`. For each project module it asserts that:
+  - the in-process Pysa structs equal the CLI's `--report-pysa-format json` output as sets, with
+    `module_id` removed;
+  - the public set explains the CLI's `--public-only` report.
+
+  The CLI is never a production input.
+
+### §4.2.6 Upgrading Pyrefly
+
+1. Rebase the fork commit onto the new tag and regenerate `third_party/pyrefly-<ver>.patch`. If
+   the patch needs a logic change, or grows past about 60 changed lines, that needs an ADR
+   (ADR-0012's revisit trigger).
+2. Move the ruff pin to the line the new Pyrefly compiles against (`pin-check`).
+3. Fix compile errors in the mappers, and append codebook values where exhaustive matches demand
+   them.
+4. Run the parity and determinism oracles, and record the pin with its date in `docs/pins.md`.
+
+> Decision: ADR-0012
+
+### §4.3 Fact construction and persistence
+
+**Interface-checked** (datafusion and deltalake skills at the §7 pins) unless marked. Rows marked
+**Tested** ran in spike S6 (2026-09-22). This section says which built-in owns each step; §6 and
+§8 hold the protocol and the rules.
+
+| Stage | Built-in | Ours |
+|---|---|---|
+| Build | Typed builders against the table's `cpg-schema` `SchemaRef` (`FixedSizeBinaryBuilder`, `Int16Builder`, `BooleanBuilder::append_option`, `GenericListBuilder`, `StructBuilder`). `RecordBatch::try_new` with default options is the local type check: exact types, nested names, nullability, metadata | One builder per table. The arrow-json serde path is tests-only: it expects hex for `FixedSizeBinary` |
+| Canonicalize | `lexsort_to_indices` + `take_record_batch` on the table's declared **total** key. Arrow's sort is unstable | Key declarations |
+| Ids | The `blake3` crate (`=1.8.6`, shared with Pyrefly) inside one `IdHasher` (§3.4.1). Not `RowConverter` bytes: the encoding may change between releases. Not SQL `digest`: it can't write length prefixes | `IdHasher` |
+| Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))`, then `add_constraint()` with the table's declared per-row CHECKs (codebook ranges, `start_byte >= 0 AND end_byte >= start_byte`). **Tested:** `CreateBuilder` rejects `delta.constraints.*` keys | CHECK declarations |
+| Write raw | `DeltaTable::write(batches)` (`WriteBuilder`), with `CommitProperties::with_metadata` carrying `lctx.snapshot_id`. That metadata is audit only; `snapshots` stays the authority. **Tested:** CHECK and non-null are enforced, and `appendOnly` rejects deletes | — |
+| Derive | Read raw at the written versions (§6.2). Run the derivation SQL from `cpg-schema` with `ctx.sql_with_options`, disallowing DDL, DML and statements. Write with `write(vec![]).with_input_plan(plan).with_session_state(..)`. **Tested:** CHECK is enforced on this path. Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
+| Validate | DataFusion queries generated from the key, reference and endpoint declarations (§8). `target_partitions = 1` for float aggregates | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
+| Publish | `snapshots.write([rows])` in one commit (§6.1) | Classification after an ambiguous error |
+| Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3) | One helper |
+
+Operations are methods on `DeltaTable`. `DeltaOps` does not exist at this pin.
+
+**Never:**
+- DataFusion `INSERT INTO` or `DataFrame::write_table` into a Delta table. The `DeltaDataSink`
+  path skips CHECK constraints and invariants. **Tested:** an invalid row was committed.
+- `SaveMode::Ignore`.
+- Deletion vectors, which switch off Parquet predicate pushdown.
+- Column mapping.
+- Raw Parquet scans.
+- Vacuum or optimize.
+
+**Known limit.** Delta log statistics skip Binary columns, so files are not skipped by
+`snapshot_id`. This is ADR-0009's revisit trigger.
+
+**Deferred.** `datafusion-tracing`, a new dependency.
+
+> Decision: ADR-0012
 
 ---
 
@@ -647,6 +830,9 @@ The vertex universe is selected separately from the edges, so isolated public AP
   unpublished attempts are invisible to readers.
 - **Adapter failure on a module** gives `coverage.status = failed` for that module and family. The
   snapshot can still publish, with that gap visible.
+- **Writes go through `DeltaTable::write` only** (§4.3). That path enforces the tables' CHECK
+  constraints and `delta.appendOnly`. DataFusion `INSERT INTO` does not, so it is never used
+  (**Tested**, spike S6).
 - **`SaveMode::Ignore` is never used.** It appends to existing tables (`delta.write.3`).
 - **No vacuum or optimize on fact tables** in stage 1. Vacuum defaults to `dry_run=false` and Lite
   mode.
@@ -654,8 +840,9 @@ The vertex universe is selected separately from the edges, so isolated public AP
 ### §6.2 Readers
 
 1. Resolve the snapshot's row set in `snapshots`.
-2. Load each table **at its recorded version**, using an unloaded builder with a version or
-   `load_version`, and assert `table.version() == Some(v)`.
+2. Load each table **at its recorded version** with
+   `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, then assert
+   `table.version() == Some(v)`.
 
    A provider built on an already-loaded handle ignores the requested version
    (`delta.open.2`, `delta.read.4`).
@@ -691,7 +878,7 @@ The vertex universe is selected separately from the edges, so isolated public AP
   - Then the `generations/active` symlink is switched by atomic rename.
   - A running server keeps the generation it loaded; restarting it picks up the new one.
 
-> Decision: ADR-0009
+> Decision: ADR-0009, ADR-0012
 
 ---
 
@@ -711,7 +898,7 @@ The vertex universe is selected separately from the edges, so isolated public AP
 DataFusion, and `just deps` checks for single versions.
 
 The analyzer, analytics-crate, Python-stack and model pins are in `docs/pins.md`, which is
-authoritative for them (ADR-0006, ADR-0010, ADR-0011).
+authoritative for them (ADR-0010, ADR-0011, ADR-0012).
 
 > Decision: ADR-0002
 
@@ -722,12 +909,19 @@ authoritative for them (ADR-0006, ADR-0010, ADR-0011).
 **Proposed.** Source: IP L1581–L1601.
 
 **Local** (Arrow/Rust), at every materialization boundary:
-- exact physical types, nullability and widths;
+- exact physical types, nullability and widths. `RecordBatch::try_new` with default options
+  enforces these against the declared schema (§4.3);
 - codebook membership;
 - numeric bounds;
 - finite floats and unit-norm vectors.
 
-**Cross-table** (DataFusion), **one query per rule**:
+**Per-row, at every Delta write.** Codebook ranges, span order and non-negative offsets are also
+Delta CHECK constraints. They are generated from the same `cpg-schema` declarations and enforced
+by `DeltaTable::write` (§4.3). They add enforcement at the storage boundary; they do not add a
+second definition.
+
+**Cross-table** (DataFusion), **one query per rule**. The uniqueness, reference and endpoint
+queries are generated from `cpg-schema`'s key, reference and endpoint declarations:
 - uniqueness of `(snapshot_id, key)` via `GROUP BY … HAVING count(*) > 1`;
 - foreign references via `LEFT ANTI JOIN` returning zero rows;
 - endpoint kinds;
@@ -747,7 +941,7 @@ authoritative for them (ADR-0006, ADR-0010, ADR-0011).
 - Every `row_number()` ends in a unique tie-break.
 - Every cast in validation code uses `safe: false`.
 
-> Decision: ADR-0008
+> Decision: ADR-0008, ADR-0012
 
 ---
 
@@ -1158,10 +1352,10 @@ Each item returns by ADR when a consumer needs it.
 
 | Deferred | Where it is described | Trigger |
 |---|---|---|
-| Full ontology tables, `record_fields`, native type graph | IP L469–L717, L334–L409 | an analytic or brief needs the detail |
+| Full ontology tables, `record_fields`, native type graph (native `pyrefly_types::Type` is now reachable through `Answers`, ADR-0012) | IP L469–L717, L334–L409 | an analytic or brief needs the detail |
 | Ruff semantic-model port | IP L99–L166 | binding kinds or typing-only context are needed |
-| Glean decoding | IP L209–L231 | a consumer needs cross-references |
-| CinderX, TSP query surfaces | IP L290–L332, L410–L425 | narrowing or contextual types are needed |
+| Cross-references (Pyrefly's Glean collector, now in-process under `report::glean`) | IP L209–L231 | a consumer needs cross-references |
+| CinderX located types (narrowed, unnarrowed, contextual), TSP query surfaces | IP L290–L332, L410–L425 | narrowing or contextual types are needed |
 | Python CFG, dominance, dataflow, aliasing, summaries | IP L821–L884, L1505–L1563 | a pass needs path-sensitive facts |
 | SCC condensation, dominators on projections | IP L1416–L1503 | a consumer beyond recursion labelling |
 | LanceDB, ANN indexes | IP L2766–L2965 | corpus size or managed FTS (§11.2) |
@@ -1177,3 +1371,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | Seeded from Initial_plan.md; §7 family verified by smoke build | ADR-0001, ADR-0002, ADR-0003 |
 | 2026-09-22 | Restored increment-1 rules dropped in condensation; placed validators (baseline review F2, F6, O1) | — |
 | 2026-09-22 | Rewritten for the capability-compiler target: §1, §B1/§B4/§B8/§B10 revised, §B11–§B14 added, §3–§6 and §8 detailed, §9–§13 added | ADR-0004 … ADR-0011 |
+| 2026-09-22 | Pyrefly (patched fork) and Ruff 0.0.11 linked in-process: §B1, §B2, §B8 revised; §3.2–§3.5, §4.0, §4.1 amended; §4.2 rewritten as §4.2.1–§4.2.6; §4.3 added; §6.1, §6.2, §8 and §13 amended; budget raised to ~1,450 lines | ADR-0012 |

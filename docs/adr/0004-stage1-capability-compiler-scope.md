@@ -67,3 +67,8 @@ The operator chose:
 - **What we give up.** The native-extension case (PyArrow) is deferred to a later corpus.
 - **Risk.** FastMCP is both the subject and the serving framework. Analyzed 4.0.3 and served 4.0.5
   are kept apart by pins (`docs/pins.md`).
+
+## Amendments
+
+- 2026-09-22: pointer only. ADR-0012 now records the DESIGN.md budget (~1,450 lines), raised to
+  hold the extraction and fact-construction detail (§4.2.1–§4.2.6, §4.3).

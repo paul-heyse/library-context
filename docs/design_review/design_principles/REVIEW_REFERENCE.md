@@ -136,7 +136,7 @@ A starting orientation, not an allocation. It exists to help justify the §7 app
 |---|---|
 | The fact model, a fact family, a codebook, or `cpg-schema` contracts (DESIGN §3, §B2) | 1, 2, 3, 11 |
 | Identity encoding, the run contract, or `provider_node_map` (§3.4.1, §4.0, §4.1 C) | 3, 2, 10 |
-| Ruff extraction, a Pyrefly report decoder, or the binding recognizer (§4.2, §B1, §B8) | 9, 2, 10 |
+| The Pyrefly/Ruff extraction driver, walker or mappers, or the binding recognizer (§4.2, §B1, §B8) | 9, 2, 10 |
 | DataFusion construction plans or validators (§4.1 D, §8, §B3) | 5, 2, 8 |
 | A graph projection or traversal (§5, §B4) | 7, 5, 8, 10 |
 | Analytics: Passes A–C, community detection, centrality, FCA/RCA, analytic embeddings (§9) | 5, 8, 2, 12 |

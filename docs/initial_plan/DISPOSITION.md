@@ -21,18 +21,18 @@ DESIGN section or ADR changes what it points at. Line numbers refer to the 2026-
 |---|---|---|---|
 | 1 | Conclusion | context | — |
 | 22 | 1. Audit scope and the meaning of "available" | adopted | exposed/internal/derived distinction → DESIGN §4.2 |
-| 47 | 2. What Ruff can contribute | adapted | ADR-0006 |
+| 47 | 2. What Ruff can contribute | adapted | ADR-0012 (Ruff 0.0.11 crates over Pyrefly's parse) |
 | 49 | 2.1 Source, tokens, syntax, and exact structural relationships | adopted | §4.2, §3.4; exhaustive-exporter contract applies to the `syntax` family |
 | 99 | 2.2 Lexical scopes, bindings, references, and execution context | adapted | our own recognizer (§4.2); Ruff semantic-model port deferred (§13) |
-| 156 | 2.3 Ruff's semantic extraction is not a standalone public pass | adopted | reason for the §4.2 recognizer (ADR-0006) |
+| 156 | 2.3 Ruff's semantic extraction is not a standalone public pass | adopted | reason for the §4.2.4 recognizer (ADR-0012) |
 | 168 | 2.4 Module dependencies, diagnostics, and supporting crates | deferred | not needed by v1 passes (§13) |
 | 178 | 2.5 The critical CFG limitation | adopted | CFG deferred (§1.3, §13) |
-| 192 | 3. What Pyrefly can contribute | adapted | CLI reports, not native state (ADR-0006) |
-| 194 | 3.1 There are several distinct extraction surfaces | adapted | Pysa + coverage report in increment 1; Glean on demand (§4.2) |
+| 192 | 3. What Pyrefly can contribute | adapted | native state in-process through a patched fork: Pysa collectors, public-name helpers, AST (ADR-0012, §4.2) |
+| 194 | 3.1 There are several distinct extraction surfaces | adapted | Pysa collectors and public-name helpers in increment 1, in memory; Glean and CinderX collectors reachable on demand (§4.2, §13) |
 | 209 | 3.2 Glean: the navigation and source-reference layer | deferred | §13, until a consumer needs cross-references |
 | 233 | 3.3 Pysa: call-resolution and object-model export | adopted | §4.2, §3.6 (the `ifCalled` and synthetic-shim rules) |
 | 290 | 3.4 CinderX: structured types beyond display strings | deferred | §13 |
-| 334 | 3.5 The maximal native type layer | deferred | §13; requires native linking, which ADR-0006 rejects for now |
+| 334 | 3.5 The maximal native type layer | deferred | §13; native `Type` is reachable through `Answers` since ADR-0012, and waits for a consumer |
 | 363 | 3.6 Rich class metadata and synthesized behavior | deferred | §13 |
 | 384 | 3.7 Binding IR, narrowing, inference dependencies, and answers | deferred | §13; the "not runtime dataflow" rule kept in §B5 |
 | 410 | 3.8 Query interfaces: useful, but verify their semantics | adopted | `getDeclaredType` rule in §3.5.1; TSP deferred (§13) |
@@ -44,11 +44,11 @@ DESIGN section or ADR changes what it points at. Line numbers refer to the 2026-
 | 657 | 4.5 Relation families | adapted | fact families (§3.2); the 94-edge registry is not needed yet |
 | 678 | 4.6 Preserve unnormalized native detail without making JSON blobs the database | deferred | `record_fields` (§13) |
 | 719 | 4.7 Identity and evidence rules | adopted | §3.4, §3.4.1, §3.7 |
-| 747 | 5. How this fits your Rust architecture | adapted | one workspace plus a pyrefly subprocess (ADR-0006) |
+| 747 | 5. How this fits your Rust architecture | adapted | one workspace and one process with Pyrefly and Ruff linked; the separate-process shape is ADR-0012's fallback |
 | 806 | 6. Remaining gaps and whether they justify more Rust libraries | adopted | §B1 |
 | 808 | 6.1 Gaps that do not justify another parser or type checker | adopted | §B1 |
 | 821 | 6.2 Gaps requiring genuinely new semantic analysis | deferred | §13; native boundary → `boundary_reason` (§3.5) |
-| 886 | Recommendation | adapted | §B1 (ADR-0006) |
+| 886 | Recommendation | adapted | §B1 (ADR-0012) |
 
 ## Part II: the Arrow / DataFusion / petgraph construction (L918–L1649)
 
@@ -63,7 +63,7 @@ DESIGN section or ADR changes what it points at. Line numbers refer to the 2026-
 | 1121 | 2.4 Use nested Arrow selectively | adopted | child tables for arguments and parameters (§3.2) |
 | 1144 | 3. Construct the canonical graph with Arrow and DataFusion | adopted | §4.1 |
 | 1146 | Stage A: Establish the source and analysis universe | adopted | §4.0, §4.1 |
-| 1172 | Stage B: Emit typed provider facts | adapted | §4.2 (report decoders instead of native adapters) |
+| 1172 | Stage B: Emit typed provider facts | adopted | §4.2 native adapters (ADR-0012), §4.3 builders |
 | 1208 | Stage C: Resolve provider-local identities | adopted | §4.1, §3.4 |
 | 1257 | Stage D: Construct the semantic relationships relationally | adopted | §4.1, §B3 |
 | 1294 | Stage E: Construct the caller-to-callee projection | adopted | §5 |
