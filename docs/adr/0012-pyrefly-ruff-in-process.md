@@ -1,7 +1,7 @@
 ---
 id: ADR-0012
 title: Pyrefly 1.3.1 (patched fork) and Ruff 0.0.11 linked in-process as the fact front end
-status: proposed
+status: accepted
 date: 2026-09-22
 supersedes: [ADR-0006]
 superseded-by: null
@@ -48,7 +48,8 @@ Spike `spike/pyrefly-inproc` (`d00bab5`, `analysis/SPIKE_RESULTS.md`), 2026-09-2
   `Inline`, which gives identical output.
 
 The standard review (`design_review_adr-0012-pyrefly-ruff-in-process_2026-09-22.md`) found the
-core sound and returned **Not Accept as written**. The Decision below includes its corrections:
+core sound and returned **Not Accept as written**. The operator accepted its four recommended
+author decisions on 2026-09-22. The Decision below includes its corrections:
 - abort on any panic (F1);
 - a full Pysa variant table (F2);
 - an `__all__` completeness detector (F3);
@@ -73,8 +74,11 @@ core sound and returned **Not Accept as written**. The Decision below includes i
 
 ## Decision
 
-- **Source.** `github.com/paul-heyse/pyrefly` at `b9f28575`: tag 1.3.1 (`3e3177d0`) plus the
-  patch kept in `third_party/pyrefly-1.3.1.patch`. It is a git dependency pinned by revision.
+- **Source.** `github.com/paul-heyse/pyrefly`, branch `lctx/1.3.1`, at `b9f28575`. That is tag
+  1.3.1 (`3e3177d0`) plus the patch kept in `third_party/pyrefly-1.3.1.patch`. It is a git
+  dependency pinned by revision. The fork was published 2026-09-22. A fresh clone reproduces the
+  patch's sha256, and the spike built from the git revision with output byte-identical to the
+  local-clone runs.
 - **Ruff.** Every ruff crate is `=0.0.11`, the line Pyrefly compiles against, so AST types are
   shared. `check_family.py` checks ruff, pyrefly and blake3 for single versions.
 - **Driver** (DESIGN §4.2.1):

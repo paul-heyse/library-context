@@ -214,12 +214,11 @@ Changing one needs an ADR and a `standard` review.
 
 ### §B8 Pyrefly and Ruff link in-process; one workspace, one process
 
-**Tested** (spike S1–S4, 2026-09-22) for the in-process build, the driver and CLI parity. The
-spike built the patched commit from a local clone, so the fork dependency and the panic policy
-are **Proposed**.
+**Tested** (spike S1–S4, 2026-09-22) for the in-process build, the fork dependency by git
+revision, the driver and CLI parity. The panic policy is **Proposed**.
 
-- **Pyrefly** is a git dependency on the fork `paul-heyse/pyrefly`, pinned by revision. The fork
-  is tag 1.3.1 plus `third_party/pyrefly-1.3.1.patch`, which changes visibility, adds a
+- **Pyrefly** is a git dependency on the fork `paul-heyse/pyrefly` (branch `lctx/1.3.1`), pinned
+  by revision. The fork is tag 1.3.1 plus `third_party/pyrefly-1.3.1.patch`, which changes visibility, adds a
   no-write reporter switch and a reporter borrow, and changes no logic.
 - **Ruff** library crates are pinned to the ruff line Pyrefly compiles against.
 - **One workspace, one process.** Extraction, construction, analytics and publication live in
