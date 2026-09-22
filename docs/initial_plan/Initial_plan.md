@@ -1646,3 +1646,1440 @@ The resulting boundary is:
 > **Arrow defines the typed facts. DataFusion constructs and validates the relational graph representation. Petgraph analyzes selected topology. Custom Rust passes supply the Python semantics and fixed-point analyses that none of those libraries provides automatically.**
 
 That keeps your fact store richly typed and queryable while making the graph-analysis layer a reproducible consumer and producer of facts, rather than a separate opaque database.
+
+**I would narrow the first implementation to two agent-facing functions: “find the relevant built-in capability” and “show me how to use it correctly.”** Behind those functions, I would retain a mandatory analytics pipeline that derives useful relationships from the CPG and turns them into evidence-backed capability briefs.
+
+The key simplification is:
+
+> **Precompute a small collection of deeply interpreted capability briefs, rather than build a system that reasons over arbitrary library questions or synthesizes new compositions at query time.**
+
+That preserves the difficult and valuable part of your objective: translating code structure into guidance that changes how an agent implements a task. It defers the general-purpose ontology discovery, composition planning, and constraint-solving machinery.
+
+## 1. The first product: capability discovery and usage briefs
+
+### Two queries, with a deliberately limited promise
+
+| Query | What it does | What it does not promise |
+|---|---|---|
+| `search_capabilities(library, query, limit)` | Finds published capability briefs relevant to a task, including briefs whose API names differ from the task’s wording | Exhaustive discovery of everything the library could possibly do |
+| `get_capability(snapshot_id, capability_id)` | Returns the public entry point, relevant controls, supported usage pattern, conditions, limitations, and evidence | A newly synthesized solution for arbitrary combinations of requirements |
+
+For example:
+
+```text
+search_capabilities(
+    library="pyarrow",
+    query="rewrite a large dataset with different partitioning"
+)
+
+get_capability(
+    snapshot_id=<snapshot returned by search>,
+    capability_id=<selected result>
+)
+```
+
+The search result resolves the library’s active release to an immutable snapshot. Subsequent inspection uses that same snapshot. This is evidence consistency, not historical-analysis functionality.
+
+**The programming agent remains responsible for adapting the returned pattern to its task.** Your system makes the relevant mechanisms and conditions hard to overlook; it does not initially attempt to replace the agent’s planning.
+
+### Scope one API family, not a whole library
+
+I would start with one bounded subsystem and roughly **15–25 capability briefs**. That is a proposed pilot size, not a required architectural limit.
+
+The PyArrow dataset scan/write path is a concrete candidate: the official guide demonstrates passing a scanner directly into `write_dataset`, and the Python implementation contains input normalization, configuration handling, and validation that can contribute code-grounded insights. :chatgpt-content-reference{index="0"}
+
+For that pilot, native execution internals would remain an explicit evidence boundary. You would not add C++ or Cython analysis merely to complete the first briefs.
+
+---
+
+## 2. Make the capability brief the unit of interpreted output
+
+A brief should cover **one useful outcome, anchored to a public operation, optionally including one supported producer-to-consumer handoff**.
+
+It should not be a generic function summary, and it should not become a miniature encyclopedia of the subsystem.
+
+I would give each brief this fixed structure:
+
+| Section | Required content |
+|---|---|
+| **Outcome** | What this built-in mechanism lets the caller accomplish |
+| **Public access** | The supported function, method, constructor, or configuration object to use |
+| **Applicable input or mode** | The input forms and conditions to which the guidance applies |
+| **Important controls** | The parameters that activate or materially change the behavior |
+| **Usage pattern** | A short, supported example, including an adjacent API when needed |
+| **Limits and prerequisites** | Important restrictions, lifecycle requirements, optional features, and unresolved assumptions |
+| **Evidence** | The source facts, documentation, examples, and validation results supporting the claims |
+
+A useful brief might explain:
+
+> **Rewrite through a configured scanner.** Configure the input scan, then pass the scanner to the dataset writer. This uses the existing scanner-to-writer path rather than requiring a custom loop that dispatches batches to output partitions.
+
+That interpretation is supported by the documented PyArrow composition. The brief should also attach the implementation restriction that a separate `schema` argument cannot be supplied when writing a scanner. :chatgpt-content-reference{index="1"}
+
+### Preserve modes without building a general mode ontology
+
+You still need conditional distinctions. However, v1 can represent them as a small number of named, evidence-backed cases:
+
+```text
+Writing from an in-memory table
+Writing from an existing scanner
+Writing from an iterable of batches
+```
+
+Do not enumerate every combination of configuration values. Create a separate case only when it changes the accepted interface, usage pattern, or important conditions.
+
+**This is the central content boundary: deep guidance about a bounded mechanism, not unrestricted reasoning about the entire library.**
+
+---
+
+# 3. Keep three analytics passes mandatory
+
+I would make the initial analytics deterministic and task-oriented, with LLM interpretation after the structural work.
+
+You do not need unsupervised discovery to demonstrate meaningful graph analytics. The first passes should answer three specific questions:
+
+> **Where is the built-in mechanism exposed? What activates or constrains it? What does it connect to directly?**
+
+## Pass A: Public entry point and delegation analysis
+
+**Question:** Which public API exposes the relevant internal mechanism, and what does it already coordinate?
+
+### Inputs
+
+Use public-export mappings, declarations, call sites, resolved targets, signatures, and directly associated documentation.
+
+### Analysis
+
+For each selected public entry point:
+
+1. Map public access paths to implementing declarations.
+2. Follow a bounded set of resolved delegation relationships.
+3. Identify relevant configuration or helper objects used along those paths.
+4. Preserve the path and its uncertainty rather than emitting only a list of reachable symbols.
+
+Start with direct calls and a small traversal depth. Stop at unresolved calls, external/native boundaries, or the configured bound, and record that the neighborhood is incomplete.
+
+### Interpreted output
+
+The resulting brief can explain:
+
+```text
+Use this public entry point.
+
+It already coordinates these mechanisms.
+
+These lower-level helpers are implementation details,
+not additional steps the caller normally needs to reproduce.
+```
+
+The last statement requires documentation or other supporting evidence about intended use. A call edge alone does not prove that an API is the recommended abstraction.
+
+### Why it belongs in v1
+
+This analysis directly supports your goal of avoiding unnecessary reconstruction of a library’s internal orchestration.
+
+It also gives petgraph a real but bounded role. Its breadth-first traversal machinery can support neighborhood expansion; your code supplies the permitted edge kinds, depth limits, and stopping rules. :chatgpt-content-reference{index="2"}
+
+---
+
+## Pass B: Configuration and local restriction analysis
+
+**Question:** Which controls expose the behavior, and which local conditions constrain their use?
+
+### Inputs
+
+Use parameters, defaults, name bindings, argument expressions, local branches, raises, and attached parameter documentation.
+
+### Analysis
+
+Initially support a restricted set of recognizable patterns:
+
+```text
+A parameter is forwarded directly to a downstream call.
+
+A configuration object is constructed from named arguments.
+
+A local branch selects an implementation or input-handling path.
+
+A local guard raises for an unsupported argument combination.
+```
+
+For parameter forwarding, use binding identity and supported argument mappings, not matching variable names.
+
+For guards, preserve the exact branch context. Do not turn arbitrary branch ancestry into a general control-dependence or precondition proof. Expressions involving complex mutation, aliasing, or unsupported control flow can remain unresolved.
+
+### Interpreted output
+
+```text
+This option activates this documented behavior.
+
+This public parameter is passed to the underlying mechanism.
+
+This combination is rejected in this input mode.
+
+Configure this object rather than implementing that behavior yourself.
+```
+
+A concrete example is PyArrow’s writer restriction for an already configured scanner. The source both selects the scanner’s projected schema and rejects a separately provided writer schema. That is a useful conditional insight assembled from related code facts, not merely a signature listing. :chatgpt-content-reference{index="3"}
+
+### Important limit
+
+Parameter propagation demonstrates that a value is passed onward. It does **not** establish the downstream behavior, memory bound, or performance guarantee by itself.
+
+The interpreter must combine structural evidence with documentation, visible implementation, or a scoped test.
+
+---
+
+## Pass C: Direct handoff analysis
+
+**Question:** Which nearby public APIs already work together without a custom adapter?
+
+### Inputs
+
+Use the CPGs of official examples and selected tests, supported local binding relationships, call arguments, signatures, and return-type information.
+
+### Analysis
+
+Recognize simple, bounded producer-to-consumer patterns:
+
+```python
+intermediate = producer(...)
+consumer(intermediate, ...)
+```
+
+Start with direct expressions and unambiguous local bindings. Do not infer a handoff merely because two APIs occur in the same function or their types appear compatible.
+
+Record:
+
+```text
+Producer public API
+Produced expression or binding
+Consumer public API
+Consumer argument position/name
+Relevant configuration
+Example/test evidence
+Unresolved conditions
+```
+
+A type-compatible connection can be retained as a candidate, but publication as a supported usage pattern should require stronger evidence, such as an official example, a relevant test, or a fixture you execute.
+
+### Interpreted output
+
+```text
+Pass this object directly into that API.
+
+This avoids an intermediate conversion or custom loop.
+
+These conditions apply to the handoff.
+```
+
+For PyArrow, the official repartitioning example explicitly connects a configured scanner to `write_dataset`. The useful graph-derived output is the identified handoff and its supporting relationships, rather than merely retrieving the page containing both names. :chatgpt-content-reference{index="4"}
+
+### Deliberately exclude general composition search
+
+V1 would publish short patterns found and checked during ingestion. It would not discover arbitrary new chains in response to an agent’s request.
+
+**That is a major complexity reduction while retaining the most immediately useful composition insights.**
+
+---
+
+# 4. Put an explicit interpretation stage after the analytics
+
+The pipeline should be:
+
+```text
+Selected CPG facts + linked documentation/examples
+                         ↓
+Three bounded analytics passes
+                         ↓
+Structured findings with witness facts
+                         ↓
+LLM interpretation into capability assertions
+                         ↓
+Grounding checks and selected usage validation
+                         ↓
+Published capability briefs
+                         ↓
+Search and inspection queries
+```
+
+The crucial intermediate artifact is the **structured finding**.
+
+For example:
+
+```text
+finding_kind:
+    direct_handoff
+
+producer:
+    public API node
+
+consumer:
+    public API node
+
+binding:
+    the expression/name connecting them
+
+conditions:
+    source-linked conditions
+
+witnesses:
+    CPG facts and example spans
+```
+
+The LLM turns this into a useful explanation, but it does not invent the underlying relationship.
+
+## Give the interpreter a constrained job
+
+For each bounded evidence package, ask it to produce:
+
+```text
+The caller outcome
+The public mechanism
+The relevant configuration choices
+The supported short usage pattern
+The conditions and limitations
+The source IDs supporting each assertion
+```
+
+Every important assertion should identify which evidence supports it.
+
+Use a deterministic rendering template to assemble the final brief from these assertions. You can allow polished explanatory text, but it should remain attached to the structured claims.
+
+## Separate grounding from truth verification
+
+Some checks can be mechanical: the public symbol exists, the parameter exists, a cited branch is present, the witness path exists, and a snippet refers to real APIs.
+
+Those checks do not prove every semantic claim. Preserve distinct evidence statuses such as:
+
+```text
+structurally_observed
+documented
+interpreted
+fixture_checked
+unresolved
+```
+
+A passing fixture supports the tested case, not universal correctness or performance.
+
+For the small initial corpus, I would inspect the published assertions and patterns directly rather than build an elaborate automated review-agent hierarchy.
+
+---
+
+# 5. Keep the storage and execution design small
+
+## Reuse the Arrow foundation, but implement only the required slice
+
+Your existing construction plan already provides the right separation: Arrow for typed records, DataFusion for normalization and joins, and graph routines for path-dependent analysis. It also specifies an authoritative schema registry rather than inference from incoming records. :chatgpt-content-reference{index="5"} :chatgpt-content-reference{index="6"}
+
+I would not make all 66 proposed tables, a complete execution CFG, or alias analysis prerequisites for the first enrichment result.
+
+The initial dependency slice is:
+
+```text
+Public exports and declarations
+Signatures and parameters
+Names, bindings, references, and source anchors
+Call sites and candidate targets
+Selected type observations
+Local syntax for supported guards and forwarding patterns
+Documentation/example/test links
+Provenance and coverage
+```
+
+Reuse additional CPG facts as they become available. Do not silently approximate missing facts merely to populate a brief.
+
+## Add six enrichment table families
+
+I would start with these additions rather than the full capability ontology from the previous proposal:
+
+| Table | Purpose |
+|---|---|
+| `capability_briefs` | Outcome, primary public entry point, applicable case, publication status |
+| `brief_members` | Supporting public symbols and their roles |
+| `insights` | Delegation, configuration, restriction, and handoff findings plus their interpreted assertions |
+| `insight_evidence` | Links to CPG facts, source spans, documents, and validation records |
+| `usage_patterns` | Short examples, conditions, and validation status |
+| `brief_embeddings` | One search representation per published brief |
+
+Use your existing physical conventions: fixed-width computation IDs, explicit categorical domains, typed foreign references, and source-linked evidence.
+
+For a core insight, the logical shape could be:
+
+```text
+insights
+  snapshot_id          ID
+  insight_id           ID
+  brief_id             ID
+  kind                 enum
+  subject_node_id      ID
+  related_node_id      ID?
+  condition_text       Utf8?
+  assertion_text       Utf8
+  evidence_status      enum
+  analysis_run_id      ID
+```
+
+Here, `ID` maps to the existing Arrow identifier type.
+
+**Do not build a general condition-expression language in v1.** Preserve conditions as source-linked text and, where available, references to existing predicate nodes. That keeps the records typed without pretending every semantic condition has already been formalized.
+
+## Execution ownership
+
+DataFusion should assemble evidence packages, join identities, group findings, validate references, and construct serving records. Its DataFrame API supports operations over Arrow batches and incremental batch execution, which fits this materialization pipeline. :chatgpt-content-reference{index="7"}
+
+Petgraph should handle bounded delegation neighborhoods and any topology-specific work actually required. Most direct handoff and parameter-mapping construction should remain relational or adapter-based.
+
+Custom Rust code handles the supported local semantic patterns. The LLM supplies interpretation. Delta stores the authoritative records and published snapshot.
+
+---
+
+# 6. Simplify retrieval more aggressively than interpretation
+
+I would retain **one embedding per capability brief**, plus exact lexical matching over titles, public symbols, parameter names, and brief text.
+
+The embedding input can be a deterministic concatenation:
+
+```text
+Outcome
+Applicable input/mode
+Public API names
+Important built-in controls
+Usage-pattern description
+Key limitations
+```
+
+For an initial corpus of a few dozen briefs, I would use exact vector scoring over the stored embeddings rather than make approximate nearest-neighbor indexing another prerequisite. An existing retrieval service can be reused, but it should not become a new implementation project.
+
+At query time:
+
+```text
+Resolve active snapshot
+    → lexical and vector candidate retrieval
+    → combine candidate rankings
+    → return published briefs
+```
+
+There is no whole-library graph traversal and no new capability generation during the request.
+
+### Search does not certify task compatibility
+
+A query containing “under 500 MB” should not cause the server to mark a brief as satisfying that memory limit merely because its description mentions batching.
+
+Return relevant guidance with unresolved conditions intact. The caller agent decides what further validation is required.
+
+When a brief is selected, attach its limitations through deterministic joins. Do not rely on semantic search to independently retrieve the warning.
+
+## What to defer
+
+| Defer | Initial substitute |
+|---|---|
+| Community detection | Public-entry-point-centered neighborhoods with explicit traversal rules |
+| FCA/RCA | A small fixed set of insight kinds and evidence-backed applicable cases |
+| General composition planner | Published, supported short usage patterns |
+| General constraint solver | Source-linked conditions and explicit unresolved requirements |
+| Multiple embedding views and graph embeddings | One brief embedding plus lexical retrieval |
+| Whole-library autonomous exploration at query time | Precomputed interpretation and deterministic retrieval |
+
+This does not discard the more advanced direction. It produces the reliable assertions and relationships those methods would later need.
+
+---
+
+# 7. Make the analytics requirement part of “done”
+
+This is where I would prevent the implementation from drifting into “documentation search with nicer summaries.”
+
+## The first deliverable must demonstrate all three derivation families
+
+The system should be able to show an end-to-end example of:
+
+**Delegation:** a public entry point linked to the mechanisms it coordinates, with a source-grounded explanation of what the caller does not need to reconstruct.
+
+**Configuration:** a control or restriction derived from related parameter, binding, call, or branch facts, with conditions preserved.
+
+**Handoff:** a producer-to-consumer relationship recovered from a supported example or test and published as a usable pattern.
+
+Each should have:
+
+```text
+Input facts
+Named analysis method
+Structured derived finding
+Interpreted assertion
+Evidence links
+Published brief
+Successful retrieval by task wording
+```
+
+Not every capability needs an elaborate derivation. A simple API may be adequately explained by direct documentation. Mark that honestly. The **system-level acceptance test**, however, must exercise the graph analytics rather than allow the entire corpus to bypass them.
+
+## Evaluate the interpretation, not just retrieval
+
+I would use approximately 20 standalone task prompts and 5–10 small usage fixtures as an initial evaluation set.
+
+Include tasks that require recognizing an existing integrated API, activating a less-obvious option, using a direct handoff, and noticing a restriction.
+
+Then check two things:
+
+| Evaluation | Question |
+|---|---|
+| **Agent usefulness** | Did the brief help the agent use the right built-in mechanism and avoid unnecessary custom behavior? |
+| **Analytics contribution** | Did the graph-derived interpretation surface a useful relationship or condition that raw fact/document retrieval did not reliably present? |
+
+For the second test, compare the same underlying evidence served as raw retrieval versus as compiled briefs, under similar context budgets. This tests the value of your enrichment pipeline without introducing any analysis of the user’s codebase.
+
+Do not count fewer lines of code as success when they hide incorrect assumptions. Evaluate the behavior implemented, the conditions respected, and the claims supported.
+
+---
+
+## Recommended first implementation
+
+I would specify v1 as:
+
+> **For one bounded library subsystem, compile current-release code facts and selected official evidence into searchable capability briefs. Each brief explains a built-in outcome, its public entry point, important controls, conditions, and a supported short usage pattern. The compiler must derive delegation, configuration, and direct-handoff insights from the CPG. Agents can search these briefs and inspect them, but the system does not yet synthesize arbitrary compositions.**
+
+That gives you **a small query surface, a meaningful interpretation pipeline, and a direct test of whether the resulting knowledge improves generated code**.
+
+The first engineering milestone should be one complete path from **CPG facts → derived insight → interpreted brief → successful agent use**, not another expansion of the ontology or analytics catalog.
+
+**I would implement v1 as an offline capability compiler plus a small retrieval service.** The compiler derives the three agreed insight families from the CPG, interprets them into capability briefs, and publishes a typed dataset. The retrieval service searches those briefs through LanceDB and returns their conditions and evidence.
+
+The concrete defaults I recommend are:
+
+| Component | V1 choice |
+|---|---|
+| Graph representation | Immutable, directed `petgraph::Graph` projections with lightweight weights |
+| Graph analytics | Bounded delegation traversal; parameter-forwarding and local-guard analysis; direct producer-to-consumer handoffs |
+| Relational processing | Rust Arrow + DataFusion |
+| Interpretation | One structured-output pass using your selected code-capable LLM |
+| Embeddings | `Qwen/Qwen3-Embedding-4B`, native 2,560 dimensions, normalized `Float32` vectors |
+| Embedding target | One deterministic search representation per published capability brief |
+| Retrieval | LanceDB exact vector search + native full-text search + native reciprocal-rank fusion |
+| Canonical storage | Existing Arrow/Delta fact and provenance layers |
+| Agent interface | `search_capabilities` and `get_capability` |
+| Explicitly deferred | Community detection, RCA, graph embeddings, neural reranking, arbitrary composition planning |
+
+The model and library choices above are recommendations, not claims of measured superiority on your corpus. The Qwen model supports a native 2,560-dimensional representation, and LanceDB exposes both exact vector search and full-text/hybrid retrieval through its Rust APIs. :chatgpt-content-reference{index="0"}
+
+I created an implementation handoff containing the detailed design, application configuration, **12 Arrow schema constructors**, and a LanceDB query reference:
+
+**:chatgpt-content-reference{index="17"}**  
+:chatgpt-content-reference{index="18"} · :chatgpt-content-reference{index="19"} · :chatgpt-content-reference{index="20"} · :chatgpt-content-reference{index="21"}
+
+I checked the cited APIs and parsed the configuration. **The Rust fragments have not been compiled, and model inference, database operations, IPC round trips, and semantic fixtures have not been executed.**
+
+---
+
+# 1. Architecture and the key integration decision
+
+## Keep compilation and retrieval separate
+
+```text
+Current-library CPG
++ selected official documentation, examples, and tests
+                         │
+                         ▼
+              capability-compiler
+              Rust / Arrow / DataFusion
+                         │
+        ┌────────────────┼──────────────────┐
+        ▼                ▼                  ▼
+  Delegation       Configuration       Direct handoff
+  traversal        and local guards    recognition
+  petgraph         Rust + DataFusion   Rust + DataFusion
+        └────────────────┼──────────────────┘
+                         ▼
+          Typed findings and witness facts
+                         ▼
+             LLM interpretation
+                         ▼
+        Checked capability briefs + evidence
+                         ▼
+              Embedding generation
+                         ▼
+           Published Arrow/Delta bundle
+                         │
+                    Arrow IPC
+                         │
+                         ▼
+                capability-search
+             Rust LanceDB + exact lookup
+                         ▼
+            Two agent-facing operations
+```
+
+This preserves your existing distinction between typed records, relational construction, and graph algorithms. The earlier Arrow plan already assigns joins and normalization to DataFusion and path-dependent work to graph routines. :chatgpt-content-reference{index="1"}
+
+**The graph is used to compile useful knowledge. It is not traversed indiscriminately whenever an agent asks a question.**
+
+That makes query behavior easier to inspect and keeps expensive interpretation out of the request path.
+
+## A verified compatibility issue: LanceDB is not on the same dependency train
+
+The inspected **LanceDB `v0.39.0`** manifest uses **Arrow 58, DataFusion 54, and Lance 12**. The inspected **DataFusion `55.0.0`** manifest uses **Arrow 59.2.0**. Therefore, the earlier Arrow 59/DataFusion 55 compiler cannot simply pass its Rust `RecordBatch` or `Expr` objects into that LanceDB build.  
+
+My recommendation is:
+
+> **Keep the compiler on your selected Arrow/DataFusion stack, and give the LanceDB retrieval worker its own matched dependency set. Exchange published batches through Arrow IPC.**
+
+Arrow IPC is explicitly designed for serialized interchange of schemas and record batches. You should still test the exact writer/reader combination and the schema types you use; this is not a claim that every cross-version exchange is automatically tested or zero-copy. :chatgpt-content-reference{index="4"}
+
+This does not require a sprawling service architecture. Two Rust executables in one repository, with a separate dependency workspace where necessary, are sufficient.
+
+**I would not make a Lance/DataFusion forward-port a prerequisite for capability analytics v1.**
+
+---
+
+# 2. Configure petgraph around evidence, not general graph exploration
+
+## 2.1 Use a lightweight immutable directed multigraph
+
+I recommend:
+
+```rust
+use petgraph::{Directed, Graph};
+
+#[derive(Clone, Copy, Debug)]
+struct ArcRow {
+    projection_row: usize,
+}
+
+type InvocationGraph = Graph<(), ArcRow, Directed, u32>;
+```
+
+The graph contains topology and references into an Arrow side table. Keep names, signatures, source spans, resolution information, and evidence in Arrow rather than copying them into every graph weight.
+
+Petgraph’s `Graph` supports directed edges, compact indices, arbitrary weights, and parallel edges. Its indices can change when elements are removed, so an immutable projection is a straightforward way to avoid index invalidation during analysis. :chatgpt-content-reference{index="5"}
+
+For v1, I would not add another graph library. Standard Rust collections plus petgraph are sufficient for these bounded analyses.
+
+### Preserve three different identities
+
+| Identity | Purpose |
+|---|---|
+| Canonical CPG node/fact ID | Persistent identity across the compiled dataset |
+| Projection row | Identifies the source row and its evidence |
+| Petgraph `NodeIndex`/`EdgeIndex` | Temporary coordinates inside this graph instance |
+
+Never persist a petgraph index as the identity of a function or fact.
+
+## 2.2 Build the invocation projection relationally
+
+The initial graph should contain only the selected subsystem’s invocation relationships:
+
+```text
+Caller → Candidate callee
+```
+
+Construct that edge from the underlying call-site ownership and target facts:
+
+```text
+CallSite → Caller
+CallSite → Candidate target
+```
+
+The corresponding Arrow projection should retain:
+
+```text
+snapshot_id
+context_id
+caller_id
+callee_id
+call_site_id
+ownership_fact_id
+target_fact_id
+resolution_id
+invocation_phase
+branch_context_id?
+has_unresolved_remainder?
+```
+
+DataFusion performs the joins. Petgraph receives the resulting topology.
+
+Important projection rules:
+
+| Rule | Reason |
+|---|---|
+| Include public entry points independently of their edges | Isolated APIs must remain visible |
+| Preserve parallel call sites | Two calls between the same functions can have different arguments and conditions |
+| Keep constructor phases tagged | `__new__`, `__init__`, and ordinary invocation are not interchangeable |
+| Exclude potential-call-only relationships | A callable value is not necessarily invoked |
+| Exclude synthetic model calls from source-call traversal | Analysis-generated relationships need separate interpretation |
+| Preserve unresolved remainder | Known targets do not necessarily form an exhaustive dispatch set |
+
+A source call-target graph remains an analyzer model. A path through it is not proof that one execution can traverse all of those calls under the same conditions.
+
+## 2.3 Use bounded traversal with explicit witnesses
+
+Petgraph provides `Bfs`, `Dfs`, and directional edge iteration. However, your traversal needs additional state: depth, selected witness paths, budgets, and stop reasons. I would implement that policy using `VecDeque` over `edges_directed(node, Outgoing)`. :chatgpt-content-reference{index="6"}
+
+My initial application configuration would be:
+
+```toml
+[analysis.delegation]
+max_call_depth = 2
+max_vertices_per_seed = 128
+max_edges_per_seed = 512
+max_witness_paths_per_target = 3
+
+preserve_parallel_calls = true
+sort_adjacency_by_canonical_ids = true
+
+expand_outside_selected_subsystem = false
+include_potential_calls = false
+include_synthetic_calls = false
+cross_native_boundary = false
+```
+
+These are **starting budgets**, not empirically optimal thresholds.
+
+The traversal should return more than reachable nodes:
+
+```text
+Root public entry point
+Reached implementation/collaborator
+Ordered supporting call-site facts
+Depth
+Retained branch/resolution context
+Whether additional paths were omitted
+Where and why traversal stopped
+```
+
+Sort adjacency by canonical identities before selecting paths. Otherwise, insertion order can influence which evidence survives a budget.
+
+### Do not enumerate all paths
+
+For an implementation neighborhood, keep a shortest witness and a bounded number of alternatives. Mark that witness set as nonexhaustive.
+
+Parameter propagation needs a different visited key:
+
+```text
+(callable, formal_parameter, mapping_context)
+```
+
+Using only `visited_callable` would incorrectly merge two routes that reach the same helper with different parameter mappings.
+
+An SCC computation is optional for labeling recursion. It is not required to terminate a bounded traversal, and I would not make centrality, community detection, or dominance part of this feature.
+
+---
+
+# 3. Detailed design of the three analytics passes
+
+## 3.1 Pass A: public entry point and delegation
+
+### Intended agent insight
+
+> “This public entry point already coordinates the mechanisms needed for this outcome; the internal helpers are not necessarily steps the caller must reconstruct.”
+
+### Construction
+
+First, DataFusion assembles the public-entry mapping:
+
+```text
+Public import/access path
+    → semantic public entity
+    → implementing declaration
+```
+
+Next, the bounded invocation traversal finds relevant collaborators. Finally, DataFusion joins those results to their signatures, relevant parameter mappings, documentation, and source excerpts.
+
+The result is a **public-operation-centered evidence package**, not a repository-wide graph summary.
+
+### Findings to emit
+
+| Finding | Meaning |
+|---|---|
+| Public alias mapping | A supported access path refers to this implementation |
+| Direct delegation | This entry point has a recorded call target |
+| Bounded delegation path | A short structural path connects the entry point to a collaborator |
+| Implementation boundary | Further behavior lies outside the available source/model |
+| Incomplete resolution | Known collaborators exist, but additional possibilities remain |
+
+### Interpretation boundary
+
+The interpreter may explain what those collaborators appear to accomplish when the accompanying evidence supports that meaning.
+
+It may not conclude:
+
+```text
+Every invocation reaches this helper.
+This entry point is always preferable.
+Every operation inside the helper is guaranteed.
+```
+
+Those conclusions require stronger evidence than call-graph connectivity.
+
+### Why this is valuable
+
+The output helps an agent distinguish **using a public orchestration API** from **rebuilding the orchestration out of private mechanisms**.
+
+That is a direct route from graph analytics to less bespoke code.
+
+---
+
+## 3.2 Pass B: configuration propagation and local restrictions
+
+This is likely to yield some of your most useful early insights. I would implement four small recognizers rather than a general dataflow engine.
+
+| Recognizer | Accepted v1 pattern | Output |
+|---|---|---|
+| Direct forwarding | A call argument resolves to a specific source parameter binding | Parameter-to-argument mapping |
+| Identity alias | One unambiguous local assignment in a supported straight-line region | Alias-backed forwarding |
+| Default/transformation observation | A literal, selected default, or expression is supplied downstream | Explicit transformed/defaulted argument |
+| Local restriction | A supported predicate involving known inputs leads to a local raise | Conditional-raise finding |
+
+### Parameter forwarding
+
+For a hypothetical wrapper:
+
+```python
+def export(data, *, compression="zstd"):
+    return writer(data, codec=compression)
+```
+
+The useful machine finding is:
+
+```text
+source parameter: export.compression
+call site: writer(...)
+target parameter: writer.codec
+argument expression: compression
+mapping kind: direct forwarding
+```
+
+The semantic statement “this controls output compression” still needs support from the consumer’s contract or implementation.
+
+The mapping algorithm should handle known positional and keyword arguments **per candidate signature**, including implicit receivers for bound methods.
+
+Do not guess through unresolved `*args`, `**kwargs`, ambiguous overloads, multiple writes, or property/subscript access.
+
+### Limit aliases deliberately
+
+Support:
+
+```python
+local_codec = compression
+writer(codec=local_codec)
+```
+
+only when the relevant local binding is unambiguous and the intervening region is supported.
+
+A name match is insufficient. Likewise, object-identity forwarding does not prove that its contents were not mutated.
+
+### Local guards
+
+For a hypothetical guard:
+
+```python
+if isinstance(data, Scanner):
+    if schema is not None:
+        raise ValueError(...)
+```
+
+emit:
+
+```text
+callable
+outer branch context
+predicate
+parameter dependencies
+raise site
+enclosing handler context
+```
+
+The default interpretation is:
+
+> “The implementation contains this conditional raise in this input-handling branch.”
+
+It becomes a public precondition only when the supported path and evidence justify that promotion. An enclosing handler might catch it; a public path might never reach it.
+
+### Useful Arrow output
+
+```text
+forwarding_findings
+  source_parameter_id
+  call_site_id
+  target_callable_id
+  target_parameter_id?
+  argument_expression_id
+  forwarding_kind
+  branch_context_id?
+  resolution_id
+```
+
+Keep these fields typed. Do not reduce the finding to a sentence before recording its structure.
+
+---
+
+## 3.3 Pass C: direct producer-to-consumer handoffs
+
+### Intended agent insight
+
+> “The library already accepts this produced object directly. You do not need an intermediate conversion or custom transfer loop.”
+
+Analyze selected official examples and tests, not arbitrary co-occurrence across the source tree.
+
+Start with:
+
+```python
+intermediate = producer(...)
+consumer(intermediate, ...)
+```
+
+and direct nested calls.
+
+### Acceptance conditions
+
+I would initially require a supported straight-line region and an unambiguous producer result. Check for intervening reassignment, additional consumers, resource boundaries, and mutation or escape calls.
+
+Those checks do not establish complete effect analysis. They determine whether the small recognizer has enough evidence to publish a simple handoff pattern or must preserve additional uncertainty.
+
+The core record should contain:
+
+```text
+source_example_id
+region_id
+producer_call_id
+consumer_call_id
+producer_api_id
+consumer_api_id
+binding_id?
+consumer_argument_id
+handoff_status
+```
+
+### What not to infer
+
+A producer return type matching a consumer parameter type is a **candidate connection**, not a supported recipe.
+
+Similarly:
+
+```text
+A and B appear in one test file
+```
+
+is not equivalent to:
+
+```text
+The value produced by A is consumed by B,
+and this example/test exercises their combination.
+```
+
+Publish a supported usage pattern only with an official example, relevant test, or explicitly executed fixture.
+
+### Preserve necessary setup
+
+When converting a test into a usage pattern, retain initialization, schema declarations, resource ownership, and required configuration.
+
+Remove incidental test details only when doing so does not remove a precondition.
+
+For v1, keep patterns to one principal operation or a direct two-operation handoff, plus necessary setup. Do not add arbitrary composition search.
+
+---
+
+# 4. Make findings, interpretation, and publication distinct stages
+
+## A finding is not a generated claim
+
+I would use the following sequence:
+
+```text
+Typed finding
+    + ordered witness facts
+    + relevant source/documentation
+    + coverage and boundaries
+                     ↓
+               Evidence packet
+                     ↓
+         Structured LLM interpretation
+                     ↓
+          Grounding and semantic review
+                     ↓
+             Published insight
+```
+
+The evidence packet should include the public signature, the relevant finding payloads, supporting paths, conditions, selected documentation/example passages, and the complete boundary report.
+
+**Do not omit warnings or unresolved conditions merely to fit a token budget.** Split the packet by applicable case or mark the resulting brief incomplete.
+
+## Constrain the interpreter
+
+Use your selected code-capable generation model through one configured endpoint. There is no need to introduce another model-selection project for interpretation.
+
+Its output should contain atomic assertions:
+
+```text
+assertion
+applicable case
+supporting finding IDs
+supporting source IDs
+conditions
+limitations
+support status
+```
+
+A suitable v1 policy is one structured generation call per evidence package and at most one schema-repair attempt.
+
+JSON-schema validity is not semantic verification. Check both:
+
+| Check | Mechanism |
+|---|---|
+| Required fields and allowed categories | Typed decoding/schema validation |
+| Public symbols and parameter names exist | CPG joins |
+| Cited evidence belongs to this snapshot | Provenance checks |
+| Witness path exists | Finding/witness validation |
+| Claimed behavior stays within supported conditions | Evidence review |
+| Usage pattern works for specified inputs | Optional scoped execution fixture |
+
+I would manually inspect the initial small corpus before publication. That is simpler than constructing a multi-agent reviewer hierarchy and gives you concrete failure cases for later automation.
+
+Treat repository text as untrusted input, not instructions to the interpreter. Run executable fixtures separately, without credentials or network access by default.
+
+---
+
+# 5. Embedding design
+
+## 5.1 Model choice
+
+For a new v1 deployment, I recommend:
+
+```text
+Model:             Qwen/Qwen3-Embedding-4B
+Inference:         BF16
+Output dimensions: 2560
+Stored vectors:    Float32
+Normalization:     L2
+Distance:          cosine
+Serving:           local vLLM embedding endpoint
+```
+
+The official model card specifies up to 2,560 dimensions and shows query-specific instructions, unprefixed retrieval documents, and normalized embeddings. :chatgpt-content-reference{index="7"}
+
+The reason to choose it here is practical: you have a local GPU setup, the retrieval object is a rich textual brief, and the initial corpus is small enough that vector storage is not a meaningful pressure.
+
+**I would not reduce dimensions, quantize the vectors, or benchmark a large menu of embedding models before the vertical slice works.**
+
+An already-working 8B embedding service need not be replaced to make progress, but its vectors must use their own model/dimension contract rather than being mixed with this 4B/2,560-dimensional index.
+
+## 5.2 Embed the interpreted capability, not the raw graph
+
+The embedding target should be a deterministic projection of the published brief:
+
+```text
+Outcome:
+  What the caller can accomplish.
+
+Applicable case:
+  The relevant input form or operating mode.
+
+Public APIs:
+  Exact public access paths.
+
+Inputs and outputs:
+  The important representations.
+
+Built-in controls:
+  Parameter names and supported effects.
+
+Usage pattern:
+  The operation or direct handoff.
+
+Conditions and limitations:
+  The qualifications necessary to interpret the capability correctly.
+```
+
+Do not embed an adjacency dump, all private helper names, every AST node, or an entire source file.
+
+The graph has already contributed by revealing relationships that informed this text.
+
+### Keep the embedding text shorter than the evidence bundle
+
+I would target a few hundred to approximately one thousand tokens, with a configured hard maximum of 2,048 document tokens.
+
+A brief that cannot be represented within that limit without losing essential conditions is probably too broad for this v1 unit. Split its applicable cases or revise it rather than silently truncate.
+
+Full evidence remains available through `get_capability`; it does not all belong in the vector.
+
+## 5.3 Query/document asymmetry
+
+Use the Qwen instruction convention on the **query only**:
+
+```text
+Instruct: Given a programming task, retrieve Python-library capability
+briefs explaining the built-in APIs, configuration, conditions, and
+usage patterns needed to perform it.
+Query: <agent's task>
+```
+
+Documents use the deterministic capability text without that query instruction. This follows the model’s documented retrieval pattern. :chatgpt-content-reference{index="8"}
+
+The full-text search lane receives the plain task text, not the instruction prefix.
+
+## 5.4 Store an immutable embedding specification
+
+The embedding specification should record:
+
+```text
+model repository and revision
+tokenizer revision
+pooling configuration
+inference build
+query instruction template
+document template
+dimensions
+output dtype
+normalization
+```
+
+Compute an application-defined specification hash over that record.
+
+Cache embeddings by:
+
+```text
+embedding_spec_hash + embedding_input_hash
+```
+
+A vector is not reusable merely because the visible text is unchanged when the model, pooling, or input convention changes.
+
+## 5.5 vLLM and the Rust client
+
+vLLM supports a pooling runner and an OpenAI-compatible `/v1/embeddings` endpoint. I would use that existing service boundary rather than embed a new inference runtime inside the Rust analytics process. :chatgpt-content-reference{index="9"}
+
+The Rust client should use bounded requests and validate every response:
+
+```text
+response count matches input count
+response indices are mapped back correctly
+every vector has 2560 elements
+all elements are finite
+norm is nonzero
+normalization matches the stored contract
+server/model identity matches the expected deployment
+```
+
+Begin with batches of eight briefs and one in-flight request. Those are conservative defaults to test, not performance claims.
+
+On your shared GPU, I would initially schedule bulk interpretation and bulk embedding separately. Do not assume independent vLLM memory reservations can safely coexist with a large generation model.
+
+---
+
+# 6. Typed Arrow and LanceDB storage
+
+## 6.1 Keep canonical facts separate from search projections
+
+I would maintain:
+
+| Store | Authoritative responsibility |
+|---|---|
+| Existing Arrow/Delta tables | Findings, claims, evidence, brief content, validation, publication manifest |
+| LanceDB | Rebuildable vector/full-text projection of published briefs |
+| In-memory exact-symbol map | Deterministic symbol-to-brief lookup for the active generation |
+
+This avoids having an LLM-generated search summary become the only surviving representation of a claim.
+
+The existing Arrow plan’s fixed-width IDs, typed categories, and explicit schema registry remain appropriate. :chatgpt-content-reference{index="10"}
+
+## 6.2 One row per published brief
+
+The LanceDB table should have a declared Arrow schema, approximately:
+
+```text
+snapshot_id          FixedSizeBinary(16)           not null
+brief_id             FixedSizeBinary(16)           not null
+generation_key       Utf8                          not null
+
+library              Utf8                          not null
+release              Utf8                          not null
+title                Utf8                          not null
+outcome              Utf8                          not null
+
+public_symbols       List<Utf8>                    not null
+parameter_names      List<Utf8>                    not null
+embedding_text       Utf8                          not null
+lexical_text         Utf8                          not null
+
+brief_hash           FixedSizeBinary(32)           not null
+embedding_spec_hash  FixedSizeBinary(32)           not null
+embedding_text_hash  FixedSizeBinary(32)           not null
+
+vector               FixedSizeList<Float32, 2560>  not null
+```
+
+LanceDB’s Rust examples explicitly construct tables from Arrow `RecordBatch` values with fixed-size-list vector columns. 
+
+Validate uniqueness of `(snapshot_id, brief_id)` within the published generation. One generation should use one embedding specification.
+
+The string `generation_key` is a serving identifier for the immutable bundle; it does not replace canonical binary IDs.
+
+## 6.3 Separate lexical text from embedding text
+
+For `lexical_text`, include the same semantic material plus deduplicated components of public names:
+
+```text
+Original:
+  pyarrow.dataset.write_dataset
+
+Additional searchable forms:
+  write_dataset
+  write dataset
+```
+
+Preserve originals for display and exact matching.
+
+Load an exact-symbol dictionary from the published `brief_members` data:
+
+```text
+qualified public symbol → brief IDs
+```
+
+That prevents punctuation and tokenization from becoming the only route to exact API discovery.
+
+Do not infer a capability relationship from lexical similarity. This dictionary is derived from verified membership.
+
+---
+
+# 7. Retrieval: use LanceDB’s built-in capabilities
+
+## 7.1 Exact vector search first
+
+For the initial corpus, do **not** build an ANN index.
+
+Use:
+
+```rust
+.bypass_vector_index()
+.distance_type(DistanceType::Cosine)
+```
+
+LanceDB documents `bypass_vector_index()` as an exhaustive flat search. It also defaults to L2 distance unless another metric is specified, so set cosine explicitly. :chatgpt-content-reference{index="12"}
+
+This removes ANN training, tuning, and recall loss from the first implementation.
+
+At 2,560 `Float32` elements, one vector contains 10,240 bytes before table/index overhead. For a few dozen briefs, dimension reduction is not a useful initial optimization.
+
+## 7.2 Native full-text search
+
+Create one native FTS index over `lexical_text`:
+
+```rust
+table
+    .create_index(
+        &["lexical_text"],
+        Index::FTS(FtsIndexBuilder::default()),
+    )
+    .execute()
+    .await?;
+```
+
+LanceDB documents that index-building path and Rust full-text query interface. Its query API returns FTS results ordered by BM25 score. :chatgpt-content-reference{index="13"}
+
+I would use this rather than add a separate Tantivy application integration for v1.
+
+## 7.3 Native reciprocal-rank fusion
+
+Combine vector and FTS results through `RRFReranker::default()`.
+
+The inspected implementation provides native RRF with a default constant of 60. This is a rank-fusion algorithm, not a neural reranker and not a calibrated confidence estimator. 
+
+A representative query is:
+
+```rust
+let stream = table
+    .query()
+    .only_if_expr(
+        col("generation_key").eq(lit(generation_key.to_owned()))
+    )
+    .select(Select::columns(&[
+        "brief_id",
+        "snapshot_id",
+        "title",
+        "outcome",
+        "brief_hash",
+    ]))
+    .full_text_search(
+        FullTextSearchQuery::new(plain_query.to_owned())
+    )
+    .nearest_to(unit_query_vector)?
+    .column("vector")
+    .distance_type(DistanceType::Cosine)
+    .bypass_vector_index()
+    .rerank(Arc::new(RRFReranker::default()))
+    .limit(20)
+    .execute()
+    .await?;
+```
+
+The referenced query methods are exposed in the Rust SDK. Use LanceDB’s own expression helpers inside this worker so the `Expr` belongs to its matched DataFusion dependency family. :chatgpt-content-reference{index="15"}
+
+The package contains the imports and basic vector validation around this fragment.
+
+### Exact-symbol results remain a separate signal
+
+After hybrid retrieval, merge exact-symbol matches by canonical brief ID and return, initially, at most five results.
+
+Record whether a result was promoted by exact symbol lookup rather than implying the final order is purely RRF.
+
+No neural reranker is required initially.
+
+## 7.4 Hydration is deterministic
+
+Once the agent selects a brief:
+
+```text
+(snapshot_id, brief_id)
+    → full published brief
+    → all attached conditions
+    → all limitations
+    → supporting evidence
+    → usage pattern and validation status
+```
+
+Those joins should not depend on another semantic search.
+
+**The warning paragraph must not be optional merely because its embedding was less similar to the query.**
+
+Also, nearest-neighbor search will produce neighbors even for an unrelated task. Return relevance and coverage information without interpreting a similarity score as proof that the brief satisfies arbitrary requirements.
+
+---
+
+# 8. How DataFusion participates in retrieval
+
+There are two sensible integration levels.
+
+## V1: Arrow result integration
+
+Use the LanceDB SDK for its specialized retrieval query. Receive a small Arrow result set, map canonical IDs, and join those IDs to the full brief/evidence records.
+
+With a matched dependency family, the small result batches can be registered as a DataFusion in-memory table. With the split dependency arrangement, serialize them through IPC first.
+
+For a top-20 candidate set, bounded collection is entirely reasonable. You do not need a custom streaming table provider just to avoid collecting a few dozen rows.
+
+## Later: matched provider/plan integration
+
+Deeper Lance/DataFusion integration can be useful when you want broader SQL access over the retrieval dataset.
+
+It is not required for v1, and it should not be confused with the SDK’s vector/FTS query path. A generic relational scan should not be assumed to invoke the desired retrieval operation automatically.
+
+**Use the native retrieval API for retrieval and DataFusion for relational enrichment.** This is both simpler and more faithful to the available interfaces.
+
+---
+
+# 9. Publication, reproducibility, and operational behavior
+
+## Publish immutable generations
+
+I recommend this publication sequence:
+
+```text
+1. Compile and validate canonical findings and briefs.
+2. Generate embeddings and serving batches.
+3. Write a staging publication manifest.
+4. Build a new LanceDB generation and FTS index.
+5. Check row counts, hashes, dimensions, and smoke-test queries.
+6. Atomically switch the active manifest.
+```
+
+The manifest should identify the CPG snapshot, canonical table versions, brief bundle, embedding specification, LanceDB table/generation, and validation report.
+
+Existing requests hold the generation they resolved at request start.
+
+This is a consistency mechanism for current-library knowledge, not a version-comparison feature. Do not assume cross-store ACID transactions between Delta and LanceDB.
+
+## Make incomplete analysis visible
+
+Record distinct boundary reasons:
+
+```text
+native implementation unavailable
+unresolved call target
+unsupported argument unpacking
+ambiguous local binding
+unsupported control flow
+scope boundary
+depth or size budget reached
+missing documentation/example evidence
+```
+
+These should inform interpretation and coverage reporting.
+
+Do not convert “the analysis stopped” into “the library has no further capability.”
+
+## Keep operational dependencies modest
+
+The supporting Rust dependencies can remain conventional:
+
+| Need | Approach |
+|---|---|
+| Graph topology | `petgraph` |
+| Queues, maps, bounded traversal state | Standard library |
+| Typed data and relational processing | Arrow/DataFusion |
+| Model HTTP calls and concurrency | `reqwest` + `tokio` |
+| Typed model/API records | `serde`, with schema validation |
+| Deterministic fingerprints | Existing canonical hash component |
+| Search/index operations | `lancedb` |
+| Operational tracing | Existing logging/tracing setup |
+
+I would not introduce a second graph framework, a distributed task engine, or a new inference engine for this feature.
+
+---
+
+# 10. Tests that establish the analytics are actually working
+
+I would organize testing around four boundaries.
+
+## Graph and recognizer fixtures
+
+Use small synthetic Python programs with expected typed findings:
+
+| Fixture | Failure it should catch |
+|---|---|
+| Two parallel calls with different arguments | Accidental edge collapse |
+| Two paths to one helper with different parameter mappings | Incorrect visited-state deduplication |
+| Reassigned local variable | False direct handoff |
+| Unknown `**kwargs` | Invented parameter mapping |
+| Guard inside a caught exception region | False universal precondition |
+| Callable value that is never invoked | Potential-call/source-call confusion |
+| Native or unresolved target | False completeness |
+| Shuffled input row order | Nondeterministic witness selection |
+
+## Interpretation checks
+
+Check that assertions retain conditions, use public APIs, cite actual findings, and do not inflate structural evidence into behavioral guarantees.
+
+In particular, require specific support for claims about transactionality, hard memory limits, all-input ordering, thread safety, or exhaustive exception behavior.
+
+## Embedding and database checks
+
+Verify vector dimensions, finiteness, normalization, query/document conventions, model-spec consistency, and no silent truncation.
+
+For the small corpus, compare LanceDB’s flat-search ranking with a straightforward cosine reference, allowing floating-point tolerances and tied distances. Test exact qualified-name lookup and ensure full conditions are hydrated with every selected brief.
+
+## Product checks
+
+Use held-out standalone programming tasks and ask:
+
+```text
+Did the relevant built-in capability appear?
+Did the agent discover the important configuration?
+Did it use a supported direct handoff?
+Did it avoid reconstructing library behavior?
+Did it respect the attached limitations?
+```
+
+Then compare raw-evidence retrieval against the compiled briefs under similar context budgets. That tests whether the graph analytics and interpretation add value, without introducing user-codebase or library-version comparison scope.
+
+---
+
+# Recommended implementation order
+
+| Increment | Concrete deliverable |
+|---|---|
+| **1. One complete path** | One public entry point → typed finding → interpreted brief → embedding → search → evidence hydration |
+| **2. All three analytics families** | Delegation, configuration/local guards, and direct handoffs passing synthetic fixtures |
+| **3. Bounded real corpus** | Approximately 15–25 reviewed briefs for the selected subsystem |
+| **4. Reliable serving** | Immutable publication, native hybrid retrieval, exact-symbol lookup, and coverage reporting |
+| **5. Agent evaluation** | Held-out tasks showing whether briefs improve built-in feature use |
+
+The central design decision is to put sophistication into **the evidence-to-insight transformation**, not into the number of query modes or retrieval algorithms.
+
+**For v1, petgraph discovers bounded structural relationships; small Rust recognizers identify controls and handoffs; the LLM explains their practical significance; and LanceDB makes those explanations discoverable without separating them from their conditions and evidence.**
