@@ -35,3 +35,14 @@ on the fork by `git`/`rev`:
 - `check_family.py` and `cargo deny` pass, with the fork added to `allow-git`;
 - the release build took 37 s with dependencies cached;
 - run h (`Inline`) is byte-identical to run a.
+
+## ADR-0009 probe, remaining parts (2026-09-22)
+
+`cargo test -p spike-pyrefly --test p_publication -- --nocapture`: passed, 4/4.
+
+| # | Outcome | Observation |
+|---|---|---|
+| P1 | passed (with a finding) | Delta `add.stats` carry min/max for `fact_key` and `label` but **not for the Binary `snapshot_id`**, so Delta skips no files: all 3 files are opened. The Parquet footers do carry binary statistics. `DataSourceExec` pruned row groups 3 → 1 (`files_ranges_pruned_statistics 3→3`, `row_groups_pruned_statistics 3→1`, 57 bytes scanned). Filtering on `snapshot_id` therefore costs one footer read per file, not a full data scan |
+| P2 | passed | Attempt A wrote rows with a duplicate key; the `GROUP BY … HAVING` validator caught it and there was no `snapshots` append. Attempt B published. B's reader (row set → pinned version → `snapshot_id` filter) sees 3 rows, all B's, although A's rows are physically in the version |
+| P3 | passed | An append that committed but whose result was discarded is classified `published` by re-reading `snapshots`. An attempt that never appended is classified `unpublished` |
+| P4 | passed | A bundle built from the published snapshot at its recorded versions (sorted, concatenated, cast back to the declared schema, Arrow IPC file) is byte-identical when rebuilt after later appends and another publication (1,386 bytes, blake3 `1f353367…`) |
