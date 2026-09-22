@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+# The pinned dependency family (DESIGN §7, ADR-0002). Arrow, DataFusion,
+# object_store and delta-rs must resolve to exactly one version each;
+# `just deps` enforces that through deny.toml.
+[workspace.dependencies]
+arrow-array = "=59.3.0"
+arrow-schema = "=59.3.0"
+arrow-ipc = "=59.3.0"
+arrow-select = "=59.3.0"
+arrow-cast = "=59.3.0"
+parquet = "=59.3.0"
+datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet"] }
+object_store = "=0.13.2"
+deltalake = { git = "https://github.com/delta-io/delta-rs", rev = "58f07cd62bfbce3649a7e1c87c696288068ae184", default-features = false, features = ["datafusion", "rustls"] }
+petgraph = "=0.8.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures = "0.3"
+thiserror = "2"
+url = "2"
+
+# dev
+insta = "1.48"
+proptest = "1"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+allow_attributes_without_reason = "warn"
+
+# Debug info for the DataFusion + delta-rs graph fills disks quickly.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0

@@ -1,0 +1,108 @@
+# library-context — agent instructions
+
+Stage 1 builds a source-preserving, provenance-first **Python code fact graph**. Ruff and Pyrefly
+are the front ends, Arrow schemas are the contract, DataFusion builds and validates relations,
+Delta persists them, and petgraph analyses selected topology. It is the foundation for giving
+coding agents deep insight into Python libraries.
+
+This is a personal project with one operator. Process is deliberately light (ADR-0001). Keep
+it that way: before adding a hook, gate, register or new document type, check that it has a
+real consumer.
+
+## Start of session
+
+1. Read `STATUS.md`: where we are and what's next.
+2. For design questions, read `docs/design/DESIGN.md` (the current truth) and
+   `docs/adr/README.md` (why, and what was superseded). `docs/initial_plan/Initial_plan.md` is
+   the research input; don't edit it.
+
+## Where things are
+
+| Path | What |
+|---|---|
+| `docs/design/DESIGN.md` | Current design. §2 holds the binding decisions §B1–§B10 |
+| `docs/adr/` | Decision records, a generated index, and `TEMPLATE.md` |
+| `docs/design_review/design_principles/` | Charter (DM-01–60, gates G1–G7), with the repo layer in `ADDENDUM.md` |
+| `docs/design_review/reviews/` | Review outputs: evidence, never authority |
+| `docs/pins.md` | Every pin, with dated verification |
+| `crates/` | Core Rust workspace (`cpg-schema` holds the authoritative Arrow contracts) |
+| `adapters/` | Analyzer adapters as separate workspaces and processes (ADR-0003) |
+| `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
+| `scripts/` | `adr.py`, `check_family.py`, `check_agents.py`, and the format hook |
+| `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
+
+## Commands
+
+| When | Run |
+|---|---|
+| Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules, `adr lint`, `lint-agents` |
+| Before committing | `just test-all`: adds adapter workspaces, fixture parsing and `just deps` |
+| Format (mutating) | `just fmt` |
+| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs, plus cargo-deny |
+| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
+| Tools present? | `just doctor` |
+
+The Rust toolchain is pinned to 1.98.1 in `rust-toolchain.toml`. The machine default is
+nightly, so don't pass `+nightly` or `+stable` to cargo in this workspace. Python is 3.14.7 via
+`uv`; run Python tools as `uv run …`. The type checker is **pyrefly**, not pyright or mypy.
+
+## Writing code against the pinned libraries
+
+The library capability skills under `.claude/skills/` are pinned, offline indexes. Use them
+**before** writing against an API, rather than relying on memory:
+- `datafusion` (DataFusion, Arrow, object_store)
+- `deltalake` (this repo's exact delta-rs git profile)
+- `petgraph`
+- `pyrefly-ruff`
+- `rust-code-model`
+- `ast-grep-ripgrep`
+- `datafusion-tracing`
+
+For anything they don't cover, use the `library-research` skill. Check a skill's pinned version
+against `docs/pins.md` before transferring a claim. An empty search result is not evidence that a
+capability is absent.
+
+## Testing rules
+
+- **Schema contracts** are insta snapshots. `just check` runs with `INSTA_UPDATE=no`. To accept
+  a change, read the `.snap.new` diff first, then run `cargo insta accept`. Never run
+  `cargo insta review`, which is interactive. A schema snapshot change is a schema migration,
+  so say so in the commit.
+- **Codebooks are append-only.** Never renumber or reorder existing codes.
+- **Validators are shared.** DataFusion invariant validators are library code, used by both
+  tests and publication. Don't write test-only copies.
+- **Fixtures** go under `fixtures/python/<case>/`. Intentional syntax-error cases go under
+  an `_invalid/` subdirectory there.
+- **Delta tests** go through Delta (the table provider or a scan), never a raw Parquet directory
+  scan.
+
+## Reporting
+
+- Report outcomes as `passed`, `failed`, `blocked` (name the missing prerequisite) or `not_run`,
+  and give the command that produced each. A mocked provider is never `passed`. Never turn
+  outcomes into a percentage.
+- Design claims carry a charter §D label (`Proposed` … `Tested` … `Measured`). An unlabelled
+  claim is a defect; `Proposed` is not.
+- Date every "verified" claim.
+
+## Decisions and reviews
+
+- **Write an ADR** (the `adr` skill) when a change alters a §B decision, chooses between real
+  alternatives, or would surprise a future session. Amend DESIGN.md in the same commit. To pivot,
+  supersede the old ADR; accepted ADRs are immutable.
+- **Design reviews** use the `design-review` skill, usually through the `design-reviewer`
+  subagent:
+  - `compact` at the end of a slice that adds or changes a table family, adapter or projection
+  - `standard` for an ADR that changes a §B decision
+  - `deep` at the end of each increment
+- **Findings** become an ADR, a test or `rules/` entry, or a Deferred row in the review.
+
+## Git
+
+- Commit to `main` in small commits. Each message names the slice and any ADR, and states the
+  test outcome.
+- Use `git worktree` for exploratory spikes.
+- Never force-push or `reset --hard`.
+- `.claude/skills/*` is gitignored except the process skills: `adr`, `design-review`,
+  `handoff`, `pin-check`.
+- At the end of a session that changed what's true, run the `handoff` skill.

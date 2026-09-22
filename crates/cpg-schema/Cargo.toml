@@ -1,0 +1,22 @@
+[package]
+name = "cpg-schema"
+description = "Authoritative Arrow table contracts for the code property graph (DESIGN §3)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+arrow-array.workspace = true
+arrow-schema.workspace = true
+
+[dev-dependencies]
+datafusion.workspace = true
+deltalake.workspace = true
+tokio.workspace = true
+futures.workspace = true
+tempfile.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

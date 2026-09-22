@@ -1,0 +1,24 @@
+# Build output
+/target/
+/adapters/*/target/
+/.dev/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# insta pending snapshots — review, then `cargo insta accept`
+*.snap.new
+*.pending-snap
+
+# Library capability skills are large (tens of GB of evidence and caches) and
+# versioned outside this repo. Only the small process skills are tracked.
+/.claude/skills/*
+!/.claude/skills/README.md
+!/.claude/skills/adr/
+!/.claude/skills/design-review/
+!/.claude/skills/handoff/
+!/.claude/skills/pin-check/
+
+.claude/settings.local.json

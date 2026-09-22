@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "enabledPlugins": {
+    "pyright-lsp@claude-plugins-official": false,
+    "pyrefly-local@local-pyrefly-tools": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(just *)",
+      "Bash(cargo check*)",
+      "Bash(cargo build*)",
+      "Bash(cargo clippy*)",
+      "Bash(cargo fmt*)",
+      "Bash(cargo nextest*)",
+      "Bash(cargo test*)",
+      "Bash(cargo insta*)",
+      "Bash(cargo deny*)",
+      "Bash(cargo tree*)",
+      "Bash(cargo metadata*)",
+      "Bash(uv run *)",
+      "Bash(uv sync*)",
+      "Bash(rg *)",
+      "Bash(sg *)",
+      "Bash(ast-grep *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git worktree*)",
+      "Read(~/.cargo/registry/**)",
+      "Read(~/.cargo/git/**)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(cargo publish*)",
+      "Bash(pip install*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/hooks/format_edited.sh", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}
