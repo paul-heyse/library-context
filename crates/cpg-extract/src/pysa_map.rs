@@ -4,7 +4,7 @@
 //! the build instead of degrading silently (§3.5, DM-42).
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use cpg_schema::codebook::{
     AncestryRelation, Fidelity, ImplicitReceiver, InvocationPhase, Modality, Origin, ParameterKind,
@@ -17,13 +17,15 @@ use cpg_schema::tables::{
 };
 use pyrefly::report::pysa::call_graph::{
     CallCallees, ExpressionCallees, ExpressionIdentifier, ImplicitReceiver as PyImplicitReceiver,
-    PysaCallTarget, Target, Unresolved, UnresolvedReason,
+    OriginKind, PysaCallTarget, Target, Unresolved, UnresolvedReason,
 };
 use pyrefly::report::pysa::class::{ClassRef, PysaClassMro};
 use pyrefly::report::pysa::function::{FunctionParameter, FunctionParameters, FunctionRef};
 use pyrefly::report::pysa::location::PysaLocation;
+use pyrefly::report::pysa::module::ModuleId;
 use pyrefly::report::pysa::types::PysaType;
 use pyrefly::report::pysa::{PysaModuleCallGraphs, PysaModuleDefinitions};
+use pyrefly_python::module_name::ModuleName;
 use ruff_source_file::{LineIndex, OneIndexed, PositionEncoding, SourceLocation};
 use ruff_text_size::TextSize;
 
@@ -76,13 +78,79 @@ fn pysa(origin: Origin, modality: Modality) -> Provenance {
     }
 }
 
-/// Nested classes keep only their own name here; the defining module qualifies it.
-fn class_str(c: &ClassRef) -> String {
-    format!("{}.{}", c.class.module_name(), c.class.name())
+/// References across modules, keyed as Pysa keys them: by module id, never by name alone
+/// (DESIGN §4.2.3, review F3). A file of the release reads `@<release-relative path>`, because a
+/// `.py` and its `.pyi` share a module name; any other module reads as its name, which resolves
+/// to one file in a context. `@` never starts a module name.
+pub(crate) struct ModuleRefs {
+    pub release_files: HashMap<ModuleId, String>,
 }
 
-fn function_str(f: &FunctionRef) -> String {
-    format!("{}::{}", f.module_name, f.function_id.serialize_to_string())
+impl ModuleRefs {
+    fn module(&self, id: ModuleId, name: ModuleName) -> String {
+        self.release_files
+            .get(&id)
+            .map_or_else(|| name.to_string(), |path| format!("@{path}"))
+    }
+
+    /// `<module ref>:<name>#<ClassId>`: the id keys it, the name is for reading.
+    fn class(&self, c: &ClassRef) -> String {
+        format!(
+            "{}:{}#{}",
+            self.module(c.module_id, c.class.module_name()),
+            c.class.name(),
+            c.class_id.to_int()
+        )
+    }
+
+    fn function(&self, f: &FunctionRef) -> String {
+        format!(
+            "{}::{}",
+            self.module(f.module_id, f.module_name),
+            f.function_id.serialize_to_string()
+        )
+    }
+}
+
+/// The file being mapped.
+pub(crate) struct Here<'m> {
+    pub module_name: &'m str,
+    pub module_node_id: Id,
+    pub refs: &'m ModuleRefs,
+    pub loc: Locator<'m>,
+}
+
+/// Our own rendering of Pysa's `OriginKind` (the text upstream's `Display` gives): an exhaustive
+/// match, so a new kind fails the build instead of passing through unseen (§3.5, review F5).
+fn origin_kind(k: &OriginKind) -> String {
+    let leaf = match k {
+        OriginKind::GetAttrConstantLiteral => "get-attr-constant-literal",
+        OriginKind::ComparisonOperator => "comparison",
+        OriginKind::GeneratorIter => "generator-iter",
+        OriginKind::GeneratorNext => "generator-next",
+        OriginKind::WithEnter => "with-enter",
+        OriginKind::ForDecoratedTarget => "for-decorated-target",
+        OriginKind::SubscriptGetItem => "subscript-get-item",
+        OriginKind::SubscriptSetItem => "subscript-set-item",
+        OriginKind::BinaryOperator => "binary",
+        OriginKind::AugmentedAssignDunderCall => "augmented-assign-dunder-call",
+        OriginKind::AugmentedAssignRHS => "augmented-assign-rhs",
+        OriginKind::AugmentedAssignStatement => "augmented-assign-statement",
+        OriginKind::ForIter => "for-iter",
+        OriginKind::ForNext => "for-next",
+        OriginKind::ForAssign => "for-assign",
+        OriginKind::ReprCall => "repr-call",
+        OriginKind::AbsCall => "abs-call",
+        OriginKind::IterCall => "iter-call",
+        OriginKind::NextCall => "next-call",
+        OriginKind::StrCallToDunderMethod => "str-call-to-dunder-method",
+        OriginKind::Slice => "slice",
+        OriginKind::ChainedAssign { index } => return format!("chained-assign:{index}"),
+        OriginKind::Nested { head, tail } => {
+            return format!("{}>{}", origin_kind(tail), origin_kind(head));
+        }
+    };
+    leaf.to_owned()
 }
 
 fn reason(r: UnresolvedReason) -> PysaUnresolvedReason {
@@ -131,12 +199,12 @@ fn unresolved(u: &Unresolved) -> Option<PysaUnresolvedReason> {
     }
 }
 
-fn annotation(t: &PysaType) -> (Vec<String>, Option<bool>, Vec<String>) {
+fn annotation(refs: &ModuleRefs, t: &PysaType) -> (Vec<String>, Option<bool>, Vec<String>) {
     let mut classes: Vec<String> = t
         .class_names
         .classes
         .iter()
-        .map(|c| class_str(&c.class))
+        .map(|c| refs.class(&c.class))
         .collect();
     classes.sort();
     classes.dedup();
@@ -155,16 +223,16 @@ fn annotation(t: &PysaType) -> (Vec<String>, Option<bool>, Vec<String>) {
 }
 
 pub(crate) fn map_definitions(
-    module: &str,
+    here: &Here<'_>,
     defs: &PysaModuleDefinitions,
-    loc: &Locator<'_>,
     sink: &mut FactSink,
     out: &mut PysaOut,
 ) {
+    let refs = here.refs;
     for (fid, def) in defs.function_definitions.as_map() {
         let b = &def.base;
         let key = fid.serialize_to_string();
-        let name_span = b.name_location.as_ref().map(|l| loc.range(l));
+        let name_span = b.name_location.as_ref().map(|l| here.loc.range(l));
         out.functions.push(fact_row!(
             sink,
             PysaFunctions,
@@ -172,7 +240,8 @@ pub(crate) fn map_definitions(
             PysaFunctionsRow {
                 snapshot_id: Id::ZERO,
                 fact_id: Id::ZERO,
-                module_name: module.to_owned(),
+                module_node_id: here.module_node_id,
+                module_name: here.module_name.to_owned(),
                 function_key: key.clone(),
                 name: b.name.to_string(),
                 name_start_byte: name_span.map(|s| s.0),
@@ -184,8 +253,11 @@ pub(crate) fn map_definitions(
                 is_property_setter: b.is_property_setter,
                 is_stub: b.is_stub,
                 is_def_statement: b.is_def_statement,
-                defining_class: b.defining_class.as_ref().map(class_str),
-                overridden_base: def.overridden_base_method.as_ref().map(function_str),
+                defining_class: b.defining_class.as_ref().map(|c| refs.class(c)),
+                overridden_base: def
+                    .overridden_base_method
+                    .as_ref()
+                    .map(|f| refs.function(f)),
             }
         ));
         for (si, sig) in def.undecorated_signatures.iter().enumerate() {
@@ -245,7 +317,8 @@ pub(crate) fn map_definitions(
                         Some(annotation),
                     ),
                 };
-                let (classes, exhaustive, scalar) = ann.map(annotation).unwrap_or_default();
+                let (classes, exhaustive, scalar) =
+                    ann.map(|a| annotation(refs, a)).unwrap_or_default();
                 out.parameters.push(fact_row!(
                     sink,
                     ParameterSemantics,
@@ -253,7 +326,8 @@ pub(crate) fn map_definitions(
                     ParameterSemanticsRow {
                         snapshot_id: Id::ZERO,
                         fact_id: Id::ZERO,
-                        module_name: module.to_owned(),
+                        module_node_id: here.module_node_id,
+                        module_name: here.module_name.to_owned(),
                         function_key: key.clone(),
                         signature_index: si as i64,
                         form,
@@ -272,7 +346,7 @@ pub(crate) fn map_definitions(
     }
     for (cid, cdef) in &defs.class_definitions {
         let class_key = cid.to_int().to_string();
-        let name_span = loc.range(&cdef.name_location);
+        let name_span = here.loc.range(&cdef.name_location);
         let mut rows: Vec<(AncestryRelation, Option<i64>, Option<String>, bool)> = cdef
             .bases
             .iter()
@@ -281,7 +355,7 @@ pub(crate) fn map_definitions(
                 (
                     AncestryRelation::Base,
                     Some(i as i64),
-                    Some(class_str(c)),
+                    Some(refs.class(c)),
                     false,
                 )
             })
@@ -292,7 +366,7 @@ pub(crate) fn map_definitions(
                     (
                         AncestryRelation::Mro,
                         Some(i as i64),
-                        Some(class_str(c)),
+                        Some(refs.class(c)),
                         false,
                     )
                 }))
@@ -307,7 +381,8 @@ pub(crate) fn map_definitions(
                 ClassAncestryRow {
                     snapshot_id: Id::ZERO,
                     fact_id: Id::ZERO,
-                    module_name: module.to_owned(),
+                    module_node_id: here.module_node_id,
+                    module_name: here.module_name.to_owned(),
                     class_key: class_key.clone(),
                     class_name: cdef.name.clone(),
                     name_start_byte: Some(name_span.0),
@@ -322,17 +397,19 @@ pub(crate) fn map_definitions(
     }
 }
 
-struct Site {
-    module: String,
+struct Site<'h> {
+    here: &'h Here<'h>,
     caller: String,
     kind: PysaSiteKind,
     detail: Option<String>,
     span: (i64, i64),
     synthetic: bool,
+    /// Pysa's `is_attribute`, for an attribute access.
+    is_attribute: Option<bool>,
 }
 
 struct Emit<'a> {
-    site: &'a Site,
+    site: &'a Site<'a>,
     callee_kind: PysaCalleeKind,
     phase: InvocationPhase,
     higher_order_index: Option<i64>,
@@ -364,6 +441,7 @@ fn push_target(
     } else {
         Origin::AnalyzerAssertion
     };
+    let refs = e.site.here.refs;
     out.calls.push(fact_row!(
         sink,
         PysaCalls,
@@ -371,7 +449,8 @@ fn push_target(
         PysaCallsRow {
             snapshot_id: Id::ZERO,
             fact_id: Id::ZERO,
-            module_name: e.site.module.clone(),
+            module_node_id: e.site.here.module_node_id,
+            module_name: e.site.here.module_name.to_owned(),
             caller_key: e.site.caller.clone(),
             site_kind: e.site.kind,
             callee_kind: e.callee_kind,
@@ -381,40 +460,44 @@ fn push_target(
             phase: e.phase,
             higher_order_index: e.higher_order_index,
             target_kind,
-            target_module: f.map(|f| f.module_name.to_string()),
+            target_module: f.map(|f| refs.module(f.module_id, f.module_name)),
             target_key: f.map(|f| f.function_id.serialize_to_string()),
             target_name: f.map(|f| f.function_name.to_string()),
-            receiver_class: t.and_then(|t| t.receiver_class.as_ref().map(class_str)),
+            receiver_class: t.and_then(|t| t.receiver_class.as_ref().map(|c| refs.class(c))),
             implicit_receiver: t.map(|t| implicit_receiver(t.implicit_receiver)),
             implicit_dunder_call: t.map(|t| t.implicit_dunder_call),
             is_class_method: t.map(|t| t.is_class_method),
             is_static_method: t.map(|t| t.is_static_method),
             unresolved_reason: reason,
+            is_attribute: e.site.is_attribute,
         }
     ));
 }
 
-/// How one target list is read: its callee record, phase, the call's unresolved remainder, and
-/// whether its targets are only potential (`if_called`).
+/// How one target list is read: its callee record, phase, the call's unresolved remainder,
+/// whether its targets are only potential (`if_called`), and whether some flow at the site
+/// invokes none of them (a property read where Pysa also sees a plain attribute).
 #[derive(Clone, Copy)]
 struct List {
     callee_kind: PysaCalleeKind,
     phase: InvocationPhase,
     rest: Option<PysaUnresolvedReason>,
     potential: bool,
+    conditional: bool,
 }
 
-/// One target list: `definite` iff it is a single target with nothing unresolved.
+/// One target list: `definite` iff it is a single target, unconditionally invoked, with nothing
+/// unresolved.
 fn push_list(
     sink: &mut FactSink,
     out: &mut PysaOut,
-    site: &Site,
+    site: &Site<'_>,
     list: List,
     targets: &[PysaCallTarget<FunctionRef>],
 ) {
     let modality = if list.potential {
         Modality::Potential
-    } else if targets.len() == 1 && list.rest.is_none() {
+    } else if targets.len() == 1 && list.rest.is_none() && !list.conditional {
         Modality::Definite
     } else {
         Modality::Candidate
@@ -434,7 +517,7 @@ fn push_list(
 fn push_call_callees(
     sink: &mut FactSink,
     out: &mut PysaOut,
-    site: &Site,
+    site: &Site<'_>,
     callee_kind: PysaCalleeKind,
     cc: &CallCallees<FunctionRef>,
     potential: bool,
@@ -451,6 +534,7 @@ fn push_call_callees(
             phase,
             rest,
             potential,
+            conditional: false,
         };
         push_list(sink, out, site, list, targets);
     }
@@ -472,21 +556,25 @@ fn push_call_callees(
         }
     }
     if let Some(r) = rest {
+        // The remainder of a potential list is potential too: the name may never be called.
         let e = Emit {
             site,
             callee_kind,
             phase: InvocationPhase::Call,
             higher_order_index: None,
-            modality: Modality::Definite,
+            modality: if potential {
+                Modality::Potential
+            } else {
+                Modality::Definite
+            },
         };
         push_target(sink, out, &e, None, Some(r));
     }
 }
 
 pub(crate) fn map_call_graphs(
-    module: &str,
+    here: &Here<'_>,
     graphs: &PysaModuleCallGraphs,
-    loc: &Locator<'_>,
     sink: &mut FactSink,
     out: &mut PysaOut,
 ) {
@@ -498,13 +586,13 @@ pub(crate) fn map_call_graphs(
                 ExpressionIdentifier::ArtificialCall(o) => (
                     PysaSiteKind::ArtificialCall,
                     &o.location,
-                    Some(o.kind.to_string()),
+                    Some(origin_kind(&o.kind)),
                     true,
                 ),
                 ExpressionIdentifier::ArtificialAttributeAccess(o) => (
                     PysaSiteKind::ArtificialAttributeAccess,
                     &o.location,
-                    Some(o.kind.to_string()),
+                    Some(origin_kind(&o.kind)),
                     true,
                 ),
                 ExpressionIdentifier::FormatStringArtificial(l) => {
@@ -523,13 +611,23 @@ pub(crate) fn map_call_graphs(
                     false,
                 ),
             };
+            let is_attribute = match callees {
+                ExpressionCallees::AttributeAccess(ac) => Some(ac.is_attribute),
+                ExpressionCallees::Call(_)
+                | ExpressionCallees::Identifier(_)
+                | ExpressionCallees::FormatStringArtificial(_)
+                | ExpressionCallees::FormatStringStringify(_)
+                | ExpressionCallees::Define(_)
+                | ExpressionCallees::Return(_) => None,
+            };
             let site = Site {
-                module: module.to_owned(),
+                here,
                 caller: caller.clone(),
                 kind,
                 detail,
-                span: loc.range(location),
+                span: here.loc.range(location),
                 synthetic,
+                is_attribute,
             };
             match callees {
                 ExpressionCallees::Call(cc) => {
@@ -564,6 +662,7 @@ pub(crate) fn map_call_graphs(
                             phase: InvocationPhase::PropertyGet,
                             rest: None,
                             potential: false,
+                            conditional: ac.is_attribute,
                         },
                         &ac.property_getters,
                     );
@@ -576,6 +675,7 @@ pub(crate) fn map_call_graphs(
                             phase: InvocationPhase::PropertySet,
                             rest: None,
                             potential: false,
+                            conditional: ac.is_attribute,
                         },
                         &ac.property_setters,
                     );
@@ -589,6 +689,7 @@ pub(crate) fn map_call_graphs(
                         phase: InvocationPhase::Call,
                         rest: None,
                         potential: false,
+                        conditional: false,
                     },
                     &f.targets,
                 ),
@@ -603,6 +704,7 @@ pub(crate) fn map_call_graphs(
                             phase: InvocationPhase::Call,
                             rest,
                             potential: false,
+                            conditional: false,
                         },
                         &f.targets,
                     );

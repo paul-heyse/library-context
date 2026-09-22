@@ -35,15 +35,15 @@ const STRICT: CastOptions<'static> = CastOptions {
 /// Key prefix delta-rs stores CHECK constraints under.
 const CONSTRAINT_PREFIX: &str = "delta.constraints.";
 
+/// The table's location. Touches nothing: a reader of a missing table gets "not a table".
 pub fn table_url(root: &Path, name: &str) -> Result<Url, CoreError> {
-    let dir = root.join(name);
-    std::fs::create_dir_all(&dir)?;
-    Url::from_directory_path(std::fs::canonicalize(&dir)?)
-        .map_err(|()| CoreError::Url(dir.display().to_string()))
+    let dir = std::path::absolute(root.join(name))?;
+    Url::from_directory_path(&dir).map_err(|()| CoreError::Url(dir.display().to_string()))
 }
 
 /// Create the table: its declared schema, `delta.appendOnly`, then its immutable CHECKs.
 pub async fn create<T: Table>(root: &Path) -> Result<DeltaTable, CoreError> {
+    std::fs::create_dir_all(root.join(T::NAME))?;
     let kernel: StructType = T::schema().as_ref().try_into_kernel()?;
     let table = DeltaTable::try_from_url(table_url(root, T::NAME)?)
         .await?
@@ -208,9 +208,4 @@ pub async fn read_at<T: Table>(
         .map(to_declared::<T>)
         .collect::<Result<_, _>>()?;
     Ok(arrow_select::concat::concat_batches(&schema, &declared)?)
-}
-
-/// Shared by callers that need an `Arc<SessionContext>` over Delta's planner defaults.
-pub fn delta_session() -> Arc<SessionContext> {
-    Arc::new(create_session().into_inner())
 }

@@ -67,7 +67,7 @@ fn main() -> ExitCode {
         release_id: IdHasher::new(kind::RELEASE).str(&label).finish_id(),
         snapshot_id: snapshot,
         keep_pysa_json: false,
-        fault_at_module: None,
+        test_hooks: Default::default(),
     };
     match extract(&input).and_then(|output| write_ipc(&out, &output)) {
         Ok(()) => ExitCode::SUCCESS,

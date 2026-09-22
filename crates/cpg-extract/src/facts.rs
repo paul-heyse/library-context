@@ -27,11 +27,14 @@ impl Surface {
 }
 
 /// Collects `facts` rows; the same assertion from the same run gets the same id and is kept once.
+/// Provenance is not part of the id, so the same payload arriving with different provenance is a
+/// mapping bug and fails the extraction (review F8).
 pub(crate) struct FactSink {
     pub run_id: Id,
     pub snapshot_id: Id,
     producer_hex: String,
     facts: BTreeMap<[u8; 16], FactsRow>,
+    conflicts: Vec<Id>,
 }
 
 pub(crate) struct Provenance {
@@ -48,6 +51,7 @@ impl FactSink {
             snapshot_id,
             producer_hex: producer_id.hex(),
             facts: BTreeMap::new(),
+            conflicts: Vec::new(),
         }
     }
 
@@ -57,7 +61,7 @@ impl FactSink {
         h.id(self.run_id).str(table);
         hash(&mut h);
         let fact_id = h.finish_id();
-        self.facts.entry(fact_id.0).or_insert_with(|| FactsRow {
+        let row = FactsRow {
             snapshot_id: self.snapshot_id,
             fact_id,
             run_id: self.run_id,
@@ -67,12 +71,19 @@ impl FactSink {
             modality: p.modality,
             fidelity: p.fidelity,
             model_id: format!("{}/{}", self.producer_hex, p.surface.name()),
-        });
+        };
+        let kept = self.facts.entry(fact_id.0).or_insert_with(|| row.clone());
+        if *kept != row {
+            self.conflicts.push(fact_id);
+        }
         fact_id
     }
 
-    pub fn into_rows(self) -> Vec<FactsRow> {
-        self.facts.into_values().collect()
+    pub fn into_rows(self) -> Result<Vec<FactsRow>, crate::ExtractError> {
+        match self.conflicts.first() {
+            Some(id) => Err(crate::ExtractError::ProvenanceConflict(id.hex())),
+            None => Ok(self.facts.into_values().collect()),
+        }
     }
 }
 
@@ -99,4 +110,38 @@ pub(crate) use fact_row;
 pub(crate) fn dedup_by_fact<R>(rows: &mut Vec<R>, fact_id: impl Fn(&R) -> Id) {
     let mut seen = std::collections::HashSet::new();
     rows.retain(|r| seen.insert(fact_id(r).0));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p(modality: Modality) -> Provenance {
+        Provenance {
+            surface: Surface::PyreflyPysa,
+            origin: Origin::AnalyzerAssertion,
+            modality,
+            fidelity: Fidelity::ReportProjection,
+        }
+    }
+
+    #[test]
+    fn a_repeated_fact_keeps_one_row_and_a_provenance_conflict_is_an_error() {
+        let payload = |h: &mut IdHasher| {
+            h.str("same payload");
+        };
+        let mut sink = FactSink::new(Id([1; 16]), Id([2; 16]), Id([3; 16]));
+        let a = sink.fact("pysa_calls", payload, p(Modality::Definite));
+        let b = sink.fact("pysa_calls", payload, p(Modality::Definite));
+        assert_eq!(a, b);
+        assert_eq!(sink.into_rows().unwrap().len(), 1);
+
+        let mut sink = FactSink::new(Id([1; 16]), Id([2; 16]), Id([3; 16]));
+        sink.fact("pysa_calls", payload, p(Modality::Definite));
+        sink.fact("pysa_calls", payload, p(Modality::Candidate));
+        assert!(matches!(
+            sink.into_rows(),
+            Err(crate::ExtractError::ProvenanceConflict(_))
+        ));
+    }
 }

@@ -1,0 +1,15 @@
+# Slice-1 review O2 (AGENTS.md testing rules; DESIGN §4.3 "Never"): facts are read through Delta
+# (the table provider at a pinned version), never by scanning a table's Parquet files, which would
+# ignore the log: removed files, versions and the snapshot's commit.
+id: no-raw-parquet-scan
+language: rust
+severity: error
+message: read fact tables through Delta, not as a Parquet directory
+note: Use cpg_core::delta::read_at (DESIGN §4.3).
+rule:
+  any:
+    - pattern: $CTX.read_parquet($$$ARGS)
+    - pattern: $CTX.register_parquet($$$ARGS)
+    - pattern: $CTX.register_listing_table($$$ARGS)
+files:
+  - crates/**/*.rs

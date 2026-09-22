@@ -6,3 +6,4 @@ invalid:
   - "fn run() { let _ = std::panic::catch_unwind(|| extract_module(m)); }"
   - "fn run() { let _ = panic::catch_unwind(f); }"
   - "fn run() { let _ = catch_unwind(f); }"
+  - "fn run() { std::thread::scope(|s| { s.spawn(|| extract_module(m)).join().ok(); }); }"

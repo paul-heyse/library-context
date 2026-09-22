@@ -67,3 +67,23 @@ def uses(label: Annotated[str, Marker("metadata")] = "x") -> str:
 
 
 MODULE_LEVEL = double(21)
+
+
+class Plain:
+    size: int = 0
+
+
+def union_property(x: Base | Plain) -> int:
+    return x.size
+
+
+import typing  # appended here so the byte offsets above stay put
+
+
+def name_partly_unknown(flag: bool, other: typing.Any) -> object:
+    h = double if flag else other
+    return h
+
+
+def artificial_getattr(child: Child) -> int:
+    return getattr(child, "size", 0)

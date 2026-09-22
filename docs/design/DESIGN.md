@@ -416,20 +416,21 @@ Deferred until a consumer exists: `record_fields`, full type structure, CFG and 
 
 ### §3.4.1 ID derivation
 
-**Proposed.**
+**Proposed**, except the extractor's ids: **Implemented** in slice 1 and pinned by an id-recipe
+snapshot (`extractor_id_recipes_snapshot`, **Tested** 2026-09-22).
 
-**Encoding.** `BLAKE3("lctx-id/v1" ‖ kind_tag ‖ len‖field ‖ len‖field …)`. Lengths are u64
+**Encoding.** `BLAKE3("lctx-id/v1" ‖ len‖kind_tag ‖ len‖field …)`. Lengths are u64
 little-endian. IDs are the first 16 bytes; digests are all 32. A version bump in the tag is a
 migration (DM-51).
 
 | ID | Derived from | Scope |
 |---|---|---|
 | `release_id` | distribution names + versions + artifact sha256s, sorted | global |
-| `node_id` | `release_id`, node kind, path within the release, structural occurrence path, span (syntax nodes) or declaration occurrence (semantic entities) | stable across snapshots and runs |
-| `context_id` | Python version, platform, ordered search paths, lock digest, config digests | global |
+| `node_id` | `release_id`, path within the release, then the structural occurrence path (syntax nodes: ruff `NodeKind` names and child ordinals) or the qualified name and occurrence (declarations) | stable across snapshots and runs. Syntax ids are producer-scoped: a ruff bump may rename a node kind |
+| `context_id` | Python version, platform, ordered search and site-package paths (root-relative), config digest, site-packages content digest (the acquisition lock digest joins in Stage A) | global |
 | `producer_id` | tool, tool revision, adapter build digest | global |
 | `run_id` | `release_id`, `context_id`, `producer_id`, sorted enabled families, the producer's own config digest | global |
-| `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes | per run |
+| `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id` | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. `capability_id` = `brief_id` | content |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
 | `content_digest` | sorted `run_id`s (each carrying its `release_id`), acquisition-manifest digest, compiler build digest, analytics-config digest, embedding spec hash, `embedding_cache` version used | compares reruns |
@@ -483,7 +484,8 @@ migration (DM-51).
   append-only codebook, unused in v1.
 - **Pyrefly-sourced values map through exhaustive matches.** Every Pyrefly enum → codebook mapping
   is a `match` with no wildcard arm, so a new upstream variant (a 15th unresolved reason, a new
-  `OriginKind`) fails the build instead of degrading silently.
+  `OriginKind`) fails the build instead of degrading silently. `OriginKind` becomes
+  `site_detail` text through our own exhaustive match, never upstream's `Display`.
 - **`type_role` target values:** annotation, computed, expected, narrowed, unnarrowed, contextual,
   parameter, return, and further values from IP L576–623.
 
@@ -551,7 +553,8 @@ migration (DM-51).
 context records:
 - the Python version and platform;
 - the **ordered** search paths;
-- the lock digest;
+- the site-packages content digest (every file's relative path and content digest); the lock
+  digest joins it in Stage A;
 - the digests of every configuration file an analyzer receives.
 
 **Explicit inputs only.** Extractors receive their environment and configuration as arguments.
@@ -562,13 +565,12 @@ context records:
   - explicit search path and site-package path;
   - explicit Python version and platform;
   - heuristics, walk-up fallback and the interpreter query all disabled.
-- **Recorded.** `contexts` stores a digest of:
-  - the canonical serialization of the configured `ConfigFile`;
-  - the resolved search path and site-package path, **relative to their declared roots** (the
-    release root and the analysis-venv root), plus content digests of those roots;
-  - the sys info, serialized from its fields rather than its `Debug` form.
-
-  Where a checkout or tempdir sits never changes an identity.
+- **Recorded.** `contexts` stores the digest of the configured `ConfigFile` (keys sorted:
+  DataFusion turns on serde_json's `preserve_order`, and no digest may depend on the build graph),
+  the search and site-package paths **relative to their roots** (release, analysis venv), the sys
+  info from its fields (not `Debug`), and `site_packages_digest`. Where a checkout or tempdir sits
+  never changes an identity; what the dependencies contain always does (**Tested**: two
+  locations, two environments). Until Stage A the CLI's `release_id` hashes `--release-label`.
 
 So nothing ambient can change an answer without changing `context_id` (G4). That covers `PATH`,
 `VIRTUAL_ENV`, `PYTHONPATH`, `CONDA_PREFIX`, the working directory and an upward
@@ -577,7 +579,9 @@ byte-identical with each of them perturbed.
 
 **Run.** A run is one producer applied to one context for a declared set of families under one
 analysis configuration. `runs` records that. `producers` records the tool, the revision (for the
-extractor: the fork revision, patch digest and ruff version) and the adapter build digest.
+extractor: the fork revision and patch digest, which `just deps` checks against `Cargo.lock` and
+the patch file, and the ruff line) and the adapter build digest (an output version bumped by hand
+when mapping output changes, which the variant and id snapshots show).
 
 > Decision: ADR-0007, ADR-0012
 
@@ -599,12 +603,10 @@ Unmapped or ambiguous rows become `boundaries` rows. They are never dropped by a
 
 ### §4.2 Extraction
 
-**Labels.** A line that cites a spike result (S1–S7, `spike/pyrefly-inproc`, FastMCP 4.0.3 and a
-non-ASCII fixture, 2026-09-22) is **Tested** or **Measured**. The rest is **Implemented** in
-`cpg-extract` and **Tested** by its fixture tests (slice 1, 2026-09-22): the variant table,
-`__all__` forms, `_invalid/` modules, BOM/CRLF, two install locations, cross-process
-determinism, the panic abort, the ambient refusal and harness equivalence with the CLI. The
-`catch_unwind` ban is an ast-grep rule. Pyrefly is linked from the pinned fork (§B8). A run is one call of the driver over one context, and everything below happens in
+**Labels.** A line that cites a spike result (S1–S7, `spike/pyrefly-inproc`, FastMCP 4.0.3,
+2026-09-22) is **Tested** or **Measured**. The rest is **Implemented** in `cpg-extract` and
+**Tested** by `crates/cpg-extract/tests` (slice 1, 2026-09-22), where each test names the claim
+it checks. The `catch_unwind` and per-module-thread ban is an ast-grep rule. Pyrefly is linked from the pinned fork (§B8). A run is one call of the driver over one context, and everything below happens in
 one process.
 
 | Provider surface (`model_id` suffix) | Mode | Raw tables (v1) |
@@ -632,11 +634,11 @@ one process.
    walk-up.
 3. **State.** `State::new(finder, ThreadCount::Inline)` on a driver-owned thread whose stack size
    is part of the producer config (the spike used 512 MiB). The check and the lazy solves all run
-   on that thread, and the setting is fixed: changing it changes `producer_id`. Upstream's cycle
-   placeholders are per thread, so above one thread the types in import cycles depend on
-   evaluation order. **Tested** on FastMCP with identical output at `Inline`, `NumThreads(1)` and
-   `NumThreads(4)`. FastMCP can't discriminate, so the oracle is an import-cycle fixture run in
-   shuffled order and in separate processes.
+   on that thread; it is the producer's config digest, so changing it changes `run_id`. One
+   thread is a precaution (upstream's cycle placeholders are per thread) with no difference
+   shown: FastMCP (S3) and the import-cycle fixture, whose solved cycle types reach `pysa_calls`,
+   are identical up to 8 threads (2026-09-22). **Tested:** sorted and reversed module order and
+   separate processes give identical output.
 4. **Handles.** One per project module, from `cfg.handle_from_module_path`, sorted by module name.
 5. **Run.** Install a `PysaReporter` with `write_files: false` and `ModuleIds::new(&handles)`, then
    call `transaction.run(&handles, Require::Everything, None)`. Keep the reporter installed during
@@ -651,13 +653,13 @@ one process.
 - **One walk.** A single `SourceOrderVisitor` walks `Transaction::get_ast(handle)`, the unmodified
   ruff parse Pyrefly analyzed, which is kept at `Require::Everything`. The text is
   `get_module_info(handle)`'s contents. There is no second parse.
-- **Built-ins used:** `Parameters::iter_source_order`, `AnyParameterRef`,
-  `Arguments::iter_source_order`, `ArgOrKeyword`, `helpers::is_docstring_stmt`,
-  `StringLiteralValue::to_str`, `Docstring::range_from_stmts` and `Ast::if_branches` (never
-  `stmt_if::if_elif_branches`, which panics on a recovered empty body).
+- **Built-ins used:** `SourceOrderVisitor` with `walk_annotation`, `Arguments::iter_source_order`,
+  `ArgOrKeyword` and `StringLiteralValue::to_str`.
 - **Ours:**
-  - the structural occurrence path (parent, field role, child ordinal). Ruff's `node_index` is
-    always unset, so it can't be used;
+  - the parameter list (the five lists in declaration order, which is source order) and the
+    docstring check (a first-statement string literal), a few lines each;
+  - the structural occurrence path (each ancestor's ruff `NodeKind` name and child ordinal).
+    Ruff's `node_index` is always unset, so it can't be used;
   - the qualified-name stack;
   - the `@overload` decorator match.
 - **Recovered and unreadable files.** A module whose acquired bytes fail our own UTF-8 check is
@@ -686,10 +688,11 @@ one process.
   | `Target::Overrides(f)` (any list) | candidate target to `f`; the resolution has `candidate_set_complete_under_model = false` | the list's phase | `candidate` | analyzer_assertion |
   | `init_targets`, `new_targets` | call targets | `init`, `new` | as `call_targets` | analyzer_assertion |
   | `higher_order_parameters[i]` | target attached to argument `i` | `call` | `potential` | analyzer_assertion |
-  | `if_called` (identifier or attribute) | target on a `Reference` | `call` | `potential` | analyzer_assertion |
-  | `property_getters`, `property_setters` | call targets | `property_get`, `property_set` | as `call_targets` | analyzer_assertion |
+  | `if_called` (identifier or attribute) | target on a `Reference`, and its unresolved remainder | `call` | `potential` | analyzer_assertion |
+  | `property_getters`, `property_setters` | call targets | `property_get`, `property_set` | as `call_targets`, but at most `candidate` when `is_attribute` | analyzer_assertion |
+  | `AttributeAccessCallees.is_attribute` (some flow reads a plain attribute) | a column on the attribute access's rows | — | — | — |
   | `ArtificialCall`, `ArtificialAttributeAccess`, format-string callees | as the callee kind above, keeping the `OriginKind` | as above | as above | synthetic_model |
-  | `Unresolved::True(reason)` | on the resolution: `has_unresolved_remainder`, the reason | — | — | — |
+  | `Unresolved::True(reason)` | an `unresolved` row with the reason: `has_unresolved_remainder` on the resolution | `call` | `definite`, or `potential` under `if_called` and higher-order lists | as the site |
   | receiver fields (`implicit_receiver`, `receiver_class`, `implicit_dunder_call`, class and static method flags) | columns on the target row | — | — | — |
   | `Target::FormatString`, `Return` shims, `global_targets`, `captured_variables`, `return_type` | **not carried** in v1: synthetic or no consumer | — | — | — |
   | `Define` | **not carried**: it links a nested `def` to the function it creates, which `declarations` already records | — | — | — |
@@ -697,32 +700,28 @@ one process.
 - **Unmatched calls.** The walker marks calls inside annotations (`visit_annotation`). An
   unmatched call there is a `boundaries` row with `outside_provider_model`. Any other unmatched
   call is a `missing_evidence` boundary, and that module's `calls` coverage is `partial`.
-- **Target identity.** Spans come from `Bindings::function_def_range` (functions) and
-  `ClassRef.class.range()` (classes). Dependency modules are keyed by (module name, site-relative
-  path), never by Pysa's `ModuleId`, which a parallel counter assigns.
+- **Module and class keys.** Every Pysa row carries its file's `module_node_id` (a `.py` and its
+  `.pyi` share a module name). A reference resolves through Pysa's `ModuleId` (never stored) to a
+  *module ref*: `@<release-relative path>` for a release file, else the module name (one file per
+  name in a context). Classes are `<module ref>:<Name>#<ClassId>`, functions
+  `<module ref>::<key>`; Stage C takes spans from the `pysa_functions` and `class_ancestry` name
+  spans. **Tested** (`pysa_keys`: a `.py`/`.pyi` pair, two nested `Config` classes).
 - **Set-valued lists** (`captured_variables`, a union's `class_names`) come out of hash sets in
   varying order. Every record set is sorted by its declared key.
-- **Public names.**
-  - For each public module (`is_public_module`), take `__all__` (`explicit_dunder_all_names`) if
-    present. Otherwise take local definitions plus explicit re-exports.
-  - Trace each name to its origin with `trace_export_origin`. Rows are (access path, origin,
-    `via_dunder_all`).
-  - The flattened set must equal `compute_public_fqns`, the function behind
-    `coverage report --public-only`, or the run fails.
+- **Public names.** Per public module (`is_public_module`): `explicit_dunder_all_names` if
+  present, else local definitions plus explicit re-exports, each traced by `trace_export_origin`
+  to a row (access path, origin, `via_dunder_all`). The flattened set must equal
+  `compute_public_fqns` (behind `coverage report --public-only`) or the run fails. Pyrefly stays
+  the only definition of "public".
   - **A completeness detector replaces Ruff's corroboration.** Pyrefly reads a non-literal
-    `__all__` (such as `sub.__all__ + [...]` or a call) as absent, or skips the parts it cannot
-    resolve, and every check that shares its code shares that blind spot. So a module is `partial`
-    for `exports`, with a `boundaries` row (`outside_provider_model`), when either:
-    - `unresolvable_dunder_all_range()` is set; or
-    - the Ruff walk finds an `__all__` statement that is not a literal list or tuple of strings.
-
-    Pyrefly stays the only definition of "public".
-- **Fidelity.** Pysa-model facts are `report_projection` even though they stay in memory. Pysa's
-  types are a projection: a display string, scalar properties and class names.
-  - `parameter_semantics` keeps all three for each annotation. A row that keeps only the string
-    is `display_only`.
-  - Native `pyrefly_types::Type` (`native_structural`) is reachable through `Answers` when a
-    consumer needs it (§13).
+    `__all__` (`sub.__all__ + [...]`, a call) as absent or in part, a blind spot every check
+    sharing its code shares. So `exports` is `partial`, with an `outside_provider_model`
+    boundary, when `unresolvable_dunder_all_range()` is set or the Ruff walk finds an `__all__`
+    that is not a literal list or tuple of strings.
+- **Fidelity.** Pysa-model facts are `report_projection`, in memory or not: Pysa's types are a
+  display string, scalar properties and class names, and `parameter_semantics` keeps all three
+  (a row keeping only the string would be `display_only`). Native `pyrefly_types::Type`
+  (`native_structural`) is reachable through `Answers` when a consumer needs it (§13).
 
 ### §4.2.4 Binding rule (conservative)
 
@@ -744,8 +743,8 @@ one process.
   lock, unpublished cycle answers), so continuing with the next module is unsafe.
   - Load and parse errors are not panics; they still become coverage rows (§4.2.2). Per-module
     isolation would need ADR-0012's Option 4, a separate process.
-- **Determinism oracle.** Reruns, shuffled order and perturbed ambient variables give byte-identical
-  sorted tables (S2, S3).
+- **Determinism oracle.** Reruns, reversed module order, separate processes and perturbed ambient
+  variables give byte-identical sorted tables (S2, S3, fixture tests).
 - **Harness-equivalence oracle.** A test runs the pinned Pyrefly CLI (the `uv` dev group, same
   revision) with an equivalent generated `pyrefly.toml` and asserts, per project module, that the
   in-process Pysa structs equal its `--report-pysa-format json` output as sets (`module_id`
@@ -753,8 +752,8 @@ one process.
   public parent prefix).
 
   It shares the collectors with the CLI, so it checks our driver (configuration, reporter
-  lifecycle, lazy solving), not the correctness of Pysa. It is **Tested** as a spike script (S4);
-  the nextest test is slice-1 work. The CLI is never a production input.
+  lifecycle, lazy solving), not the correctness of Pysa. It is **Tested** (S4, and a nextest test
+  on two fixtures, 2026-09-22). The CLI is never a production input.
 
 ### §4.2.6 Upgrading Pyrefly
 
@@ -763,8 +762,9 @@ one process.
      whose default reproduces upstream behaviour.
    - A patch that needs a logic change, or grows past about 60 changed lines, needs an ADR
      (ADR-0012's revisit trigger).
-2. Check that the fork revision equals the tag plus the patch (sha256), and re-derive the
-   `env::var` reads in the pinned source against the refused list (§4.2.1).
+2. `just deps` checks that `Cargo.lock`, the driver's `PYREFLY_REV`/`PYREFLY_PATCH_SHA256` and
+   pins.md name one revision, that it is the tag plus the patch, and that every `env::var` read
+   in the pinned source is classified against the refused list (§4.2.1).
 3. Move the ruff pin to the line the new Pyrefly compiles against (`pin-check`).
 4. Fix compile errors in the mappers, and append codebook values where exhaustive matches demand
    them. Record how many lines the Pyrefly-facing module changed, because port cost is also a
@@ -794,7 +794,7 @@ protocol and the rules.
 | Derive | Read raw at the written versions (§6.2). Run the derivation SQL from `cpg-schema` through one session helper, `ctx.sql_with_options`, disallowing DDL, DML and statements. No other code calls `ctx.sql`. Write with `write(vec![]).with_input_plan(plan).with_session_state(..)`. **Tested:** CHECK is enforced on this path. Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
 | Validate | DataFusion queries generated from the key, reference and endpoint declarations (§8). `target_partitions = 1` for float aggregates | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
 | Publish | `snapshots.write([rows])` in one commit (§6.1) | Classification after an ambiguous error |
-| Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3) | One helper |
+| Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3). **Tested:** with two snapshots in one table, dropping the version pin or the snapshot filter changes the result. Reading a missing table creates nothing | One helper |
 
 Operations are methods on `DeltaTable`. `DeltaOps` does not exist at this pin.
 
@@ -1455,3 +1455,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | Pyrefly (patched fork) and Ruff 0.0.11 linked in-process: §B1, §B2, §B8 revised; §3.2–§3.5, §4.0, §4.1 amended; §4.2 rewritten as §4.2.1–§4.2.6; §4.3 added; §6.1, §6.2, §8 and §13 amended; budget raised to ~1,450 lines | ADR-0012 |
 | 2026-09-22 | ADR-0009 probe ran in full (P1–P4) and ADR-0009 was accepted. ADR-0010 spikes (E1–E3) ran and ADR-0010 was accepted, with the embedding model changed to Qwen3-Embedding-8B (4,096 dimensions) by operator decision: §3.3, §4.3, §6 and §11 amended | ADR-0009, ADR-0010 |
 | 2026-09-22 | ADR-0012 standard review F1–F11, O1: abort on any panic; full Pysa variant table and `Overrides` as open candidates (§3.6); `__all__` completeness detector; immutable CHECKs verified at open; fidelity definitions; `Inline` thread; root-relative context paths; labels corrected | ADR-0012 |
+| 2026-09-22 | Slice-1 compact review F1–F9: `is_attribute` and potential remainders; module and class keys; site-packages digest in `context_id`; sorted config keys; revision tied to `Cargo.lock`; §3.4.1, §4.2.1–§4.2.5 reconciled to the code | ADR-0012 |

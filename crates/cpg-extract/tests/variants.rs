@@ -14,17 +14,20 @@ fn pysa_variant_table_snapshot() {
         .map(|r| {
             let (origin, modality) = &prov[&cell(calls, "fact_id", r)];
             format!(
-                "{}-{} site={} callee={} phase={} ho={} target={}:{} recv={} unresolved={} | origin={} modality={}",
+                "{}-{} site={} {} callee={} phase={} ho={} target={}:{}:{} recv={} unresolved={} attr={} | origin={} modality={}",
                 cell(calls, "start_byte", r),
                 cell(calls, "end_byte", r),
                 cell(calls, "site_kind", r),
+                cell(calls, "site_detail", r),
                 cell(calls, "callee_kind", r),
                 cell(calls, "phase", r),
                 cell(calls, "higher_order_index", r),
                 cell(calls, "target_kind", r),
+                cell(calls, "target_module", r),
                 cell(calls, "target_name", r),
                 cell(calls, "receiver_class", r),
                 cell(calls, "unresolved_reason", r),
+                cell(calls, "is_attribute", r),
                 origin,
                 modality,
             )
@@ -46,14 +49,17 @@ fn pysa_variant_table_snapshot() {
 }
 
 #[test]
-fn overrides_are_never_definite_and_if_called_is_potential() {
+fn modality_follows_the_variant_table() {
     let (_dir, out) = run("pysa_variants");
     let prov = provenance(&out);
     let calls = out.table("pysa_calls").unwrap();
+    // Codebook codes: target_kind overrides = 1; modality definite = 0, potential = 2;
+    // callee_kind identifier = 1, attribute_access = 2; phase call = 0, property get = 4,
+    // property set = 5; site_kind artificial attribute access = 2.
+    let (mut conditional_getters, mut potential_remainders, mut artificial_attribute) = (0, 0, 0);
     for r in 0..calls.num_rows() {
         let (_, modality) = &prov[&cell(calls, "fact_id", r)];
-        // Codebook codes: target_kind overrides = 1; modality definite = 0, potential = 2;
-        // callee_kind identifier = 1, attribute_access = 2; phase call = 0.
+        let phase = cell(calls, "phase", r);
         if cell(calls, "target_kind", r) == "1" {
             assert_ne!(
                 modality, "0",
@@ -61,11 +67,27 @@ fn overrides_are_never_definite_and_if_called_is_potential() {
             );
         }
         let callee = cell(calls, "callee_kind", r);
-        if (callee == "1" || callee == "2") && cell(calls, "phase", r) == "0" {
-            assert_eq!(modality, "2", "if_called targets are potential");
+        if (callee == "1" || callee == "2") && phase == "0" {
+            assert_eq!(
+                modality, "2",
+                "if_called targets and remainders are potential"
+            );
+            potential_remainders += usize::from(!cell(calls, "unresolved_reason", r).is_empty());
         }
         if !cell(calls, "higher_order_index", r).is_empty() {
             assert_eq!(modality, "2", "higher-order targets are potential");
         }
+        if cell(calls, "is_attribute", r) == "true" && (phase == "4" || phase == "5") {
+            assert_ne!(
+                modality, "0",
+                "a property some flow reads as an attribute (F1)"
+            );
+            conditional_getters += usize::from(cell(calls, "target_kind", r) == "0");
+        }
+        artificial_attribute += usize::from(cell(calls, "site_kind", r) == "2");
     }
+    // The fixture exercises each rule; none of the assertions above is vacuous.
+    assert!(conditional_getters > 0, "union_property");
+    assert!(potential_remainders > 0, "name_partly_unknown");
+    assert!(artificial_attribute > 0, "artificial_getattr");
 }

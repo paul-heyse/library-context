@@ -70,6 +70,10 @@ table!(
         site_package_path: Vec<String>,
         /// Digest of the canonical configured analyzer configuration.
         config_digest: Digest,
+        /// Digest of the site-package roots' content: every file's root-relative path and
+        /// content digest, in path order (review F2). The acquisition lock digest joins it in
+        /// Stage A.
+        site_packages_digest: Digest,
     }
 );
 
@@ -220,13 +224,15 @@ table!(
     /// Pysa's function definitions (`pyrefly-pysa`): the bridge from Pysa function keys to spans.
     PysaFunctions, PysaFunctionsRow = "pysa_functions",
     family = Signatures,
-    key = [snapshot_id, module_name, function_key, fact_id],
+    key = [snapshot_id, module_node_id, function_key, fact_id],
     checks = [],
     {
         snapshot_id: Id,
         fact_id: Id,
+        /// The defining file (`source_files`): a `.py` and its `.pyi` share a module name.
+        module_node_id: Id,
         module_name: String,
-        /// Pysa's `FunctionId` (`F:3`, `MTL`, `CF:1:2`, …), unique within a module.
+        /// Pysa's `FunctionId` (`F:3`, `MTL`, `CF:1:2`, …), unique within a file.
         function_key: String,
         name: String,
         name_start_byte: Option<i64>,
@@ -238,8 +244,9 @@ table!(
         is_property_setter: bool,
         is_stub: bool,
         is_def_statement: bool,
+        /// Class reference (§4.2.3) of the class defining this method.
         defining_class: Option<String>,
-        /// `module::function_key` of the method this one overrides.
+        /// `<module ref>::<function_key>` of the method this one overrides (§4.2.3).
         overridden_base: Option<String>,
     }
 );
@@ -249,11 +256,12 @@ table!(
     /// `...`/`ParamSpec` form.
     ParameterSemantics, ParameterSemanticsRow = "parameter_semantics",
     family = Signatures,
-    key = [snapshot_id, module_name, function_key, signature_index, ordinal, fact_id],
+    key = [snapshot_id, module_node_id, function_key, signature_index, ordinal, fact_id],
     checks = [("signature_index_nonnegative", "signature_index >= 0")],
     {
         snapshot_id: Id,
         fact_id: Id,
+        module_node_id: Id,
         module_name: String,
         function_key: String,
         signature_index: i64,
@@ -264,7 +272,7 @@ table!(
         required: Option<bool>,
         /// Pysa's display string for the annotation.
         annotation: Option<String>,
-        /// Qualified class names Pysa extracted from the annotation.
+        /// Class references (§4.2.3) Pysa extracted from the annotation, sorted.
         annotation_classes: Vec<String>,
         annotation_classes_exhaustive: Option<bool>,
         /// Pysa's scalar properties that hold (`bool`, `int`, `float`, `enum`).
@@ -276,12 +284,14 @@ table!(
     /// Pysa's class bases and reported MRO (ancestors, excluding the class and `object`, §3.5.1).
     ClassAncestry, ClassAncestryRow = "class_ancestry",
     family = Signatures,
-    key = [snapshot_id, module_name, class_key, relation, ordinal, fact_id],
+    key = [snapshot_id, module_node_id, class_key, relation, ordinal, fact_id],
     checks = [],
     {
         snapshot_id: Id,
         fact_id: Id,
+        module_node_id: Id,
         module_name: String,
+        /// Pysa's `ClassId`, unique within a file.
         class_key: String,
         class_name: String,
         name_start_byte: Option<i64>,
@@ -289,6 +299,7 @@ table!(
         relation: AncestryRelation,
         /// Null only for a cyclic MRO's single marker row.
         ordinal: Option<i64>,
+        /// Class reference (§4.2.3).
         ancestor: Option<String>,
         mro_cyclic: bool,
     }
@@ -346,11 +357,12 @@ table!(
     /// Pysa's call graph (`pyrefly-pysa`), one row per target or unresolved remainder (§4.2.3).
     PysaCalls, PysaCallsRow = "pysa_calls",
     family = Calls,
-    key = [snapshot_id, module_name, start_byte, end_byte, fact_id],
+    key = [snapshot_id, module_node_id, start_byte, end_byte, fact_id],
     checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
     {
         snapshot_id: Id,
         fact_id: Id,
+        module_node_id: Id,
         module_name: String,
         caller_key: String,
         site_kind: PysaSiteKind,
@@ -362,15 +374,20 @@ table!(
         phase: InvocationPhase,
         higher_order_index: Option<i64>,
         target_kind: PysaTargetKind,
+        /// Module reference (§4.2.3) of the target's file.
         target_module: Option<String>,
         target_key: Option<String>,
         target_name: Option<String>,
+        /// Class reference (§4.2.3).
         receiver_class: Option<String>,
         implicit_receiver: Option<ImplicitReceiver>,
         implicit_dunder_call: Option<bool>,
         is_class_method: Option<bool>,
         is_static_method: Option<bool>,
         unresolved_reason: Option<PysaUnresolvedReason>,
+        /// For an attribute access: Pysa's `is_attribute`, some flow reads a plain attribute, so
+        /// a property row is at most `candidate` (review F1).
+        is_attribute: Option<bool>,
     }
 );
 

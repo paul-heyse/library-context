@@ -1,5 +1,6 @@
 # Review F1 (ADR-0012): Pyrefly treats its state as unsupported after any panic, so the extractor
-# must abort the attempt rather than catch a panic and continue with the next module.
+# must abort the attempt rather than catch a panic and continue with the next module. Slice-1
+# review O2: a scoped thread per module catches a panic the same way, so it is flagged too.
 id: no-catch-unwind-in-extractor
 language: rust
 severity: error
@@ -10,5 +11,7 @@ rule:
     - pattern: catch_unwind($$$ARGS)
     - pattern: panic::catch_unwind($$$ARGS)
     - pattern: std::panic::catch_unwind($$$ARGS)
+    - pattern: thread::scope($$$ARGS)
+    - pattern: std::thread::scope($$$ARGS)
 files:
   - crates/cpg-extract/src/**/*.rs

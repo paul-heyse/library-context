@@ -4,11 +4,12 @@ expression: text
 ---
 table class_ancestry
 family signatures
-key snapshot_id, module_name, class_key, relation, ordinal, fact_id
+key snapshot_id, module_node_id, class_key, relation, ordinal, fact_id
 @lctx.family=signatures
 @lctx.table=class_ancestry
 snapshot_id: FixedSizeBinary(16) NOT NULL
 fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
 module_name: Utf8 NOT NULL
 class_key: Utf8 NOT NULL
 class_name: Utf8 NOT NULL

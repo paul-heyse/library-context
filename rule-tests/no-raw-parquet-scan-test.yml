@@ -1,0 +1,6 @@
+id: no-raw-parquet-scan
+valid:
+  - "async fn f(root: &Path) { read_at::<Declarations>(root, 3, id).await; }"
+invalid:
+  - "async fn f(ctx: &SessionContext) { ctx.read_parquet(\"t/\", ParquetReadOptions::default()).await; }"
+  - "async fn f(ctx: &SessionContext) { ctx.register_parquet(\"t\", \"t/\", opts).await; }"

@@ -76,15 +76,27 @@ fn dunder_all_forms_hand_written_expectations() {
         assert!(public.contains(name), "{name} is public");
     }
     assert!(!public.contains("dunder.lit.hidden"));
-    // Where Pyrefly's reading differs from the runtime `__all__`, the module is `partial`: the
-    // runtime `dunder.__all__` is ["alpha", "beta", "top"], and Pyrefly keeps only "top".
-    let missing: Vec<&str> = ["dunder.alpha", "dunder.beta"]
-        .into_iter()
-        .filter(|n| !public.contains(*n))
-        .collect();
-    if !missing.is_empty() {
-        assert_eq!(exports("dunder"), PARTIAL);
-    }
+    // Where Pyrefly's reading differs from the runtime `__all__`, the module is `partial` (above).
+    // The runtime `dunder.__all__` is ["alpha", "beta", "top"]; Pyrefly keeps only "top". The
+    // runtime `dunder.dyn.__all__` is ["dyn_public", "dyn_other"]; Pyrefly falls back to every
+    // non-underscore name, so `alpha_call` is over-reported.
+    let under = |prefix: &str| -> BTreeSet<String> {
+        public
+            .iter()
+            .filter(|p| {
+                p.strip_prefix(prefix)
+                    .is_some_and(|rest| !rest.contains('.'))
+            })
+            .cloned()
+            .collect()
+    };
+    assert_eq!(under("dunder."), BTreeSet::from(["dunder.top".to_owned()]));
+    assert_eq!(
+        under("dunder.dyn."),
+        BTreeSet::from(
+            ["alpha_call", "dyn_other", "dyn_public"].map(|n| format!("dunder.dyn.{n}"))
+        )
+    );
 
     let b = out.table("boundaries").unwrap();
     let flagged = (0..b.num_rows())
@@ -130,6 +142,25 @@ fn undecodable_and_broken_modules_are_never_silent() {
 #[test]
 fn unicode_bom_crlf_calls_all_join_on_the_call_range() {
     let (_dir, out) = run("unicode_bom");
+    // Offsets index the acquired bytes, BOM included (§3.4): every declaration's name span slices
+    // its name out of the file as stored (review O6).
+    let files = out.table("source_files").unwrap();
+    let path: BTreeMap<String, String> = (0..files.num_rows())
+        .map(|r| (cell(files, "module_node_id", r), cell(files, "path", r)))
+        .collect();
+    let decls = out.table("declarations").unwrap();
+    assert!(decls.num_rows() > 0);
+    for r in 0..decls.num_rows() {
+        let bytes = std::fs::read(
+            common::fixture("unicode_bom").join(&path[&cell(decls, "module_node_id", r)]),
+        )
+        .unwrap();
+        let (s, e): (usize, usize) = (
+            cell(decls, "name_start_byte", r).parse().unwrap(),
+            cell(decls, "name_end_byte", r).parse().unwrap(),
+        );
+        assert_eq!(bytes[s..e], *cell(decls, "name", r).as_bytes());
+    }
     let b = out.table("boundaries").unwrap();
     assert_eq!(
         b.num_rows(),

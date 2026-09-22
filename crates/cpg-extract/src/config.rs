@@ -17,11 +17,16 @@ pub const REFUSED_ENV_PREFIX: &str = "PYSA_DUMP";
 
 /// The tool name recorded in `producers`.
 pub const TOOL: &str = "lctx-extract";
-/// Pinned analyzers (docs/pins.md). Changing either is a pin change and changes `producer_id`.
-pub const PYREFLY_REVISION: &str = "pyrefly 1.3.1 b9f28575 (tag 3e3177d0 + patch sha256 b7b82828e3e3470c93d35d5aef0e24904cd3b570b61772f4883701805959b767)";
+/// The Pyrefly fork revision this crate is built against, and the digest of the patch it carries
+/// over tag 1.3.1 (docs/pins.md). `just deps` fails unless both equal the `Cargo.lock` revision
+/// and `third_party/pyrefly-1.3.1.patch` (review F4). Both feed `producer_id`.
+pub const PYREFLY_REV: &str = "b9f28575ce2baa93dbc416670a34592501b3fcd4";
+pub const PYREFLY_PATCH_SHA256: &str =
+    "b7b82828e3e3470c93d35d5aef0e24904cd3b570b61772f4883701805959b767";
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
-/// Bumped whenever the mapping changes output for the same inputs (it changes `producer_id`).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 1;
+/// Bumped by hand whenever the mapping changes output for the same inputs (it changes
+/// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 2;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -43,9 +48,18 @@ pub struct ExtractInput {
     pub snapshot_id: Id,
     /// Keep the Pysa structs as JSON for the harness-equivalence test (§4.2.5).
     pub keep_pysa_json: bool,
-    /// Test-only fault hook: panic inside Pyrefly-touching extraction of this module.
+    /// Test oracles only; the CLI never sets them.
     #[doc(hidden)]
+    pub test_hooks: TestHooks,
+}
+
+/// Hooks the tests use to show the driver's contracts can fail (review F1, F6).
+#[derive(Debug, Clone, Default)]
+pub struct TestHooks {
+    /// Panic in the driver loop at this module (before its Pysa collectors run).
     pub fault_at_module: Option<String>,
+    /// Hand Pyrefly the module handles in reverse order instead of sorted.
+    pub reverse_module_order: bool,
 }
 
 pub(crate) fn refuse_ambient() -> Result<(), ExtractError> {
@@ -119,7 +133,46 @@ fn relativize(value: &mut Value, input: &ExtractInput) {
     }
 }
 
-/// The analysis context: the configured file and every `#[serde(skip)]` input, root-relative.
+/// Digest of the site-package roots' content (review F2): per root in order, every file's
+/// root-relative path and content digest (a symlink's target text), in path order. Bytecode
+/// caches are skipped; the analyzer never reads them.
+fn site_packages_digest(roots: &[PathBuf]) -> std::io::Result<Digest> {
+    fn files(dir: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
+            .map(|e| e.map(|e| e.path()))
+            .collect::<Result<_, _>>()?;
+        entries.sort();
+        for p in entries {
+            if std::fs::symlink_metadata(&p)?.is_dir() {
+                if p.file_name() != Some("__pycache__".as_ref()) {
+                    files(&p, acc)?;
+                }
+            } else {
+                acc.push(p);
+            }
+        }
+        Ok(())
+    }
+    let mut h = IdHasher::new(kind::SITE_PACKAGES);
+    for root in roots {
+        let mut listed = Vec::new();
+        files(root, &mut listed)?;
+        h.i64(listed.len() as i64);
+        for f in listed {
+            let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy();
+            let content = if std::fs::symlink_metadata(&f)?.is_symlink() {
+                content_digest(std::fs::read_link(&f)?.to_string_lossy().as_bytes())
+            } else {
+                content_digest(&std::fs::read(&f)?)
+            };
+            h.str(&rel).digest_field(content);
+        }
+    }
+    Ok(h.finish_digest())
+}
+
+/// The analysis context: the configured file, every `#[serde(skip)]` input (root-relative), and
+/// the content of the dependency environment.
 pub(crate) struct Context {
     pub id: Id,
     pub python_version: String,
@@ -127,11 +180,15 @@ pub(crate) struct Context {
     pub search_path: Vec<String>,
     pub site_package_path: Vec<String>,
     pub config_digest: Digest,
+    pub site_packages_digest: Digest,
 }
 
-pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Context {
+pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Result<Context, ExtractError> {
     let mut json = serde_json::to_value(cfg).unwrap_or(Value::Null);
     relativize(&mut json, input);
+    // Key order must not depend on the build: DataFusion turns on serde_json's
+    // `preserve_order` wherever it shares the dependency graph.
+    json.sort_all_objects();
     let search_path: Vec<String> = cfg
         .search_path()
         .map(|p| relative(p, &input.release_root, "release"))
@@ -143,21 +200,24 @@ pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Context {
     let (major, minor, micro) = input.python_version;
     let python_version = format!("{major}.{minor}.{micro}");
     let config_digest = content_digest(json.to_string().as_bytes());
+    let site_packages_digest = site_packages_digest(&input.site_packages)?;
     let id = IdHasher::new(kind::CONTEXT)
         .str(&python_version)
         .str(&input.python_platform)
         .strs(search_path.iter().map(String::as_str))
         .strs(site_package_path.iter().map(String::as_str))
         .digest_field(config_digest)
+        .digest_field(site_packages_digest)
         .finish_id();
-    Context {
+    Ok(Context {
         id,
         python_version,
         python_platform: input.python_platform.clone(),
         search_path,
         site_package_path,
         config_digest,
-    }
+        site_packages_digest,
+    })
 }
 
 /// The producer: tool, pinned analyzers, driver settings and output version.
@@ -170,7 +230,8 @@ pub(crate) struct Producer {
 }
 
 pub(crate) fn producer() -> Producer {
-    let revision = format!("{PYREFLY_REVISION}; {RUFF_LINE}");
+    let revision =
+        format!("pyrefly 1.3.1 {PYREFLY_REV} (patch sha256 {PYREFLY_PATCH_SHA256}); {RUFF_LINE}");
     let config = format!("threads=inline; stack_bytes={DRIVER_STACK_BYTES}");
     let build = format!("{}/{EXTRACTOR_OUTPUT_VERSION}", env!("CARGO_PKG_VERSION"));
     let build_digest = content_digest(build.as_bytes());

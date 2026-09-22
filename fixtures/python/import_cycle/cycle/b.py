@@ -1,8 +1,19 @@
 from cycle import a
 
-OTHER = 41
-DERIVED = a.PAIR
+
+def right(n):
+    if n:
+        return a.left(n - 1)
+    return ""
 
 
-def helper(x):
-    return [x, a.VALUE, DERIVED]
+def use_right():
+    return right(3).upper()
+
+
+FLAG = True
+Y = a.X if FLAG else ""
+
+
+def use_y():
+    return Y.upper()

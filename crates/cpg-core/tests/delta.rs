@@ -34,7 +34,7 @@ fn fixture_output(dir: &Path) -> cpg_extract::ExtractOutput {
             .finish_id(),
         snapshot_id: Id([9; 16]),
         keep_pysa_json: false,
-        fault_at_module: None,
+        test_hooks: Default::default(),
     })
     .unwrap()
 }
@@ -76,9 +76,13 @@ async fn every_table_round_trips_through_delta_exactly() {
 }
 
 fn decl(start: i64, end: i64) -> RecordBatch {
+    decl_in(Id([1; 16]), start, end)
+}
+
+fn decl_in(snapshot_id: Id, start: i64, end: i64) -> RecordBatch {
     let id = IdHasher::new("t").i64(start).finish_id();
     Declarations::to_batch(&[DeclarationsRow {
-        snapshot_id: Id([1; 16]),
+        snapshot_id,
         fact_id: id,
         node_id: id,
         module_node_id: id,
@@ -100,6 +104,32 @@ fn decl(start: i64, end: i64) -> RecordBatch {
 }
 
 #[tokio::test]
+async fn reads_pin_the_version_and_filter_the_snapshot() {
+    // Review F7: with two snapshots in one table, a read that ignored either the version pin or
+    // the snapshot filter returns the wrong rows.
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (Id([1; 16]), Id([2; 16]));
+    let t = create::<Declarations>(dir.path()).await.unwrap();
+    let t = append(t, decl_in(a, 10, 20), a).await.unwrap();
+    let at_a = t.version().unwrap();
+    let t = append(t, decl_in(b, 30, 40), b).await.unwrap();
+    let at_b = t.version().unwrap();
+    for version in [at_a, at_b] {
+        let back = read_at::<Declarations>(dir.path(), version, a)
+            .await
+            .unwrap();
+        assert_eq!(back, decl_in(a, 10, 20), "snapshot A at version {version}");
+    }
+    let early = read_at::<Declarations>(dir.path(), at_a, b).await.unwrap();
+    assert_eq!(early.num_rows(), 0, "B is not visible at A's version");
+    let late = read_at::<Declarations>(dir.path(), at_b, b).await.unwrap();
+    assert_eq!(late, decl_in(b, 30, 40));
+    // A missing table is "not a table", and reading it creates nothing.
+    assert!(open_verified::<Boundaries>(dir.path()).await.is_err());
+    assert!(!dir.path().join(Boundaries::NAME).exists());
+}
+
+#[tokio::test]
 async fn open_refuses_a_table_whose_checks_drift_or_are_missing() {
     let dir = tempfile::tempdir().unwrap();
     let t = create::<Declarations>(dir.path()).await.unwrap();
@@ -114,6 +144,7 @@ async fn open_refuses_a_table_whose_checks_drift_or_are_missing() {
     // A crash between create and add_constraint leaves a table without its CHECKs.
     let other = tempfile::tempdir().unwrap();
     let kernel: StructType = Declarations::schema().as_ref().try_into_kernel().unwrap();
+    std::fs::create_dir_all(other.path().join(Declarations::NAME)).unwrap();
     DeltaTable::try_from_url(table_url(other.path(), Declarations::NAME).unwrap())
         .await
         .unwrap()

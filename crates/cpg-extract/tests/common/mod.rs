@@ -60,7 +60,7 @@ pub fn input(l: &Layout, label: &str) -> ExtractInput {
         release_id: IdHasher::new(kind::RELEASE).str(label).finish_id(),
         snapshot_id: Id([7; 16]),
         keep_pysa_json: false,
-        fault_at_module: None,
+        test_hooks: Default::default(),
     }
 }
 

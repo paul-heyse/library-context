@@ -11,7 +11,7 @@ mod public;
 mod pysa_map;
 mod walk;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use arrow_array::RecordBatch;
@@ -42,11 +42,15 @@ use pyrefly_config::finder::ConfigFinder;
 use pyrefly_python::module_path::ModulePath;
 use pyrefly_util::arc_id::ArcId;
 use pyrefly_util::thread_pool::ThreadCount;
+use ruff_text_size::Ranged;
 use serde_json::Value;
 
-pub use config::{DRIVER_STACK_BYTES, ExtractInput, REFUSED_ENV, REFUSED_ENV_PREFIX, TOOL};
+pub use config::{
+    DRIVER_STACK_BYTES, ExtractInput, PYREFLY_PATCH_SHA256, PYREFLY_REV, REFUSED_ENV,
+    REFUSED_ENV_PREFIX, TOOL, TestHooks,
+};
 use facts::{FactSink, Provenance, Surface, dedup_by_fact, fact_row};
-use pysa_map::{Locator, PysaOut};
+use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
 use walk::{ModuleCtx, span};
 
 /// The fact families this producer declares (coverage rows exist for each, per module).
@@ -70,6 +74,8 @@ pub enum ExtractError {
     Arrow(#[from] ArrowError),
     #[error("public names disagree with compute_public_fqns: {0}")]
     PublicMismatch(String),
+    #[error("fact {0} was asserted twice with different provenance")]
+    ProvenanceConflict(String),
     #[error("extraction panicked; the attempt is aborted")]
     Panicked,
 }
@@ -82,7 +88,8 @@ pub struct ExtractOutput {
     pub producer_id: Id,
     /// `(table name, canonically sorted batch)` for every table the producer writes.
     pub tables: Vec<(&'static str, RecordBatch)>,
-    /// Per module: the in-memory Pysa structs as JSON (`module_id` removed), when requested.
+    /// Per module name: the in-memory Pysa structs as JSON (`module_id` removed), when
+    /// requested. A `.py`/`.pyi` pair shares a name, so the harness fixtures have none.
     pub pysa_json: BTreeMap<String, Value>,
 }
 
@@ -214,7 +221,7 @@ impl Report {
 
 fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     let cfg = config::pyrefly_config(input)?;
-    let context = config::context(&cfg, input);
+    let context = config::context(&cfg, input)?;
     let producer = config::producer();
     let family_names: Vec<&str> = FAMILIES
         .iter()
@@ -247,6 +254,9 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         });
     }
     modules.sort_by(|a, b| (&a.name, &a.path).cmp(&(&b.name, &b.path)));
+    if input.test_hooks.reverse_module_order {
+        modules.reverse();
+    }
     let handles: Vec<Handle> = modules.iter().map(|m| m.handle.clone()).collect();
 
     // One check at `Everything`, single-threaded, with the no-write Pysa reporter installed.
@@ -269,6 +279,13 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .pysa_reporter()
         .expect("the reporter was installed before run")
         .module_ids;
+    // Project handles hold ids pre-assigned in sorted order; only dependencies are numbered lazily.
+    let refs = ModuleRefs {
+        release_files: modules
+            .iter()
+            .map(|m| (module_ids.get_from_handle(&m.handle), m.path.clone()))
+            .collect(),
+    };
 
     let mut source_files = Vec::new();
     let mut walked = walk::WalkOut::default();
@@ -328,7 +345,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             );
             continue;
         }
-        if input.fault_at_module.as_deref() == Some(m.name.as_str()) {
+        if input.test_hooks.fault_at_module.as_deref() == Some(m.name.as_str()) {
             panic!("fault hook: injected panic in module {}", m.name);
         }
 
@@ -355,13 +372,18 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         let overrides = create_reversed_override_graph_for_module(&context);
         let defs = export_module_definitions(&context, &captured, &overrides);
         let graphs = export_module_call_graphs(&context, &captured);
-        let loc = Locator {
-            line_index: info.lined_buffer().line_index(),
-            text: &text,
+        let here = Here {
+            module_name: &m.name,
+            module_node_id: m.node_id,
+            refs: &refs,
+            loc: Locator {
+                line_index: info.lined_buffer().line_index(),
+                text: &text,
+            },
         };
         let mut module_pysa = PysaOut::default();
-        pysa_map::map_definitions(&m.name, &defs, &loc, &mut sink, &mut module_pysa);
-        pysa_map::map_call_graphs(&m.name, &graphs, &loc, &mut sink, &mut module_pysa);
+        pysa_map::map_definitions(&here, &defs, &mut sink, &mut module_pysa);
+        pysa_map::map_call_graphs(&here, &graphs, &mut sink, &mut module_pysa);
         if input.keep_pysa_json {
             let mut d = serde_json::to_value(&defs).unwrap_or(Value::Null);
             let mut g = serde_json::to_value(&graphs).unwrap_or(Value::Null);
@@ -373,8 +395,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             );
         }
 
-        // Coverage: parse errors, unmatched calls, and the `__all__` completeness detector.
-        let mut partial: HashSet<FactFamily> = HashSet::new();
+        // Coverage: parse errors, unmatched calls, and the `__all__` completeness detector. A
+        // partial family keeps its first cause as the coverage reason; a syntax error outranks
+        // the rest.
+        let mut partial: HashMap<FactFamily, BoundaryReason> = HashMap::new();
         let errors = txn.get_errors([&m.handle]).collect_errors();
         let parse_errors: Vec<_> = [
             &errors.ordinary,
@@ -388,7 +412,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .filter(|e| e.error_kind() == ErrorKind::ParseError)
         .collect();
         if !parse_errors.is_empty() {
-            partial.extend(FAMILIES);
+            partial.extend(FAMILIES.map(|f| (f, BoundaryReason::SyntaxError)));
             for e in &parse_errors {
                 report.boundary(
                     &mut sink,
@@ -396,8 +420,8 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
                     None,
                     FactFamily::Exports,
                     BoundaryReason::SyntaxError,
-                    None,
-                    Some(format!("{}: {}", e.display_range(), e.msg_header())),
+                    Some(span(e.range())),
+                    Some(e.msg_header().to_owned()),
                 );
             }
         }
@@ -411,7 +435,9 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             let reason = if call.in_annotation {
                 BoundaryReason::OutsideProviderModel
             } else {
-                partial.insert(FactFamily::Calls);
+                partial
+                    .entry(FactFamily::Calls)
+                    .or_insert(BoundaryReason::MissingEvidence);
                 BoundaryReason::MissingEvidence
             };
             report.boundary(
@@ -449,7 +475,9 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         unresolvable_all.sort_unstable();
         unresolvable_all.dedup();
         for s in unresolvable_all {
-            partial.insert(FactFamily::Exports);
+            partial
+                .entry(FactFamily::Exports)
+                .or_insert(BoundaryReason::OutsideProviderModel);
             report.boundary(
                 &mut sink,
                 m.node_id,
@@ -461,15 +489,9 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             );
         }
         for family in FAMILIES {
-            let (status, reason) = if partial.contains(&family) {
-                let reason = if parse_errors.is_empty() {
-                    None
-                } else {
-                    Some(BoundaryReason::SyntaxError)
-                };
-                (CoverageStatus::Partial, reason)
-            } else {
-                (CoverageStatus::CompleteUnderStatedModel, None)
+            let (status, reason) = match partial.get(&family) {
+                Some(reason) => (CoverageStatus::Partial, Some(*reason)),
+                None => (CoverageStatus::CompleteUnderStatedModel, None),
             };
             report.cover(&sink, m.node_id, family, status, reason, None);
         }
@@ -514,6 +536,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         search_path: context.search_path.clone(),
         site_package_path: context.site_package_path.clone(),
         config_digest: context.config_digest,
+        site_packages_digest: context.site_packages_digest,
     }];
     let producers = vec![ProducersRow {
         snapshot_id,
@@ -583,7 +606,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             Boundaries::NAME,
             Boundaries::to_sorted_batch(&report.boundaries)?,
         ),
-        (Facts::NAME, Facts::to_sorted_batch(&sink.into_rows())?),
+        (Facts::NAME, Facts::to_sorted_batch(&sink.into_rows()?)?),
     ];
     Ok(ExtractOutput {
         run_id,

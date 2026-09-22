@@ -4,11 +4,12 @@ expression: text
 ---
 table pysa_functions
 family signatures
-key snapshot_id, module_name, function_key, fact_id
+key snapshot_id, module_node_id, function_key, fact_id
 @lctx.family=signatures
 @lctx.table=pysa_functions
 snapshot_id: FixedSizeBinary(16) NOT NULL
 fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
 module_name: Utf8 NOT NULL
 function_key: Utf8 NOT NULL
 name: Utf8 NOT NULL

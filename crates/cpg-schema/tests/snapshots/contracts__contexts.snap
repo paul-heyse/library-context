@@ -14,3 +14,4 @@ python_platform: Utf8 NOT NULL
 search_path: List(non-null Utf8) NOT NULL
 site_package_path: List(non-null Utf8) NOT NULL
 config_digest: FixedSizeBinary(32) NOT NULL
+site_packages_digest: FixedSizeBinary(32) NOT NULL

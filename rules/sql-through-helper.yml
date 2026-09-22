@@ -1,11 +1,16 @@
 # Review F7: all SQL goes through `cpg_core::sql::query`, which disallows DDL, DML and statements,
-# so no query can write to a fact table.
+# so no query can write to a fact table. Slice-1 review O2: `sql_with_options` outside the helper
+# could pass permissive options, so it is flagged too.
 id: sql-through-helper
 language: rust
 severity: error
-message: call cpg_core::sql::query instead of SessionContext::sql
+message: call cpg_core::sql::query instead of SessionContext::sql or sql_with_options
 note: The helper plans with read-only SQLOptions (DESIGN §4.3).
 rule:
-  pattern: $CTX.sql($$$ARGS)
+  any:
+    - pattern: $CTX.sql($$$ARGS)
+    - pattern: $CTX.sql_with_options($$$ARGS)
 files:
   - crates/*/src/**/*.rs
+ignores:
+  - crates/cpg-core/src/sql.rs
