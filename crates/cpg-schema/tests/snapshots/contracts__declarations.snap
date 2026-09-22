@@ -1,0 +1,28 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table declarations
+family exports
+key snapshot_id, module_node_id, start_byte, end_byte, node_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+check name_span_order: name_start_byte >= start_byte AND name_end_byte >= name_start_byte
+@lctx.family=exports
+@lctx.table=declarations
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+parent_node_id: FixedSizeBinary(16) NULL
+qualified_name: Utf8 NOT NULL
+name: Utf8 NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=declaration_kind]
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+name_start_byte: Int64 NOT NULL
+name_end_byte: Int64 NOT NULL
+docstring: Utf8 NULL
+docstring_start_byte: Int64 NULL
+docstring_end_byte: Int64 NULL
+is_overload: Boolean NOT NULL
+decorators: List(non-null Utf8) NOT NULL

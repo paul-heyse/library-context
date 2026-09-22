@@ -1,0 +1,144 @@
+---
+source: crates/cpg-schema/tests/codebooks.rs
+expression: text
+---
+origin
+  0 input_context
+  1 source_observation
+  2 analyzer_assertion
+  3 derived_analysis
+  4 synthetic_model
+fidelity
+  0 raw
+  1 native_structural
+  2 normalized_structural
+  3 report_projection
+  4 display_only
+extraction_mode
+  0 native_traversal
+  1 report_decode
+  2 relational_derivation
+  3 graph_analysis
+  4 recognizer
+  5 statistical_analysis
+  6 template_synthesis
+  7 fixture_execution
+  8 manual_review
+modality
+  0 definite
+  1 candidate
+  2 potential
+coverage_status
+  0 complete_under_stated_model
+  1 partial
+  2 not_requested
+  3 unavailable
+  4 failed
+resolution_status
+  0 resolved
+  1 partial
+  2 unresolved
+  3 not_attempted
+resolution_domain
+  0 call
+  1 attribute
+  2 import
+  3 name
+  4 type
+invocation_phase
+  0 call
+  1 new
+  2 init
+  3 decorator
+  4 property_get
+  5 property_set
+boundary_reason
+  0 native_unavailable
+  1 unresolved_target
+  2 unsupported_unpacking
+  3 ambiguous_binding
+  4 unsupported_control_flow
+  5 scope_boundary
+  6 budget_reached
+  7 missing_evidence
+  8 not_requested
+  9 provider_disagreement
+  10 outside_provider_model
+pysa_unresolved_reason
+  0 LambdaArgument
+  1 UnexpectedPyreflyTarget
+  2 EmptyPyreflyCallTarget
+  3 UnknownClassField
+  4 ClassFieldOnlyExistInObject
+  5 UnsupportedFunctionTarget
+  6 UnexpectedDefiningClass
+  7 UnexpectedInitMethod
+  8 UnexpectedNewMethod
+  9 UnexpectedCalleeExpression
+  10 UnresolvedMagicDunderAttr
+  11 UnresolvedMagicDunderAttrDueToNoBase
+  12 UnresolvedMagicDunderAttrDueToNoAttribute
+  13 Mixed
+evidence_status
+  0 structurally_observed
+  1 documented
+  2 statistically_derived
+  3 fixture_checked
+  4 unresolved
+fact_family
+  0 provenance
+  1 exports
+  2 signatures
+  3 calls
+  4 coverage
+scope_kind
+  0 release
+  1 module
+  2 callable
+declaration_kind
+  0 function
+  1 async_function
+  2 class
+export_syntax_kind
+  0 import
+  1 import_from
+  2 dunder_all
+parameter_kind
+  0 positional_only
+  1 positional_or_keyword
+  2 var_positional
+  3 keyword_only
+  4 var_keyword
+signature_form
+  0 list
+  1 ellipsis
+  2 param_spec
+argument_kind
+  0 positional
+  1 starred
+  2 keyword
+  3 double_starred
+pysa_site_kind
+  0 regular
+  1 artificial_call
+  2 artificial_attribute_access
+  3 identifier
+  4 format_string_artificial
+  5 format_string_stringify
+pysa_target_kind
+  0 function
+  1 overrides
+  2 unresolved
+pysa_callee_kind
+  0 call
+  1 identifier
+  2 attribute_access
+  3 format_string_artificial
+  4 format_string_stringify
+implicit_receiver
+  0 false
+  1 true_with_class_receiver
+  2 true_with_object_receiver
+ancestry_relation
+  0 base
+  1 mro

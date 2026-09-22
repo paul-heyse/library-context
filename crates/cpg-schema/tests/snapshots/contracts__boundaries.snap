@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table boundaries
+family coverage
+key snapshot_id, module_node_id, fact_family, start_byte, fact_id
+check span_order: (start_byte IS NULL AND end_byte IS NULL) OR (start_byte >= 0 AND end_byte >= start_byte)
+@lctx.family=coverage
+@lctx.table=boundaries
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+subject_node_id: FixedSizeBinary(16) NULL
+fact_family: Int16 NOT NULL [lctx.codebook=fact_family]
+reason: Int16 NOT NULL [lctx.codebook=boundary_reason]
+start_byte: Int64 NULL
+end_byte: Int64 NULL
+detail: Utf8 NULL

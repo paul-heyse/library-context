@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table facts
+family provenance
+key snapshot_id, fact_id
+@lctx.family=provenance
+@lctx.table=facts
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+run_id: FixedSizeBinary(16) NOT NULL
+table_name: Utf8 NOT NULL
+origin: Int16 NOT NULL [lctx.codebook=origin]
+extraction_mode: Int16 NOT NULL [lctx.codebook=extraction_mode]
+modality: Int16 NOT NULL [lctx.codebook=modality]
+fidelity: Int16 NOT NULL [lctx.codebook=fidelity]
+model_id: Utf8 NOT NULL

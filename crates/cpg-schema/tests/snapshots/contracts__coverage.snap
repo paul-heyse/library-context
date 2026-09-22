@@ -1,0 +1,17 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table coverage
+family coverage
+key snapshot_id, run_id, scope_node_id, fact_family
+@lctx.family=coverage
+@lctx.table=coverage
+snapshot_id: FixedSizeBinary(16) NOT NULL
+run_id: FixedSizeBinary(16) NOT NULL
+scope_kind: Int16 NOT NULL [lctx.codebook=scope_kind]
+scope_node_id: FixedSizeBinary(16) NOT NULL
+fact_family: Int16 NOT NULL [lctx.codebook=fact_family]
+status: Int16 NOT NULL [lctx.codebook=coverage_status]
+reason: Int16 NULL [lctx.codebook=boundary_reason]
+detail: Utf8 NULL

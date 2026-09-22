@@ -1,0 +1,31 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table pysa_calls
+family calls
+key snapshot_id, module_name, start_byte, end_byte, fact_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+@lctx.family=calls
+@lctx.table=pysa_calls
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_name: Utf8 NOT NULL
+caller_key: Utf8 NOT NULL
+site_kind: Int16 NOT NULL [lctx.codebook=pysa_site_kind]
+callee_kind: Int16 NOT NULL [lctx.codebook=pysa_callee_kind]
+site_detail: Utf8 NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
+higher_order_index: Int64 NULL
+target_kind: Int16 NOT NULL [lctx.codebook=pysa_target_kind]
+target_module: Utf8 NULL
+target_key: Utf8 NULL
+target_name: Utf8 NULL
+receiver_class: Utf8 NULL
+implicit_receiver: Int16 NULL [lctx.codebook=implicit_receiver]
+implicit_dunder_call: Boolean NULL
+is_class_method: Boolean NULL
+is_static_method: Boolean NULL
+unresolved_reason: Int16 NULL [lctx.codebook=pysa_unresolved_reason]

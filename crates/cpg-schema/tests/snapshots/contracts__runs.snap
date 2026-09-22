@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table runs
+family provenance
+key snapshot_id, run_id
+@lctx.family=provenance
+@lctx.table=runs
+snapshot_id: FixedSizeBinary(16) NOT NULL
+run_id: FixedSizeBinary(16) NOT NULL
+release_id: FixedSizeBinary(16) NOT NULL
+context_id: FixedSizeBinary(16) NOT NULL
+producer_id: FixedSizeBinary(16) NOT NULL
+families: List(non-null Utf8) NOT NULL
+config_digest: FixedSizeBinary(32) NOT NULL

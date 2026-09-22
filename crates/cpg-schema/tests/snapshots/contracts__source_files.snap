@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table source_files
+family provenance
+key snapshot_id, module_name, path, fact_id
+@lctx.family=provenance
+@lctx.table=source_files
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+release_id: FixedSizeBinary(16) NOT NULL
+module_name: Utf8 NOT NULL
+path: Utf8 NOT NULL
+is_package: Boolean NOT NULL
+is_stub: Boolean NOT NULL
+content_digest: FixedSizeBinary(32) NOT NULL
+byte_len: Int64 NOT NULL
+utf8: Boolean NOT NULL

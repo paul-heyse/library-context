@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table producers
+family provenance
+key snapshot_id, producer_id
+@lctx.family=provenance
+@lctx.table=producers
+snapshot_id: FixedSizeBinary(16) NOT NULL
+producer_id: FixedSizeBinary(16) NOT NULL
+tool: Utf8 NOT NULL
+revision: Utf8 NOT NULL
+build_digest: FixedSizeBinary(32) NOT NULL

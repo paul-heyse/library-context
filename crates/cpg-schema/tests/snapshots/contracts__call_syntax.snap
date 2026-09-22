@@ -1,0 +1,23 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table call_syntax
+family calls
+key snapshot_id, module_node_id, start_byte, end_byte, node_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+check callee_span_order: callee_start_byte >= start_byte AND callee_end_byte >= callee_start_byte
+@lctx.family=calls
+@lctx.table=call_syntax
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+owner_node_id: FixedSizeBinary(16) NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+callee_start_byte: Int64 NOT NULL
+callee_end_byte: Int64 NOT NULL
+in_annotation: Boolean NOT NULL
+positional_count: Int64 NOT NULL
+keyword_count: Int64 NOT NULL

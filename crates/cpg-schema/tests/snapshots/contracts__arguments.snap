@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table arguments
+family calls
+key snapshot_id, call_node_id, ordinal, fact_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=calls
+@lctx.table=arguments
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+call_node_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=argument_kind]
+keyword: Utf8 NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL

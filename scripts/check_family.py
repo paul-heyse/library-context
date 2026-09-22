@@ -18,7 +18,9 @@ from pathlib import Path
 
 FAMILY = re.compile(
     r"^(arrow(-.+)?|parquet|datafusion(-.+)?|object_store|deltalake(-.+)?"
-    r"|buoyant_kernel(_.+)?|delta_kernel(_.+)?|petgraph)$"
+    r"|buoyant_kernel(_.+)?|delta_kernel(_.+)?|petgraph"
+    # Analyzers (ADR-0012): two ruff versions would split the AST types Pyrefly shares.
+    r"|ruff_.+|pyrefly(_.+)?|tsp_types|blake3)$"
 )
 
 

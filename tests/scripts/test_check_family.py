@@ -40,3 +40,12 @@ def test_second_arrow_fails(tmp_path: Path) -> None:
 
 def test_missing_lockfile_is_not_run_not_failure(tmp_path: Path) -> None:
     assert check_family.main([str(tmp_path / "absent.lock")]) == 0
+
+
+def test_second_ruff_line_fails(tmp_path: Path) -> None:
+    """Two ruff lines split the AST types Pyrefly shares with our walker (ADR-0012)."""
+    lock = tmp_path / "Cargo.lock"
+    ruff = '\n[[package]]\nname = "ruff_python_ast"\nversion = "{}"\n'
+    lock.write_text(LOCK + ruff.format("0.0.11") + ruff.format("0.0.13"))
+    assert check_family.duplicates(lock) == {"ruff_python_ast": ["0.0.11", "0.0.13"]}
+    assert check_family.main([str(lock)]) == 1

@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table contexts
+family provenance
+key snapshot_id, context_id
+@lctx.family=provenance
+@lctx.table=contexts
+snapshot_id: FixedSizeBinary(16) NOT NULL
+context_id: FixedSizeBinary(16) NOT NULL
+python_version: Utf8 NOT NULL
+python_platform: Utf8 NOT NULL
+search_path: List(non-null Utf8) NOT NULL
+site_package_path: List(non-null Utf8) NOT NULL
+config_digest: FixedSizeBinary(32) NOT NULL

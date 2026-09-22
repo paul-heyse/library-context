@@ -1,0 +1,6 @@
+---
+source: crates/cpg-schema/tests/ids.rs
+expression: "format!(\"{}\\n{}\", id.hex(), digest.hex())"
+---
+91dc447af210512a299d342433b5779a
+e1c3e99aab25b0ff3be3f74a35feddc8d5ec265ade835de1ed19dc42b3ed54c1

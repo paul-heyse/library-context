@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table class_ancestry
+family signatures
+key snapshot_id, module_name, class_key, relation, ordinal, fact_id
+@lctx.family=signatures
+@lctx.table=class_ancestry
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_name: Utf8 NOT NULL
+class_key: Utf8 NOT NULL
+class_name: Utf8 NOT NULL
+name_start_byte: Int64 NULL
+name_end_byte: Int64 NULL
+relation: Int16 NOT NULL [lctx.codebook=ancestry_relation]
+ordinal: Int64 NULL
+ancestor: Utf8 NULL
+mro_cyclic: Boolean NOT NULL

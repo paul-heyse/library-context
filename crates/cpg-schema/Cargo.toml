@@ -9,8 +9,13 @@ publish.workspace = true
 [dependencies]
 arrow-array.workspace = true
 arrow-schema.workspace = true
+arrow-ord.workspace = true
+arrow-select.workspace = true
+blake3.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
+proptest.workspace = true
 datafusion.workspace = true
 deltalake.workspace = true
 tokio.workspace = true

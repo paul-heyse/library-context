@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table public_names
+family exports
+key snapshot_id, access_path, fact_id
+@lctx.family=exports
+@lctx.table=public_names
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+access_path: Utf8 NOT NULL
+access_module: Utf8 NOT NULL
+name: Utf8 NOT NULL
+origin_path: Utf8 NULL
+via_dunder_all: Boolean NOT NULL
