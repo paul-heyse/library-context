@@ -5471,6 +5471,7 @@ dependencies = [
  "pyrefly_python",
  "pyrefly_types",
  "pyrefly_util",
+ "reqwest 0.12.28",
  "ruff_python_ast",
  "ruff_source_file",
  "ruff_text_size",

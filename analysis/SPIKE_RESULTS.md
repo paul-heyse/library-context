@@ -46,3 +46,16 @@ on the fork by `git`/`rev`:
 | P2 | passed | Attempt A wrote rows with a duplicate key; the `GROUP BY … HAVING` validator caught it and there was no `snapshots` append. Attempt B published. B's reader (row set → pinned version → `snapshot_id` filter) sees 3 rows, all B's, although A's rows are physically in the version |
 | P3 | passed | An append that committed but whose result was discarded is classified `published` by re-reading `snapshots`. An attempt that never appended is classified `unpublished` |
 | P4 | passed | A bundle built from the published snapshot at its recorded versions (sorted, concatenated, cast back to the declared schema, Arrow IPC file) is byte-identical when rebuilt after later appends and another publication (1,386 bytes, blake3 `1f353367…`) |
+
+## ADR-0010 spikes (2026-09-22)
+
+The model is **Qwen/Qwen3-Embedding-8B** (operator decision, replacing 4B), revision
+`1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`. It has 4096 dimensions, bf16 weights (15 GB),
+last-token pooling, and a sentence-transformers `2_Normalize` step.
+
+| # | Outcome | Command | Observation |
+|---|---|---|---|
+| E1 | passed | `HF_HUB_OFFLINE=1 .venv/bin/vllm serve Qwen/Qwen3-Embedding-8B --revision 1d8ad4ca… --runner pooling --served-model-name Qwen/Qwen3-Embedding-8B --port 8011 --max-model-len 8192 --gpu-memory-utilization 0.80` | vLLM 0.30.0 on the RTX 5090. The resolved pooling config is `LAST` with `use_activation=True`, taken from sentence-transformers. Weights plus non-torch memory is 15.5 GiB, KV cache 8.2 GiB, ~26.9 GB of the GPU in total. Engine start takes 85 s (17 s compile). Every returned vector has norm 1 ± 1e-7, **so vLLM normalizes**. This contradicts Context7's "not L2-normalized by default" for this model and version |
+| E2 | passed, with a tolerance | `analysis/embed/py_client.py` (httpx) and `target/release/embed_client` (reqwest 0.12.28, already locked); `compare.py` | Both clients produce **byte-identical request texts** (the spec's query template) and apply the same response checks. **vLLM is not bitwise deterministic across requests**, even for identical inputs. Max component difference: 3.8e-3 with prefix caching; 1.6e-3 for the same batch sent twice without it; 3.1e-3 for a single input vs the full batch (cosine 0.999877). Rust vs Python agree to cosine ≥ 0.99991, or exactly when the requests happen to match. The conformance oracle is therefore: identical texts, plus cosine ≥ 0.9995 per vector |
+| E3 | passed | `uv run --with pyarrow --with pytest python -m pytest analysis/mcp` (8 passed; pyarrow 25.0.1, FastMCP 4.0.5) | `Client(mcp, mode="auto")` negotiated `2026-07-28` and `mode="legacy"` `2025-11-25`. Both round trips return `structured_content`, with object output schemas and the read-only/idempotent/closed-world annotations. Exact-symbol promotion and the degraded lexical-only mode are reported. An unknown library or capability raises `ToolError`. A **schema-digest mismatch** and an **embedding-spec mismatch** both fail at `Client` connect (the lifespan raises) |
+| E4 | Measured (sanity only) | `compare.py` | Nearest document by cosine: "register a python function as an MCP tool" → the `FastMCP.tool` brief (0.90); "run code around every request" → the middleware brief (0.67) |
