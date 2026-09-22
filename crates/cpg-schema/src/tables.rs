@@ -416,29 +416,37 @@ table!(
     }
 );
 
+/// Invoke `$mac!(Table, …)` with every table slice 1 emits, in declaration order: the one list.
+#[macro_export]
+macro_rules! for_each_table {
+    ($mac:ident) => {
+        $mac!(
+            $crate::tables::Facts,
+            $crate::tables::Runs,
+            $crate::tables::Contexts,
+            $crate::tables::Producers,
+            $crate::tables::SourceFiles,
+            $crate::tables::Declarations,
+            $crate::tables::ExportSyntax,
+            $crate::tables::PublicNames,
+            $crate::tables::ParameterSyntax,
+            $crate::tables::PysaFunctions,
+            $crate::tables::ParameterSemantics,
+            $crate::tables::ClassAncestry,
+            $crate::tables::CallSyntax,
+            $crate::tables::Arguments,
+            $crate::tables::PysaCalls,
+            $crate::tables::Coverage,
+            $crate::tables::Boundaries
+        )
+    };
+}
+
 /// Every table's contract text, in declaration order (snapshot-tested).
 pub fn contracts() -> Vec<(&'static str, String)> {
     use crate::table::{Table, contract};
     macro_rules! all {
         ($($t:ty),+) => { vec![$((<$t as Table>::NAME, contract::<$t>())),+] };
     }
-    all!(
-        Facts,
-        Runs,
-        Contexts,
-        Producers,
-        SourceFiles,
-        Declarations,
-        ExportSyntax,
-        PublicNames,
-        ParameterSyntax,
-        PysaFunctions,
-        ParameterSemantics,
-        ClassAncestry,
-        CallSyntax,
-        Arguments,
-        PysaCalls,
-        Coverage,
-        Boundaries
-    )
+    crate::for_each_table!(all)
 }

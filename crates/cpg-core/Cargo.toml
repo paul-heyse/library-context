@@ -1,0 +1,27 @@
+[package]
+name = "cpg-core"
+description = "Delta persistence of fact-family tables and the read-only SQL helper (DESIGN §4.3, §6)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+cpg-schema = { path = "../cpg-schema" }
+arrow-array.workspace = true
+arrow-cast.workspace = true
+arrow-schema.workspace = true
+arrow-select.workspace = true
+datafusion.workspace = true
+deltalake.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+cpg-extract = { path = "../cpg-extract" }
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

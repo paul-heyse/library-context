@@ -1,0 +1,11 @@
+# Review F7: all SQL goes through `cpg_core::sql::query`, which disallows DDL, DML and statements,
+# so no query can write to a fact table.
+id: sql-through-helper
+language: rust
+severity: error
+message: call cpg_core::sql::query instead of SessionContext::sql
+note: The helper plans with read-only SQLOptions (DESIGN §4.3).
+rule:
+  pattern: $CTX.sql($$$ARGS)
+files:
+  - crates/*/src/**/*.rs

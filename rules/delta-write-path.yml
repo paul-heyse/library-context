@@ -1,0 +1,16 @@
+# Review F7 / spike S6: only `DeltaTable::write` enforces CHECK constraints and invariants on fact
+# tables. DataFusion's insert path and delta-rs's low-level writers bypass them.
+id: delta-write-path
+language: rust
+severity: error
+message: this write path bypasses Delta CHECK constraints and invariants
+note: Write fact tables with DeltaTable::write only (DESIGN §4.3, §6.1).
+rule:
+  any:
+    - pattern: $X.write_table($$$ARGS)
+    - pattern: $X.insert_into($$$ARGS)
+    - pattern: RecordBatchWriter::$METHOD($$$ARGS)
+    - pattern: JsonWriter::$METHOD($$$ARGS)
+    - pattern: SaveMode::Ignore
+files:
+  - crates/*/src/**/*.rs

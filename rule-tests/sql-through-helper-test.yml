@@ -1,0 +1,6 @@
+id: sql-through-helper
+valid:
+  - "async fn f(ctx: &SessionContext) { sql::query(ctx, \"SELECT 1\").await; }"
+  - "async fn f(ctx: &SessionContext) { ctx.sql_with_options(q, read_only()).await; }"
+invalid:
+  - "async fn f(ctx: &SessionContext) { ctx.sql(\"SELECT 1\").await; }"

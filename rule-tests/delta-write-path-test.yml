@@ -1,0 +1,10 @@
+id: delta-write-path
+valid:
+  - "async fn f(t: DeltaTable, b: RecordBatch) { t.write([b]).await; }"
+  - "fn f() { let mode = SaveMode::Append; }"
+invalid:
+  - "async fn f(df: DataFrame) { df.write_table(\"t\", opts).await; }"
+  - "async fn f(p: Provider) { p.insert_into(state, plan, op).await; }"
+  - "fn f() { let w = RecordBatchWriter::for_table(&table); }"
+  - "fn f() { let w = JsonWriter::for_table(&table); }"
+  - "fn f() { let mode = SaveMode::Ignore; }"

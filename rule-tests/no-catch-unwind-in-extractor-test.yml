@@ -1,0 +1,8 @@
+id: no-catch-unwind-in-extractor
+valid:
+  - "fn run() -> Result<(), E> { extract(&input) }"
+  - "fn join(h: JoinHandle<R>) { h.join().map_err(|_| E::Panicked) }"
+invalid:
+  - "fn run() { let _ = std::panic::catch_unwind(|| extract_module(m)); }"
+  - "fn run() { let _ = panic::catch_unwind(f); }"
+  - "fn run() { let _ = catch_unwind(f); }"

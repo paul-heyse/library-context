@@ -1121,6 +1121,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
 
 [[package]]
+name = "cpg-core"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-cast",
+ "arrow-schema",
+ "arrow-select",
+ "cpg-extract",
+ "cpg-schema",
+ "datafusion",
+ "deltalake",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "cpg-extract"
 version = "0.1.0"
 dependencies = [

@@ -8,7 +8,7 @@ default:
     @just --list
 
 # The default loop: format check, lints, core tests, rules, ADRs, agent config
-check: fmt-check lint test py-check rules-scan lint-agents
+check: fmt-check lint test py-check rules-scan rules-test lint-agents
     uv run python scripts/adr.py lint
 
 # Everything: check + fixtures + dependency policy
@@ -39,10 +39,11 @@ py-check:
     uv run pytest
     uv run pyrefly check --summary=none
 
-# Pinned-family single-version check + cargo-deny sources/licenses
+# Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0012)
 deps:
     uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources licenses
+    uv run python scripts/check_pyrefly_fork.py
 
 # Byte-compile Python fixtures (input data) so they cannot silently become syntax-error cases
 fixtures-check:
@@ -55,11 +56,11 @@ fixtures-check:
 
 # ast-grep scan over the tree (rules/ grows from design-review findings)
 rules-scan:
-    @if ls rules/*.yml >/dev/null 2>&1; then sg scan; else echo "rules-scan: not_run (no rules yet)"; fi
+    @if ls rules/*.yml >/dev/null 2>&1; then ast-grep scan; else echo "rules-scan: not_run (no rules yet)"; fi
 
 # ast-grep rule fixtures
 rules-test:
-    @if ls rules/*.yml >/dev/null 2>&1; then sg test --skip-snapshot-tests; else echo "rules-test: not_run (no rules yet)"; fi
+    @if ls rules/*.yml >/dev/null 2>&1; then ast-grep test --skip-snapshot-tests; else echo "rules-test: not_run (no rules yet)"; fi
 
 # ADR tooling: new <slug> [--title T] | supersede <ADR-NNNN> <slug> | index | lint | revisit
 [positional-arguments]
@@ -73,7 +74,7 @@ lint-agents:
 # Tool presence and versions (compare with docs/pins.md)
 doctor:
     #!/usr/bin/env bash
-    for t in cargo rustc cargo-nextest cargo-insta cargo-deny uv sg rg git gh; do
+    for t in cargo rustc cargo-nextest cargo-insta cargo-deny uv ast-grep rg git gh; do
       printf '%-14s ' "$t"; command -v "$t" >/dev/null && "$t" --version 2>/dev/null | head -1 || echo MISSING
     done
     printf '%-14s ' ruff; uv run ruff --version
