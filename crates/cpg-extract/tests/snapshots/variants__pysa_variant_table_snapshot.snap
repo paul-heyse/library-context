@@ -1,0 +1,46 @@
+---
+source: crates/cpg-extract/tests/variants.rs
+expression: "lines.join(\"\\n\")"
+---
+1035-1040 site=1 callee=0 phase=0 ho= target=1:__add__ recv=builtins.int unresolved= | origin=4 modality=1
+1053-1061 site=0 callee=0 phase=0 ho= target=0:inner recv= unresolved= | origin=2 modality=0
+1142-1150 site=0 callee=0 phase=1 ho= target=0:__new__ recv= unresolved= | origin=2 modality=0
+1142-1150 site=0 callee=0 phase=2 ho= target=0:__init__ recv=variants.Child unresolved= | origin=2 modality=0
+1155-1165 site=0 callee=2 phase=5 ho= target=1:size recv=variants.Child unresolved= | origin=2 modality=1
+1182-1192 site=0 callee=2 phase=4 ho= target=1:size recv=variants.Child unresolved= | origin=2 modality=1
+1206-1243 site=0 callee=0 phase=0 ho= target=0:apply recv= unresolved= | origin=2 modality=0
+1206-1243 site=0 callee=0 phase=0 ho=0 target=0:double recv= unresolved= | origin=2 modality=2
+1212-1218 site=3 callee=1 phase=0 ho= target=0:double recv= unresolved= | origin=2 modality=2
+1220-1242 site=0 callee=0 phase=0 ho= target=0:dispatch recv= unresolved= | origin=2 modality=0
+1255-1278 site=0 callee=0 phase=0 ho= target=0:getattr recv= unresolved= | origin=2 modality=0
+1290-1299 site=0 callee=2 phase=0 ho= target=1:run recv=variants.Child unresolved= | origin=2 modality=2
+1314-1319 site=5 callee=4 phase=0 ho= target=1:__format__ recv=builtins.str unresolved= | origin=4 modality=1
+1322-1328 site=5 callee=4 phase=0 ho= target=1:__repr__ recv=builtins.object unresolved= | origin=4 modality=1
+1333-1337 site=5 callee=4 phase=0 ho= target=2: recv= unresolved=1 | origin=4 modality=0
+1340-1344 site=3 callee=1 phase=0 ho= target=1:run recv=variants.Child unresolved= | origin=2 modality=2
+1340-1344 site=5 callee=4 phase=0 ho= target=1:__repr__ recv=builtins.object unresolved= | origin=4 modality=1
+1350-1360 site=1 callee=0 phase=0 ho= target=1:__gt__ recv=builtins.int unresolved= | origin=4 modality=1
+1366-1377 site=0 callee=0 phase=1 ho= target=0:__new__ recv= unresolved= | origin=2 modality=0
+1366-1377 site=0 callee=0 phase=2 ho= target=0:__init__ recv= unresolved= | origin=2 modality=0
+1366-1377 site=1 callee=0 phase=0 ho= target=1:__repr__ recv=builtins.object unresolved= | origin=4 modality=1
+1395-1405 site=0 callee=0 phase=0 ho= target=0:double recv= unresolved= | origin=2 modality=0
+354-362 site=1 callee=0 phase=1 ho= target=0:__new__ recv= unresolved= | origin=4 modality=0
+354-362 site=1 callee=0 phase=2 ho= target=0:__init__ recv=builtins.property unresolved= | origin=4 modality=0
+413-417 site=3 callee=1 phase=0 ho= target=0:size recv= unresolved= | origin=2 modality=2
+413-424 site=1 callee=0 phase=0 ho= target=2: recv= unresolved=5 | origin=4 modality=0
+506-510 site=3 callee=1 phase=1 ho= target=0:__new__ recv= unresolved= | origin=2 modality=2
+506-510 site=3 callee=1 phase=2 ho= target=0:__init__ recv=variants.Base unresolved= | origin=2 modality=2
+576-583 site=0 callee=0 phase=1 ho= target=0:__new__ recv= unresolved= | origin=2 modality=0
+576-583 site=0 callee=0 phase=2 ho= target=0:__init__ recv=builtins.super unresolved= | origin=2 modality=0
+576-596 site=0 callee=0 phase=0 ho= target=2: recv= unresolved=5 | origin=2 modality=0
+592-595 site=3 callee=1 phase=1 ho= target=0:__new__ recv= unresolved= | origin=2 modality=2
+592-595 site=3 callee=1 phase=2 ho= target=0:__init__ recv=variants.Child unresolved= | origin=2 modality=2
+723-730 site=0 callee=0 phase=1 ho= target=0:__new__ recv= unresolved= | origin=2 modality=0
+723-730 site=0 callee=0 phase=2 ho= target=0:__init__ recv=builtins.super unresolved= | origin=2 modality=0
+723-737 site=0 callee=0 phase=0 ho= target=0:run recv=variants.Child unresolved= | origin=2 modality=0
+723-750 site=1 callee=0 phase=0 ho= target=1:__add__ recv=builtins.int unresolved= | origin=4 modality=1
+808-822 site=0 callee=0 phase=0 ho= target=1:run recv=variants.Base unresolved= | origin=2 modality=1
+892-901 site=0 callee=0 phase=0 ho= target=2: recv= unresolved=1 | origin=2 modality=0
+942-947 site=1 callee=0 phase=0 ho= target=1:__mul__ recv=builtins.int unresolved= | origin=4 modality=1
+951-959 site=1 callee=0 phase=0 ho= target=0:register recv= unresolved= | origin=4 modality=0
+boundary family=3 reason=10 1095-1113 call inside an annotation

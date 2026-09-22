@@ -32,11 +32,11 @@ impl CodebookEntry {
 }
 
 macro_rules! codebook {
-    ($(#[$meta:meta])* $ty:ident = $name:literal { $($variant:ident = $code:literal => $text:literal),+ $(,)? }) => {
+    ($(#[$meta:meta])* $ty:ident = $name:literal { $($(#[$vmeta:meta])* $variant:ident = $code:literal => $text:literal),+ $(,)? }) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         #[repr(i16)]
-        pub enum $ty { $($variant = $code),+ }
+        pub enum $ty { $($(#[$vmeta])* $variant = $code),+ }
 
         impl Codebook for $ty {
             const NAME: &'static str = $name;
@@ -147,6 +147,10 @@ codebook!(
         NotRequested = 8 => "not_requested",
         ProviderDisagreement = 9 => "provider_disagreement",
         OutsideProviderModel = 10 => "outside_provider_model",
+        /// The module parsed with errors; facts come from a recovered tree.
+        SyntaxError = 11 => "syntax_error",
+        /// The module's bytes are not UTF-8; nothing was analyzed.
+        UndecodableSource = 12 => "undecodable_source",
     }
 );
 

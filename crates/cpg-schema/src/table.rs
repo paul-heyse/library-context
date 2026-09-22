@@ -140,6 +140,13 @@ macro_rules! table {
         #[derive(Debug, Clone, PartialEq)]
         pub struct $row { $($(#[$fmeta])* pub $field: $ty),+ }
 
+        impl $row {
+            /// Feed every field, in declaration order, to `h` (canonical payload bytes).
+            pub fn hash_fields(&self, h: &mut $crate::id::IdHasher) {
+                $(<$ty as $crate::hash::HashField>::hash_into(&self.$field, h);)+
+            }
+        }
+
         $(#[$meta])*
         pub struct $table;
 

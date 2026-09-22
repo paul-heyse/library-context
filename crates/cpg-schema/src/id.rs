@@ -14,6 +14,8 @@ macro_rules! id_type {
         pub struct $name(pub [u8; $len]);
 
         impl $name {
+            /// All zeros: a placeholder while a row's own id is being derived.
+            pub const ZERO: Self = Self([0; $len]);
             pub fn bytes(&self) -> &[u8; $len] {
                 &self.0
             }

@@ -5,6 +5,7 @@
 
 pub mod codebook;
 pub mod column;
+pub mod hash;
 pub mod id;
 pub mod table;
 pub mod tables;

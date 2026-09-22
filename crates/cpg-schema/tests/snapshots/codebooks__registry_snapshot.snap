@@ -64,6 +64,8 @@ boundary_reason
   8 not_requested
   9 provider_disagreement
   10 outside_provider_model
+  11 syntax_error
+  12 undecodable_source
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
