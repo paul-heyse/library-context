@@ -1,9 +1,18 @@
 # library-context — agent instructions
 
-Stage 1 builds a source-preserving, provenance-first **Python code fact graph**. Ruff and Pyrefly
-are the front ends, Arrow schemas are the contract, DataFusion builds and validates relations,
-Delta persists them, and petgraph analyses selected topology. It is the foundation for giving
-coding agents deep insight into Python libraries.
+Stage 1 is a **capability compiler**. It turns a Python library's code facts plus its official
+docs, examples and tests into evidence-backed capability briefs. Coding agents reach those briefs
+through a FastMCP server with two tools, `search_capabilities` and `get_capability`
+(`docs/design/DESIGN.md` §1).
+
+The pieces:
+- **Extraction:** Ruff crates in-process and Pyrefly as a pinned subprocess.
+- **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
+  Delta stores them.
+- **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
+- **Briefs:** assertions are synthesized **programmatically**. There is no LLM in v1.
+
+The pilot library is FastMCP 4.0.3.
 
 This is a personal project with one operator. Process is deliberately light (ADR-0001). Keep
 it that way: before adding a hook, gate, register or new document type, check that it has a
@@ -20,13 +29,13 @@ real consumer.
 
 | Path | What |
 |---|---|
-| `docs/design/DESIGN.md` | Current design. §2 holds the binding decisions §B1–§B10 |
+| `docs/design/DESIGN.md` | Current design. §2 holds the binding decisions §B1–§B14 |
 | `docs/adr/` | Decision records, a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | Charter (DM-01–60, gates G1–G7), with the repo layer in `ADDENDUM.md` |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | Core Rust workspace (`cpg-schema` holds the authoritative Arrow contracts) |
-| `adapters/` | Analyzer adapters as separate workspaces and processes (ADR-0003) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts. Extraction, construction, analytics and publication crates are added as increments need them (ADR-0006) |
+| `docs/initial_plan/` | Research input (don't edit it) and `DISPOSITION.md`, which maps each input section to where it landed |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
 | `scripts/` | `adr.py`, `check_family.py`, `check_agents.py`, and the format hook |
 | `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
@@ -36,7 +45,7 @@ real consumer.
 | When | Run |
 |---|---|
 | Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules, `adr lint`, `lint-agents` |
-| Before committing | `just test-all`: adds adapter workspaces, fixture parsing and `just deps` |
+| Before committing | `just test-all`: adds fixture parsing and `just deps` |
 | Format (mutating) | `just fmt` |
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs, plus cargo-deny |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
@@ -57,8 +66,12 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `rust-code-model`
 - `ast-grep-ripgrep`
 - `datafusion-tracing`
+- `fastmcp` (FastMCP 4.0.3). This is also the **gold reference for evaluation**: its capability
+  families are never a compiler input (DESIGN §1.4).
 
-For anything they don't cover, use the `library-research` skill. Check a skill's pinned version
+For a library no skill covers (e.g. vLLM, the Qwen embedding models, LanceDB, pyarrow),
+**Context7 is the first stop**, then the `library-research` skill. The Context7 MCP server needs
+a reconnect after its API key changes. Check a skill's pinned version
 against `docs/pins.md` before transferring a claim. An empty search result is not evidence that a
 capability is absent.
 
@@ -92,9 +105,10 @@ capability is absent.
   supersede the old ADR; accepted ADRs are immutable.
 - **Design reviews** use the `design-review` skill, usually through the `design-reviewer`
   subagent:
-  - `compact` at the end of a slice that adds or changes a table family, adapter or projection
+  - `compact` at the end of a slice that adds or changes a fact family, extractor, projection or
+    analytic
   - `standard` for an ADR that changes a §B decision
-  - `deep` at the end of each increment
+  - at increment ends: `deep` after increments 1, 3 and 5, `compact` after 2 and 4 (ADR-0004)
 - **Findings** become an ADR, a test or `rules/` entry, or a Deferred row in the review.
 
 ## Git

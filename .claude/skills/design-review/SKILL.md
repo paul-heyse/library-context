@@ -44,7 +44,8 @@ ADR-0001 sets when a review is owed, and it is deliberately not per change:
 |---|---|
 | End of a slice that adds or changes a table family, adapter or projection | `compact` |
 | An ADR that changes a §B decision | `standard`, on DESIGN.md plus the ADR |
-| End of each increment (DESIGN §1.2) | `deep`, on the code plus DESIGN.md |
+| End of increments 1, 3 and 5 (DESIGN §1.2, ADR-0004) | `deep`, on the code plus DESIGN.md |
+| End of increments 2 and 4 | `compact` |
 
 A fresh `design-reviewer` subagent ([definition](../../agents/design-reviewer.md)) usually runs
 it, so the author of the change is not its reviewer. If two consecutive reviews find nothing,

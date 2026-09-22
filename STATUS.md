@@ -4,62 +4,77 @@ _Updated 2026-09-22 by the handoff skill._
 
 ## Where we are
 
-- The **development environment is bootstrapped** (ADR-0001). Increment 1 (fact substrate,
-  DESIGN §1.2) has not started.
-- **Pinned family verified:**
-  - DataFusion 55.1.0 / Arrow 59.3.0 / object_store 0.13.2
-  - delta-rs git `58f07cd6` + kernel `8ba063f8`
-  - The `cpg-schema::family_smoke` tests write two Delta commits and query them through
-    DataFusion (ADR-0002, `Tested`).
+- **The design is detailed for the capability-compiler target** (DESIGN.md, rewritten
+  2026-09-22):
+  - pilot: FastMCP 4.0.3, server-components surface;
+  - synthesis is programmatic, with no LLM in v1;
+  - the agent interface is FastMCP.
+- **Increment 1** ("one complete path", DESIGN §1.2) has not started.
+- **Code** is still the bootstrap: `crates/cpg-schema` (placeholder) and the pinned-family smoke
+  test (ADR-0002, `Tested`).
 
 ## Last verified (2026-09-22)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` | passed: 2 Rust tests, 9 Python tests, adr lint, lint-agents, deps |
-| `just rules-scan` | not_run (no rules yet) |
-| `just fixtures-check` | not_run (no fixtures yet) |
+| `just check` | passed: 2 Rust tests, 10 Python tests, adr lint (11 records), lint-agents |
+| `just deps` | passed (run by the design reviewer) |
+| `just rules-scan` / `just fixtures-check` | not_run (no rules or fixtures yet) |
 
-## Known failures and blocks
+## Decisions (see `docs/adr/README.md`)
 
-None.
+- **Accepted:**
+  - 0001 process;
+  - 0002 dependency family;
+  - 0004 stage-1 scope;
+  - 0005 programmatic synthesis;
+  - 0007 run contract and IDs.
+- **Proposed until their spikes pass:**
+  - 0006 analyzers and topology (supersedes 0003);
+  - 0008 fact-slice schema;
+  - 0009 publication;
+  - 0010 agent interface and retrieval;
+  - 0011 analytics algorithms.
+- **Latest review:** `docs/design_review/reviews/design_review_capability-compiler-design_2026-09-22.md`
+  (standard). F1–F12, O1–O3 and O5 are folded into DESIGN and the ADRs. O6 is below; O7 was
+  handled by raising the budget to ~1,200 lines.
 
-Two notes:
-- cargo-deny 0.20.2 misses duplicate versions that enter only through dev-dependencies, so
-  `scripts/check_family.py` owns the family check (ADR-0002).
-- `just <several recipes>` swallows later recipe names as `test` arguments. Run
-  `just check`/`test-all` rather than chaining recipe names after `test`.
+## Known gaps and uncommitted operator changes
 
-## Open decisions
+- **`pyproject.toml` / `uv.lock`** (uncommitted, operator) add `fastmcp>=4.0.5` and
+  `vllm>=0.30.0`. Increment 1 restructures them per ADR-0010:
+  - vLLM moves to a separate service;
+  - pin `fastmcp<4.1` and `pyarrow`;
+  - add the `python/lctx_mcp` package;
+  - fix the "No product Python" description (review O6).
+- **`.claude/skills/README.md`** (uncommitted, external) updates the pyrefly-ruff row after that
+  skill was rebuilt.
+- **Context7** needs an MCP reconnect to pick up the new API key.
+- **Two library claims in DESIGN are asserted, not located in a skill:**
+  - Delta writes FixedSizeBinary as BINARY (§3.3);
+  - petgraph's Bfs and Dfs visit siblings in opposite orders (§5).
 
-- **ADR-0003** (separate adapter workspaces) is `proposed` until the first adapter exists.
-- **Ruff/Pyrefly revisions** for the adapters. The candidates are in `docs/pins.md` under
-  "Analyzers". This is the first decision of increment 1.
-- **The 66-schema reference package** cited by Initial_plan (Arrow schemas, registries,
-  reference Rust) is not in the repo. Add it under `docs/initial_plan/` if it's available.
+  The ADR-0009 and ADR-0011 spikes settle them.
 
-## Baseline design review (2026-09-22)
+## Next: increment 1 spikes, then the slice
 
-`docs/design_review/reviews/design_review_design-spine-baseline_2026-09-22.md`, compact.
-
-- **Decision:** Not Accept as a decidable specification for increment 1. G3 and G7 pass; G1, G2,
-  G4, G5 and G6 are unresolved.
-- **Fixed in DESIGN.md:** F2 (rules dropped in condensation, restored), F6 (validators placed),
-  O1, O2.
-- **Open, all belonging to slice 1:**
-  - **F1:** declare only the tables and codebooks slice 1 emits, including the
-    `extraction_mode`/`modality`/`model` and resolution `status`/`domain` domains, plus the
-    edge-kind/endpoint registry.
-  - **F3:** the publication protocol needs an ADR. The suggested answer is an append-only
-    `snapshots` Delta table whose commit is the act of publication, with readers filtering by
-    `snapshot_id`.
-  - **F4:** the run contract and the inputs each ID kind is derived from.
-  - **F5:** `coverage` and `resolution_issues` tables, and a definition of "fact family".
-
-## Next
-
-Increment 1, slice 1:
-1. Choose the analyzer revisions (ADR).
-2. Settle F1/F3/F4/F5 while defining the first `cpg-schema` family (`nodes`/`facts`/`edges`/
-   `spans`/`coverage`) with schema snapshots and codebooks.
-3. Write the first fixture.
+1. **ADR-0006:**
+   - Pysa column units on non-ASCII source;
+   - Pysa size and decode time on the fastmcp skill's cached captures (project files only);
+   - sorted-output determinism;
+   - a separate FastMCP 4.0.3 analysis venv;
+   - `pyrefly dump-config` invariance.
+2. **ADR-0009:** a local Delta probe covering
+   - Binary stats and BinaryView reads;
+   - an injected validation failure;
+   - an error after the `snapshots` commit;
+   - a byte-identical generation rebuild.
+3. **ADR-0010:**
+   - vLLM serving Qwen3-Embedding-4B on the RTX 5090;
+   - Rust and Python clients agree on the conformance vectors;
+   - a `Client(mcp)` round trip in both protocol eras, plus mismatch fixtures.
+4. **Then slice 1:**
+   - write the analytics config (the subsystem and the `fastmcp.FastMCP.tool` seed);
+   - add `cpg-schema` families with insta snapshots and codebook tests;
+   - build Pass A → brief → bundle → both tools;
+   - run a `deep` review at the end of increment 1.

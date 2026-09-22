@@ -10,7 +10,7 @@ Rewrite `STATUS.md` (≤60 lines) from what is true **now**, not from what the s
 Gather:
 
 - `git log --oneline -10` and `git status --porcelain` — what landed, what is uncommitted.
-- `just check` (or `just test-all` if the session touched adapters, Delta or fixtures) — report
+- `just check` (or `just test-all` if the session touched extraction, Delta or fixtures) — report
   each outcome as `passed`/`failed`/`blocked`/`not_run` with the command.
 - `just adr index` then `docs/adr/README.md` — active decisions; note any still `proposed`.
 - `just adr revisit` — triggers that fired.

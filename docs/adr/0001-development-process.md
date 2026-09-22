@@ -72,3 +72,5 @@ an oracle (test, rule or `just` check), not a hook that blocks edits.
 
 - 2026-09-22: the remote is **public** (`github.com/paul-heyse/library-context`) at the
   operator's request, not private as first written. The process is otherwise unchanged.
+- 2026-09-22: pointer only. ADR-0004 now records the review cadence for the capability-compiler
+  increments and the DESIGN.md budget.

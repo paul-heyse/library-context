@@ -25,7 +25,6 @@ PATH_ROOTS = (
     "docs/",
     "scripts/",
     "crates/",
-    "adapters/",
     "fixtures/",
     "rules/",
     "rule-tests/",

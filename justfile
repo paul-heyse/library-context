@@ -3,8 +3,6 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-adapters := `ls -d adapters/*/ 2>/dev/null | tr '\n' ' ' || true`
-
 # List recipes
 default:
     @just --list
@@ -13,14 +11,8 @@ default:
 check: fmt-check lint test py-check rules-scan lint-agents
     uv run python scripts/adr.py lint
 
-# Everything: check + adapter workspaces + fixtures + dependency policy
+# Everything: check + fixtures + dependency policy
 test-all: check fixtures-check deps
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for a in {{adapters}}; do
-      [ -f "$a/Cargo.toml" ] || continue
-      echo "== $a"; (cd "$a" && cargo nextest run --workspace --no-tests=pass)
-    done
 
 # rustfmt + ruff format check (no changes)
 fmt-check:
@@ -47,18 +39,10 @@ py-check:
     uv run pytest
     uv run pyrefly check --summary=none
 
-# Pinned-family single-version check + cargo-deny sources/licenses, per workspace
+# Pinned-family single-version check + cargo-deny sources/licenses
 deps:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    locks=(Cargo.lock)
-    for a in {{adapters}}; do [ -f "$a/Cargo.lock" ] && locks+=("$a/Cargo.lock"); done
-    uv run python scripts/check_family.py "${locks[@]}"
+    uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources licenses
-    for a in {{adapters}}; do
-      [ -f "$a/Cargo.toml" ] && (cd "$a" && cargo deny --log-level error check bans sources licenses)
-    done
-    echo "deps: ok"
 
 # Byte-compile Python fixtures (input data) so they cannot silently become syntax-error cases
 fixtures-check:

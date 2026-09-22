@@ -1,6 +1,5 @@
 # Build output
 /target/
-/adapters/*/target/
 /.dev/
 
 # Python

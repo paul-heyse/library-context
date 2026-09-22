@@ -1,10 +1,10 @@
 ---
 id: ADR-0003
 title: Core workspace plus separate adapter workspaces and processes
-status: proposed
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0006
 design: [§B8]
 evidence: Proposed
 revisit: The first adapter builds against the core family without conflicts, and the process boundary costs more than it isolates.

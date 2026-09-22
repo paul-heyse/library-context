@@ -134,13 +134,17 @@ A starting orientation, not an allocation. It exists to help justify the §7 app
 
 | If the scope is… | Groups that often carry the findings |
 |---|---|
-| The fact model, a table family, a codebook, or `cpg-schema` contracts (DESIGN §3, §B2) | 1, 2, 3, 11 |
-| Identity encoding, `provider_node_map`, or canonical ID construction (§3.4, §4.1 C) | 3, 2, 10 |
-| A Ruff or Pyrefly adapter, a report decoder, or the Arrow IPC boundary (§4.2, §B8) | 9, 2, 10 |
+| The fact model, a fact family, a codebook, or `cpg-schema` contracts (DESIGN §3, §B2) | 1, 2, 3, 11 |
+| Identity encoding, the run contract, or `provider_node_map` (§3.4.1, §4.0, §4.1 C) | 3, 2, 10 |
+| Ruff extraction, a Pyrefly report decoder, or the binding recognizer (§4.2, §B1, §B8) | 9, 2, 10 |
 | DataFusion construction plans or validators (§4.1 D, §8, §B3) | 5, 2, 8 |
-| A graph projection or petgraph analysis (§5, §B4) | 7, 5, 8, 10 |
-| Delta persistence or the snapshot manifest (§6, §B7) | 3, 6, 7 |
-| Execution semantics: CFG lowering, dataflow, aliasing (§B5, increment 3) | 5, 2, 8, 12 |
+| A graph projection or traversal (§5, §B4) | 7, 5, 8, 10 |
+| Analytics: Passes A–C, community detection, centrality, FCA/RCA, analytic embeddings (§9) | 5, 8, 2, 12 |
+| Synthesis: findings, assertions, briefs, grounding, usage patterns (§10, §B11) | 2, 5, 10, 11 |
+| Delta publication, readers, or the serving generation (§6, §B7, §B12) | 3, 6, 7 |
+| Serving and the agent interface: embedding spec, retrieval, FastMCP tools (§11, §B13, §B14) | 9, 7, 2, 8 |
+| Evaluation, gold scoring, ablations (§12) | 10, 11, 12 |
+| Execution semantics: CFG lowering, dataflow, aliasing (§B5, §13, deferred) | 5, 2, 8, 12 |
 | A refactor claiming leverage or simplification | 12, 4, 11 |
 
 ---
@@ -167,7 +171,7 @@ Nothing here is a required step. These are the angles that have repeatedly turne
 | Assumption | Rests on an external system, library, or later decision | If not stated as an assumption, that's DM-59 |
 | Benefit assertion | Performance, simplicity, extensibility | Hypothesis unless evidence is cited (DM-39, DM-59) — label it |
 
-**The divergence sentence.** For a core mechanism, writing the one sentence two implementers would read differently is often the whole finding. Familiar shapes here: "IDs are deterministic" (over which length-delimited encoding, which structural occurrence path, which encoding version — DM-15, DESIGN §3.4); "the call is resolved" (a complete candidate set under a stated model, or known targets plus an unresolved remainder — §3.6, DM-08); "the type of `x`" (which of the fifteen type roles, at which program point — §3.5, DM-06); "the snapshot is consistent" (every table at a manifest-named Delta version, or each table's latest — §B7, DM-14); "the adapter preserves the provider's data" (loss-free into `record_fields`, or a declared projection — DM-42).
+**The divergence sentence.** For a core mechanism, writing the one sentence two implementers would read differently is often the whole finding. Familiar shapes here: "IDs are deterministic" (over which length-delimited encoding, which structural occurrence path, which encoding version — DM-15, DESIGN §3.4); "the call is resolved" (a complete candidate set under a stated model, or known targets plus an unresolved remainder — §3.6, DM-08); "the type of `x`" (which of the fifteen type roles, at which program point — §3.5, DM-06); "the snapshot is consistent" (every table at the version its `snapshots` row names *and* filtered by `snapshot_id`, or each table's latest — §B7, DM-14); "the decoder preserves the provider's data" (every report field mapped or declared lost, or silently dropped — DM-42); "the brief says X" (a template over a `structurally_observed` finding, a verbatim documented sentence, or a `statistically_derived` guess — §10.2, DM-08, DM-59).
 
 At `deep`, the counter-design is worth the time: the smallest alternative delivering the same observable outcome. If the proposal's extra machinery can't pay for itself against it, that's a DM-58 finding that usually outranks the local ones.
 
@@ -211,7 +215,7 @@ Adequate and inadequate versions of the same observation. The difference is cons
 
 No sites cited, no demonstration that the two can drift, no consequence, and "consolidating" isn't a direction with a surface area.
 
-**Adequate.** "The `edges` column set is independently editable in two places: the `TableSpec` in `cpg-schema` (`tables/edges.rs:40`) and the Ruff adapter's batch builder (`adapters/ruff-extract/src/emit.rs:112`), which re-declares the fields as literals instead of taking the spec's `SchemaRef`. No test compares them. **Consequence:** adding the nullable `guard_id` column to the spec makes every adapter batch fail `RecordBatch::try_new` at the core's validation boundary, or worse, if the adapter's copy is edited to match by hand, the next nullability change drifts silently. **Correction:** have the adapter build against the spec's schema (one call site). **Verification:** test — an adapter test asserting its output schema equals the spec's, including field metadata; it fails today. DM-02, DM-52, G1."
+**Adequate.** (Illustrative paths.) "The `call_sites` column set is independently editable in two places: the `TableSpec` in `cpg-schema` (`tables/calls.rs:40`) and the Pysa decoder's batch builder (`crates/cpg-extract/src/pysa/emit.rs:112`), which re-declares the fields as literals instead of taking the spec's `SchemaRef`. No test compares them. **Consequence:** adding the nullable `branch_context_id` column to the spec makes every decoder batch fail `RecordBatch::try_new` at the validation boundary, or worse, if the decoder's copy is edited to match by hand, the next nullability change drifts silently. **Correction:** have the decoder build against the spec's schema (one call site). **Verification:** test — a decoder test asserting its output schema equals the spec's, including field metadata; it fails today. DM-02, DM-52, G1."
 
 ### B — Absence semantics
 
@@ -257,30 +261,43 @@ Template sections are `DESIGN_REVIEW_TEMPLATE.md` §1–§11. A sketch of what u
 
 ## §5 Appendix — where these shapes tend to appear in this repository
 
-Illustrative, and mostly forward-looking: at the time of writing only `crates/cpg-schema` and the scripts exist. The charter is technology-neutral and so is the review; this lists places the shapes in §2 are likely to land given DESIGN.md, and their absence proves nothing. The right-hand column names the oracle tier (ADDENDUM §4) that would catch a regression.
+Illustrative, and mostly forward-looking: at the time of writing only `crates/cpg-schema` and the scripts exist, so module and package names below (the reader module, `python/lctx_mcp`) are the planned ones. The charter is technology-neutral and so is the review; this lists places the shapes in §2 are likely to land given DESIGN.md, and their absence proves nothing. The right-hand column names the oracle tier (ADDENDUM §4) that would catch a regression.
 
 | Pattern | Shape | Principles · gate | Likely oracle |
 |---|---|---|---|
-| An adapter re-declaring a table's columns instead of using the `cpg-schema` spec | Second authority | DM-02, DM-52 · G1 | test: adapter output schema equals the spec, metadata included |
+| An extractor or decoder re-declaring a table's columns instead of using the `cpg-schema` spec | Second authority | DM-02, DM-52 · G1 | test: extractor output schema equals the spec, metadata included |
+| A pass writing `nodes`/`edges` directly instead of its family table, so the derived view and the family disagree | Second authority | DM-02, DM-23 · G1 | test: regenerated views equal the stored ones on a fixture; `ast-grep` rule on writes to view tables |
 | A validator's SQL duplicated in a test instead of calling the shared library function | Second authority | DM-02, DM-53 · G1 | `ast-grep` rule flagging inline validation SQL in tests |
 | A `HAS_TYPE` edge materialized as its own mutable table instead of a view over `type_observations` | Second authority | DM-23 · G1 | test: view and observations agree on a fixture |
+| An assertion citing a finding or evidence id from another snapshot, or a public symbol absent from `exports` | Ungrounded claim | DM-07, DM-46 · G1/G3 | test: the §10.4 grounding validator on a fixture with a stale id |
 | A codebook code reassigned or reordered | Silent migration | DM-51 · G1/G2 | test: codebook append-only snapshot |
 | A schema change without a reviewed snapshot diff | Silent migration | DM-51 · G2 | test: insta schema snapshots under `INSTA_UPDATE=no` |
-| An inner join in stage C/D dropping unmapped provider endpoints | Silent degradation | DM-08, DM-42 · G2 | test: fixture with an unresolvable target yields a resolution issue row |
-| A native Pyrefly type stored only as its display string | Silent degradation | DM-42, DM-10 · G2 | test: `fidelity` is `display_only` whenever structure is absent |
-| Pysa `ifCalled` targets emitted as `CALL_TARGET`, or synthetic shims without `synthetic_model` origin | Silent reinterpretation | DM-13, DM-24 · G2 | test on a higher-order-call fixture |
-| Pyrefly inference dependencies projected into the value-dependence graph | Relationship conflation | DM-34 · G2 | test: projection manifest rejects `ANALYSIS_*` edge kinds in dataflow projections |
+| An inner join in stage C/D dropping unmapped provider endpoints | Silent degradation | DM-08, DM-42 · G2 | test: fixture with an unresolvable target yields a `boundaries` row |
+| A module an extractor never reached having no `coverage` row | Silent degradation | DM-08, DM-30 · G2 | validator: coverage completeness per declared family × module |
+| A Pyrefly type kept only as its display string where Pysa gave structure | Silent degradation | DM-42, DM-10 · G2 | test: `fidelity` is `display_only` whenever structure is absent |
+| Pysa `ifCalled` targets emitted as call targets, or `artificial-call` sites without `synthetic_model` origin | Silent reinterpretation | DM-13, DM-24 · G2 | test on a higher-order-call fixture |
+| Glean caller→callee pairs used for `calls` (they drop unresolved calls) | Silent degradation | DM-08, DM-42 · G2 | test: an unresolved call on a fixture yields a `resolutions` row with a reason |
+| A Pass B guard or forwarding site promoted despite an earlier binding of the parameter's name | Silent reinterpretation | DM-24, DM-59 · G2 | test: the "guard after parameter rebinding" fixture yields `ambiguous_binding` |
+| A template emitting a control, limit or behavioral claim from a `statistically_derived` finding | Unbacked claim | DM-08, DM-59 · G2/G7 | test over the assertion builder; validator query rejecting statistical status on control/limit assertions |
+| A brief's conditions or limits hydrated by a second semantic search instead of deterministic joins on `(snapshot_id, brief_id)` | Optional warning | DM-08, DM-23 · G2 | test: every limit of a selected brief is returned regardless of query wording |
 | A deterministic ID built from a span alone, or including a tempdir path or timestamp | Incomplete / volatile key | DM-15, DM-32 · G6 | proptest: same-range syntax nodes get distinct IDs; IDs stable across two runs |
-| A run identity missing the analyzer revision, adapter build or Python search paths | Incomplete reuse key | DM-31, DM-48 · G6 | test: changing one input changes `run_id` |
-| Dense petgraph indices persisted as, or joined to, canonical IDs | Leaked temporary coordinate | DM-11, DM-40 · G6 | `ast-grep` rule on `projection_nodes` writes outside the projection module |
+| A run identity missing the analyzer revision, adapter build, search paths or config digests | Incomplete reuse key | DM-31, DM-48 · G6 | test: changing one input changes `run_id` |
+| Community detection, FCA or witness selection depending on input row order, an unrecorded seed, or an unpinned `rand` | Nondeterminism | DM-28, DM-40 · G6 | test: shuffled-input fixture gives byte-identical findings |
+| A traversal relying on `Bfs`/`Dfs` sibling order or `edges_directed` order instead of sorting by canonical key | Nondeterminism | DM-40 · G6 | test: same projection built in two insertion orders yields identical witnesses |
+| Dense petgraph indices persisted as, or joined to, canonical IDs | Leaked temporary coordinate | DM-11, DM-40 · G6 | `ast-grep` rule on projection-index writes outside the projection module |
 | A parallel-arc collapse that drops the arc-to-fact mapping | Lost lineage | DM-46 · G6 | test on a parallel-arcs fixture |
-| Dense index assignment depending on DataFusion partition arrival order | Nondeterminism | DM-40 · G6 | test: projection built twice with different partitioning is identical |
-| A reader resolving each Delta table's latest version instead of the snapshot manifest | Inconsistent revision | DM-14 · G5 | `ast-grep` rule on direct table loads outside the manifest reader |
-| A manifest written before validation passes, or after a partial write | Unguarded commit | DM-14, DM-30 · G5 | test: injected validation failure leaves no new manifest |
+| A query-time embedding produced or accepted without checking the generation's `spec_hash`, or a cached vector reused after the spec changed | Invalid reuse | DM-31, DM-32 · G6 | test: conformance vectors across the Rust and Python clients; a spec-mismatch fixture is rejected |
+| A reader loading a Delta table at "latest", building a provider on an already-loaded handle, or omitting the `snapshot_id` filter | Inconsistent revision | DM-14 · G5 | `ast-grep` rule on `DeltaTable` loads outside the reader module; test with an unpublished attempt present |
+| A `snapshots` row appended before validation passes, or an attempt retried under the same `snapshot_id` after a write error | Unguarded commit | DM-14, DM-30 · G5 | test: an injected validation or write failure publishes nothing |
+| The MCP server swapping generations mid-process, or a generation manifest not naming its snapshot | Inconsistent revision | DM-12, DM-14 · G5 | test: `Client(mcp)` sees one generation key across calls; manifest schema test |
 | A raw Parquet directory scan of a Delta table | Hidden semantics change | DM-20, DM-24 · G4 | `ast-grep` rule on `read_parquet` over table paths |
-| `unwrap` / `expect` in an adapter's report decoder or at the IPC boundary | Unguarded boundary | DM-07, DM-42 · G3 | test with a malformed report; clippy |
+| An analyzer run that discovers its own config or reads an ambient environment | Hidden input | DM-28, DM-31 · G4 | test: the Pyrefly invocation carries an explicit config; `context_id` changes when the config changes |
+| Gold-reference paths (`.claude/skills/**`) read by the compiler, or analytics parameters tuned against the gold | Hidden input; circular evaluation | DM-28, DM-59 · G4 | `ast-grep` rule on skill paths in compiler code; test that the acquisition manifest lists no skill paths |
+| `unwrap` / `expect` in a report decoder or at a bundle or IPC boundary | Unguarded boundary | DM-07, DM-42 · G3 | test with a malformed report; clippy |
+| A FastMCP tool returning a bare list, or anything printing to stdout under stdio | Protocol degradation | DM-42 · G2 | test: `Client(mcp)` asserts object `structured_content` in both protocol modes; `ast-grep` rule on `print(` in `python/lctx_mcp` |
 | A second Arrow, DataFusion or delta-rs version entering the lockfile | Dependency drift | DM-31 · G6 | `just deps` (exists) |
-| An adapter advertising a fact family it only partly extracts | Unbacked capability | DM-43, DM-44 · G7 | test: coverage rows per family on the fixture corpus |
+| An extractor advertising a fact family it only partly extracts | Unbacked capability | DM-43, DM-44 · G7 | test: coverage rows per family on the fixture corpus |
+| An analytic technique kept although its ablation changes no published output | Unearned machinery | DM-58 · — | the §9.8 ablation diff |
 | A check reported `passed` without its command having run, or a mocked provider counted as a pass | Unbacked capability | DM-59 · G7 | prose (`AGENTS.md`); no mechanical oracle |
 | A benchmark measuring one stage while the claim is end-to-end | — | DM-39, DM-59 | name the conditions, or relabel the claim |
 | A finding with no oracle at any tier | — | DM-60 | **say so.** That absence is the most valuable output; it becomes a new test or `rules/` entry |
