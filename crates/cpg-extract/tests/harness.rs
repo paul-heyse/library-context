@@ -41,7 +41,21 @@ fn check(fixture: &str) {
     let l = layout(fixture, dir.path());
     let mut i = input(&l, fixture);
     i.keep_pysa_json = true;
-    let ours = extract(&i).unwrap().pysa_json;
+    let output = extract(&i).unwrap();
+    let ours = output.pysa_json.clone();
+    let public: std::collections::BTreeSet<String> = {
+        let t = output.table("public_names").unwrap();
+        let mut set = std::collections::BTreeSet::new();
+        for col in ["access_path", "origin_path"] {
+            let a = t.column(t.schema().index_of(col).unwrap());
+            let a = a
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            set.extend(a.iter().flatten().map(str::to_owned));
+        }
+        set
+    };
 
     let toml = dir.path().join("pyrefly.toml");
     std::fs::write(
@@ -87,6 +101,28 @@ fn check(fixture: &str) {
         ours.len(),
         "the CLI reported every project module"
     );
+
+    // Every symbol the CLI's `--public-only` report lists is explained by our public set: an
+    // exact match or a public parent prefix (DESIGN §4.2.5).
+    let coverage = Command::new("uv")
+        .current_dir(repo())
+        .args(["run", "--no-sync", "pyrefly", "coverage", "report", "-c"])
+        .arg(&toml)
+        .args(["--public-only", "-j", "1"])
+        .output()
+        .expect("blocked: `uv` with the dev-group pyrefly is required (docs/pins.md)");
+    let report: Value = serde_json::from_slice(&coverage.stdout).expect("coverage JSON");
+    for module in report["module_reports"].as_array().unwrap() {
+        for name in module["names"].as_array().unwrap() {
+            let name = name.as_str().unwrap();
+            let parts: Vec<&str> = name.split('.').collect();
+            let explained = (1..=parts.len()).any(|n| public.contains(&parts[..n].join(".")));
+            assert!(
+                explained,
+                "{fixture}: CLI public symbol {name} is not in our public set"
+            );
+        }
+    }
     for (module, pair) in &ours {
         for kind in ["definitions", "call_graphs"] {
             assert_eq!(

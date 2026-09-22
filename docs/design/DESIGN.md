@@ -223,10 +223,8 @@ revision, the driver and CLI parity. The panic policy is **Proposed**.
 - **Ruff** library crates are pinned to the ruff line Pyrefly compiles against.
 - **One workspace, one process.** Extraction, construction, analytics and publication live in
   one core Rust workspace and run in one process. There is no IPC.
-- **Isolation is by contract, not by process:**
-  - an explicit configuration (§4.2.1);
-  - refusal of the ambient variables that cannot be cleared;
-  - any panic aborts the attempt (§4.2.5).
+- **Isolation is by contract, not by process:** an explicit configuration (§4.2.1), refusal of
+  the ambient variables that cannot be cleared, and abort on any panic (§4.2.5).
 - **The CLI** of the same revision is kept only as a parity-test oracle (§4.2.5).
 
 > Decision: ADR-0012
@@ -358,7 +356,7 @@ declaration, and an AST node is not an execution point.
 |---|---|---|
 | `provenance` | `releases`, `distributions`, `source_files`, `contexts`, `producers`, `runs`, `facts` | 1 |
 | `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → declaration) | 1 |
-| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `parameter_semantics` (Pyrefly Pysa definitions: kind, required, annotation, function flags). Derived: `signatures`, `parameters` | 1 |
+| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span and flags; the Stage-C bridge), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO). Derived: `signatures`, `parameters` | 1 |
 | `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `call_sites`, `resolutions` (§3.6), `call_targets` (joined on the full call-expression range, §4.2.3) | 1 |
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
@@ -461,10 +459,11 @@ migration (DM-51).
 | `resolution_status` | resolved, partial, unresolved, not_attempted |
 | `resolution_domain` | call, attribute, import, name, type |
 | `invocation_phase` | call, new, init, decorator, property_get, property_set |
-| `boundary_reason` | native_unavailable, unresolved_target, unsupported_unpacking, ambiguous_binding, unsupported_control_flow, scope_boundary, budget_reached, missing_evidence, not_requested, provider_disagreement, outside_provider_model (a construct the provider's model does not cover, e.g. a call inside an annotation) |
+| `boundary_reason` | native_unavailable, unresolved_target, unsupported_unpacking, ambiguous_binding, unsupported_control_flow, scope_boundary, budget_reached, missing_evidence, not_requested, provider_disagreement, outside_provider_model (a construct the provider's model does not cover, e.g. a call inside an annotation), syntax_error (facts from a recovered tree), undecodable_source (bytes are not UTF-8) |
 | `pysa_unresolved_reason` | the 14 variants of Pysa's unresolved-call reason at the pinned pyrefly, spelled as Pysa spells them; appended when the pin moves |
 | `evidence_status` | structurally_observed, documented, statistically_derived, fixture_checked, unresolved |
-| `finding_kind`, `assertion_kind`, `analytic_method`, `fact_family`, `type_role` | Defined in `cpg-schema` as their consumers land (§9, §10) |
+| `finding_kind`, `assertion_kind`, `analytic_method`, `type_role` | Defined in `cpg-schema` as their consumers land (§9, §10) |
+| slice-1 extraction codebooks | `fact_family`, `scope_kind`, `declaration_kind`, `export_syntax_kind`, `parameter_kind`, `signature_form`, `argument_kind`, `pysa_site_kind`, `pysa_target_kind`, `pysa_callee_kind`, `implicit_receiver`, `ancestry_relation`; values in `cpg-schema`, whose snapshot-tested registry is authoritative |
 
 - **Missing output is not negative evidence.** "Unavailable", "not requested", "failed" and
   "unresolved" are recorded separately.
@@ -601,9 +600,11 @@ Unmapped or ambiguous rows become `boundaries` rows. They are never dropped by a
 ### §4.2 Extraction
 
 **Labels.** A line that cites a spike result (S1–S7, `spike/pyrefly-inproc`, FastMCP 4.0.3 and a
-non-ASCII fixture, 2026-09-22) is **Tested** or **Measured**. Everything else in §4.2 is
-**Proposed**, and its oracle lands with increment 1, slice 1. Pyrefly is linked from the pinned
-fork (§B8). A run is one call of the driver over one context, and everything below happens in
+non-ASCII fixture, 2026-09-22) is **Tested** or **Measured**. The rest is **Implemented** in
+`cpg-extract` and **Tested** by its fixture tests (slice 1, 2026-09-22): the variant table,
+`__all__` forms, `_invalid/` modules, BOM/CRLF, two install locations, cross-process
+determinism, the panic abort, the ambient refusal and harness equivalence with the CLI. The
+`catch_unwind` ban is an ast-grep rule. Pyrefly is linked from the pinned fork (§B8). A run is one call of the driver over one context, and everything below happens in
 one process.
 
 | Provider surface (`model_id` suffix) | Mode | Raw tables (v1) |
@@ -746,11 +747,10 @@ one process.
 - **Determinism oracle.** Reruns, shuffled order and perturbed ambient variables give byte-identical
   sorted tables (S2, S3).
 - **Harness-equivalence oracle.** A test runs the pinned Pyrefly CLI (the `uv` dev group, same
-  revision) with an equivalent generated `pyrefly.toml`. For each project module it asserts that:
-  - the in-process Pysa structs equal the CLI's `--report-pysa-format json` output as sets, with
-    `module_id` removed;
-  - every symbol in the CLI's `--public-only` report is explained by the public set. "Explained"
-    means an exact match, or a public parent prefix.
+  revision) with an equivalent generated `pyrefly.toml` and asserts, per project module, that the
+  in-process Pysa structs equal its `--report-pysa-format json` output as sets (`module_id`
+  removed), and that the public set explains its `--public-only` report (an exact match or a
+  public parent prefix).
 
   It shares the collectors with the CLI, so it checks our driver (configuration, reporter
   lifecycle, lazy solving), not the correctness of Pysa. It is **Tested** as a spike script (S4);
@@ -776,9 +776,12 @@ one process.
 
 ### §4.3 Fact construction and persistence
 
-**Interface-checked** (datafusion and deltalake skills at the §7 pins) unless marked. Rows marked
-**Tested** ran in spike S6 (2026-09-22). This section says which built-in owns each step; §6 and
-§8 hold the protocol and the rules.
+**Implemented** in `cpg-schema` (build, canonicalize, ids) and `cpg-core` (create, open, write,
+read, SQL helper), and **Tested** there (slice 1, 2026-09-22): every slice-1 table round-trips
+exactly through Delta; open refuses drifted or missing CHECKs; the helper refuses writes; the
+`INSERT INTO` bypass is asserted at the pinned delta-rs. Derive, validate and publish are
+**Proposed** until slice 2. This section says which built-in owns each step; §6 and §8 hold the
+protocol and the rules.
 
 | Stage | Built-in | Ours |
 |---|---|---|

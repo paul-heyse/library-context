@@ -46,10 +46,10 @@ real consumer.
 
 | When | Run |
 |---|---|
-| Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules, `adr lint`, `lint-agents` |
+| Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules scan and rule tests, `adr lint`, `lint-agents` |
 | Before committing | `just test-all`: adds fixture parsing and `just deps` |
 | Format (mutating) | `just fmt` |
-| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs, plus cargo-deny |
+| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Tools present? | `just doctor` |
 
