@@ -165,7 +165,11 @@ fn run(args: Args) {
     }
 
     let finder = ConfigFinder::new_constant(ArcId::new(cfg.clone()));
-    let threads = ThreadCount::NumThreads(NonZeroUsize::new(args.threads).unwrap());
+    // --threads 0 = ThreadCount::Inline: everything on this driver-owned thread (review F8).
+    let threads = match NonZeroUsize::new(args.threads) {
+        Some(n) => ThreadCount::NumThreads(n),
+        None => ThreadCount::Inline,
+    };
     let state = State::new(finder, threads);
     let mut txn = state.new_transaction(Require::Exports, None);
     txn.set_pysa_reporter(Some(Box::new(PysaReporter {

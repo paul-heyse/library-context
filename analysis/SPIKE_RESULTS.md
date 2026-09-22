@@ -22,3 +22,8 @@ borrow accessor. It changes no logic.
 | S5 | passed | summary `s5` | 29,279 Pysa locations convert back to byte ranges with 0 mismatches (`LineIndex::offset`, UTF-8). The join key is the **full call-expression range**: 13,104/13,292 calls match on it and 0 match on the callee range. The 188 unmatched calls are all inside annotations (`Annotated[…, cyclopts.Parameter(…)]`), which Pysa's call model does not cover, so they become boundary rows |
 | S6 | passed, with one correction | `cargo test -p spike-pyrefly --test s6_delta -- --nocapture` | `CreateBuilder` **rejects** `delta.constraints.*` keys unless unknown keys are allowed, so constraints go through `add_constraint()` after create. CHECK is enforced on `write(batches)` and on `write(vec![]).with_input_plan(plan)`. `appendOnly` rejects delete. `commitInfo` metadata can be read back through `history()`. **DataFusion `INSERT INTO` committed a CHECK-violating row** (bypass confirmed). Ids read back as `BinaryView`; a direct cast to FSB(16) is unsupported, and the two-step cast works |
 | S7 | Measured | release build, run a | FastMCP 4.0.3 at `Everything`, 1 thread: run 2.5 s + extract 2.8 s = 5.4 s cold, 4.2 s warm, 3.1 s at 4 threads. Peak RSS ~918 MB |
+
+**Addendum (review F8), 2026-09-22.** `--threads 0` selects `ThreadCount::Inline`, with everything
+on the driver's own 512 MiB thread. Runs f (plain) and g (`--shuffle`, cwd=/tmp) produced tables
+and a context digest byte-identical to run a. They took 4.05 s with peak RSS ~765 MB. FastMCP
+cannot discriminate whether one thread is needed; an import-cycle fixture must.
