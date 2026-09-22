@@ -27,3 +27,11 @@ borrow accessor. It changes no logic.
 on the driver's own 512 MiB thread. Runs f (plain) and g (`--shuffle`, cwd=/tmp) produced tables
 and a context digest byte-identical to run a. They took 4.05 s with peak RSS ~765 MB. FastMCP
 cannot discriminate whether one thread is needed; an import-cycle fixture must.
+
+**Addendum (fork published), 2026-09-22.** `github.com/paul-heyse/pyrefly` has branch `lctx/1.3.1`
+at `b9f28575`, and the fork also carries tag `1.3.1` (`3e3177d0`). A fresh clone's
+`git format-patch -1` matches the committed patch's sha256 (`b7b82828…b767`). The spike now depends
+on the fork by `git`/`rev`:
+- `check_family.py` and `cargo deny` pass, with the fork added to `allow-git`;
+- the release build took 37 s with dependencies cached;
+- run h (`Inline`) is byte-identical to run a.

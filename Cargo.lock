@@ -4222,6 +4222,7 @@ dependencies = [
 [[package]]
 name = "pyrefly"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "anstream 0.6.21",
  "anyhow",
@@ -4285,6 +4286,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_build"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -4306,6 +4308,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_bundled"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "anyhow",
  "sha2 0.10.9",
@@ -4317,6 +4320,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_config"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "anyhow",
  "clap",
@@ -4349,6 +4353,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_derive"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4358,6 +4363,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_glean_schema"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "serde",
  "serde_json",
@@ -4367,6 +4373,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_graph"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "dupe",
  "pyrefly_util",
@@ -4376,6 +4383,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_python"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "anyhow",
  "clap",
@@ -4403,6 +4411,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_types"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "compact_str",
  "dupe",
@@ -4423,6 +4432,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_util"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "anstream 0.6.21",
  "anyhow",
@@ -6099,6 +6109,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 [[package]]
 name = "tsp_types"
 version = "1.3.1"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b9f28575ce2baa93dbc416670a34592501b3fcd4#b9f28575ce2baa93dbc416670a34592501b3fcd4"
 dependencies = [
  "lsp-server",
  "serde",

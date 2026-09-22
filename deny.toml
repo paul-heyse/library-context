@@ -23,6 +23,7 @@ allow-git = [
     "https://github.com/delta-io/delta-rs",
     "https://github.com/buoyant-data/delta-kernel-rs",
     "https://github.com/yangdanny97/lsp-types",
+    "https://github.com/paul-heyse/pyrefly",
 ]
 
 [licenses]

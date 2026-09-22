@@ -7,12 +7,12 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-pyrefly = { path = "../../vendor/pyrefly/pyrefly" }
-pyrefly_python = { path = "../../vendor/pyrefly/crates/pyrefly_python" }
-pyrefly_types = { path = "../../vendor/pyrefly/crates/pyrefly_types" }
-pyrefly_config = { path = "../../vendor/pyrefly/crates/pyrefly_config" }
-pyrefly_build = { path = "../../vendor/pyrefly/crates/pyrefly_build" }
-pyrefly_util = { path = "../../vendor/pyrefly/crates/pyrefly_util" }
+pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "b9f28575ce2baa93dbc416670a34592501b3fcd4" }
+pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "b9f28575ce2baa93dbc416670a34592501b3fcd4" }
+pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "b9f28575ce2baa93dbc416670a34592501b3fcd4" }
+pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "b9f28575ce2baa93dbc416670a34592501b3fcd4" }
+pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "b9f28575ce2baa93dbc416670a34592501b3fcd4" }
+pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "b9f28575ce2baa93dbc416670a34592501b3fcd4" }
 ruff_python_ast = "=0.0.11"
 ruff_text_size = "=0.0.11"
 ruff_source_file = "=0.0.11"
