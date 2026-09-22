@@ -21,3 +21,10 @@ __pycache__/
 !/.claude/skills/pin-check/
 
 .claude/settings.local.json
+
+# spike-only
+/vendor/
+/analysis/venv/
+/analysis/tree/
+/analysis/runs/
+/analysis/empty-site/

@@ -1,0 +1,169 @@
+From b9f28575ce2baa93dbc416670a34592501b3fcd4 Mon Sep 17 00:00:00 2001
+From: paul-heyse <paul@heyse.io>
+Date: Tue, 22 Sep 2026 16:19:52 -0400
+Subject: [PATCH] lctx: expose Pysa collectors and public-name helpers;
+ optional report writes
+
+---
+ pyrefly/lib/commands/coverage.rs         |  2 +-
+ pyrefly/lib/commands/coverage/collect.rs | 10 +++++-----
+ pyrefly/lib/lib.rs                       |  4 ++--
+ pyrefly/lib/report/pysa.rs               |  6 ++++++
+ pyrefly/lib/report/pysa/call_graph.rs    |  4 ++--
+ pyrefly/lib/state/state.rs               |  7 ++++++-
+ 6 files changed, 22 insertions(+), 11 deletions(-)
+
+diff --git a/pyrefly/lib/commands/coverage.rs b/pyrefly/lib/commands/coverage.rs
+index 8bbc3b4..bd324f8 100644
+--- a/pyrefly/lib/commands/coverage.rs
++++ b/pyrefly/lib/commands/coverage.rs
+@@ -6,7 +6,7 @@
+  */
+ 
+ mod check;
+-mod collect;
++pub mod collect;
+ pub(crate) mod report;
+ mod types;
+ 
+diff --git a/pyrefly/lib/commands/coverage/collect.rs b/pyrefly/lib/commands/coverage/collect.rs
+index 8cfd256..dfba96d 100644
+--- a/pyrefly/lib/commands/coverage/collect.rs
++++ b/pyrefly/lib/commands/coverage/collect.rs
+@@ -249,12 +249,12 @@ fn classify_annotation(
+ 
+ /// Returns true if the name is public: does not start with `_`, or is a dunder (`__x__`).
+ /// Matches typestats `is_public_name`.
+-fn is_public_name(name: &str) -> bool {
++pub fn is_public_name(name: &str) -> bool {
+     !name.starts_with('_') || name.ends_with("__")
+ }
+ 
+ /// A module is public when every dotted-path component is public.
+-fn is_public_module(module: ModuleName) -> bool {
++pub fn is_public_module(module: ModuleName) -> bool {
+     module.as_str().split('.').all(is_public_name)
+ }
+ 
+@@ -277,7 +277,7 @@ fn is_public_fqn(fqn: &str, module_prefix: &str, public_fqns: &HashSet<String>)
+ }
+ 
+ /// Module-level dunders that typestats always excludes from the report.
+-const EXCLUDED_MODULE_DUNDERS: &[&str] = &[
++pub const EXCLUDED_MODULE_DUNDERS: &[&str] = &[
+     // User-level module hooks.
+     "__all__",
+     "__dir__",
+@@ -299,7 +299,7 @@ const EXCLUDED_MODULE_DUNDERS: &[&str] = &[
+ ];
+ 
+ /// Walk re-exports to the defining module's handle and name, `None` on cycle/miss.
+-fn trace_export_origin(
++pub fn trace_export_origin(
+     handle: &Handle,
+     mut cur_name: Name,
+     transaction: &Transaction,
+@@ -331,7 +331,7 @@ fn trace_export_origin(
+ 
+ /// Collect origin FQNs of all publicly exported names across public modules, plus the deduped
+ /// handles of cross-module re-export origins.
+-fn compute_public_fqns(
++pub fn compute_public_fqns(
+     handles: &[Handle],
+     transaction: &Transaction,
+ ) -> (HashSet<String>, SmallSet<Handle>) {
+diff --git a/pyrefly/lib/lib.rs b/pyrefly/lib/lib.rs
+index d744d3f..2b6dfe1 100644
+--- a/pyrefly/lib/lib.rs
++++ b/pyrefly/lib/lib.rs
+@@ -32,14 +32,14 @@ pub mod binding;
+ pub mod commands;
+ mod compat;
+ mod error;
+-mod export;
++pub mod export;
+ #[doc(hidden)]
+ pub mod lsp;
+ #[doc(hidden)]
+ pub mod module;
+ pub mod playground;
+ pub mod query;
+-mod report;
++pub mod report;
+ // Re-export the generated Cap'n Proto module at crate root, because the generated
+ // code references types via `crate::pysa_report_capnp::...`.
+ #[allow(clippy::all)]
+diff --git a/pyrefly/lib/report/pysa.rs b/pyrefly/lib/report/pysa.rs
+index 7cbd586..8018d01 100644
+--- a/pyrefly/lib/report/pysa.rs
++++ b/pyrefly/lib/report/pysa.rs
+@@ -220,6 +220,8 @@ pub struct PysaReporter {
+     pub type_of_expressions_directory: PathBuf,
+     pub call_graphs_directory: PathBuf,
+     pub format: PysaFormat,
++    /// lctx: `false` keeps Pysa solutions in memory without writing report files.
++    pub write_files: bool,
+ }
+ 
+ impl PysaReporter {
+@@ -248,6 +250,7 @@ impl PysaReporter {
+             type_of_expressions_directory,
+             call_graphs_directory,
+             format,
++            write_files: true,
+         }))
+     }
+ 
+@@ -262,6 +265,9 @@ impl PysaReporter {
+     ///
+     /// This can perform cross-module lookups using the `transaction` (wrapped in `PysaResolver`).
+     pub fn report_module(&self, handle: &Handle, transaction: &Transaction) {
++        if !self.write_files {
++            return;
++        }
+         let info_filename = match handle.path().details() {
+             ModulePathDetails::Namespace(_) => None,
+             _ => Some(PathBuf::from(format!(
+diff --git a/pyrefly/lib/report/pysa/call_graph.rs b/pyrefly/lib/report/pysa/call_graph.rs
+index 2e1bb85..b26933c 100644
+--- a/pyrefly/lib/report/pysa/call_graph.rs
++++ b/pyrefly/lib/report/pysa/call_graph.rs
+@@ -169,8 +169,8 @@ impl std::fmt::Display for OriginKind {
+ 
+ #[derive(Debug, PartialEq, Eq, Clone, Serialize, Hash, PartialOrd, Ord)]
+ pub struct Origin {
+-    kind: OriginKind,
+-    location: PysaLocation,
++    pub kind: OriginKind,
++    pub location: PysaLocation,
+ }
+ 
+ #[derive(Debug, PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
+diff --git a/pyrefly/lib/state/state.rs b/pyrefly/lib/state/state.rs
+index 33b6b87..324935c 100644
+--- a/pyrefly/lib/state/state.rs
++++ b/pyrefly/lib/state/state.rs
+@@ -851,6 +851,11 @@ impl<'a> Transaction<'a> {
+         self.data.pysa_reporter.take()
+     }
+ 
++    /// lctx: borrow the installed pysa reporter (its `ModuleIds`) while modules still solve lazily.
++    pub fn pysa_reporter(&self) -> Option<&crate::report::pysa::PysaReporter> {
++        self.data.pysa_reporter.as_deref()
++    }
++
+     /// Set the cinderx reporter for inline extraction during type checking.
+     pub fn set_cinderx_reporter(
+         &mut self,
+@@ -2651,7 +2656,7 @@ impl<'a> Transaction<'a> {
+         builtin_module_for_name(&self.lookup(module_data), handle.module(), name)
+     }
+ 
+-    pub(crate) fn get_exports_data(&self, handle: &Handle) -> Arc<Exports> {
++    pub fn get_exports_data(&self, handle: &Handle) -> Arc<Exports> {
+         let module_data = self.get_module(handle);
+         self.lookup_export(module_data)
+     }
+-- 
+2.43.0
+

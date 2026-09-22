@@ -1,0 +1,31 @@
+[package]
+name = "spike-pyrefly"
+description = "Throwaway spike: pyrefly 1.3.1 (patched) + ruff 0.0.11 in-process with the pinned Arrow/DataFusion/Delta family."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pyrefly = { path = "../../vendor/pyrefly/pyrefly" }
+pyrefly_python = { path = "../../vendor/pyrefly/crates/pyrefly_python" }
+pyrefly_types = { path = "../../vendor/pyrefly/crates/pyrefly_types" }
+pyrefly_config = { path = "../../vendor/pyrefly/crates/pyrefly_config" }
+pyrefly_build = { path = "../../vendor/pyrefly/crates/pyrefly_build" }
+pyrefly_util = { path = "../../vendor/pyrefly/crates/pyrefly_util" }
+ruff_python_ast = "=0.0.11"
+ruff_text_size = "=0.0.11"
+ruff_source_file = "=0.0.11"
+blake3 = "=1.8.6"
+serde_json = "1"
+arrow-array.workspace = true
+arrow-schema.workspace = true
+arrow-ipc.workspace = true
+arrow-select.workspace = true
+arrow-cast.workspace = true
+datafusion.workspace = true
+deltalake.workspace = true
+tokio.workspace = true
+futures.workspace = true
+url.workspace = true
+tempfile.workspace = true
