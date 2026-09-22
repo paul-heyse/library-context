@@ -67,3 +67,8 @@ Process cost is roughly one ADR per real decision and one short review per slice
 is mechanical prevention: an agent *can* edit any file, including this process, and the
 safeguard is that the change shows up in a reviewed commit. If a class of mistake recurs, it gets
 an oracle (test, rule or `just` check), not a hook that blocks edits.
+
+## Amendments
+
+- 2026-09-22: the remote is **public** (`github.com/paul-heyse/library-context`) at the
+  operator's request, not private as first written. The process is otherwise unchanged.

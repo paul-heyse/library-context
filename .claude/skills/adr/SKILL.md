@@ -30,6 +30,9 @@ read it first when asked "why".
    something ran). `revisit:` is the trigger to reconsider; prefix `$ ` if a command decides it.
 5. `status: proposed` while unproven; `accepted` once the decision is in force. Accepted records
    are immutable except `status`/`superseded-by` — `just adr lint` diffs them against `HEAD`.
+   A factual correction that changes no decision (a name, a URL, a visibility setting) may be
+   **appended** as a dated line under a trailing `## Amendments` heading; anything that changes
+   what was decided is a superseding ADR.
 6. `just adr index`, then `just adr lint`.
 
 `just adr revisit` lists every active trigger and runs the runnable ones.

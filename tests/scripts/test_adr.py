@@ -103,3 +103,21 @@ def test_accepted_record_is_immutable_except_status_fields(root: Path) -> None:
     # Editing the decision text is not.
     path.write_text(path.read_text().replace("## Decision", "## Decision\n\nChanged."))
     assert any("accepted record edited" in p for p in adr.lint(root))
+
+
+def test_amendments_may_be_appended_but_not_rewritten(root: Path) -> None:
+    git(root, "init", "-q")
+    git(root, "config", "user.email", "t@example.com")
+    git(root, "config", "user.name", "t")
+    path = new(root, "amended")
+    adr.set_field(path, "status", "accepted")
+    run(root, "index")
+    path.write_text(path.read_text() + "\n## Amendments\n\n- 2026-09-22: first.\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "accept")
+
+    path.write_text(path.read_text() + "- 2026-09-23: second.\n")
+    assert adr.lint(root) == []
+
+    path.write_text(path.read_text().replace("first.", "rewritten."))
+    assert any("accepted record edited" in p for p in adr.lint(root))

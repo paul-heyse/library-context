@@ -56,8 +56,10 @@ adapters, normalization and new analyses (Initial_plan §6.1).
 ### §B2 Arrow schemas are the authoritative data contract
 
 One `cpg-schema` crate holds the Arrow `Schema` definitions, append-only category codebooks,
-logical-ID newtypes, key and reference declarations, permitted edge endpoint kinds, and physical
-storage mappings. No schema is inferred from JSON or from a first batch.
+logical-ID newtypes, key and reference declarations, permitted edge endpoint kinds, physical
+storage mappings, and Arrow-only batch builders and local validators. It depends on `arrow-*`
+only, so adapters can link it; DataFusion validators live in a core-only crate (§8). No schema
+is inferred from JSON or from a first batch.
 
 ### §B3 DataFusion constructs and validates relations
 
@@ -88,7 +90,7 @@ Fact tables persist as Delta tables grouped by relation family. A snapshot is pu
 manifest naming the exact Delta version of every table, written only after validation passes.
 Readers use the manifest and never pick "latest" per table.
 
-### §B8 Pinned adapters run as separate processes and emit Arrow IPC
+### §B8 Pinned adapters run as separate processes and emit Arrow IPC (provisional: ADR-0003 is proposed)
 
 The Ruff and Pyrefly adapters are separate Cargo workspaces and processes, each pinned to one
 analyzer revision, and emit Arrow IPC. This isolates fast-moving analyzer internals from the core
@@ -146,6 +148,8 @@ not here.
 | Closed category | `Int16` | `Int16` | code present in the versioned codebook |
 | Offset, ordinal, count | `Int64` | `Int64` | range checks |
 | Projection-local dense index | `UInt32` | `Int64` | checked conversion |
+| Ordinary text | `Utf8` | `Utf8` | field-specific validation |
+| Optional factual flag | nullable `Boolean` | nullable `Boolean` | null (unknown) is distinct from `false` |
 | Timestamp | `Timestamp(µs, UTC)` | same | UTC |
 
 Conversion happens only at the declared Delta boundary, with checks in both directions.
@@ -159,6 +163,12 @@ Conversion happens only at the declared Delta boundary, with checks in both dire
 - Provider-local IDs are mapped through `(run, module, provider kind, local key)`.
 - Deterministic IDs use a documented, versioned, length-delimited encoding with collision checks.
 - Codebooks are append-only. Codes are never regenerated or reordered.
+- Source coordinates are byte offsets into the exact UTF-8 parser input, with explicit source
+  maps (notebooks, other providers' coordinate systems). Provider spans are converted, never
+  assumed to share a coordinate system.
+- Type variables keep binder identity: two unrelated parameters named `T` are distinct.
+- Deduplicate repeated ingestion of the *same* assertion. Assertions from independent providers
+  are separate facts, even when they agree (§B6).
 
 ### §3.5 Vocabularies
 
@@ -171,6 +181,13 @@ Conversion happens only at the declared Delta boundary, with checks in both dire
 
 Missing output is not negative evidence: unavailable, unrequested, failed and unresolved are
 recorded separately.
+
+### §3.5.1 Type observations and class order
+
+`HAS_TYPE` is a derived view over `type_observations` that keeps the role; it is never a
+separately editable copy. Annotation-role types come from syntax or native annotation data,
+never from TSP `getDeclaredType` (which returns the computed type). Pyrefly's reported MRO order
+is kept as reported, never re-derived by topologically sorting base edges.
 
 ### §3.6 Resolution is a set
 
@@ -202,6 +219,11 @@ inner join.
 | Ruff AST + semantic model | native traversal into Arrow builders, after deferred semantic work has completed |
 | Pyrefly Glean / Pysa / CinderX reports | decoded once into versioned provider structs, then Arrow |
 | Pyrefly native types and answers | native adapter with `Require::Everything` retention |
+
+A report field omitted because it equals the report's own default takes that default; it is
+not "unknown". Ruff's `Checker` (which builds the semantic model) is crate-private, so the
+Ruff adapter needs a narrow hook at the pinned revision; that assumption belongs to the
+analyzer-revision ADR.
 
 The Ruff and Pyrefly revisions are still open; they are the first ADR of increment 1.
 
@@ -261,7 +283,8 @@ membership and numeric bounds, checked at every materialization boundary. **Cros
 (DataFusion): composite-key uniqueness, foreign references (anti-joins returning zero rows),
 endpoint kinds, resolution completeness fields, source anchors and projection integrity. A
 snapshot publishes only when both pass. Validators are library code shared by tests and
-publication (§B3).
+publication (§B3). They only read and reject; they never repair data.
+They live in a core-only crate, so `cpg-schema` stays free of DataFusion.
 
 ---
 
@@ -270,3 +293,4 @@ publication (§B3).
 | Date | Change | ADR |
 |---|---|---|
 | 2026-09-22 | Seeded from Initial_plan.md; §7 family verified by smoke build | ADR-0001, ADR-0002, ADR-0003 |
+| 2026-09-22 | Restored increment-1 rules dropped in condensation; placed validators (baseline review F2, F6, O1) | — |

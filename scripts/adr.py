@@ -17,7 +17,8 @@ Records live in docs/adr/NNNN-slug.md with a small frontmatter block:
 DESIGN.md is the current truth; an ADR is the why. `lint` checks that every
 `design:` ref resolves to a DESIGN.md heading, that supersession links are
 symmetric, that accepted records have not been edited apart from their status
-fields, and that docs/adr/README.md is current. Stdlib only.
+fields and an append-only trailing `## Amendments` section, and that
+docs/adr/README.md is current. Stdlib only.
 """
 
 from __future__ import annotations
@@ -42,8 +43,10 @@ EVIDENCE = (
     "Formally established",
 )
 REQUIRED = ("id", "title", "status", "date", "supersedes", "superseded-by", "design")
-# Only these lines may change once a record is accepted.
+# Once a record is accepted, only these lines may change, and dated lines may be
+# appended under a trailing AMENDMENTS heading (factual corrections, not new decisions).
 MUTABLE_WHEN_ACCEPTED = ("status", "superseded-by")
+AMENDMENTS = "## Amendments"
 FILE_RE = re.compile(r"^(\d{4})-[a-z0-9][a-z0-9-]*\.md$")
 HEADING_RE = re.compile(r"^#+\s+§([A-Z]?\d+(?:\.\d+)*)\b", re.M)
 
@@ -127,13 +130,26 @@ def git_head_text(root: Path, path: Path) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def split_amendments(raw: str) -> tuple[str, str]:
+    """Split off a trailing `## Amendments` section (append-only once accepted)."""
+    head, sep, tail = raw.partition(f"\n{AMENDMENTS}\n")
+    return (head, tail.strip()) if sep else (raw, "")
+
+
 def strip_mutable(raw: str) -> str:
     keep = [
         line
-        for line in raw.splitlines()
+        for line in split_amendments(raw)[0].rstrip().splitlines()
         if not any(line.startswith(f"{key}:") for key in MUTABLE_WHEN_ACCEPTED)
     ]
     return "\n".join(keep)
+
+
+def edited_after_acceptance(head: str, current: str) -> bool:
+    """True unless only status fields changed or amendments were appended."""
+    if strip_mutable(head) != strip_mutable(current):
+        return True
+    return not split_amendments(current)[1].startswith(split_amendments(head)[1])
 
 
 def render_index(adrs: list[Adr]) -> str:
@@ -215,10 +231,10 @@ def lint(root: Path, *, check_git: bool = True) -> list[str]:
         if check_git:
             head = git_head_text(root, a.path)
             accepted_at_head = head is not None and parse(a.path, head).status == "accepted"
-            if accepted_at_head and strip_mutable(head or "") != strip_mutable(a.raw):
+            if accepted_at_head and edited_after_acceptance(head or "", a.raw):
                 err(
                     a,
-                    "accepted record edited beyond status/superseded-by; "
+                    "accepted record edited beyond status/superseded-by or appended amendments; "
                     "write a superseding ADR instead (`just adr supersede`)",
                 )
 

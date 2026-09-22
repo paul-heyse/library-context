@@ -10,7 +10,8 @@ publish = false
 
 # The pinned dependency family (DESIGN §7, ADR-0002). Arrow, DataFusion,
 # object_store and delta-rs must resolve to exactly one version each;
-# `just deps` enforces that through deny.toml.
+# `just deps` enforces that with scripts/check_family.py (not deny.toml, which
+# misses dev-only duplicates — ADR-0002).
 [workspace.dependencies]
 arrow-array = "=59.3.0"
 arrow-schema = "=59.3.0"

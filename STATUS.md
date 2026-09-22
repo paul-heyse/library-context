@@ -38,11 +38,28 @@ Two notes:
 - **The 66-schema reference package** cited by Initial_plan (Arrow schemas, registries,
   reference Rust) is not in the repo. Add it under `docs/initial_plan/` if it's available.
 
+## Baseline design review (2026-09-22)
+
+`docs/design_review/reviews/design_review_design-spine-baseline_2026-09-22.md`, compact.
+
+- **Decision:** Not Accept as a decidable specification for increment 1. G3 and G7 pass; G1, G2,
+  G4, G5 and G6 are unresolved.
+- **Fixed in DESIGN.md:** F2 (rules dropped in condensation, restored), F6 (validators placed),
+  O1, O2.
+- **Open, all belonging to slice 1:**
+  - **F1:** declare only the tables and codebooks slice 1 emits, including the
+    `extraction_mode`/`modality`/`model` and resolution `status`/`domain` domains, plus the
+    edge-kind/endpoint registry.
+  - **F3:** the publication protocol needs an ADR. The suggested answer is an append-only
+    `snapshots` Delta table whose commit is the act of publication, with readers filtering by
+    `snapshot_id`.
+  - **F4:** the run contract and the inputs each ID kind is derived from.
+  - **F5:** `coverage` and `resolution_issues` tables, and a definition of "fact family".
+
 ## Next
 
-1. Run the baseline `compact` design review of DESIGN.md (`design-reviewer` subagent).
-2. Increment 1, slice 1:
-   - choose the analyzer revisions (ADR);
-   - define the first `cpg-schema` table family (`nodes`/`facts`/`edges`/`spans`) with schema
-     snapshots and codebooks;
-   - write the first fixture.
+Increment 1, slice 1:
+1. Choose the analyzer revisions (ADR).
+2. Settle F1/F3/F4/F5 while defining the first `cpg-schema` family (`nodes`/`facts`/`edges`/
+   `spans`/`coverage`) with schema snapshots and codebooks.
+3. Write the first fixture.
