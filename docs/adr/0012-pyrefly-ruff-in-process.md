@@ -5,9 +5,9 @@ status: proposed
 date: 2026-09-22
 supersedes: [ADR-0006]
 superseded-by: null
-design: [§B1, §B2, §B8, §3.2, §3.4, §3.5, §4.0, §4.1, §4.2, §4.3, §6.1, §6.2, §8, §13]
+design: [§B1, §B2, §B8, §3.2, §3.3, §3.4, §3.5, §3.6, §4.0, §4.1, §4.2, §4.3, §6.1, §6.2, §6.3, §8, §13]
 evidence: Tested
-revisit: The in-process vs CLI parity test fails at a pin bump; a pyrefly release needs a patch with a logic change or over ~60 changed lines; or pyrefly panics on an in-scope library.
+revisit: The harness-equivalence test fails at a pin bump; a pyrefly release needs a patch with a logic change (anything beyond visibility, borrow-only accessors and upstream-default fields) or over ~60 changed lines; a bump changes more than ~300 lines of the extractor's Pyrefly-facing module (route: Option 1); or pyrefly panics on an in-scope library, or a pin cannot co-resolve with the §7 family (route: Option 4).
 ---
 
 ## Context
@@ -44,7 +44,16 @@ Spike `spike/pyrefly-inproc` (`d00bab5`, `analysis/SPIKE_RESULTS.md`), 2026-09-2
   all inside annotations.
 - **Delta (S6).** CHECK constraints and `appendOnly` are enforced on `DeltaTable::write`, while
   DataFusion `INSERT INTO` bypasses them. `delta.constraints.*` cannot be set at create.
-- **Cost (S7).** 5.4 s and ~918 MB peak RSS at one thread.
+- **Cost (S7).** 5.4 s and ~918 MB peak RSS at `NumThreads(1)`; 4.1 s and ~765 MB with
+  `Inline`, which gives identical output.
+
+The standard review (`design_review_adr-0012-pyrefly-ruff-in-process_2026-09-22.md`) found the
+core sound and returned **Not Accept as written**. The Decision below includes its corrections:
+- abort on any panic (F1);
+- a full Pysa variant table (F2);
+- an `__all__` completeness detector (F3);
+- immutable CHECKs verified at open (F4);
+- the smaller corrections F5–F11.
 
 ## Options
 
@@ -57,9 +66,10 @@ Spike `spike/pyrefly-inproc` (`d00bab5`, `analysis/SPIKE_RESULTS.md`), 2026-09-2
    not call resolution. Calls would still need the subprocess, so every run would analyze twice.
 3. **The patched fork, in-process** (chosen). The patch is 33 changed lines of visibility, a
    `write_files` switch whose default keeps upstream behavior, and a `pysa_reporter()` borrow.
-   It changes no logic.
+   It makes no logic change in the §4.2.6 sense.
 4. **The patched fork in a sidecar process emitting Arrow IPC** (CodeFabric's shape). This is the
-   **fallback** if a future pin cannot co-resolve with the family or panics become common.
+   **fallback** if a future pin cannot co-resolve with the family or panics become common. It
+   does not reduce the port cost, so a port-cost trigger routes to Option 1 instead.
 
 ## Decision
 
@@ -70,26 +80,33 @@ Spike `spike/pyrefly-inproc` (`d00bab5`, `analysis/SPIKE_RESULTS.md`), 2026-09-2
 - **Driver** (DESIGN §4.2.1):
   - an explicit `ConfigFile` with no discovery, heuristics, fallback or interpreter query;
   - `ConfigFinder::new_constant`;
-  - `State::new(.., NumThreads(1))`;
+  - `State::new(.., ThreadCount::Inline)` on a driver-owned thread with a declared stack;
   - `run(.., Require::Everything)` with a no-write `PysaReporter` installed.
 
   It refuses to start when `PYREFLY_STACK_SIZE`, `PYREFLY_FIXPOINT_DETAILS` or `PYSA_DUMP*` are
-  set.
+  set. Context paths are recorded relative to declared roots.
+- **Panics** (§4.2.5). Any panic in code that touches Pyrefly aborts the attempt, and there is no
+  `catch_unwind`.
 - **One parse** (§4.2.2). The Ruff walk runs over `Transaction::get_ast`. The Pysa collectors
   supply calls, definitions and ancestry, converted to byte ranges through the module's own
   `LineIndex`.
+- **Pysa variants** (§4.2.3). Every variant has a mapped row, or an explicit "not carried" row.
+  `Overrides(f)` is a candidate with an open candidate set (§3.6).
 - **Public names** (§4.2.3). Pyrefly defines "public". Our (access path → origin) pairs come
   from its `trace_export_origin` and must flatten exactly to `compute_public_fqns`, which is
   asserted in every run. Ruff's `__all__` corroboration and the public `provider_disagreement`
-  rule are dropped, because both sides would now be Pyrefly.
+  rule are dropped. In their place, a completeness detector marks `exports` as `partial` when
+  `__all__` is unresolvable or non-literal.
 - **Ids.** Ids use the `blake3` crate, shared with Pyrefly at `=1.8.6`. §B2 allows `cpg-schema`
   to depend on `arrow-*` and `blake3`.
 - **Storage built-ins** (§4.3, §6):
-  - CHECK constraints are added with `add_constraint()`, and writes go through
-    `DeltaTable::write` only;
-  - DataFusion `INSERT INTO`/`write_table` into Delta is never used;
+  - only immutable CHECKs (span order, non-negative offsets) are added, with `add_constraint()`,
+    and they are verified when a table is opened. Codebook membership stays a §8 validator;
+  - writes go through `DeltaTable::write` only;
+  - DataFusion `INSERT INTO`/`write_table` and the low-level writers are never used on fact
+    tables;
   - ids are read back with a two-step cast.
-- **The CLI of the same version** is kept only as a parity-test oracle.
+- **The CLI of the same version** is kept only as the harness-equivalence oracle (§4.2.5).
 
 ## Consequences
 
@@ -102,10 +119,14 @@ Spike `spike/pyrefly-inproc` (`d00bab5`, `analysis/SPIKE_RESULTS.md`), 2026-09-2
   - Each Pyrefly upgrade means rebasing the fork commit and porting against private APIs.
   - A panic in Pyrefly's run aborts the compile attempt.
   - The build is heavier: jemalloc's C build and about 41 MB of bundled stubs.
-- **Carried into increment 1, slice 1:**
+- **Carried into increment 1, slice 1** (the review's oracles):
   - workspace dependencies;
   - the `deny.toml` git source and licenses (delta-rs as a normal dependency adds its own,
     independent of this ADR);
   - the family-check extension;
-  - the parity test as a nextest test;
-  - the `outside_provider_model` boundary reason for the 188 annotation-context calls.
+  - the harness-equivalence test;
+  - fixtures and tests for: the variant table (insta), `__all__` forms, `_invalid/` modules,
+    import-cycle determinism, two install locations, the CHECK verify, and a panicking fault
+    hook;
+  - ast-grep rules for `catch_unwind` and for the write and SQL bypasses;
+  - a `just` recipe that checks the fork against tag plus patch, and the refused env list.
