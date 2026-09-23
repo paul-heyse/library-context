@@ -80,6 +80,21 @@
 #     FastMCP.resource      defined on fastmcp.server.server.FastMCP
 #     FastMCP.prompt        defined on fastmcp.server.server.FastMCP
 #     FastMCP.custom_route  inherited from fastmcp.server.mixins.transport.TransportMixin
+#
+# Increment 2 opening (slice 2.0, 2026-09-23): seeds added by a mechanical audit, pre-registered
+# here before any increment-2 brief existed (deviation log D16). No gold was used. The audit ran
+# SQL over the published pilot snapshot 381778b7 of this very config, and its rules were:
+#  a. restriction: a subsystem public method whose own body has an `if` that tests one of its
+#     parameters and raises. Among them, the most called in the official examples, tests and doc
+#     blocks: FastMCP.resource (429 calls; already a seed, guarding `uri`), then FastMCP.mount
+#     (198; guarding `server`).
+#  b. handoff: the producer→consumer pair (`x = P(...); C(..., x)`) most frequent in the same
+#     usage code whose consumer is in the subsystem: FastMCP(...) → FastMCP.mount (167). The
+#     overall most frequent, FastMCP(...) → Client(...) (531), has its consumer outside the
+#     subsystem (fastmcp.client is excluded by rule 1).
+#  c. configuration: forwarding is shown on the primary seed (FastMCP.tool passes its parameters
+#     on to ToolDecoratorMixin.tool), so it needs no new seed.
+# Added: fastmcp.FastMCP.mount, which satisfies (a) and (b). The brief budget grows by one.
 version = 1
 
 [subsystem]
@@ -104,7 +119,7 @@ module_prefixes = [
 public_roots = ["fastmcp"]
 
 [seeds]
-primary = ["fastmcp.FastMCP.tool"]
+primary = ["fastmcp.FastMCP.tool", "fastmcp.FastMCP.mount"]
 distractors = [
     "fastmcp.FastMCP.resource",
     "fastmcp.FastMCP.prompt",
@@ -118,5 +133,5 @@ max_edges = 512
 max_witnesses = 3
 
 [briefs]
-budget = 4
+budget = 5
 serve_unreviewed = true
