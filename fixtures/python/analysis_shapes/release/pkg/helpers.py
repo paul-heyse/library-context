@@ -10,6 +10,8 @@ def helper(fn, n=1):
 
 
 def prepare(fn):
+    if isinstance(fn, str):
+        raise TypeError(fn)
     return finish(fn)
 
 
@@ -23,3 +25,8 @@ def deep_two():
 
 def deep_one():
     return deep_two()
+
+
+def describe():
+    """Describe the package in one line."""
+    return "pkg"

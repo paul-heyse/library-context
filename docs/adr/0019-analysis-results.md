@@ -218,3 +218,10 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
   Revise): a witness step gains `arc_kind` (`call` | `definition`, a new codebook) as an identity
   column, and its `phase` is null on a definition arc (F1, deviation log D5). The finding recipe
   row above says so.
+- 2026-09-23: the slice 1.5 compact review (`design_review_inc1-slice1.5-synthesis_2026-09-23.md`,
+  Revise):
+  - `finding_kind` appends `traversal_stop`, so a depth or budget Limits entry cites a finding
+    (F1, deviation log D10).
+  - An assertion's status is `findings::derive_status` of its supports, with `EVIDENCE_STATUS`
+    and `STATUS_STRENGTH` declared beside `FINDING_STATUS`. A generated rule recomputes it (F1).
+  - `AssertionKey` hashes its supports sorted, as the recipe table says (F6).

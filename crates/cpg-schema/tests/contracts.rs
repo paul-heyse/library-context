@@ -250,3 +250,143 @@ fn a_finding_id_follows_every_identity_column() {
         );
     }
 }
+
+/// DESIGN §10.2, slice 1.5 review F1: an assertion's status is a function of its supports alone.
+#[test]
+fn an_assertion_status_is_a_function_of_its_supports() {
+    use cpg_schema::codebook::{EvidenceKind, EvidenceStatus::*, SupportRole::*};
+    use cpg_schema::findings::{derive_status, evidence_status};
+    assert_eq!(
+        derive_status(&[]),
+        Unresolved,
+        "nothing cited, nothing stated"
+    );
+    assert_eq!(derive_status(&[(Scope, StructurallyObserved)]), Unresolved);
+    assert_eq!(
+        derive_status(&[(Support, StructurallyObserved)]),
+        StructurallyObserved
+    );
+    assert_eq!(
+        derive_status(&[
+            (Support, StructurallyObserved),
+            (Support, evidence_status(EvidenceKind::Span))
+        ]),
+        Documented,
+        "the strongest status among the supports"
+    );
+    assert_eq!(
+        derive_status(&[(Support, Documented), (Scope, StatisticallyDerived)]),
+        StatisticallyDerived,
+        "a statistical scope makes it statistical"
+    );
+    assert_eq!(
+        derive_status(&[(Support, StatisticallyDerived), (Support, Unresolved)]),
+        Unresolved
+    );
+    assert_eq!(
+        derive_status(&[(Support, Documented), (Scope, Unresolved)]),
+        Documented,
+        "only a supporting finding's gap is the assertion's"
+    );
+    assert_eq!(evidence_status(EvidenceKind::Fact), StructurallyObserved);
+    assert_eq!(evidence_status(EvidenceKind::FixtureRun), FixtureChecked);
+}
+
+/// Slice 1.5 review F6: the evidence, assertion and brief recipes follow their identity columns.
+/// A cited fact id, a run, a model and a template version are lineage: no recipe takes them.
+#[test]
+fn synthesis_ids_follow_their_identity_columns() {
+    use cpg_schema::findings::recipe::{self, AssertionKey};
+    use cpg_schema::id::Id;
+    let ev = |k: i16, n: u8, m: u8, span: Option<(i64, i64)>, t: Option<&str>| {
+        recipe::evidence(k, Some(Id([n; 16])), Some(Id([m; 16])), span, t)
+    };
+    let base = ev(1, 1, 2, Some((3, 9)), Some("Run it."));
+    for other in [
+        ev(2, 1, 2, Some((3, 9)), Some("Run it.")),
+        ev(1, 9, 2, Some((3, 9)), Some("Run it.")),
+        ev(1, 1, 9, Some((3, 9)), Some("Run it.")),
+        ev(1, 1, 2, Some((4, 9)), Some("Run it.")),
+        ev(1, 1, 2, Some((3, 8)), Some("Run it.")),
+        ev(1, 1, 2, None, Some("Run it.")),
+        ev(1, 1, 2, Some((3, 9)), Some("Run it!")),
+    ] {
+        assert_ne!(base, other);
+    }
+
+    let supports = [
+        (0, Some(Id([1; 16])), None),
+        (0, None, Some(Id([2; 16]))),
+        (1, Some(Id([3; 16])), None),
+    ];
+    let key = AssertionKey {
+        kind: 0,
+        subject: Id([4; 16]),
+        applicable_case: None,
+        status: 1,
+        text: Some("Run it."),
+        conditions: None,
+        limitations: None,
+        supports: &supports,
+    };
+    let id = key.id();
+    let mut reversed = supports;
+    reversed.reverse();
+    assert_eq!(
+        id,
+        AssertionKey {
+            supports: &reversed,
+            ..key
+        }
+        .id(),
+        "supports are sorted (ADR-0019)"
+    );
+    let fewer = &supports[..2];
+    let moved = [
+        (0, Some(Id([1; 16])), None),
+        (0, None, Some(Id([2; 16]))),
+        (0, Some(Id([3; 16])), None),
+    ];
+    for other in [
+        AssertionKey { kind: 1, ..key },
+        AssertionKey {
+            subject: Id([9; 16]),
+            ..key
+        },
+        AssertionKey {
+            applicable_case: Some("stdio"),
+            ..key
+        },
+        AssertionKey { status: 4, ..key },
+        AssertionKey { text: None, ..key },
+        AssertionKey {
+            conditions: Some("c"),
+            ..key
+        },
+        AssertionKey {
+            limitations: Some("l"),
+            ..key
+        },
+        AssertionKey {
+            supports: fewer,
+            ..key
+        },
+        AssertionKey {
+            supports: &moved,
+            ..key
+        },
+    ] {
+        assert_ne!(id, other.id());
+    }
+
+    let (a, b) = (Id([5; 16]), Id([6; 16]));
+    let brief = recipe::brief(Id([7; 16]), None, &[a, b]);
+    assert_ne!(brief, recipe::brief(Id([8; 16]), None, &[a, b]));
+    assert_ne!(brief, recipe::brief(Id([7; 16]), Some("stdio"), &[a, b]));
+    assert_ne!(brief, recipe::brief(Id([7; 16]), None, &[a]));
+    assert_ne!(
+        brief,
+        recipe::brief(Id([7; 16]), None, &[b, a]),
+        "presentation order is the brief's"
+    );
+}

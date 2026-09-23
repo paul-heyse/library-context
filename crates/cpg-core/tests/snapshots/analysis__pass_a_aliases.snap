@@ -7,7 +7,9 @@ expression: "text(&ctx, \"SELECT m.label FROM finding_members m ORDER BY m.label
 +-------------------------+
 | pkg.Server.route        |
 | pkg.Server.tool         |
+| pkg.describe            |
 | pkg.helper              |
+| pkg.helpers.describe    |
 | pkg.helpers.helper      |
 | pkg.server.Server.route |
 | pkg.server.Server.tool  |

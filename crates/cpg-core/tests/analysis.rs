@@ -28,7 +28,7 @@ module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot", "pkg
 public_roots = ["pkg"]
 [seeds]
 primary = ["pkg.Server.tool"]
-distractors = ["pkg.helper", "pkg.Server.route"]
+distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe"]
 [pass_a]
 max_depth = 2
 max_vertices = 128
@@ -52,10 +52,12 @@ fn copy(src: &Path, dst: &Path) {
     }
 }
 
-/// Compile the fixture under `config`, returning the attempt's result and the store's directory.
+/// Compile the fixture under `config` for `platform`, returning the attempt's result and the
+/// store's directory.
 async fn compile_config(
     sub: &str,
     config: &str,
+    platform: &str,
 ) -> (
     Result<cpg_core::attempt::Published, cpg_core::CoreError>,
     tempfile::TempDir,
@@ -76,7 +78,7 @@ async fn compile_config(
         venv_root: std::fs::canonicalize(base.join("venv")).unwrap(),
         site_packages: vec![std::fs::canonicalize(base.join("venv/site-packages")).unwrap()],
         python_version: (3, 14, 0),
-        python_platform: "linux".to_owned(),
+        python_platform: platform.to_owned(),
         snapshot_id: s,
         corpus: None,
         keep_pysa_json: false,
@@ -330,16 +332,66 @@ async fn a_seed_that_could_name_another_method_is_refused() {
         ("pkg.Aliased.tool", "assignment"),
     ] {
         let config = CONFIG.replace(
-            r#"distractors = ["pkg.helper", "pkg.Server.route"]"#,
+            r#"distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe"]"#,
             &format!(r#"distractors = ["{seed}"]"#),
         );
-        let err = compile_config("refuse", &config)
+        let err = compile_config("refuse", &config, "linux")
             .await
             .0
             .unwrap_err()
             .to_string();
         assert!(err.contains(why), "{seed}: {err}");
     }
+}
+
+/// Slice 1.5 review F3: each template says what its finding's fields show. Under a witness cap of
+/// one, a call-site count is a floor. A boundary below a callee is not the seed's own call. The
+/// override-open hop is the one named.
+#[tokio::test(flavor = "multi_thread")]
+async fn templates_say_what_the_findings_show() {
+    let (result, dir) = compile_config(
+        "cap",
+        &CONFIG.replace("max_witnesses = 3", "max_witnesses = 1"),
+        "linux",
+    )
+    .await;
+    result.unwrap();
+    let (_, ctx) = published(&dir.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    let texts = text(
+        &ctx,
+        "SELECT a.text FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         WHERE b.title = 'pkg.Server.tool' ORDER BY ba.ordinal",
+    )
+    .await;
+    let line = |start: &str| {
+        texts
+            .lines()
+            .map(|l| l.trim_matches(|c| c == '|' || c == ' '))
+            .find(|l| l.starts_with(start))
+            .unwrap_or_else(|| panic!("no line starts {start:?} in\n{texts}"))
+            .to_owned()
+    };
+    assert_eq!(
+        line("`pkg.Server.tool` already calls `pkg.helpers.helper`"),
+        "`pkg.Server.tool` already calls `pkg.helpers.helper` (1 or more call sites)."
+    );
+    let deep = line("Callables `pkg.Server.tool` reaches call into code outside");
+    assert!(deep.contains("`builtins.isinstance`"), "{deep}");
+    assert!(!deep.contains("`extdep.external`"), "{deep}");
+    assert!(
+        line("`pkg.Server.tool` calls into code outside").contains("`extdep.external`"),
+        "{texts}"
+    );
+    assert!(
+        line("`pkg.Server.tool` already reaches `pkg.handlers.Handler.handle`").ends_with(
+            "(`pkg.handlers.run`'s call to `pkg.handlers.Handler.handle` is overridable)."
+        ),
+        "{texts}"
+    );
 }
 
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
@@ -349,6 +401,7 @@ async fn a_vertex_budget_is_partial_and_a_stated_limit() {
     let (result, dir) = compile_config(
         "budget",
         &CONFIG.replace("max_vertices = 128", "max_vertices = 1"),
+        "linux",
     )
     .await;
     result.unwrap();
@@ -389,6 +442,66 @@ async fn pass_a_is_identical_across_module_order_and_location() {
         let q = format!("SELECT * EXCLUDE (snapshot_id) FROM {table} ORDER BY 1, 2, 3, 4");
         assert_eq!(text(&a, &q).await, text(&b, &q).await, "{table}");
     }
+    // Stage F too (slice 1.5 review F6): each table's leading columns are its key.
+    for table in SYNTHESIS {
+        let q = format!("SELECT * EXCLUDE (snapshot_id) FROM {table} ORDER BY 1, 2, 3");
+        assert_eq!(text(&a, &q).await, text(&b, &q).await, "{table}");
+    }
+}
+
+/// Stage F's tables. An output pin leaves out their lineage columns: a run's and a model's ids move
+/// with the compiler digest, and a cited fact's with its run (ADR-0019).
+const SYNTHESIS: [&str; 7] = [
+    "evidence",
+    "assertions",
+    "assertion_support",
+    "briefs",
+    "brief_assertions",
+    "brief_members",
+    "brief_documents",
+];
+
+fn identity_of(table: &str) -> String {
+    let lineage = match table {
+        "assertions" | "briefs" => "snapshot_id, run_id, model_id",
+        "evidence" => "snapshot_id, cited_fact_id",
+        _ => "snapshot_id",
+    };
+    format!("SELECT * EXCLUDE ({lineage}) FROM {table} ORDER BY 1, 2, 3")
+}
+
+/// ADR-0019 review F7, slice 1.5 review F6: findings, evidence, assertions and briefs are named
+/// by content, never by the run-scoped facts they cite. Another target platform changes every run,
+/// so every fact id, and renames none of them. (A dependency file's own change is a changed
+/// dependency: an unowned module's id is its content, DESIGN §3.4.1.)
+#[tokio::test(flavor = "multi_thread")]
+async fn synthesis_ids_ignore_the_runs_they_cite() {
+    let (a, da) = compile_config("ctx", CONFIG, "linux").await;
+    let (b, db) = compile_config("ctx", CONFIG, "darwin").await;
+    let (a, b) = (a.unwrap(), b.unwrap());
+    assert_ne!(a.content_digest, b.content_digest, "the runs changed");
+    let (_, ctx_a) = published(&da.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, ctx_b) = published(&db.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    let facts = "SELECT cited_fact_id FROM evidence WHERE cited_fact_id IS NOT NULL ORDER BY 1";
+    assert_ne!(
+        text(&ctx_a, facts).await,
+        text(&ctx_b, facts).await,
+        "the cited facts are the runs'"
+    );
+    for q in [
+        "SELECT finding_id FROM findings ORDER BY 1",
+        "SELECT evidence_id FROM evidence ORDER BY 1",
+        "SELECT assertion_id FROM assertions ORDER BY 1",
+        "SELECT brief_id FROM briefs ORDER BY 1",
+    ] {
+        assert_eq!(text(&ctx_a, q).await, text(&ctx_b, q).await, "{q}");
+    }
 }
 
 /// Stage F on the fixture (DESIGN §10): each seed's brief, its assertions in order with their
@@ -421,10 +534,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
     let rows = batches(
         &ctx,
         "SELECT e.start_byte, e.end_byte, e.text, s.text AS source FROM evidence e \
-         JOIN source_files s ON s.module_node_id = e.module_node_id",
+         JOIN source_files s ON s.module_node_id = e.module_node_id \
+         WHERE e.start_byte IS NOT NULL",
     )
     .await;
     let mut checked = 0;
+    let mut past_non_ascii = 0;
     for b in &rows {
         let col = |n: &str| b.column_by_name(n).unwrap().clone();
         let start = arrow_array::cast::AsArray::as_primitive::<arrow_array::types::Int64Type>(
@@ -446,9 +561,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
                 texts.value(i).as_bytes()
             );
             checked += 1;
+            past_non_ascii += usize::from(!sources.value(i).as_bytes()[..s].is_ascii());
         }
     }
     assert!(checked >= 3, "the docstring and parameter evidence");
+    // Slice 1.5 review F5: some of it lies past a non-ASCII byte, where chars and bytes differ.
+    assert!(past_non_ascii >= 1, "a span past a non-ASCII byte");
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 
     // ADR-0019 review O4: the analysis output is pinned to the versions that name it, so an
@@ -465,8 +583,14 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             2,
             "1a936cb57baca6b2e5171b16edd2511185ebf488aaecafa0b4ff24851de063d8",
         ),
+        (
+            3,
+            3,
+            "9a1f41e215fbb48772b9caf40a8ab75615eda7bcb0c030dc1298973591600ef8",
+        ),
     ];
-    let output = format!(
+    // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
+    let mut output = format!(
         "{}\n{}",
         text(&ctx, &findings_query("pkg.server.Server.tool")).await,
         text(
@@ -477,6 +601,9 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
         )
         .await
     );
+    for table in SYNTHESIS {
+        output += &text(&ctx, &identity_of(table)).await;
+    }
     let digest = cpg_schema::id::content_digest(output.as_bytes()).hex();
     let now = (
         cpg_core::attempt::COMPILER_OUTPUT_VERSION,
@@ -509,6 +636,7 @@ async fn the_analysis_rules_reject_their_violations() {
         "assertion_support",
         "evidence",
         "briefs",
+        "brief_assertions",
         "brief_members",
         "embedding_cache",
     ] {
@@ -572,13 +700,26 @@ async fn the_analysis_rules_reject_their_violations() {
                     text, conditions, limitations, template_version \
              FROM assertions_published",
         ),
+        // An Outcome whose evidence support is gone states more than it cites.
         (
-            "semantic:assertion-policy-published",
-            "assertion_policy",
-            "SELECT * FROM assertion_policy_published WHERE assertion_kind <> 5",
+            "semantic:assertion-status-derived",
+            "assertion_support",
+            "SELECT * FROM assertion_support_published WHERE evidence_id IS NULL",
         ),
+        // A parameter relabelled `documented` on fact evidence alone (the policy permits it).
         (
-            "semantic:assertion-status-propagation",
+            "semantic:assertion-status-derived",
+            "assertions",
+            "SELECT snapshot_id, assertion_id, run_id, model_id, extraction_mode, assertion_kind, \
+                    subject_node_id, applicable_case, \
+                    CASE WHEN assertion_kind = 3 THEN CAST(1 AS SMALLINT) ELSE evidence_status END \
+                      AS evidence_status, \
+                    text, conditions, limitations, template_version \
+             FROM assertions_published",
+        ),
+        // A statistical finding under a structural assertion.
+        (
+            "semantic:assertion-status-derived",
             "findings",
             "SELECT snapshot_id, finding_id, invocation_id, finding_kind, subject_node_id, \
                     related_node_id, CAST(2 AS SMALLINT) AS evidence_status, depth, stop_reason, \
@@ -615,10 +756,37 @@ async fn the_analysis_rules_reject_their_violations() {
                     export_node_id, declaration_node_id \
              FROM brief_members_published",
         ),
+        // Slice 1.5 review O3: a member path naming another member of an exported class.
+        (
+            "semantic:brief-member-exported",
+            "brief_members",
+            "SELECT DISTINCT m.snapshot_id, m.brief_id, \
+                    CASE WHEN m.access_path = e.access_path THEN m.access_path \
+                         ELSE m.access_path || '_elsewhere' END AS access_path, \
+                    m.export_node_id, m.declaration_node_id \
+             FROM brief_members_published m JOIN exports e ON e.export_node_id = m.export_node_id",
+        ),
+        // An analysis-backed brief whose finding supports are gone.
         (
             "semantic:brief-cites-analysis",
             "assertion_support",
             "SELECT * FROM assertion_support_published WHERE finding_id IS NULL",
+        ),
+        // Slice 1.5 review F4, the other direction: an analysis-backed brief labelled
+        // documentation-only.
+        (
+            "semantic:brief-cites-analysis",
+            "briefs",
+            "SELECT snapshot_id, brief_id, run_id, model_id, seed_node_id, access_path, title, \
+                    applicable_case, true AS documentation_only, review_state \
+             FROM briefs_published",
+        ),
+        // `pkg.describe`'s brief is documentation-only; without its Outcome it says nothing.
+        (
+            "semantic:documentation-only-has-outcome",
+            "brief_assertions",
+            "SELECT ba.* FROM brief_assertions_published ba \
+             JOIN assertions a ON a.assertion_id = ba.assertion_id WHERE a.assertion_kind <> 0",
         ),
         (
             "semantic:embedding-dimensions",

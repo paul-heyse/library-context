@@ -823,6 +823,9 @@ codebook!(
         ImplementationBoundary = 3 => "implementation_boundary",
         /// A reached call site has no target, or an unresolved remainder.
         IncompleteResolution = 4 => "incomplete_resolution",
+        /// The traversal stopped with arcs or sites not followed: at its depth bound, or at a
+        /// vertex or arc budget (the stop reason says which; slice 1.5 review F1).
+        TraversalStop = 5 => "traversal_stop",
     }
 );
 

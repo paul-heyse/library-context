@@ -523,7 +523,7 @@ codebook:analysis_invocations.completion
 codebook:analysis_invocations.stop_reason
   SELECT stop_reason FROM analysis_invocations WHERE stop_reason IS NOT NULL AND stop_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:findings.finding_kind
-  SELECT finding_kind FROM findings WHERE finding_kind IS NOT NULL AND finding_kind NOT IN (0, 1, 2, 3, 4)
+  SELECT finding_kind FROM findings WHERE finding_kind IS NOT NULL AND finding_kind NOT IN (0, 1, 2, 3, 4, 5)
 codebook:findings.evidence_status
   SELECT evidence_status FROM findings WHERE evidence_status IS NOT NULL AND evidence_status NOT IN (0, 1, 2, 3, 4)
 codebook:findings.stop_reason
@@ -585,7 +585,7 @@ semantic:model-id-producer
 semantic:invocation-model-producer
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id WHERE split_part(i.model_id, '/', 1) <> encode(r.producer_id, 'hex')
 semantic:finding-status-policy
-  SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
+  SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
 semantic:invocation-run-is-compiler
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id JOIN producers p ON p.producer_id = r.producer_id WHERE p.tool <> 'lctx-compiler'
 semantic:embedding-dimensions
@@ -594,8 +594,8 @@ semantic:assertion-policy
   SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN assertion_policy p ON p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status
 semantic:assertion-policy-published
   WITH v AS (SELECT * FROM (VALUES (0, 0, 1), (0, 0, 4), (1, 1, 0), (2, 1, 0), (3, 3, 0), (3, 3, 1), (4, 5, 0), (5, 7, 2)) AS v(k, s, st)) SELECT p.assertion_kind FROM assertion_policy p LEFT ANTI JOIN v ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status UNION ALL SELECT v.k FROM v LEFT ANTI JOIN assertion_policy p ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status
-semantic:assertion-status-propagation
-  SELECT a.assertion_id FROM assertions a JOIN assertion_support s ON s.assertion_id = a.assertion_id JOIN findings f ON f.finding_id = s.finding_id WHERE (f.evidence_status = 2 AND a.evidence_status NOT IN (2, 4)) OR (f.evidence_status = 4 AND a.evidence_status <> 4)
+semantic:assertion-status-derived
+  WITH x AS ( SELECT s.assertion_id, s.role, f.evidence_status AS st FROM assertion_support s JOIN findings f ON f.finding_id = s.finding_id UNION ALL SELECT s.assertion_id, s.role, CASE e.evidence_kind WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 1 WHEN 3 THEN 1 WHEN 4 THEN 3 END AS st FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id), d AS ( SELECT a.assertion_id, a.evidence_status, CASE WHEN count(CASE WHEN x.role = 0 THEN 1 END) = 0 THEN 4 WHEN bool_or(x.role = 0 AND x.st = 4) THEN 4 WHEN bool_or(x.st = 2) THEN 2 ELSE CASE max(CASE WHEN x.role = 0 THEN CASE x.st WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 3 THEN 2 END END) WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 3 END END AS derived FROM assertions a LEFT JOIN x ON x.assertion_id = a.assertion_id GROUP BY a.assertion_id, a.evidence_status) SELECT assertion_id FROM d WHERE derived IS NULL OR derived <> evidence_status
 semantic:assertion-text-iff-resolved
   SELECT assertion_id FROM assertions WHERE (text IS NULL) <> (evidence_status = 4)
 semantic:support-cites-one
@@ -603,9 +603,11 @@ semantic:support-cites-one
 semantic:evidence-text-bytes
   SELECT evidence_id FROM evidence WHERE text IS NOT NULL AND start_byte IS NOT NULL AND end_byte IS NOT NULL AND octet_length(text) <> end_byte - start_byte
 semantic:brief-member-exported
-  SELECT m.brief_id, m.access_path FROM brief_members m LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id AND (m.access_path = e.access_path OR starts_with(m.access_path, e.access_path || '.'))
+  SELECT m.brief_id, m.access_path FROM brief_members m JOIN declarations d ON d.node_id = m.declaration_node_id LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id AND (m.access_path = e.access_path OR (starts_with(m.access_path, e.access_path || '.') AND ends_with(m.access_path, '.' || d.name)))
 semantic:brief-cites-analysis
-  SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( SELECT DISTINCT ba.brief_id FROM brief_assertions ba JOIN assertion_support s ON s.assertion_id = ba.assertion_id WHERE s.finding_id IS NOT NULL) x ON x.brief_id = b.brief_id WHERE NOT b.documentation_only
+  SELECT b.brief_id FROM briefs b LEFT JOIN ( SELECT DISTINCT ba.brief_id FROM brief_assertions ba JOIN assertion_support s ON s.assertion_id = ba.assertion_id JOIN findings f ON f.finding_id = s.finding_id WHERE f.finding_kind IN (1, 2, 3)) x ON x.brief_id = b.brief_id WHERE b.documentation_only = (x.brief_id IS NOT NULL)
+semantic:documentation-only-has-outcome
+  SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( SELECT ba.brief_id FROM brief_assertions ba JOIN assertions a ON a.assertion_id = ba.assertion_id WHERE a.assertion_kind = 0 AND a.evidence_status = 1) o ON o.brief_id = b.brief_id WHERE b.documentation_only
 semantic:direct-delegation-is-definite
   SELECT f.finding_id FROM findings f JOIN witnesses w ON w.finding_id = f.finding_id AND w.path = 0 WHERE f.finding_kind = 1 AND (w.modality <> 0 OR w.arc_kind <> 0 OR w.step > 0 OR f.depth <> 1)
 semantic:witness-edge

@@ -140,6 +140,11 @@ In addition:
 - the §12 evaluation must have run;
 - no brief may reach publication by bypassing the analytics. A brief that is honestly explained
   by documentation alone is allowed, and is labelled that way.
+  - "Analysis-backed" means citing a derivation family's positive finding about behaviour
+    (`findings::ANALYSIS_BACKED`: delegations and implementation boundaries; Pass B and C kinds
+    join as they land). A `public_alias`, an unresolved site or a traversal stop does not count.
+  - `semantic:brief-cites-analysis` holds the label both ways. `semantic:documentation-only-has-outcome`
+    requires that a documentation-only brief has a `documented` Outcome (slice 1.5 review F4).
 
 > Decision: ADR-0004
 
@@ -1777,7 +1782,9 @@ comes before the definition (it could define the name, and we cannot see it). Te
        native boundaries.
 - **Output.**
   - Findings: `public_alias`, `direct_delegation`, `bounded_delegation_path`,
-    `implementation_boundary`, `incomplete_resolution`.
+    `implementation_boundary`, `incomplete_resolution`, and `traversal_stop`. The last is
+    emitted when the depth bound or a budget left something unfollowed, so the Limits entry that
+    states it cites a finding (slice 1.5 review F1).
   - Each carries ordered witness call sites, depth, stop reason and an `omitted_paths` flag.
 - **Interpretation boundary.** A call edge never means "always reached" or "recommended". That
   needs `documented` evidence.
@@ -1937,11 +1944,20 @@ comes before the definition (it could define the name, and we cannot see it). Te
 ## §10 Synthesis and briefs
 
 **Proposed.** Source: IP L1695–L1731, L1886–L1966, L2580–L2637. Changed by ADR-0005: there is no
-LLM interpreter. The increment-1 kinds, the kind policy, status propagation, the Outcome order and
-the grounding rules below are **Implemented** and **Tested** (slice 1.5, 2026-09-23:
-`cpg-core::synth`; `briefs_are_synthesized_from_findings_and_verbatim_evidence` snapshots each
-brief of `analysis_shapes` and checks every evidence text byte-for-byte against its source past a
-non-ASCII byte; each rule rejects an injected violation in `the_analysis_rules_reject_their_violations`).
+LLM interpreter. The increment-1 kinds, the kind policy, status derivation, the Outcome order and
+the grounding rules below are **Implemented** and **Tested** (slice 1.5 and its review fixes,
+2026-09-23; `cpg-core::synth`):
+- `briefs_are_synthesized_from_findings_and_verbatim_evidence` snapshots each brief of
+  `analysis_shapes`. It checks every spanned evidence text byte-for-byte against its source, some
+  past a non-ASCII byte.
+- `templates_say_what_the_findings_show` checks the call-site floor, depth-2 boundaries and the
+  override-open hop.
+- `an_outcome_from_the_docs_is_the_sentence_that_mentions_the_seed` covers Outcome leg 2 on a
+  corpus, with passage evidence byte-checked.
+- `synthesis_ids_ignore_the_runs_they_cite`, `synthesis_ids_follow_their_identity_columns` and
+  the determinism test cover identity.
+- Each rule rejects an injected violation in `the_analysis_rules_reject_their_violations`.
+  The status rule, a floor and a ceiling, has three cases.
 
 ### §10.1 Findings
 
@@ -1984,12 +2000,19 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 **Enforcement.**
 - **Kind policy.** `cpg-schema` declares, for each `assertion_kind`, its brief section and its
   permitted statuses.
-- **Status propagation.** An assertion's status is derived, never chosen. `unresolved` if any
-  supporting finding is unresolved. Otherwise `statistically_derived` if any supporting finding,
-  **or any finding that defined its scope**, is `statistically_derived`. Otherwise the
-  strongest status its evidence supports.
-- **Validator.** A §8 query (assertions ⋈ kind policy ⋈ supporting findings) must return zero
-  violations.
+- **Status derivation** (`findings::derive_status`; slice 1.5 review F1). An assertion's status is
+  a function of its supports alone, never chosen:
+  - `unresolved` if it has no `support` row, or if any supporting finding is unresolved;
+  - otherwise `statistically_derived` if any supporting finding, **or any finding that defined
+    its scope**, is `statistically_derived`;
+  - otherwise the strongest status among its supports, by `STATUS_STRENGTH`
+    (structurally observed < documented < fixture checked).
+  - A finding supports with its own status. An evidence row supports with its kind's
+    (`EVIDENCE_STATUS`): a fact is structural; a docstring span, a passage or an example is
+    documented; a fixture run is fixture checked.
+- **Validator.** `semantic:assertion-policy` checks the kind policy.
+  `semantic:assertion-status-derived` recomputes the derivation in SQL and requires equality: a
+  floor and a ceiling.
 
 **Increment-1 assertion kinds**
 
@@ -1998,7 +2021,7 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | `outcome` | Outcome | docstring summary or explicit doc mention | documented, unresolved |
 | `public_access` | Public access | Pass A `public_alias`, `exports` | structurally_observed |
 | `coordinates` | Public access, "already coordinates" | Pass A `direct_delegation`, `bounded_delegation_path` | structurally_observed |
-| `parameter` | Important controls | `parameters` (name, kind, default, required) | structurally_observed |
+| `parameter` | Important controls | `parameters` (name, kind, default, required); parameter docs from 2.1 | structurally_observed, documented (with parameter-doc evidence only; deviation log D8) |
 | `analysis_boundary` | Limits and prerequisites | `boundaries` on the seed's neighbourhood | structurally_observed |
 | `related` | Related | community co-membership, page rank | statistically_derived |
 
@@ -2018,9 +2041,15 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | Related | other briefs in the same community, ordered by page rank (`statistically_derived`) |
 
 **Outcome order.** Take the first source that applies:
-1. the entry point's docstring summary line;
-2. the lead sentence of a doc passage that **explicitly** mentions the entry point;
+1. the entry point's docstring summary: the first sentence of the docstring's first paragraph;
+2. the lead sentence of a doc paragraph that **explicitly** mentions the entry point, when the
+   mention lies inside that sentence;
 3. otherwise `unresolved`.
+
+Sentences are found with UAX #29 on a view in which each line break is a space, so a hard-wrapped
+sentence is one. The evidence is the source bytes; the assertion reads the sentence with its
+whitespace collapsed. Change-log documents (`synth::CHANGELOG_STEMS`) never give an Outcome
+(slice 1.5 review F2, O1; deviation log D7).
 
 The nearest doc passage by embedding is never an Outcome. It is published as a doc link
 (`statistically_derived`), which keeps the gap metric honest.
@@ -2032,22 +2061,33 @@ p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status WH
 a.evidence_status = 4 GROUP BY p.brief_section ORDER BY 1`.
 
 **How increment 1 fills the sections** (slice 1.5, `cpg-core::synth`):
-- **Outcome:** the seed's docstring summary line, located in the literal's own source bytes (the
-  first non-blank line; Pyrefly's `Docstring::clean` renders Markdown and loses spans), else the
-  first UAX #29 sentence (`unicode-segmentation`) of the first prose paragraph of the first passage,
-  by document path and ordinal, holding an **exact** mention of the seed or of an export naming it;
-  else `unresolved`. Either is verbatim, and its evidence is the byte span.
-- **Public access:** the seed's configured access path and every other public access path naming
-  it (Pass A's `public_alias`).
-- **Already coordinates:** one assertion per delegation finding: a direct call with its number of
-  call sites, or a bounded path with its first intermediate; a path through an override-open call
-  says so.
+- **Outcome:** the seed's docstring summary.
+  - It is located in the literal's own source bytes. Pyrefly's `Docstring::clean` renders
+    Markdown and loses spans.
+  - Its paragraph ends at a blank line, a section header or the closing quote.
+  - Else the first exact mention, by document path, passage ordinal and position, whose
+    paragraph's lead sentence holds it. The mention is of the seed's declaration, or of an export
+    whose target is the seed: a class's export does not name its method.
+  - Else `unresolved`. The evidence is the byte span.
+- **Public access:** the call form the seed's declaration gives:
+  - a function is called, and a class constructed;
+  - a method, class method, static method or property is named with its class and how to use it.
+  - Then its configured access path, and every other public access path naming it (Pass A's
+    `public_alias`).
+- **Already coordinates:** one assertion per delegation finding, total over its fields:
+  - at depth 1: a direct call with its number of call sites ("or more" when the witness cap
+    omitted some), a definition, a property read or set, or an override-open call;
+  - deeper: the intermediate callables, with each hop that is a definition, a property access or
+    an override-open call named at the step where it occurs.
 - **Important controls:** one `parameter` assertion per parameter of the seed's own signature (the
-  receiver aside): kind, default, requiredness and annotation, with the parameter's fact and span as
-  evidence. Parameter docs join with Pass B (increment 2).
+  receiver aside): kind, default, requiredness and annotation.
+  - Its evidence is the syntax fact and span, plus Pysa's semantics fact for requiredness.
+  - Where Pysa has no semantics row (an overloaded seed), it says "requiredness not observed".
+  - Parameter docs join with Pass B (increment 2).
 - **Limits:** one `analysis_boundary` assertion per stop reason (dependencies, synthesized
-  callables, release code outside the subsystem, unresolved sites), plus the depth bound or a
-  budget truncation of the seed's invocation.
+  callables, release code outside the subsystem, unresolved sites). What the seed calls itself
+  is kept apart from what the callables it reaches call. Plus the depth bound or a budget
+  truncation, citing Pass A's `traversal_stop` finding.
 - **The brief document** (§11.1): outcome, public APIs, control names and limits. Over
   2,048 tokens (a declared proxy of 4 bytes per token until the embedder counts, slice 1.6) it
   fails the compile in increment 1; applicable cases split it from increment 2.

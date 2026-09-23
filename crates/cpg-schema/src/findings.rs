@@ -418,6 +418,75 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
         FindingKind::IncompleteResolution,
         EvidenceStatus::StructurallyObserved,
     ),
+    (
+        FindingKind::TraversalStop,
+        EvidenceStatus::StructurallyObserved,
+    ),
+];
+
+/// The status each evidence kind supports (slice 1.5 review F1): an extracted fact is observed
+/// structure; a docstring span, a doc passage or an official example is documentation; an executed
+/// fixture checks its stated inputs only.
+pub const EVIDENCE_STATUS: &[(EvidenceKind, EvidenceStatus)] = &[
+    (EvidenceKind::Fact, EvidenceStatus::StructurallyObserved),
+    (EvidenceKind::Span, EvidenceStatus::Documented),
+    (EvidenceKind::Passage, EvidenceStatus::Documented),
+    (EvidenceKind::Example, EvidenceStatus::Documented),
+    (EvidenceKind::FixtureRun, EvidenceStatus::FixtureChecked),
+];
+
+/// The status an evidence kind supports.
+pub fn evidence_status(kind: EvidenceKind) -> EvidenceStatus {
+    EVIDENCE_STATUS
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, s)| *s)
+        .expect("every evidence kind has a status")
+}
+
+/// The non-statistical, resolved statuses from weakest to strongest: "the strongest status its
+/// evidence supports" (DESIGN §10.2) is the last of these among an assertion's supports.
+pub const STATUS_STRENGTH: &[EvidenceStatus] = &[
+    EvidenceStatus::StructurallyObserved,
+    EvidenceStatus::Documented,
+    EvidenceStatus::FixtureChecked,
+];
+
+/// §10.2's derivation, as a function of the supports alone (slice 1.5 review F1): no `support`
+/// row makes the assertion `unresolved`; so does an unresolved supporting finding; a statistical
+/// finding, supporting or defining the scope, makes it statistical; otherwise it is the strongest
+/// status among its supports. Each support is its role and the status of what it cites (a
+/// finding's own status, or [`evidence_status`] of an evidence row's kind). The rule
+/// `semantic:assertion-status-derived` recomputes the same function in SQL.
+pub fn derive_status(supports: &[(SupportRole, EvidenceStatus)]) -> EvidenceStatus {
+    let support = || {
+        supports
+            .iter()
+            .filter(|(r, _)| *r == SupportRole::Support)
+            .map(|(_, s)| *s)
+    };
+    if support().next().is_none() || support().any(|s| s == EvidenceStatus::Unresolved) {
+        EvidenceStatus::Unresolved
+    } else if supports
+        .iter()
+        .any(|(_, s)| *s == EvidenceStatus::StatisticallyDerived)
+    {
+        EvidenceStatus::StatisticallyDerived
+    } else {
+        support()
+            .max_by_key(|s| STATUS_STRENGTH.iter().position(|x| x == s))
+            .expect("a support exists")
+    }
+}
+
+/// The finding kinds that make a brief analysis-backed (§1.5's no-bypass rule; slice 1.5 review
+/// F4): a derivation family's positive result about behaviour. A `public_alias` is an export
+/// lookup; an unresolved site or a traversal stop says what is not known. Pass B and Pass C kinds
+/// join as they land.
+pub const ANALYSIS_BACKED: &[FindingKind] = &[
+    FindingKind::DirectDelegation,
+    FindingKind::BoundedDelegationPath,
+    FindingKind::ImplementationBoundary,
 ];
 
 /// The content-derived ids of analysis results (ADR-0019). Rust-only: no SQL recomputes them.
@@ -517,7 +586,8 @@ pub mod recipe {
             .finish_id()
     }
 
-    /// An assertion's identity: its content and its supports `(role, finding, evidence)` in order.
+    /// An assertion's identity: its content and its supports `(role, finding, evidence)`, sorted
+    /// (ADR-0019), so reordering a template's supports never renames it (slice 1.5 review F6).
     pub struct AssertionKey<'a> {
         pub kind: i16,
         pub subject: Id,
@@ -540,7 +610,9 @@ pub mod recipe {
                 .opt_str(self.conditions)
                 .opt_str(self.limitations)
                 .i64(self.supports.len() as i64);
-            for (role, finding, evidence) in self.supports {
+            let mut supports = self.supports.to_vec();
+            supports.sort_unstable();
+            for (role, finding, evidence) in &supports {
                 h.i64(i64::from(*role)).opt_id(*finding).opt_id(*evidence);
             }
             h.finish_id()

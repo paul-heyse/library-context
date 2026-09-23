@@ -15,13 +15,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
-    ArcKind, AssertionKind, Codebook, EvidenceKind, EvidenceStatus, ExtractionMode, FindingKind,
-    MentionClass, Modality, ParameterKind, ReviewState, StopReason, SupportRole,
+    ArcKind, AssertionKind, Codebook, DeclarationKind, EvidenceKind, EvidenceStatus,
+    ExtractionMode, FindingKind, InvocationPhase, MentionClass, Modality, ParameterKind,
+    ReviewState, StopReason, SupportRole,
 };
 use cpg_schema::findings::recipe::{self, AssertionKey};
 use cpg_schema::findings::{
-    ASSERTION_POLICY, AssertionPolicyRow, AssertionSupportRow, AssertionsRow, BriefAssertionsRow,
-    BriefDocumentsRow, BriefMembersRow, BriefsRow, EvidenceRow, FindingsRow, section_of,
+    ANALYSIS_BACKED, ASSERTION_POLICY, AssertionPolicyRow, AssertionSupportRow, AssertionsRow,
+    BriefAssertionsRow, BriefDocumentsRow, BriefMembersRow, BriefsRow, EvidenceRow, FindingsRow,
+    WitnessesRow, derive_status, evidence_status, section_of,
 };
 use cpg_schema::id::Id;
 use datafusion::prelude::SessionContext;
@@ -33,8 +35,10 @@ use crate::{CoreError, sql};
 
 /// Bumped whenever a template's wording or an extractive rule changes; part of the compiler
 /// digest through the synthesis tables' contracts and this constant. 2: definition steps and
-/// "or more" call sites (slice 1.4 review F1, F3).
-pub const TEMPLATE_VERSION: i64 = 2;
+/// "or more" call sites (slice 1.4 review F1, F3). 3: the slice 1.5 review: sentences on a
+/// soft-break view, the mention-sentence leg, the call form, hops said as witnessed, limits by
+/// depth, requiredness cited, traversal stops cited.
+pub const TEMPLATE_VERSION: i64 = 3;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -134,9 +138,42 @@ fn hex_list(ids: impl IntoIterator<Item = Id>) -> String {
     }
 }
 
-/// The byte span of a docstring's summary line (the first non-blank line of its literal), found
-/// in the literal's own source bytes so the evidence is verbatim. `None` for an empty docstring or
-/// a form this reader does not follow.
+/// `text` with each run of whitespace (a soft line break and its indentation included) as one
+/// space: an extracted sentence as it reads rendered. Its evidence keeps the source bytes.
+fn normalized(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The first sentence (UAX #29) of `text[start..end]`, as bytes of `text`. It is found on a view
+/// in which each line break is a space of the same byte length, so a hard-wrapped sentence is one
+/// sentence (slice 1.5 review O1, F2).
+fn first_sentence(text: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let view: String = text
+        .get(start..end)?
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
+    let (rel, sentence) = view
+        .split_sentence_bound_indices()
+        .find(|(_, s)| !s.trim().is_empty())?;
+    let lead = sentence.len() - sentence.trim_start().len();
+    let body = sentence.trim();
+    Some((start + rel + lead, start + rel + lead + body.len()))
+}
+
+/// A docstring line that ends its summary paragraph without a blank line: a section header
+/// (`Args:`, `Example usage:`), a reST field, a doctest or an underline.
+fn ends_summary(line: &str) -> bool {
+    (line.ends_with(':') && line.split_whitespace().count() <= 3 && !line.contains('`'))
+        || line.starts_with(':')
+        || line.starts_with(">>>")
+        || (!line.is_empty() && line.chars().all(|c| c == '-' || c == '='))
+}
+
+/// The byte span of a docstring's summary: the first sentence of its first paragraph, found in the
+/// literal's own source bytes so the evidence is verbatim (DESIGN §10.3). The paragraph ends at a
+/// blank line, a section header or the closing quote. `None` for an empty docstring or a form this
+/// reader does not follow.
 pub fn summary_span(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
     let lit = source.get(start..end)?;
     let bytes = lit.as_bytes();
@@ -150,87 +187,170 @@ pub fn summary_span(source: &str, start: usize, end: usize) -> Option<(usize, us
     };
     i += quote.len();
     i += lit[i..].len() - lit[i..].trim_start().len();
-    let rest = &lit[i..];
-    let stop = rest
-        .find('\n')
-        .unwrap_or(rest.len())
-        .min(rest.find(quote).unwrap_or(rest.len()));
-    let line = rest[..stop].trim_end();
-    (!line.is_empty()).then(|| (start + i, start + i + line.len()))
+    let body = &lit[i..i + lit[i..].find(quote).unwrap_or(lit.len() - i)];
+    let mut paragraph = 0;
+    let mut at = 0;
+    for line in body.split_inclusive('\n') {
+        let t = line.trim();
+        if t.is_empty() || ends_summary(t) {
+            break;
+        }
+        paragraph = at + line.trim_end().len();
+        at += line.len();
+    }
+    (paragraph > 0)
+        .then(|| first_sentence(source, start + i, start + i + paragraph))
+        .flatten()
 }
 
-/// The byte span of a passage's lead sentence (DESIGN §10.3): the first sentence (UAX #29) of its
-/// first prose paragraph, skipping headings, code fences and their contents, MDX tags, imports,
-/// tables and admonition markers.
-pub fn lead_sentence(passage: &str) -> Option<(usize, usize)> {
+/// A list item's marker (`- `, `* `, `+ `, `1. `), whose length is returned.
+fn list_marker(line: &str) -> Option<usize> {
+    let t = line.trim_start();
+    let indent = line.len() - t.len();
+    if t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") {
+        return Some(indent + 2);
+    }
+    let digits = t.bytes().take_while(u8::is_ascii_digit).count();
+    (digits > 0 && t[digits..].starts_with(". ")).then_some(indent + digits + 2)
+}
+
+/// A passage's prose paragraphs as byte ranges: runs of prose lines, skipping headings, code
+/// fences and their contents, MDX tags, imports, tables, quotes and admonition markers. A list item
+/// starts a paragraph of its own, its marker excluded.
+pub fn paragraphs(passage: &str) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    let mut open = false;
     let mut offset = 0;
     let mut fenced = false;
-    let mut paragraph: Option<(usize, usize)> = None;
     for line in passage.split_inclusive('\n') {
         let at = offset;
         offset += line.len();
         let body = line.trim();
         if body.starts_with("```") || body.starts_with("~~~") {
             fenced = !fenced;
-            if paragraph.is_some() {
-                break;
-            }
+            open = false;
             continue;
         }
         let skip = fenced
             || body.is_empty()
             || body.starts_with('#')
             || body.starts_with('<')
+            || body.starts_with('>')
             || body.starts_with('|')
             || body.starts_with(":::")
             || body.starts_with("import ")
             || body.starts_with("export ")
             || body.starts_with("---");
-        match (&mut paragraph, skip) {
-            (None, true) => {}
-            (Some(_), true) => break,
-            (None, false) => {
-                let lead = line.len() - line.trim_start().len();
-                paragraph = Some((at + lead, at + line.trim_end().len()));
-            }
-            (Some(p), false) => p.1 = at + line.trim_end().len(),
+        let end = at + line.trim_end().len();
+        if skip {
+            open = false;
+        } else if let Some(marker) = list_marker(line) {
+            out.push((at + marker, end));
+            open = true;
+        } else if open {
+            out.last_mut().expect("an open paragraph").1 = end;
+        } else {
+            out.push((at + line.len() - line.trim_start().len(), end));
+            open = true;
         }
     }
-    let (start, end) = paragraph?;
-    let (rel, sentence) = passage[start..end].split_sentence_bound_indices().next()?;
-    let sentence = sentence.trim_end();
-    (!sentence.is_empty()).then(|| (start + rel, start + rel + sentence.len()))
+    out
 }
 
-/// §10.2's derivation: an unresolved supporting finding makes the assertion unresolved, a
-/// statistical one statistical; otherwise the strongest status its evidence supports.
-fn derive_status(
-    kind: AssertionKind,
-    findings: &[EvidenceStatus],
-    has_evidence: bool,
-) -> EvidenceStatus {
-    if findings.contains(&EvidenceStatus::Unresolved) {
-        EvidenceStatus::Unresolved
-    } else if findings.contains(&EvidenceStatus::StatisticallyDerived) {
-        EvidenceStatus::StatisticallyDerived
-    } else if kind == AssertionKind::Outcome {
-        if has_evidence {
-            EvidenceStatus::Documented
-        } else {
-            EvidenceStatus::Unresolved
-        }
-    } else {
-        EvidenceStatus::StructurallyObserved
-    }
+/// The Outcome a passage offers for an exact mention at `mention` (passage-relative bytes): the
+/// lead sentence of the mention's paragraph, only when the mention lies inside it (DESIGN §10.3;
+/// slice 1.5 review F2). A sentence about something else, which merely precedes the mention, is
+/// never the seed's Outcome.
+pub fn mention_sentence(passage: &str, mention: (usize, usize)) -> Option<(usize, usize)> {
+    let (start, end) = paragraphs(passage)
+        .into_iter()
+        .find(|(s, e)| *s <= mention.0 && mention.1 <= *e)?;
+    let (a, z) = first_sentence(passage, start, end)?;
+    (a <= mention.0 && mention.1 <= z).then_some((a, z))
+}
+
+/// Documents that record changes rather than describe behaviour, by file stem: a release note is
+/// never an Outcome (slice 1.5 review F2).
+pub const CHANGELOG_STEMS: &[&str] = &[
+    "changelog",
+    "changes",
+    "history",
+    "release-notes",
+    "releases",
+    "updates",
+    "whats-new",
+];
+
+fn is_changelog(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_lowercase();
+    CHANGELOG_STEMS.contains(&stem.as_str())
+}
+
+/// How a seed is used, read from its declaration: the Public access template's call form (slice
+/// 1.5 review F3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Form {
+    Function,
+    Class,
+    Method,
+    ClassMethod,
+    StaticMethod,
+    Property,
 }
 
 /// One assertion before its id: its content and supports.
 struct Draft {
     kind: AssertionKind,
     text: Option<String>,
-    /// Finding supports (role, id, the finding's status).
-    findings: Vec<(SupportRole, Id, EvidenceStatus)>,
-    evidence: Vec<Id>,
+    /// Finding supports (role, id, the finding's status and kind).
+    findings: Vec<(SupportRole, Id, EvidenceStatus, FindingKind)>,
+    /// Evidence supports (id, kind).
+    evidence: Vec<(Id, EvidenceKind)>,
+}
+
+impl Draft {
+    fn new(kind: AssertionKind, text: String) -> Self {
+        Self {
+            kind,
+            text: Some(text),
+            findings: Vec::new(),
+            evidence: Vec::new(),
+        }
+    }
+
+    fn citing(mut self, f: &FindingsRow) -> Self {
+        self.findings.push((
+            SupportRole::Support,
+            f.finding_id,
+            f.evidence_status,
+            f.finding_kind,
+        ));
+        self
+    }
+}
+
+/// A witness hop worth saying (slice 1.5 review F3): a definition, a property access or an
+/// override-open call. A plain definite call goes without saying.
+fn hop_note(caller: &str, callee: &str, w: &WitnessesRow) -> Option<String> {
+    let open = if w.modality == Modality::Candidate {
+        ", which a subclass may override"
+    } else {
+        ""
+    };
+    match (w.arc_kind, w.phase) {
+        (ArcKind::Definition, _) => Some(format!("`{caller}` defines `{callee}`")),
+        (_, Some(InvocationPhase::PropertyGet)) => {
+            Some(format!("`{caller}` reads the property `{callee}`{open}"))
+        }
+        (_, Some(InvocationPhase::PropertySet)) => {
+            Some(format!("`{caller}` sets the property `{callee}`{open}"))
+        }
+        _ if w.modality == Modality::Candidate => {
+            Some(format!("`{caller}`'s call to `{callee}` is overridable"))
+        }
+        _ => None,
+    }
 }
 
 /// The kind policy as published rows (DESIGN §10.2).
@@ -285,9 +405,10 @@ pub async fn run(
          LEFT JOIN provider_class_map pc ON pc.module_node_id = sc.module_node_id \
            AND pc.class_key = pf.defining_class_key \
          LEFT JOIN declarations dc ON dc.node_id = pc.node_id \
-         WHERE n.node_id IN ({}) ORDER BY n.node_id",
+         WHERE n.node_id IN ({}) ORDER BY n.node_id, label",
         hex_list(named.iter().copied())
     );
+    // The least label per node, whichever run's row it is (slice 1.5 review O4).
     let mut labels: BTreeMap<Id, String> = BTreeMap::new();
     for (b, i) in Table::read(
         ctx,
@@ -306,14 +427,17 @@ pub async fn run(
     // The seeds' declarations, docstrings and module texts.
     let decl_sql = format!(
         "SELECT d.node_id, d.module_node_id, d.docstring_start_byte, d.docstring_end_byte, \
+                d.kind, pd.kind AS parent_kind, array_to_string(d.decorators, ',') AS decorators, \
                 s.text, s.byte_len \
          FROM declarations d JOIN source_files s ON s.module_node_id = d.module_node_id \
+         LEFT JOIN declarations pd ON pd.node_id = d.parent_node_id \
          WHERE d.node_id IN ({}) ORDER BY d.node_id",
         hex_list(seeds.iter().copied())
     );
     struct Decl {
         module: Id,
         docstring: Option<(usize, usize)>,
+        form: Form,
         text: Option<String>,
     }
     let mut decls: BTreeMap<Id, Decl> = BTreeMap::new();
@@ -325,6 +449,9 @@ pub async fn run(
             ("module_node_id", ID),
             ("docstring_start_byte", DataType::Int64),
             ("docstring_end_byte", DataType::Int64),
+            ("kind", DataType::Int16),
+            ("parent_kind", DataType::Int16),
+            ("decorators", DataType::Utf8),
             ("text", DataType::Utf8),
             ("byte_len", DataType::Int64),
         ],
@@ -338,31 +465,53 @@ pub async fn run(
         let docstring = int(b, "docstring_start_byte", i)
             .zip(int(b, "docstring_end_byte", i))
             .map(|(s, e)| (s as usize, e as usize));
+        let decorators = text(b, "decorators", i).unwrap_or_default();
+        let has = |d: &str| decorators.split(',').any(|x| x == d);
+        let class = Some(DeclarationKind::Class.code());
+        let form = if small(b, "kind", i) == class {
+            Form::Class
+        } else if small(b, "parent_kind", i) != class {
+            Form::Function
+        } else if has("staticmethod") {
+            Form::StaticMethod
+        } else if has("classmethod") {
+            Form::ClassMethod
+        } else if has("property") || has("cached_property") {
+            Form::Property
+        } else {
+            Form::Method
+        };
         decls.insert(
             node,
             Decl {
                 module,
                 docstring,
+                form,
                 text: text(b, "text", i),
             },
         );
     }
 
-    // Passages that mention a seed exactly (by its declaration or an export naming it).
-    let exports_of: BTreeMap<Id, Vec<Id>> = found
-        .findings
-        .iter()
-        .filter(|f| f.finding_kind == FindingKind::PublicAlias)
-        .map(|f| {
-            let nodes = found
-                .members
-                .iter()
-                .filter(|m| m.finding_id == f.finding_id)
-                .filter_map(|m| m.node_id)
-                .collect();
-            (f.subject_node_id, nodes)
-        })
-        .collect();
+    // Passages that mention a seed exactly: by its declaration, or by an export whose target it
+    // is. A member seed's aliases extend its class's export, and a mention of the class is not a
+    // mention of the member.
+    let mut exports_of: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
+    for (b, i) in Table::read(
+        ctx,
+        &format!(
+            "SELECT DISTINCT target_node_id, export_node_id FROM exports \
+             WHERE target_node_id IN ({}) ORDER BY 1, 2",
+            hex_list(seeds.iter().copied())
+        ),
+        &[("target_node_id", ID), ("export_node_id", ID)],
+    )
+    .await?
+    .rows()
+    {
+        if let (Some(t), Some(e)) = (id(b, "target_node_id", i), id(b, "export_node_id", i)) {
+            exports_of.entry(t).or_default().push(e);
+        }
+    }
     let mention_targets: BTreeSet<Id> = seeds
         .iter()
         .copied()
@@ -370,12 +519,13 @@ pub async fn run(
         .collect();
     let mention_sql = format!(
         "SELECT t.target_node_id, p.node_id AS passage_node_id, p.document_node_id, \
-                p.start_byte, p.text, d.path, p.ordinal \
+                p.start_byte, p.text, d.path, p.ordinal, \
+                m.start_byte AS mention_start, m.end_byte AS mention_end \
          FROM mention_targets t JOIN mentions m ON m.fact_id = t.mention_fact_id \
          JOIN passages p ON p.node_id = m.passage_node_id \
          JOIN documents d ON d.node_id = p.document_node_id \
          WHERE m.class = {exact} AND t.target_node_id IN ({targets}) \
-         ORDER BY d.path, p.ordinal, t.target_node_id",
+         ORDER BY d.path, p.ordinal, m.start_byte, t.target_node_id",
         exact = MentionClass::Exact.code(),
         targets = hex_list(mention_targets.iter().copied())
     );
@@ -384,6 +534,8 @@ pub async fn run(
         document: Id,
         start: i64,
         text: String,
+        /// The mention, passage-relative.
+        mention: (usize, usize),
     }
     let mut passages: BTreeMap<Id, Vec<Passage>> = BTreeMap::new();
     for (b, i) in Table::read(
@@ -397,6 +549,8 @@ pub async fn run(
             ("text", DataType::Utf8),
             ("path", DataType::Utf8),
             ("ordinal", DataType::Int64),
+            ("mention_start", DataType::Int64),
+            ("mention_end", DataType::Int64),
         ],
     )
     .await?
@@ -411,6 +565,13 @@ pub async fn run(
         ) else {
             continue;
         };
+        if text(b, "path", i).is_some_and(|p| is_changelog(&p)) {
+            continue;
+        }
+        let (Some(ms), Some(me)) = (int(b, "mention_start", i), int(b, "mention_end", i)) else {
+            continue;
+        };
+        let mention = ((ms - start) as usize, (me - start) as usize);
         // An export's mention counts for the seed it names.
         let seed = seeds
             .iter()
@@ -422,6 +583,7 @@ pub async fn run(
                 document,
                 start,
                 text: body,
+                mention,
             });
         }
     }
@@ -430,7 +592,7 @@ pub async fn run(
     let params_sql = format!(
         "SELECT p.signature_node_id, ps.node_id, ps.fact_id, ps.ordinal, ps.name, ps.kind, \
                 ps.default_text, ps.annotation_text, ps.start_byte, ps.end_byte, \
-                sem.required, d.module_node_id \
+                sem.required, sem.fact_id AS semantics_fact_id, d.module_node_id \
          FROM parameters p JOIN parameter_syntax ps ON ps.fact_id = p.syntax_fact_id \
          LEFT JOIN parameter_semantics sem ON sem.fact_id = p.semantics_fact_id \
          JOIN declarations d ON d.node_id = p.signature_node_id \
@@ -447,6 +609,7 @@ pub async fn run(
         annotation: Option<String>,
         span: (usize, usize),
         required: Option<bool>,
+        semantics: Option<Id>,
         module: Id,
     }
     let mut params: BTreeMap<Id, Vec<Param>> = BTreeMap::new();
@@ -465,6 +628,7 @@ pub async fn run(
             ("start_byte", DataType::Int64),
             ("end_byte", DataType::Int64),
             ("required", DataType::Boolean),
+            ("semantics_fact_id", ID),
             ("module_node_id", ID),
         ],
     )
@@ -492,15 +656,11 @@ pub async fn run(
                 int(b, "end_byte", i).unwrap_or_default() as usize,
             ),
             required: flag(b, "required", i),
+            semantics: id(b, "semantics_fact_id", i),
             module,
         });
     }
 
-    let invocation_of: BTreeMap<Id, &cpg_schema::findings::AnalysisInvocationsRow> = found
-        .invocations
-        .iter()
-        .filter_map(|v| v.subject_node_id.map(|s| (s, v)))
-        .collect();
     let mut evidence: BTreeMap<Id, EvidenceRow> = BTreeMap::new();
     let mut add_evidence = |row: EvidenceRow| -> Id {
         let id = row.evidence_id;
@@ -518,7 +678,9 @@ pub async fn run(
             .collect();
         let mut drafts: Vec<Draft> = Vec::new();
 
-        // Outcome.
+        // Outcome (§10.3): the docstring summary, else a passage's lead sentence holding an exact
+        // mention of the seed; the assertion reads the sentence rendered, its evidence keeps the
+        // bytes (slice 1.5 review O1, F2).
         let mut outcome = Draft {
             kind: AssertionKind::Outcome,
             text: None,
@@ -529,7 +691,7 @@ pub async fn run(
             && let (Some((s, e)), Some(source)) = (decl.docstring, decl.text.as_deref())
             && let Some((a, z)) = summary_span(source, s, e)
         {
-            let line = source[a..z].to_owned();
+            let verbatim = source[a..z].to_owned();
             let ev = add_evidence(EvidenceRow {
                 snapshot_id,
                 evidence_id: recipe::evidence(
@@ -537,7 +699,7 @@ pub async fn run(
                     Some(seed),
                     Some(decl.module),
                     Some((a as i64, z as i64)),
-                    Some(&line),
+                    Some(&verbatim),
                 ),
                 evidence_kind: EvidenceKind::Span,
                 cited_fact_id: None,
@@ -545,16 +707,15 @@ pub async fn run(
                 module_node_id: Some(decl.module),
                 start_byte: Some(a as i64),
                 end_byte: Some(z as i64),
-                text: Some(line.clone()),
+                text: Some(verbatim.clone()),
             });
-            outcome.text = Some(line);
-            outcome.evidence.push(ev);
-        } else if let Some(p) = passages.get(&seed).and_then(|ps| {
+            outcome.text = Some(normalized(&verbatim));
+            outcome.evidence.push((ev, EvidenceKind::Span));
+        } else if let Some((p, (a, z))) = passages.get(&seed).and_then(|ps| {
             ps.iter()
-                .find_map(|p| lead_sentence(&p.text).map(|s| (p, s)))
+                .find_map(|p| mention_sentence(&p.text, p.mention).map(|s| (p, s)))
         }) {
-            let (p, (a, z)) = p;
-            let sentence = p.text[a..z].to_owned();
+            let verbatim = p.text[a..z].to_owned();
             let (start, end) = (p.start + a as i64, p.start + z as i64);
             let ev = add_evidence(EvidenceRow {
                 snapshot_id,
@@ -563,7 +724,7 @@ pub async fn run(
                     Some(p.node),
                     Some(p.document),
                     Some((start, end)),
-                    Some(&sentence),
+                    Some(&verbatim),
                 ),
                 evidence_kind: EvidenceKind::Passage,
                 cited_fact_id: None,
@@ -571,14 +732,16 @@ pub async fn run(
                 module_node_id: Some(p.document),
                 start_byte: Some(start),
                 end_byte: Some(end),
-                text: Some(sentence.clone()),
+                text: Some(verbatim.clone()),
             });
-            outcome.text = Some(sentence);
-            outcome.evidence.push(ev);
+            outcome.text = Some(normalized(&verbatim));
+            outcome.evidence.push((ev, EvidenceKind::Passage));
         }
         drafts.push(outcome);
 
-        // Public access.
+        // Public access: the call form the seed's declaration gives, and every access path naming
+        // it (slice 1.5 review F3).
+        let form = decls.get(&seed).map_or(Form::Function, |d| d.form);
         let mut aliases: Vec<(Id, String)> = Vec::new();
         for f in findings
             .iter()
@@ -599,6 +762,17 @@ pub async fn run(
                 .filter(|l| l != access_path)
                 .map(|l| format!("`{l}`"))
                 .collect();
+            let (owner, name) = access_path.rsplit_once('.').unwrap_or(("", access_path));
+            let member = |what: &str, verb: &str, on: &str| {
+                let also = if others.is_empty() {
+                    String::new()
+                } else {
+                    format!(", and also {}", others.join(", "))
+                };
+                format!(
+                    "{what} of `{owner}`: {verb} `{name}` {on}. It is named `{access_path}`{also}."
+                )
+            };
             let also = if others.is_empty() {
                 String::new()
             } else {
@@ -607,15 +781,23 @@ pub async fn run(
                     others.join(", ")
                 )
             };
-            drafts.push(Draft {
-                kind: AssertionKind::PublicAccess,
-                text: Some(format!("Call it as `{access_path}`{also}.")),
-                findings: vec![(SupportRole::Support, f.finding_id, f.evidence_status)],
-                evidence: Vec::new(),
-            });
+            let text = match form {
+                Form::Function => format!("Call it as `{access_path}`{also}."),
+                Form::Class => format!("Construct one by calling `{access_path}`{also}."),
+                Form::Method => member("A method", "call", "on an instance"),
+                Form::ClassMethod => {
+                    member("A class method", "call", "on the class or an instance")
+                }
+                Form::StaticMethod => {
+                    member("A static method", "call", "on the class or an instance")
+                }
+                Form::Property => member("A property", "read", "on an instance"),
+            };
+            drafts.push(Draft::new(AssertionKind::PublicAccess, text).citing(f));
         }
 
-        // Coordinates: what the operation already delegates to.
+        // Coordinates: what the operation already delegates to, each hop said as its witness
+        // shows it (slice 1.4 review F1, slice 1.5 review F3).
         let mut delegations: Vec<&&FindingsRow> = findings
             .iter()
             .filter(|f| {
@@ -636,57 +818,83 @@ pub async fn run(
                 .filter(|w| w.finding_id == f.finding_id)
                 .collect();
             let paths = steps.iter().map(|w| w.path).collect::<BTreeSet<_>>().len();
-            let mut first: Vec<_> = steps.iter().filter(|w| w.path == 0).collect();
+            let mut first: Vec<_> = steps.iter().copied().filter(|w| w.path == 0).collect();
             first.sort_by_key(|w| w.step);
-            let defines = first
-                .first()
-                .is_some_and(|w| w.arc_kind == ArcKind::Definition);
-            let overridable = first
-                .first()
-                .is_some_and(|w| w.arc_kind == ArcKind::Call && w.modality == Modality::Candidate);
-            let more = if f.witnesses_omitted { " or more" } else { "" };
-            let text = match (f.finding_kind, first.len()) {
-                (FindingKind::DirectDelegation, _) => format!(
-                    "`{seed_label}` already calls `{}` ({paths}{more} call site{}).",
-                    label(target),
-                    if paths == 1 && more.is_empty() {
-                        ""
-                    } else {
-                        "s"
-                    }
-                ),
-                (_, 1) if defines => format!(
-                    "`{seed_label}` defines `{}`, a nested callable it returns or registers.",
-                    label(target)
-                ),
-                (_, 1) if overridable => format!(
-                    "`{seed_label}` already calls `{}` through an overridable method, so a \
-                     subclass may replace it.",
-                    label(target)
-                ),
-                (_, 1) => format!("`{seed_label}` already calls `{}`.", label(target)),
-                (_, _) => format!(
-                    "`{seed_label}` already reaches `{}` through `{}`{}.",
-                    label(target),
-                    label(first[0].callee_node_id),
-                    if defines {
-                        ", a callable it defines"
-                    } else if overridable {
-                        ", an overridable call"
-                    } else {
-                        ""
-                    }
-                ),
+            let t = label(target);
+            let count = |site: &str| {
+                let more = if f.witnesses_omitted { " or more" } else { "" };
+                let plural = if paths == 1 && more.is_empty() {
+                    ""
+                } else {
+                    "s"
+                };
+                format!("{paths}{more} {site}{plural}")
             };
-            drafts.push(Draft {
-                kind: AssertionKind::Coordinates,
-                text: Some(text),
-                findings: vec![(SupportRole::Support, f.finding_id, f.evidence_status)],
-                evidence: Vec::new(),
-            });
+            let direct = f.finding_kind == FindingKind::DirectDelegation;
+            let text = match first.as_slice() {
+                [only] => match (only.arc_kind, only.phase) {
+                    (ArcKind::Definition, _) => format!(
+                        "`{seed_label}` defines `{t}`, a nested callable it returns or registers."
+                    ),
+                    (
+                        _,
+                        Some(phase @ (InvocationPhase::PropertyGet | InvocationPhase::PropertySet)),
+                    ) => {
+                        let verb = if phase == InvocationPhase::PropertyGet {
+                            "reads"
+                        } else {
+                            "sets"
+                        };
+                        if direct {
+                            format!(
+                                "`{seed_label}` already {verb} the property `{t}` ({}).",
+                                count("site")
+                            )
+                        } else {
+                            format!(
+                                "`{seed_label}` already {verb} the property `{t}` through an \
+                                 overridable attribute, so a subclass may replace it."
+                            )
+                        }
+                    }
+                    _ if direct => {
+                        format!(
+                            "`{seed_label}` already calls `{t}` ({}).",
+                            count("call site")
+                        )
+                    }
+                    _ if only.modality == Modality::Candidate => format!(
+                        "`{seed_label}` already calls `{t}` through an overridable method, so a \
+                         subclass may replace it."
+                    ),
+                    _ => format!("`{seed_label}` already calls `{t}`."),
+                },
+                hops => {
+                    let via = hops[..hops.len().saturating_sub(1)]
+                        .iter()
+                        .map(|w| format!("`{}`", label(w.callee_node_id)))
+                        .collect::<Vec<_>>()
+                        .join(" and ");
+                    let mut caller = seed_label.clone();
+                    let mut notes = Vec::new();
+                    for w in hops {
+                        let callee = label(w.callee_node_id);
+                        notes.extend(hop_note(&caller, &callee, w));
+                        caller = callee;
+                    }
+                    let notes = if notes.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", notes.join("; "))
+                    };
+                    format!("`{seed_label}` already reaches `{t}` through {via}{notes}.")
+                }
+            };
+            drafts.push(Draft::new(AssertionKind::Coordinates, text).citing(f));
         }
 
-        // Parameters of the seed's own signature (the receiver aside).
+        // Parameters of the seed's own signature (the receiver aside), each citing its syntax
+        // fact and, where Pysa's model has it, its semantics fact (slice 1.5 review O5).
         for p in params.get(&seed).map(Vec::as_slice).unwrap_or_default() {
             if p.ordinal == 0 && (p.name == "self" || p.name == "cls") {
                 continue;
@@ -715,14 +923,37 @@ pub async fn run(
                 end_byte: Some(p.span.1 as i64),
                 text: Some(span_text.to_owned()),
             });
+            let mut evidence = vec![(ev, EvidenceKind::Fact)];
             let mut parts = vec![p.kind.map_or("parameter", Codebook::text).replace('_', " ")];
             if let Some(d) = &p.default {
                 parts.push(format!("default `{d}`"));
             }
-            match p.required {
-                Some(true) => parts.push("required".to_owned()),
-                Some(false) => parts.push("optional".to_owned()),
-                None => {}
+            match (p.required, p.semantics) {
+                (Some(required), Some(fact)) => {
+                    let word = if required { "required" } else { "optional" };
+                    evidence.push((
+                        add_evidence(EvidenceRow {
+                            snapshot_id,
+                            evidence_id: recipe::evidence(
+                                EvidenceKind::Fact.code(),
+                                Some(p.node),
+                                Some(p.module),
+                                None,
+                                Some(word),
+                            ),
+                            evidence_kind: EvidenceKind::Fact,
+                            cited_fact_id: Some(fact),
+                            node_id: Some(p.node),
+                            module_node_id: Some(p.module),
+                            start_byte: None,
+                            end_byte: None,
+                            text: Some(word.to_owned()),
+                        }),
+                        EvidenceKind::Fact,
+                    ));
+                    parts.push(word.to_owned());
+                }
+                _ => parts.push("requiredness not observed".to_owned()),
             }
             if let Some(a) = &p.annotation {
                 parts.push(format!("annotated `{a}`"));
@@ -731,22 +962,24 @@ pub async fn run(
                 kind: AssertionKind::Parameter,
                 text: Some(format!("`{}`: {}.", p.name, parts.join("; "))),
                 findings: Vec::new(),
-                evidence: vec![ev],
+                evidence,
             });
         }
 
-        // Limits: where the analysis stopped.
-        let mut by_reason: BTreeMap<StopReason, Vec<&&FindingsRow>> = BTreeMap::new();
+        // Limits: where the analysis stopped, one entry per reason, and apart for what the seed
+        // calls itself and what the callables it reaches call (slice 1.5 review F3).
+        let mut by_reason: BTreeMap<(StopReason, bool), Vec<&&FindingsRow>> = BTreeMap::new();
         for f in &findings {
             if matches!(
                 f.finding_kind,
                 FindingKind::ImplementationBoundary | FindingKind::IncompleteResolution
             ) && let Some(r) = f.stop_reason
             {
-                by_reason.entry(r).or_default().push(f);
+                let deep = r != StopReason::UnresolvedSite && f.depth.is_some_and(|d| d > 1);
+                by_reason.entry((r, deep)).or_default().push(f);
             }
         }
-        for (reason, group) in &by_reason {
+        for ((reason, deep), group) in &by_reason {
             let names: BTreeSet<String> = group
                 .iter()
                 .filter_map(|f| f.related_node_id)
@@ -757,18 +990,23 @@ pub async fn run(
                 .map(|n| format!("`{n}`"))
                 .collect::<Vec<_>>()
                 .join(", ");
+            let who = if *deep {
+                format!("Callables `{seed_label}` reaches call")
+            } else {
+                format!("`{seed_label}` calls")
+            };
             let text = match reason {
                 StopReason::ExternalBoundary => format!(
-                    "`{seed_label}` calls into code outside the analyzed release, which is not \
-                     analyzed further: {listed}."
+                    "{who} into code outside the analyzed release, which is not analyzed \
+                     further: {listed}."
                 ),
                 StopReason::SyntheticBoundary => format!(
-                    "`{seed_label}` calls callables with no body in source (synthesized), which \
-                     are not analyzed further: {listed}."
+                    "{who} callables with no body in source (synthesized), which are not \
+                     analyzed further: {listed}."
                 ),
                 StopReason::SubsystemBoundary => format!(
-                    "`{seed_label}` calls release code outside the analyzed subsystem, which is \
-                     not analyzed further: {listed}."
+                    "{who} release code outside the analyzed subsystem, which is not analyzed \
+                     further: {listed}."
                 ),
                 StopReason::UnresolvedSite => format!(
                     "{} call site{} reached from `{seed_label}` {} no resolved target.",
@@ -778,40 +1016,33 @@ pub async fn run(
                 ),
                 other => format!("The analysis of `{seed_label}` stopped: {}.", other.text()),
             };
-            drafts.push(Draft {
-                kind: AssertionKind::AnalysisBoundary,
-                text: Some(text),
-                findings: group
-                    .iter()
-                    .map(|f| (SupportRole::Support, f.finding_id, f.evidence_status))
-                    .collect(),
-                evidence: Vec::new(),
-            });
+            let mut draft = Draft::new(AssertionKind::AnalysisBoundary, text);
+            for f in group {
+                draft = draft.citing(f);
+            }
+            drafts.push(draft);
         }
-        if let Some(inv) = invocation_of.get(&seed) {
-            let stop = match inv.stop_reason {
-                Some(StopReason::DepthLimit) => Some(format!(
-                    "Calls more than {} steps below `{seed_label}` were not followed (the \
-                     analysis's depth bound).",
-                    serde_json::from_str::<serde_json::Value>(&inv.parameters)
-                        .ok()
-                        .and_then(|v| v.get("max_depth").and_then(serde_json::Value::as_u64))
-                        .unwrap_or_default()
-                )),
-                Some(StopReason::VertexBudget | StopReason::EdgeBudget) => Some(format!(
+        // The depth bound or a budget, citing Pass A's traversal-stop finding (slice 1.5 review F1).
+        for f in findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::TraversalStop)
+        {
+            let text = match f.stop_reason {
+                Some(StopReason::DepthLimit) => format!(
+                    "What lies more than {} steps below `{seed_label}` (calls or nested \
+                     definitions) was not followed (the analysis's depth bound).",
+                    f.depth.unwrap_or_default()
+                ),
+                Some(StopReason::VertexBudget | StopReason::EdgeBudget) => format!(
                     "The delegation analysis of `{seed_label}` stopped at its budget; more \
                      delegations may exist than are listed."
-                )),
-                _ => None,
+                ),
+                other => format!(
+                    "The analysis of `{seed_label}` stopped: {}.",
+                    other.map_or("unknown", |r| r.text())
+                ),
             };
-            if let Some(text) = stop {
-                drafts.push(Draft {
-                    kind: AssertionKind::AnalysisBoundary,
-                    text: Some(text),
-                    findings: Vec::new(),
-                    evidence: Vec::new(),
-                });
-            }
+            drafts.push(Draft::new(AssertionKind::AnalysisBoundary, text).citing(f));
         }
 
         // Assertions, ordered by section then draft order.
@@ -820,8 +1051,17 @@ pub async fn run(
         let mut assertion_ids = Vec::new();
         let mut uses_analysis = false;
         for (_, d) in ordered {
-            let statuses: Vec<EvidenceStatus> = d.findings.iter().map(|f| f.2).collect();
-            let status = derive_status(d.kind, &statuses, !d.evidence.is_empty());
+            let cited: Vec<(SupportRole, EvidenceStatus)> = d
+                .findings
+                .iter()
+                .map(|(r, _, st, _)| (*r, *st))
+                .chain(
+                    d.evidence
+                        .iter()
+                        .map(|(_, k)| (SupportRole::Support, evidence_status(*k))),
+                )
+                .collect();
+            let status = derive_status(&cited);
             let text = if status == EvidenceStatus::Unresolved {
                 None
             } else {
@@ -830,14 +1070,17 @@ pub async fn run(
             let supports: Vec<(i16, Option<Id>, Option<Id>)> = d
                 .findings
                 .iter()
-                .map(|(r, f, _)| (r.code(), Some(*f), None))
+                .map(|(r, f, _, _)| (r.code(), Some(*f), None))
                 .chain(
                     d.evidence
                         .iter()
-                        .map(|e| (SupportRole::Support.code(), None, Some(*e))),
+                        .map(|(e, _)| (SupportRole::Support.code(), None, Some(*e))),
                 )
                 .collect();
-            uses_analysis |= !d.findings.is_empty();
+            uses_analysis |= d
+                .findings
+                .iter()
+                .any(|(_, _, _, k)| ANALYSIS_BACKED.contains(k));
             let assertion_id = AssertionKey {
                 kind: d.kind.code(),
                 subject: seed,
@@ -978,8 +1221,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_summary_span_is_the_first_line_of_the_literal() {
-        let src = "def f():\n    \"\"\"\n    Run it — fast.\n\n    More.\n    \"\"\"\n";
+    fn a_summary_span_is_the_first_sentence_of_the_first_paragraph() {
+        let src = "def f():\n    \"\"\"\n    Run it — fast. Then stop.\n\n    More.\n    \"\"\"\n";
         let start = src.find("\"\"\"").unwrap();
         let end = src.rfind("\"\"\"").unwrap() + 3;
         let (a, z) = summary_span(src, start, end).unwrap();
@@ -988,44 +1231,44 @@ mod tests {
         let (a, z) = summary_span(one, 0, one.len()).unwrap();
         assert_eq!(&one[a..z], "Short.");
         assert_eq!(summary_span("\"\"\"   \"\"\"", 0, 9), None);
+        // Slice 1.5 review O1: a hard-wrapped summary is one sentence, its bytes verbatim.
+        let wrapped =
+            "\"\"\"A configuration object that conforms\n    to the format. It adds fields.\"\"\"";
+        let (a, z) = summary_span(wrapped, 0, wrapped.len()).unwrap();
+        assert_eq!(
+            &wrapped[a..z],
+            "A configuration object that conforms\n    to the format."
+        );
+        assert_eq!(
+            normalized(&wrapped[a..z]),
+            "A configuration object that conforms to the format."
+        );
+        // A section header ends the summary paragraph; an unterminated summary is its line.
+        let google = "\"\"\"Get a setting\n    Args:\n        key: the key.\n    \"\"\"";
+        let (a, z) = summary_span(google, 0, google.len()).unwrap();
+        assert_eq!(&google[a..z], "Get a setting");
     }
 
     #[test]
-    fn a_lead_sentence_skips_headings_code_and_markup() {
-        let p = "## Tools\n\n<Tip>x</Tip>\n```python\nmcp.tool()\n```\nTools let an LLM act. They \
-                 are functions.\nMore text.\n";
-        let (a, z) = lead_sentence(p).unwrap();
-        assert_eq!(&p[a..z], "Tools let an LLM act.");
-        assert_eq!(lead_sentence("## Only a heading\n"), None);
-    }
-
-    #[test]
-    fn status_follows_supports_never_a_choice() {
-        use EvidenceStatus::*;
-        assert_eq!(
-            derive_status(AssertionKind::Coordinates, &[StructurallyObserved], false),
-            StructurallyObserved
-        );
-        assert_eq!(
-            derive_status(
-                AssertionKind::Coordinates,
-                &[StructurallyObserved, StatisticallyDerived],
-                false
-            ),
-            StatisticallyDerived
-        );
-        assert_eq!(
-            derive_status(
-                AssertionKind::Coordinates,
-                &[StatisticallyDerived, Unresolved],
-                false
-            ),
-            Unresolved
-        );
-        assert_eq!(derive_status(AssertionKind::Outcome, &[], true), Documented);
-        assert_eq!(
-            derive_status(AssertionKind::Outcome, &[], false),
-            Unresolved
-        );
+    fn an_outcome_sentence_holds_its_mention() {
+        let p = "## Tools\n\n<Tip>x</Tip>\n```python\nmcp.tool()\n```\nEverything above is \
+                 done. Then `pkg.tool` runs.\n\nThe `pkg.tool` decorator registers\na function. \
+                 More.\n\n- `pkg.run`: starts the server.\n";
+        let at = |needle: &str, nth: usize| {
+            let s = p.match_indices(needle).nth(nth).unwrap().0;
+            (s, s + needle.len())
+        };
+        // The mention is past its paragraph's lead sentence: no Outcome.
+        assert_eq!(mention_sentence(p, at("`pkg.tool`", 0)), None);
+        // In the lead sentence, across a soft line break.
+        let (a, z) = mention_sentence(p, at("`pkg.tool`", 1)).unwrap();
+        assert_eq!(&p[a..z], "The `pkg.tool` decorator registers\na function.");
+        // A list item is a paragraph of its own, its marker excluded.
+        let (a, z) = mention_sentence(p, at("`pkg.run`", 0)).unwrap();
+        assert_eq!(&p[a..z], "`pkg.run`: starts the server.");
+        assert!(paragraphs("## Only a heading\n").is_empty());
+        assert!(is_changelog("docs/getting-started/whats-new.mdx"));
+        assert!(is_changelog("docs/changelog.mdx"));
+        assert!(!is_changelog("docs/servers/tools.mdx"));
     }
 }

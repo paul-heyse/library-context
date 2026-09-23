@@ -10,7 +10,9 @@
 //!
 //! The queries read tables registered under their own names and filtered to one snapshot.
 
-use crate::codebook::{Codebook, EvidenceStatus, FactFamily, SourceRole, registry};
+use crate::codebook::{
+    AssertionKind, Codebook, EvidenceStatus, FactFamily, SourceRole, SupportRole, registry,
+};
 use crate::column::CODEBOOK_KEY;
 use crate::table::Table;
 
@@ -285,18 +287,49 @@ fn semantic() -> Vec<Rule> {
             },
         ),
         (
-            // §10.2 propagation: a statistical supporting or scope-defining finding makes the
-            // assertion statistical (or unresolved); an unresolved one makes it unresolved.
-            "semantic:assertion-status-propagation",
-            format!(
-                "SELECT a.assertion_id FROM assertions a \
-                 JOIN assertion_support s ON s.assertion_id = a.assertion_id \
-                 JOIN findings f ON f.finding_id = s.finding_id \
-                 WHERE (f.evidence_status = {stat} AND a.evidence_status NOT IN ({stat}, {unres})) \
-                    OR (f.evidence_status = {unres} AND a.evidence_status <> {unres})",
-                stat = EvidenceStatus::StatisticallyDerived.code(),
-                unres = EvidenceStatus::Unresolved.code()
-            ),
+            // §10.2, slice 1.5 review F1: an assertion's status is `findings::derive_status` of
+            // its supports, recomputed here and compared for equality: a floor and a ceiling.
+            "semantic:assertion-status-derived",
+            {
+                let evidence = crate::findings::EVIDENCE_STATUS
+                    .iter()
+                    .map(|(k, st)| format!("WHEN {} THEN {}", k.code(), st.code()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let rank = crate::findings::STATUS_STRENGTH
+                    .iter()
+                    .enumerate()
+                    .map(|(i, st)| format!("WHEN {} THEN {i}", st.code()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let unrank = crate::findings::STATUS_STRENGTH
+                    .iter()
+                    .enumerate()
+                    .map(|(i, st)| format!("WHEN {i} THEN {}", st.code()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    "WITH x AS ( \
+                       SELECT s.assertion_id, s.role, f.evidence_status AS st \
+                       FROM assertion_support s JOIN findings f ON f.finding_id = s.finding_id \
+                       UNION ALL \
+                       SELECT s.assertion_id, s.role, CASE e.evidence_kind {evidence} END AS st \
+                       FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id), \
+                     d AS ( \
+                       SELECT a.assertion_id, a.evidence_status, CASE \
+                         WHEN count(CASE WHEN x.role = {support} THEN 1 END) = 0 THEN {unres} \
+                         WHEN bool_or(x.role = {support} AND x.st = {unres}) THEN {unres} \
+                         WHEN bool_or(x.st = {stat}) THEN {stat} \
+                         ELSE CASE max(CASE WHEN x.role = {support} THEN CASE x.st {rank} END END) \
+                              {unrank} END END AS derived \
+                       FROM assertions a LEFT JOIN x ON x.assertion_id = a.assertion_id \
+                       GROUP BY a.assertion_id, a.evidence_status) \
+                     SELECT assertion_id FROM d WHERE derived IS NULL OR derived <> evidence_status",
+                    support = SupportRole::Support.code(),
+                    stat = EvidenceStatus::StatisticallyDerived.code(),
+                    unres = EvidenceStatus::Unresolved.code(),
+                )
+            },
         ),
         (
             // §10.2: an unresolved slot has no text, and only an unresolved slot has none.
@@ -324,24 +357,49 @@ fn semantic() -> Vec<Rule> {
         ),
         (
             // §10.4: every public symbol a brief names is an export's access path, or extends one
-            // with a member name.
+            // with the declaration's own name (slice 1.5 review O3).
             "semantic:brief-member-exported",
             "SELECT m.brief_id, m.access_path FROM brief_members m \
+             JOIN declarations d ON d.node_id = m.declaration_node_id \
              LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id \
                AND (m.access_path = e.access_path \
-                    OR starts_with(m.access_path, e.access_path || '.'))"
+                    OR (starts_with(m.access_path, e.access_path || '.') \
+                        AND ends_with(m.access_path, '.' || d.name)))"
                 .to_owned(),
         ),
         (
-            // §1.5: no brief reaches publication by bypassing the analytics; one that doesn't
-            // cite a finding says it is documentation alone.
+            // §1.5: no brief reaches publication by bypassing the analytics. A brief is labelled
+            // documentation-only exactly when it cites no analysis-backed finding
+            // (`findings::ANALYSIS_BACKED`; slice 1.5 review F4), both ways.
             "semantic:brief-cites-analysis",
-            "SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( \
-               SELECT DISTINCT ba.brief_id FROM brief_assertions ba \
-               JOIN assertion_support s ON s.assertion_id = ba.assertion_id \
-               WHERE s.finding_id IS NOT NULL) x ON x.brief_id = b.brief_id \
-             WHERE NOT b.documentation_only"
-                .to_owned(),
+            format!(
+                "SELECT b.brief_id FROM briefs b LEFT JOIN ( \
+                   SELECT DISTINCT ba.brief_id FROM brief_assertions ba \
+                   JOIN assertion_support s ON s.assertion_id = ba.assertion_id \
+                   JOIN findings f ON f.finding_id = s.finding_id \
+                   WHERE f.finding_kind IN ({})) x ON x.brief_id = b.brief_id \
+                 WHERE b.documentation_only = (x.brief_id IS NOT NULL)",
+                crate::findings::ANALYSIS_BACKED
+                    .iter()
+                    .map(|k| k.code().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ),
+        (
+            // §1.5 (slice 1.5 review F4): a documentation-only brief has a documented Outcome;
+            // with neither analysis nor documentation it says nothing.
+            "semantic:documentation-only-has-outcome",
+            format!(
+                "SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( \
+                   SELECT ba.brief_id FROM brief_assertions ba \
+                   JOIN assertions a ON a.assertion_id = ba.assertion_id \
+                   WHERE a.assertion_kind = {} AND a.evidence_status = {}) o \
+                   ON o.brief_id = b.brief_id \
+                 WHERE b.documentation_only",
+                AssertionKind::Outcome.code(),
+                EvidenceStatus::Documented.code()
+            ),
         ),
         (
             // Slice 1.4 review F3: a direct delegation's first witness is one definite call.
@@ -434,6 +492,9 @@ pub const EDIT_GUARDS: &[&str] = &[
     "lineage:contains_passage",
     "lineage:contains_block",
     "partition:pysa_calls-gaps",
+    // Both sides are built from `ASSERTION_POLICY` (slice 1.5 review O2): it guards an edit that
+    // publishes the policy from anywhere else.
+    "semantic:assertion-policy-published",
 ];
 
 /// Every rule, in a fixed order: keys, references, fact links, codebooks, coverage, semantic.

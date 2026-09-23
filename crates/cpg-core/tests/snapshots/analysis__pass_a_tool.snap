@@ -2,23 +2,27 @@
 source: crates/cpg-core/tests/analysis.rs
 expression: "text(&ctx, &findings_query(seed)).await"
 ---
-+------+-----------------------------+-------+------+---------+-------+
-| kind | target                      | depth | stop | omitted | paths |
-+------+-----------------------------+-------+------+---------+-------+
-| 0    |                             |       |      | false   | 0     |
-| 1    | pkg.handlers.run            | 1     |      | false   | 1     |
-| 1    | pkg.helpers.helper          | 1     |      | false   | 2     |
-| 1    | pkg.helpers.prepare         | 1     |      | false   | 1     |
-| 2    | pkg.handlers.Handler.handle | 2     |      | false   | 1     |
-| 2    | pkg.helpers.deep_one        | 2     |      | false   | 1     |
-| 2    | pkg.helpers.finish          | 2     |      | false   | 2     |
-| 2    | pkg.server.Server.dispatch  | 1     |      | false   | 1     |
-| 2    | pkg.server.Server.label     | 1     |      | false   | 1     |
-| 3    | builtins.getattr            | 1     | 5    | false   | 1     |
-| 3    | builtins.object.__init__    | 1     | 5    | false   | 1     |
-| 3    | builtins.object.__new__     | 1     | 5    | false   | 2     |
-| 3    | extdep.external             | 1     | 5    | false   | 1     |
-| 3    | pkg.other.outside           | 1     | 4    | false   | 1     |
-| 3    | synthetic CF:0:1            | 1     | 6    | false   | 1     |
-| 4    | call site                   | 1     | 7    | false   | 0     |
-+------+-----------------------------+-------+------+---------+-------+
++------+---------------------------------+-------+------+---------+-------+
+| kind | target                          | depth | stop | omitted | paths |
++------+---------------------------------+-------+------+---------+-------+
+| 0    |                                 |       |      | false   | 0     |
+| 1    | pkg.handlers.run                | 1     |      | false   | 1     |
+| 1    | pkg.helpers.helper              | 1     |      | false   | 2     |
+| 1    | pkg.helpers.prepare             | 1     |      | false   | 1     |
+| 2    | pkg.handlers.Handler.handle     | 2     |      | false   | 1     |
+| 2    | pkg.helpers.deep_one            | 2     |      | false   | 1     |
+| 2    | pkg.helpers.finish              | 2     |      | false   | 2     |
+| 2    | pkg.server.Server.dispatch      | 1     |      | false   | 1     |
+| 2    | pkg.server.Server.label         | 1     |      | false   | 1     |
+| 3    | builtins.BaseException.__init__ | 2     | 5    | false   | 1     |
+| 3    | builtins.BaseException.__new__  | 2     | 5    | false   | 1     |
+| 3    | builtins.getattr                | 1     | 5    | false   | 1     |
+| 3    | builtins.isinstance             | 2     | 5    | false   | 1     |
+| 3    | builtins.object.__init__        | 1     | 5    | false   | 1     |
+| 3    | builtins.object.__new__         | 1     | 5    | false   | 2     |
+| 3    | extdep.external                 | 1     | 5    | false   | 1     |
+| 3    | pkg.other.outside               | 1     | 4    | false   | 1     |
+| 3    | synthetic CF:0:1                | 1     | 6    | false   | 1     |
+| 4    | call site                       | 1     | 7    | false   | 0     |
+| 5    |                                 | 2     | 0    | false   | 0     |
++------+---------------------------------+-------+------+---------+-------+

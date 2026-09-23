@@ -473,6 +473,7 @@ finding_kind
   2 bounded_delegation_path
   3 implementation_boundary
   4 incomplete_resolution
+  5 traversal_stop
 stop_reason
   0 depth_limit
   1 vertex_budget

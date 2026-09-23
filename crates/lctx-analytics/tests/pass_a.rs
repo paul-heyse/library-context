@@ -176,8 +176,16 @@ fn pass_a_finds_delegations_boundaries_and_gaps_with_witnesses() {
     assert_eq!(r.completion, CoverageStatus::CompleteUnderStatedModel);
     // C (depth 2) has an arc to D, which the depth budget does not examine.
     assert_eq!(r.stop_reason, Some(StopReason::DepthLimit));
-    assert_eq!(r.findings.len(), 8, "{:#?}", r.findings);
+    assert_eq!(r.findings.len(), 9, "{:#?}", r.findings);
     assert_eq!(kind_of(&r, None, FindingKind::PublicAlias), 1);
+    // The depth bound is a finding too, so a Limits entry can cite it (slice 1.5 review F1).
+    let stopped: Vec<_> = r
+        .findings
+        .iter()
+        .filter(|f| f.finding_kind == FindingKind::TraversalStop)
+        .map(|f| (f.stop_reason, f.depth))
+        .collect();
+    assert_eq!(stopped, [(Some(StopReason::DepthLimit), Some(2))]);
     assert_eq!(kind_of(&r, Some(A), FindingKind::DirectDelegation), 1);
     // The candidate arc to B is followed, but never a direct delegation (§3.6).
     assert_eq!(kind_of(&r, Some(B), FindingKind::BoundedDelegationPath), 1);
@@ -287,6 +295,11 @@ fn budgets_truncate_and_say_so() {
     .unwrap();
     assert_eq!(vertices.completion, CoverageStatus::Partial);
     assert_eq!(vertices.stop_reason, Some(StopReason::VertexBudget));
+    assert_eq!(
+        kind_of(&vertices, None, FindingKind::TraversalStop),
+        1,
+        "a budget stop is a finding"
+    );
     assert_eq!(vertices.vertices_examined, 2);
 
     let edges = run(

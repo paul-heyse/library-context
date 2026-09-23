@@ -896,3 +896,90 @@ async fn the_corpus_rules_reject_their_violations() {
         }
     }
 }
+
+/// DESIGN §10.3's second Outcome leg on a corpus (slice 1.5 review F2, F5). A seed without a
+/// docstring takes the lead sentence of a paragraph whose exact mention lies inside that sentence,
+/// segmented across a soft line break. A mention past the lead sentence gives nothing, and a
+/// changelog is never read. The passage evidence is its passage's exact bytes.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_outcome_from_the_docs_is_the_sentence_that_mentions_the_seed() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Id([7; 16]);
+    let input = corpus_input(dir.path(), s, &[("outcome", "docs/outcome")]);
+    let out = extract(&input).unwrap();
+    let analysis = cpg_core::analyze::Analysis {
+        config: lctx_analytics::config::AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["pkg.core"]
+public_roots = ["pkg"]
+[seeds]
+primary = ["pkg.Server.tool"]
+distractors = ["pkg.make_server"]
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 2
+serve_unreviewed = true
+"#,
+        )
+        .unwrap(),
+        embedder: None,
+    };
+    let store = dir.path().join("store");
+    cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis))
+        .await
+        .unwrap();
+    let (_, ctx) = published(&store, s).await.unwrap().unwrap();
+    let outcomes = lines(
+        &ctx,
+        "SELECT b.title, CAST(b.documentation_only AS VARCHAR), a.evidence_status, a.text \
+         FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         WHERE a.assertion_kind = 0 ORDER BY b.title",
+    )
+    .await;
+    assert_eq!(
+        outcomes,
+        "pkg.Server.tool | true | 1 | Call `make_server()`, then `Server.tool` to register a tool \
+         (`pkg.Server.tool` in full).\n\
+         pkg.make_server | false | 1 | The `pkg.make_server` factory builds a configured server \
+         from its name.\n"
+    );
+    // Each passage evidence is the bytes of its passage at its span; one crosses a line break.
+    let rows = batches(
+        &ctx,
+        "SELECT e.start_byte - p.start_byte AS at, e.end_byte - e.start_byte AS len, e.text, \
+                p.text AS passage \
+         FROM evidence e JOIN passages p ON p.node_id = e.node_id WHERE e.evidence_kind = 2",
+    )
+    .await;
+    let mut checked = Vec::new();
+    for b in &rows {
+        let at = b.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
+        let len = b.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
+        let cast = |c: usize| {
+            arrow_cast::cast(b.column(c), &arrow_schema::DataType::Utf8)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .clone()
+        };
+        let (text, passage) = (cast(2), cast(3));
+        for i in 0..b.num_rows() {
+            let (a, n) = (at.value(i) as usize, len.value(i) as usize);
+            assert_eq!(
+                &passage.value(i).as_bytes()[a..a + n],
+                text.value(i).as_bytes()
+            );
+            checked.push(text.value(i).to_owned());
+        }
+    }
+    assert_eq!(checked.len(), 2, "{checked:?}");
+    assert!(checked.iter().any(|t| t.contains('\n')), "{checked:?}");
+}

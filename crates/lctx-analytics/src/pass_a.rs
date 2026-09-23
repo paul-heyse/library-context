@@ -264,6 +264,21 @@ pub fn run(
         }
     }
 
+    // Where the traversal stopped with something not followed, a finding says so, so the Limits
+    // entry Stage F writes cites it (slice 1.5 review F1).
+    let stop_reason = budget_stop.or(depth_limited.then_some(StopReason::DepthLimit));
+    if let Some(reason) = stop_reason {
+        drafts.push(Draft {
+            kind: FindingKind::TraversalStop,
+            related: None,
+            depth: (reason == StopReason::DepthLimit).then(|| i64::from(budgets.max_depth)),
+            stop: Some(reason),
+            omitted: false,
+            paths: Vec::new(),
+            members: Vec::new(),
+        });
+    }
+
     let mut findings = Vec::new();
     let mut members = Vec::new();
     let mut witnesses = Vec::new();
@@ -368,7 +383,7 @@ pub fn run(
         } else {
             CoverageStatus::CompleteUnderStatedModel
         },
-        stop_reason: budget_stop.or(depth_limited.then_some(StopReason::DepthLimit)),
+        stop_reason,
         vertices_examined: i64::from(visited),
         arcs_examined: i64::from(arcs_examined),
         findings,
