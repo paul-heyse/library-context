@@ -61,8 +61,10 @@ pub fn table_url(root: &Path, name: &str) -> Result<Url, CoreError> {
 pub async fn create<T: Table>(root: &Path) -> Result<DeltaTable, CoreError> {
     fs_err::create_dir_all(root.join(T::NAME))?;
     let kernel: StructType = T::schema().as_ref().try_into_kernel()?;
-    let mut builder = DeltaTable::try_from_url(table_url(root, T::NAME)?)
-        .await?
+    // An unloaded handle: the table does not exist yet, and loading it first only makes the kernel
+    // log a "No files in log segment" error per table on a fresh store (H1 review F6).
+    let mut builder = DeltaTableBuilder::from_url(table_url(root, T::NAME)?)?
+        .build()?
         .create()
         .with_columns(kernel.fields().cloned())
         .with_configuration_property(TableProperty::AppendOnly, Some("true"));

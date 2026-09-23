@@ -1371,6 +1371,11 @@ FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the
   1,085 nodes of Pyrefly's bundled stubs (their identity is the Pyrefly revision, §3.4.1) and the
   91,278 edges that touch them. Every other node and edge is byte-identical to the pre-D6 build.
 - **The test suite** runs in 83 s instead of 225 s.
+- **After the H1 review's fixes** (2026-09-23, fresh stores): content `19c3e8e2…`. F1's extractor
+  version bump moved producer, run and fact ids; the node, edge, type-term, syntax and binding
+  fingerprints are identical to the table above. 29.9–33.4 s across three runs, peak
+  3,640–3,649 MiB, 235 MiB. A compile's stderr carries no warning (the known Binary-statistics
+  lines are quieted, and tables are created without a failed load; H1 review F6).
 
 **Deferred, with triggers.**
 - `datafusion-tracing` (compatible with 55.1 per its skill): until per-operator spans are needed.

@@ -1,11 +1,12 @@
 //! The binaries' log subscriber (H1 O1): Pyrefly, delta-kernel and DataFusion (its `log` records,
 //! through the tracing-log bridge) report through it, to stderr.
 
-/// `warn`, except delta-rs's writer statistics, which warn once per Binary column per write that
-/// it records no Delta-log statistics for them (256 lines per pilot compile). That limit is known,
-/// documented (§4.3) and designed around (per-commit reads, ADR-0017), so it would only bury the
-/// warnings the subscriber exists to show (H1 review F6).
-pub const DEFAULT_LOG_FILTER: &str = "warn,deltalake_core::writer::stats=error";
+/// `warn`, except where delta-rs warns about the known Binary-statistics limit: its writer, once
+/// per Binary column per write (256 lines per pilot compile), and its scan's stats projection, per
+/// table whose `snapshot_id` has no min/max. That limit is documented (§4.3) and designed around
+/// (per-commit reads, ADR-0017), so those lines would only bury the warnings the subscriber exists
+/// to show (H1 review F6).
+pub const DEFAULT_LOG_FILTER: &str = "warn,deltalake_core::writer::stats=error,deltalake_core::kernel::snapshot::stats_projection=error";
 
 /// Install the subscriber. `LCTX_LOG` replaces [`DEFAULT_LOG_FILTER`] (`LCTX_LOG=debug`); it
 /// changes output only, never an identity.
