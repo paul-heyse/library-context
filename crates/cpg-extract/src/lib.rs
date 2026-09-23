@@ -643,7 +643,6 @@ fn run_release(
                 module_node_id: m.node_id,
                 walk: &module_walk,
             },
-            &ast,
             &mut sink,
             &mut types_out,
         );

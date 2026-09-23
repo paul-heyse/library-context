@@ -1,10 +1,11 @@
-From 6a93da3460f9279ba32ff4ebec07e1cbdf2eb978 Mon Sep 17 00:00:00 2001
+From a07b7baead9e0c7b496346d879b88e2fff9cbda7 Mon Sep 17 00:00:00 2001
 From: paul-heyse <paul@heyse.io>
 Date: Tue, 22 Sep 2026 16:19:52 -0400
 Subject: [PATCH] lctx: expose Pysa collectors, public-name helpers, dataclass
- field flags and wildcard sets; optional report writes
+ field flags, wildcard sets and declared annotations; optional report writes
 
 ---
+ pyrefly/lib/alt/answers.rs               | 12 ++++++++++++
  pyrefly/lib/alt/class/class_field.rs     |  2 +-
  pyrefly/lib/commands/coverage.rs         |  2 +-
  pyrefly/lib/commands/coverage/collect.rs | 10 +++++-----
@@ -12,8 +13,31 @@ Subject: [PATCH] lctx: expose Pysa collectors, public-name helpers, dataclass
  pyrefly/lib/report/pysa.rs               |  6 ++++++
  pyrefly/lib/report/pysa/call_graph.rs    |  4 ++--
  pyrefly/lib/state/state.rs               | 14 +++++++++++++-
- 7 files changed, 30 insertions(+), 12 deletions(-)
+ 8 files changed, 42 insertions(+), 12 deletions(-)
 
+diff --git a/pyrefly/lib/alt/answers.rs b/pyrefly/lib/alt/answers.rs
+index c579f2d19..670764da1 100644
+--- a/pyrefly/lib/alt/answers.rs
++++ b/pyrefly/lib/alt/answers.rs
+@@ -1645,6 +1645,18 @@ impl Answers {
+         Some(self.get_idx(idx)?.ty().clone())
+     }
+ 
++    /// The declared annotation an annotation key holds (a return or variable annotation), when
++    /// the module binds that key, borrowed as solved: no wrapping, such as an `async def`'s
++    /// `Coroutine`, is applied (lctx; composes `key_to_idx_hashed_opt` and `get_idx`).
++    pub fn get_annotation(
++        &self,
++        bindings: &crate::binding::bindings::Bindings,
++        key: &crate::binding::binding::KeyAnnotation,
++    ) -> Option<&pyrefly_types::annotation::Annotation> {
++        let idx = bindings.key_to_idx_hashed_opt(starlark_map::Hashed::new(key))?;
++        Some(&self.get_idx(idx)?.annotation)
++    }
++
+     pub fn get_type_trace(&self, range: TextRange) -> Option<Type> {
+         let lock = self.trace.as_ref()?.lock();
+         Some(lock.types.get(&range)?.as_ref().clone())
 diff --git a/pyrefly/lib/alt/class/class_field.rs b/pyrefly/lib/alt/class/class_field.rs
 index b7156ca95..eb1b2e4c0 100644
 --- a/pyrefly/lib/alt/class/class_field.rs

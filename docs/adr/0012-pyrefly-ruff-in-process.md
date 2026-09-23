@@ -134,3 +134,12 @@ author decisions on 2026-09-22. The Decision below includes its corrections:
     hook;
   - ast-grep rules for `catch_unwind` and for the write and SQL bypasses;
   - a `just` recipe that checks the fork against tag plus patch, and the refused env list.
+
+## Amendments
+
+- 2026-09-23: H1 D6 (the library-leverage review). Fork revision `a07b7bae` (branch
+  `lctx/1.3.1-r3`) adds `Answers::get_annotation(bindings, key)`, a borrow-only accessor composing
+  `key_to_idx_hashed_opt` and `get_idx`, so the `types` family reads a declared return
+  annotation directly instead of undoing Pyrefly's `async def` `Coroutine` wrapping; it removes
+  the `Defs` re-walk and the inversion from `types.rs`. The patch is 51 changed lines, within this
+  ADR's trigger. Earlier branches stay published.

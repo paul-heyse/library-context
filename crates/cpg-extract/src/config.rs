@@ -22,9 +22,9 @@ pub const TOOL: &str = "lctx-extract";
 /// The Pyrefly fork revision this crate is built against, and the digest of the patch it carries
 /// over tag 1.3.1 (docs/pins.md). `just deps` fails unless both equal the `Cargo.lock` revision
 /// and `third_party/pyrefly-1.3.1.patch` (review F4). Both feed `producer_id`.
-pub const PYREFLY_REV: &str = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978";
+pub const PYREFLY_REV: &str = "a07b7baead9e0c7b496346d879b88e2fff9cbda7";
 pub const PYREFLY_PATCH_SHA256: &str =
-    "5782fe3e4fe62790e9039783a8be0863c9293f98f0fd73146099189909db4358";
+    "fc18dc4a884a8593220370ba053968fd10de65c020ef257931f97b91426fdb73";
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).

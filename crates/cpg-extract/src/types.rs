@@ -31,7 +31,7 @@ use cpg_schema::tables::{
 use pyrefly::alt::answers::Solutions;
 use pyrefly::alt::types::class_metadata::DataclassKind;
 use pyrefly::binding::binding::ClassFieldDefinition;
-use pyrefly::binding::binding::{Key, KeyClassMetadata};
+use pyrefly::binding::binding::{Key, KeyAnnotation, KeyClassMetadata};
 use pyrefly::report::pysa::class::{
     ClassRef, get_all_classes, get_class_field_declaration, get_class_field_from_current_class_only,
 };
@@ -48,8 +48,6 @@ use pyrefly_types::typed_dict::TypedDict;
 use pyrefly_types::types::{
     AnyStyle, BoundMethodType, Forallable, NeverStyle, OverloadType, TArgs, Type,
 };
-use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
-use ruff_python_ast::{ModModule, Stmt};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
@@ -105,20 +103,6 @@ fn range(start: i64, end: i64) -> TextRange {
 
 fn span(r: TextRange) -> (i64, i64) {
     (i64::from(r.start().to_u32()), i64::from(r.end().to_u32()))
-}
-
-/// Each `def`'s name span → whether it annotates its return, and whether it is `async`.
-#[derive(Default)]
-struct Defs(HashMap<(i64, i64), (bool, bool)>);
-
-impl<'a> StatementVisitor<'a> for Defs {
-    fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        if let Stmt::FunctionDef(f) = stmt {
-            self.0
-                .insert(span(f.name.range()), (f.returns.is_some(), f.is_async));
-        }
-        walk_stmt(self, stmt);
-    }
 }
 
 /// One term under construction: its payload and its children.
@@ -798,14 +782,11 @@ impl Builder<'_, '_> {
 /// The `types` family for one module; returns what the walker's nodes could not carry.
 pub(crate) fn module_types(
     m: &ModuleTypes<'_>,
-    ast: &ModModule,
     sink: &mut FactSink,
     out: &mut TypesOut,
 ) -> Vec<Miss> {
     let mut misses = Vec::new();
     let ctx = &m.context.answers_context;
-    let mut defs = Defs::default();
-    defs.visit_body(&ast.body);
     let decls: HashMap<(i64, i64), Id> = m
         .walk
         .declarations
@@ -858,32 +839,26 @@ pub(crate) fn module_types(
                 }),
             }
         }
-        let idx = ctx
-            .bindings
-            .key_to_idx(&Key::ReturnType(f.undecorated.identifier));
-        if let Some(ret) = ctx.answers.get_type_at(idx) {
-            let (annotated, is_async) = defs.0.get(&name).copied().unwrap_or((false, false));
-            // `Key::ReturnType` is the computed return: for an annotated `async def` that is not a
-            // generator Pyrefly wraps the annotation as `Coroutine[Any, Any, <annotation>]` with
-            // implicit `Any`s (`return_type_from_annotation`). The declared type is the annotation,
-            // so that one rule is inverted exactly (C4 review F2).
-            let declared_ty = match (annotated, is_async, &ret) {
-                (true, true, Type::ClassType(c))
-                    if c.has_qname("typing", "Coroutine")
-                        && matches!(
-                            c.targs().as_slice(),
-                            [
-                                Type::Any(AnyStyle::Implicit),
-                                Type::Any(AnyStyle::Implicit),
-                                _
-                            ]
-                        ) =>
-                {
-                    c.targs().as_slice()[2].clone()
+        // A declared return is the annotation itself, read from Pyrefly's own annotation key
+        // (H1 D6), not the computed return with Pyrefly's `async def` `Coroutine` wrapping undone;
+        // an unannotated return is the computed one.
+        let annotated = ctx
+            .answers
+            .get_annotation(
+                &ctx.bindings,
+                &KeyAnnotation::ReturnAnnotation(f.undecorated.identifier),
+            )
+            .and_then(|a| a.ty.clone());
+        match annotated {
+            Some(ty) => b.observe(function, TypeRole::Return, true, &ty),
+            None => {
+                let idx = ctx
+                    .bindings
+                    .key_to_idx(&Key::ReturnType(f.undecorated.identifier));
+                if let Some(ret) = ctx.answers.get_type_at(idx) {
+                    b.observe(function, TypeRole::Return, false, &ret);
                 }
-                _ => ret,
-            };
-            b.observe(function, TypeRole::Return, annotated, &declared_ty);
+            }
         }
     }
 
