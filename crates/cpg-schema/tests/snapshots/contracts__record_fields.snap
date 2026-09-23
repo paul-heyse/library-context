@@ -1,0 +1,29 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table record_fields
+family types
+key snapshot_id, class_node_id, ordinal, fact_id
+check ordinal_nonnegative: ordinal >= 0
+check span_order: start_byte IS NULL OR (start_byte >= 0 AND end_byte >= start_byte)
+@lctx.family=types
+@lctx.table=record_fields
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+class_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+record_kind: Int16 NOT NULL [lctx.codebook=record_kind]
+name: Utf8 NOT NULL
+ordinal: Int64 NOT NULL
+term_node_id: FixedSizeBinary(16) NOT NULL
+declared: Boolean NOT NULL
+start_byte: Int64 NULL
+end_byte: Int64 NULL
+has_default: Boolean NULL
+init: Boolean NULL
+alias: Utf8 NULL
+kw_only: Boolean NULL
+required: Boolean NULL
+read_only: Boolean NULL

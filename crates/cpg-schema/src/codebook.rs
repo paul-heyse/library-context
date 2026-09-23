@@ -209,6 +209,8 @@ codebook!(
         Syntax = 7 => "syntax",
         /// C3: scopes, bindings, references and their resolution (DESIGN §3.2).
         Lexical = 8 => "lexical",
+        /// C4: type terms, their structure, type observations and record fields (DESIGN §3.2).
+        Types = 9 => "types",
     }
 );
 
@@ -355,6 +357,11 @@ codebook!(
         Scope = 11 => "scope",
         Binding = 12 => "binding",
         Reference = 13 => "reference",
+        // C4
+        /// A distinct type term (`type_terms`).
+        Type = 14 => "type",
+        /// A record field of a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple`.
+        Field = 15 => "field",
     }
 );
 
@@ -389,6 +396,12 @@ codebook!(
         Shadows = 23 => "shadows",
         PotentialTarget = 24 => "potential_target",
         ImportsModule = 25 => "imports_module",
+        // C4
+        HasType = 26 => "has_type",
+        TypeArg = 27 => "type_arg",
+        TypeClass = 28 => "type_class",
+        HasField = 29 => "has_field",
+        FieldType = 30 => "field_type",
     }
 );
 
@@ -606,6 +619,110 @@ codebook!(
     }
 );
 
+codebook!(
+    /// What a type term is (C4): Pyrefly's `Type` variants, mapped by an exhaustive match.
+    TypeTermKind = "type_term_kind" {
+        /// An instance of a class, with its type arguments (`list[int]`).
+        ClassInstance = 0 => "class_instance",
+        /// A class itself, as a value (the name `list` in an expression).
+        ClassObject = 1 => "class_object",
+        /// `type[X]`.
+        TypeOf = 2 => "type_of",
+        /// A `TypedDict` instance (`detail` = `partial` for its update form).
+        TypedDict = 3 => "typed_dict",
+        Union = 4 => "union",
+        Intersection = 5 => "intersection",
+        /// A callable signature; a `def`'s type has its name as `detail`.
+        Callable = 6 => "callable",
+        Overload = 7 => "overload",
+        BoundMethod = 8 => "bound_method",
+        /// A generic callable or alias with its own type parameters (Pyrefly's `Forall`).
+        Generic = 9 => "generic",
+        Tuple = 10 => "tuple",
+        Literal = 11 => "literal",
+        TypeVar = 12 => "type_var",
+        ParamSpec = 13 => "param_spec",
+        TypeVarTuple = 14 => "type_var_tuple",
+        Module = 15 => "module",
+        /// `detail`: `explicit` (written), `implicit` (nothing written) or `error`.
+        Any = 16 => "any",
+        Never = 17 => "never",
+        None = 18 => "none",
+        TypeAlias = 19 => "type_alias",
+        SelfType = 20 => "self_type",
+        Annotated = 21 => "annotated",
+        Unpack = 22 => "unpack",
+        /// `TypeGuard[X]` or `TypeIs[X]` (`detail`).
+        TypeGuard = 23 => "type_guard",
+        /// A parameter list standing alone (a `ParamSpec`'s value, `Concatenate[...]`).
+        ParamList = 24 => "param_list",
+        /// A special form, or a type-variable declaration used as a value.
+        SpecialForm = 25 => "special_form",
+        /// A variant outside the stated model (solver-internal or experimental): display only.
+        Other = 26 => "other",
+        /// Cut at the depth cap: display only, no children.
+        Truncated = 27 => "truncated",
+    }
+);
+
+codebook!(
+    /// A child's position in its parent type term (C4, `type_term_args`).
+    TypeArgRole = "type_arg_role" {
+        /// A class, `TypedDict` or alias type argument.
+        Argument = 0 => "argument",
+        /// A union or intersection member.
+        Member = 1 => "member",
+        /// A callable parameter (name, kind and requiredness on the row).
+        Parameter = 2 => "parameter",
+        Return = 3 => "return",
+        /// A tuple element at a fixed position.
+        Element = 4 => "element",
+        /// The repeated element of `tuple[X, ...]`, or the unpacked middle of a tuple.
+        Variadic = 5 => "variadic",
+        /// One signature of an overload.
+        Signature = 6 => "signature",
+        /// The object a method is bound to.
+        Receiver = 7 => "receiver",
+        /// The function a method binds.
+        Function = 8 => "function",
+        /// A type parameter a generic term binds.
+        TypeParameter = 9 => "type_parameter",
+        /// The inner type of a wrapper (`type[X]`, `Annotated`, `Unpack`, a guard, an alias's value,
+        /// a generic's body).
+        Target = 10 => "target",
+        /// The `ParamSpec` standing for a callable's remaining parameters.
+        ParamSpec = 11 => "param_spec",
+    }
+);
+
+codebook!(
+    /// What a type observation types (C4, `type_observations`; DESIGN §3.5.1): the role follows
+    /// from the subject.
+    TypeRole = "type_role" {
+        /// A parameter's type.
+        Parameter = 0 => "parameter",
+        /// A function's return type.
+        Return = 1 => "return",
+        /// The value a call site evaluates to.
+        CallResult = 2 => "call_result",
+        /// The value passed as an argument.
+        Argument = 3 => "argument",
+        /// The exception a `raise` statement raises.
+        Raised = 4 => "raised",
+    }
+);
+
+codebook!(
+    /// Which record model a class's fields come from (C4, `record_fields`).
+    RecordKind = "record_kind" {
+        Dataclass = 0 => "dataclass",
+        Attrs = 1 => "attrs",
+        Pydantic = 2 => "pydantic",
+        TypedDict = 3 => "typed_dict",
+        NamedTuple = 4 => "named_tuple",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -643,6 +760,10 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<LexicalScopeKind>(),
         CodebookEntry::of::<BindingKind>(),
         CodebookEntry::of::<StaticBranch>(),
+        CodebookEntry::of::<TypeTermKind>(),
+        CodebookEntry::of::<TypeArgRole>(),
+        CodebookEntry::of::<TypeRole>(),
+        CodebookEntry::of::<RecordKind>(),
     ]
 }
 

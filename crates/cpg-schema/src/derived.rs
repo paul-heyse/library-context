@@ -704,6 +704,46 @@ impl Derived for AncestryTargets {
 }
 
 table!(
+    /// Each type term's class resolved to a node (C4, DESIGN §3.8): a class of the release (Stage
+    /// C for classes) or a dependency definition. An unresolved class carries a reason: Stage C's,
+    /// or `missing_evidence` when no definition has the key.
+    TypeClassTargets, TypeClassTargetsRow = "type_class_targets",
+    family = Types,
+    key = [snapshot_id, term_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        term_node_id: Id,
+        term_fact_id: Id,
+        class_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for TypeClassTargets {
+    fn sql() -> String {
+        format!(
+            "WITH external_classes AS ({external}) \
+             SELECT t.node_id AS term_node_id, t.fact_id AS term_fact_id, \
+                    COALESCE(m.node_id, e.symbol_node_id) AS class_node_id, \
+                    CAST(CASE WHEN COALESCE(m.node_id, e.symbol_node_id) IS NOT NULL THEN NULL \
+                              WHEN m.class_key IS NOT NULL THEN m.reason \
+                              ELSE {missing} END AS SMALLINT) AS reason \
+             FROM type_terms t \
+             LEFT JOIN source_files f ON t.class_module = '@' || f.path \
+             LEFT JOIN provider_class_map m \
+               ON m.module_node_id = f.module_node_id AND m.class_key = t.class_key \
+             LEFT JOIN external_classes e \
+               ON f.module_node_id IS NULL AND e.module_name = t.class_module \
+              AND e.key = t.class_key \
+             WHERE t.class_module IS NOT NULL",
+            external = external(DefinitionKind::Class),
+            missing = c(BoundaryReason::MissingEvidence),
+        )
+    }
+}
+
+table!(
     /// Each method Pysa says overrides a base method, resolved to nodes (DESIGN §3.8): the method
     /// and the overridden method (of the release, synthetic, or a dependency definition). An end
     /// that does not resolve carries a reason.
@@ -933,6 +973,7 @@ macro_rules! for_each_derived_table {
             $crate::derived::SiteTargets,
             $crate::derived::IdentifierTargets,
             $crate::derived::ImportTargets,
+            $crate::derived::TypeClassTargets,
             $crate::graph::Nodes,
             $crate::graph::Edges,
             $crate::graph::GraphGaps,

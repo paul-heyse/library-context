@@ -15,6 +15,7 @@ pyrefly.workspace = true
 pyrefly_build.workspace = true
 pyrefly_config.workspace = true
 pyrefly_python.workspace = true
+pyrefly_types.workspace = true
 pyrefly_util.workspace = true
 ruff_python_ast.workspace = true
 ruff_source_file.workspace = true

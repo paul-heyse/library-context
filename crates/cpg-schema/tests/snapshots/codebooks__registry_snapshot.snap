@@ -100,6 +100,7 @@ fact_family
   6 graph
   7 syntax
   8 lexical
+  9 types
 scope_kind
   0 release
   1 module
@@ -177,6 +178,8 @@ node_kind
   11 scope
   12 binding
   13 reference
+  14 type
+  15 field
 edge_kind
   0 declares
   1 overload_of
@@ -204,6 +207,11 @@ edge_kind
   23 shadows
   24 potential_target
   25 imports_module
+  26 has_type
+  27 type_arg
+  28 type_class
+  29 has_field
+  30 field_type
 symbol_kind
   0 module
   1 attribute
@@ -373,3 +381,57 @@ static_branch
   0 type_checking
   1 version_info
   2 platform
+type_term_kind
+  0 class_instance
+  1 class_object
+  2 type_of
+  3 typed_dict
+  4 union
+  5 intersection
+  6 callable
+  7 overload
+  8 bound_method
+  9 generic
+  10 tuple
+  11 literal
+  12 type_var
+  13 param_spec
+  14 type_var_tuple
+  15 module
+  16 any
+  17 never
+  18 none
+  19 type_alias
+  20 self_type
+  21 annotated
+  22 unpack
+  23 type_guard
+  24 param_list
+  25 special_form
+  26 other
+  27 truncated
+type_arg_role
+  0 argument
+  1 member
+  2 parameter
+  3 return
+  4 element
+  5 variadic
+  6 signature
+  7 receiver
+  8 function
+  9 type_parameter
+  10 target
+  11 param_spec
+type_role
+  0 parameter
+  1 return
+  2 call_result
+  3 argument
+  4 raised
+record_kind
+  0 dataclass
+  1 attrs
+  2 pydantic
+  3 typed_dict
+  4 named_tuple

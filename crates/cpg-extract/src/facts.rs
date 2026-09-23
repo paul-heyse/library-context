@@ -17,6 +17,8 @@ pub(crate) enum Surface {
     Compare,
     /// Our lexical recognizer (C3).
     Lexical,
+    /// Pyrefly's native types (C4).
+    PyreflyTypes,
 }
 
 impl Surface {
@@ -28,6 +30,7 @@ impl Surface {
             Surface::Source => "source",
             Surface::Compare => "compare",
             Surface::Lexical => "lctx-lexical",
+            Surface::PyreflyTypes => "pyrefly-types",
         }
     }
 }

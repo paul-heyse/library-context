@@ -1,20 +1,34 @@
-From b9f28575ce2baa93dbc416670a34592501b3fcd4 Mon Sep 17 00:00:00 2001
+From 6a93da3460f9279ba32ff4ebec07e1cbdf2eb978 Mon Sep 17 00:00:00 2001
 From: paul-heyse <paul@heyse.io>
 Date: Tue, 22 Sep 2026 16:19:52 -0400
-Subject: [PATCH] lctx: expose Pysa collectors and public-name helpers;
- optional report writes
+Subject: [PATCH] lctx: expose Pysa collectors, public-name helpers, dataclass
+ field flags and wildcard sets; optional report writes
 
 ---
+ pyrefly/lib/alt/class/class_field.rs     |  2 +-
  pyrefly/lib/commands/coverage.rs         |  2 +-
  pyrefly/lib/commands/coverage/collect.rs | 10 +++++-----
  pyrefly/lib/lib.rs                       |  4 ++--
  pyrefly/lib/report/pysa.rs               |  6 ++++++
  pyrefly/lib/report/pysa/call_graph.rs    |  4 ++--
- pyrefly/lib/state/state.rs               |  7 ++++++-
- 6 files changed, 22 insertions(+), 11 deletions(-)
+ pyrefly/lib/state/state.rs               | 14 +++++++++++++-
+ 7 files changed, 30 insertions(+), 12 deletions(-)
 
+diff --git a/pyrefly/lib/alt/class/class_field.rs b/pyrefly/lib/alt/class/class_field.rs
+index b7156ca95..eb1b2e4c0 100644
+--- a/pyrefly/lib/alt/class/class_field.rs
++++ b/pyrefly/lib/alt/class/class_field.rs
+@@ -1188,7 +1188,7 @@ impl ClassField {
+         }
+     }
+ 
+-    fn dataclass_flags_of(&self, heap: &TypeHeap) -> DataclassFieldKeywords {
++    pub fn dataclass_flags_of(&self, heap: &TypeHeap) -> DataclassFieldKeywords {
+         match &self.0 {
+             ClassFieldInner::Property { .. } => DataclassFieldKeywords::new(),
+             ClassFieldInner::Descriptor { descriptor, .. } => match &descriptor.initialization {
 diff --git a/pyrefly/lib/commands/coverage.rs b/pyrefly/lib/commands/coverage.rs
-index 8bbc3b4..bd324f8 100644
+index 8bbc3b42c..bd324f8af 100644
 --- a/pyrefly/lib/commands/coverage.rs
 +++ b/pyrefly/lib/commands/coverage.rs
 @@ -6,7 +6,7 @@
@@ -27,7 +41,7 @@ index 8bbc3b4..bd324f8 100644
  mod types;
  
 diff --git a/pyrefly/lib/commands/coverage/collect.rs b/pyrefly/lib/commands/coverage/collect.rs
-index 8cfd256..dfba96d 100644
+index 8cfd25689..dfba96d26 100644
 --- a/pyrefly/lib/commands/coverage/collect.rs
 +++ b/pyrefly/lib/commands/coverage/collect.rs
 @@ -249,12 +249,12 @@ fn classify_annotation(
@@ -73,7 +87,7 @@ index 8cfd256..dfba96d 100644
      transaction: &Transaction,
  ) -> (HashSet<String>, SmallSet<Handle>) {
 diff --git a/pyrefly/lib/lib.rs b/pyrefly/lib/lib.rs
-index d744d3f..2b6dfe1 100644
+index d744d3f58..2b6dfe11a 100644
 --- a/pyrefly/lib/lib.rs
 +++ b/pyrefly/lib/lib.rs
 @@ -32,14 +32,14 @@ pub mod binding;
@@ -94,7 +108,7 @@ index d744d3f..2b6dfe1 100644
  // code references types via `crate::pysa_report_capnp::...`.
  #[allow(clippy::all)]
 diff --git a/pyrefly/lib/report/pysa.rs b/pyrefly/lib/report/pysa.rs
-index 7cbd586..8018d01 100644
+index 7cbd586ff..8018d0173 100644
 --- a/pyrefly/lib/report/pysa.rs
 +++ b/pyrefly/lib/report/pysa.rs
 @@ -220,6 +220,8 @@ pub struct PysaReporter {
@@ -125,7 +139,7 @@ index 7cbd586..8018d01 100644
              ModulePathDetails::Namespace(_) => None,
              _ => Some(PathBuf::from(format!(
 diff --git a/pyrefly/lib/report/pysa/call_graph.rs b/pyrefly/lib/report/pysa/call_graph.rs
-index 2e1bb85..b26933c 100644
+index 2e1bb8561..b26933cb1 100644
 --- a/pyrefly/lib/report/pysa/call_graph.rs
 +++ b/pyrefly/lib/report/pysa/call_graph.rs
 @@ -169,8 +169,8 @@ impl std::fmt::Display for OriginKind {
@@ -140,7 +154,7 @@ index 2e1bb85..b26933c 100644
  
  #[derive(Debug, PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
 diff --git a/pyrefly/lib/state/state.rs b/pyrefly/lib/state/state.rs
-index 33b6b87..324935c 100644
+index 33b6b8765..466ca8372 100644
 --- a/pyrefly/lib/state/state.rs
 +++ b/pyrefly/lib/state/state.rs
 @@ -851,6 +851,11 @@ impl<'a> Transaction<'a> {
@@ -155,15 +169,24 @@ index 33b6b87..324935c 100644
      /// Set the cinderx reporter for inline extraction during type checking.
      pub fn set_cinderx_reporter(
          &mut self,
-@@ -2651,7 +2656,7 @@ impl<'a> Transaction<'a> {
+@@ -2651,9 +2656,16 @@ impl<'a> Transaction<'a> {
          builtin_module_for_name(&self.lookup(module_data), handle.module(), name)
      }
  
 -    pub(crate) fn get_exports_data(&self, handle: &Handle) -> Arc<Exports> {
 +    pub fn get_exports_data(&self, handle: &Handle) -> Arc<Exports> {
++        let module_data = self.get_module(handle);
++        self.lookup_export(module_data)
++    }
++
++    /// The names `from <module> import *` binds.
++    pub fn get_wildcard(&self, handle: &Handle) -> Arc<SmallSet<Name>> {
          let module_data = self.get_module(handle);
          self.lookup_export(module_data)
++            .wildcard(&self.lookup(module_data))
      }
+ 
+     pub fn get_module_docstring_range(&self, handle: &Handle) -> Option<TextRange> {
 -- 
 2.43.0
 

@@ -1,5 +1,6 @@
-//! CPG slice C2 (DESIGN §3.2 `syntax`): the placed syntax tree on the `syntax_shapes` fixture, and
-//! Pysa's non-call sites resolved to its nodes.
+//! CPG slices C2–C4 (DESIGN §3.2): the placed syntax tree on the `syntax_shapes` fixture and
+//! Pysa's non-call sites resolved to its nodes; name resolution on `lexical_shapes`; type terms,
+//! observations and record fields on `type_shapes`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -257,4 +258,124 @@ async fn names_resolve_under_python_scoping() {
         }
     }
     insta::assert_snapshot!(out);
+}
+
+/// Text of each row's columns, joined by ` | ` (nulls as `-`).
+async fn lines(ctx: &SessionContext, statement: &str) -> String {
+    let mut out = String::new();
+    for b in batches(ctx, statement).await {
+        let cols: Vec<StringArray> = (0..b.num_columns())
+            .map(|c| {
+                let a = arrow_cast::cast(b.column(c), &arrow_schema::DataType::Utf8).unwrap();
+                a.as_any().downcast_ref::<StringArray>().unwrap().clone()
+            })
+            .collect();
+        for i in 0..b.num_rows() {
+            let row: Vec<&str> = cols
+                .iter()
+                .map(|c| if c.is_null(i) { "-" } else { c.value(i) })
+                .collect();
+            out.push_str(&row.join(" | "));
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// C4 (DESIGN §3.2 `types`, §3.5.1): what each element's type is, the terms' structure and
+/// binders, the classes they name, and the record fields, on the `type_shapes` fixture.
+#[tokio::test]
+async fn types_keep_structure_binders_and_record_fields() {
+    let (ctx, _dir) = published_fixture("type_shapes").await;
+    let role = "CASE o.role WHEN 0 THEN 'parameter' WHEN 1 THEN 'return' \
+                WHEN 2 THEN 'call_result' WHEN 3 THEN 'argument' ELSE 'raised' END";
+    let mut out = String::from("## observations: subject | role | declared | type\n");
+    out += &lines(
+        &ctx,
+        &format!(
+            "SELECT COALESCE(pd.qualified_name || '.' || p.name, d.qualified_name || '()', \
+                             'call@' || CAST(c.start_byte AS VARCHAR), \
+                             'arg@' || CAST(a.start_byte AS VARCHAR), \
+                             'raise@' || CAST(r.start_byte AS VARCHAR)) AS subject, \
+                    {role} AS role, CAST(o.declared AS VARCHAR), t.display \
+             FROM type_observations o JOIN type_terms t ON t.node_id = o.term_node_id \
+             LEFT JOIN parameter_syntax p ON p.node_id = o.subject_node_id \
+             LEFT JOIN declarations pd ON pd.node_id = p.function_node_id \
+             LEFT JOIN declarations d ON d.node_id = o.subject_node_id \
+             LEFT JOIN call_syntax c ON c.node_id = o.subject_node_id \
+             LEFT JOIN arguments a ON a.node_id = o.subject_node_id \
+             LEFT JOIN syntax_nodes r ON r.node_id = o.subject_node_id \
+             ORDER BY subject, role"
+        ),
+    )
+    .await;
+    out += "## type variables: display | kind | variable | binder\n";
+    out += &lines(
+        &ctx,
+        "SELECT t.display, CAST(t.kind AS VARCHAR), t.variable, d.qualified_name \
+         FROM type_terms t LEFT JOIN declarations d ON d.node_id = t.binder_node_id \
+         WHERE t.variable IS NOT NULL ORDER BY t.variable, t.display",
+    )
+    .await;
+    out += "## classes: term | class\n";
+    out += &lines(
+        &ctx,
+        &format!(
+            "SELECT t.display, COALESCE(d.qualified_name, m.module_name || '#' || x.key) \
+             FROM edges e JOIN type_terms t ON t.node_id = e.src_node_id \
+             LEFT JOIN declarations d ON d.node_id = e.dst_node_id \
+             LEFT JOIN context_definitions x ON x.symbol_node_id = e.dst_node_id \
+             LEFT JOIN context_modules m ON m.module_node_id = x.module_node_id \
+             WHERE e.edge_kind = {} ORDER BY t.display",
+            EdgeKind::TypeClass.code()
+        ),
+    )
+    .await;
+    out += "## record fields: class | kind | # | name | type | declared | default | init | alias \
+            | kw_only | required | read_only\n";
+    out += &lines(
+        &ctx,
+        "SELECT d.qualified_name, CAST(f.record_kind AS VARCHAR) AS kind, CAST(f.ordinal AS VARCHAR) AS ord, \
+                f.name, t.display, CAST(f.declared AS VARCHAR), CAST(f.has_default AS VARCHAR), \
+                CAST(f.init AS VARCHAR), f.alias, CAST(f.kw_only AS VARCHAR), \
+                CAST(f.required AS VARCHAR), CAST(f.read_only AS VARCHAR) \
+         FROM record_fields f JOIN declarations d ON d.node_id = f.class_node_id \
+         JOIN type_terms t ON t.node_id = f.term_node_id \
+         ORDER BY d.qualified_name, f.ordinal",
+    )
+    .await;
+    // The recursive alias is one finite term, and nothing was cut at the depth cap.
+    out += "## structure of `leaves`'s parameter type: parent | role | # | child\n";
+    out += &lines(
+        &ctx,
+        "WITH RECURSIVE s(node_id, depth) AS ( \
+           SELECT o.term_node_id, 0 FROM type_observations o \
+           JOIN parameter_syntax p ON p.node_id = o.subject_node_id \
+           JOIN declarations d ON d.node_id = p.function_node_id \
+           WHERE d.qualified_name = 'ts.leaves' \
+           UNION ALL SELECT a.child_node_id, s.depth + 1 FROM type_term_args a \
+           JOIN s ON s.node_id = a.parent_node_id WHERE s.depth < 10) \
+         SELECT DISTINCT pt.display, CAST(a.role AS VARCHAR), CAST(a.ordinal AS VARCHAR), \
+                ct.display \
+         FROM s JOIN type_term_args a ON a.parent_node_id = s.node_id \
+         JOIN type_terms pt ON pt.node_id = a.parent_node_id \
+         JOIN type_terms ct ON ct.node_id = a.child_node_id ORDER BY 1, 2, 3",
+    )
+    .await;
+    insta::assert_snapshot!(out);
+
+    // Two unrelated `T`s are two terms with two binders.
+    let ts = lines(
+        &ctx,
+        "SELECT DISTINCT d.qualified_name FROM type_observations o \
+         JOIN type_terms t ON t.node_id = o.term_node_id \
+         JOIN declarations d ON d.node_id = t.binder_node_id \
+         JOIN declarations f ON f.node_id = o.subject_node_id \
+         WHERE o.role = 1 AND t.display = 'T' AND f.qualified_name IN ('ts.first', 'ts.ident') \
+         ORDER BY 1",
+    )
+    .await;
+    assert_eq!(ts, "ts.first\nts.ident\n");
+    let truncated = lines(&ctx, "SELECT count(*) FROM type_terms WHERE kind = 27").await;
+    assert_eq!(truncated, "0\n");
 }

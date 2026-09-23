@@ -228,6 +228,10 @@ mod tests {
                     module.hex()
                 ),
             ),
+            (
+                recipe::field(call, "retries"),
+                format!("SELECT lctx_id('field', X'{}', 'retries')", call.hex()),
+            ),
         ];
         for (rust, sql) in cases {
             assert_eq!(eval(&sql).await.unwrap(), [rust], "{sql}");
@@ -237,7 +241,8 @@ mod tests {
             [
                 recipe::argument(call, 2),
                 module,
-                recipe::external_symbol(module, 1, "7")
+                recipe::external_symbol(module, 1, "7"),
+                recipe::field(call, "retries")
             ]
             .iter()
             .map(Id::hex)

@@ -46,6 +46,8 @@ pub(crate) struct WalkOut {
     pub lexical: LexicalOut,
     /// Ranges of module-level `__all__` statements that are not literal (F3 detector input).
     pub nonliteral_dunder_all: Vec<TextRange>,
+    /// Each argument's node, its call, and its value expression's range (C4 types the value).
+    pub argument_values: Vec<(Id, Id, TextRange)>,
 }
 
 fn ruff() -> Provenance {
@@ -500,12 +502,24 @@ impl Walker<'_, '_> {
         );
         self.out.call_syntax.push(row);
         for (ordinal, arg) in c.arguments.iter_source_order().enumerate() {
-            let (akind, keyword, range) = match arg {
-                ArgOrKeyword::Arg(Expr::Starred(s)) => (ArgumentKind::Starred, None, s.range()),
-                ArgOrKeyword::Arg(e) => (ArgumentKind::Positional, None, e.range()),
+            let (akind, keyword, range, value) = match arg {
+                ArgOrKeyword::Arg(Expr::Starred(s)) => {
+                    (ArgumentKind::Starred, None, s.range(), s.value.range())
+                }
+                ArgOrKeyword::Arg(e) => (ArgumentKind::Positional, None, e.range(), e.range()),
                 ArgOrKeyword::Keyword(k) => match &k.arg {
-                    Some(name) => (ArgumentKind::Keyword, Some(name.to_string()), k.range()),
-                    None => (ArgumentKind::DoubleStarred, None, k.range()),
+                    Some(name) => (
+                        ArgumentKind::Keyword,
+                        Some(name.to_string()),
+                        k.range(),
+                        k.value.range(),
+                    ),
+                    None => (
+                        ArgumentKind::DoubleStarred,
+                        None,
+                        k.range(),
+                        k.value.range(),
+                    ),
                 },
             };
             let (start, end) = span(range);
@@ -527,6 +541,7 @@ impl Walker<'_, '_> {
                     end_byte: end,
                 }
             );
+            self.out.argument_values.push((row.node_id, node_id, value));
             self.out.arguments.push(row);
         }
         node_id

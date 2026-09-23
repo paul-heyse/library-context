@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table type_terms
+family types
+key snapshot_id, node_id, fact_id
+@lctx.family=types
+@lctx.table=type_terms
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=type_term_kind]
+display: Utf8 NOT NULL
+detail: Utf8 NULL
+class_module: Utf8 NULL
+class_key: Utf8 NULL
+variable: Utf8 NULL
+binder_node_id: FixedSizeBinary(16) NULL

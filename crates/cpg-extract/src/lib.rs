@@ -13,6 +13,7 @@ pub mod library;
 mod public;
 mod pysa_map;
 mod syntax;
+mod types;
 mod walk;
 
 use std::collections::{BTreeMap, HashMap};
@@ -32,9 +33,9 @@ use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, ContextDefinitions,
     ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
     DistributionsRow, ExportSyntax, Facts, ParameterSemantics, ParameterSyntax, Producers,
-    ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, ReferenceResolutions,
-    References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow,
-    SyntaxNodes,
+    ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields,
+    ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles,
+    SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
 };
 use pyrefly::export::exports::ExportLocation;
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
@@ -65,12 +66,13 @@ use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
 use walk::{ModuleCtx, span};
 
 /// The fact families this producer declares (coverage rows exist for each, per module).
-pub const FAMILIES: [FactFamily; 5] = [
+pub const FAMILIES: [FactFamily; 6] = [
     FactFamily::Exports,
     FactFamily::Signatures,
     FactFamily::Calls,
     FactFamily::Syntax,
     FactFamily::Lexical,
+    FactFamily::Types,
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -301,7 +303,9 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .unwrap_or_default();
     let mut builtins_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut lexical_out = lexical::LexicalOut::default();
-    let (mut walk_time, mut pysa_time) = (Duration::ZERO, Duration::ZERO);
+    let (mut walk_time, mut pysa_time, mut types_time) =
+        (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+    let mut types_out = types::TypesOut::default();
     let txn = txn;
     // The reporter stays installed: dependency modules solve lazily during extraction.
     let module_ids = &txn
@@ -428,6 +432,22 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         lexical_out.references.extend(lex.references);
         lexical_out.resolutions.extend(lex.resolutions);
         walk_time += clock.elapsed();
+        let clock = Instant::now();
+        let solutions = txn.get_solutions(&m.handle);
+        let type_misses = types::module_types(
+            &types::ModuleTypes {
+                context: &context,
+                solutions: solutions.as_deref(),
+                refs: &refs,
+                module_name: &m.name,
+                module_node_id: m.node_id,
+                walk: &module_walk,
+            },
+            &ast,
+            &mut sink,
+            &mut types_out,
+        );
+        types_time += clock.elapsed();
         if input.keep_pysa_json {
             let mut d = serde_json::to_value(&defs).unwrap_or(Value::Null);
             let mut g = serde_json::to_value(&graphs).unwrap_or(Value::Null);
@@ -468,6 +488,18 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
                     Some(e.msg_header().to_owned()),
                 );
             }
+        }
+        for miss in type_misses {
+            partial.entry(FactFamily::Types).or_insert(miss.reason);
+            report.boundary(
+                &mut sink,
+                m.node_id,
+                None,
+                FactFamily::Types,
+                miss.reason,
+                Some(miss.span),
+                Some(miss.detail),
+            );
         }
         for call in &module_walk.call_syntax {
             if module_pysa
@@ -556,6 +588,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     stages.mark("extract: per-module extraction");
     stages.push("extract:   of which the ruff walk", walk_time);
     stages.push("extract:   of which the pysa collectors", pysa_time);
+    stages.push("extract:   of which the types", types_time);
     let readable: Vec<Handle> = modules
         .iter()
         .filter(|m| std::str::from_utf8(&m.bytes).is_ok())
@@ -640,6 +673,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     dedup_by_fact(&mut lexical_out.bindings, |r| r.fact_id);
     dedup_by_fact(&mut lexical_out.references, |r| r.fact_id);
     dedup_by_fact(&mut lexical_out.resolutions, |r| r.fact_id);
+    dedup_by_fact(&mut types_out.terms, |r| r.fact_id);
+    dedup_by_fact(&mut types_out.args, |r| r.fact_id);
+    dedup_by_fact(&mut types_out.observations, |r| r.fact_id);
+    dedup_by_fact(&mut types_out.fields, |r| r.fact_id);
     dedup_by_fact(&mut pysa.functions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.parameters, |r| r.fact_id);
     dedup_by_fact(&mut pysa.ancestry, |r| r.fact_id);
@@ -724,6 +761,22 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         (
             ReferenceResolutions::NAME,
             ReferenceResolutions::to_sorted_batch(&lexical_out.resolutions)?,
+        ),
+        (
+            TypeTerms::NAME,
+            TypeTerms::to_sorted_batch(&types_out.terms)?,
+        ),
+        (
+            TypeTermArgs::NAME,
+            TypeTermArgs::to_sorted_batch(&types_out.args)?,
+        ),
+        (
+            TypeObservations::NAME,
+            TypeObservations::to_sorted_batch(&types_out.observations)?,
+        ),
+        (
+            RecordFields::NAME,
+            RecordFields::to_sorted_batch(&types_out.fields)?,
         ),
         (PysaCalls::NAME, PysaCalls::to_sorted_batch(&pysa.calls)?),
         (Coverage::NAME, Coverage::to_sorted_batch(&report.coverage)?),

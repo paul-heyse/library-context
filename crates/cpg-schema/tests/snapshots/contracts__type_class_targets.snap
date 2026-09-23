@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table type_class_targets
+family types
+key snapshot_id, term_node_id
+@lctx.family=types
+@lctx.table=type_class_targets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+term_node_id: FixedSizeBinary(16) NOT NULL
+term_fact_id: FixedSizeBinary(16) NOT NULL
+class_node_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

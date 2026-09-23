@@ -1,7 +1,8 @@
 ---
 source: crates/cpg-core/src/udf.rs
-expression: "[recipe::argument(call, 2), module,\nrecipe::external_symbol(module, 1,\n\"7\")].iter().map(Id::hex).collect::<Vec<_>>().join(\"\\n\")"
+expression: "[recipe::argument(call, 2), module, recipe::external_symbol(module, 1, \"7\"),\nrecipe::field(call,\n\"retries\")].iter().map(Id::hex).collect::<Vec<_>>().join(\"\\n\")"
 ---
 9d135736c520a31cc3bc75eb50b23cac
 eaa23d6b9ce24e2d42d1a5afbcfefbb6
 f487c2e743ffa6623f1dea4d1c0b35d9
+e4fc66d8ade1d7a34421a1b5fc617341

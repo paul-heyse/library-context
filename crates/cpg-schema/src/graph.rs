@@ -201,6 +201,18 @@ pub fn node_sources() -> Vec<NodeSource> {
             "SELECT node_id, module_node_id, fact_id AS existence_fact_id FROM references"
                 .to_owned(),
         ),
+        // C4: a term belongs to no module (one term serves every module that observes it).
+        n(
+            NodeKind::Type,
+            "SELECT node_id, CAST(NULL AS BYTEA) AS module_node_id, fact_id AS existence_fact_id \
+             FROM type_terms"
+                .to_owned(),
+        ),
+        n(
+            NodeKind::Field,
+            "SELECT node_id, module_node_id, fact_id AS existence_fact_id FROM record_fields"
+                .to_owned(),
+        ),
     ]
 }
 
@@ -840,6 +852,102 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                 ),
             }),
         },
+        // C4: the types family.
+        simple(
+            EdgeKind::HasType,
+            &[
+                N::Parameter,
+                N::Function,
+                N::CallSite,
+                N::Argument,
+                N::SyntaxNode,
+            ],
+            &[N::Type],
+            "the element has the type, in the role its observation states (§3.5.1)",
+            DerivationClass::Analyzer,
+            "type_observations",
+            "SELECT {} FROM type_observations o",
+            ("o.subject_node_id", "o.term_node_id", None, "o.fact_id"),
+            Some("SELECT fact_id FROM type_observations"),
+        ),
+        EdgeSource {
+            kind: EdgeKind::TypeArg,
+            src: &[N::Type],
+            dst: &[N::Type],
+            direction: "the child term is part of the parent term, at its role and ordinal",
+            // A callable returning the type of its first parameter joins one pair twice at
+            // ordinal 0, told apart by the role.
+            parallel: true,
+            derivation: DerivationClass::Analyzer,
+            evidence_table: "type_term_args",
+            sql: format!(
+                "SELECT {} FROM type_term_args a",
+                row(
+                    "a.parent_node_id",
+                    "a.child_node_id",
+                    Some("a.ordinal"),
+                    "a.fact_id",
+                    None,
+                    Some("lctx_id('type_arg_role', a.role)")
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: "SELECT fact_id FROM type_term_args".to_owned(),
+                explained: None,
+            }),
+        },
+        EdgeSource {
+            kind: EdgeKind::TypeClass,
+            src: &[N::Type],
+            dst: &[N::Class, N::ExternalSymbol],
+            direction: "the term is an instance, object or `TypedDict` of the class",
+            parallel: false,
+            derivation: DerivationClass::Analyzer,
+            evidence_table: "type_terms",
+            sql: format!(
+                "SELECT {} FROM type_class_targets t WHERE t.class_node_id IS NOT NULL",
+                row(
+                    "t.term_node_id",
+                    "t.class_node_id",
+                    None,
+                    "t.term_fact_id",
+                    None,
+                    None
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: "SELECT fact_id FROM type_terms WHERE class_module IS NOT NULL"
+                    .to_owned(),
+                explained: Some(
+                    "SELECT term_fact_id AS fact_id FROM type_class_targets WHERE reason IS NOT NULL"
+                        .to_owned(),
+                ),
+            }),
+        },
+        simple(
+            EdgeKind::HasField,
+            &[N::Class],
+            &[N::Field],
+            "the class declares the record field, at its ordinal in the record's field order",
+            DerivationClass::Analyzer,
+            "record_fields",
+            "SELECT {} FROM record_fields r",
+            ("r.class_node_id", "r.node_id", Some("r.ordinal"), "r.fact_id"),
+            Some("SELECT fact_id FROM record_fields"),
+        ),
+        simple(
+            EdgeKind::FieldType,
+            &[N::Field],
+            &[N::Type],
+            "the record field has the type",
+            DerivationClass::Analyzer,
+            "record_fields",
+            "SELECT {} FROM record_fields r",
+            ("r.node_id", "r.term_node_id", None, "r.fact_id"),
+            Some("SELECT fact_id FROM record_fields"),
+        ),
     ]
 }
 
@@ -1293,6 +1401,32 @@ pub fn node_columns() -> Vec<NodeColumn> {
             "target_node_id",
             &[N::Module, N::ExternalModule],
         ),
+        // C4
+        nc("type_terms", "binder_node_id", DECL),
+        nc("type_term_args", "parent_node_id", &[N::Type]),
+        nc("type_term_args", "child_node_id", &[N::Type]),
+        nc("type_observations", "module_node_id", MODULE),
+        nc(
+            "type_observations",
+            "subject_node_id",
+            &[
+                N::Parameter,
+                N::Function,
+                N::CallSite,
+                N::Argument,
+                N::SyntaxNode,
+            ],
+        ),
+        nc("type_observations", "term_node_id", &[N::Type]),
+        nc("record_fields", "class_node_id", &[N::Class]),
+        nc("record_fields", "module_node_id", MODULE),
+        nc("record_fields", "term_node_id", &[N::Type]),
+        nc("type_class_targets", "term_node_id", &[N::Type]),
+        nc(
+            "type_class_targets",
+            "class_node_id",
+            &[N::Class, N::ExternalSymbol],
+        ),
     ]
 }
 
@@ -1402,6 +1536,11 @@ pub fn rules() -> Vec<Rule> {
              WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('reference', name_node_id) AS BYTEA)",
         ),
         (
+            "id:record_fields",
+            "SELECT node_id FROM record_fields \
+             WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('field', class_node_id, name) AS BYTEA)",
+        ),
+        (
             "id:context_modules",
             "SELECT module_node_id FROM context_modules WHERE distribution IS NOT NULL \
                AND CAST(module_node_id AS BYTEA) \
@@ -1500,6 +1639,7 @@ pub fn rules() -> Vec<Rule> {
             "reference_resolutions",
             "binding_id IS NULL AND builtin_name IS NULL",
         ),
+        ("type_class_targets", "class_node_id IS NULL"),
     ] {
         out.push(rule(
             format!("typed:{table}"),

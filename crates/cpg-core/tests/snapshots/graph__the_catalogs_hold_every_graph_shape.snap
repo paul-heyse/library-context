@@ -20,6 +20,8 @@ expression: out
 | 11        | 38  |
 | 12        | 85  |
 | 13        | 50  |
+| 14        | 16  |
+| 15        | 2   |
 +-----------+-----+
 ## named edges
 +-----------+--------------------------+--------------------------+---------+
@@ -571,6 +573,48 @@ expression: out
 | 25        | shapes/ping.py           | shapes/pong.py           |         |
 | 25        | shapes/pong.py           | shapes/ping.py           |         |
 | 25        | shapes/typed.pyi         | typing                   |         |
+| 26        | shapes.core.apply_all    |                          |         |
+| 26        | shapes.core.bottom       |                          |         |
+| 26        | shapes.core.callee       |                          |         |
+| 26        | shapes.core.compat       |                          |         |
+| 26        | shapes.core.dispatch     |                          |         |
+| 26        | shapes.core.double       |                          |         |
+| 26        | shapes.core.fact         |                          |         |
+| 26        | shapes.core.left         |                          |         |
+| 26        | shapes.core.lonely       |                          |         |
+| 26        | shapes.core.make_point   |                          |         |
+| 26        | shapes.core.mode         |                          |         |
+| 26        | shapes.core.nested       |                          |         |
+| 26        | shapes.core.right        |                          |         |
+| 26        | shapes.core.top          |                          |         |
+| 26        | shapes.core.twice        |                          |         |
+| 26        | shapes.core.unresolved   |                          |         |
+| 26        | shapes.models.Base.run   |                          |         |
+| 26        | shapes.models.Child.run  |                          |         |
+| 26        | shapes.ping.ping         |                          |         |
+| 26        | shapes.pong.pong         |                          |         |
+| 26        | shapes.typed.overloaded  |                          |         |
+| 26        | shapes.typed.overloaded  |                          |         |
+| 26        | shapes.typed.overloaded  |                          |         |
+| 27        |                          |                          | 0       |
+| 27        |                          |                          | 0       |
+| 27        |                          |                          | 0       |
+| 27        |                          |                          | 0       |
+| 27        |                          |                          | 0       |
+| 27        |                          |                          | 0       |
+| 27        |                          |                          | 1       |
+| 27        |                          |                          | 1       |
+| 28        |                          | builtins:int             |         |
+| 28        |                          | builtins:list            |         |
+| 28        |                          | builtins:map             |         |
+| 28        |                          | builtins:str             |         |
+| 28        |                          | shapes.core.Point        |         |
+| 28        |                          | shapes.models.Base       |         |
+| 28        |                          | shapes.models.Child      |         |
+| 29        | shapes.core.Point        |                          | 0       |
+| 29        | shapes.core.Point        |                          | 1       |
+| 30        |                          |                          |         |
+| 30        |                          |                          |         |
 +-----------+--------------------------+--------------------------+---------+
 ## call graph
 +-------------------------+------+--------------------------+----------+

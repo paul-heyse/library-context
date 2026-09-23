@@ -252,9 +252,10 @@ Changing one needs an ADR and a `standard` review.
 **Tested** (spike S1–S4, 2026-09-22) for the in-process build, the fork dependency by git
 revision, the driver and CLI parity. The panic policy is **Proposed**.
 
-- **Pyrefly** is a git dependency on the fork `paul-heyse/pyrefly` (branch `lctx/1.3.1`), pinned
-  by revision. The fork is tag 1.3.1 plus `third_party/pyrefly-1.3.1.patch`, which changes visibility, adds a
-  no-write reporter switch and a reporter borrow, and changes no logic.
+- **Pyrefly** is a git dependency on the fork `paul-heyse/pyrefly` (branch `lctx/1.3.1-r2` since
+  C4; `lctx/1.3.1` keeps the first revision), pinned by revision. The fork is tag 1.3.1 plus
+  `third_party/pyrefly-1.3.1.patch`, which changes visibility, adds a no-write reporter switch and
+  borrow-only accessors (the reporter, a module's wildcard set), and changes no logic.
 - **Ruff** library crates are pinned to the ruff line Pyrefly compiles against.
 - **One workspace, one process.** Extraction, construction, analytics and publication live in
   one core Rust workspace and run in one process. There is no IPC.
@@ -442,7 +443,7 @@ declaration, and an AST node is not an execution point.
 | `graph` | derived: `nodes`, `edges` (§3.8). Not a coverage unit | C1 |
 | `syntax` | **Implemented and Tested (C2; revised by its compact review).** Raw `syntax_nodes` (Ruff): every statement, the clause nodes (`elif`/`else`, `except`, `case`, `with` items) and **every expression outside annotations** (the IP 2.1 exhaustive-exporter contract; placement depends on the source alone, never on a provider). Each row has its parent (the nearest placed ancestor), owner, field (`syntax_field`: body, test, orelse, handler, exc, cause, default, argument, …), ordinal in that field (a statement's block index), span, `kind` (Ruff's `NodeKind`, the `syntax_kind` codebook, an exhaustive match) and detail (a name, attribute, operator, literal as written, or a handler's name). A `def`, a `class` and a call are placed under their declaration and call-site ids; nothing inside an annotation is placed. Derived: `site_targets` (each Pysa attribute, artificial and format-string record → the deepest syntax node at its span, a chained comparison's pairwise site → its comparison → its typed target; a span with no node is our own failure, never a reason). Consumers: Pass B guards, raises, handlers and defaults; Pass C straight-line regions; FCA raised types (their type is C4's) | C2 |
 | `lexical` | **Implemented and Tested (C3).** Raw, from our recognizer (surface `lctx-lexical`, `recognizer`, inside the Ruff walk): `scopes` (module, class, function, lambda, comprehension; owner and parent), `bindings` (every binding event in source order per scope: kind, site, span, the assigned value's span, and the statically decided branch it sits in with its polarity; a store under `global`/`nonlocal` binds in the declared scope), `references` (every name load outside annotations, a role of its placed name, with its parent and field), `reference_resolutions` (full Python scoping: the scope's own bindings, else the nearest enclosing function scope with class scopes skipped, else the module, else a builtin; comprehension first iterables and function defaults in the enclosing scope; walrus in the nearest non-comprehension scope; flow-insensitive candidates; a star import as a candidate for a name nothing else binds; a builtin names itself, a builtin variable reads `variable_origin`, anything else `unresolved_target`). `export_syntax.resolved_module` is each import's absolute module. Derived: `identifier_targets` (Pysa's identifier sites → the reference at their span → typed target), `import_targets` (each import → the release or dependency module it names, else `unresolved_target`). Consumers: Pass B binding order (§4.2.4), Pass C bindings and values, the import graph, `if_called` targets, variable exports | C3 |
-| `types` | raw, from Pyrefly's native types: `type_terms` (one row per distinct term; typevars keep their binder), `type_term_args` (structure), `type_observations` (subject, role, term; §3.5.1), `record_fields` (dataclass, attrs, pydantic, `TypedDict`, `NamedTuple`). Consumers: Pass C type compatibility, FCA type attributes, controls from record fields | C4 |
+| `types` | **Implemented and Tested (C4).** Raw, from Pyrefly's native types (surface `pyrefly-types`, `native_structural`). `type_terms`: one row per distinct term, its id a Merkle hash over kind, display, detail, class pair, type-variable identity, binder and the children's ids (§3.4.1). A class is a (module ref, class key) pair and a recursive alias a reference to its name, so a term is finite; a depth cap (32) makes that a guarantee (`truncated`). A type variable keeps Pyrefly's own identity (its scope anchor) and its binder, the `def` or `class` of the module whose header holds the anchor, so two unrelated `T`s are two terms. `type_term_kind` maps every `Type` variant by an exhaustive match; solver-internal and experimental variants are `other` (`display_only`). `type_term_args`: each child at its role (`type_arg_role`) and ordinal; a callable parameter carries its name, kind and requiredness. `type_observations` (§3.5.1): each parameter's type, each `def`'s return type (`Key::ReturnType`), each call's result, each argument's value and each `raise`'s exception (Pyrefly's expression trace at the exact span; calls in annotations excluded); `declared` when the subject has an annotation. `record_fields`: the fields a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple` declares itself, with the flags as the field states them (default, `init`, alias and `kw_only` through `ClassField::dataclass_flags_of`; `TypedDict` required and read-only); the constructor they imply is Pyrefly's synthesized `__init__`, a `synthetic_callable` with its `parameter_semantics`. A `def`, parameter or record class with no walker node is a `types` boundary (`missing_evidence`, or `no_source_declaration` for a synthesized class). Derived: `type_class_targets` (each term's class → a release class or dependency definition, or a reason). Consumers: Pass C type compatibility, FCA parameter, return and raised types, controls from record fields | C4 |
 | `docs` | raw: `documents`, `passages`, `code_blocks`, `doc_links`, `mentions` (exact, and lexical candidates, never merged; embedding-based linking is §9.7's). Examples, tests and materialized code blocks are compiled as a usage run of their own release, with every code family, linked to the library by the derived `usage_targets` | C5 |
 | `findings` | `findings`, `witnesses`, `evidence` (evidence_id → one of: fact, span, passage, example, fixture run), `assertions`, `assertion_support` (assertion → finding / evidence), `briefs` (with `review_state`), `brief_members`, `usage_patterns` | 1 |
 
@@ -513,7 +514,7 @@ migration (DM-51).
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id` | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. `capability_id` = `brief_id` | content |
 | `edge_id` (C1, Proposed) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
-| Role and derived node ids (C1 **Implemented**; C3–C4 Proposed) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, its canonical structure (a typevar with its binder) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
+| Role and derived node ids (C1, C3, C4 **Implemented**) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, kind, display, detail, class pair, type-variable identity, binder, then each child's role, ordinal, id, parameter name, kind and requiredness (Rust; a Merkle id with no SQL form, so no `id:` rule). Field (C4): `field`, class node, name (Rust; `id:record_fields`) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
 | `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context), compiler digest, analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first two | compares reruns |
 | `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script), a hand-bumped compiler output version, every derivation query, table contract and validation rule. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
@@ -581,7 +582,7 @@ migration (DM-51).
 | `evidence_status` | structurally_observed, documented, statistically_derived, fixture_checked, unresolved |
 | `finding_kind`, `assertion_kind`, `analytic_method` | Defined in `cpg-schema` as their consumers land (§9, §10) |
 | `node_kind`, `edge_kind` (C1+) | The v1 node kinds (§3.1) and the edge kinds of the registry (§3.8), appended by slice |
-| `syntax_kind`, `syntax_field` (C2), `lexical_scope_kind`, `binding_kind`, `static_branch` (C3), `type_role`, `type_term_kind` (C4) | Defined in `cpg-schema` with their slice. `lexical_scope_kind` is separate from the coverage `scope_kind`. `binding_kind` is the recognizer's binding events: Ruff's kinds it emits plus `del` and the `global`/`nonlocal` declarations |
+| `syntax_kind`, `syntax_field` (C2), `lexical_scope_kind`, `binding_kind`, `static_branch` (C3), `type_term_kind`, `type_arg_role`, `type_role`, `record_kind` (C4) | Defined in `cpg-schema` with their slice. `lexical_scope_kind` is separate from the coverage `scope_kind`. `binding_kind` is the recognizer's binding events: Ruff's kinds it emits plus `del` and the `global`/`nonlocal` declarations |
 | `fact_family` additions | `graph` (C1; not a coverage unit), `syntax`, `lexical`, `types`, `docs` as their slices land |
 | `boundary_reason` addition (C1) | `variable_origin`: an export whose origin Pyrefly calls a variable-like symbol, until C3 gives it a `binding` node |
 | C1 codebooks | `module_origin`, `definition_kind`, `symbol_kind` (Pyrefly's export kinds, an exhaustive match), `derivation_class` |
@@ -613,17 +614,23 @@ migration (DM-51).
   is a `match` with no wildcard arm, so a new upstream variant (a 15th unresolved reason, a new
   `OriginKind`) fails the build instead of degrading silently. `OriginKind` becomes
   `site_detail` text through our own exhaustive match, never upstream's `Display`.
-- **`type_role` target values:** annotation, computed, expected, narrowed, unnarrowed, contextual,
-  parameter, return, and further values from IP L576–623.
+- **`type_role` (C4)** says what an observation types, and follows from the subject: `parameter`,
+  `return`, `call_result`, `argument`, `raised`. Whether the type is an annotation's or computed
+  is the observation's `declared` flag, not a role. IP L576–623's contextual roles (`expected`,
+  `narrowed`, `unnarrowed`, `contextual`, …) append when a consumer needs them; Pyrefly's
+  `get_expected_type_trace` already reaches the first.
 
 > Decision: ADR-0014, ADR-0012
 
 ### §3.5.1 Type observations and class order
 
-- `HAS_TYPE` is a derived view over `type_observations` that keeps the role. It is never an
-  editable copy.
-- **Annotation-role types** come from syntax or native annotation data, never from TSP
-  `getDeclaredType` (which returns the computed type).
+- `has_type` is a derived edge over `type_observations` that keeps the role on its evidence row.
+  It is never an editable copy.
+- **Declared types** come from native annotation data, never from TSP `getDeclaredType` (which
+  returns the computed type). An observation is `declared` when the subject has an annotation (a
+  parameter's `annotation_text`, a `def`'s return annotation): its type is Pyrefly's reading of
+  that annotation. A subject without one gets Pyrefly's computed type with `declared` false
+  (**Implemented**, C4).
 - **Pyrefly's MRO** is kept exactly as reported. It excludes the class itself and `object`, so it
   is labelled as ancestors, not as a complete runtime MRO. It is never re-derived by
   topologically sorting base edges.
@@ -692,7 +699,10 @@ migration (DM-51).
 
 C2 and C3 are **Implemented** and **Tested** (`cpg-core/tests/syntax.rs`: the placed tree of
 `syntax_shapes`, and every name of `lexical_shapes` with its resolution and bindings; each new rule
-rejects an injected violation). C4 and C5 are **Proposed**. This is how the typed family tables
+rejects an injected violation). C4 is **Implemented** and **Tested** (the same file: every
+observation, type variable, class and record field of `type_shapes`, two unrelated `T`s as two
+terms with two binders, the recursive alias as one finite term). C5 is **Proposed**. This is how
+the typed family tables
 become a graph without a second authority, following the operator's guidelines
 (`docs/design_review/design_principles/rust_code_intelligence_data_graph_guidelines.md` §2–§4,
 §10–§12).
@@ -728,7 +738,7 @@ rules are generated from (DM-52).
 | C1 | `declares`: module/class/function → class/function (extracted). `overload_of`: stub → callable (joined). `stub_for`: `.pyi` declaration → the `.py` declaration the `exports` seed rank picks, one shared rank (joined). `has_parameter`: function → parameter, ordinal (extracted). `exports`: export → declaration, external symbol, module or external module, one edge per access file, the file as discriminator (analyzer; parallel). `encloses_call`: owner → call site (extracted). `has_argument`: call site → argument, ordinal (extracted). `call_target`: call site → function, synthetic callable or external symbol (analyzer; discriminator `payload_id`; phase, receiver and modality on the evidence row). `higher_order_target`: argument → callable (analyzer; `potential`). `base_class`, `mro_entry`: class → class or external symbol, ordinal, MRO as reported (analyzer). `overrides`: function → function or external symbol (analyzer). `declared_in`: external symbol → external module (joined) |
 | C2 (**Implemented**) | `ast_child`: module, declaration, call site or syntax node → the placed child, ordinal (extracted; one parent per node). `argument_value`: argument → its value's placed node (joined; one per argument of a call outside an annotation). `site_target`: the syntax node or call site at a Pysa attribute, artificial or format-string site → function, synthetic callable or external symbol, **not** `potential` records (analyzer; parallel, discriminator `payload_id`; `synthetic_model` for artificial sites) |
 | C3 (**Implemented**) | `owns_scope`: module, declaration, lambda or comprehension → scope. `lexical_parent`: scope → enclosing scope. `binds`: scope → binding, ordinal. `introduces`: binding → the declaration, parameter or placed statement that makes it (recognizer). `reads_binding`: reference → binding in its own or the module scope (recognizer; `candidate` when several). `captures`: reference → a binding of an enclosing function scope (recognizer). `reads_builtin`: reference → the builtin function or class (recognizer). `shadows`: binding → the previous event of its name in its scope (joined). `potential_target`: reference (Pysa identifier sites) or syntax node (Pysa `if_called` at attribute sites) → callable (analyzer; `potential`). `imports_module`: module → the module an import names (joined; one per alias). **Deferred:** `imports_symbol` (Pyrefly's `find_definition` at an alias; reopen when a consumer needs symbol-level import targets, since `exports` already trace re-export origins) and separate `global`/`nonlocal` edges (their effect is the declared scope of the binding and the resolution) |
-| C4 | `has_type`: subject → type term (analyzer; role on the evidence row). `type_arg`: term → term, ordinal. `type_class`: term → class or external symbol. `has_field`: class → field. `field_type`: field → term |
+| C4 (**Implemented**) | `has_type`: parameter, function, call site, argument or `raise` syntax node → type term (analyzer; one per subject; role and `declared` on the evidence row). `type_arg`: term → term, ordinal (analyzer; parallel, discriminator the `type_arg_role`, since a callable returning its first parameter's type joins one pair twice at ordinal 0). `type_class`: term → class or external symbol (analyzer, through `type_class_targets`). `has_field`: class → field, ordinal (analyzer). `field_type`: field → term (analyzer) |
 | C5 | `contains_passage`, `contains_block`, `block_module` (extracted). `mentions`: passage → export or declaration (recognizer; `definite` for exact, `candidate` for lexical). `usage_link`: usage call site → release declaration (joined) |
 
 **Rules** generated from the registry (§8):
@@ -750,6 +760,8 @@ rules are generated from (DM-52).
   (never a reason).
 - **Lexical (C3):** `id:scopes`, `id:bindings`, `id:references`; `typed:reference_resolutions` (no
   binding, builtin or reason); every reference's name is a placed syntax node.
+- **Types (C4):** `id:record_fields`; `typed:type_class_targets`; lineage for every
+  observation, term argument, class-bearing term and record field.
 - **Typed targets:** a null target carries a reason.
 - **Ids:** the Rust recipes equal their SQL form (`id:*`).
 - A rule whose target is built from its own source column is not generated, because it cannot
@@ -786,6 +798,14 @@ rules are generated from (DM-52).
   `graph_gaps` is empty. 234,328 nodes and 335,442 edges; every rule passing; 17.5 s at 3.91 GB
   peak RSS, validation 3.4 s. The memory now reaches the C6 streaming trigger's question
   (§4.3);
+- **C4 on the pilot** (2026-09-23, fork `6a93da34`): 6,162 type terms and 6,013 term arguments;
+  42,263 observations: 6,201 parameters (4,768 declared), 2,449 returns (2,284 declared), 13,871
+  call results, 19,008 argument values and 734 raised exceptions. 773 record fields: 447 pydantic,
+  258 dataclass and 68 `TypedDict`. All 2,416 class-bearing terms resolve to a node. 102 type
+  variables, 90 with a binder; the 12 without are anchored in dependency modules. 126 terms are
+  `other` (125 `super()` instances). No `types` boundary, no truncated term. 241,373 nodes and
+  387,774 edges; every rule passing; the types pass takes 0.13 s; 18.4 s at 3.81 GB peak RSS
+  (validation 4.3 s; a run on the unpushed fork clone peaked at 4.12 GB);
 - 329 dependency modules: 249 site-packages modules, all with their distribution, and 80 from
   Pyrefly's bundled typeshed;
 - 1,913 external symbols;
@@ -1839,7 +1859,7 @@ Each item returns by ADR when a consumer needs it.
 
 | Deferred | Where it is described | Trigger |
 |---|---|---|
-| Full ontology tables, `record_fields`, native type graph (native `pyrefly_types::Type` is now reachable through `Answers`, ADR-0012) | IP L469–L717, L334–L409 | an analytic or brief needs the detail |
+| Full ontology tables beyond the CPG families (the native type graph and `record_fields` are built in C4, §3.2) | IP L469–L717, L334–L409 | an analytic or brief needs the detail |
 | Ruff semantic-model port | IP L99–L166 | binding kinds or typing-only context are needed |
 | Cross-references (Pyrefly's Glean collector, now in-process under `report::glean`) | IP L209–L231 | a consumer needs cross-references |
 | CinderX located types (narrowed, unnarrowed, contextual), TSP query surfaces | IP L290–L332, L410–L425 | narrowing or contextual types are needed |
@@ -1869,3 +1889,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | CPG first (operator): slices C1–C6 before Pass A (§1.2). The node and edge catalogs, persistent `edge_id`, typed external and synthetic endpoints, the graph registry and its generated rules (§3.1, §3.2, §3.4.1, §3.5, §3.7, new §3.8, §8); `lctx_id` UDF, metrics, deferred streaming and file skipping (§4.3); retention for pinned reads (§6.1); the syntax, lexical, types and docs families specified for C2–C5, with type structure and record fields no longer deferred. Aligned with the operator's Rust code-intelligence guidelines; probe P1 (dependency definitions) recorded | ADR-0014 (supersedes ADR-0008), ADR-0004 and ADR-0009 amendments |
 | 2026-09-23 | ADR-0014 standard review F1–F6 fixed and ADR-0014 accepted: reasons only from providers, export edges per access file, one id recipe in Rust and SQL, generated node references, `graph_gaps`, `edge_kinds` (§3.2, §3.4.1, §3.5, §3.7, §3.8, §8). CPG slice C2: the `syntax` family (`syntax_nodes`, `site_targets`, `ast_child`/`argument_value`/`site_target`) (§3.2, §3.8, §4.2.2) | ADR-0014 |
 | 2026-09-23 | C2 compact review F1–F4: every expression outside annotations placed (placement no longer provider-dependent), `if_called` attribute sites as `potential_target`, no catch-all reason for a node-less site, `argument_value` lineage, `unique:syntax_nodes`, the `default` field. CPG slice C3: the `lexical` family (scopes, bindings, references, full Python name resolution, identifier and import targets; ten edge kinds) (§3.2, §3.4.1, §3.5, §3.8, §8) | ADR-0014 |
+| 2026-09-23 | CPG slice C4: the `types` family (`type_terms`, `type_term_args`, `type_observations`, `record_fields`; derived `type_class_targets`; `type` and `field` nodes; five edge kinds); `type_role` as positions plus a `declared` flag; fork revision `6a93da34` (`ClassField::dataclass_flags_of` public, `Transaction::get_wildcard`) (§B8, §3.2, §3.4.1, §3.5, §3.5.1, §3.8, §13) | ADR-0014, ADR-0012 |

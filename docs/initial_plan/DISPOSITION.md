@@ -32,17 +32,17 @@ DESIGN section or ADR changes what it points at. Line numbers refer to the 2026-
 | 209 | 3.2 Glean: the navigation and source-reference layer | deferred | §13, until a consumer needs cross-references |
 | 233 | 3.3 Pysa: call-resolution and object-model export | adopted | §4.2, §3.6 (the `ifCalled` and synthetic-shim rules) |
 | 290 | 3.4 CinderX: structured types beyond display strings | deferred | §13 |
-| 334 | 3.5 The maximal native type layer | deferred | §13; native `Type` is reachable through `Answers` since ADR-0012, and waits for a consumer |
+| 334 | 3.5 The maximal native type layer | adapted | the `types` family (§3.2, CPG slice C4): native `Type` walked to type terms with their structure, observations and record fields; located (narrowed, contextual) types stay deferred (§13) |
 | 363 | 3.6 Rich class metadata and synthesized behavior | deferred | §13 |
 | 384 | 3.7 Binding IR, narrowing, inference dependencies, and answers | deferred | §13; the "not runtime dataflow" rule kept in §B5 |
 | 410 | 3.8 Query interfaces: useful, but verify their semantics | adopted | `getDeclaredType` rule in §3.5.1; TSP deferred (§13) |
 | 427 | 4. The maximal graph obtained by synthesizing these sources | adapted | target model; demand-driven slice (ADR-0004, ADR-0008) |
 | 435 | 4.1 The ontology should distinguish entities that are often incorrectly merged | adopted | §3.1 |
 | 469 | 4.2 Exact core schema | adapted | authoritative family tables, one producer each; generic `nodes`/`edges` are derived catalogs generated from one registry, with a persistent `edge_id` (ADR-0014, superseding ADR-0008) |
-| 576 | 4.3 Type observations must be contextual and multi-valued | adopted | §3.5.1; the `types` family from increment 3 |
+| 576 | 4.3 Type observations must be contextual and multi-valued | adapted | §3.5, §3.5.1: `type_observations` (C4) with the positional roles and a `declared` flag; the contextual roles append with a consumer |
 | 625 | 4.4 Resolution is a set with uncertainty, not a single edge | adopted | §3.6 |
 | 657 | 4.5 Relation families | adapted | fact families (§3.2); the 94-edge registry is not needed yet |
-| 678 | 4.6 Preserve unnormalized native detail without making JSON blobs the database | deferred | `record_fields` (§13) |
+| 678 | 4.6 Preserve unnormalized native detail without making JSON blobs the database | adapted | typed columns throughout; `record_fields` and type terms as relations (C4) |
 | 719 | 4.7 Identity and evidence rules | adopted | §3.4, §3.4.1, §3.7 |
 | 747 | 5. How this fits your Rust architecture | adapted | one workspace and one process with Pyrefly and Ruff linked; the separate-process shape is ADR-0012's fallback |
 | 806 | 6. Remaining gaps and whether they justify more Rust libraries | adopted | §B1 |

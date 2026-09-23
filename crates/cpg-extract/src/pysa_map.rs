@@ -133,7 +133,7 @@ impl ModuleRefs {
     }
 
     /// (module ref, `ClassId`): the typed form of a class reference.
-    fn class_pair(&self, c: &ClassRef) -> (String, String) {
+    pub(crate) fn class_pair(&self, c: &ClassRef) -> (String, String) {
         self.pair(
             c.module_id,
             c.class.module_name(),

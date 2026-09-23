@@ -50,6 +50,14 @@ key:references
   SELECT snapshot_id, module_node_id, start_byte, node_id, fact_id, count(*) AS n FROM references GROUP BY snapshot_id, module_node_id, start_byte, node_id, fact_id HAVING count(*) > 1
 key:reference_resolutions
   SELECT snapshot_id, reference_id, fact_id, count(*) AS n FROM reference_resolutions GROUP BY snapshot_id, reference_id, fact_id HAVING count(*) > 1
+key:type_terms
+  SELECT snapshot_id, node_id, fact_id, count(*) AS n FROM type_terms GROUP BY snapshot_id, node_id, fact_id HAVING count(*) > 1
+key:type_term_args
+  SELECT snapshot_id, parent_node_id, role, ordinal, fact_id, count(*) AS n FROM type_term_args GROUP BY snapshot_id, parent_node_id, role, ordinal, fact_id HAVING count(*) > 1
+key:type_observations
+  SELECT snapshot_id, subject_node_id, role, fact_id, count(*) AS n FROM type_observations GROUP BY snapshot_id, subject_node_id, role, fact_id HAVING count(*) > 1
+key:record_fields
+  SELECT snapshot_id, class_node_id, ordinal, fact_id, count(*) AS n FROM record_fields GROUP BY snapshot_id, class_node_id, ordinal, fact_id HAVING count(*) > 1
 key:pysa_calls
   SELECT snapshot_id, module_node_id, start_byte, end_byte, fact_id, count(*) AS n FROM pysa_calls GROUP BY snapshot_id, module_node_id, start_byte, end_byte, fact_id HAVING count(*) > 1
 key:coverage
@@ -84,6 +92,8 @@ key:identifier_targets
   SELECT snapshot_id, pysa_fact_id, count(*) AS n FROM identifier_targets GROUP BY snapshot_id, pysa_fact_id HAVING count(*) > 1
 key:import_targets
   SELECT snapshot_id, import_fact_id, count(*) AS n FROM import_targets GROUP BY snapshot_id, import_fact_id HAVING count(*) > 1
+key:type_class_targets
+  SELECT snapshot_id, term_node_id, count(*) AS n FROM type_class_targets GROUP BY snapshot_id, term_node_id HAVING count(*) > 1
 key:nodes
   SELECT snapshot_id, node_id, count(*) AS n FROM nodes GROUP BY snapshot_id, node_id HAVING count(*) > 1
 key:edges
@@ -218,6 +228,22 @@ fact:reference_resolutions
   SELECT t.fact_id FROM reference_resolutions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'reference_resolutions'
 fact-payload:reference_resolutions
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN reference_resolutions t ON t.fact_id = f.fact_id WHERE f.table_name = 'reference_resolutions'
+fact:type_terms
+  SELECT t.fact_id FROM type_terms t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'type_terms'
+fact-payload:type_terms
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN type_terms t ON t.fact_id = f.fact_id WHERE f.table_name = 'type_terms'
+fact:type_term_args
+  SELECT t.fact_id FROM type_term_args t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'type_term_args'
+fact-payload:type_term_args
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN type_term_args t ON t.fact_id = f.fact_id WHERE f.table_name = 'type_term_args'
+fact:type_observations
+  SELECT t.fact_id FROM type_observations t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'type_observations'
+fact-payload:type_observations
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN type_observations t ON t.fact_id = f.fact_id WHERE f.table_name = 'type_observations'
+fact:record_fields
+  SELECT t.fact_id FROM record_fields t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'record_fields'
+fact-payload:record_fields
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN record_fields t ON t.fact_id = f.fact_id WHERE f.table_name = 'record_fields'
 fact:pysa_calls
   SELECT t.fact_id FROM pysa_calls t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'pysa_calls'
 fact-payload:pysa_calls
@@ -227,7 +253,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'pysa_calls', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'pysa_calls', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -270,6 +296,16 @@ codebook:references.field
   SELECT field FROM references WHERE field IS NOT NULL AND field NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
 codebook:reference_resolutions.reason
   SELECT reason FROM reference_resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+codebook:type_terms.kind
+  SELECT kind FROM type_terms WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)
+codebook:type_term_args.role
+  SELECT role FROM type_term_args WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+codebook:type_term_args.parameter_kind
+  SELECT parameter_kind FROM type_term_args WHERE parameter_kind IS NOT NULL AND parameter_kind NOT IN (0, 1, 2, 3, 4)
+codebook:type_observations.role
+  SELECT role FROM type_observations WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4)
+codebook:record_fields.record_kind
+  SELECT record_kind FROM record_fields WHERE record_kind IS NOT NULL AND record_kind NOT IN (0, 1, 2, 3, 4)
 codebook:pysa_calls.site_kind
   SELECT site_kind FROM pysa_calls WHERE site_kind IS NOT NULL AND site_kind NOT IN (0, 1, 2, 3, 4, 5)
 codebook:pysa_calls.callee_kind
@@ -285,13 +321,13 @@ codebook:pysa_calls.unresolved_reason
 codebook:coverage.scope_kind
   SELECT scope_kind FROM coverage WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2)
 codebook:coverage.fact_family
-  SELECT fact_family FROM coverage WHERE fact_family IS NOT NULL AND fact_family NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
+  SELECT fact_family FROM coverage WHERE fact_family IS NOT NULL AND fact_family NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
 codebook:coverage.status
   SELECT status FROM coverage WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3, 4)
 codebook:coverage.reason
   SELECT reason FROM coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:boundaries.fact_family
-  SELECT fact_family FROM boundaries WHERE fact_family IS NOT NULL AND fact_family NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
+  SELECT fact_family FROM boundaries WHERE fact_family IS NOT NULL AND fact_family NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
 codebook:boundaries.reason
   SELECT reason FROM boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:provider_node_map.reason
@@ -330,24 +366,26 @@ codebook:identifier_targets.reason
   SELECT reason FROM identifier_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:import_targets.reason
   SELECT reason FROM import_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+codebook:type_class_targets.reason
+  SELECT reason FROM type_class_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:nodes.node_kind
-  SELECT node_kind FROM nodes WHERE node_kind IS NOT NULL AND node_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+  SELECT node_kind FROM nodes WHERE node_kind IS NOT NULL AND node_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:edges.edge_kind
-  SELECT edge_kind FROM edges WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
+  SELECT edge_kind FROM edges WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
 codebook:edges.src_kind
-  SELECT src_kind FROM edges WHERE src_kind IS NOT NULL AND src_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+  SELECT src_kind FROM edges WHERE src_kind IS NOT NULL AND src_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:edges.dst_kind
-  SELECT dst_kind FROM edges WHERE dst_kind IS NOT NULL AND dst_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+  SELECT dst_kind FROM edges WHERE dst_kind IS NOT NULL AND dst_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:graph_gaps.reason
   SELECT reason FROM graph_gaps WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:edge_kinds.edge_kind
-  SELECT edge_kind FROM edge_kinds WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
+  SELECT edge_kind FROM edge_kinds WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
 codebook:edge_kinds.derivation
   SELECT derivation FROM edge_kinds WHERE derivation IS NOT NULL AND derivation NOT IN (0, 1, 2, 3)
 coverage:declared-family
-  WITH declared AS (SELECT unnest(families) AS family FROM runs) SELECT family FROM declared WHERE family NOT IN ('provenance', 'exports', 'signatures', 'calls', 'coverage', 'publication', 'graph', 'syntax', 'lexical')
+  WITH declared AS (SELECT unnest(families) AS family FROM runs) SELECT family FROM declared WHERE family NOT IN ('provenance', 'exports', 'signatures', 'calls', 'coverage', 'publication', 'graph', 'syntax', 'lexical', 'types')
 coverage:complete
-  WITH declared AS (SELECT run_id, release_id, unnest(families) AS family FROM runs), codes AS (SELECT * FROM (VALUES ('provenance', 0), ('exports', 1), ('signatures', 2), ('calls', 3), ('coverage', 4), ('publication', 5), ('graph', 6), ('syntax', 7), ('lexical', 8)) AS c(family, code)), expected AS ( SELECT d.run_id, s.module_node_id, c.code FROM declared d JOIN codes c ON c.family = d.family JOIN source_files s ON s.release_id = d.release_id) SELECT e.run_id, e.module_node_id, e.code FROM expected e LEFT ANTI JOIN coverage v ON v.run_id = e.run_id AND v.scope_node_id = e.module_node_id AND v.fact_family = e.code
+  WITH declared AS (SELECT run_id, release_id, unnest(families) AS family FROM runs), codes AS (SELECT * FROM (VALUES ('provenance', 0), ('exports', 1), ('signatures', 2), ('calls', 3), ('coverage', 4), ('publication', 5), ('graph', 6), ('syntax', 7), ('lexical', 8), ('types', 9)) AS c(family, code)), expected AS ( SELECT d.run_id, s.module_node_id, c.code FROM declared d JOIN codes c ON c.family = d.family JOIN source_files s ON s.release_id = d.release_id) SELECT e.run_id, e.module_node_id, e.code FROM expected e LEFT ANTI JOIN coverage v ON v.run_id = e.run_id AND v.scope_node_id = e.module_node_id AND v.fact_family = e.code
 semantic:pysa-signatures-placed
   SELECT m.module_node_id, m.function_key FROM provider_node_map m              JOIN pysa_functions f                ON f.module_node_id = m.module_node_id AND f.function_key = m.function_key              LEFT ANTI JOIN signatures s                ON s.module_node_id = m.module_node_id AND s.function_key = m.function_key              WHERE m.node_id IS NOT NULL AND f.signature_count > 0
 semantic:resolution-has-boundary
@@ -602,6 +640,54 @@ one-per-evidence:imports_module
   SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 25 GROUP BY evidence_fact_id HAVING count(*) > 1
 lineage:imports_module
   WITH expected AS (SELECT fact_id FROM export_syntax WHERE kind IN (0, 1)), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 25 UNION ALL SELECT fact_id FROM (SELECT import_fact_id AS fact_id FROM import_targets WHERE reason IS NOT NULL) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+endpoint:has_type
+  SELECT edge_id FROM edges WHERE edge_kind = 26 AND (src_kind IS NULL OR src_kind NOT IN (3, 2, 4, 5, 10) OR dst_kind IS NULL OR dst_kind NOT IN (14))
+evidence:has_type
+  SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.evidence_fact_id AND f.table_name = 'type_observations' WHERE e.edge_kind = 26
+one-per-evidence:has_type
+  SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 26 GROUP BY evidence_fact_id HAVING count(*) > 1
+no-parallel:has_type
+  SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 26 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
+lineage:has_type
+  WITH expected AS (SELECT fact_id FROM type_observations), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 26) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+endpoint:type_arg
+  SELECT edge_id FROM edges WHERE edge_kind = 27 AND (src_kind IS NULL OR src_kind NOT IN (14) OR dst_kind IS NULL OR dst_kind NOT IN (14))
+evidence:type_arg
+  SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.evidence_fact_id AND f.table_name = 'type_term_args' WHERE e.edge_kind = 27
+one-per-evidence:type_arg
+  SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 27 GROUP BY evidence_fact_id HAVING count(*) > 1
+lineage:type_arg
+  WITH expected AS (SELECT fact_id FROM type_term_args), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 27) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+endpoint:type_class
+  SELECT edge_id FROM edges WHERE edge_kind = 28 AND (src_kind IS NULL OR src_kind NOT IN (14) OR dst_kind IS NULL OR dst_kind NOT IN (1, 8))
+evidence:type_class
+  SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.evidence_fact_id AND f.table_name = 'type_terms' WHERE e.edge_kind = 28
+one-per-evidence:type_class
+  SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 28 GROUP BY evidence_fact_id HAVING count(*) > 1
+no-parallel:type_class
+  SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 28 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
+lineage:type_class
+  WITH expected AS (SELECT fact_id FROM type_terms WHERE class_module IS NOT NULL), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 28 UNION ALL SELECT fact_id FROM (SELECT term_fact_id AS fact_id FROM type_class_targets WHERE reason IS NOT NULL) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+endpoint:has_field
+  SELECT edge_id FROM edges WHERE edge_kind = 29 AND (src_kind IS NULL OR src_kind NOT IN (1) OR dst_kind IS NULL OR dst_kind NOT IN (15))
+evidence:has_field
+  SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.evidence_fact_id AND f.table_name = 'record_fields' WHERE e.edge_kind = 29
+one-per-evidence:has_field
+  SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 29 GROUP BY evidence_fact_id HAVING count(*) > 1
+no-parallel:has_field
+  SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 29 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
+lineage:has_field
+  WITH expected AS (SELECT fact_id FROM record_fields), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 29) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+endpoint:field_type
+  SELECT edge_id FROM edges WHERE edge_kind = 30 AND (src_kind IS NULL OR src_kind NOT IN (15) OR dst_kind IS NULL OR dst_kind NOT IN (14))
+evidence:field_type
+  SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.evidence_fact_id AND f.table_name = 'record_fields' WHERE e.edge_kind = 30
+one-per-evidence:field_type
+  SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 30 GROUP BY evidence_fact_id HAVING count(*) > 1
+no-parallel:field_type
+  SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 30 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
+lineage:field_type
+  WITH expected AS (SELECT fact_id FROM record_fields), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 30) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
 ref:declarations.module_node_id->nodes
   SELECT f.module_node_id AS value FROM declarations f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
 ref:declarations.parent_node_id->nodes
@@ -720,6 +806,28 @@ ref:import_targets.module_node_id->nodes
   SELECT f.module_node_id AS value FROM import_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
 ref:import_targets.target_node_id->nodes
   SELECT f.target_node_id AS value FROM import_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0, 7)) r ON f.target_node_id = r.node_id WHERE f.target_node_id IS NOT NULL
+ref:type_terms.binder_node_id->nodes
+  SELECT f.binder_node_id AS value FROM type_terms f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (1, 2)) r ON f.binder_node_id = r.node_id WHERE f.binder_node_id IS NOT NULL
+ref:type_term_args.parent_node_id->nodes
+  SELECT f.parent_node_id AS value FROM type_term_args f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.parent_node_id = r.node_id WHERE f.parent_node_id IS NOT NULL
+ref:type_term_args.child_node_id->nodes
+  SELECT f.child_node_id AS value FROM type_term_args f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.child_node_id = r.node_id WHERE f.child_node_id IS NOT NULL
+ref:type_observations.module_node_id->nodes
+  SELECT f.module_node_id AS value FROM type_observations f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
+ref:type_observations.subject_node_id->nodes
+  SELECT f.subject_node_id AS value FROM type_observations f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (3, 2, 4, 5, 10)) r ON f.subject_node_id = r.node_id WHERE f.subject_node_id IS NOT NULL
+ref:type_observations.term_node_id->nodes
+  SELECT f.term_node_id AS value FROM type_observations f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.term_node_id = r.node_id WHERE f.term_node_id IS NOT NULL
+ref:record_fields.class_node_id->nodes
+  SELECT f.class_node_id AS value FROM record_fields f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (1)) r ON f.class_node_id = r.node_id WHERE f.class_node_id IS NOT NULL
+ref:record_fields.module_node_id->nodes
+  SELECT f.module_node_id AS value FROM record_fields f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
+ref:record_fields.term_node_id->nodes
+  SELECT f.term_node_id AS value FROM record_fields f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.term_node_id = r.node_id WHERE f.term_node_id IS NOT NULL
+ref:type_class_targets.term_node_id->nodes
+  SELECT f.term_node_id AS value FROM type_class_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.term_node_id = r.node_id WHERE f.term_node_id IS NOT NULL
+ref:type_class_targets.class_node_id->nodes
+  SELECT f.class_node_id AS value FROM type_class_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (1, 8)) r ON f.class_node_id = r.node_id WHERE f.class_node_id IS NOT NULL
 id:arguments
   SELECT node_id FROM arguments WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('argument', call_node_id, ordinal) AS BYTEA)
 id:context_definitions
@@ -730,6 +838,8 @@ id:bindings
   SELECT node_id FROM bindings WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('binding', site_node_id, name) AS BYTEA)
 id:references
   SELECT node_id FROM references WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('reference', name_node_id) AS BYTEA)
+id:record_fields
+  SELECT node_id FROM record_fields WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('field', class_node_id, name) AS BYTEA)
 id:context_modules
   SELECT module_node_id FROM context_modules WHERE distribution IS NOT NULL AND CAST(module_node_id AS BYTEA) <> CAST(lctx_id('external_module', distribution, version, module_name) AS BYTEA)
 partition:pysa_calls-gaps
@@ -762,3 +872,5 @@ typed:import_targets
   SELECT * FROM import_targets WHERE target_node_id IS NULL AND reason IS NULL
 typed:reference_resolutions
   SELECT * FROM reference_resolutions WHERE binding_id IS NULL AND builtin_name IS NULL AND reason IS NULL
+typed:type_class_targets
+  SELECT * FROM type_class_targets WHERE class_node_id IS NULL AND reason IS NULL

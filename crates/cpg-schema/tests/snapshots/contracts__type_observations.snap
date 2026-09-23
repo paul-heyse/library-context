@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table type_observations
+family types
+key snapshot_id, subject_node_id, role, fact_id
+@lctx.family=types
+@lctx.table=type_observations
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+subject_node_id: FixedSizeBinary(16) NOT NULL
+role: Int16 NOT NULL [lctx.codebook=type_role]
+declared: Boolean NOT NULL
+term_node_id: FixedSizeBinary(16) NOT NULL

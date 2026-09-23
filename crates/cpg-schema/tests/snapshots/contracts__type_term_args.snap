@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table type_term_args
+family types
+key snapshot_id, parent_node_id, role, ordinal, fact_id
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=types
+@lctx.table=type_term_args
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+parent_node_id: FixedSizeBinary(16) NOT NULL
+role: Int16 NOT NULL [lctx.codebook=type_arg_role]
+ordinal: Int64 NOT NULL
+child_node_id: FixedSizeBinary(16) NOT NULL
+name: Utf8 NULL
+parameter_kind: Int16 NULL [lctx.codebook=parameter_kind]
+required: Boolean NULL

@@ -7,8 +7,9 @@ use crate::codebook::{
     AncestryRelation, ArgumentKind, BindingKind, BoundaryReason, CoverageStatus, DeclarationKind,
     DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
     InvocationPhase, LexicalScopeKind, Modality, ModuleOrigin, Origin, ParameterKind,
-    PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm,
-    StaticBranch, SymbolKind, SyntaxField, SyntaxKind,
+    PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind, ScopeKind,
+    SignatureForm, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TypeArgRole, TypeRole,
+    TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -741,6 +742,126 @@ table!(
     }
 );
 
+// ---------------------------------------------------------------- types
+
+table!(
+    /// Distinct type terms from Pyrefly's native types (`pyrefly-types`; CPG slice C4, DESIGN
+    /// §3.2). The id is `H(type, kind, display, detail, class, variable, binder, children…)`: a
+    /// Merkle id over the structure `type_term_args` lists, so one structure is one term. A class is
+    /// a (module ref, class key) pair, never an expansion, and a recursive alias is a reference to
+    /// its name, so every term is finite. A type variable keeps Pyrefly's own identity and its
+    /// binder, so two unrelated `T`s are two terms (§3.4).
+    TypeTerms, TypeTermsRow = "type_terms",
+    family = Types,
+    key = [snapshot_id, node_id, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        node_id: Id,
+        kind: TypeTermKind,
+        /// Pyrefly's display of the term.
+        display: String,
+        /// What the kind leaves open: a literal as displayed, a module or alias name, a `def`'s
+        /// name, a type variable's name, the `Any` or `Never` style, the variant for `other`.
+        detail: Option<String>,
+        /// The term's class as a typed (module ref, class key) pair (§4.2.3): an instance, a class
+        /// object, a `TypedDict`, `Self`.
+        class_module: Option<String>,
+        class_key: Option<String>,
+        /// A type variable's identity as Pyrefly keys it: `<module>:<start>-<end>#<index>/<origin>`
+        /// (its scope anchor; deterministic, from source positions).
+        variable: Option<String>,
+        /// The `def` or `class` of this module whose scope binds the type variable; null for a
+        /// variable anchored elsewhere (an alias, another module, a synthesized one).
+        binder_node_id: Option<Id>,
+    }
+);
+
+table!(
+    /// The structure of a type term (C4): each child term at its role and ordinal. A callable
+    /// parameter carries its name, kind and whether it is required.
+    TypeTermArgs, TypeTermArgsRow = "type_term_args",
+    family = Types,
+    key = [snapshot_id, parent_node_id, role, ordinal, fact_id],
+    checks = [("ordinal_nonnegative", "ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        parent_node_id: Id,
+        role: TypeArgRole,
+        ordinal: i64,
+        child_node_id: Id,
+        name: Option<String>,
+        parameter_kind: Option<ParameterKind>,
+        required: Option<bool>,
+    }
+);
+
+table!(
+    /// What Pyrefly says a program element's type is (C4; DESIGN §3.5.1): a parameter, a
+    /// function's return, a call's result, an argument's value, a raised exception. `declared`
+    /// types are Pyrefly's reading of the annotation as written, never a computed type relabelled.
+    TypeObservations, TypeObservationsRow = "type_observations",
+    family = Types,
+    key = [snapshot_id, subject_node_id, role, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        subject_node_id: Id,
+        role: TypeRole,
+        /// The subject has an annotation and this is its type; false: Pyrefly computed it.
+        declared: bool,
+        term_node_id: Id,
+    }
+);
+
+table!(
+    /// The fields a class declares under a record model (C4): dataclass, attrs, pydantic,
+    /// `TypedDict`, `NamedTuple`. One row per field the class itself declares (an inherited field
+    /// is its base's row), with the flags as the field states them. The constructor they imply is
+    /// Pyrefly's synthesized `__init__`, a `synthetic_callable` with its `parameter_semantics`.
+    RecordFields, RecordFieldsRow = "record_fields",
+    family = Types,
+    key = [snapshot_id, class_node_id, ordinal, fact_id],
+    checks = [
+        ("ordinal_nonnegative", "ordinal >= 0"),
+        ("span_order", "start_byte IS NULL OR (start_byte >= 0 AND end_byte >= start_byte)"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        /// `H(field, class_node_id, name)`.
+        node_id: Id,
+        class_node_id: Id,
+        module_node_id: Id,
+        record_kind: RecordKind,
+        name: String,
+        /// Position in Pyrefly's field order for the class (inherited fields first).
+        ordinal: i64,
+        term_node_id: Id,
+        /// The field has an explicit annotation.
+        declared: bool,
+        /// The field's declaration.
+        start_byte: Option<i64>,
+        end_byte: Option<i64>,
+        /// Dataclass-like and `NamedTuple` fields: a default (or factory) is given.
+        has_default: Option<bool>,
+        /// Dataclass-like fields: the field is a parameter of the synthesized `__init__`.
+        init: Option<bool>,
+        /// Dataclass-like fields: the `__init__` parameter's name, when it is an alias.
+        alias: Option<String>,
+        /// Dataclass-like fields: `kw_only` as the field sets it; null when the field leaves it to
+        /// the class.
+        kw_only: Option<bool>,
+        /// `TypedDict` fields.
+        required: Option<bool>,
+        read_only: Option<bool>,
+    }
+);
+
 // ---------------------------------------------------------------- publication
 
 table!(
@@ -798,6 +919,10 @@ macro_rules! for_each_table {
             $crate::tables::Bindings,
             $crate::tables::References,
             $crate::tables::ReferenceResolutions,
+            $crate::tables::TypeTerms,
+            $crate::tables::TypeTermArgs,
+            $crate::tables::TypeObservations,
+            $crate::tables::RecordFields,
             $crate::tables::PysaCalls,
             $crate::tables::Coverage,
             $crate::tables::Boundaries

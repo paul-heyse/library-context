@@ -70,6 +70,8 @@ pub mod kind {
     pub const SCOPE: &str = "scope";
     pub const BINDING: &str = "binding";
     pub const REFERENCE: &str = "reference";
+    pub const TYPE: &str = "type";
+    pub const FIELD: &str = "field";
 }
 
 /// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
@@ -116,6 +118,14 @@ pub mod recipe {
     pub fn reference(name_node: Id) -> Id {
         IdHasher::new(kind::REFERENCE)
             .opt_id(Some(name_node))
+            .finish_id()
+    }
+
+    /// A record field: a role of its class (C4).
+    pub fn field(class: Id, name: &str) -> Id {
+        IdHasher::new(kind::FIELD)
+            .opt_id(Some(class))
+            .opt_str(Some(name))
             .finish_id()
     }
 

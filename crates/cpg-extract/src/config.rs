@@ -20,13 +20,13 @@ pub const TOOL: &str = "lctx-extract";
 /// The Pyrefly fork revision this crate is built against, and the digest of the patch it carries
 /// over tag 1.3.1 (docs/pins.md). `just deps` fails unless both equal the `Cargo.lock` revision
 /// and `third_party/pyrefly-1.3.1.patch` (review F4). Both feed `producer_id`.
-pub const PYREFLY_REV: &str = "b9f28575ce2baa93dbc416670a34592501b3fcd4";
+pub const PYREFLY_REV: &str = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978";
 pub const PYREFLY_PATCH_SHA256: &str =
-    "b7b82828e3e3470c93d35d5aef0e24904cd3b570b61772f4883701805959b767";
+    "5782fe3e4fe62790e9039783a8be0863c9293f98f0fd73146099189909db4358";
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 9;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 10;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
