@@ -5,12 +5,40 @@ expression: "text(&ctx, \"SELECT m.label FROM finding_members m ORDER BY m.label
 +-------------------------+
 | label                   |
 +-------------------------+
+| 2                       |
+| True                    |
+| alias                   |
+| fn                      |
+| fn                      |
+| fn                      |
+| fn                      |
+| fn                      |
+| fn                      |
+| item                    |
+| label                   |
+| mode                    |
+| mode                    |
+| mode                    |
+| mode                    |
+| name                    |
+| name                    |
+| name                    |
+| name                    |
+| name                    |
+| name                    |
+| name                    |
 | pkg.Server.route        |
 | pkg.Server.tool         |
+| pkg.configure           |
+| pkg.controls.configure  |
 | pkg.describe            |
 | pkg.helper              |
 | pkg.helpers.describe    |
 | pkg.helpers.helper      |
 | pkg.server.Server.route |
 | pkg.server.Server.tool  |
+| size                    |
+| size                    |
+| size                    |
+| size                    |
 +-------------------------+

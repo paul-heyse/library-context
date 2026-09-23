@@ -36,8 +36,9 @@ pub struct Published {
 /// Bumped by hand whenever the derive, cast, sort or analysis code changes output for the same
 /// inputs; the derived-table and analysis snapshots are what show such a change. 2: Stage E
 /// (ADR-0019). 3: definition arcs, the witness-cap kind fix (slice 1.4 review F1, F3). 4: the
-/// documents' spec hash and `embedding_specs` (slice 1.7).
-pub const COMPILER_OUTPUT_VERSION: u32 = 4;
+/// documents' spec hash and `embedding_specs` (slice 1.7). 5: Pass B and parameter docs (slice
+/// 2.1).
+pub const COMPILER_OUTPUT_VERSION: u32 = 5;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -48,6 +49,7 @@ pub fn compiler_digest_of(
     engines: &str,
     output_version: u32,
     udf_version: u32,
+    template_version: i64,
     derivations: &[(&str, String)],
     contracts: &[(&str, String)],
     rules: &[(String, String)],
@@ -55,7 +57,8 @@ pub fn compiler_digest_of(
     let mut h = IdHasher::new(kind::COMPILER);
     h.str(engines)
         .i64(i64::from(output_version))
-        .i64(i64::from(udf_version));
+        .i64(i64::from(udf_version))
+        .i64(template_version);
     for (name, text) in derivations.iter().chain(contracts) {
         h.str(name).str(text);
     }
@@ -66,7 +69,9 @@ pub fn compiler_digest_of(
 }
 
 /// The identity of the code that derives, analyzes, validates and publishes: the locked engines
-/// and analysis libraries, the output version, every derivation query and declared projection,
+/// and analysis libraries, the output version, the synthesis template version (which stands for
+/// Stage F's queries and templates: the analysis ledger fails any output change without a bump;
+/// increment-1 deep review F1), every derivation query, declared projection and Pass B relation,
 /// every table contract and every validation rule. Stored on each `snapshots` row and folded into
 /// `content_digest`.
 pub fn compiler_digest() -> Digest {
@@ -75,10 +80,12 @@ pub fn compiler_digest() -> Digest {
     for spec in cpg_schema::projection::projections() {
         queries.push((spec.name, spec.digest().hex()));
     }
+    queries.push(("pass_b_relations", cpg_schema::flows::digest().hex()));
     compiler_digest_of(
         &format!("{ENGINES}; {}", lctx_analytics::LIBRARIES),
         COMPILER_OUTPUT_VERSION,
         crate::udf::VERSION,
+        crate::synth::TEMPLATE_VERSION,
         &queries,
         &contracts(),
         &rules,
@@ -555,14 +562,18 @@ mod tests {
         let d = vec![("t", "SELECT 1".to_owned())];
         let c = vec![("t", "contract".to_owned())];
         let r = vec![("key:t".to_owned(), "SELECT 2".to_owned())];
-        let base = compiler_digest_of("engines", 1, 1, &d, &c, &r);
-        assert_ne!(base, compiler_digest_of("engines'", 1, 1, &d, &c, &r));
-        assert_ne!(base, compiler_digest_of("engines", 2, 1, &d, &c, &r));
-        assert_ne!(base, compiler_digest_of("engines", 1, 2, &d, &c, &r));
+        let base = compiler_digest_of("engines", 1, 1, 1, &d, &c, &r);
+        assert_ne!(base, compiler_digest_of("engines'", 1, 1, 1, &d, &c, &r));
+        assert_ne!(base, compiler_digest_of("engines", 2, 1, 1, &d, &c, &r));
+        assert_ne!(base, compiler_digest_of("engines", 1, 2, 1, &d, &c, &r));
+        // Increment-1 deep review F1: a template revision is a compiler revision.
+        assert_ne!(base, compiler_digest_of("engines", 1, 1, 2, &d, &c, &r));
         let d2 = vec![("t", "SELECT 1 ".to_owned())];
-        assert_ne!(base, compiler_digest_of("engines", 1, 1, &d2, &c, &r));
+        assert_ne!(base, compiler_digest_of("engines", 1, 1, 1, &d2, &c, &r));
+        let c2 = vec![("t", "contract'".to_owned())];
+        assert_ne!(base, compiler_digest_of("engines", 1, 1, 1, &d, &c2, &r));
         let r2 = vec![("key:t".to_owned(), "SELECT 3".to_owned())];
-        assert_ne!(base, compiler_digest_of("engines", 1, 1, &d, &c, &r2));
+        assert_ne!(base, compiler_digest_of("engines", 1, 1, 1, &d, &c, &r2));
         assert!(ENGINES.contains("datafusion 55.1.0"), "{ENGINES}");
         assert!(ENGINES.contains("deltalake-core 1.0.0 git+"), "{ENGINES}");
     }

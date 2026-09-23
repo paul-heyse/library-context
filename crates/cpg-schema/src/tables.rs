@@ -340,6 +340,28 @@ table!(
 );
 
 table!(
+    /// Parameter documentation from a function's docstring (`pyrefly-docstring`: Pyrefly's
+    /// `parse_parameter_documentation`, Sphinx `:param x:` and Google `Args:`; increment 2 slice
+    /// 2.1). One row per documented parameter of the signature, its text normalized as Pyrefly
+    /// returns it, its span the description's verbatim bytes in the source (the evidence a
+    /// documented control cites). A description whose bytes cannot be located is not emitted.
+    ParameterDocs, ParameterDocsRow = "parameter_docs",
+    family = Signatures,
+    key = [snapshot_id, function_node_id, name],
+    checks = [("span_order", "start_byte >= 0 AND end_byte > start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        function_node_id: Id,
+        module_node_id: Id,
+        name: String,
+        text: String,
+        start_byte: i64,
+        end_byte: i64,
+    }
+);
+
+table!(
     /// Pysa's function definitions (`pyrefly-pysa`): the bridge from Pysa function keys to spans.
     PysaFunctions, PysaFunctionsRow = "pysa_functions",
     family = Signatures,
@@ -1054,6 +1076,7 @@ macro_rules! for_each_table {
             $crate::tables::ExportSyntax,
             $crate::tables::PublicNames,
             $crate::tables::ParameterSyntax,
+            $crate::tables::ParameterDocs,
             $crate::tables::PysaFunctions,
             $crate::tables::ParameterSemantics,
             $crate::tables::ClassAncestry,

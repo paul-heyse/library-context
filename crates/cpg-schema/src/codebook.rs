@@ -805,6 +805,8 @@ codebook!(
         /// Pass A: a bounded breadth-first search with parent pointers over the invocation
         /// projection (§9.1).
         PassABfs = 0 => "pass_a_bfs",
+        /// Pass B: a bounded worklist over argument flows and parameter guards (§9.2).
+        PassBFlows = 1 => "pass_b_flows",
     }
 );
 
@@ -826,6 +828,15 @@ codebook!(
         /// The traversal stopped with arcs or sites not followed: at its depth bound, or at a
         /// vertex or arc budget (the stop reason says which; slice 1.5 review F1).
         TraversalStop = 5 => "traversal_stop",
+        /// A seed parameter reaches a callee's formal unchanged, directly or through one
+        /// identity alias (Pass B, §9.2). The related node is the formal.
+        Forwarding = 6 => "forwarding",
+        /// The seed supplies a callee's formal with a literal (Pass B). The related node is the
+        /// formal; the value is a member.
+        TransformedArgument = 7 => "transformed_argument",
+        /// A reached callable raises in the branch of an `if` that tests a parameter the seed's
+        /// parameter reaches (Pass B). The related node is the `raise`, the condition the test.
+        ConditionalRaise = 8 => "conditional_raise",
     }
 );
 
@@ -856,6 +867,14 @@ codebook!(
     MemberRole = "member_role" {
         /// A public access path (an `export` node) of a `public_alias` finding.
         AccessPath = 0 => "access_path",
+        /// The seed parameter a Pass B finding starts from.
+        SourceParameter = 1 => "source_parameter",
+        /// A literal a Pass B finding records, as written.
+        Value = 2 => "value",
+        /// The alias a forwarded value passes through.
+        Alias = 3 => "alias",
+        /// The callee formal a Pass B finding's guard tests.
+        Formal = 4 => "formal",
     }
 );
 
@@ -886,6 +905,13 @@ codebook!(
         AnalysisBoundary = 4 => "analysis_boundary",
         /// Other briefs in the same community (increment 2).
         Related = 5 => "related",
+        /// A parameter the operation passes on to a callee (Pass B `forwarding`).
+        Control = 6 => "control",
+        /// A callee formal the operation fixes to a literal (Pass B `transformed_argument`).
+        TransformedControl = 7 => "transformed_control",
+        /// A branch in which the implementation raises (Pass B `conditional_raise`); a public
+        /// precondition only with documented support.
+        Restriction = 8 => "restriction",
     }
 );
 

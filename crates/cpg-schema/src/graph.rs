@@ -1449,6 +1449,8 @@ pub fn node_columns() -> Vec<NodeColumn> {
         nc("public_names", "origin_module_node_id", MODULE),
         nc("public_names", "access_module_node_id", MODULE),
         nc("parameter_syntax", "function_node_id", &[N::Function]),
+        nc("parameter_docs", "function_node_id", &[N::Function]),
+        nc("parameter_docs", "module_node_id", &[N::Module]),
         nc("pysa_functions", "module_node_id", MODULE),
         nc("parameter_semantics", "module_node_id", MODULE),
         nc("class_ancestry", "module_node_id", MODULE),

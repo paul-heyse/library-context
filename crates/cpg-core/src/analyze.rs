@@ -20,6 +20,7 @@ use datafusion::prelude::SessionContext;
 use lctx_analytics::config::AnalyticsConfig;
 use lctx_analytics::graph::Projection;
 use lctx_analytics::pass_a::{self, Budgets, Seed};
+use lctx_analytics::pass_b::{self, Flows, SeedParameter};
 use serde::Serialize;
 
 use crate::delta::to_schema;
@@ -407,6 +408,49 @@ struct PassAParameters<'a> {
     public_roots: &'a [String],
 }
 
+#[derive(Serialize)]
+struct PassBParameters<'a> {
+    seed: &'a str,
+    max_depth: u32,
+    module_prefixes: &'a [String],
+    public_roots: &'a [String],
+}
+
+/// Each seed's parameters, the receiver aside (a first parameter named `self` or `cls`).
+async fn seed_parameters(
+    ctx: &SessionContext,
+    seeds: &[Id],
+) -> Result<BTreeMap<Id, Vec<SeedParameter>>, CoreError> {
+    let batches = collect(
+        ctx,
+        &format!(
+            "SELECT function_node_id, node_id, name FROM parameter_syntax \
+             WHERE function_node_id IN ({}) AND NOT (ordinal = 0 AND name IN ('self', 'cls')) \
+             ORDER BY function_node_id, ordinal",
+            hex_list(seeds.iter().copied())
+        ),
+        &schema(&[
+            ("function_node_id", DataType::FixedSizeBinary(16)),
+            ("node_id", DataType::FixedSizeBinary(16)),
+            ("name", DataType::Utf8),
+        ]),
+    )
+    .await?;
+    let mut out: BTreeMap<Id, Vec<SeedParameter>> = BTreeMap::new();
+    for batch in &batches {
+        let functions = id_col(batch, "function_node_id")?;
+        let nodes = id_col(batch, "node_id")?;
+        let names = str_col(batch, "name")?;
+        for i in 0..batch.num_rows() {
+            out.entry(functions[i]).or_default().push(SeedParameter {
+                node: nodes[i],
+                name: names.value(i).to_owned(),
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// Build a declared projection from the session.
 pub async fn project(ctx: &SessionContext, spec: &ProjectionSpec) -> Result<Projection, CoreError> {
     let vertices = collect(ctx, &spec.vertices_sql, &schemas::vertices()).await?;
@@ -500,6 +544,81 @@ pub async fn run(
             stop_reason: result.stop_reason,
         });
         rows.seeds.push((name.clone(), seed.node));
+        rows.findings.extend(result.findings);
+        rows.members.extend(result.members);
+        rows.witnesses.extend(result.witnesses);
+    }
+    // Pass B (§9.2) over the declared flows and guards, from every seed.
+    let flows_digest = cpg_schema::flows::digest();
+    let flow_rows = collect(
+        ctx,
+        &cpg_schema::flows::argument_flows_sql(),
+        &cpg_schema::flows::schemas::flows(),
+    )
+    .await?;
+    let guard_rows = collect(
+        ctx,
+        &cpg_schema::flows::guards_sql(),
+        &cpg_schema::flows::schemas::guards(),
+    )
+    .await?;
+    let flows =
+        Flows::build(&flow_rows, &guard_rows).map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let parameters_of =
+        seed_parameters(ctx, &rows.seeds.iter().map(|s| s.1).collect::<Vec<_>>()).await?;
+    let inside = |n: Id| p.dense(n).is_some_and(|i| subsystem.contains(i as usize));
+    for (name, node) in rows.seeds.clone() {
+        let parameters = serde_json::to_string(&PassBParameters {
+            seed: &name,
+            max_depth: budgets.max_depth,
+            module_prefixes: &config.subsystem.module_prefixes,
+            public_roots: &config.subsystem.public_roots,
+        })
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        let parameters_digest = content_digest(parameters.as_bytes());
+        let invocation_id = findings::invocation(
+            AnalyticMethod::PassBFlows.code(),
+            parameters_digest,
+            Some(flows_digest),
+            Some(node),
+            None,
+        );
+        let result = pass_b::run(
+            &flows,
+            node,
+            parameters_of
+                .get(&node)
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+            inside,
+            budgets.max_depth,
+            snapshot_id,
+            invocation_id,
+        )
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        rows.invocations.push(AnalysisInvocationsRow {
+            snapshot_id,
+            invocation_id,
+            run_id: compiler.run_id,
+            model_id: compiler.model("pass-b"),
+            extraction_mode: ExtractionMode::GraphAnalysis,
+            method: AnalyticMethod::PassBFlows,
+            parameters,
+            parameters_digest,
+            projection_digest: Some(flows_digest),
+            library_versions: lctx_analytics::libraries(),
+            subject_node_id: Some(node),
+            seed: None,
+            iterations: None,
+            residual: None,
+            converged: None,
+            quality_history: Vec::new(),
+            candidate_set_size: None,
+            vertices_examined: Some(result.states_examined),
+            arcs_examined: Some(result.flows_examined),
+            completion: result.completion,
+            stop_reason: result.stop_reason,
+        });
         rows.findings.extend(result.findings);
         rows.members.extend(result.members);
         rows.witnesses.extend(result.witnesses);

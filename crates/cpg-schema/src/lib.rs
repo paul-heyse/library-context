@@ -9,6 +9,7 @@ pub mod column;
 pub mod derived;
 pub mod embedding;
 pub mod findings;
+pub mod flows;
 pub mod graph;
 pub mod hash;
 pub mod id;

@@ -230,3 +230,8 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
   the serving bundle is built from the store alone. Three rules are added:
   `semantic:document-key-whole`, `semantic:document-vector-cached` and
   `semantic:one-embedding-spec`.
+- 2026-09-23, slice 2.1 (Pass B):
+  - Appended values: `analytic_method` `pass_b_flows`; `finding_kind` `forwarding`,
+    `transformed_argument` and `conditional_raise`; `member_role` `source_parameter`, `value`,
+    `alias` and `formal`; `assertion_kind` `control`, `transformed_control` and `restriction`.
+  - A Pass B invocation records the flows relations' digest as its projection digest.

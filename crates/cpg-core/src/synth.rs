@@ -16,8 +16,8 @@ use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Ar
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
     ArcKind, AssertionKind, BriefSection, Codebook, DeclarationKind, EvidenceKind, EvidenceStatus,
-    ExtractionMode, FindingKind, InvocationPhase, MentionClass, Modality, ParameterKind,
-    ReviewState, StopReason, SupportRole,
+    ExtractionMode, FindingKind, InvocationPhase, MemberRole, MentionClass, Modality,
+    ParameterKind, ReviewState, StopReason, SupportRole,
 };
 use cpg_schema::findings::recipe::{self, AssertionKey};
 use cpg_schema::findings::{
@@ -38,8 +38,9 @@ use crate::{CoreError, sql};
 /// "or more" call sites (slice 1.4 review F1, F3). 3: the slice 1.5 review: sentences on a
 /// soft-break view, the mention-sentence leg, the call form, hops said as witnessed, limits by
 /// depth, requiredness cited, traversal stops cited. 4: the brief document leaves out the
-/// analysis's own boundaries (slice 1.9).
-pub const TEMPLATE_VERSION: i64 = 4;
+/// analysis's own boundaries (slice 1.9). 5: documented parameters, controls, transformed
+/// controls and restrictions (slice 2.1).
+pub const TEMPLATE_VERSION: i64 = 5;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -160,6 +161,16 @@ fn first_sentence(text: &str, start: usize, end: usize) -> Option<(usize, usize)
     let lead = sentence.len() - sentence.trim_start().len();
     let body = sentence.trim();
     Some((start + rel + lead, start + rel + lead + body.len()))
+}
+
+/// `text` as a sentence: with a final stop when it has none.
+fn sentence(text: &str) -> String {
+    let t = text.trim_end();
+    if t.ends_with(['.', '!', '?', ':']) {
+        t.to_owned()
+    } else {
+        format!("{t}.")
+    }
 }
 
 /// A docstring line that ends its summary paragraph without a blank line: a section header
@@ -593,9 +604,12 @@ pub async fn run(
     let params_sql = format!(
         "SELECT p.signature_node_id, ps.node_id, ps.fact_id, ps.ordinal, ps.name, ps.kind, \
                 ps.default_text, ps.annotation_text, ps.start_byte, ps.end_byte, \
-                sem.required, sem.fact_id AS semantics_fact_id, d.module_node_id \
+                sem.required, sem.fact_id AS semantics_fact_id, d.module_node_id, \
+                pdoc.text AS doc_text, pdoc.start_byte AS doc_start, pdoc.end_byte AS doc_end \
          FROM parameters p JOIN parameter_syntax ps ON ps.fact_id = p.syntax_fact_id \
          LEFT JOIN parameter_semantics sem ON sem.fact_id = p.semantics_fact_id \
+         LEFT JOIN parameter_docs pdoc ON pdoc.function_node_id = p.signature_node_id \
+           AND pdoc.name = ps.name \
          JOIN declarations d ON d.node_id = p.signature_node_id \
          WHERE p.signature_node_id IN ({}) ORDER BY p.signature_node_id, ps.ordinal",
         hex_list(seeds.iter().copied())
@@ -612,6 +626,8 @@ pub async fn run(
         required: Option<bool>,
         semantics: Option<Id>,
         module: Id,
+        /// The docstring's description of it (slice 2.1): normalized text and verbatim span.
+        doc: Option<(String, usize, usize)>,
     }
     let mut params: BTreeMap<Id, Vec<Param>> = BTreeMap::new();
     for (b, i) in Table::read(
@@ -631,6 +647,9 @@ pub async fn run(
             ("required", DataType::Boolean),
             ("semantics_fact_id", ID),
             ("module_node_id", ID),
+            ("doc_text", DataType::Utf8),
+            ("doc_start", DataType::Int64),
+            ("doc_end", DataType::Int64),
         ],
     )
     .await?
@@ -659,7 +678,92 @@ pub async fn run(
             required: flag(b, "required", i),
             semantics: id(b, "semantics_fact_id", i),
             module,
+            doc: text(b, "doc_text", i)
+                .zip(int(b, "doc_start", i))
+                .zip(int(b, "doc_end", i))
+                .map(|((t, a), z)| (t, a as usize, z as usize)),
         });
+    }
+
+    // Pass B (§9.2): the formals its findings name, and its guards' test and raise spans.
+    let pass_b: Vec<&FindingsRow> = found
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.finding_kind,
+                FindingKind::Forwarding
+                    | FindingKind::TransformedArgument
+                    | FindingKind::ConditionalRaise
+            )
+        })
+        .collect();
+    let mut formal_names: BTreeMap<Id, String> = BTreeMap::new();
+    for (b, i) in Table::read(
+        ctx,
+        &format!(
+            "SELECT node_id, name FROM parameter_syntax WHERE node_id IN ({}) ORDER BY node_id",
+            hex_list(pass_b.iter().filter_map(|f| f.related_node_id))
+        ),
+        &[("node_id", ID), ("name", DataType::Utf8)],
+    )
+    .await?
+    .rows()
+    {
+        if let (Some(n), Some(name)) = (id(b, "node_id", i), text(b, "name", i)) {
+            formal_names.entry(n).or_insert(name);
+        }
+    }
+    struct Code {
+        fact: Id,
+        module: Id,
+        span: (usize, usize),
+        text: String,
+    }
+    let mut code: BTreeMap<Id, Code> = BTreeMap::new();
+    let guard_nodes = pass_b
+        .iter()
+        .filter(|f| f.finding_kind == FindingKind::ConditionalRaise)
+        .flat_map(|f| [f.related_node_id, f.condition_node_id])
+        .flatten();
+    for (b, i) in Table::read(
+        ctx,
+        &format!(
+            "SELECT sn.node_id, sn.fact_id, sn.module_node_id, sn.start_byte, sn.end_byte, s.text \
+             FROM syntax_nodes sn JOIN source_files s ON s.module_node_id = sn.module_node_id \
+             WHERE sn.node_id IN ({}) ORDER BY sn.node_id",
+            hex_list(guard_nodes)
+        ),
+        &[
+            ("node_id", ID),
+            ("fact_id", ID),
+            ("module_node_id", ID),
+            ("start_byte", DataType::Int64),
+            ("end_byte", DataType::Int64),
+            ("text", DataType::Utf8),
+        ],
+    )
+    .await?
+    .rows()
+    {
+        let (Some(n), Some(fact), Some(module), Some(a), Some(z), Some(source)) = (
+            id(b, "node_id", i),
+            id(b, "fact_id", i),
+            id(b, "module_node_id", i),
+            int(b, "start_byte", i),
+            int(b, "end_byte", i),
+            text(b, "text", i),
+        ) else {
+            continue;
+        };
+        if let Some(slice) = source.get(a as usize..z as usize) {
+            code.entry(n).or_insert(Code {
+                fact,
+                module,
+                span: (a as usize, z as usize),
+                text: slice.to_owned(),
+            });
+        }
     }
 
     let mut evidence: BTreeMap<Id, EvidenceRow> = BTreeMap::new();
@@ -959,12 +1063,206 @@ pub async fn run(
             if let Some(a) = &p.annotation {
                 parts.push(format!("annotated `{a}`"));
             }
+            // The docstring's own description of the parameter (slice 2.1), verbatim as evidence.
+            let described = p.doc.as_ref().and_then(|(doc, a, z)| {
+                let verbatim = decl.text.as_deref()?.get(*a..*z)?.to_owned();
+                Some((normalized(doc), *a, *z, verbatim))
+            });
+            let text = match described {
+                Some((doc, a, z, verbatim)) => {
+                    evidence.push((
+                        add_evidence(EvidenceRow {
+                            snapshot_id,
+                            evidence_id: recipe::evidence(
+                                EvidenceKind::Span.code(),
+                                Some(p.node),
+                                Some(p.module),
+                                Some((a as i64, z as i64)),
+                                Some(&verbatim),
+                            ),
+                            evidence_kind: EvidenceKind::Span,
+                            cited_fact_id: None,
+                            node_id: Some(p.node),
+                            module_node_id: Some(p.module),
+                            start_byte: Some(a as i64),
+                            end_byte: Some(z as i64),
+                            text: Some(verbatim),
+                        }),
+                        EvidenceKind::Span,
+                    ));
+                    format!("`{}` ({}): {}", p.name, parts.join("; "), sentence(&doc))
+                }
+                None => format!("`{}`: {}.", p.name, parts.join("; ")),
+            };
             drafts.push(Draft {
                 kind: AssertionKind::Parameter,
-                text: Some(format!("`{}`: {}.", p.name, parts.join("; "))),
+                text: Some(text),
                 findings: Vec::new(),
                 evidence,
             });
+        }
+
+        // Pass B (§9.2): where each parameter is passed on, the literals the operation fixes, and
+        // the branches in which the implementation raises.
+        let member = |f: &FindingsRow, role: MemberRole| {
+            found
+                .members
+                .iter()
+                .filter(|m| m.finding_id == f.finding_id && m.role == role)
+                .find_map(|m| m.label.clone())
+                .unwrap_or_default()
+        };
+        let path_of = |f: &FindingsRow| {
+            let mut steps: Vec<_> = found
+                .witnesses
+                .iter()
+                .filter(|w| w.finding_id == f.finding_id && w.path == 0)
+                .collect();
+            steps.sort_by_key(|w| w.step);
+            steps
+        };
+        let formal_of = |f: &FindingsRow| {
+            f.related_node_id
+                .and_then(|n| formal_names.get(&n))
+                .cloned()
+                .unwrap_or_default()
+        };
+        let ordinal_of = |name: &str| {
+            params
+                .get(&seed)
+                .and_then(|ps| ps.iter().position(|p| p.name == name))
+                .unwrap_or(usize::MAX)
+        };
+        let mut forwarded: BTreeMap<(usize, String), Vec<&&FindingsRow>> = BTreeMap::new();
+        for f in findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::Forwarding)
+        {
+            let p = member(f, MemberRole::SourceParameter);
+            forwarded.entry((ordinal_of(&p), p)).or_default().push(f);
+        }
+        for ((_, p), mut group) in forwarded {
+            group.sort_by_key(|f| {
+                let steps = path_of(f);
+                (
+                    f.depth,
+                    steps.last().map(|w| label(w.callee_node_id)),
+                    formal_of(f),
+                )
+            });
+            let items: Vec<String> = group
+                .iter()
+                .map(|f| {
+                    let steps = path_of(f);
+                    let target = steps
+                        .last()
+                        .map(|w| label(w.callee_node_id))
+                        .unwrap_or_default();
+                    let via = if steps.len() > 1 {
+                        format!(" through `{}`", label(steps[0].callee_node_id))
+                    } else {
+                        String::new()
+                    };
+                    let open = if steps.iter().any(|w| w.modality == Modality::Candidate) {
+                        ", over an overridable call"
+                    } else {
+                        ""
+                    };
+                    format!("`{target}` as `{}`{via}{open}", formal_of(f))
+                })
+                .collect();
+            let mut draft = Draft::new(
+                AssertionKind::Control,
+                format!("`{p}` is passed on to {}.", items.join("; ")),
+            );
+            for f in group {
+                draft = draft.citing(f);
+            }
+            drafts.push(draft);
+        }
+        let mut fixed: Vec<&&FindingsRow> = findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::TransformedArgument)
+            .collect();
+        fixed.sort_by_key(|f| {
+            let steps = path_of(f);
+            (
+                steps.first().map(|w| label(w.callee_node_id)),
+                formal_of(f),
+                member(f, MemberRole::Value),
+            )
+        });
+        for f in fixed {
+            let target = path_of(f)
+                .first()
+                .map(|w| label(w.callee_node_id))
+                .unwrap_or_default();
+            drafts.push(
+                Draft::new(
+                    AssertionKind::TransformedControl,
+                    format!(
+                        "`{seed_label}` calls `{target}` with `{}` fixed to `{}`.",
+                        formal_of(f),
+                        member(f, MemberRole::Value)
+                    ),
+                )
+                .citing(f),
+            );
+        }
+        for f in findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::ConditionalRaise)
+        {
+            let (Some(test), Some(raise)) = (
+                f.condition_node_id.and_then(|n| code.get(&n)),
+                f.related_node_id.and_then(|n| code.get(&n)),
+            ) else {
+                continue;
+            };
+            let raised = normalized(&raise.text);
+            let raised = raised
+                .split('(')
+                .next()
+                .unwrap_or(&raised)
+                .trim()
+                .to_owned();
+            let test_text = normalized(&test.text);
+            let p = member(f, MemberRole::SourceParameter);
+            let steps = path_of(f);
+            let text = match steps.last() {
+                None => format!(
+                    "The implementation raises (`{raised}`) when `{test_text}`, a check on `{p}`."
+                ),
+                Some(w) => format!(
+                    "`{}` raises (`{raised}`) when `{test_text}`; its `{}` receives `{p}`.",
+                    label(w.callee_node_id),
+                    member(f, MemberRole::Formal)
+                ),
+            };
+            let mut draft = Draft::new(AssertionKind::Restriction, text).citing(f);
+            for (node, c) in [(f.condition_node_id, test), (f.related_node_id, raise)] {
+                draft.evidence.push((
+                    add_evidence(EvidenceRow {
+                        snapshot_id,
+                        evidence_id: recipe::evidence(
+                            EvidenceKind::Fact.code(),
+                            node,
+                            Some(c.module),
+                            Some((c.span.0 as i64, c.span.1 as i64)),
+                            Some(&c.text),
+                        ),
+                        evidence_kind: EvidenceKind::Fact,
+                        cited_fact_id: Some(c.fact),
+                        node_id: node,
+                        module_node_id: Some(c.module),
+                        start_byte: Some(c.span.0 as i64),
+                        end_byte: Some(c.span.1 as i64),
+                        text: Some(c.text.clone()),
+                    }),
+                    EvidenceKind::Fact,
+                ));
+            }
+            drafts.push(draft);
         }
 
         // Limits: where the analysis stopped, one entry per reason, and apart for what the seed

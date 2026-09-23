@@ -479,7 +479,7 @@ declaration, and an AST node is not an execution point.
 |---|---|---|
 | `provenance` | `releases` (library, requirement, lock digest, or a source tree's label), `distributions` (every installed distribution: version, artifact sha256s, `RECORD` digest, in the release or not), `source_files` (C1: with its release `distribution`; ADR-0015: its `text`, the bytes every span indexes, null only when not UTF-8, and its `role`: `release`, `example`, `test` or `doc_block`), `contexts`, `producers`, `runs`, `facts`. C1: `context_modules` (each dependency module a fact references: name, site-relative path or Pyrefly's bundled typeshed, distribution and version) and `context_definitions` (the Pysa definitions of those modules: the existence source of `external_symbol` nodes; §3.8) | 1 |
 | `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin and its file, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → the seed declaration in the origin's file: an implementation before an `@overload` stub, then the one Pysa describes, then the last in source order; one row per `public_names` row, so a `.py`/`.pyi` pair gives an access path two rows, one seeding each file, told apart by `source_files.is_stub`; Pass A seeds from the source row) | 1 |
-| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO), C1 `pysa_classes` (one row per class, so a class without bases is keyed). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal); C1 `provider_class_map` (Stage C for classes), `synthetic_callables`, `ancestry_targets` and `override_targets` (bases, MRO entries and overridden methods resolved to nodes, a reason where an end does not resolve) | 1 |
+| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `parameter_docs` (slice 2.1, **Implemented** and **Tested**: Pyrefly's `parse_parameter_documentation` over each `def`'s docstring, Sphinx and Google styles; one row per documented parameter of the signature, its text as Pyrefly normalizes it, its span the description's verbatim bytes, located from its first line to its last after the parameter's name, and a description that cannot be located is not emitted; `a_description_span_covers_its_lines_verbatim`; 1,580 rows on the pilot), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO), C1 `pysa_classes` (one row per class, so a class without bases is keyed). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal); C1 `provider_class_map` (Stage C for classes), `synthetic_callables`, `ancestry_targets` and `override_targets` (bases, MRO entries and overridden methods resolved to nodes, a reason where an end does not resolve) | 1 |
 | `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). C1: `arguments.node_id`, `pysa_calls.payload_id`, `argument_resolutions` (higher-order arguments: status and unresolved remainder); `call_targets` typed (a declaration, a synthetic callable or a dependency definition, with the higher-order argument). Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) stay raw, as a declared pending class of the lineage rule, until C2 and C3 give them nodes | 1 |
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified: its read mode is `global` (§6.2); written by an insert-only MERGE (ADR-0017 amendment); the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
@@ -564,7 +564,7 @@ migration (DM-51).
 | Role and derived node ids (C1, C3, C4, C5 **Implemented**) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, kind, detail, class pair and type-variable identity, then each child's role, ordinal, id, parameter name, kind and requiredness; a variable's is its identity alone, a display-only kind's includes its display (Rust; a Merkle id with no SQL form, so no `id:` rule). It is producer-scoped like syntax and external-symbol ids: it hashes Pyrefly's detail text, Pysa class keys and anchor byte offsets, so a Pyrefly bump or an edit earlier in a module renames it. Field (C4): `field`, class node, name (Rust; `id:record_fields`). Document (C5): `document`, release, path. Passage and code block (C5): `passage` or `code_block`, document node, ordinal (Rust; `id:documents`, `id:passages`, `id:code_blocks`) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
 | `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context; the `lctx-compiler` run carries the analytics-config digest), compiler digest, embedding spec hash, and a digest of the sorted `(spec_hash, input_hash)` keys the snapshot used. Never the shared `embedding_cache` version, which another library's compile can move (ADR-0017 amendment). Slice 2 has the first two (**Implemented**; equal across a pilot rerun and relocation, C6 review 2026-09-23) | compares reruns |
-| `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script), a hand-bumped compiler output version, every derivation query, table contract and validation rule. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
+| `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script) and analysis libraries (`lctx_analytics::LIBRARIES`), a hand-bumped compiler output version, the UDF version, the synthesis template version (`synth::TEMPLATE_VERSION`, which stands for Stage F's queries and templates; the analysis ledger test fails any output change made without bumping it; increment-1 deep review F1), every derivation query, declared projection digest and Pass B relation digest, every table contract and every validation rule. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
 
 - **Ids in SQL** (C1, **Implemented** in `cpg_core::udf`, **Tested** by its known-answer and
   plan-time refusal tests). Stage D computes its ids with one scalar UDF, `lctx_id(kind, …)`,
@@ -1853,6 +1853,38 @@ comes before the definition (it could define the name, and we cannot see it). Te
   branch". It becomes a public precondition only with supporting evidence, and never when an
   enclosing handler may catch it.
 
+**Implemented** and **Tested** in slice 2.1 (2026-09-23; deviation log D17, D18):
+- **Relations.** Two declared SQL relations (`cpg_schema::flows`), whose digest joins the
+  compiler digest.
+  - *Argument flows:* each argument of a `call` or `init` arc mapped to one formal of its
+    target, the implicit receiver counted. A positional argument before any `*` maps by index; a
+    keyword argument maps by name to a positional-or-keyword or keyword-only formal. Each value is
+    classed as a parameter bound once, one identity alias assigned directly in the caller's body,
+    a literal as written, or other. Each row records whether its call site sits in a `try` of the
+    caller.
+  - *Guards:* an `if` directly in a function's body whose test reads only that function's
+    parameters (bound once) and builtins, with a `raise` directly in its branch.
+- **Worklist.** `lctx_analytics::pass_b`, keyed by `(callable, formal, source parameter)` and
+  bounded by Pass A's depth. It follows parameters and aliases into subsystem callees only.
+  - It reports `forwarding`, `transformed_argument` (a literal the seed itself supplies) and
+    `conditional_raise`.
+  - A raise is declined when a call on the way sits in a `try` of its caller, or the tested
+    parameter is rebound.
+  - Never mapped: starred arguments and anything after one, `**` arguments, catch-all formals,
+    property or subscript values, and literals below the seed.
+- **Stage F.** Pass B's findings become assertions:
+  - `control`: per seed parameter, where it is passed on, each overridable hop said;
+  - `transformed_control`;
+  - `restriction`: "the implementation raises (`raise E`) when `test`", citing the test's and the
+    raise's syntax facts. It is never a documented precondition in 2.1.
+- **Tests.** `pass_b_finds_the_known_answers_on_analysis_shapes` (`pkg.configure`) covers:
+  forwarding directly, through an alias and over a bound receiver; two mappings of one
+  parameter; a literal; three raises reached by forwarding. It shows none for the `try`-guarded
+  call, the rebound guard or `**options`.
+- **Pilot (Measured, 2026-09-23).** 35 `forwarding` and 4 `conditional_raise` findings, among
+  them `FastMCP.tool`'s `name_or_fn` reaching `ToolDecoratorMixin.tool`'s
+  `isinstance(name_or_fn, classmethod)` guard, and `FastMCP.mount`'s `server is self`.
+
 ### §9.3 Pass C — direct handoff
 
 - **Question.** Which public APIs already connect without an adapter?
@@ -2062,7 +2094,10 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | `outcome` | Outcome | docstring summary or explicit doc mention | documented, unresolved |
 | `public_access` | Public access | Pass A `public_alias`, `exports` | structurally_observed |
 | `coordinates` | Public access, "already coordinates" | Pass A `direct_delegation`, `bounded_delegation_path` | structurally_observed |
-| `parameter` | Important controls | `parameters` (name, kind, default, required); parameter docs from 2.1 | structurally_observed, documented (with parameter-doc evidence only; deviation log D8) |
+| `parameter` | Important controls | `parameters` (name, kind, default, required) and, from 2.1, `parameter_docs` (the description, its span cited) | structurally_observed, documented (with parameter-doc evidence only; deviation log D8) |
+| `control` (2.1) | Important controls | Pass B `forwarding`, per seed parameter | structurally_observed, documented |
+| `transformed_control` (2.1) | Important controls | Pass B `transformed_argument` | structurally_observed |
+| `restriction` (2.1) | Limits and prerequisites | Pass B `conditional_raise`, with the test's and raise's syntax facts | structurally_observed; documented only with precondition documentation |
 | `analysis_boundary` | Limits and prerequisites | `boundaries` on the seed's neighbourhood | structurally_observed |
 | `related` | Related | community co-membership, page rank | statistically_derived |
 

@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table parameter_docs
+family signatures
+key snapshot_id, function_node_id, name
+check span_order: start_byte >= 0 AND end_byte > start_byte
+@lctx.family=signatures
+@lctx.table=parameter_docs
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+name: Utf8 NOT NULL
+text: Utf8 NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL

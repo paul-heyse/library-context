@@ -28,6 +28,8 @@ key:public_names
   SELECT snapshot_id, access_path, fact_id, count(*) AS n FROM public_names GROUP BY snapshot_id, access_path, fact_id HAVING count(*) > 1
 key:parameter_syntax
   SELECT snapshot_id, function_node_id, ordinal, fact_id, count(*) AS n FROM parameter_syntax GROUP BY snapshot_id, function_node_id, ordinal, fact_id HAVING count(*) > 1
+key:parameter_docs
+  SELECT snapshot_id, function_node_id, name, count(*) AS n FROM parameter_docs GROUP BY snapshot_id, function_node_id, name HAVING count(*) > 1
 key:pysa_functions
   SELECT snapshot_id, module_node_id, function_key, fact_id, count(*) AS n FROM pysa_functions GROUP BY snapshot_id, module_node_id, function_key, fact_id HAVING count(*) > 1
 key:parameter_semantics
@@ -290,6 +292,10 @@ fact:parameter_syntax
   SELECT t.fact_id FROM parameter_syntax t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'parameter_syntax'
 fact-payload:parameter_syntax
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN parameter_syntax t ON t.fact_id = f.fact_id WHERE f.table_name = 'parameter_syntax'
+fact:parameter_docs
+  SELECT t.fact_id FROM parameter_docs t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'parameter_docs'
+fact-payload:parameter_docs
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN parameter_docs t ON t.fact_id = f.fact_id WHERE f.table_name = 'parameter_docs'
 fact:pysa_functions
   SELECT t.fact_id FROM pysa_functions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'pysa_functions'
 fact-payload:pysa_functions
@@ -379,7 +385,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'pysa_calls', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'pysa_calls', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -521,19 +527,19 @@ codebook:edge_kinds.derivation
 codebook:analysis_invocations.extraction_mode
   SELECT extraction_mode FROM analysis_invocations WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:analysis_invocations.method
-  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0)
+  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0, 1)
 codebook:analysis_invocations.completion
   SELECT completion FROM analysis_invocations WHERE completion IS NOT NULL AND completion NOT IN (0, 1, 2, 3, 4)
 codebook:analysis_invocations.stop_reason
   SELECT stop_reason FROM analysis_invocations WHERE stop_reason IS NOT NULL AND stop_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:findings.finding_kind
-  SELECT finding_kind FROM findings WHERE finding_kind IS NOT NULL AND finding_kind NOT IN (0, 1, 2, 3, 4, 5)
+  SELECT finding_kind FROM findings WHERE finding_kind IS NOT NULL AND finding_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:findings.evidence_status
   SELECT evidence_status FROM findings WHERE evidence_status IS NOT NULL AND evidence_status NOT IN (0, 1, 2, 3, 4)
 codebook:findings.stop_reason
   SELECT stop_reason FROM findings WHERE stop_reason IS NOT NULL AND stop_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:finding_members.role
-  SELECT role FROM finding_members WHERE role IS NOT NULL AND role NOT IN (0)
+  SELECT role FROM finding_members WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4)
 codebook:witnesses.modality
   SELECT modality FROM witnesses WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:witnesses.arc_kind
@@ -545,7 +551,7 @@ codebook:evidence.evidence_kind
 codebook:assertions.extraction_mode
   SELECT extraction_mode FROM assertions WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:assertions.assertion_kind
-  SELECT assertion_kind FROM assertions WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5)
+  SELECT assertion_kind FROM assertions WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:assertions.evidence_status
   SELECT evidence_status FROM assertions WHERE evidence_status IS NOT NULL AND evidence_status NOT IN (0, 1, 2, 3, 4)
 codebook:assertion_support.role
@@ -553,7 +559,7 @@ codebook:assertion_support.role
 codebook:briefs.review_state
   SELECT review_state FROM briefs WHERE review_state IS NOT NULL AND review_state NOT IN (0, 1, 2, 3)
 codebook:assertion_policy.assertion_kind
-  SELECT assertion_kind FROM assertion_policy WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5)
+  SELECT assertion_kind FROM assertion_policy WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:assertion_policy.brief_section
   SELECT brief_section FROM assertion_policy WHERE brief_section IS NOT NULL AND brief_section NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:assertion_policy.evidence_status
@@ -589,7 +595,7 @@ semantic:model-id-producer
 semantic:invocation-model-producer
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id WHERE split_part(i.model_id, '/', 1) <> encode(r.producer_id, 'hex')
 semantic:finding-status-policy
-  SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
+  SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0), (8, 0)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
 semantic:invocation-run-is-compiler
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id JOIN producers p ON p.producer_id = r.producer_id WHERE p.tool <> 'lctx-compiler'
 semantic:document-key-whole
@@ -603,7 +609,7 @@ semantic:embedding-dimensions
 semantic:assertion-policy
   SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN assertion_policy p ON p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status
 semantic:assertion-policy-published
-  WITH v AS (SELECT * FROM (VALUES (0, 0, 1), (0, 0, 4), (1, 1, 0), (2, 1, 0), (3, 3, 0), (3, 3, 1), (4, 5, 0), (5, 7, 2)) AS v(k, s, st)) SELECT p.assertion_kind FROM assertion_policy p LEFT ANTI JOIN v ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status UNION ALL SELECT v.k FROM v LEFT ANTI JOIN assertion_policy p ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status
+  WITH v AS (SELECT * FROM (VALUES (0, 0, 1), (0, 0, 4), (1, 1, 0), (2, 1, 0), (3, 3, 0), (3, 3, 1), (4, 5, 0), (5, 7, 2), (6, 3, 0), (6, 3, 1), (7, 3, 0), (8, 5, 0), (8, 5, 1)) AS v(k, s, st)) SELECT p.assertion_kind FROM assertion_policy p LEFT ANTI JOIN v ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status UNION ALL SELECT v.k FROM v LEFT ANTI JOIN assertion_policy p ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status
 semantic:assertion-status-derived
   WITH x AS ( SELECT s.assertion_id, s.role, f.evidence_status AS st FROM assertion_support s JOIN findings f ON f.finding_id = s.finding_id UNION ALL SELECT s.assertion_id, s.role, CASE e.evidence_kind WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 1 WHEN 3 THEN 1 WHEN 4 THEN 3 END AS st FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id), d AS ( SELECT a.assertion_id, a.evidence_status, CASE WHEN count(CASE WHEN x.role = 0 THEN 1 END) = 0 THEN 4 WHEN bool_or(x.role = 0 AND x.st = 4) THEN 4 WHEN bool_or(x.st = 2) THEN 2 ELSE CASE max(CASE WHEN x.role = 0 THEN CASE x.st WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 3 THEN 2 END END) WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 3 END END AS derived FROM assertions a LEFT JOIN x ON x.assertion_id = a.assertion_id GROUP BY a.assertion_id, a.evidence_status) SELECT assertion_id FROM d WHERE derived IS NULL OR derived <> evidence_status
 semantic:assertion-text-iff-resolved
@@ -615,7 +621,7 @@ semantic:evidence-text-bytes
 semantic:brief-member-exported
   SELECT m.brief_id, m.access_path FROM brief_members m JOIN declarations d ON d.node_id = m.declaration_node_id LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id AND (m.access_path = e.access_path OR (starts_with(m.access_path, e.access_path || '.') AND ends_with(m.access_path, '.' || d.name)))
 semantic:brief-cites-analysis
-  SELECT b.brief_id FROM briefs b LEFT JOIN ( SELECT DISTINCT ba.brief_id FROM brief_assertions ba JOIN assertion_support s ON s.assertion_id = ba.assertion_id JOIN findings f ON f.finding_id = s.finding_id WHERE f.finding_kind IN (1, 2, 3)) x ON x.brief_id = b.brief_id WHERE b.documentation_only = (x.brief_id IS NOT NULL)
+  SELECT b.brief_id FROM briefs b LEFT JOIN ( SELECT DISTINCT ba.brief_id FROM brief_assertions ba JOIN assertion_support s ON s.assertion_id = ba.assertion_id JOIN findings f ON f.finding_id = s.finding_id WHERE f.finding_kind IN (1, 2, 3, 6, 7, 8)) x ON x.brief_id = b.brief_id WHERE b.documentation_only = (x.brief_id IS NOT NULL)
 semantic:documentation-only-has-outcome
   SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( SELECT ba.brief_id FROM brief_assertions ba JOIN assertions a ON a.assertion_id = ba.assertion_id WHERE a.assertion_kind = 0 AND a.evidence_status = 1) o ON o.brief_id = b.brief_id WHERE b.documentation_only
 semantic:direct-delegation-is-definite
@@ -968,6 +974,10 @@ ref:public_names.access_module_node_id->nodes
   SELECT f.access_module_node_id AS value FROM public_names f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.access_module_node_id = r.node_id WHERE f.access_module_node_id IS NOT NULL
 ref:parameter_syntax.function_node_id->nodes
   SELECT f.function_node_id AS value FROM parameter_syntax f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (2)) r ON f.function_node_id = r.node_id WHERE f.function_node_id IS NOT NULL
+ref:parameter_docs.function_node_id->nodes
+  SELECT f.function_node_id AS value FROM parameter_docs f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (2)) r ON f.function_node_id = r.node_id WHERE f.function_node_id IS NOT NULL
+ref:parameter_docs.module_node_id->nodes
+  SELECT f.module_node_id AS value FROM parameter_docs f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
 ref:pysa_functions.module_node_id->nodes
   SELECT f.module_node_id AS value FROM pysa_functions f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
 ref:parameter_semantics.module_node_id->nodes

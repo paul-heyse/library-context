@@ -1,12 +1,18 @@
 ---
 source: crates/cpg-core/tests/analysis.rs
-expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \\\n                 FROM analysis_invocations i {} ORDER BY seed\",\nlabelled(\"i.subject_node_id\"))).await"
+expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \\\n                 FROM analysis_invocations i {} ORDER BY seed, i.method\",\nlabelled(\"i.subject_node_id\"))).await"
 ---
 +-------------------------+------------+-------------+-------------------+
 | seed                    | completion | stop_reason | vertices_examined |
 +-------------------------+------------+-------------+-------------------+
+| pkg.controls.configure  | 1          | 1           | 1                 |
+| pkg.controls.configure  | 0          |             | 16                |
 | pkg.helpers.describe    | 0          |             | 1                 |
+| pkg.helpers.describe    | 0          |             | 0                 |
 | pkg.helpers.helper      | 1          | 1           | 1                 |
+| pkg.helpers.helper      | 0          |             | 3                 |
 | pkg.server.Server.route | 1          | 1           | 1                 |
+| pkg.server.Server.route | 0          |             | 1                 |
 | pkg.server.Server.tool  | 1          | 1           | 1                 |
+| pkg.server.Server.tool  | 0          |             | 4                 |
 +-------------------------+------------+-------------+-------------------+

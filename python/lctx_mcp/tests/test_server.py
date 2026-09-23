@@ -56,7 +56,7 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert result is not None
         assert result["mode"] == "hybrid" and result["degraded_reason"] is None
         assert result["library"] == LIBRARY and len(result["generation"]) == 16
-        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 4}
+        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 10}
         assert 1 <= len(result["hits"]) <= 5
         tool = next(h for h in result["hits"] if h["title"] == "pkg.Server.tool")
         brief = await client.call_tool(
@@ -167,8 +167,8 @@ async def test_a_mismatched_generation_fails_at_connect(generation: Path, tmp_pa
 
     moved = tmp_path / "moved"
     shutil.copytree(generation, moved)
-    (moved / "MANIFEST.json").write_text(
-        (generation / "MANIFEST.json").read_text().replace('"rows": 4', '"rows": 5', 1)
-    )
+    manifest = json.loads((generation / "MANIFEST.json").read_text(encoding="utf-8"))
+    manifest["requirement"] = "moved==1"
+    (moved / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
     with pytest.raises(GenerationError, match="generation key"):
         load(moved, None)

@@ -357,6 +357,29 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
         BriefSection::Related,
         &[EvidenceStatus::StatisticallyDerived],
     ),
+    // Pass B (§9.2): a forwarded parameter is observed; its documentation makes it documented.
+    (
+        AssertionKind::Control,
+        BriefSection::Controls,
+        &[
+            EvidenceStatus::StructurallyObserved,
+            EvidenceStatus::Documented,
+        ],
+    ),
+    (
+        AssertionKind::TransformedControl,
+        BriefSection::Controls,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    // An implementation raise is observed; a public precondition needs documented support.
+    (
+        AssertionKind::Restriction,
+        BriefSection::Limits,
+        &[
+            EvidenceStatus::StructurallyObserved,
+            EvidenceStatus::Documented,
+        ],
+    ),
 ];
 
 /// An assertion kind's section.
@@ -440,6 +463,18 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
         FindingKind::TraversalStop,
         EvidenceStatus::StructurallyObserved,
     ),
+    (
+        FindingKind::Forwarding,
+        EvidenceStatus::StructurallyObserved,
+    ),
+    (
+        FindingKind::TransformedArgument,
+        EvidenceStatus::StructurallyObserved,
+    ),
+    (
+        FindingKind::ConditionalRaise,
+        EvidenceStatus::StructurallyObserved,
+    ),
 ];
 
 /// The status each evidence kind supports (slice 1.5 review F1): an extracted fact is observed
@@ -505,6 +540,9 @@ pub const ANALYSIS_BACKED: &[FindingKind] = &[
     FindingKind::DirectDelegation,
     FindingKind::BoundedDelegationPath,
     FindingKind::ImplementationBoundary,
+    FindingKind::Forwarding,
+    FindingKind::TransformedArgument,
+    FindingKind::ConditionalRaise,
 ];
 
 /// The content-derived ids of analysis results (ADR-0019). Rust-only: no SQL recomputes them.

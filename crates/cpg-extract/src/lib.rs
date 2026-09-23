@@ -35,10 +35,10 @@ use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
     ContextDefinitions, ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
     Distributions, DistributionsRow, DocLinks, Documents, ExportSyntax, Facts, Mentions,
-    ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls,
-    PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions, References, Releases,
-    ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations,
-    TypeTermArgs, TypeTerms,
+    ParameterDocs, ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow,
+    PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions,
+    References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow,
+    SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -779,6 +779,7 @@ fn run_release(
         walked.declarations.extend(module_walk.declarations);
         walked.export_syntax.extend(module_walk.export_syntax);
         walked.parameter_syntax.extend(module_walk.parameter_syntax);
+        walked.parameter_docs.extend(module_walk.parameter_docs);
         walked.call_syntax.extend(module_walk.call_syntax);
         walked.arguments.extend(module_walk.arguments);
         walked.syntax_nodes.extend(module_walk.syntax_nodes);
@@ -910,6 +911,7 @@ fn run_release(
     dedup_by_fact(&mut walked.declarations, |r| r.fact_id);
     dedup_by_fact(&mut walked.export_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.parameter_syntax, |r| r.fact_id);
+    dedup_by_fact(&mut walked.parameter_docs, |r| r.fact_id);
     dedup_by_fact(&mut walked.call_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.arguments, |r| r.fact_id);
     dedup_by_fact(&mut walked.syntax_nodes, |r| r.fact_id);
@@ -969,6 +971,10 @@ fn run_release(
         (
             ParameterSyntax::NAME,
             ParameterSyntax::to_sorted_batch(&walked.parameter_syntax)?,
+        ),
+        (
+            ParameterDocs::NAME,
+            ParameterDocs::to_sorted_batch(&walked.parameter_docs)?,
         ),
         (
             PysaFunctions::NAME,

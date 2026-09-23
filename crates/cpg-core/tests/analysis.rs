@@ -24,11 +24,11 @@ use lctx_analytics::config::AnalyticsConfig;
 const CONFIG: &str = r#"
 version = 1
 [subsystem]
-module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot", "pkg.shadow"]
+module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot", "pkg.shadow", "pkg.controls"]
 public_roots = ["pkg"]
 [seeds]
 primary = ["pkg.Server.tool"]
-distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe"]
+distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure"]
 [pass_a]
 max_depth = 2
 max_vertices = 128
@@ -171,7 +171,7 @@ fn findings_query(seed: &str) -> String {
                  WHERE w.finding_id = f.finding_id) AS paths \
          FROM findings f JOIN declarations s ON s.node_id = f.subject_node_id \
          {} \
-         WHERE s.qualified_name = '{seed}' \
+         WHERE s.qualified_name = '{seed}' AND f.finding_kind <= 5 \
          ORDER BY kind, target, f.depth, stop",
         labelled("f.related_node_id")
     )
@@ -286,7 +286,7 @@ async fn pass_a_finds_the_known_answers_on_analysis_shapes() {
             &format!(
                 "SELECT {LABEL} AS seed, i.method, i.parameters, i.library_versions, \
                         i.completion, i.stop_reason, i.vertices_examined, i.arcs_examined \
-                 FROM analysis_invocations i {} ORDER BY seed",
+                 FROM analysis_invocations i {} ORDER BY seed, i.method",
                 labelled("i.subject_node_id")
             )
         )
@@ -332,7 +332,7 @@ async fn a_seed_that_could_name_another_method_is_refused() {
         ("pkg.Aliased.tool", "assignment"),
     ] {
         let config = CONFIG.replace(
-            r#"distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe"]"#,
+            r#"distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure"]"#,
             &format!(r#"distractors = ["{seed}"]"#),
         );
         let err = compile_config("refuse", &config, "linux")
@@ -394,6 +394,45 @@ async fn templates_say_what_the_findings_show() {
     );
 }
 
+/// Pass B (DESIGN §9.2, §12) on `pkg.configure`: forwarding directly, through one alias and over a
+/// bound receiver; one parameter to two mappings of one callee; a literal; guards reached through
+/// forwarding. Never followed: `**options`, a guard behind the caller's `try`, a guard after the
+/// parameter is rebound.
+#[tokio::test(flavor = "multi_thread")]
+async fn pass_b_finds_the_known_answers_on_analysis_shapes() {
+    let (ctx, _dir) = analyzed("one", false).await;
+    let rows = text(
+        &ctx,
+        "SELECT f.finding_kind AS kind, src.label AS source, d.qualified_name AS callee, \
+                ps.name AS formal, v.label AS value, f.depth, \
+                (SELECT count(*) FROM finding_members a WHERE a.finding_id = f.finding_id \
+                 AND a.role = 3) AS aliases \
+         FROM findings f JOIN declarations s ON s.node_id = f.subject_node_id \
+         LEFT JOIN finding_members src ON src.finding_id = f.finding_id AND src.role = 1 \
+         LEFT JOIN finding_members v ON v.finding_id = f.finding_id AND v.role = 2 \
+         LEFT JOIN finding_members fm ON fm.finding_id = f.finding_id AND fm.role = 4 \
+         LEFT JOIN parameter_syntax ps ON ps.node_id = COALESCE(fm.node_id, f.related_node_id) \
+         LEFT JOIN declarations d ON d.node_id = ps.function_node_id \
+         WHERE s.qualified_name = 'pkg.controls.configure' AND f.finding_kind >= 6 \
+         ORDER BY kind, source, callee, formal",
+    )
+    .await;
+    insta::assert_snapshot!("pass_b_configure", rows);
+    // Never followed.
+    for absent in [
+        "pkg.controls.passthrough",
+        "pkg.controls.checked",
+        "pkg.controls.rebinding",
+    ] {
+        let raised = rows
+            .lines()
+            .filter(|l| l.contains("| 8 ") && l.contains(absent))
+            .count();
+        assert_eq!(raised, 0, "a guard in {absent} is reported:\n{rows}");
+    }
+    assert!(!rows.contains("passthrough"), "{rows}");
+}
+
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
 /// `partial` with its stop reason, and Stage F states it as a limit of the brief.
 #[tokio::test(flavor = "multi_thread")]
@@ -415,7 +454,7 @@ async fn a_vertex_budget_is_partial_and_a_stated_limit() {
             &ctx,
             &format!(
                 "SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \
-                 FROM analysis_invocations i {} ORDER BY seed",
+                 FROM analysis_invocations i {} ORDER BY seed, i.method",
                 labelled("i.subject_node_id")
             )
         )
@@ -597,6 +636,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             4,
             4,
             "7500a12012d91a6b563b21c4fef99943592326800bd6fd5a995a8b0e6ce6dec6",
+        ),
+        (
+            5,
+            5,
+            "b9370ca547aa34bdc91d68b9f24a8ad05f1b911d8dc478ee9495777c7fc95d7f",
         ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).

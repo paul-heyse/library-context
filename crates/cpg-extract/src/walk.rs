@@ -10,8 +10,8 @@ use cpg_schema::codebook::{
 use cpg_schema::id::{Id, IdHasher, kind};
 use cpg_schema::tables::{
     Arguments, ArgumentsRow, CallSyntax, CallSyntaxRow, Declarations, DeclarationsRow,
-    ExportSyntax, ExportSyntaxRow, ParameterSyntax, ParameterSyntaxRow, SyntaxNodes,
-    SyntaxNodesRow,
+    ExportSyntax, ExportSyntaxRow, ParameterDocs, ParameterDocsRow, ParameterSyntax,
+    ParameterSyntaxRow, SyntaxNodes, SyntaxNodesRow,
 };
 use pyrefly_python::module_name::ModuleName;
 use ruff_python_ast::name::Name;
@@ -48,6 +48,7 @@ pub(crate) struct WalkOut {
     pub declarations: Vec<DeclarationsRow>,
     pub export_syntax: Vec<ExportSyntaxRow>,
     pub parameter_syntax: Vec<ParameterSyntaxRow>,
+    pub parameter_docs: Vec<ParameterDocsRow>,
     pub call_syntax: Vec<CallSyntaxRow>,
     pub arguments: Vec<ArgumentsRow>,
     pub syntax_nodes: Vec<SyntaxNodesRow>,
@@ -211,6 +212,42 @@ fn docstring(body: &[Stmt]) -> Option<(String, TextRange)> {
     };
     let text = e.value.as_string_literal_expr()?.value.to_str().to_owned();
     Some((text, range))
+}
+
+fn docstring_provenance() -> Provenance {
+    Provenance {
+        surface: Surface::PyreflyDocstring,
+        mode: ExtractionMode::Recognizer,
+        origin: Origin::SourceObservation,
+        modality: Modality::Definite,
+        fidelity: Fidelity::NormalizedStructural,
+    }
+}
+
+/// The byte span, within a docstring literal's source, of a parameter's description as Pyrefly
+/// parsed it: from its first line to its last, found after the parameter's name. `None` when the
+/// bytes cannot be located (an escape in the literal, say): the description is then not emitted.
+fn description_span(literal: &str, name: &str, text: &str) -> Option<(usize, usize)> {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let (first, last) = (*lines.first()?, *lines.last()?);
+    for (at, _) in literal.match_indices(name) {
+        let Some(offset) = literal[at..].find(first) else {
+            continue;
+        };
+        let start = at + offset;
+        let end = if lines.len() == 1 {
+            start + first.len()
+        } else {
+            let from = start + first.len();
+            from + literal[from..].find(last)? + last.len()
+        };
+        return Some((start, end));
+    }
+    None
 }
 
 fn is_str_seq(expr: &Expr) -> bool {
@@ -456,7 +493,48 @@ impl Walker<'_, '_> {
             );
             self.out.parameter_syntax.push(row);
         }
+        self.parameter_docs(f, function_node_id);
         function_node_id
+    }
+
+    /// The signature's parameter documentation (slice 2.1): each name Pyrefly's parser documents
+    /// that is a parameter of this signature, with its description's verbatim span.
+    fn parameter_docs(&mut self, f: &StmtFunctionDef, function_node_id: Id) {
+        let Some((value, range)) = docstring(&f.body) else {
+            return;
+        };
+        let names: std::collections::BTreeSet<String> =
+            f.parameters.iter().map(|p| p.name().to_string()).collect();
+        let literal = self.text(range);
+        let base = span(range).0;
+        let mut docs: Vec<(String, String)> =
+            pyrefly_python::docstring::parse_parameter_documentation(&value)
+                .into_iter()
+                .map(|(name, text)| (name.trim_start_matches('*').to_owned(), text))
+                .filter(|(name, text)| names.contains(name) && !text.trim().is_empty())
+                .collect();
+        docs.sort();
+        for (name, text) in docs {
+            let Some((start, end)) = description_span(&literal, &name, &text) else {
+                continue;
+            };
+            let row = fact_row!(
+                self.sink,
+                ParameterDocs,
+                docstring_provenance(),
+                ParameterDocsRow {
+                    snapshot_id: Id::ZERO,
+                    fact_id: Id::ZERO,
+                    function_node_id,
+                    module_node_id: self.ctx.module_node_id,
+                    name,
+                    text,
+                    start_byte: base + start as i64,
+                    end_byte: base + end as i64,
+                }
+            );
+            self.out.parameter_docs.push(row);
+        }
     }
 
     fn class(&mut self, c: &StmtClassDef) -> Id {
@@ -716,5 +794,23 @@ impl<'a> SourceOrderVisitor<'a> for Walker<'_, '_> {
         self.annotation_depth += 1;
         walk_annotation(self, expr);
         self.annotation_depth -= 1;
+    }
+}
+
+#[cfg(test)]
+mod docstring_tests {
+    use super::description_span;
+
+    #[test]
+    fn a_description_span_covers_its_lines_verbatim() {
+        let literal = "\"\"\"Do it.\n\n    Args:\n        name: The name; it must\n            not be empty.\n        size: How many.\n    \"\"\"";
+        let (a, z) = description_span(literal, "name", "The name; it must\nnot be empty.").unwrap();
+        assert_eq!(
+            &literal[a..z],
+            "The name; it must\n            not be empty."
+        );
+        let (a, z) = description_span(literal, "size", "How many.").unwrap();
+        assert_eq!(&literal[a..z], "How many.");
+        assert_eq!(description_span(literal, "size", "Not there."), None);
     }
 }

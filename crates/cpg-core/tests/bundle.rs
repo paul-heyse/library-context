@@ -16,11 +16,11 @@ use lctx_analytics::config::AnalyticsConfig;
 const CONFIG: &str = r#"
 version = 1
 [subsystem]
-module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot", "pkg.shadow"]
+module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot", "pkg.shadow", "pkg.controls"]
 public_roots = ["pkg"]
 [seeds]
 primary = ["pkg.Server.tool"]
-distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe"]
+distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure"]
 [pass_a]
 max_depth = 2
 max_vertices = 128
@@ -119,9 +119,9 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
     assert_eq!(again.key, a.key);
     let manifest = verify(&a.dir).unwrap();
     let rows = |f: &str| manifest["files"][f]["rows"].as_u64().unwrap();
-    assert_eq!(rows("briefs"), 4);
-    assert_eq!(rows("vectors"), 4);
-    assert_eq!(rows("lexical_text"), 4);
+    assert_eq!(rows("briefs"), 5);
+    assert_eq!(rows("vectors"), 5);
+    assert_eq!(rows("lexical_text"), 5);
     assert_eq!(rows("embedding_spec"), 1);
     assert!(
         rows("symbol_map") >= 8,

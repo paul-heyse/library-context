@@ -467,6 +467,7 @@ source_role
   3 doc_block
 analytic_method
   0 pass_a_bfs
+  1 pass_b_flows
 finding_kind
   0 public_alias
   1 direct_delegation
@@ -474,6 +475,9 @@ finding_kind
   3 implementation_boundary
   4 incomplete_resolution
   5 traversal_stop
+  6 forwarding
+  7 transformed_argument
+  8 conditional_raise
 stop_reason
   0 depth_limit
   1 vertex_budget
@@ -485,6 +489,10 @@ stop_reason
   7 unresolved_site
 member_role
   0 access_path
+  1 source_parameter
+  2 value
+  3 alias
+  4 formal
 assertion_kind
   0 outcome
   1 public_access
@@ -492,6 +500,9 @@ assertion_kind
   3 parameter
   4 analysis_boundary
   5 related
+  6 control
+  7 transformed_control
+  8 restriction
 brief_section
   0 outcome
   1 public_access
