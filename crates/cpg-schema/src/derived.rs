@@ -202,7 +202,7 @@ impl Derived for Exports {
              ext AS ( \
                SELECT m.module_name, d.name, d.symbol_node_id, \
                       row_number() OVER (PARTITION BY m.module_name, d.name \
-                                         ORDER BY d.kind, d.key) AS pick \
+                                         ORDER BY d.kind, d.key, d.fact_id) AS pick \
                FROM context_definitions d \
                JOIN context_modules m ON m.module_node_id = d.module_node_id \
                WHERE d.is_top_level), \

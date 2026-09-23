@@ -432,17 +432,35 @@ async fn the_catalogs_are_the_same_across_runs_order_and_location() {
 }
 
 /// The registry rules that guard the derivations themselves (evidence, support, one edge per
-/// evidence row, no parallel edges where the kind forbids them, typed targets): each rejects a
-/// published table replaced by a doctored view. The rules are the shared validators (§8).
+/// evidence row, no parallel edges where the kind forbids them, typed targets), and the rules no
+/// other case reached (C6 review F1): each rejects a published table replaced by a doctored view.
+/// A case runs its own rule's query, the shared validator (§8); the restored snapshot then passes
+/// every rule.
 #[tokio::test]
 async fn each_graph_rule_rejects_a_doctored_catalog() {
     let (ctx, _dir) = shapes("one", false).await;
-    let edges = ctx.table("edges").await.unwrap();
-    ctx.register_table("edges_published", edges.into_view())
-        .unwrap();
-    let targets = ctx.table("call_targets").await.unwrap();
-    ctx.register_table("call_targets_published", targets.into_view())
-        .unwrap();
+    let doctored = [
+        "edges",
+        "call_targets",
+        "resolutions",
+        "exports",
+        "ancestry_targets",
+        "override_targets",
+        "signatures",
+        "provider_node_map",
+        "pysa_functions",
+        "facts",
+        "arguments",
+        "context_definitions",
+        "context_modules",
+        "syntax_nodes",
+        "source_files",
+    ];
+    for table in doctored {
+        let published = ctx.table(table).await.unwrap();
+        ctx.register_table(format!("{table}_published").as_str(), published.into_view())
+            .unwrap();
+    }
     let (declares, call) = (EdgeKind::Declares.code(), EdgeKind::CallTarget.code());
     let cases = [
         (
@@ -499,17 +517,110 @@ async fn each_graph_rule_rejects_a_doctored_catalog() {
              FROM call_targets_published"
                 .to_owned(),
         ),
+        // C6 review F1: an unresolved remainder no resolution counts (the `getattr(...)()` site).
+        (
+            "partition:pysa_calls-remainders",
+            "resolutions",
+            "SELECT * REPLACE (false AS has_unresolved_remainder) FROM resolutions_published"
+                .to_owned(),
+        ),
+        (
+            "typed:exports",
+            "exports",
+            "SELECT * REPLACE (CAST(NULL AS BYTEA) AS target_node_id, \
+                               CAST(NULL AS SMALLINT) AS reason) FROM exports_published"
+                .to_owned(),
+        ),
+        (
+            "typed:ancestry_targets",
+            "ancestry_targets",
+            "SELECT * REPLACE (CAST(NULL AS BYTEA) AS ancestor_node_id, \
+                               CAST(NULL AS SMALLINT) AS reason) FROM ancestry_targets_published"
+                .to_owned(),
+        ),
+        (
+            "typed:override_targets",
+            "override_targets",
+            "SELECT * REPLACE (CAST(NULL AS BYTEA) AS overridden_node_id, \
+                               CAST(NULL AS SMALLINT) AS reason) FROM override_targets_published"
+                .to_owned(),
+        ),
+        // A Pysa function with signatures that the signature table lost.
+        (
+            "semantic:pysa-signatures-placed",
+            "signatures",
+            "SELECT * FROM signatures_published WHERE false".to_owned(),
+        ),
+        // Two provider functions mapped onto one declaration.
+        (
+            "semantic:stage-c-injective",
+            "provider_node_map",
+            "SELECT * FROM provider_node_map_published UNION ALL \
+             (SELECT * REPLACE (function_key || '#twin' AS function_key) \
+              FROM provider_node_map_published WHERE node_id IS NOT NULL LIMIT 1)"
+                .to_owned(),
+        ),
+        // Parameter semantics for a function Pysa never reported.
+        (
+            "semantic:parameter-semantics-function",
+            "pysa_functions",
+            "SELECT * FROM pysa_functions_published WHERE false".to_owned(),
+        ),
+        // A fact whose model is not its run's producer.
+        (
+            "semantic:model-id-producer",
+            "facts",
+            "SELECT * REPLACE ('00000000000000000000000000000000/x' AS model_id) \
+             FROM facts_published"
+                .to_owned(),
+        ),
+        (
+            "id:arguments",
+            "arguments",
+            "SELECT * REPLACE (ordinal + 1 AS ordinal) FROM arguments_published".to_owned(),
+        ),
+        (
+            "id:context_definitions",
+            "context_definitions",
+            "SELECT * REPLACE (key || 'x' AS key) FROM context_definitions_published".to_owned(),
+        ),
+        (
+            "id:context_modules",
+            "context_modules",
+            "SELECT * REPLACE (coalesce(distribution, 'dep') AS distribution, \
+                               module_name || 'x' AS module_name) \
+             FROM context_modules_published"
+                .to_owned(),
+        ),
+        // A call site with no placement row.
+        (
+            "placed:call_syntax",
+            "syntax_nodes",
+            "SELECT * FROM syntax_nodes_published WHERE false".to_owned(),
+        ),
+        // A run whose release has neither modules nor documents.
+        (
+            "ref:runs.release_id->source_files|documents",
+            "source_files",
+            "SELECT * FROM source_files_published WHERE false".to_owned(),
+        ),
     ];
+    let rules = cpg_schema::rules::rules();
     for (rule, table, view) in cases {
         let doctored = sql::query(&ctx, &view).await.unwrap().into_view();
         ctx.deregister_table(table).unwrap();
         ctx.register_table(table, doctored).unwrap();
-        let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-        assert!(
-            violations.iter().any(|v| v.rule == rule),
-            "{rule}: {:?}",
-            violations.iter().map(|v| &v.rule).collect::<Vec<_>>()
-        );
+        let query = &rules.iter().find(|r| r.name == rule).expect(rule).sql;
+        let rows: usize = sql::query(&ctx, query)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap()
+            .iter()
+            .map(RecordBatch::num_rows)
+            .sum();
+        assert!(rows > 0, "{rule} accepted its violation");
         let original = ctx
             .table(format!("{table}_published").as_str())
             .await

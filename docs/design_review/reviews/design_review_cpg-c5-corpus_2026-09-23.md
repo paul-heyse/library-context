@@ -471,5 +471,5 @@ measurement (`e313148`), which had not touched the C5 surface. The decisions §1
 **Checks** (2026-09-23): `just test-all` passed (nextest 82/82; pytest 21/21; rule tests 4/4;
 `lint-agents`; `adr lint`; fixtures; family; cargo-deny; `pyrefly-fork`; gold). `just pilot`
 passed on a fresh store (a declared migration: `import_targets` rewritten, `usage_targets` gone,
-`EXTRACTOR_OUTPUT_VERSION` 15): snapshot `ab6d98a3…`, 905,648 nodes, 1,449,162 edges, all 494
+`EXTRACTOR_OUTPUT_VERSION` 15): snapshot `ab6d98a3…`, 905,648 nodes, 1,449,162 edges, all 492
 rules, 44.6 s at 7.4 GB peak.

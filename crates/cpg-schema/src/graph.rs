@@ -753,7 +753,8 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             sql: format!(
                 "WITH builtins AS ( \
                    SELECT d.name, d.symbol_node_id, \
-                          row_number() OVER (PARTITION BY d.name ORDER BY d.kind, d.key) AS pick \
+                          row_number() OVER (PARTITION BY d.name ORDER BY d.kind, d.key, d.fact_id) \
+                            AS pick \
                    FROM context_definitions d \
                    JOIN context_modules m ON m.module_node_id = d.module_node_id \
                    WHERE m.module_name = 'builtins' AND d.is_top_level) \
@@ -1329,10 +1330,11 @@ impl crate::derived::Derived for Edges {
 }
 
 table!(
-    /// Raw rows the graph does not represent yet, each with its reason (DESIGN §3.7; review F5):
-    /// Pysa's records at non-call sites (attribute accesses, identifiers, artificial and
-    /// format-string sites), which C2's syntax nodes and C3's references will carry. A consumer
-    /// reads here what the graph leaves out; nothing is omitted silently.
+    /// Raw rows the graph does not represent yet, each with its reason (DESIGN §3.7; review F5).
+    /// C1 published Pysa's non-call sites here until C2's syntax nodes and C3's references carried
+    /// them; since C3 it is empty by construction, kept as the published place a future
+    /// unrepresented class lands, so nothing is omitted silently. Its partition rule is an edit
+    /// guard until then ([`crate::rules::EDIT_GUARDS`]).
     GraphGaps, GraphGapsRow = "graph_gaps",
     family = Graph,
     key = [snapshot_id, gap_fact_id],

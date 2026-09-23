@@ -95,7 +95,8 @@ analytics that read them stay in their increments, and every family names its co
   distributions: `fastmcp` is a facade, `fastmcp-slim` holds the code (257 modules) and
   `fastmcp-tasks` (18 modules) comes through the `tasks` extra. `mcp` and `mcp-types` 2.2.0 are
   dependencies: resolved, but behind the analyzed boundary. **Tested** (`just pilot`,
-  2026-09-22): 275 modules, 103 distributions, every validation rule passing.
+  2026-09-22; re-verified 2026-09-23 by the C6 review): 275 modules, 103 distributions, every
+  validation rule passing.
 - **Subsystem.** The server-components surface. The compiler gets it only from the
   pre-registered **analytics config**, which declares the library's in-scope module prefixes and
   public roots, hand-written from the library's own public API. The config's digest is part of
@@ -171,7 +172,9 @@ Changing one needs an ADR and a `standard` review.
 
 ### §B2 Arrow schemas are the authoritative data contract
 
-**Proposed.**
+**Implemented** and **Tested** for the fact, derived and catalog tables (`contracts_snapshot`,
+`registry_snapshot`, `batches_type_check_and_sort_canonically_regardless_of_input_order`; C6
+review, 2026-09-23); the serving and embedding clauses are **Proposed**.
 
 - **What `cpg-schema` holds:**
   - the Arrow `Schema` definitions;
@@ -190,7 +193,9 @@ Changing one needs an ADR and a `standard` review.
 
 ### §B3 DataFusion constructs and validates relations
 
-**Proposed.**
+**Implemented** and **Tested** (C6 review, 2026-09-23): the derivations and the 493 rules run in
+DataFusion; `validate` is the one validator publication (`attempt.rs`) and the tests call; what a
+rule can prove is stated in §8 (its edit guards counted apart).
 
 - Most nodes and edges are joins, projections and unions over extracted facts.
 - Cross-table invariants are DataFusion queries, one per rule (§8).
@@ -221,7 +226,8 @@ Changing one needs an ADR and a `standard` review.
 
 ### §B6 Facts are first-class assertions with provenance
 
-**Proposed.**
+**Implemented** and **Tested** (the `fact:`/`fact-payload:` cases; `provider_disagreement` rows in
+the derived snapshots; C6 review, 2026-09-23).
 
 - Every assertion is a `facts` row carrying its run, `origin`, `extraction_mode`, `modality`,
   `fidelity` and model.
@@ -238,7 +244,9 @@ Changing one needs an ADR and a `standard` review.
 
 ### §B7 Delta canonical store, published by a `snapshots` append
 
-**Interface-checked.**
+**Implemented** and **Tested** (`an_attempt_publishes_every_table_and_readers_see_only_published_rows`,
+`reads_pin_the_version_and_filter_the_snapshot`, `a_failed_snapshots_append_is_classified_by_rereading`,
+`retention_keeps_old_versions_loadable`; C6 review, 2026-09-23).
 
 - Fact tables are append-only Delta tables, one per fact family.
 - A snapshot becomes visible only through one append to the `snapshots` table, made after
@@ -453,7 +461,7 @@ declaration, and an AST node is not an execution point.
 | `syntax` | **Implemented and Tested (C2; revised by its compact review).** Raw `syntax_nodes` (Ruff): every statement, the clause nodes (`elif`/`else`, `except`, `case`, `with` items) and **every expression outside annotations** (the IP 2.1 exhaustive-exporter contract; placement depends on the source alone, never on a provider). Each row has its parent (the nearest placed ancestor), owner, field (`syntax_field`: body, test, orelse, handler, exc, cause, default, argument, …), ordinal in that field (a statement's block index), span, `kind` (Ruff's `NodeKind`, the `syntax_kind` codebook, an exhaustive match) and detail (a name, attribute, operator, literal as written, or a handler's name). A `def`, a `class` and a call are placed under their declaration and call-site ids; nothing inside an annotation is placed. Derived: `site_targets` (each Pysa attribute, artificial and format-string record → the deepest syntax node at its span, a chained comparison's pairwise site → its comparison → its typed target; a span with no node is our own failure, never a reason). Consumers: Pass B guards, raises, handlers and defaults; Pass C straight-line regions; FCA raised types (their type is C4's) | C2 |
 | `lexical` | **Implemented and Tested (C3; revised by its compact review).** Raw, from our recognizer (surface `lctx-lexical`, `recognizer`, inside the Ruff walk): `scopes` (module, class, function, lambda, comprehension; owner, and parent = the scope the scope's position evaluates in, so a lambda in a default or decorator belongs to the enclosing scope), `bindings` (every binding event per scope, ordinals in source order: kind, site, span, the assigned value's span, and the statically decided branch it sits in with its polarity; every event under `global`/`nonlocal` binds in the declared scope, a `nonlocal` target decided once every binding is known; a repeated name in one declaration is one event; the module's implicit globals and a method's `__class__` cell are `implicit` events), `references` (every name load outside annotations, and an augmented assignment's target, which reads before it binds; a role of its placed name, with its parent and field; nothing inside an annotation opens a scope or binds), `reference_resolutions` (Python's scoping rules as modelled: the scope's own bindings, else the nearest enclosing function scope with class scopes skipped, else the module, else the star imports whose wildcard set holds the name, else a builtin; comprehension first iterables and function defaults in the enclosing scope; walrus in the nearest non-comprehension scope; flow-insensitive candidates, except that a module or class body reading a name it binds only later also reads it from outside, as `LOAD_NAME` does; a builtin names itself, a builtin variable reads `variable_origin`, anything else `unresolved_target`). Every name set from outside the module's text is Pyrefly's: its `ImplicitGlobal` set, its `builtins` definitions that are real public names, each star import's `Transaction::get_wildcard` set (a star module Pyrefly cannot find stays a candidate for any otherwise unbound name). **Not modelled:** PEP 695 annotation scopes (class and alias type parameters), the implicit unbinding at the end of an `except … as` handler (C3 review O4, O5, deferred). `export_syntax.resolved_module` is each import's absolute module by Pyrefly's own `ModuleName::new_maybe_relative`. Derived: `identifier_targets` (Pysa's identifier sites → the reference at their span → typed target), `import_targets` (each import → the release or dependency module it names; `unresolved_target` only where Pyrefly's finder says not found, a `context_modules` row of origin `not_found`, or where the import climbs past the top package). Consumers: Pass B binding order (§4.2.4), Pass C bindings and values, the import graph, `if_called` targets, variable exports | C3 |
 | `types` | **Implemented and Tested (C4; revised by its compact review).** Raw, from Pyrefly's native types (surface `pyrefly-types`, `native_structural`). `type_terms`: one row per distinct term, its id a Merkle hash over Pyrefly's own structure and identities (kind, detail, class pair, children with their roles; §3.4.1); the display is a label, and only a display-only kind (`other`, `truncated`) hashes it. Two structures that share an id but differ in kind, detail or display fail `unique:type_terms` (several runs may observe one term; `nodes` keeps it once). A class is a (module ref, class key) pair, an enum member keeps its class, and a recursive alias is a reference to its name, so a term is finite; a depth cap (32) makes that a guarantee. A type variable's id is Pyrefly's own identity (`QuantifiedIdentity`), so one variable is one term wherever it is observed and two unrelated `T`s are two; its bound, constraints and default are its children (`type_arg_role` `bound`, `constraint`, `default`). `type_term_kind` maps every `Type` variant by an exhaustive match; solver-internal and experimental variants are `other` (`display_only`). `type_term_args`: each child at its role and ordinal; a callable parameter carries its name, kind and requiredness. `type_observations` (§3.5.1): each parameter's type, each `def`'s return (`Key::ReturnType`; an annotated one is the annotation, §3.5.1), each call's result, each argument's value and each `raise`'s exception (Pyrefly's expression trace at the exact span; calls in annotations excluded). A subject Pyrefly records no type for (a `TypeVar(...)` declaration, a call in a lambda body, a branch Pyrefly skips for the platform) is a `types` boundary (`missing_evidence`) and the module's coverage is `partial`; a bare `raise` has no exception to type. `record_fields`: the fields a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple` declares itself (an inherited field a subclass assigns in a method stays its base's), with the flags as the field states them (default, `init`, alias and `kw_only` through `ClassField::dataclass_flags_of`; `TypedDict` required and read-only); the constructor they imply is Pyrefly's synthesized `__init__`, a `synthetic_callable` with its `parameter_semantics`. Derived: `type_class_targets` (each term's class → a release class or dependency definition; a miss is our failure, never a reason) and `type_binders` (each source-anchored variable → the innermost release declaration, type-alias or assignment statement holding Pyrefly's scope anchor, a joined fact; `scope_boundary` for an anchor outside the release). Consumers: Pass C type compatibility, FCA parameter, return and raised types, controls from record fields | C4 |
-| `docs` | **Implemented and Tested (C5a, C5b).** A corpus run over the library's upstream tree at its pinned commit (§4.0), in the library's environment; its search path is the tree, then site-packages (the library run's search path), so a module both runs import is one file. Raw, parsed by markdown-rs 1.0 (MDX constructs and frontmatter; byte offsets, probe P5): `documents` (each selected file: path, digest, frontmatter title, whether it parsed; one that does not parse is `unavailable` with markdown-rs's message), `passages` (each top-level heading's section to the next, so a document's passages partition it, with level, heading and heading path; the text before the first heading is passage 0), `code_blocks` (fenced blocks at any depth, MDX components included: language, meta, code, digest; each in the passage its start falls in) and `doc_links` (URL, title, text). `mentions` (our recognizer, `lctx-docs`) against the library run's public names and declarations, two classes never merged: `exact` for inline code (or a dotted prose token) that is a public access path, an origin path or a public class's member (`FastMCP.tool`); `lexical` for inline code that is a bare public name of a class, function, method or module, or such a name in prose when it is distinctive (an underscore, or two capitals and a lower-case letter), one `candidate` per origin (re-exports collapse to the shortest access path). Embedding-based linking is §9.7's. Derived: `mention_targets` (→ the `export` node, or the member's release declaration by the seed rank). Consumers: exact doc links to APIs and extractive brief text, §9.4 co-mention. **The usage run (C5b)** is the same corpus run's code: the selected examples and tests, and every Python code block materialized as a module of its own (`_lctx_blocks/d_<document>/block_<n>.py`, named in `code_blocks.module_path`), with every code family but `exports`. The corpus names each installed file the release's distributions own by the library run's own site-relative `@path` (C5 review F2), so a usage call's target is the release's own declaration or synthetic callable (the same Pysa key, probe P4), a release class is one type term whichever run observes it, and an import of a library module targets the library's module node. A tree that holds its own copy of the package ahead of the installed one (a flat layout) would cut the usage code off the release, so it fails the compile, naming the module. Consumers: Pass C examples and tests, §10.5 usage patterns, §9.4 co-use | C5 |
+| `docs` | **Implemented and Tested (C5a, C5b).** A corpus run over the library's upstream tree at its pinned commit (§4.0), in the library's environment; its search path is the tree, then site-packages (the library run's search path), so a module both runs import is one file. Raw, parsed by markdown-rs 1.0 (MDX constructs and frontmatter; byte offsets, probe P5): `documents` (each selected file: path, digest, frontmatter title, whether it parsed; one that does not parse is `unavailable` with markdown-rs's message), `passages` (each top-level heading's section to the next, so a document's passages partition it, with level, heading and heading path; the text before the first heading is passage 0), `code_blocks` (fenced blocks at any depth, MDX components included: language, meta, code, digest; each in the passage its start falls in) and `doc_links` (URL, title, text). `mentions` (our recognizer, `lctx-docs`) against the library run's public names and declarations, two classes never merged: `exact` for inline code (or a dotted prose token) that is a public access path, an origin path or a public class's member (`FastMCP.tool`); `lexical` for inline code that is a bare public name of a class, function, method or module, or such a name in prose when it is distinctive (an underscore, or two capitals and a lower-case letter), one `candidate` per origin (re-exports collapse to the shortest access path). Embedding-based linking is §9.7's. Derived: `mention_targets` (→ the `export` node, or the member's release declaration by the seed rank). Consumers: exact doc links to APIs and extractive brief text, §9.4 co-mention. **The usage run (C5b)** is the same corpus run's code: the selected examples and tests, and every Python code block materialized as a module of its own (`_lctx_blocks/d_<document>/block_<n>.py`, named in `code_blocks.module_path`), with every code family but `exports`. The corpus names each installed file the release's distributions own by the library run's own site-relative `@path` (C5 review F2), so a usage call's target is the release's own declaration or synthetic callable (the same Pysa key, probe P4), a release class is one type term whichever run observes it, and an import of a library module targets the library's module node. A tree that holds its own copy of the package ahead of the installed one (a flat layout) would cut the usage code off the release, so it fails the compile, naming the module. Consumers: Pass C examples and tests, and §9.4 co-use, over the usage run's structure (calls, types, bindings). §10.3–§10.5 usage patterns also need what the snapshot does not hold yet: the text of the example and test modules (only doc blocks, passages and docstrings are stored) and each module's usage role (example, test or doc block, today only a path convention). That decision is open and owed before §10.5 (§13; C6 review F2) | C5 |
 | `findings` | `findings`, `witnesses`, `evidence` (evidence_id → one of: fact, span, passage, example, fixture run), `assertions`, `assertion_support` (assertion → finding / evidence), `briefs` (with `review_state`), `brief_members`, `usage_patterns` | 1 |
 
 Deferred: CFG, dataflow and alias tables (§1.3, §13). Type structure and `record_fields` are built in C4 (ADR-0014).
@@ -461,6 +469,8 @@ Deferred: CFG, dataflow and alias tables (§1.3, §13). Type structure and `reco
 > Decision: ADR-0014, ADR-0012
 
 ### §3.3 Physical profiles
+
+**Tested** (`every_table_round_trips_through_delta_exactly`; C6 review, 2026-09-23).
 
 | Logical value | Computation (Arrow) | Delta | Invariant |
 |---|---|---|---|
@@ -522,10 +532,10 @@ migration (DM-51).
 | `run_id` | `release_id`, `context_id`, `producer_id`, sorted enabled families, the producer's own config digest | global |
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id` | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. `capability_id` = `brief_id` | content |
-| `edge_id` (C1, Proposed) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
+| `edge_id` (C1, **Implemented** and **Tested**: `the_catalogs_hold_every_graph_shape`, `the_catalogs_are_the_same_across_runs_order_and_location`; byte-identical on a pilot rerun and relocation, C6 review 2026-09-23) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
 | Role and derived node ids (C1, C3, C4, C5 **Implemented**) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, kind, detail, class pair and type-variable identity, then each child's role, ordinal, id, parameter name, kind and requiredness; a variable's is its identity alone, a display-only kind's includes its display (Rust; a Merkle id with no SQL form, so no `id:` rule). It is producer-scoped like syntax and external-symbol ids: it hashes Pyrefly's detail text, Pysa class keys and anchor byte offsets, so a Pyrefly bump or an edit earlier in a module renames it. Field (C4): `field`, class node, name (Rust; `id:record_fields`). Document (C5): `document`, release, path. Passage and code block (C5): `passage` or `code_block`, document node, ordinal (Rust; `id:documents`, `id:passages`, `id:code_blocks`) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
-| `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context), compiler digest, analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first two | compares reruns |
+| `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context), compiler digest, analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first two (**Implemented**; equal across a pilot rerun and relocation, C6 review 2026-09-23) | compares reruns |
 | `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script), a hand-bumped compiler output version, every derivation query, table contract and validation rule. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
 
 - **Ids in SQL** (C1, **Implemented** in `cpg_core::udf`, **Tested** by its known-answer and
@@ -540,7 +550,9 @@ migration (DM-51).
     extractor, a later pass) equals the one computed in SQL.
   - The UDF's recipe is part of `compiler_digest`.
 - **Keys are snapshot-qualified.** Uniqueness is checked on `(snapshot_id, key)`, so an identical
-  rerun re-emits the same `node_id` and `fact_id` in a new snapshot without conflict.
+  rerun re-emits the same `node_id` and `fact_id` in a new snapshot without conflict (**Tested**
+  at pilot scale: a rerun's `nodes`, with `existence_fact_id`, are byte-identical; C6 review R1,
+  2026-09-23).
 - **Collisions are validator failures** (§8), never silently merged. `nodes` keeps one row per id
   only for the kinds several existence rows legitimately assert (an export read from a `.py` and
   its `.pyi`, a dependency module or symbol, or a type term two runs reference); any other
@@ -574,6 +586,9 @@ migration (DM-51).
 > Decision: ADR-0013 (superseding ADR-0007)
 
 ### §3.5 Vocabularies and codebooks
+
+**Implemented** and **Tested** (`registry_snapshot`, `codes_are_dense_from_zero_and_names_unique`,
+the `codebook:boundaries.reason` case; C6 review, 2026-09-23).
 
 **Codebooks** are append-only `Int16`, versioned in `cpg-schema`.
 
@@ -652,6 +667,9 @@ migration (DM-51).
 
 ### §3.6 Resolution is a set
 
+**Implemented** and **Tested** (the derived-table snapshots; `modality_follows_the_variant_table`;
+C6 review, 2026-09-23).
+
 - **A call's targets form a `ResolutionSet`,** carrying:
   - `status`;
   - `domain`;
@@ -722,8 +740,9 @@ terms with two binders, the recursive alias as one finite term). C5 is **Impleme
 component, links, mentions by class and an other-library member refused, an unparsable
 document's coverage, and the usage run: a test module and a materialized block reaching the
 release's own declarations, the release class one term. Also: the same corpus in two places is
-one context and run; a tree shadowing the release fails; an empty glob is refused; each C5 rule
-rejects an injected violation, `the_corpus_rules_reject_their_violations`). This
+one context and run, and another library release is another corpus; a tree shadowing the release
+fails; an empty glob is refused; each C5 rule rejects an injected violation,
+`the_corpus_rules_reject_their_violations`). This
 is how
 the typed family tables
 become a graph without a second authority, following the operator's guidelines
@@ -773,11 +792,13 @@ rules are generated from (DM-52).
 - Evidence exists, in the kind's evidence table; support exists.
 - `key:nodes`, where one id with two kinds is a collision, and `key:edges`.
 - **Lineage from raw rows:** each source row yields exactly its declared edges, or its derived row
-  carries a provider's reason.
+  carries a provider's reason. Where the edge is read straight off the same unfiltered table,
+  the rule is an edit guard (§8), not a data check.
 - **Partition of `pysa_calls`:** every row is a call-site row (lineage), an unresolved remainder
   counted on its `resolutions` or `argument_resolutions` row, a C2 site row (lineage through
   `site_targets`), or an identifier site (lineage through `identifier_targets`). No row is a gap
-  since C3; the gaps rule stays, and checks an empty table (review O2).
+  since C3; the gaps rule stays as an edit guard over an empty table (review O2; §8). The
+  remainders rule rejects a resolution that stops counting its remainder (C6 review F1).
 - **Placement (C2):** every declaration, and every call outside an annotation, has its
   `syntax_nodes` row; a node is placed once; a placed child lies within its placed parent, in the
   same module; a Pysa site with no node, or a name with no reference, is a `typed:*` violation
@@ -786,18 +807,26 @@ rules are generated from (DM-52).
   binding, builtin or reason); `typed:identifier_targets`; `typed:import_targets` (a reason only
   from Pyrefly's finder: an import we misname fails it, C3 review F2); every reference's name is a
   placed syntax node. Each rejects an injected violation (`compile.rs`, C3 review F7).
+- **Earlier rules without a case until C6** (C6 review F1): `typed:exports`,
+  `typed:ancestry_targets`, `typed:override_targets`, five `semantic:*`, `id:arguments`,
+  `id:context_definitions`, `id:context_modules`, `placed:call_syntax` and "a run's release has
+  modules or documents" now reject doctored views in `each_graph_rule_rejects_a_doctored_catalog`
+  (`boundary-has-resolution` a raw mutation in `compile.rs`).
 - **Docs (C5):** `id:documents`, `id:passages`, `id:code_blocks`; `typed:mention_targets`,
-  a run's release has modules or documents; a run declaring a family has what it covers (`coverage:family-has-scope`: a document for `docs`, a module for a code family); `coverage:complete` expects a
+  a run's release has modules or documents, and a document's release has a run (C6 review O6); a
+  run declaring a family has what it covers (`coverage:family-has-scope`: a document for `docs`,
+  a module for a code family); `coverage:complete` expects a
   `docs` row per document; `unique:release-paths` (an attempt's releases share no path, so a
   `@path` module reference names one file); `unique:type_terms` (one term id, one kind, detail and
-  display, however many runs emit it).
+  display, however many runs emit it). Each rejects an injected violation
+  (`the_corpus_rules_reject_their_violations`, C5 review F7).
 - **Types (C4):** `id:record_fields`; `typed:type_class_targets`; `typed:type_binders`; lineage
   for every observation, term argument, class-bearing term and record field. The three named
   rules reject injected violations on `type_shapes` (C4 review F1).
 - **Typed targets:** a null target carries a reason.
 - **Ids:** the Rust recipes equal their SQL form (`id:*`).
-- A rule whose target is built from its own source column is not generated, because it cannot
-  fail.
+- A reference whose target is built from its own source column is not generated, because it
+  cannot fail; the lineage rules that cannot are declared edit guards (§8).
 
 **The registry as data.**
 - `edge_kinds` publishes each kind's derivation class (`derivation_class`: extracted, analyzer,
@@ -989,7 +1018,10 @@ never `.pth`).
   checkout, tempdir or environment sits never changes an identity; what the dependencies contain
   always does (**Tested**: two fixture locations, two acquired environment paths with
   location-dependent `RECORD`s, two environments, an unowned stub inside a package, a loose file,
-  a lock-only change; on the pilot, two environment paths give one `content_digest`). A changed
+  a lock-only change; on the pilot, two environment paths give one `content_digest`; and at
+  pilot scale for both runs, a freshly synced environment in another directory plus a copied
+  source tree give byte-identical `contexts`, `nodes` and `edges`, a C6 review observation
+  (R2, 2026-09-23), not a repo test). A changed
   analyzer-readable byte a `RECORD` owns is refused.
 - `releases` and `distributions` record the library, requirement, lock digest, release
   distributions, installer and every installed distribution (§3.2).
@@ -1259,39 +1291,50 @@ P1). A `snapshot_id` filter therefore costs one footer read per file, not a full
 
 **Metrics** (C1, **Implemented**; guidelines §12; `cpg_schema::metrics`).
 - `lctx compile` reports, per stage, wall time and the process's peak RSS so far (`VmHWM`, which
-  only grows): acquire, Stage A, the Pyrefly check, per-module extraction (with its Ruff walk and
+  the kernel updates lazily, so it only grows approximately; it includes allocator retention,
+  §4.3 Measured): acquire, Stage A, the Pyrefly check, per-module extraction (with its Ruff walk and
   Pysa collectors), public names, the dependency check and definitions, raw write per table,
   derive per table, validate and publish (review O4).
 - They are returned with the published attempt and never stored in Delta: they are not content.
 
-**Measured, the whole CPG (C6, 2026-09-23;** `just pilot` after the C5 review fixes, with
-per-rule validation costs; FastMCP 4.0.5 and its corpus; fresh store, snapshot `ab6d98a3…`; a
-32-thread, 188 GB host**):**
-- 905,648 nodes and 1,449,162 edges; every one of the 494 rules passing; **44.6 s** in all. (At
-  the C5b build, before the review: 907,845 nodes, 1,452,970 edges, 503 rules, 50.0 s, 8.0 GB,
-  snapshot `063b8eb3…`.)
-- **Extraction, 31.2 s.** The library run: the Pyrefly check 2.1 s, per-module extraction 5.1 s
+**Measured, the whole CPG (C6, 2026-09-23;** `just pilot` after the C5 and C6 review fixes, with
+per-rule validation costs; FastMCP 4.0.5 and its corpus; fresh store, snapshot `ddee0669…`; a
+32-thread, 188 GB host; the default glibc allocator**):**
+- 905,648 nodes and 1,449,162 edges; every one of the 493 rules passing; **44.6 s** in all (the
+  C6 review reproduced 44.2 s and 44.5 s). (At the C5b build, before its review: 907,845 nodes,
+  1,452,970 edges, 503 rules, 50.0 s, snapshot `063b8eb3…`.)
+- **Extraction, 31.3 s.** The library run: the Pyrefly check 2.1 s, per-module extraction 5.1 s
   (4.4 s of it the Pysa collectors), and the dependency check 3.8 s. The corpus run: its check
-  3.4 s, per-module extraction 7.7 s, its dependency check 3.7 s, and the documents 0.2 s.
-- **Raw writes, 0.7 s. Derivation, 2.5 s** (`edges` 1.1 s, `nodes` 0.5 s).
-- **Validation, 10.1 s:** 494 queries, the slowest 0.15 s (`unique:type_terms`), so the cost is
+  3.4 s, per-module extraction 7.8 s, its dependency check 3.7 s, and the documents 0.2 s.
+- **Raw writes, 0.7 s. Derivation, 2.4 s** (`edges` 1.1 s, `nodes` 0.5 s).
+- **Validation, 10.0 s:** 493 queries, the slowest 0.15 s (`unique:type_terms`), so the cost is
   their number, each re-scanning its Delta views. `lctx compile` reports the three slowest rules and
   the one that raised the peak most.
-- **Peak RSS 7.4 GB,** climbing stage by stage: 3.7 GB after extraction (both runs' batches held),
-  3.7 GB after the raw writes, 5.4 GB after derivation, and 7.4 GB after validation
-  (`unique:type_terms` raised it most, by 0.5 GB).
-- **Decision:** streaming derive stays deferred, since its trigger (derive dominating) is not met.
-  Derivation is 6% of the wall time, and it adds 1.7 GB.
+- **Peak RSS, and what it measures** (C6 review F3). With the default allocator the peak is
+  7.1 GB here, and 6.7–8.0 GB across seven runs with identical inputs. It climbs from 3.8 GB after
+  the raw writes to 5.1 GB after derivation and 7.1 GB after validation. **About 40–45% of it is
+  glibc arena retention, not working set:** under `MALLOC_ARENA_MAX=2` the same compile peaks at
+  4.2 GB (3.7 GB after extraction, +0.5 GB in derivation, nothing in validation), but takes
+  61.2 s (derivation 12.2 s, validation 16.9 s). `VmHWM` is updated lazily, so "only grows" holds
+  approximately. The raw batches are now released once written (`attempt::compile_owned`): the
+  effect is inside the default allocator's spread, and 0.1 GB under the arena limit (4.3 → 4.2 GB).
+- **Decision:** streaming derive stays deferred, since its trigger is not met: derivation is 5% of
+  the wall time, and its working set about 0.5 GB.
 
 **Deferred, with triggers.**
 - `datafusion-tracing` (compatible with 55.1 per its skill): until per-operator spans are needed.
 - **Streaming derive:** `WriteBuilder::with_input_plan(LogicalPlan)` streams per partition and
   still enforces CHECKs (read in the pinned source, `write/execution.rs:405-431`, 2026-09-22).
   - It would need its own schema and foreign-snapshot checks, and row counts from write metrics.
-  - Reopen when derivation dominates the per-stage time or peak RSS. At C6 it did neither (above).
+  - Reopen when derivation dominates the per-stage time, or its working set dominates the peak.
+    Working set is read as the peak under `MALLOC_ARENA_MAX=2` (`MALLOC_ARENA_MAX=2 just pilot`),
+    which separates it from allocator retention (C6 review F3). At C6 it did neither (above).
 - **Validation over cached tables, or concurrent rules:** register the hot tables as in-memory
   batches for the rule run, or run rules concurrently. Reopen when validation outgrows
-  extraction's wall time, or the peak nears the host's memory.
+  extraction's wall time. Both remedies raise the peak.
+- **Peak memory:** the levers that lower it are the allocator's arena policy (or another
+  allocator, a dependency decision) and releasing batches early. Reopen when the arena-limited
+  peak nears the host's memory, or a library's default-allocator peak does.
 - **File skipping on `snapshot_id`:** the writer records no Delta-log statistics for Binary
   columns (`writer/stats.rs:214-238`), so the known limit above stands. Reopen when a published
   read's latency is measured to matter.
@@ -1474,9 +1517,12 @@ authoritative for them (ADR-0010, ADR-0011, ADR-0012).
 
 ## §8 Validation
 
-**Implemented** for the cross-table rules below and **Tested** (slice 2, 2026-09-22: each rule
-kind rejects an injected violation); endpoint kinds and the brief rules are **Proposed**. Source:
-IP L1581–L1601.
+**Implemented** for the cross-table rules below and **Tested** (slice 2, 2026-09-22; C6 review
+F1, 2026-09-23): every hand-written rule rejects an injected violation or is a declared edit
+guard (below), and every generated template (`key`, `ref`, `fact`, `fact-payload`, `codebook`,
+`endpoint`, `evidence`, `one-per-evidence`, `no-parallel`, `lineage`) has at least one case;
+`every_rule_is_exercised_or_declared_an_edit_guard` fails when a rule is added without either.
+The brief rules are **Proposed**. Source: IP L1581–L1601.
 
 **Local** (Arrow/Rust), at every materialization boundary:
 - exact physical types, nullability and widths. `RecordBatch::try_new` with default options
@@ -1519,7 +1565,16 @@ contracts and snapshot-tested:
     (this replaces slice 2's "a release call target names a declaration or gives a reason");
   - ids: each Rust recipe equals its SQL form.
 
-  A rule that could only pass (its target built from its own source column) is not generated;
+  **Edit guards** (C3 review O2; C6 review F1). A lineage rule that re-reads its edge kind's own
+  unfiltered source cannot fail on today's SQL: it guards an edit of that edge's derivation, not
+  a data condition. Eighteen rules are such guards, declared in `cpg_schema::rules::EDIT_GUARDS`
+  and counted apart: the lineage of `declares`, `has_parameter`, `encloses_call`,
+  `has_argument`, `ast_child`, `owns_scope`, `lexical_parent`, `binds`, `reads_binding`,
+  `captures`, `declared_in`, `has_type`, `type_arg`, `has_field`, `field_type`,
+  `contains_passage` and `contains_block`, and `partition:pysa_calls-gaps` (its table is empty
+  by construction since C3). The other 15 lineage rules compare a filtered or joined source with
+  the edges, and each can fail. A reference whose target is built from its own source column is
+  not generated. **Count** (2026-09-23, `rules().len()`): 493 rules, 475 of them falsifiable;
 - every assertion cites existing findings and evidence;
 - every public symbol in a brief exists in `exports`.
 
@@ -1966,6 +2021,7 @@ Each item returns by ADR when a consumer needs it.
 | LanceDB, ANN indexes | IP L2766–L2965 | corpus size or managed FTS (§11.2) |
 | LLM interpretation | IP L1886–L1966, L2580–L2637 | §12 gap metric (§B11) |
 | Graph embeddings, neural reranking, composition planning | IP L2073–L2087 | an ADR after increment 5 |
+| **Open decision (operator):** usage-module text and usage role (C6 review F2). Text: store it (a column on the corpus run's `source_files`, or a `usage_sources` table; 5.6 MB on the pilot), or a content-verified re-read of `build/sources/<name>/<commit>` checked against `source_files.content_digest` (amending §6.4's rebuild promise). Role: `example`, `test` or `doc_block` from the selecting glob, an appended codebook | §3.2 `docs`, §10.3–§10.5, §6.4 | the §10.5 slice, or the first Pass C finding that must cite code text |
 
 ---
 
@@ -1992,5 +2048,6 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | CPG slice C5a: the source corpus fetched hermetically at its pinned commit, the corpus release and run (several runs per attempt over distinct releases), the `docs` family (`documents`, `passages`, `code_blocks`, `doc_links`, `mentions`; derived `mention_targets`; `document`, `passage`, `code_block` nodes; three edge kinds) with markdown-rs 1.0 (probe P5) (§3.1, §3.2, §3.4.1, §3.5, §3.8, §4.0, §4.1, §8) | ADR-0014, ADR-0013 amendment |
 | 2026-09-23 | C4 compact review F1–F7: no catch-all in `type_class_targets`; declared async returns are the annotation; term ids from Pyrefly's structure and identities alone (the display a label; one term per variable), binders derived in Stage D (`type_binders`); boundaries for untyped subjects; enum classes and type-variable bounds, constraints and defaults; inherited method-assigned fields skipped; three rules tested by injected violations (§B8, §3.2, §3.4.1, §3.5.1, §3.8, §4.2.6) | ADR-0014 |
 | 2026-09-23 | CPG slice C5b: the usage run (examples, tests and materialized Python code blocks, every code family but `exports`) in the corpus run, whose search path puts the tree ahead of site-packages; `usage_targets` and the `block_module` and `usage_link` edges (probe P4); release-scoped module-name joins; one node and edge for what two runs both assert; `unique:release-paths`, `unique:type_terms`; an augmented assignment's target is a reference; `lctx query --unpublished` (§3.2, §3.4, §3.8, §4.0, §8) | ADR-0014, ADR-0013 amendment |
-| 2026-09-23 | CPG slice C6: the whole-CPG measurement (§4.3): 50.0 s and 8.0 GB on the pilot (44.6 s and 7.4 GB after the C5 review) and its corpus; streaming derive stays deferred (its trigger is not met), and validation's cost is recorded per rule, with a new deferred item and trigger | ADR-0014 |
+| 2026-09-23 | CPG slice C6: the whole-CPG measurement (§4.3): 50.0 s and 8.0 GB on the pilot (44.6 s and 7.1 GB after the C5 and C6 reviews; 4.2 GB with `MALLOC_ARENA_MAX=2`) and its corpus; streaming derive stays deferred (its trigger is not met), and validation's cost is recorded per rule, with a new deferred item and trigger | ADR-0014 |
 | 2026-09-23 | C5 compact review F1–F8: the corpus run names the release's installed files by their `@path`, so usage calls, type terms and imports reach the release's own nodes and `usage_targets` and `usage_link` retire; a tree shadowing the release fails; the corpus identity is location-free and includes the library release; hermetic git attributes; source keys and globs checked, `coverage:family-has-scope`; `exact` members need their prefix; injective block paths; injected violations for every C5 rule (§3.2, §3.4.1, §3.8, §4.0, §8) | ADR-0014; ADR-0013 |
+| 2026-09-23 | C6 deep review (Accept, claims narrowed): §8 states the 18 edit-guard rules (`EDIT_GUARDS`) and counts them apart (493 rules, 475 falsifiable), and a meta-test holds every other hand-written rule to an injected case; 14 new cases, `ref:documents.release_id`, unique tie-breaks; the C6 memory figures restated with their allocator conditions and range, the arena-limited peak, retargeted triggers, and the raw batches released once written; the usage run's §10 consumers narrowed, with the text-and-role decision open in §13; labels raised where verified (§B2, §B3, §B6, §B7, §3.3, §3.4.1, §3.5, §3.6, §4.0, §8) | ADR-0014 amendment |

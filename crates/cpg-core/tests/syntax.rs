@@ -706,7 +706,17 @@ async fn the_corpus_rules_reject_their_violations() {
         *b = arrow_select::filter::filter_record_batch(b, &mask).unwrap();
     }
     type Mutation = fn(&mut Raw);
-    let cases: [(&str, Mutation); 9] = [
+    let cases: [(&str, Mutation); 10] = [
+        // C6 review O6: a document of a release no run compiled escapes nothing.
+        ("ref:documents.release_id->runs", |raw| {
+            let b = batch(raw, "documents");
+            let other = arrow_array::FixedSizeBinaryArray::try_from_iter(std::iter::repeat_n(
+                [9u8; 16],
+                b.num_rows(),
+            ))
+            .unwrap();
+            set(b, "release_id", std::sync::Arc::new(other));
+        }),
         ("id:documents", |raw| {
             let b = batch(raw, "documents");
             let paths = texts(b, "path", |p| format!("{p}.moved"));

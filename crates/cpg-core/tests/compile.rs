@@ -388,7 +388,7 @@ async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
     type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
-    let cases: [(&str, Mutation); 23] = [
+    let cases: [(&str, Mutation); 24] = [
         ("key:declarations", |raw| {
             let b = table(raw, "declarations");
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &b.slice(0, 1)]).unwrap();
@@ -429,6 +429,28 @@ async fn every_rule_kind_rejects_its_violation() {
         ("semantic:resolution-has-boundary", |raw| {
             keep_rows(raw, "boundaries", "fact_family", |f| f != "3");
             keep_rows(raw, "facts", "table_name", |t| t != "boundaries");
+        }),
+        // C6 review F1: a call boundary whose reason its resolution does not give.
+        ("semantic:boundary-has-resolution", |raw| {
+            let b = table(raw, "boundaries");
+            let column = |c: &str| {
+                b.column(b.schema().index_of(c).unwrap())
+                    .as_any()
+                    .downcast_ref::<Int16Array>()
+                    .unwrap()
+                    .clone()
+            };
+            let (families, reasons) = (column("fact_family"), column("reason"));
+            let moved: Int16Array = families
+                .iter()
+                .zip(reasons.iter())
+                .map(|(f, r)| match (f, r) {
+                    (Some(3), Some(0)) => Some(1),
+                    (Some(3), Some(_)) => Some(0),
+                    (_, r) => r,
+                })
+                .collect();
+            *b = replace(b, "reason", Arc::new(moved));
         }),
         // Slice-2 F1, then ADR-0014 review F1: a release target that names nothing publishes
         // with no reason, and the typed rule rejects it (no catch-all reason hides it).
@@ -681,6 +703,84 @@ async fn every_rule_kind_rejects_its_violation() {
     // The unmutated snapshot passes every rule.
     let root = tempfile::tempdir().unwrap();
     compile(root.path(), s, &base).await.unwrap();
+}
+
+/// Every hand-written rule is exercised by an injected violation or declared an edit guard, every
+/// generated template by at least one case, and no case names a rule that no longer exists (C6
+/// review F1). A case is a tuple opening with the rule's name in this crate's rule tests.
+#[test]
+fn every_rule_is_exercised_or_declared_an_edit_guard() {
+    use std::collections::BTreeSet;
+    const HAND_WRITTEN: &[&str] = &[
+        "coverage",
+        "semantic",
+        "id",
+        "partition",
+        "placed",
+        "unique",
+        "contained",
+        "support",
+        "typed",
+    ];
+    const TEMPLATES: &[&str] = &[
+        "key",
+        "ref",
+        "fact",
+        "fact-payload",
+        "codebook",
+        "endpoint",
+        "evidence",
+        "one-per-evidence",
+        "no-parallel",
+        "lineage",
+    ];
+    let names: Vec<String> = cpg_schema::rules::rules()
+        .into_iter()
+        .map(|r| r.name)
+        .collect();
+    let kinds: BTreeSet<&str> = names.iter().map(|n| n.split_once(':').unwrap().0).collect();
+    for kind in &kinds {
+        assert!(
+            HAND_WRITTEN.contains(kind) || TEMPLATES.contains(kind),
+            "a new rule kind `{kind}`: say whether it is hand-written or generated"
+        );
+    }
+    let mut cases = BTreeSet::new();
+    for source in [
+        include_str!("compile.rs"),
+        include_str!("graph.rs"),
+        include_str!("syntax.rs"),
+    ] {
+        for kind in &kinds {
+            for (at, _) in source.match_indices(&format!("\"{kind}:")) {
+                if source[..at].trim_end().ends_with('(') {
+                    let rest = &source[at + 1..];
+                    cases.insert(rest[..rest.find('"').unwrap()].to_owned());
+                }
+            }
+        }
+    }
+    let stale: Vec<_> = cases
+        .iter()
+        .filter(|c| !names.iter().any(|n| n.starts_with(c.as_str())))
+        .collect();
+    assert!(stale.is_empty(), "cases naming no rule: {stale:?}");
+    let guards = cpg_schema::rules::EDIT_GUARDS;
+    for guard in guards {
+        assert!(names.iter().any(|n| n == guard), "guard {guard} is no rule");
+    }
+    let unexercised: Vec<_> = names
+        .iter()
+        .filter(|n| HAND_WRITTEN.contains(&n.split_once(':').unwrap().0))
+        .filter(|n| !cases.contains(*n) && !guards.contains(&n.as_str()))
+        .collect();
+    assert!(unexercised.is_empty(), "no injected case: {unexercised:?}");
+    for kind in TEMPLATES {
+        assert!(
+            cases.iter().any(|c| c.split_once(':').unwrap().0 == *kind),
+            "no case exercises the `{kind}` template"
+        );
+    }
 }
 
 /// The C4 rules reject their violations on `type_shapes`, which has records and type variables

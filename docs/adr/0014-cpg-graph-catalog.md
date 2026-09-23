@@ -229,3 +229,18 @@ New or changed:
   published gaps.
 - **Superseded.** ADR-0008's deferral of the family → node/edge mapping and its generic views. All
   its other decisions are carried forward here.
+
+## Amendments
+
+- 2026-09-23: C6 deep review F1. The `revisit:` trigger "a lineage rule can pass vacuously" fired
+  at C3 and went unrecorded. The C3 review (O2) answered it: a lineage rule that re-reads its edge
+  kind's own unfiltered source guards an edit of that edge's SQL, not a data condition, and is
+  kept as such. Seventeen lineage rules and `partition:pysa_calls-gaps` (empty by construction
+  since C3) are these **edit guards**. They are declared in `cpg_schema::rules::EDIT_GUARDS` and
+  counted apart in DESIGN §8. The Decision's "a rule whose target is built from its own source
+  column is never generated" holds for references only. `every_rule_is_exercised_or_declared_an_edit_guard`
+  requires every other hand-written rule to reject an injected violation, and every generated
+  template to have a case. The deferred `higher_order_index` row of this ADR's standard review is
+  closed: its trigger fired (229 of 1,786 higher-order argument sites follow a keyword or starred
+  argument on the pilot), and Pysa numbers arguments with the same `iter_source_order().enumerate()`
+  as `arguments.ordinal` (Pyrefly `6a93da3`, read by the C6 review).

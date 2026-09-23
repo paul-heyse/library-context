@@ -253,11 +253,12 @@ fn compile(library_dir: &Path, env_dir: &Path, sources: &Path, store: &Path) -> 
             c.release.files.len()
         );
     }
-    let output = extract(&input).map_err(|e| e.to_string())?;
+    let mut output = extract(&input).map_err(|e| e.to_string())?;
     let extracted = started.elapsed();
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    let tables = std::mem::take(&mut output.tables);
     let published = runtime
-        .block_on(cpg_core::attempt::compile(store, snapshot, &output.tables))
+        .block_on(cpg_core::attempt::compile_owned(store, snapshot, tables))
         .map_err(|e| e.to_string())?;
     println!("snapshot {} published", published.snapshot_id.hex());
     println!("content  {}", published.content_digest.hex());

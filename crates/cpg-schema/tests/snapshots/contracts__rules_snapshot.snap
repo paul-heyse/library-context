@@ -128,6 +128,8 @@ ref:distributions.context_id->contexts
   SELECT f.context_id AS value FROM distributions f LEFT ANTI JOIN (SELECT context_id AS k FROM contexts) r ON f.context_id = r.k WHERE f.context_id IS NOT NULL
 ref:source_files.release_id->runs
   SELECT f.release_id AS value FROM source_files f LEFT ANTI JOIN (SELECT release_id AS k FROM runs) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
+ref:documents.release_id->runs
+  SELECT f.release_id AS value FROM documents f LEFT ANTI JOIN (SELECT release_id AS k FROM runs) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
 ref:runs.context_id->contexts
   SELECT f.context_id AS value FROM runs f LEFT ANTI JOIN (SELECT context_id AS k FROM contexts) r ON f.context_id = r.k WHERE f.context_id IS NOT NULL
 ref:runs.producer_id->producers

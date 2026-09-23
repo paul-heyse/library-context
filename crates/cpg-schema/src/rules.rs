@@ -52,6 +52,7 @@ pub const REFERENCES: &[Reference] = &[
     r("releases", "release_id", &[("runs", "release_id")]),
     r("distributions", "context_id", &[("contexts", "context_id")]),
     r("source_files", "release_id", &[("runs", "release_id")]),
+    r("documents", "release_id", &[("runs", "release_id")]),
     r("runs", "context_id", &[("contexts", "context_id")]),
     r("runs", "producer_id", &[("producers", "producer_id")]),
     r("coverage", "run_id", &[("runs", "run_id")]),
@@ -163,6 +164,32 @@ fn semantic() -> Vec<Rule> {
     })
     .collect()
 }
+
+/// Rules that cannot fail on today's SQL, named so no count or label reads them as falsifiable
+/// (C3 review O2; C6 review F1; DESIGN §8). Each lineage guard re-reads its edge kind's own
+/// unfiltered source, so it guards an edit of that edge's SQL rather than a data condition; the
+/// gaps partition reads a table that is empty by construction since C3. No injected violation
+/// can exercise them, and the rule meta-test accepts them for that reason alone.
+pub const EDIT_GUARDS: &[&str] = &[
+    "lineage:declares",
+    "lineage:has_parameter",
+    "lineage:encloses_call",
+    "lineage:has_argument",
+    "lineage:ast_child",
+    "lineage:owns_scope",
+    "lineage:lexical_parent",
+    "lineage:binds",
+    "lineage:reads_binding",
+    "lineage:captures",
+    "lineage:declared_in",
+    "lineage:has_type",
+    "lineage:type_arg",
+    "lineage:has_field",
+    "lineage:field_type",
+    "lineage:contains_passage",
+    "lineage:contains_block",
+    "partition:pysa_calls-gaps",
+];
 
 /// Every rule, in a fixed order: keys, references, fact links, codebooks, coverage, semantic.
 pub fn rules() -> Vec<Rule> {

@@ -191,19 +191,78 @@ pub async fn compile(
     snapshot_id: Id,
     raw: &[(&str, RecordBatch)],
 ) -> Result<Published, CoreError> {
-    let mut stages = Stages::new();
-    let mut versions = Versions::new();
-    let mut rows = Vec::new();
+    let mut written = Written::new();
+    let runs = write_all(root, snapshot_id, raw, &mut written).await?;
+    finish(root, snapshot_id, runs, written).await
+}
+
+/// [`compile`], releasing the raw batches once they are written: derivation and validation read
+/// the Delta tables, and only the run ids are still needed (C6 review F3).
+pub async fn compile_owned(
+    root: &Path,
+    snapshot_id: Id,
+    raw: Vec<(&'static str, RecordBatch)>,
+) -> Result<Published, CoreError> {
+    let mut written = Written::new();
+    let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
+    drop(raw);
+    written.stages.mark("release raw batches");
+    finish(root, snapshot_id, runs, written).await
+}
+
+/// What the raw writes leave for the rest of the attempt.
+struct Written {
+    stages: Stages,
+    versions: Versions,
+    rows: Vec<(&'static str, i64)>,
+}
+
+impl Written {
+    fn new() -> Self {
+        Self {
+            stages: Stages::new(),
+            versions: Versions::new(),
+            rows: Vec::new(),
+        }
+    }
+}
+
+/// Write every raw table, and return the attempt's run ids (its `content_digest` input).
+async fn write_all(
+    root: &Path,
+    snapshot_id: Id,
+    raw: &[(&str, RecordBatch)],
+    w: &mut Written,
+) -> Result<Vec<Id>, CoreError> {
     write_raw(
         root,
         snapshot_id,
         raw,
-        &mut versions,
-        &mut rows,
-        &mut stages,
+        &mut w.versions,
+        &mut w.rows,
+        &mut w.stages,
     )
     .await?;
+    Ok(raw
+        .iter()
+        .find(|(n, _)| *n == Runs::NAME)
+        .map(|(_, b)| ids(b, "run_id"))
+        .transpose()?
+        .unwrap_or_default())
+}
 
+/// Derive, validate and publish over the written raw tables.
+async fn finish(
+    root: &Path,
+    snapshot_id: Id,
+    runs: Vec<Id>,
+    written: Written,
+) -> Result<Published, CoreError> {
+    let Written {
+        mut stages,
+        mut versions,
+        mut rows,
+    } = written;
     let ctx = session(root, snapshot_id, &versions).await?;
     stages.mark("open session");
     macro_rules! derive_all {
@@ -239,12 +298,6 @@ pub async fn compile(
         return Err(CoreError::Invalid(violations));
     }
 
-    let runs = raw
-        .iter()
-        .find(|(n, _)| *n == Runs::NAME)
-        .map(|(_, b)| ids(b, "run_id"))
-        .transpose()?
-        .unwrap_or_default();
     let digest = content_digest(&runs);
     let snapshot_rows: Vec<SnapshotsRow> = rows
         .iter()
