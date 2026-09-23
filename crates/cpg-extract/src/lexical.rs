@@ -504,7 +504,15 @@ impl<'b> Lexical<'b> {
                 });
                 pushed.stores += 1;
             }
-            N::StmtIf(i) => {
+            // An `if` inside a clause Pyrefly prunes is never walked by Pyrefly, whatever its own
+            // test decides: its marks are not pushed, so a binding in it finds the pruning clause
+            // (H1 review F1).
+            N::StmtIf(i)
+                if !self
+                    .branches
+                    .iter()
+                    .any(|(b, _, kept)| !kept && b.contains_range(r)) =>
+            {
                 let ranges = std::iter::once(suite(&i.body))
                     .chain(i.elif_else_clauses.iter().map(|c| Some(c.range())));
                 for (mark, range) in clause_marks(self.sys, i).into_iter().zip(ranges) {

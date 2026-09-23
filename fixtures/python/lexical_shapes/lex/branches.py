@@ -42,3 +42,24 @@ if sys.version_info >= (3, 10) and sys.platform == "linux":
 
 if False:
     never = 1
+
+# Nested: a clause inside a pruned clause is pruned, whatever its own test decides (H1 review F1).
+if not TYPE_CHECKING:
+    if sys.version_info >= (3, 10):
+        nested_a = 1
+
+if TYPE_CHECKING:
+    nested_b = 1
+else:
+    if os.name == "posix":
+        nested_d = 1
+    if True:
+        nested_e = 1
+
+if sys.version_info < (3, 9):
+    if TYPE_CHECKING:
+        nested_f = 1
+
+if sys.version_info >= (3, 10):
+    if TYPE_CHECKING:
+        nested_g = 1

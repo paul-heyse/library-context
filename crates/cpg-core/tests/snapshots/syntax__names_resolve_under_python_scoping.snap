@@ -45,6 +45,14 @@ lex/branches.py:523 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
 lex/branches.py:572 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
 lex/branches.py:637 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
 lex/branches.py:669 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:840 TYPE_CHECKING (scope 0@0) -> binding 10 in scope 0@0 at 140
+lex/branches.py:862 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:916 TYPE_CHECKING (scope 0@0) -> binding 10 in scope 0@0 at 140
+lex/branches.py:961 os (scope 0@0) -> binding 9 in scope 0@0 at 93
+lex/branches.py:1040 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:1074 TYPE_CHECKING (scope 0@0) -> binding 10 in scope 0@0 at 140
+lex/branches.py:1114 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:1150 TYPE_CHECKING (scope 0@0) -> binding 10 in scope 0@0 at 140
 lex/flow.py:113 print (scope 0@0) -> builtin print
 lex/flow.py:119 __name__ (scope 0@0) -> binding 20 in scope 0@0 at 0
 lex/flow.py:129 __file__ (scope 0@0) -> binding 20 in scope 0@0 at 0
@@ -150,6 +158,12 @@ lex/branches.py:601 win_old kind 3 in scope 0@0 #26 [static 1 false]
 lex/branches.py:623 other kind 3 in scope 0@0 #27 [static 1 false]
 lex/branches.py:698 mixed kind 3 in scope 0@0 #28 [static 4 true]
 lex/branches.py:723 never kind 3 in scope 0@0 #29 [static 3 false]
+lex/branches.py:899 nested_a kind 3 in scope 0@0 #30 [static 0 false]
+lex/branches.py:935 nested_b kind 3 in scope 0@0 #31 [static 0 true]
+lex/branches.py:989 nested_d kind 3 in scope 0@0 #32 [static 0 false]
+lex/branches.py:1023 nested_e kind 3 in scope 0@0 #33 [static 0 false]
+lex/branches.py:1097 nested_f kind 3 in scope 0@0 #34 [static 1 false]
+lex/branches.py:1173 nested_g kind 3 in scope 0@0 #35 [static 0 true]
 lex/flow.py:0 __annotations__ kind 20 in scope 0@0 #0
 lex/flow.py:0 __builtins__ kind 20 in scope 0@0 #1
 lex/flow.py:0 __cached__ kind 20 in scope 0@0 #2
