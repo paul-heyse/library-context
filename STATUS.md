@@ -4,57 +4,50 @@ _Updated 2026-09-23 by the handoff skill._
 
 ## Where we are
 
-- **Increment 1** (DESIGN §1.2): slices 1–3 are done; the **CPG plan (C1–C6)** is done, with
-  every review fixed; ADR-0015 stores each module's text and role.
-- **H1, the library-leverage hardening slice, is done** (`b4ee5cc`…`a974fd6`, 26 commits). It
-  carried out every item of `design_review_library-leverage_2026-09-23.md` (operator,
-  2026-09-23), and its standard review (`design_review_h1-library-leverage_2026-09-23.md`,
-  Revise narrowly) is fixed.
-  - **Correctness:**
-    - static branches are Pyrefly's own decisions, applied recursively;
-    - corpus selection uses globset and walkdir and refuses links (ADR-0018);
-    - typed library definitions, `RECORD` read as CSV, clap, a hermetic `git init`.
-  - **Runtime:**
-    - jemalloc (ADR-0016);
-    - cached, concurrent validation;
-    - per-commit reads checked against the commit's snapshot (ADR-0017 supersedes ADR-0009);
-    - zstd; a quiet log subscriber.
-  - **Pins:** every workspace dependency is exact, with a pins row, checked by `just deps`.
-  - **Design:** ADR-0011 amended (our own PageRank, normalized Leiden input, our own FCA, §5's
-    adapter recipe).
-  - **Fork:** `a07b7bae` on the new branch `lctx/1.3.1-r3` (pushed, 2026-09-23).
-- **Unpushed:** 26 commits on `main` since `origin/main` (`2473e6a`). Push only when asked.
+- **Increment 1 is done** (DESIGN §1.2). The CPG feeds:
+  - the invocation projection and Pass A (1.4);
+  - Stage F synthesis (1.5);
+  - embeddings with a global cache (1.6);
+  - byte-identical serving generations (1.7);
+  - the `python/lctx_mcp` FastMCP server with hybrid retrieval (1.8);
+  - an end-to-end pilot with a stdio smoke (1.9).
+  - Its deep review (`design_review_inc1-deep_2026-09-23.md`, Revise small) is dispositioned.
+- **Increment 2 is in progress:**
+  - 2.0 pre-registered the seed `fastmcp.FastMCP.mount` by a mechanical audit;
+  - 2.1 added Pass B (`cpg_schema::flows`, `lctx_analytics::pass_b`) and `parameter_docs`.
+  - Next is 2.2, Pass C and usage patterns.
+- The plan is `~/.claude/plans/we-have-not-yet-pure-swing.md`. The operator's instruction is to
+  run straight through, logging every judgment call in
+  `docs/design_review/reviews/deviations_remaining-scope_2026-09-23.md` (D1–D23 so far) for
+  review at the end.
+- **Unpushed:** every commit since `origin/main`. Push only when asked.
 
 ## Last verified (2026-09-23)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` (at `9714510`) | passed: nextest 107/107 (about 85 s, from 225 s), pytest 21/21, rule tests 4/4, adr lint 18, family and exact-pin check, cargo-deny, `cargo shear`, pyrefly-fork (`a07b7bae` = tag + patch), gold |
-| `just pilot` (fresh store) | passed: snapshot `1e6de86f…`, content `19c3e8e2…`, 905,648 nodes, 1,449,162 edges, all 496 rules; 29.9–33.4 s (from 45.0), peak 3,640–3,649 MiB (from 7,587), store 235 MiB (from 272); stderr is uv's one line |
-| cargo-mutants on `hash.rs`/`table.rs` (scratch clone) | 23 caught, 4 equivalent survivors (H1 review O3), 4 unviable |
+| `just test-all` (at `083507f`) | passed: nextest 154/154, pytest 51/51 (lctx_mcp over the `just py-fixture` generation, raw-pipe stdio), rule tests, adr lint 19, deps, gold (with the analytics-config freeze) |
+| `just pilot` | passed: snapshot `7799813f`, 5 briefs, generation `0c19ec176c80eb41`, stdio smoke passed; 31.4 s, peak about 3.65 GiB |
+| `just pilot-live`, `just embed-conformance` (GPU, 1.9) | passed (snapshot `3d3aab40`; worst cosine 0.9999334). The service was stopped afterwards |
+| §1.5 ranking check (live vectors, 1.9) | failed: the seed is first for 1 of 2 `fm.register` aliases. The fusion policy is now pre-registered (ADR-0010, D19); it is re-run at 3.3 |
 
 ## Known gaps
 
-- **`build/`** is local and rebuildable. A contract or reader change can make an old store fail;
-  delete it or pass a new `--store`.
-- **`pyproject.toml`** (the project environment) still owes its ADR-0010 restructuring.
+- **`build/`** is local. A schema migration makes an old store refuse, so move it aside;
+  `build/store-slice1.6` keeps the 1.6 live vectors.
+- **Brief content:** Applicable case and Usage pattern are absent in every brief (the manifest's
+  `absent_slots`). They are filled by 2.2 and 2.5.
 
 ## Open decisions
 
-- **ADR-0011** (analytics) is still `proposed`, amended by H1. It is accepted at its increment-2
-  spike; the leiden-rs determinism probe passed on normalized input.
-- **Owed by their slices** (H1 review F9): §9.5's PageRank projection and parameters, and
-  §9.4's pair-to-arcs lineage.
-- **Deferred rows**, each with its trigger in its review:
-  - H1 review O2 (bundled-stub identity by content), O4 (a full-content oracle), O5, O6;
-  - the leverage review's §7 items (Glean, streaming derive, `FairSpillPool`,
-    `datafusion-tracing`, rustworkx-core, datafrog, …);
-  - C2–C6 review rows;
-  - older ADR-0013, slice-1 and slice-2 rows.
-- **`just adr revisit`** (2026-09-23): ADR-0002's `just deps` passed; the other triggers are
-  manual, and none has fired.
+- **ADR-0011** (analytics) stays `proposed` until the 2.3 Leiden spike.
+- **Deferred rows** carry their triggers in their reviews: the deep review's O2–O6 and O9, the 1.5
+  review's O7, and older C2–C6 and H1 rows. 2.1 fired C2 O2, C2 O4, C4 O3 and C6 O2 (noted in the
+  2.1 commit), and the deep review's O7 (fixed).
+- **`just adr revisit`**: none fired. ADR-0002's check passed.
 
 ## Next
 
-Increment 1, slice 4: the analytics config, the invocation projection (built by §5's adapter
-recipe over the published catalogs, with its total arc order) and Pass A.
+Slice 2.2: Pass C, which finds `x = producer(); consumer(x)` handoffs and direct nesting in the
+usage run's straight-line regions (C2/C3). Usage patterns are built from official examples and
+tests. Then 2.3, communities and the ADR-0011 spike.
