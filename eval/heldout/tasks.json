@@ -1,0 +1,1161 @@
+[
+  {
+    "id": "T01",
+    "area": "register",
+    "prompt": "I have `lookup_order(order_id: str, include_items: bool = False) -> dict`, which reads from `ORDERS = {'A-100': {'id': 'A-100', 'status': 'shipped', 'items': ['widget', 'gadget']}}` and returns the order without its `items` key unless `include_items` is true. Expose it to MCP clients as a tool named `lookup_order`. Its Google-style docstring is the single source of truth: the summary 'Look up a customer order by its ID.' must be the description clients see, and the `Args:` entries ('The order identifier, e.g. A-100.' and 'Whether to include line items in the result.') must become the parameter descriptions in the input schema - don't repeat that text anywhere else. Client apps should be able to tell, without reading the description, that the tool is read-only, idempotent and touches only internal data, and should display it as 'Look up order'. Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.FastMCP",
+      "fastmcp.FastMCP.tool",
+      "mcp.types.ToolAnnotations"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP.tool": [
+        "annotations",
+        "title"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Only the free text above the Args section becomes the description.",
+        "quote": "Sections like `Returns`, `Raises`, and `Example` are excluded from the description but otherwise ignored.",
+        "doc": "servers/tools.mdx",
+        "heading": "Docstring Descriptions"
+      },
+      {
+        "statement": "An explicit per-parameter description overrides the docstring entry, so duplicating it is at best redundant.",
+        "quote": "If a parameter already has an explicit description — via `Annotated[x, \"...\"]` or `Field(description=...)` — that description takes precedence over the docstring.",
+        "doc": "servers/tools.mdx",
+        "heading": "Docstring Descriptions"
+      },
+      {
+        "statement": "Behaviour hints are advisory; they do not enforce read-only behaviour.",
+        "quote": "Remember that annotations help make better user experiences but should be treated as advisory hints.",
+        "doc": "servers/tools.mdx",
+        "heading": "MCP Annotations"
+      },
+      {
+        "statement": "The display title falls back to the annotation title, then to a name-derived title.",
+        "quote": "If omitted, FastMCP falls back to `annotations.title` when present, then to a title derived from the tool's name",
+        "doc": "servers/tools.mdx",
+        "heading": "Decorator Arguments"
+      },
+      {
+        "statement": "Variadic signatures cannot become tools.",
+        "quote": "Functions with `*args` or `**kwargs` are not supported as tools.",
+        "doc": "servers/tools.mdx",
+        "heading": "The `@tool` Decorator"
+      }
+    ],
+    "rebuild_smell": "A hand-written `description=` string copying the docstring, per-parameter `Field`/`Annotated` descriptions duplicating the Args section, or a hand-built input schema dict; behaviour hints written into the description text or `meta` instead of the annotations control.",
+    "sources": [
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "The `@tool` Decorator",
+          "Decorator Arguments",
+          "Docstring Descriptions",
+          "MCP Annotations",
+          "Using Annotation Hints"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T01.py"
+  },
+  {
+    "id": "T02",
+    "area": "register",
+    "prompt": "Our server ships a few maintenance tools (`reset_cache`, `rebuild_index`) that must stay in the codebase but be hidden from clients by default: they must not appear in the tool list, and a client calling one by name must get an error. New maintenance tools should be hidden just by being labelled the same way; every other tool stays visible. I don't want per-request filtering code for this.",
+    "expected_calls": [
+      "fastmcp.FastMCP.tool",
+      "fastmcp.FastMCP.disable"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP.tool": [
+        "tags"
+      ],
+      "fastmcp.FastMCP.disable": [
+        "tags"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Server-level disabling is a default, not a security boundary.",
+        "quote": "This is a default rather than a guarantee — a later `enable()` call or a per-session visibility rule can bring the component back.",
+        "doc": "servers/server.mdx",
+        "heading": "Tag-Based Filtering"
+      },
+      {
+        "statement": "Disabled components are removed from listings and refused on call.",
+        "quote": "Disabled tools don't appear in `list_tools` and can't be called.",
+        "doc": "servers/tools.mdx",
+        "heading": "Component Visibility"
+      },
+      {
+        "statement": "One matching tag is enough to disable a component.",
+        "quote": "A component is disabled if it has **any** of the disabled tags.",
+        "doc": "servers/visibility.mdx",
+        "heading": "Tags"
+      },
+      {
+        "statement": "Criteria in one call intersect; a union needs separate calls.",
+        "quote": "Criteria in a single call **narrow** each other: a component must satisfy every one of them to match.",
+        "doc": "servers/visibility.mdx",
+        "heading": "Combining Filters"
+      },
+      {
+        "statement": "Order matters: the last matching rule wins.",
+        "quote": "Later `enable()` and `disable()` calls override earlier ones.",
+        "doc": "servers/visibility.mdx",
+        "heading": "Ordering and Overrides"
+      }
+    ],
+    "rebuild_smell": "Custom middleware overriding `on_list_tools` and `on_call_tool` to filter by tag, or conditional registration behind if-blocks or environment flags.",
+    "sources": [
+      {
+        "doc": "servers/visibility.mdx",
+        "headings": [
+          "Disabling Components",
+          "Tags",
+          "Combining Filters",
+          "Ordering and Overrides"
+        ]
+      },
+      {
+        "doc": "servers/server.mdx",
+        "headings": [
+          "Tag-Based Filtering"
+        ]
+      },
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "Component Visibility"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T03",
+    "area": "register",
+    "prompt": "`vendor_search.search(q: str, n: int = 10, api_key: str = '') -> list[str]` lives in a shared module we can't edit (for the test, inline a copy: it raises `PermissionError('invalid api key')` unless `api_key == 'k-123'`, otherwise returns `[f'{q}:{i}' for i in range(n)]`). Expose it to MCP clients as a tool named `find_items` with description 'Find items matching a query.'. Clients must see the arguments as `query` (described 'Search terms') and `max_results`, must never see or be able to supply `api_key`, which the server fills in from `SERVER_KEY = 'k-123'`, and must not see a tool called `search`. Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.tools.tool",
+      "fastmcp.tools.Tool.from_tool",
+      "fastmcp.tools.tool_transform.ArgTransform",
+      "fastmcp.FastMCP.add_tool"
+    ],
+    "expected_controls": {
+      "fastmcp.tools.Tool.from_tool": [
+        "name",
+        "description",
+        "transform_args"
+      ],
+      "fastmcp.tools.tool_transform.ArgTransform": [
+        "name",
+        "description",
+        "hide",
+        "default"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "A hidden argument gets its value from the server and vanishes from the schema.",
+        "quote": "Hidden arguments disappear from the tool's schema. The client never sees them, but the underlying function receives the configured value.",
+        "doc": "servers/transforms/tool-transformation.mdx",
+        "heading": "Hiding Arguments"
+      },
+      {
+        "statement": "Dynamic defaults are only allowed for hidden arguments.",
+        "quote": "`default_factory` requires `hide=True`. Visible arguments need static defaults that can be represented in JSON Schema.",
+        "doc": "servers/transforms/tool-transformation.mdx",
+        "heading": "Hiding Arguments"
+      },
+      {
+        "statement": "Create the base tool without registering it, or the original name is exposed too.",
+        "quote": "The standalone `@tool` decorator (from `fastmcp.tools`) creates a Tool object without registering it to any server.",
+        "doc": "servers/transforms/tool-transformation.mdx",
+        "heading": "Tool.from_tool()"
+      },
+      {
+        "statement": "The deferred ToolTransform is the documented alternative for tools from mounted or proxied servers.",
+        "quote": "`ToolTransform` is useful when you want to modify tools from mounted or proxied servers without changing the original source.",
+        "doc": "servers/transforms/tool-transformation.mdx",
+        "heading": "ToolTransform"
+      }
+    ],
+    "rebuild_smell": "A hand-written wrapper `find_items(query, max_results)` that re-declares the signature and calls `search(q=query, n=max_results, api_key=SERVER_KEY)`, duplicating schema and docs; or registering `search` and patching its JSON schema afterwards.",
+    "sources": [
+      {
+        "doc": "servers/transforms/tool-transformation.mdx",
+        "headings": [
+          "ToolTransform",
+          "Tool.from_tool()",
+          "Modification Options",
+          "Hiding Arguments",
+          "Renaming Arguments"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T03.py"
+  },
+  {
+    "id": "T04",
+    "area": "inputs",
+    "prompt": "Add a `set_volume` tool: `level` is an integer from 0 to 100 inclusive and `channel` is one of 'left', 'right', 'both' (default 'both'); it returns `f'{channel}:{level}'`. Clients should see the bounds and the allowed channel values in the tool's parameter schema before calling it, and out-of-range values must be rejected before my function runs. Because a downstream device driver misbehaves on converted input, a client that sends the string \"50\" instead of the number 50 must get a validation error rather than a silent conversion. Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.FastMCP",
+      "fastmcp.FastMCP.tool"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP": [
+        "strict_input_validation"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "The default validation coerces compatible strings; rejecting them needs strict mode.",
+        "quote": "By default, FastMCP uses Pydantic's flexible validation that coerces compatible inputs to match your type annotations.",
+        "doc": "servers/tools.mdx",
+        "heading": "Validation Modes"
+      },
+      {
+        "statement": "Strict validation is a server constructor setting that checks inputs against the exact schema.",
+        "quote": "When `True`, validates inputs against the exact JSON Schema before calling your function, rejecting type mismatches.",
+        "doc": "servers/server.mdx",
+        "heading": "Behavior"
+      },
+      {
+        "statement": "Bounds belong in the parameter annotation so they reach the schema.",
+        "quote": "For validation constraints and advanced metadata, use Pydantic's `Field` class with `Annotated`:",
+        "doc": "servers/tools.mdx",
+        "heading": "Advanced Metadata with Field"
+      },
+      {
+        "statement": "Clients send enum values, not member names.",
+        "quote": "**Enums**: Clients send enum values (`\"red\"`), not names (`\"RED\"`).",
+        "doc": "servers/tools.mdx",
+        "heading": "Type Annotations"
+      }
+    ],
+    "rebuild_smell": "Manual `if not 0 <= level <= 100` / `isinstance(level, str)` checks in the tool body, or a hand-written JSON schema with minimum/maximum/enum.",
+    "sources": [
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "Type Annotations",
+          "Validation Modes",
+          "Advanced Metadata with Field"
+        ]
+      },
+      {
+        "doc": "servers/server.mdx",
+        "headings": [
+          "Behavior"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T04.py"
+  },
+  {
+    "id": "T05",
+    "area": "inputs",
+    "prompt": "My `list_invoices(status: str)` tool needs the current tenant id and a database connection, both resolved by the server (here: a helper `get_tenant_id()` returning 'tenant-42', and an async context manager `open_db()` that yields a connection and closes it afterwards). The model must not see or be able to pass either value - the tool's parameter schema should contain only `status` - and the connection must be closed even when the query fails. Other helpers used in the same call should share that one connection.",
+    "expected_calls": [
+      "fastmcp.FastMCP.tool",
+      "fastmcp.dependencies.Depends"
+    ],
+    "expected_controls": {},
+    "limits": [
+      {
+        "statement": "Injected parameters never appear in the tool's schema.",
+        "quote": "Dependency parameters are automatically excluded from the MCP schema—clients never see them as callable parameters.",
+        "doc": "servers/dependency-injection.mdx",
+        "heading": "(page introduction)"
+      },
+      {
+        "statement": "A dependency is resolved once per request and shared.",
+        "quote": "Dependencies are cached per-request.",
+        "doc": "servers/dependency-injection.mdx",
+        "heading": "Caching"
+      },
+      {
+        "statement": "Async-context-manager dependencies are cleaned up even on error.",
+        "quote": "The cleanup code runs after your function completes, even if an error occurs.",
+        "doc": "servers/dependency-injection.mdx",
+        "heading": "Resource Management"
+      },
+      {
+        "statement": "A client argument colliding with a dependency name is stripped, not honoured.",
+        "quote": "Clients still cannot override dependencies this way: an argument whose name collides with a dependency parameter is stripped before resolution, so a `CallArgument` reference to that parameter resolves the dependency itself.",
+        "doc": "servers/dependency-injection.mdx",
+        "heading": "Call Arguments"
+      }
+    ],
+    "rebuild_smell": "Module-level globals, or a defaulted `tenant_id` parameter the model can still set; opening and closing the connection by hand with try/finally in every tool; editing the generated input schema to drop parameters.",
+    "sources": [
+      {
+        "doc": "servers/dependency-injection.mdx",
+        "headings": [
+          "How Dependency Injection Works",
+          "Using Depends()",
+          "Caching",
+          "Resource Management",
+          "Call Arguments"
+        ]
+      },
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "Hiding Parameters from the LLM"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T06",
+    "area": "outputs",
+    "prompt": "Two tools for a typed client: `get_profile(user_id: str)` returns a user profile with fields `name` (str), `age` (int) and `email` (str) - for this task always Alice, 30, alice@example.com - and `count_users()` returns the integer 3. Callers must get machine-readable JSON alongside the display text, and the tool listing must advertise the shape of each result (field names and types, including that `count_users` yields an integer) so a client library can rebuild typed objects. I don't want to write any JSON schema by hand. Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.FastMCP.tool"
+    ],
+    "expected_controls": {},
+    "limits": [
+      {
+        "statement": "Primitive returns only become structured content when an output schema exists (i.e. a return annotation).",
+        "quote": "**Non-object results** (`int`, `str`, `list`) → Only become structured content if there's an output schema to validate/serialize them",
+        "doc": "servers/tools.mdx",
+        "heading": "Structured Output"
+      },
+      {
+        "statement": "Unparameterised collections and Any produce no output schema.",
+        "quote": "a bare `list`, `tuple`, or `Sequence` (or `list[Any]`) describes nothing, so FastMCP infers no output schema for it, the same as for `Any`.",
+        "doc": "servers/tools.mdx",
+        "heading": "Primitives and Collections"
+      },
+      {
+        "statement": "A hand-supplied output schema must be an object type.",
+        "quote": "Output schemas must be object types (`\"type\": \"object\"`)",
+        "doc": "servers/tools.mdx",
+        "heading": "Output Schemas"
+      },
+      {
+        "statement": "Primitive results are wrapped under `result` on the wire and unwrapped by the client.",
+        "quote": "FastMCP servers automatically wrap primitive results (like `int`, `str`, `bool`) in a `{\"result\": value}` structure. FastMCP clients automatically unwrap this, so you get the original value in `.data`.",
+        "doc": "clients/tools.mdx",
+        "heading": "Structured Results"
+      }
+    ],
+    "rebuild_smell": "Returning `json.dumps(...)` strings, annotating `-> dict`/`-> Any` and passing a hand-written `output_schema`, or wrapping ints as `{'result': n}` by hand.",
+    "sources": [
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "Structured Output",
+          "Primitives and Collections",
+          "Typed Models",
+          "Output Schemas",
+          "Primitive Type Wrapping"
+        ]
+      },
+      {
+        "doc": "clients/tools.mdx",
+        "headings": [
+          "Structured Results"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T06.py"
+  },
+  {
+    "id": "T07",
+    "area": "outputs",
+    "prompt": "Our `get_config` tool should show people a short YAML-style text rendering of the config, give programs the same config as structured JSON, and attach how long the lookup took (`elapsed_ms`) as per-response metadata that is not part of the config data itself. The model shouldn't have to parse JSON out of the display text.",
+    "expected_calls": [
+      "fastmcp.FastMCP.tool",
+      "fastmcp.tools.ToolResult"
+    ],
+    "expected_controls": {
+      "fastmcp.tools.ToolResult": [
+        "content",
+        "structured_content",
+        "meta"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Structured content must be a dict (or None).",
+        "quote": "If you provide `structured_content`, it must be a dictionary or `None`.",
+        "doc": "servers/tools.mdx",
+        "heading": "ToolResult and Metadata"
+      },
+      {
+        "statement": "Per-response metadata goes on the result, not on the tool definition.",
+        "quote": "The `meta` field in `ToolResult` is for runtime metadata about tool execution (e.g., execution time, performance metrics). This is separate from the `meta` parameter in `@mcp.tool(meta={...})`, which provides static metadata about the tool definition itself.",
+        "doc": "servers/tools.mdx",
+        "heading": "ToolResult and Metadata"
+      },
+      {
+        "statement": "A returned result object is sent as-is, without automatic wrapping.",
+        "quote": "When returning `ToolResult`, you have full control - FastMCP won't automatically wrap or transform your data.",
+        "doc": "servers/tools.mdx",
+        "heading": "ToolResult and Metadata"
+      },
+      {
+        "statement": "If an output schema is declared, the structured part must match it.",
+        "quote": "If you provide an output schema, your tool **must** return structured output that matches it",
+        "doc": "servers/tools.mdx",
+        "heading": "Output Schemas"
+      }
+    ],
+    "rebuild_smell": "Mixing `elapsed_ms` into the returned data dict, building an MCP `CallToolResult` by hand, or putting timing into `@mcp.tool(meta=...)`, which is static definition metadata.",
+    "sources": [
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "ToolResult and Metadata",
+          "Custom Serialization"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T08",
+    "area": "outputs",
+    "prompt": "A `render_chart(values: list[float])` tool draws a PNG in memory and must hand it to the client as a real image block with the right MIME type, not as a base64 string inside text or JSON. A second tool, `chart_bundle`, returns two such charts plus a caption string in one response.",
+    "expected_calls": [
+      "fastmcp.FastMCP.tool",
+      "fastmcp.utilities.types.Image"
+    ],
+    "expected_controls": {
+      "fastmcp.utilities.types.Image": [
+        "data",
+        "format"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Media helpers are converted only when returned directly or in a list, not nested in a dict.",
+        "quote": "Helper classes are only automatically converted to MCP content blocks when returned **directly** or as part of a **list**.",
+        "doc": "servers/tools.mdx",
+        "heading": "Media Helper Classes"
+      },
+      {
+        "statement": "In-memory bytes need an explicit format to get a MIME type.",
+        "quote": "**`data`**: Raw bytes - requires `format=` parameter for MIME type",
+        "doc": "servers/tools.mdx",
+        "heading": "Media Helper Classes"
+      },
+      {
+        "statement": "path= and data= cannot be combined.",
+        "quote": "Each helper class accepts either `path=` or `data=` (mutually exclusive):",
+        "doc": "servers/tools.mdx",
+        "heading": "Media Helper Classes"
+      }
+    ],
+    "rebuild_smell": "`base64.b64encode(...)` into a string or dict return, or constructing `ImageContent(type='image', data=..., mime_type=...)` by hand.",
+    "sources": [
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "Content Blocks",
+          "Media Helper Classes"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T09",
+    "area": "errors",
+    "prompt": "Server with tools `divide(a: float, b: float) -> float` and `load_secret() -> str`. When b is 0 the client must receive the message 'Division by zero is not allowed.' as a tool error. Any other unexpected exception - e.g. `load_secret` failing with `RuntimeError('db password is hunter2')` - must reach the client only as a generic error, never with its message, and this must also hold for tools that other people add to the server later without each one catching exceptions. `divide(6, 3)` returns 2.0. Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.FastMCP",
+      "fastmcp.exceptions.ToolError"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP": [
+        "mask_error_details"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "With masking on, only the deliberate tool-error type keeps its message.",
+        "quote": "When `mask_error_details=True`, only error messages from `ToolError` will include details, other exceptions will be converted to a generic message.",
+        "doc": "servers/tools.mdx",
+        "heading": "Error Handling"
+      },
+      {
+        "statement": "Masking defaults from an environment variable when not set explicitly.",
+        "quote": "Defaults to the `FASTMCP_MASK_ERROR_DETAILS` environment variable",
+        "doc": "servers/server.mdx",
+        "heading": "Behavior"
+      },
+      {
+        "statement": "The FastMCP client raises on tool errors unless told otherwise.",
+        "quote": "By default, `call_tool()` raises a `ToolError` if the tool execution fails:",
+        "doc": "clients/tools.mdx",
+        "heading": "Error Handling"
+      }
+    ],
+    "rebuild_smell": "`try/except Exception` in every tool returning an error string as a successful result, or a custom middleware that rewrites exception messages.",
+    "sources": [
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "Error Handling"
+        ]
+      },
+      {
+        "doc": "servers/server.mdx",
+        "headings": [
+          "Behavior"
+        ]
+      },
+      {
+        "doc": "clients/tools.mdx",
+        "headings": [
+          "Error Handling"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T09.py"
+  },
+  {
+    "id": "T10",
+    "area": "errors",
+    "prompt": "`fetch_report(url: str)` is a sync function that calls a flaky upstream through a blocking HTTP library and sometimes hangs. If a call takes longer than 30 seconds the client should get an error instead of waiting forever; other tools keep their current behaviour.",
+    "expected_calls": [
+      "fastmcp.FastMCP.tool"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP.tool": [
+        "timeout"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Timeouts are per tool; there is no server-wide default.",
+        "quote": "Tools must explicitly opt-in to timeouts. There is no server-level default timeout setting.",
+        "doc": "servers/tools.mdx",
+        "heading": "Timeouts"
+      },
+      {
+        "statement": "Sync tools are covered because they run in a thread pool.",
+        "quote": "Both sync and async tools support timeouts—sync functions run in thread pools, so the timeout applies to the entire operation regardless of execution model.",
+        "doc": "servers/tools.mdx",
+        "heading": "Timeouts"
+      },
+      {
+        "statement": "A timeout cannot be combined with inline (non-threaded) sync execution.",
+        "quote": "Combining `timeout` with `run_in_thread=False` on a sync function is rejected at registration — drop one or the other.",
+        "doc": "servers/tools.mdx",
+        "heading": "Thread affinity"
+      },
+      {
+        "statement": "The timeout is not enforced for background-task execution.",
+        "quote": "The `timeout` parameter does **not** apply to background tasks.",
+        "doc": "servers/tools.mdx",
+        "heading": "Timeouts vs Background Tasks"
+      }
+    ],
+    "rebuild_smell": "Hand-rolled `asyncio.wait_for`, worker threads or `signal.alarm` around the body, or relying on the client-side `call_tool(timeout=...)` to protect the server.",
+    "sources": [
+      {
+        "doc": "servers/tools.mdx",
+        "headings": [
+          "Timeouts",
+          "Timeouts vs Background Tasks",
+          "Thread affinity"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T11",
+    "area": "resources",
+    "prompt": "Expose current weather as readable data (not a callable action) at addresses like `weather://london/current`, with an optional units setting (`c` by default, or `f`) given as `weather://london/current?units=f`. The payload is JSON `{\"city\": <city exactly as in the address>, \"temperature\": 22 for c or 71.6 for f, \"units\": <units>}`. Our clients choose a parser from the content type, so it must be advertised as JSON, and clients must be able to discover the address pattern. Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.FastMCP.resource"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP.resource": [
+        "mime_type"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Query parameters must be optional (defaulted) function parameters.",
+        "quote": "Query parameters must be optional function parameters (have default values), while path parameters map to required function parameters.",
+        "doc": "servers/resources.mdx",
+        "heading": "Query Parameters"
+      },
+      {
+        "statement": "A dict result is JSON text but keeps the declared MIME type, text/plain by default.",
+        "quote": "Serialized to JSON text, keeping the resource's declared MIME type — which is `text/plain` unless you set one.",
+        "doc": "servers/resources.mdx",
+        "heading": "Return Values"
+      },
+      {
+        "statement": "A standard template parameter matches one path segment only.",
+        "quote": "Standard parameters (`{param}`) match a single URI segment before decoding and do not cross literal \"/\" boundaries in the request URI.",
+        "doc": "servers/resources.mdx",
+        "heading": "Wildcard Parameters"
+      },
+      {
+        "statement": "Query values are coerced from strings by type hint.",
+        "quote": "FastMCP automatically coerces query parameter string values to the correct types based on your function's type hints (`int`, `float`, `bool`, `str`).",
+        "doc": "servers/resources.mdx",
+        "heading": "Query Parameters"
+      }
+    ],
+    "rebuild_smell": "A `get_weather(city, units)` tool instead of a resource; one static resource per city; parsing the query string by hand from a catch-all parameter; `json.dumps` without declaring the MIME type.",
+    "sources": [
+      {
+        "doc": "servers/resources.mdx",
+        "headings": [
+          "Resource Templates",
+          "Query Parameters",
+          "Template Parameter Rules",
+          "Return Values",
+          "Decorator Arguments"
+        ]
+      },
+      {
+        "doc": "clients/resources.mdx",
+        "headings": [
+          "Reading Resources"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T11.py"
+  },
+  {
+    "id": "T12",
+    "area": "resources",
+    "prompt": "Serve markdown files from `/srv/docs` (nested folders allowed) to MCP clients as readable data addressed like `docs://guides/setup.md`. A request must never read anything outside that directory - including `docs://../etc/passwd` or symlink tricks - and a missing file should come back to the client as a clear 'Document not found' error rather than a stack trace.",
+    "expected_calls": [
+      "fastmcp.FastMCP.resource",
+      "fastmcp.exceptions.ResourceError"
+    ],
+    "expected_controls": {},
+    "limits": [
+      {
+        "statement": "A wildcard parameter is needed to span nested folders.",
+        "quote": "Wildcard parameters (`{param*}`) can capture multiple segments including slashes.",
+        "doc": "servers/resources.mdx",
+        "heading": "Wildcard Parameters"
+      },
+      {
+        "statement": "Traversal screening is built in and on by default; keep it enabled.",
+        "quote": "FastMCP screens every templated resource's parameter values **before the handler runs**, and this screening is **on by default**.",
+        "doc": "servers/resources.mdx",
+        "heading": "Path Security"
+      },
+      {
+        "statement": "Screening does not anchor the final path; the handler must check containment.",
+        "quote": "This bounds relative escapes; anchoring the *final* path inside a root directory is still your handler's job (for example with `safe_join`), since only the handler knows what the value is joined to.",
+        "doc": "servers/resources.mdx",
+        "heading": "Path Security"
+      },
+      {
+        "statement": "A screened request surfaces as resource-not-found without revealing why.",
+        "quote": "A rejected read surfaces a clean \"resource not found\" error to the client and logs the reason at debug level",
+        "doc": "servers/resources.mdx",
+        "heading": "Path Security"
+      },
+      {
+        "statement": "The resource error type is the one whose message survives masking.",
+        "quote": "When `mask_error_details=True`, only error messages from `ResourceError` will include details, other exceptions will be converted to a generic message.",
+        "doc": "servers/resources.mdx",
+        "heading": "Error Handling"
+      }
+    ],
+    "rebuild_smell": "Regex or `'..' in path` checks as the only guard, or `security=None` followed by a re-implementation of the screening; a `read_doc(path)` tool instead of a resource template; walking the directory to register one static resource per file.",
+    "sources": [
+      {
+        "doc": "servers/resources.mdx",
+        "headings": [
+          "Wildcard Parameters",
+          "Path Security",
+          "Error Handling"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T13",
+    "area": "resources",
+    "prompt": "Expose three fixed things to MCP clients as readable data: the project README at `./README.md` (as markdown), the notice 'System maintenance scheduled for Sunday.' at `resource://notice`, and a JSON listing of the files in `./app_data` at `resource://data-files`. None of them needs custom logic, and I'd rather not write a handler function for each.",
+    "expected_calls": [
+      "fastmcp.FastMCP.add_resource",
+      "fastmcp.resources.FileResource",
+      "fastmcp.resources.TextResource",
+      "fastmcp.resources.DirectoryResource"
+    ],
+    "expected_controls": {
+      "fastmcp.resources.FileResource": [
+        "uri",
+        "path",
+        "mime_type"
+      ],
+      "fastmcp.resources.TextResource": [
+        "uri",
+        "text"
+      ],
+      "fastmcp.resources.DirectoryResource": [
+        "uri",
+        "path"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Ready-made resource classes replace per-item handler functions for static content.",
+        "quote": "Use these when the content is static or sourced directly from a file/URL, bypassing the need for a dedicated Python function.",
+        "doc": "servers/resources.mdx",
+        "heading": "Resource Classes"
+      },
+      {
+        "statement": "The file class reads lazily and handles text/binary and encoding.",
+        "quote": "`FileResource`: Reads content from a local file path. Handles text/binary modes, encoding, and lazy reading.",
+        "doc": "servers/resources.mdx",
+        "heading": "Resource Classes"
+      },
+      {
+        "statement": "The directory class already returns a JSON listing.",
+        "quote": "`DirectoryResource`: Lists files in a local directory (returns JSON).",
+        "doc": "servers/resources.mdx",
+        "heading": "Resource Classes"
+      },
+      {
+        "statement": "Declare the MIME type explicitly where the default is wrong (markdown here).",
+        "quote": "Specifies the content type. FastMCP often infers a default like `text/plain` or `application/json`, but explicit is better for non-text types",
+        "doc": "servers/resources.mdx",
+        "heading": "Decorator Arguments"
+      }
+    ],
+    "rebuild_smell": "`@mcp.resource` functions that `open()` and read the file, return a constant string, or call `os.listdir` and `json.dumps` by hand.",
+    "sources": [
+      {
+        "doc": "servers/resources.mdx",
+        "headings": [
+          "Resource Classes",
+          "Decorator Arguments"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T14",
+    "area": "middleware",
+    "prompt": "Add a cross-cutting audit layer that writes exactly one record per tool call into a module-level list `AUDIT_LOG`, without touching the individual tool functions. Each record is a dict with `tool` (the tool name), `arguments` (the keys the client sent, every value replaced by the string '<redacted>') and `status`: 'completed' when the call succeeded, 'failed' when the tool raised - and a failing call must still reach the client as an error. Listing tools or resources must not add records. For the test the server has `echo(text: str) -> str` (returns text) and `explode() -> str` (raises `RuntimeError('boom')`). Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.server.middleware.Middleware",
+      "fastmcp.server.middleware.MiddlewareContext",
+      "fastmcp.server.middleware.Middleware.on_call_tool",
+      "fastmcp.FastMCP.add_middleware"
+    ],
+    "expected_controls": {},
+    "limits": [
+      {
+        "statement": "The tool-call hook fires once per call and sees tool exceptions propagate.",
+        "quote": "The operation hooks (`on_call_tool`, `on_list_tools`, and the rest) fire exactly once per request",
+        "doc": "servers/middleware.mdx",
+        "heading": "What middleware sees"
+      },
+      {
+        "statement": "The generic message/request hooks see all traffic, including non-tool messages.",
+        "quote": "`on_message`, `on_request`, and `on_notification` observe **every** message a client sends, including the ones that never reach a tool, resource, or prompt handler",
+        "doc": "servers/middleware.mdx",
+        "heading": "What middleware sees"
+      },
+      {
+        "statement": "Swallowing the exception in the layer hides the failure from the client.",
+        "quote": "Catching and not re-raising suppresses the error entirely. Usually you want to log and re-raise.",
+        "doc": "servers/middleware.mdx",
+        "heading": "Error Handling in Custom Middleware"
+      },
+      {
+        "statement": "Registration order determines wrapping order.",
+        "quote": "Middleware executes in the order added to the server. The first middleware runs first on the way in and last on the way out:",
+        "doc": "servers/middleware.mdx",
+        "heading": "Execution Order"
+      }
+    ],
+    "rebuild_smell": "A decorator wrapped around each tool function or logging calls inside every tool body; hooking `on_message`/`on_request` and filtering by method string.",
+    "sources": [
+      {
+        "doc": "servers/middleware.mdx",
+        "headings": [
+          "Overview",
+          "Execution Order",
+          "Hooks",
+          "What middleware sees",
+          "on_call_tool",
+          "Error Handling in Custom Middleware",
+          "Audit and Event Records"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T14.py"
+  },
+  {
+    "id": "T15",
+    "area": "middleware",
+    "prompt": "Some of our tools (`search`, `fetch_page`) occasionally return megabytes of text and blow up the model's context window. Cap what those two tools can send back at about 100 KB, truncating with a visible marker, and leave every other tool untouched.",
+    "expected_calls": [
+      "fastmcp.server.middleware.response_limiting.ResponseLimitingMiddleware",
+      "fastmcp.FastMCP.add_middleware"
+    ],
+    "expected_controls": {
+      "fastmcp.server.middleware.response_limiting.ResponseLimitingMiddleware": [
+        "max_size",
+        "tools"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Limited tools lose their advertised output schema.",
+        "quote": "Because truncation can replace structured output with plain text, the middleware omits `outputSchema` from `tools/list` for every tool it limits.",
+        "doc": "servers/middleware.mdx",
+        "heading": "Response Limiting"
+      },
+      {
+        "statement": "Unlisted tools keep their output schemas.",
+        "quote": "Tools excluded with the `tools` parameter keep their output schemas.",
+        "doc": "servers/middleware.mdx",
+        "heading": "Response Limiting"
+      },
+      {
+        "statement": "An oversized response is collapsed to a single text block.",
+        "quote": "When a response exceeds the limit, the middleware extracts all text content, joins it together, truncates to fit within the limit, and returns a single `TextContent` block.",
+        "doc": "servers/middleware.mdx",
+        "heading": "Response Limiting"
+      },
+      {
+        "statement": "The limit is in bytes and defaults to 1 MB.",
+        "quote": "| `max_size` | `int` | `1_000_000` | Maximum response size in bytes (1MB default) |",
+        "doc": "servers/middleware.mdx",
+        "heading": "Response Limiting"
+      }
+    ],
+    "rebuild_smell": "Slicing `result[:100_000]` inside each tool, or a custom `on_call_tool` middleware that measures and truncates content.",
+    "sources": [
+      {
+        "doc": "servers/middleware.mdx",
+        "headings": [
+          "Response Limiting",
+          "Execution Order"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T16",
+    "area": "middleware",
+    "prompt": "On our HTTP deployment every tool call should resolve the caller from the `x-user-id` request header once (falling back to 'anonymous' when there is no header, e.g. over stdio), and tools such as `whoami()` should read that resolved value instead of each parsing headers again. The value must not leak into the next call and must not become a tool parameter the model can set.",
+    "expected_calls": [
+      "fastmcp.server.middleware.Middleware",
+      "fastmcp.server.middleware.Middleware.on_call_tool",
+      "fastmcp.server.dependencies.get_http_headers",
+      "fastmcp.Context.set_state",
+      "fastmcp.Context.get_state",
+      "fastmcp.FastMCP.add_middleware"
+    ],
+    "expected_controls": {},
+    "limits": [
+      {
+        "statement": "Request state lives for one request only.",
+        "quote": "**Each MCP request receives a new context object.** State set with `ctx.set_state()` is scoped to that request and is not available in subsequent ones.",
+        "doc": "servers/context.mdx",
+        "heading": "Accessing the Context"
+      },
+      {
+        "statement": "Request state is the channel from middleware to handler within one request.",
+        "quote": "Request state carries values *within a single request*, across the middleware → handler pipeline.",
+        "doc": "servers/context.mdx",
+        "heading": "Request State"
+      },
+      {
+        "statement": "The header helper degrades to an empty dict off HTTP.",
+        "quote": "When no HTTP request is available, this returns an empty dictionary, making it safe for code that might run over any transport.",
+        "doc": "servers/dependency-injection.mdx",
+        "heading": "HTTP Headers"
+      },
+      {
+        "statement": "Credential headers are withheld by default (x-user-id is not one of them).",
+        "quote": "By default, problematic headers like `host` and `content-length` are excluded, along with the credential headers `authorization` and `cookie`.",
+        "doc": "servers/dependency-injection.mdx",
+        "heading": "HTTP Headers"
+      }
+    ],
+    "rebuild_smell": "Each tool calling `get_http_headers()` and parsing the header itself; a module-level `CURRENT_USER` global mutated per request; a `user_id` tool parameter.",
+    "sources": [
+      {
+        "doc": "servers/middleware.mdx",
+        "headings": [
+          "Storing State",
+          "Session Availability"
+        ]
+      },
+      {
+        "doc": "servers/context.mdx",
+        "headings": [
+          "Accessing the Context",
+          "Request State"
+        ]
+      },
+      {
+        "doc": "servers/dependency-injection.mdx",
+        "headings": [
+          "HTTP Headers"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T17",
+    "area": "other",
+    "prompt": "Our server needs one shared connection pool that is created when the server starts (not per client connection, not per call) and closed cleanly when it stops, even on cancellation. Tools such as `list_users()` use that pool. A separate config loader must start before the pool, and the pool must be torn down before the config loader.",
+    "expected_calls": [
+      "fastmcp.server.lifespan.lifespan",
+      "fastmcp.FastMCP",
+      "fastmcp.Context.lifespan_context"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP": [
+        "lifespan"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Server lifespans run once, not per client.",
+        "quote": "Unlike per-session handlers, lifespans run exactly once regardless of how many clients connect.",
+        "doc": "servers/lifespan.mdx",
+        "heading": "(page introduction)"
+      },
+      {
+        "statement": "Cleanup must sit in finally to survive cancellation.",
+        "quote": "Always use `try/finally` for cleanup code to ensure it runs even if the server is cancelled.",
+        "doc": "servers/lifespan.mdx",
+        "heading": "Basic Usage"
+      },
+      {
+        "statement": "Composed lifespans exit in reverse order, so compose config | pool.",
+        "quote": "Exit in reverse order (right to left)",
+        "doc": "servers/lifespan.mdx",
+        "heading": "Composing Lifespans"
+      },
+      {
+        "statement": "A plain asynccontextmanager must be wrapped before composing.",
+        "quote": "To compose an `@asynccontextmanager` function with `@lifespan` functions, wrap it with `ContextManagerLifespan`:",
+        "doc": "servers/lifespan.mdx",
+        "heading": "Backwards Compatibility"
+      }
+    ],
+    "rebuild_smell": "A module-level pool created at import time with `atexit` cleanup, or creating and closing a pool inside every tool call.",
+    "sources": [
+      {
+        "doc": "servers/lifespan.mdx",
+        "headings": [
+          "Basic Usage",
+          "Accessing Lifespan Context",
+          "Composing Lifespans",
+          "Backwards Compatibility"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T18",
+    "area": "other",
+    "prompt": "`process_items(items: list[str]) -> list[str]` uppercases each item. It is slow in production, so while it runs the client should receive a progress update after each item (progress = items done so far, total = number of items, message = the item just processed) and an info-level log message per item that reaches the client's log handler, not just the server's own log. It returns the uppercased items. Put the server in a module with a module-level `mcp`.",
+    "expected_calls": [
+      "fastmcp.Context",
+      "fastmcp.Context.report_progress",
+      "fastmcp.Context.info"
+    ],
+    "expected_controls": {
+      "fastmcp.Context.report_progress": [
+        "progress",
+        "total",
+        "message"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Progress is only delivered when the client asked for it; otherwise it is a silent no-op.",
+        "quote": "Clients must send a `progressToken` in the initial request to receive progress updates. If no progress token is provided, progress calls have no effect (they don't error).",
+        "doc": "servers/progress.mdx",
+        "heading": "Client Requirements"
+      },
+      {
+        "statement": "Context methods are async.",
+        "quote": "Context methods are async, so your function usually needs to be async as well.",
+        "doc": "servers/context.mdx",
+        "heading": "Accessing the Context"
+      },
+      {
+        "statement": "Context is request-bound.",
+        "quote": "Context is only available during a request; attempting to use context methods outside a request will raise errors.",
+        "doc": "servers/context.mdx",
+        "heading": "Accessing the Context"
+      },
+      {
+        "statement": "Python logging stays on the server; client logging goes through the context.",
+        "quote": "For standard server-side logging (e.g., writing to files, console), use `fastmcp.utilities.logging.get_logger()` or Python's built-in `logging` module.",
+        "doc": "servers/logging.mdx",
+        "heading": "(page introduction)"
+      }
+    ],
+    "rebuild_smell": "Python `logging` or `print` calls (they never reach the client), or sending raw `notifications/progress` messages through the session by hand.",
+    "sources": [
+      {
+        "doc": "servers/progress.mdx",
+        "headings": [
+          "Basic Usage",
+          "Client Requirements"
+        ]
+      },
+      {
+        "doc": "servers/logging.mdx",
+        "headings": [
+          "Basic Usage"
+        ]
+      },
+      {
+        "doc": "clients/progress.mdx",
+        "headings": [
+          "Progress Handler"
+        ]
+      },
+      {
+        "doc": "clients/logging.mdx",
+        "headings": [
+          "Log Handler"
+        ]
+      }
+    ],
+    "fixture": "fixtures/fixture_T18.py"
+  },
+  {
+    "id": "T19",
+    "area": "other",
+    "prompt": "Offer MCP clients a reusable conversation starter `code_review_request` that takes the code to review and a list of line numbers to focus on, and produces a two-message exchange: a user message asking for a review of those lines and an assistant message acknowledging it. The argument descriptions clients see should come from the function's docstring.",
+    "expected_calls": [
+      "fastmcp.FastMCP.prompt",
+      "fastmcp.prompts.Message"
+    ],
+    "expected_controls": {
+      "fastmcp.prompts.Message": [
+        "role"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Prompt arguments travel as strings; typed annotations are converted.",
+        "quote": "The MCP specification requires that all prompt arguments be passed as strings, but FastMCP allows you to use typed annotations for better developer experience.",
+        "doc": "servers/prompts.mdx",
+        "heading": "Argument Types"
+      },
+      {
+        "statement": "Keep prompt argument types simple.",
+        "quote": "Keep your type annotations simple when using this feature. Complex nested types or custom classes may not convert reliably from JSON strings.",
+        "doc": "servers/prompts.mdx",
+        "heading": "Argument Types"
+      },
+      {
+        "statement": "Variadic signatures cannot become prompts.",
+        "quote": "Functions with `*args` or `**kwargs` are not supported as prompts.",
+        "doc": "servers/prompts.mdx",
+        "heading": "The `@prompt` Decorator"
+      },
+      {
+        "statement": "Return a list of messages for a conversation; bare strings become user messages.",
+        "quote": "**`list[Message | str]`**: A sequence of messages (a conversation). Strings are auto-converted to user Messages.",
+        "doc": "servers/prompts.mdx",
+        "heading": "Return Values"
+      }
+    ],
+    "rebuild_smell": "Declaring `line_numbers: str` and parsing JSON by hand; building protocol `PromptMessage`/`TextContent` objects manually; exposing it as a tool that returns text.",
+    "sources": [
+      {
+        "doc": "servers/prompts.mdx",
+        "headings": [
+          "The `@prompt` Decorator",
+          "Argument Types",
+          "Argument Descriptions",
+          "Return Values",
+          "Message"
+        ]
+      },
+      {
+        "doc": "clients/prompts.mdx",
+        "headings": [
+          "Argument Serialization"
+        ]
+      }
+    ],
+    "fixture": null
+  },
+  {
+    "id": "T20",
+    "area": "other",
+    "prompt": "We have separate `weather` and `calendar` servers, each with a tool called `get_data` and a few resources. Serve both through one server that clients connect to, keeping both tools reachable without renaming the functions (clients should see `weather_get_data` and `calendar_get_data`), and make tools added to either sub-server later show up automatically.",
+    "expected_calls": [
+      "fastmcp.FastMCP.mount"
+    ],
+    "expected_controls": {
+      "fastmcp.FastMCP.mount": [
+        "namespace"
+      ]
+    },
+    "limits": [
+      {
+        "statement": "Without distinct namespaces, same-named components collide and the first registered wins.",
+        "quote": "If two unversioned components (or two equal versions) use the same identifier, the provider registered first wins.",
+        "doc": "servers/composition.mdx",
+        "heading": "Conflict Resolution"
+      },
+      {
+        "statement": "Mounting is a live link, so later additions appear through the parent.",
+        "quote": "Because `mount()` creates a live link, you can add components to a child server after mounting and they'll be immediately available through the parent:",
+        "doc": "servers/composition.mdx",
+        "heading": "Dynamic Composition"
+      },
+      {
+        "statement": "Namespacing also rewrites resource URIs, not just tool names.",
+        "quote": "| Resource | `data://info` | `data://api/info` |",
+        "doc": "servers/composition.mdx",
+        "heading": "How Namespacing Works"
+      },
+      {
+        "statement": "Parent list operations pay for every mounted server.",
+        "quote": "Operations like `list_tools()` on the parent are affected by the performance of all mounted servers.",
+        "doc": "servers/composition.mdx",
+        "heading": "Performance Considerations"
+      }
+    ],
+    "rebuild_smell": "Re-declaring wrapper tools on the parent that call each sub-server's function, or copying components between servers at startup (which misses later additions).",
+    "sources": [
+      {
+        "doc": "servers/composition.mdx",
+        "headings": [
+          "Namespacing",
+          "How Namespacing Works",
+          "Dynamic Composition",
+          "Conflict Resolution"
+        ]
+      }
+    ],
+    "fixture": null
+  }
+]
