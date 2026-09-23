@@ -3,6 +3,7 @@
 
 pub mod analyze;
 pub mod attempt;
+pub mod bundle;
 pub mod delta;
 pub mod derive;
 pub mod embed;
@@ -85,6 +86,8 @@ pub enum CoreError {
     Analysis(String),
     #[error("embedding: {0}")]
     Embed(String),
+    #[error("bundle: {0}")]
+    Bundle(String),
     #[error("validation failed, nothing published: {}", summary(.0))]
     Invalid(Vec<Violation>),
     #[error("snapshot {0} is already published")]

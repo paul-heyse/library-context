@@ -269,7 +269,9 @@ pub async fn resolve(root: &Path, snapshot_id: Id) -> Result<Option<Versions>, C
     Ok((!versions.is_empty()).then_some(versions))
 }
 
-/// A reader's session over a published snapshot; `None` if it was never published.
+/// A reader's session over a published snapshot; `None` if it was never published. Its own
+/// `snapshots` rows are registered too, so a reader sees its content and compiler digests (C6
+/// review O5, fired by the serving manifest).
 pub async fn published(
     root: &Path,
     snapshot_id: Id,
@@ -277,6 +279,17 @@ pub async fn published(
     match resolve(root, snapshot_id).await? {
         Some(versions) => {
             let ctx = session(root, snapshot_id, &versions).await?;
+            let table = DeltaTableBuilder::from_url(table_url(root, Snapshots::NAME)?)?
+                .load()
+                .await?;
+            table.update_datafusion_session(&ctx.state())?;
+            let view = ctx
+                .read_table(table.table_provider().await?)?
+                .filter(
+                    col("snapshot_id").eq(lit(ScalarValue::Binary(Some(snapshot_id.0.to_vec())))),
+                )?
+                .into_view();
+            ctx.register_table(Snapshots::NAME, view)?;
             Ok(Some((versions, ctx)))
         }
         None => Ok(None),

@@ -10,6 +10,9 @@
 //!                                                                validate, publish
 //! lctx query --store DIR --snapshot HEX "SQL"                    read-only SQL over a published
 //!                                                                snapshot (its tables by name)
+//! lctx bundle --store DIR --snapshot HEX [--out DIR]             the snapshot's serving generation
+//!                                                                (DESIGN §6.4); compile builds it
+//!                                                                after publishing
 //! ```
 //! Common options: `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`),
 //! `--sources DIR` (default `build/sources`).
@@ -85,6 +88,21 @@ enum Cmd {
         /// The vLLM service `--embedder vllm` uses.
         #[arg(long, default_value = "http://127.0.0.1:8000")]
         embed_url: String,
+        /// Where the published snapshot's serving generation is built (DESIGN §6.4).
+        #[arg(long, default_value = "build/generations")]
+        generations: PathBuf,
+    },
+    /// Build a published snapshot's serving generation (DESIGN §6.4): `<out>/<key>/`.
+    Bundle {
+        /// The Delta store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The snapshot id: 32 hex digits.
+        #[arg(long, value_parser = parse_id)]
+        snapshot: Id,
+        /// The generations directory.
+        #[arg(long, default_value = "build/generations")]
+        out: PathBuf,
     },
     /// Read-only SQL over a published snapshot (its tables by name).
     Query {
@@ -299,6 +317,7 @@ fn compile(
     store: &Path,
     reinstall: bool,
     embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
+    generations: &Path,
 ) -> anyhow::Result<()> {
     let started = Instant::now();
     acquire(library_dir, env_dir, reinstall)?;
@@ -378,11 +397,32 @@ fn compile(
                 .map_or("?".to_owned(), |b| (b >> 20).to_string())
         );
     }
+    // Stage G (§6.4): the generation, from the published snapshot alone.
+    let bundling = Instant::now();
+    let generation = runtime.block_on(cpg_core::bundle::bundle(
+        store,
+        published.snapshot_id,
+        generations,
+    ))?;
+    println!(
+        "generation {} ({:.2}s)",
+        generation.dir.display(),
+        bundling.elapsed().as_secs_f64()
+    );
     println!(
         "extract {:.1}s, total {:.1}s",
         extracted.as_secs_f64(),
         started.elapsed().as_secs_f64()
     );
+    Ok(())
+}
+
+/// Build (or confirm) a published snapshot's serving generation and print its directory.
+fn bundle(store: &Path, id: Id, out: &Path) -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    let generation = runtime.block_on(cpg_core::bundle::bundle(store, id, out))?;
+    cpg_core::bundle::verify(&generation.dir)?;
+    println!("generation {}", generation.dir.display());
     Ok(())
 }
 
@@ -515,6 +555,7 @@ fn run() -> anyhow::Result<()> {
             reinstall,
             embedder,
             embed_url,
+            generations,
         } => compile(
             &libraries.join(&name),
             &envs.join(&name),
@@ -522,7 +563,13 @@ fn run() -> anyhow::Result<()> {
             &absolute(&store)?,
             reinstall,
             embedder_of(embedder, &embed_url),
+            &absolute(&generations)?,
         ),
+        Cmd::Bundle {
+            store,
+            snapshot,
+            out,
+        } => bundle(&absolute(&store)?, snapshot, &absolute(&out)?),
     }
 }
 

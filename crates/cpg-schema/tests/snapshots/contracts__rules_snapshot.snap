@@ -138,6 +138,8 @@ key:brief_members
   SELECT snapshot_id, brief_id, access_path, count(*) AS n FROM brief_members GROUP BY snapshot_id, brief_id, access_path HAVING count(*) > 1
 key:brief_documents
   SELECT snapshot_id, brief_id, chunk, count(*) AS n FROM brief_documents GROUP BY snapshot_id, brief_id, chunk HAVING count(*) > 1
+key:embedding_specs
+  SELECT snapshot_id, spec_hash, count(*) AS n FROM embedding_specs GROUP BY snapshot_id, spec_hash HAVING count(*) > 1
 key:assertion_policy
   SELECT snapshot_id, assertion_kind, evidence_status, count(*) AS n FROM assertion_policy GROUP BY snapshot_id, assertion_kind, evidence_status HAVING count(*) > 1
 key:embedding_cache
@@ -222,6 +224,8 @@ ref:brief_members.declaration_node_id->nodes
   SELECT f.declaration_node_id AS value FROM brief_members f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.declaration_node_id = r.k WHERE f.declaration_node_id IS NOT NULL
 ref:brief_documents.brief_id->briefs
   SELECT f.brief_id AS value FROM brief_documents f LEFT ANTI JOIN (SELECT brief_id AS k FROM briefs) r ON f.brief_id = r.k WHERE f.brief_id IS NOT NULL
+ref:brief_documents.spec_hash->embedding_specs
+  SELECT f.spec_hash AS value FROM brief_documents f LEFT ANTI JOIN (SELECT spec_hash AS k FROM embedding_specs) r ON f.spec_hash = r.k WHERE f.spec_hash IS NOT NULL
 ref:provider_node_map.pysa_fact_id->facts
   SELECT f.pysa_fact_id AS value FROM provider_node_map f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
 ref:provider_node_map.declaration_fact_id->facts
@@ -588,6 +592,12 @@ semantic:finding-status-policy
   SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
 semantic:invocation-run-is-compiler
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id JOIN producers p ON p.producer_id = r.producer_id WHERE p.tool <> 'lctx-compiler'
+semantic:document-key-whole
+  SELECT brief_id, chunk FROM brief_documents WHERE (spec_hash IS NULL) <> (input_hash IS NULL)
+semantic:document-vector-cached
+  SELECT d.brief_id, d.chunk FROM brief_documents d LEFT ANTI JOIN embedding_cache c ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash WHERE d.input_hash IS NOT NULL
+semantic:one-embedding-spec
+  SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1
 semantic:embedding-dimensions
   SELECT spec_hash FROM embedding_cache GROUP BY spec_hash HAVING count(DISTINCT cardinality(vector)) > 1
 semantic:assertion-policy

@@ -212,6 +212,7 @@ pub async fn embed_documents(
             )));
         }
         let key = input_hash(&request);
+        doc.spec_hash = Some(spec_hash);
         doc.input_hash = Some(key);
         requests.push((key, request));
     }

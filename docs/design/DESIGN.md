@@ -1604,15 +1604,46 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   the published snapshot at its recorded versions, including `embedding_cache`. That is its one
   derivation path. Rebuilding a generation from Delta gives byte-identical files.
 - **Bundle.** It is a directory `generations/<key>/` of Arrow IPC files, with declared schemas
-  from `cpg-schema`:
-  - `briefs`, `brief_members`, `assertions`, `evidence`, `usage_patterns`;
-  - `symbol_map` (exact qualified public symbol → brief);
-  - `embedding_spec`, `vectors` (§11.1);
-  - `MANIFEST.json`, listing the snapshot, content digest, per-file sha256, row counts and per-file
-    **serving schema digests**: SHA-256 over a language-neutral canonical form (field name, a
-    declared type grammar, nullability, sorted metadata), which Python recomputes with its standard
-    library; known answers are shared by the Rust and Python tests. It is not the store's
+  from `cpg-schema` (`cpg_schema::bundle`). Codebook values are served as their text. The files:
+  - `briefs`, with each brief's Outcome and its status;
+  - `assertions`, one row per (brief, ordinal), with kind, section and status;
+  - `supports`, each assertion's findings (by kind) and evidence, by role and ordinal;
+  - `evidence`, with its resolved text and its file's or document's path;
+  - `brief_members`, and `symbol_map` (exact public access path → brief);
+  - `lexical_text`: each brief's documents, then the words of its public names (split at dots,
+    underscores and case changes), for BM25 (§11.2);
+  - `embedding_spec` and `vectors` (§11.1), whose vector type is `fixed_size_list(float32 not null
+    "item", D)`, `D` the spec's dimensions. The spec comes from the snapshot's `embedding_specs`
+    row, and each document's key is `(spec_hash, input_hash)` (slice 1.7).
+  - `usage_patterns` joins with slice 2.2.
+- **`MANIFEST.json`** has sorted keys. It lists:
+  - the format, the snapshot, and its content and compiler digests;
+  - the spec hash (none for a lexical-only generation);
+  - per file, its sha256, rows and **serving schema digest**. That digest is a SHA-256 over a
+    language-neutral canonical form: field name, a declared type grammar, nullability and sorted
+    metadata. Python recomputes it with its standard library, and the known answers are shared
+    by the Rust and Python tests (`specs/serving/schema_digests.json`). It is not the store's
     `canonical_schema` (§6.3), whose Rust type display Python cannot reproduce (ADR-0019).
+  - a coverage summary: coverage by scope, family and status; boundaries by reason; invocations
+    by completion; briefs by review state and analysis backing; unresolved slots by section (the
+    §B11 gap metric).
+  - The **generation key** is the first 16 hex digits of the SHA-256 of the manifest without its
+    key. It moves with any file, and with the snapshot's provenance.
+- **Normalization** (slice 1.7), so a rebuild is byte-identical:
+  - each file is one query, sorted by its declared key;
+  - every column is cast to its declared type and rebuilt through a builder, so no view type,
+    scan metadata or byte under a null slot reaches the file;
+  - one record batch per file, written in the Arrow IPC file format: V5, 64-byte alignment,
+    uncompressed.
+  - One generation never mixes vector spaces: a snapshot with two specs is refused, by
+    `semantic:one-embedding-spec` and by the builder.
+  - **Tested** (2026-09-23): `a_generation_rebuilds_to_the_same_bytes` rebuilds from the store,
+    and from a second compile in another location and module order. Also
+    `a_changed_generation_is_refused`, `mixed_embedding_specs_are_refused` and
+    `serving_schema_digests_are_the_shared_known_answers`.
+  - `lctx compile` builds the generation after publishing; `lctx bundle` rebuilds it.
+  - A reader session registers its own `snapshots` rows, so the manifest's digests are read
+    from the store (C6 review O5).
 - **Activation.**
   - The bundle is smoke-queried by the serving code's own test entry point.
   - Then the `generations/active` symlink is switched by atomic rename.

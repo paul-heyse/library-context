@@ -588,6 +588,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             3,
             "9a1f41e215fbb48772b9caf40a8ab75615eda7bcb0c030dc1298973591600ef8",
         ),
+        (
+            4,
+            3,
+            "e962da02699a07ec2aa584c0ed2f0c974ab351cd1bd712fcfa587b1e00506407",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -638,6 +643,8 @@ async fn the_analysis_rules_reject_their_violations() {
         "briefs",
         "brief_assertions",
         "brief_members",
+        "brief_documents",
+        "embedding_specs",
         "embedding_cache",
     ] {
         let published = ctx.table(table).await.unwrap();
@@ -818,6 +825,35 @@ async fn the_analysis_rules_reject_their_violations() {
              FROM witnesses_published",
         ),
     ];
+    let cases = cases.into_iter().chain([
+        // Slice 1.7: a document's cache key is whole.
+        (
+            "semantic:document-key-whole",
+            "brief_documents",
+            "SELECT snapshot_id, brief_id, chunk, text, CAST(NULL AS BYTEA) AS spec_hash, \
+                    input_hash \
+             FROM brief_documents_published",
+        ),
+        // An embedded document whose vector the cache lacks.
+        (
+            "semantic:document-vector-cached",
+            "brief_documents",
+            "SELECT snapshot_id, brief_id, chunk, text, spec_hash, \
+                    CAST(X'00000000000000000000000000000000000000000000000000000000000000ff' \
+                         AS BYTEA) AS input_hash \
+             FROM brief_documents_published",
+        ),
+        // Two specs in one snapshot.
+        (
+            "semantic:one-embedding-spec",
+            "embedding_specs",
+            "SELECT * FROM embedding_specs_published UNION ALL \
+             SELECT snapshot_id, \
+                    CAST(X'00000000000000000000000000000000000000000000000000000000000000ff' \
+                         AS BYTEA) AS spec_hash, spec \
+             FROM embedding_specs_published",
+        ),
+    ]);
     let rules = cpg_schema::rules::rules();
     for (rule, table, view) in cases {
         let doctored = sql::query(&ctx, view).await.unwrap().into_view();

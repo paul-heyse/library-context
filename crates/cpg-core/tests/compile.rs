@@ -90,7 +90,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        36 + 21 + 12,
+        36 + 21 + 13,
         "every raw, derived and analysis table"
     );
 

@@ -3,6 +3,7 @@
 //! Dependencies are `arrow-*` and `blake3` only. Column-level contracts live here and are
 //! snapshot-tested (`tests/`); DESIGN.md does not repeat them.
 
+pub mod bundle;
 pub mod codebook;
 pub mod column;
 pub mod derived;

@@ -225,3 +225,8 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
   - An assertion's status is `findings::derive_status` of its supports, with `EVIDENCE_STATUS`
     and `STATUS_STRENGTH` declared beside `FINDING_STATUS`. A generated rule recomputes it (F1).
   - `AssertionKey` hashes its supports sorted, as the recipe table says (F6).
+- 2026-09-23, slice 1.7: `brief_documents` gains `spec_hash`, since one text has a vector per
+  spec. A new analysis table, `embedding_specs`, holds the snapshot's spec as canonical JSON, so
+  the serving bundle is built from the store alone. Three rules are added:
+  `semantic:document-key-whole`, `semantic:document-vector-cached` and
+  `semantic:one-embedding-spec`.

@@ -11,6 +11,7 @@ cpg-schema = { path = "../cpg-schema" }
 lctx-analytics = { path = "../lctx-analytics" }
 arrow-array.workspace = true
 arrow-cast.workspace = true
+arrow-ipc.workspace = true
 arrow-schema.workspace = true
 arrow-select.workspace = true
 datafusion.workspace = true

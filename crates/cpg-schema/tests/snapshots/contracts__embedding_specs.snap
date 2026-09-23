@@ -1,0 +1,12 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table embedding_specs
+family findings
+key snapshot_id, spec_hash
+@lctx.family=findings
+@lctx.table=embedding_specs
+snapshot_id: FixedSizeBinary(16) NOT NULL
+spec_hash: FixedSizeBinary(32) NOT NULL
+spec: Utf8 NOT NULL

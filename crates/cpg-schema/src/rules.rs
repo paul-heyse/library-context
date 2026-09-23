@@ -115,6 +115,11 @@ pub const REFERENCES: &[Reference] = &[
     r("brief_members", "export_node_id", NODE),
     r("brief_members", "declaration_node_id", NODE),
     r("brief_documents", "brief_id", &[("briefs", "brief_id")]),
+    r(
+        "brief_documents",
+        "spec_hash",
+        &[("embedding_specs", "spec_hash")],
+    ),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
     r("provider_class_map", "pysa_fact_id", FACT),
@@ -246,6 +251,28 @@ fn semantic() -> Vec<Rule> {
              JOIN producers p ON p.producer_id = r.producer_id \
              WHERE p.tool <> 'lctx-compiler'"
                 .to_owned(),
+        ),
+        (
+            // §11.1, slice 1.7: a document's cache key is whole, both parts or neither.
+            "semantic:document-key-whole",
+            "SELECT brief_id, chunk FROM brief_documents \
+             WHERE (spec_hash IS NULL) <> (input_hash IS NULL)"
+                .to_owned(),
+        ),
+        (
+            // §6.4: every embedded document's vector is in the cache the snapshot records, so the
+            // serving bundle can be built from the store alone.
+            "semantic:document-vector-cached",
+            "SELECT d.brief_id, d.chunk FROM brief_documents d \
+             LEFT ANTI JOIN embedding_cache c \
+               ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash \
+             WHERE d.input_hash IS NOT NULL"
+                .to_owned(),
+        ),
+        (
+            // §6.4: a snapshot's documents share one spec; a generation never mixes vector spaces.
+            "semantic:one-embedding-spec",
+            "SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1".to_owned(),
         ),
         (
             // §11.1: one spec gives one vector length (its declared dimensions).

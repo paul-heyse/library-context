@@ -1209,6 +1209,7 @@ pub async fn run(
             brief_id,
             chunk: 0,
             text: document,
+            spec_hash: None,
             input_hash: None,
         });
     }

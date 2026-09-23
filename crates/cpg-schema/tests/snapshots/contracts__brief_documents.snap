@@ -12,4 +12,5 @@ snapshot_id: FixedSizeBinary(16) NOT NULL
 brief_id: FixedSizeBinary(16) NOT NULL
 chunk: Int64 NOT NULL
 text: Utf8 NOT NULL
+spec_hash: FixedSizeBinary(32) NULL
 input_hash: FixedSizeBinary(32) NULL

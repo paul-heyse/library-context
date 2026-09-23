@@ -35,8 +35,9 @@ pub struct Published {
 
 /// Bumped by hand whenever the derive, cast, sort or analysis code changes output for the same
 /// inputs; the derived-table and analysis snapshots are what show such a change. 2: Stage E
-/// (ADR-0019). 3: definition arcs, the witness-cap kind fix (slice 1.4 review F1, F3).
-pub const COMPILER_OUTPUT_VERSION: u32 = 3;
+/// (ADR-0019). 3: definition arcs, the witness-cap kind fix (slice 1.4 review F1, F3). 4: the
+/// documents' spec hash and `embedding_specs` (slice 1.7).
+pub const COMPILER_OUTPUT_VERSION: u32 = 4;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -417,6 +418,7 @@ async fn finish(
     written.stages.mark("synthesize");
     // The brief documents embedded through the global cache (§11.1; ADR-0017 amendment): its
     // version is registered for validation and recorded in the row set with the keys used.
+    let mut specs = Vec::new();
     let embedded = match analysis.and_then(|(a, _)| a.embedder.clone()) {
         Some(embedder) => {
             let e = crate::embed::embed_documents(
@@ -426,6 +428,12 @@ async fn finish(
                 &mut made.brief_documents,
             )
             .await?;
+            // The spec itself, so a generation is built from the store alone (§6.4).
+            specs.push(cpg_schema::findings::EmbeddingSpecsRow {
+                snapshot_id,
+                spec_hash: e.spec_hash,
+                spec: embedder.spec().canonical_json(),
+            });
             let name = cpg_schema::embedding::EmbeddingCache::NAME;
             register(&ctx, root, name, e.version, snapshot_id).await?;
             written.versions.insert(name.to_owned(), e.version);
@@ -440,7 +448,7 @@ async fn finish(
     };
     use cpg_schema::findings::{
         AssertionPolicy, AssertionSupport, Assertions, BriefAssertions, BriefDocuments,
-        BriefMembers, Briefs, Evidence,
+        BriefMembers, Briefs, EmbeddingSpecs, Evidence,
     };
     write_analysis::<Evidence>(&ctx, root, snapshot_id, &made.evidence, &mut written).await?;
     write_analysis::<Assertions>(&ctx, root, snapshot_id, &made.assertions, &mut written).await?;
@@ -459,6 +467,7 @@ async fn finish(
         .await?;
     write_analysis::<BriefDocuments>(&ctx, root, snapshot_id, &made.brief_documents, &mut written)
         .await?;
+    write_analysis::<EmbeddingSpecs>(&ctx, root, snapshot_id, &specs, &mut written).await?;
     write_analysis::<AssertionPolicy>(&ctx, root, snapshot_id, &made.policy, &mut written).await?;
     let Written {
         mut stages,

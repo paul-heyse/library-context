@@ -1,0 +1,38 @@
+{
+  "briefs": {
+    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"seed_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"access_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"title\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"applicable_case\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"documentation_only\",\"nullable\":false,\"type\":\"bool\"},{\"metadata\":[],\"name\":\"review_state\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"outcome\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"outcome_status\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "f1494a3faf1b58c72599e47520ccd89c6523ddf733b764f6b95ce9b3dd72fd10"
+  },
+  "assertions": {
+    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"ordinal\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"assertion_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"section\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"status\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"text\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"applicable_case\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"conditions\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"limitations\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"template_version\",\"nullable\":false,\"type\":\"int64\"}]",
+    "digest": "5aa270a7042df472af05d5ad78aa3536ea9bc97d7365bf6da74f2c8f713ccef2"
+  },
+  "supports": {
+    "form": "[{\"metadata\":[],\"name\":\"assertion_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"role\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"ordinal\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"finding_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"finding_kind\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"evidence_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"}]",
+    "digest": "ae6151802d833995a9403685e658d7b7a44f2a9852fae3b58100e619e3b89599"
+  },
+  "evidence": {
+    "form": "[{\"metadata\":[],\"name\":\"evidence_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"node_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"path\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"start_byte\",\"nullable\":true,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"end_byte\",\"nullable\":true,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"text\",\"nullable\":true,\"type\":\"utf8\"}]",
+    "digest": "8b60372c177de45d700b29eb343bc5215b2e332d1dd6da100218c08f0f0b21aa"
+  },
+  "brief_members": {
+    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"access_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"export_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"declaration_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
+    "digest": "529131880ed9084b89a2d00561b078425576514e87770cd21a2d12416bb9f9da"
+  },
+  "symbol_map": {
+    "form": "[{\"metadata\":[],\"name\":\"symbol\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
+    "digest": "97d82fcfa1aafe8b6d50487cbb97592d990b409ea0cddb27be7009d985da5bbf"
+  },
+  "lexical_text": {
+    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"text\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "ab8fe2e0f49b889be8fbe7779e62bb1d8bc752baa4117f2009a3c9717fa95837"
+  },
+  "embedding_spec": {
+    "form": "[{\"metadata\":[],\"name\":\"spec_hash\",\"nullable\":false,\"type\":\"fixed_size_binary(32)\"},{\"metadata\":[],\"name\":\"spec\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "85da37f37ba0806990dd8953c4f240d1f92ca98d40297b4afd5942e75cc06111"
+  },
+  "vectors": {
+    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"chunk\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"input_hash\",\"nullable\":false,\"type\":\"fixed_size_binary(32)\"},{\"metadata\":[],\"name\":\"vector\",\"nullable\":false,\"type\":\"fixed_size_list(float32 not null \\\"item\\\", 4096)\"}]",
+    "digest": "bdc340204c1f661dc82f801aa2814f75ca05700a122c475f7e73c3d59d6b74ab"
+  }
+}

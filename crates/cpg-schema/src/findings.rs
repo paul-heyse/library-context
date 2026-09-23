@@ -274,7 +274,8 @@ table!(
 
 table!(
     /// A brief's embedding projection (DESIGN §11.1), chunked: the text the embedder receives,
-    /// and its cache key once embedded (slice 1.6).
+    /// and its cache key `(spec_hash, input_hash)` once embedded (slice 1.6). The spec is part of
+    /// the key because one text has a vector per spec (slice 1.7).
     BriefDocuments, BriefDocumentsRow = "brief_documents",
     family = Findings,
     key = [snapshot_id, brief_id, chunk],
@@ -284,7 +285,23 @@ table!(
         brief_id: Id,
         chunk: i64,
         text: String,
+        spec_hash: Option<Digest>,
         input_hash: Option<Digest>,
+    }
+);
+
+table!(
+    /// The embedding spec a snapshot's documents were embedded under (DESIGN §11.1): its canonical
+    /// JSON and that JSON's SHA-256. The serving bundle's `embedding_spec` is built from it, so a
+    /// generation needs nothing but the store (§6.4; slice 1.7).
+    EmbeddingSpecs, EmbeddingSpecsRow = "embedding_specs",
+    family = Findings,
+    key = [snapshot_id, spec_hash],
+    checks = [],
+    {
+        snapshot_id: Id,
+        spec_hash: Digest,
+        spec: String,
     }
 );
 
@@ -367,6 +384,7 @@ macro_rules! for_each_analysis_table {
             $crate::findings::BriefAssertions,
             $crate::findings::BriefMembers,
             $crate::findings::BriefDocuments,
+            $crate::findings::EmbeddingSpecs,
             $crate::findings::AssertionPolicy
         )
     };
