@@ -28,6 +28,7 @@ DataFusion) before it became a direct dependency, so none adds a version; `just 
 | globset | =0.4.20: corpus globs (`literal_separator`) | 2026-09-23 | `Cargo.lock` before and after; Unlicense OR MIT; the glob tests and the pilot's identical selection |
 | walkdir | =2.5.0: the tree, source-tree and environment walks (`follow_links(false)`) | 2026-09-23 | same; Unlicense OR MIT |
 | serde | =1.0.229, `derive`: typed `pyproject.toml` (`[tool.lctx]`, `deny_unknown_fields`) and `uv.lock` | 2026-09-23 | same; MIT OR Apache-2.0; `toml`'s serde feature was already on |
+| csv | =1.4.0: `RECORD` read as CSV (PEP 376 quotes a path holding `,` or `"`) | 2026-09-23 | same; Unlicense OR MIT; `a_quoted_record_path_is_verified` |
 
 ## Analyzers (ADR-0012, accepted)
 

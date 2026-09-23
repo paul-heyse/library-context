@@ -225,22 +225,30 @@ fn version_triple(v: &str) -> Result<(u32, u32, u32), ExtractError> {
 
 /// One `RECORD` entry inside site-packages: its path and sha256, when recorded. Entries outside
 /// site-packages (`../../../bin/…`) carry the environment's location and are dropped.
-fn record_entries(record: &str) -> Vec<(String, Option<String>)> {
-    record
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split(',');
-            let path = fields.next()?.trim();
-            if path.is_empty() || path.starts_with("..") {
-                return None;
-            }
-            let hash = fields
-                .next()
-                .and_then(|h| h.strip_prefix("sha256="))
-                .map(str::to_owned);
-            Some((path.to_owned(), hash))
-        })
-        .collect()
+///
+/// `RECORD` is CSV (PEP 376): a path holding `,` or `"` is quoted, so it is read as CSV, never split
+/// on commas (H1 C5).
+fn record_entries(record: &[u8]) -> Result<Vec<(String, Option<String>)>, csv::Error> {
+    let mut entries = Vec::new();
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(record);
+    for row in reader.records() {
+        let row = row?;
+        let Some(path) = row.get(0).map(str::trim) else {
+            continue;
+        };
+        if path.is_empty() || path.starts_with("..") {
+            continue;
+        }
+        let hash = row
+            .get(1)
+            .and_then(|h| h.strip_prefix("sha256="))
+            .map(str::to_owned);
+        entries.push((path.to_owned(), hash));
+    }
+    Ok(entries)
 }
 
 /// Installed distributions: normalized name → (version, dist-info directory).
@@ -372,7 +380,9 @@ pub fn acquired(
         let record_bytes = std::fs::read(dist_info.join("RECORD"))
             .map_err(|e| fail(format!("{}: {e}", dist_info.display())))?;
         let in_release = release.contains(dist);
-        for (path, hash) in record_entries(&String::from_utf8_lossy(&record_bytes)) {
+        let entries = record_entries(&record_bytes)
+            .map_err(|e| fail(format!("{}/RECORD: {e}", dist_info.display())))?;
+        for (path, hash) in entries {
             if !analyzer_readable(&path) {
                 continue;
             }

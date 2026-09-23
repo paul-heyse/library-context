@@ -284,3 +284,31 @@ fn the_docs_source_is_pinned_and_names_the_locked_version() {
     .unwrap();
     refused(&a, "must pin `commit`");
 }
+
+/// A `RECORD` path holding a comma is quoted (PEP 376). It is read as CSV, so the file is verified
+/// and compiled like any other, and a changed byte in it is refused (H1 C5).
+#[test]
+fn a_quoted_record_path_is_verified() {
+    let a = acquired();
+    let odd = "X = 1\n";
+    std::fs::write(a.site.join("demo/a,b.py"), odd).unwrap();
+    let record = a.site.join("demo-1.0.dist-info/RECORD");
+    let text = std::fs::read_to_string(&record).unwrap();
+    std::fs::write(
+        &record,
+        format!(
+            "\"demo/a,b.py\",sha256={},{}\n{text}",
+            sha(odd.as_bytes()),
+            odd.len()
+        ),
+    )
+    .unwrap();
+    let i = input(&a).unwrap();
+    assert!(
+        i.release.files.contains(&a.site.join("demo/a,b.py")),
+        "{:?}",
+        i.release.files
+    );
+    std::fs::write(a.site.join("demo/a,b.py"), "X = 2\n").unwrap();
+    assert!(input(&a).is_err());
+}

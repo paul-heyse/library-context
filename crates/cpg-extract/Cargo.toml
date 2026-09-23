@@ -29,6 +29,7 @@ base64.workspace = true
 markdown.workspace = true
 globset.workspace = true
 serde.workspace = true
+csv.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]

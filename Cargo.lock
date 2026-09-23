@@ -1152,6 +1152,7 @@ dependencies = [
  "arrow-select",
  "base64 0.22.1",
  "cpg-schema",
+ "csv",
  "globset",
  "insta",
  "markdown",
