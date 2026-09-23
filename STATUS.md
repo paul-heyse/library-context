@@ -1,82 +1,57 @@
 # Status
 
-_Updated 2026-09-22 by the handoff skill._
+_Updated 2026-09-23 by the handoff skill._
 
 ## Where we are
 
-- **Increment 1** (DESIGN §1.2): slices 1–3 are done.
-  - Slice 1: extraction (Pyrefly fork + ruff in-process), raw contracts, Delta persistence.
-  - Slice 2: Stage C/D derivations, generated validators, `snapshots` publication, reader
-    (ADR-0008 accepted).
-  - Slice 3 (`b1cc9a4`, `f179df1`, `771b7e8`): **Stage A and the pivot to FastMCP 4.0.5**
-    (ADR-0013 accepted, superseding ADR-0007).
-    - Every analyzed library is a committed uv project `libraries/<name>/`, acquired with
-      `uv sync --frozen --no-config --python <pin> --link-mode copy`.
-    - Stage A verifies analyzer-readable bytes against `RECORD`s and derives `release_id` from
-      release content.
-    - `lctx library init|acquire|compile` is the production path (`libraries/README.md`).
-- **The fastmcp skill (gold) is at 4.0.5,** re-pinned through its own pipeline; the 4.0.3
-  original is archived at `~/skill-work/fastmcp-4.0.3-original`. `just gold` checks they agree.
-- **DESIGN.md has no line budget** (operator; ADR-0004 amendment).
-- **Pushed** to `origin/main` (2026-09-22), including the operator's
-  `docs/design_review/design_principles/rust_code_intelligence_data_graph_guidelines.md`.
+- **Increment 1** (DESIGN §1.2): slices 1–3 are done (extraction, derive/validate/publish,
+  Stage A and the pivot to FastMCP 4.0.5; ADR-0013).
+- **The CPG plan is complete** (operator, 2026-09-22: CPG before Pass A; ADR-0014; ADR-0004
+  re-sequencing). Slices C1–C6 are built, and each review's findings are fixed:
+  - C1: node/edge catalogs, typed endpoints, retention, stage metrics (standard review);
+  - C2 `syntax`; C3 `lexical`; C4 `types` (fork `6a93da34`, branch `lctx/1.3.1-r2`);
+  - C5: the source corpus (docs family, and a usage run that names the release's files by
+    `@path`);
+  - C6: the whole-CPG measurement and the **deep review** (`design_review_cpg-c6-whole-cpg_2026-09-23.md`,
+    Accept with claims narrowed; fixed in `8d1cac1`).
+- **The pilot graph**: FastMCP 4.0.5 plus its corpus at `004bf15a`. 905,648 nodes,
+  1,449,162 edges and 493 rules (18 of them declared edit guards, DESIGN §8).
+- **Unpushed:** 13 commits on `main` since `origin/main` (`494557c`). Push only when asked.
 
-## Last verified (2026-09-22, at `771b7e8`)
+## Last verified (2026-09-23, at `8d1cac1`)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` | passed: nextest 63/63, pytest 21/21, ast-grep rules 4/4, adr lint (13), lint-agents, fixtures, family ok, cargo-deny ok, pyrefly-fork ok, `just gold` ok |
-| `just pilot` (FastMCP 4.0.5, release build) | passed: 275 modules, 103 distributions, every rule, about 8 s, 1.6 GB RSS; two environment paths give one `content_digest` |
-| fastmcp skill at 4.0.5: `verify.py`, `qualify.py`, 37 runtime cases | passed (the refresh agent's report, and `verify.py` re-run independently) |
+| `just test-all` | passed: nextest 83/83, pytest 21/21, rule tests 4/4, adr lint (14), lint-agents, fixtures, family, cargo-deny, pyrefly-fork, gold |
+| `just pilot` (fresh store) | passed: snapshot `ddee0669…`, content `66cddc06…`, every rule, 44.6 s at 7.1 GB peak (default glibc) |
+| `MALLOC_ARENA_MAX=2 target/release/lctx compile fastmcp --store build/review-store` | passed: the same content digest, 61.2 s at 4.2 GB (scratch store deleted) |
 
 ## Known gaps
 
-- **`build/`** (environments, stores) is local and rebuildable. A contract change makes an old
-  store fail with `SchemaDrift`; delete it or use a new `--store`.
-- **`pyproject.toml`** (project environment: fastmcp, vllm) is serving and dev only, and never an
-  analysis input. Its restructuring per ADR-0010 is still due.
-- **An asserted library claim not yet located:** petgraph's Bfs and Dfs visit siblings in
-  opposite orders (§5). The ADR-0011 spike settles it.
+- **`build/`** is local and rebuildable. A contract change makes an old store fail with
+  `SchemaDrift`; delete it or pass a new `--store`. `build/store.pre-c4fix` (621 MB) is an
+  obsolete pre-C4-fix store and can be deleted.
+- **Peak memory** is 6.7–8.0 GB with the default allocator, about 40–45% of it arena retention
+  (DESIGN §4.3). The memory triggers read the peak under `MALLOC_ARENA_MAX=2`.
+- **`pyproject.toml`** (the project environment) still owes its ADR-0010 restructuring.
+- **petgraph's** Bfs/Dfs sibling order (§5) is still unlocated; the ADR-0011 spike settles it.
 
 ## Open decisions
 
+- **Operator:** the usage modules' text and usage role (DESIGN §13; C6 review F2). Either store
+  the text or re-read it with a content check, and record the role as a codebook. It must be
+  decided before §10.5.
 - **ADR-0011** (analytics) stays `proposed` until its increment-2 spike.
-- **ADR-0007's revisit trigger** is resolved: its identity triggers now live in ADR-0013's
-  `revisit:`, and the environment and lock are in `context_id`.
-- **Deferred review rows** (each with its reopen trigger in its review):
-  - ADR-0013: module → distribution link, lock forks, `python_platform` off Linux, typed Stage A
-    errors, `lock_digest` granularity, an end-to-end `library init` test with a real uv;
-  - slice 2: the ambiguous committed append, generated references, unbound-`def` calls,
-    `caller_key`;
-  - slice 1: hooks behind a dev feature, boundary provenance, the locator clamp, the harness
-    `canon`.
+- **Deferred review rows**, each with its trigger in its review. None has fired unhandled (the
+  C6 review re-checked them):
+  - ADR-0014 standard review O5–O7;
+  - C2 O2, O3, O5; C3 O1, O3–O7; C4 O1 (first trigger only), O2–O4, O6;
+  - C5 O1–O5; C6 O1–O5;
+  - older: the ADR-0013, slice-2 and slice-1 rows.
+- `just adr revisit` (2026-09-23): ADR-0002's `just deps` passed; the other triggers are manual,
+  and none has fired (ADR-0012's patch is 40 changed lines of visibility and accessors).
 
 ## Next
 
-**CPG first** (operator, 2026-09-22; ADR-0014 accepted 2026-09-23): slices C1–C6 before Pass A.
-- **Done:**
-  - C1: the node and edge catalogs, typed endpoints, retention, stage metrics; standard review
-    fixed.
-  - C2: the `syntax` family; its compact review fixed (every expression placed).
-  - C3: the `lexical` family (scopes, bindings, references, name resolution).
-  - C4: the `types` family (type terms with structure and binders, observations, record fields),
-    on fork revision `6a93da34` (branch `lctx/1.3.1-r2`).
-  - Pilot 2026-09-23: 241,373 nodes, 387,774 edges, every rule; 18.4 s at 3.8–4.1 GB peak.
-  - C3 compact review (`design_review_cpg-c3-lexical_2026-09-23.md`): F1–F7 fixed with the
-    simpler alternative (outside names from Pyrefly); pilot 244,673 nodes, 391,193 edges,
-    19.0 s at 3.93 GB.
-  - C5a: the corpus run and the `docs` family (documents, passages, code blocks, links,
-    mentions), markdown-rs 1.0; pilot 247,786 nodes, 397,521 edges, 20.7 s at 3.91 GB.
-  - C4 compact review (`design_review_cpg-c4-types_2026-09-23.md`): F1–F7 fixed with the
-    simpler alternative (term ids from Pyrefly alone, binders derived). The pilot store was
-    rebuilt (the old one is `build/store.pre-c4fix`).
-  - C5b: the usage run (1,512 examples, tests and code blocks), release-scoped joins, one node
-    per shared fact.
-  - C6 measurement (`e313148`): validation costed per rule; streaming derive stays deferred.
-  - C5 compact review (`design_review_cpg-c5-corpus_2026-09-23.md`): F1–F8 fixed with the
-    simpler alternative (the corpus names the release's installed files by `@path`, so usage
-    reaches the release directly; `usage_targets`/`usage_link` retired). Pilot 905,648 nodes,
-    1,449,162 edges, 494 rules, 44.6 s at 7.4 GB peak (snapshot `ab6d98a3…`).
-- **C6:** the deep review (DESIGN, charter, guidelines), its fixes, the DESIGN labels, handoff.
-
-Then increment 1, slice 4: the analytics config, the invocation projection and Pass A.
+Increment 1, slice 4: the analytics config, the invocation projection (§5
+`GraphProjectionSpec` over the published catalogs) and Pass A.
