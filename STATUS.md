@@ -43,9 +43,8 @@ _Updated 2026-09-23 by the handoff skill._
 
 - **ADR-0011** (analytics) is still `proposed`, amended by H1. It is accepted at its increment-2
   spike; the leiden-rs determinism probe passed on normalized input.
-- **Owed by their slices** (H1 review F9):
-  - §9.5: PageRank's input projection and parameters;
-  - §9.4: the pair-to-arcs lineage.
+- **Owed by their slices** (H1 review F9): §9.5's PageRank projection and parameters, and
+  §9.4's pair-to-arcs lineage.
 - **Deferred rows**, each with its trigger in its review:
   - H1 review O2 (bundled-stub identity by content), O4 (a full-content oracle), O5, O6;
   - the leverage review's §7 items (Glean, streaming derive, `FairSpillPool`,
