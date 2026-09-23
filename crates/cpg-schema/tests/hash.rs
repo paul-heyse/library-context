@@ -172,3 +172,58 @@ fn the_canonical_sort_orders_small_batches_nulls_first() {
     let single = canonical_sort(&batch(vec![Some(9)], &["only"]), &["k"]).unwrap();
     assert_eq!(order(&single), ["only"]);
 }
+
+fn keyed(snapshots: Vec<Option<i64>>, keys: Vec<Option<i64>>, values: &[&str]) -> RecordBatch {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("s", DataType::Int64, true),
+        Field::new("k", DataType::Int64, true),
+        Field::new("v", DataType::Utf8, false),
+    ]));
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int64Array::from(snapshots)),
+            Arc::new(Int64Array::from(keys)),
+            Arc::new(StringArray::from(values.to_vec())),
+        ],
+    )
+    .unwrap()
+}
+
+fn order3(b: &RecordBatch) -> Vec<String> {
+    let v = b.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    (0..v.len()).map(|i| v.value(i).to_owned()).collect()
+}
+
+/// A constant leading key column (a write batch's `snapshot_id`) is skipped, with the same order;
+/// a non-constant one, or a null among values, still sorts (H1 P4).
+#[test]
+fn a_constant_leading_key_column_is_skipped_but_never_assumed() {
+    let same = keyed(
+        vec![Some(1); 3],
+        vec![Some(3), Some(1), Some(2)],
+        &["c", "a", "b"],
+    );
+    assert_eq!(
+        order3(&canonical_sort(&same, &["s", "k"]).unwrap()),
+        ["a", "b", "c"]
+    );
+    let mixed = keyed(
+        vec![Some(2), Some(1), Some(2)],
+        vec![Some(1), Some(9), Some(0)],
+        &["2-1", "1-9", "2-0"],
+    );
+    assert_eq!(
+        order3(&canonical_sort(&mixed, &["s", "k"]).unwrap()),
+        ["1-9", "2-0", "2-1"]
+    );
+    let null_lead = keyed(
+        vec![Some(1), None, Some(1)],
+        vec![Some(0), Some(5), Some(1)],
+        &["1-0", "null-5", "1-1"],
+    );
+    assert_eq!(
+        order3(&canonical_sort(&null_lead, &["s", "k"]).unwrap()),
+        ["null-5", "1-0", "1-1"]
+    );
+}

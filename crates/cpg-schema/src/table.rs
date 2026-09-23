@@ -3,7 +3,8 @@
 
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
+use arrow_array::{Array, RecordBatch, Scalar};
+use arrow_ord::cmp::not_distinct;
 use arrow_ord::sort::{SortColumn, SortOptions, lexsort_to_indices};
 use arrow_schema::{ArrowError, Schema, SchemaRef};
 use arrow_select::take::take_record_batch;
@@ -37,9 +38,17 @@ pub trait Table {
 }
 
 /// Sort by the declared total key. Arrow's sort is unstable, so the key must be total.
+///
+/// A leading key column that is constant across the batch (a write batch's `snapshot_id`) orders
+/// nothing, so it is left out of the comparison: the same order, about 3x faster on `edges` (H1
+/// P4). Constancy is checked, never assumed; a batch holding several snapshots sorts by all of it.
 pub fn canonical_sort(batch: &RecordBatch, key: &[&str]) -> Result<RecordBatch, ArrowError> {
     if batch.num_rows() < 2 {
         return Ok(batch.clone());
+    }
+    let mut key = key;
+    while key.len() > 1 && constant(batch.column(batch.schema().index_of(key[0])?).as_ref())? {
+        key = &key[1..];
     }
     let columns = key
         .iter()
@@ -55,6 +64,12 @@ pub fn canonical_sort(batch: &RecordBatch, key: &[&str]) -> Result<RecordBatch, 
         .collect::<Result<Vec<_>, ArrowError>>()?;
     let indices = lexsort_to_indices(&columns, None)?;
     take_record_batch(batch, &indices)
+}
+
+/// Whether every value of `column` equals its first (nulls equal to nulls).
+fn constant(column: &dyn Array) -> Result<bool, ArrowError> {
+    let first = Scalar::new(column.slice(0, 1));
+    Ok(not_distinct(&column, &first)?.true_count() == column.len())
 }
 
 /// The canonical schema form (DESIGN §6.4): table metadata, then per field its name, type,

@@ -4,23 +4,19 @@
 
 use std::sync::Arc;
 
-use arrow_array::builder::FixedSizeBinaryBuilder;
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use cpg_schema::derived::Derived;
 use cpg_schema::id::Id;
 use cpg_schema::table::canonical_sort;
+use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 
 use crate::delta::to_declared;
 use crate::{CoreError, sql};
 
 fn snapshot_column(snapshot_id: Id, rows: usize) -> Result<ArrayRef, CoreError> {
-    let mut b = FixedSizeBinaryBuilder::with_capacity(rows, 16);
-    for _ in 0..rows {
-        b.append_value(snapshot_id.0)?;
-    }
-    Ok(Arc::new(b.finish()))
+    Ok(ScalarValue::FixedSizeBinary(16, Some(snapshot_id.0.to_vec())).to_array_of_size(rows)?)
 }
 
 /// The derived table `T` of this snapshot, as a declared, canonically sorted batch.

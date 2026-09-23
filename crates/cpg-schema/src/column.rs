@@ -6,8 +6,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow_array::builder::{FixedSizeBinaryBuilder, ListBuilder, StringBuilder};
-use arrow_array::{ArrayRef, BooleanArray, Int16Array, Int64Array, StringArray};
+use arrow_array::builder::{ListBuilder, StringBuilder};
+use arrow_array::{
+    ArrayRef, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, StringArray,
+};
 use arrow_schema::{DataType, Field};
 
 use crate::codebook::Codebook;
@@ -34,14 +36,10 @@ pub trait ArrowColumn: Sized {
 fn fixed<'a, const N: usize>(
     values: impl ExactSizeIterator<Item = Option<&'a [u8; N]>>,
 ) -> ArrayRef {
-    let mut b = FixedSizeBinaryBuilder::with_capacity(values.len(), N as i32);
-    for v in values {
-        match v {
-            Some(bytes) => b.append_value(bytes).expect("width matches"),
-            None => b.append_null(),
-        }
-    }
-    Arc::new(b.finish())
+    Arc::new(
+        FixedSizeBinaryArray::try_from_sparse_iter_with_size(values, N as i32)
+            .expect("every value is N bytes"),
+    )
 }
 
 impl ArrowColumn for Id {
