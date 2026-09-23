@@ -41,6 +41,18 @@ fn acquire(extra: &[&str]) -> (Vec<String>, String, std::path::PathBuf) {
 }
 
 fn acquire_with(extra: &[&str], source: &str) -> (Vec<String>, String, std::path::PathBuf) {
+    let (ok, args, env, envs) = run_with(&["acquire", "demo"], extra, source);
+    assert!(ok);
+    (args, env, envs)
+}
+
+/// Run `lctx <command> --libraries … --envs … --sources … <extra>` against the stub `uv` and `git`:
+/// whether it succeeded, the recorded `uv` arguments and environment, and the environment path.
+fn run_with(
+    command: &[&str],
+    extra: &[&str],
+    source: &str,
+) -> (bool, Vec<String>, String, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
     stub(&root);
@@ -63,7 +75,8 @@ fn acquire_with(extra: &[&str], source: &str) -> (Vec<String>, String, std::path
         std::env::var("PATH").unwrap_or_default()
     );
     let status = Command::new(env!("CARGO_BIN_EXE_lctx"))
-        .args(["acquire", "demo", "--libraries"])
+        .args(command)
+        .arg("--libraries")
         .arg(root.join("libraries"))
         .arg("--envs")
         .arg(root.join("envs"))
@@ -79,7 +92,6 @@ fn acquire_with(extra: &[&str], source: &str) -> (Vec<String>, String, std::path
         .env("GIT_CONFIG_PARAMETERS", "'url.x.insteadOf'='y'")
         .status()
         .unwrap();
-    assert!(status.success());
     let args = std::fs::read_to_string(root.join("args"))
         .unwrap()
         .lines()
@@ -89,7 +101,7 @@ fn acquire_with(extra: &[&str], source: &str) -> (Vec<String>, String, std::path
     // Keep the directory alive by leaking its path for the assertions below.
     let envs = root.join("envs/demo");
     std::mem::forget(dir);
-    (args, env, envs)
+    (status.success(), args, env, envs)
 }
 
 #[test]
@@ -131,6 +143,20 @@ fn acquire_is_frozen_config_free_pinned_and_copying() {
 #[test]
 fn reinstall_rebuilds_every_package() {
     let (args, _, _) = acquire(&["--reinstall"]);
+    assert_eq!(args.last().map(String::as_str), Some("--reinstall"));
+}
+
+/// `compile --reinstall` reaches `uv sync --reinstall` (H1 C4: the hand parser accepted the flag
+/// and `compile` dropped it). The stub environment is not a real one, so the compile stops at
+/// Stage A; the recorded `uv` call is the assertion.
+#[test]
+fn compile_honours_reinstall() {
+    let (_, args, _, _) = run_with(
+        &["compile", "demo", "--store", "/nonexistent-store"],
+        &["--reinstall"],
+        "",
+    );
+    assert_eq!(args.first().map(String::as_str), Some("sync"));
     assert_eq!(args.last().map(String::as_str), Some("--reinstall"));
 }
 

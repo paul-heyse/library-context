@@ -22,6 +22,18 @@ macro_rules! id_type {
             pub fn hex(&self) -> String {
                 self.0.iter().map(|b| format!("{b:02x}")).collect()
             }
+            /// Exactly twice as many hex digits as bytes, either case. Anything else, a sign or a
+            /// non-ASCII character included, is refused rather than half-parsed (H1 C4).
+            pub fn from_hex(s: &str) -> Option<Self> {
+                if s.len() != 2 * $len || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return None;
+                }
+                let mut out = [0u8; $len];
+                for (i, byte) in out.iter_mut().enumerate() {
+                    *byte = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()?;
+                }
+                Some(Self(out))
+            }
         }
 
         impl std::fmt::Debug for $name {

@@ -30,6 +30,7 @@ markdown.workspace = true
 globset.workspace = true
 serde.workspace = true
 csv.workspace = true
+clap.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]

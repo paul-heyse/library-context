@@ -22,60 +22,90 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
 
+use clap::{Parser, Subcommand};
 use cpg_extract::{extract, library};
 use cpg_schema::id::Id;
 
-struct Options {
-    command: Vec<String>,
+/// The command line (H1 C4: clap derive; each command takes only its own options).
+#[derive(Parser, Debug)]
+#[command(
+    name = "lctx",
+    version,
+    about = "Compile a pinned Python library into a published snapshot"
+)]
+struct Cli {
+    /// Library definitions: `<DIR>/<name>/`.
+    #[arg(long, global = true, default_value = "libraries")]
     libraries: PathBuf,
+    /// Acquired environments: `<DIR>/<name>/`.
+    #[arg(long, global = true, default_value = "build/envs")]
     envs: PathBuf,
+    /// Fetched source trees: `<DIR>/<name>/<commit>/`.
+    #[arg(long, global = true, default_value = "build/sources")]
     sources: PathBuf,
-    store: Option<PathBuf>,
-    requirement: Option<String>,
-    python: String,
-    reinstall: bool,
-    snapshot: Option<String>,
-    unpublished: bool,
+    #[command(subcommand)]
+    command: Cmd,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Library definitions.
+    Library {
+        #[command(subcommand)]
+        command: LibraryCommand,
+    },
+    /// `uv sync --frozen` into the environment, and fetch the declared source tree.
+    Acquire {
+        name: String,
+        /// Reinstall every package (`uv sync --reinstall`).
+        #[arg(long)]
+        reinstall: bool,
+    },
+    /// Acquire, then Stage A, extract, derive, validate and publish.
+    Compile {
+        name: String,
+        /// The Delta store.
+        #[arg(long)]
+        store: PathBuf,
+        /// Reinstall every package while acquiring.
+        #[arg(long)]
+        reinstall: bool,
+    },
+    /// Read-only SQL over a published snapshot (its tables by name).
+    Query {
+        /// The Delta store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The snapshot id: 32 hex digits.
+        #[arg(long, value_parser = parse_id)]
+        snapshot: Id,
+        /// The tables' latest versions instead: an attempt validation rejected, for inspection only.
+        #[arg(long)]
+        unpublished: bool,
+        sql: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum LibraryCommand {
+    /// Write, lock and acquire `libraries/<name>/`, and propose `[tool.lctx] release`.
+    Init {
+        name: String,
+        /// The one pinned requirement, e.g. `fastmcp[tasks]==4.0.5`.
+        #[arg(long)]
+        requirement: String,
+        /// The interpreter, MAJOR.MINOR.MICRO.
+        #[arg(long, default_value = "3.14.7")]
+        python: String,
+    },
+}
+
+fn parse_id(s: &str) -> Result<Id, String> {
+    Id::from_hex(s).ok_or_else(|| format!("{s:?} is not 32 hex digits"))
 }
 
 fn absolute(p: &Path) -> Result<PathBuf, String> {
     std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()))
-}
-
-fn parse() -> Result<Options, String> {
-    let mut o = Options {
-        command: Vec::new(),
-        libraries: PathBuf::from("libraries"),
-        envs: PathBuf::from("build/envs"),
-        sources: PathBuf::from("build/sources"),
-        store: None,
-        requirement: None,
-        python: "3.14.7".to_owned(),
-        reinstall: false,
-        snapshot: None,
-        unpublished: false,
-    };
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
-        match arg.as_str() {
-            "--libraries" => o.libraries = PathBuf::from(value()?),
-            "--envs" => o.envs = PathBuf::from(value()?),
-            "--sources" => o.sources = PathBuf::from(value()?),
-            "--store" => o.store = Some(PathBuf::from(value()?)),
-            "--requirement" => o.requirement = Some(value()?),
-            "--python" => o.python = value()?,
-            "--reinstall" => o.reinstall = true,
-            "--unpublished" => o.unpublished = true,
-            "--snapshot" => o.snapshot = Some(value()?),
-            flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
-            _ => o.command.push(arg),
-        }
-    }
-    o.libraries = absolute(&o.libraries)?;
-    o.envs = absolute(&o.envs)?;
-    o.sources = absolute(&o.sources)?;
-    Ok(o)
 }
 
 /// Run uv for one library, with the environment pinned to `env_dir` and every other `UV_*`
@@ -227,9 +257,15 @@ fn random_id() -> Result<Id, String> {
     Ok(Id(bytes))
 }
 
-fn compile(library_dir: &Path, env_dir: &Path, sources: &Path, store: &Path) -> Result<(), String> {
+fn compile(
+    library_dir: &Path,
+    env_dir: &Path,
+    sources: &Path,
+    store: &Path,
+    reinstall: bool,
+) -> Result<(), String> {
     let started = Instant::now();
-    acquire(library_dir, env_dir, false)?;
+    acquire(library_dir, env_dir, reinstall)?;
     let tree = fetch_source(library_dir, sources)?;
     let acquired = started.elapsed();
     let snapshot = random_id()?;
@@ -299,17 +335,19 @@ fn compile(library_dir: &Path, env_dir: &Path, sources: &Path, store: &Path) -> 
 
 /// Write `libraries/<name>/`, lock it, acquire it, and propose `[tool.lctx] release` as the
 /// requested distribution plus every installed distribution sharing a source repository with it.
-fn init(name: &str, o: &Options) -> Result<(), String> {
-    let requirement = o
-        .requirement
-        .as_deref()
-        .ok_or("library init needs --requirement")?;
+fn init(
+    name: &str,
+    requirement: &str,
+    python: &str,
+    libraries: &Path,
+    envs: &Path,
+) -> Result<(), String> {
     let dist = library::requirement_name(requirement);
     let (major, minor) = {
-        let mut parts = o.python.split('.');
+        let mut parts = python.split('.');
         (parts.next().unwrap_or("3"), parts.next().unwrap_or("14"))
     };
-    let library_dir = o.libraries.join(name);
+    let library_dir = libraries.join(name);
     if library_dir.exists() {
         return Err(format!("{} already exists", library_dir.display()));
     }
@@ -334,12 +372,9 @@ fn init(name: &str, o: &Options) -> Result<(), String> {
         .map_err(|e| e.to_string())
     };
     write(std::slice::from_ref(&dist))?;
-    std::fs::write(
-        library_dir.join(".python-version"),
-        format!("{}\n", o.python),
-    )
-    .map_err(|e| e.to_string())?;
-    let env_dir = o.envs.join(name);
+    std::fs::write(library_dir.join(".python-version"), format!("{python}\n"))
+        .map_err(|e| e.to_string())?;
+    let env_dir = envs.join(name);
     uv(
         &["lock", "--project", &library_dir.to_string_lossy()],
         &env_dir,
@@ -381,15 +416,8 @@ fn init(name: &str, o: &Options) -> Result<(), String> {
 /// Read-only SQL over one published snapshot: every table registered under its own name, at its
 /// recorded version, filtered to the snapshot (DESIGN §6.2). With `unpublished`, the tables' latest
 /// versions instead: an attempt validation rejected, for inspection only.
-fn query(store: &Path, hex: &str, sql: &str, unpublished: bool) -> Result<(), String> {
-    let bytes: Vec<u8> = (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(hex.get(i..i + 2).unwrap_or("zz"), 16))
-        .collect::<Result<_, _>>()
-        .map_err(|_| format!("--snapshot {hex}: not hex"))?;
-    let id = Id(bytes
-        .try_into()
-        .map_err(|_| format!("--snapshot {hex}: not 16 bytes"))?);
+fn query(store: &Path, id: Id, sql: &str, unpublished: bool) -> Result<(), String> {
+    let hex = id.hex();
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     runtime.block_on(async {
         let ctx = if unpublished {
@@ -415,34 +443,40 @@ fn query(store: &Path, hex: &str, sql: &str, unpublished: bool) -> Result<(), St
 }
 
 fn run() -> Result<(), String> {
-    let o = parse()?;
-    let words: Vec<&str> = o.command.iter().map(String::as_str).collect();
-    match words[..] {
-        ["library", "init", name] => init(name, &o),
-        ["acquire", name] => {
-            let library_dir = o.libraries.join(name);
-            acquire(&library_dir, &o.envs.join(name), o.reinstall)?;
-            fetch_source(&library_dir, &o.sources.join(name)).map(|_| ())
+    let cli = Cli::parse();
+    let libraries = absolute(&cli.libraries)?;
+    let envs = absolute(&cli.envs)?;
+    let sources = absolute(&cli.sources)?;
+    match cli.command {
+        Cmd::Library {
+            command:
+                LibraryCommand::Init {
+                    name,
+                    requirement,
+                    python,
+                },
+        } => init(&name, &requirement, &python, &libraries, &envs),
+        Cmd::Acquire { name, reinstall } => {
+            let library_dir = libraries.join(&name);
+            acquire(&library_dir, &envs.join(&name), reinstall)?;
+            fetch_source(&library_dir, &sources.join(&name)).map(|_| ())
         }
-        ["query", sql] => {
-            let store = absolute(o.store.as_deref().ok_or("query needs --store DIR")?)?;
-            let hex = o.snapshot.as_deref().ok_or("query needs --snapshot HEX")?;
-            query(&store, hex, sql, o.unpublished)
-        }
-        ["compile", name] => {
-            let store = absolute(o.store.as_deref().ok_or("compile needs --store DIR")?)?;
-            compile(
-                &o.libraries.join(name),
-                &o.envs.join(name),
-                &o.sources.join(name),
-                &store,
-            )
-        }
-        _ => Err(
-            "usage: lctx library init <name> --requirement REQ | lctx acquire <name> | \
-                  lctx compile <name> --store DIR | \
-                  lctx query --store DIR --snapshot HEX \"SQL\""
-                .to_owned(),
+        Cmd::Query {
+            store,
+            snapshot,
+            unpublished,
+            sql,
+        } => query(&absolute(&store)?, snapshot, &sql, unpublished),
+        Cmd::Compile {
+            name,
+            store,
+            reinstall,
+        } => compile(
+            &libraries.join(&name),
+            &envs.join(&name),
+            &sources.join(&name),
+            &absolute(&store)?,
+            reinstall,
         ),
     }
 }
@@ -454,5 +488,80 @@ fn main() -> ExitCode {
             eprintln!("lctx: {e}");
             ExitCode::from(1)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, Cmd};
+
+    fn parse(args: &[&str]) -> Result<Cli, String> {
+        Cli::try_parse_from(std::iter::once("lctx").chain(args.iter().copied()))
+            .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn each_command_takes_its_own_options() {
+        let cli = parse(&["compile", "fastmcp", "--store", "s", "--reinstall"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Compile {
+                reinstall: true,
+                ..
+            }
+        ));
+        let cli = parse(&["acquire", "fastmcp", "--envs", "e"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Acquire {
+                reinstall: false,
+                ..
+            }
+        ));
+        assert_eq!(cli.envs, std::path::PathBuf::from("e"));
+        let cli = parse(&[
+            "query",
+            "--store",
+            "s",
+            "--snapshot",
+            &"ab".repeat(16),
+            "SELECT 1",
+        ]);
+        assert!(matches!(cli.unwrap().command, Cmd::Query { .. }));
+        // An option of another command is refused, not ignored.
+        assert!(parse(&["acquire", "fastmcp", "--store", "s"]).is_err());
+        assert!(
+            parse(&[
+                "query",
+                "--store",
+                "s",
+                "--snapshot",
+                &"ab".repeat(16),
+                "--requirement",
+                "x",
+                "q"
+            ])
+            .is_err()
+        );
+    }
+
+    /// The hand parsers accepted a sign (`from_str_radix` reads `+f`) and panicked slicing
+    /// non-ASCII input (H1 C4).
+    #[test]
+    fn a_snapshot_id_is_exactly_32_hex_digits() {
+        for bad in [
+            "+f".repeat(16),
+            "é".repeat(16),
+            "ab".repeat(15),
+            "zz".repeat(16),
+        ] {
+            assert!(
+                parse(&["query", "--store", "s", "--snapshot", &bad, "q"]).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(parse(&["query", "--store", "s", "--snapshot", &"AB".repeat(16), "q"]).is_ok());
     }
 }
