@@ -1,0 +1,9 @@
+---
+source: crates/cpg-core/tests/analysis.rs
+expression: "text(&ctx,\n\"SELECT iterations, converged, residual < 1e-10 AS below_tolerance, completion, \\\n                    candidate_set_size, arcs_examined, diagnostics \\\n             FROM analysis_invocations WHERE method = 5\",).await"
+---
++------------+-----------+-----------------+------------+--------------------+---------------+---------------------------------------------------------------------------------------------------------------------------+
+| iterations | converged | below_tolerance | completion | candidate_set_size | arcs_examined | diagnostics                                                                                                               |
++------------+-----------+-----------------+------------+--------------------+---------------+---------------------------------------------------------------------------------------------------------------------------+
+| 24         | true      | true            | 0          | 37                 | 35            | {"vertices":37,"subsystem_functions":37,"usage_callers":0,"weighted_arcs":35,"arc_weight":40,"dangling":21,"reported":35} |
++------------+-----------+-----------------+------------+--------------------+---------------+---------------------------------------------------------------------------------------------------------------------------+

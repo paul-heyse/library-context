@@ -542,6 +542,37 @@ async fn communities_are_stable_and_projected_onto_public_apis() {
     );
 }
 
+/// Centrality (DESIGN §9.5): one PageRank invocation over the usage projection, converged, with
+/// its iterations, residual and diagnostics; each public API's rank is a `centrality` finding, and
+/// the ranks of all vertices sum to one.
+#[tokio::test(flavor = "multi_thread")]
+async fn public_apis_are_ranked_over_the_usage_projection() {
+    let (ctx, _dir) = analyzed("one", false).await;
+    insta::assert_snapshot!(
+        "pagerank",
+        text(
+            &ctx,
+            "SELECT iterations, converged, residual < 1e-10 AS below_tolerance, completion, \
+                    candidate_set_size, arcs_examined, diagnostics \
+             FROM analysis_invocations WHERE method = 5",
+        )
+        .await
+    );
+    insta::assert_snapshot!(
+        "centrality_top",
+        text(
+            &ctx,
+            &format!(
+                "SELECT {LABEL} AS api, round(f.score, 6) AS rank, f.evidence_status \
+                 FROM findings f {} WHERE f.finding_kind = 12 \
+                 ORDER BY f.score DESC, api LIMIT 8",
+                labelled("f.subject_node_id")
+            )
+        )
+        .await
+    );
+}
+
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
 /// `partial` with its stop reason, and Stage F states it as a limit of the brief.
 #[tokio::test(flavor = "multi_thread")]
@@ -786,6 +817,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
         ),
         (
             8,
+            8,
+            "a1059c90f44d1e3d9fcac8d70043dfbea917a6facf056fb890e833cad70d610c",
+        ),
+        (
+            9,
             8,
             "a1059c90f44d1e3d9fcac8d70043dfbea917a6facf056fb890e833cad70d610c",
         ),

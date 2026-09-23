@@ -10,7 +10,7 @@
 //! - **Public callables.** What a community reports: each function exported under a public root
 //!   by a path with no private segment, and each public method (or `__init__`, `__call__`) an
 //!   exported class declares or inherits along its MRO, the nearest definition winning; each with
-//!   its least access path.
+//!   its least access path. An `@overload` stub is not a callable of its own.
 
 use crate::codebook::{AncestryRelation, Codebook, DeclarationKind, EdgeKind, SourceRole};
 use crate::flows::{call_targets, codes};
@@ -52,7 +52,8 @@ pub fn public_callables_sql(public_roots: &[String]) -> String {
            GROUP BY declaration_node_id), \
          direct AS ( \
            SELECT d.node_id, x.access_path FROM declarations d \
-           JOIN exported x ON x.node_id = d.node_id WHERE d.kind IN ({functions})), \
+           JOIN exported x ON x.node_id = d.node_id \
+           WHERE d.kind IN ({functions}) AND NOT d.is_overload), \
          classes AS ( \
            SELECT x.node_id AS class_node_id, x.access_path FROM exported x \
            JOIN declarations c ON c.node_id = x.node_id AND c.kind = {class}), \
@@ -74,7 +75,8 @@ pub fn public_callables_sql(public_roots: &[String]) -> String {
            JOIN nearest n ON n.class_node_id = c.class_node_id AND n.name = c.name \
              AND n.ordinal = c.ordinal \
            JOIN classes x ON x.class_node_id = c.class_node_id \
-           WHERE c.kind IN ({functions}) \
+           JOIN declarations dd ON dd.node_id = c.node_id \
+           WHERE c.kind IN ({functions}) AND NOT dd.is_overload \
              AND (NOT starts_with(c.name, '_') OR c.name IN ('__init__', '__call__'))) \
          SELECT node_id, min(access_path) AS access_path \
          FROM (SELECT * FROM direct UNION ALL SELECT * FROM methods) \

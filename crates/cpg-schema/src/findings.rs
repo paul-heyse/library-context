@@ -510,6 +510,10 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
         EvidenceStatus::StructurallyObserved,
     ),
     (FindingKind::Community, EvidenceStatus::StatisticallyDerived),
+    (
+        FindingKind::Centrality,
+        EvidenceStatus::StatisticallyDerived,
+    ),
 ];
 
 /// The status each evidence kind supports (slice 1.5 review F1): an extracted fact is observed

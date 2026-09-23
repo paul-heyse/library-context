@@ -471,6 +471,7 @@ analytic_method
   2 pass_c_handoffs
   3 leiden
   4 community_consensus
+  5 pagerank
 finding_kind
   0 public_alias
   1 direct_delegation
@@ -484,6 +485,7 @@ finding_kind
   9 handoff
   10 unfollowed_argument
   11 community
+  12 centrality
 stop_reason
   0 depth_limit
   1 vertex_budget

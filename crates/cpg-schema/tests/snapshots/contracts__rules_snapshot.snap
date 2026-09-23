@@ -527,13 +527,13 @@ codebook:edge_kinds.derivation
 codebook:analysis_invocations.extraction_mode
   SELECT extraction_mode FROM analysis_invocations WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:analysis_invocations.method
-  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0, 1, 2, 3, 4)
+  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0, 1, 2, 3, 4, 5)
 codebook:analysis_invocations.completion
   SELECT completion FROM analysis_invocations WHERE completion IS NOT NULL AND completion NOT IN (0, 1, 2, 3, 4)
 codebook:analysis_invocations.stop_reason
   SELECT stop_reason FROM analysis_invocations WHERE stop_reason IS NOT NULL AND stop_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:findings.finding_kind
-  SELECT finding_kind FROM findings WHERE finding_kind IS NOT NULL AND finding_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+  SELECT finding_kind FROM findings WHERE finding_kind IS NOT NULL AND finding_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 codebook:findings.evidence_status
   SELECT evidence_status FROM findings WHERE evidence_status IS NOT NULL AND evidence_status NOT IN (0, 1, 2, 3, 4)
 codebook:findings.stop_reason
@@ -595,7 +595,7 @@ semantic:model-id-producer
 semantic:invocation-model-producer
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id WHERE split_part(i.model_id, '/', 1) <> encode(r.producer_id, 'hex')
 semantic:finding-status-policy
-  SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0), (8, 0), (9, 0), (10, 0), (11, 2)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
+  SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0), (8, 0), (9, 0), (10, 0), (11, 2), (12, 2)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
 semantic:invocation-run-is-compiler
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id JOIN producers p ON p.producer_id = r.producer_id WHERE p.tool <> 'lctx-compiler'
 semantic:document-key-whole

@@ -39,8 +39,8 @@ pub struct Published {
 /// documents' spec hash and `embedding_specs` (slice 1.7). 5: Pass B and parameter docs (slice
 /// 2.1). 6: Pass C (slice 2.2). 7: the slice 2.1 review: handler, conditional and tested calls,
 /// unfollowed arguments, supported predicates, receivers by kind, header-anchored descriptions.
-/// 8: communities and their invocations' diagnostics (slice 2.3).
-pub const COMPILER_OUTPUT_VERSION: u32 = 8;
+/// 8: communities and their invocations' diagnostics (slice 2.3). 9: centrality (slice 2.4).
+pub const COMPILER_OUTPUT_VERSION: u32 = 9;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -91,6 +91,17 @@ pub fn compiler_digest() -> Digest {
     queries.push((
         "community_parameters",
         lctx_analytics::communities::Params::preregistered()
+            .digest()
+            .hex(),
+    ));
+    queries.push((
+        "usage_projection",
+        lctx_analytics::ranking::projection_digest(cpg_schema::projection::invocation().digest())
+            .hex(),
+    ));
+    queries.push((
+        "pagerank_parameters",
+        lctx_analytics::ranking::Params::preregistered()
             .digest()
             .hex(),
     ));

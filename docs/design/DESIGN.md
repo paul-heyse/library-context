@@ -2072,6 +2072,31 @@ deviation log D17, D18, D26):
   - shuffled rows giving identical scores.
 - **Output.** A `statistically_derived` ranking finding.
 
+**Implemented** and **Tested** in slice 2.4 (2026-09-23; deviation log D29):
+- **The usage projection** (`lctx_analytics::ranking`, H1 F9 answered). The invocation projection
+  restricted and weighted by a named policy (`WEIGHT_POLICY`, digested with the invocation
+  projection into the compiler digest and the invocation's `projection_digest`). Vertices: every
+  subsystem function, and every official-usage caller (a function or module of an example, test
+  or doc block) with an arc into one. Arcs: each invocation arc into a subsystem function from a
+  subsystem function or a usage caller, weighted by the arc count per ordered pair. A function
+  ranks by the official usage that reaches it, directly or through the library's own delegation.
+- **Iteration.** `r'ⱼ = (1−d)/n + d·(Σᵢ rᵢ·wᵢⱼ/Wᵢ + D/n)`, from the uniform start, over the arcs
+  in canonical order, where `D` is the dangling mass; damping 0.85, L1 tolerance 1e-10, 100
+  iterations (pre-registered code, D29). The `pagerank` invocation records iterations, the final
+  L1 residual, `converged` and diagnostics; each public API (`cpg_schema::communities`'
+  public callables) is a `centrality` finding whose score is its rank.
+- **Tests** (`ranking::tests`): the hand-computed 3-node fixed point; parallel arcs counted with
+  their weights; a 2-iteration budget reported as not converged; reversed rows giving identical
+  scores; `leiden_rs::infomap::compute_flow` agreeing to 1e-9. On `analysis_shapes`,
+  `public_apis_are_ranked_over_the_usage_projection`.
+- **Pilot (Measured, 2026-09-23, snapshot `25e8465c`).** 4,444 vertices (607 subsystem
+  functions, 3,837 usage callers), 8,080 weighted arcs (total weight 9,346), 273 dangling;
+  converged in 38 iterations. 328 public APIs ranked: `FastMCP.tool` 7th, `resource` 13th,
+  `mount` 43rd, `prompt` 65th, `custom_route` 169th. The top of the ranking is helpers the whole surface delegates
+  to (`fastmcp.decorators.get_fastmcp_meta`, `fastmcp.server.dependencies.get_http_request`),
+  which is what PageRank over delegation measures; the seed order in 2.6 reads it within a
+  community.
+
 ### §9.6 Formal and relational concept analysis
 
 - **Consumer.** Applicable cases and modes, shared controls, and implication-style assertions

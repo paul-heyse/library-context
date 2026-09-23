@@ -1,0 +1,16 @@
+---
+source: crates/cpg-core/tests/analysis.rs
+expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS api, round(f.score, 6) AS rank, f.evidence_status \\\n                 FROM findings f {} WHERE f.finding_kind = 12 \\\n                 ORDER BY f.score DESC, api LIMIT 8\",\nlabelled(\"f.subject_node_id\"))).await"
+---
++-----------------------------+----------+-----------------+
+| api                         | rank     | evidence_status |
++-----------------------------+----------+-----------------+
+| pkg.helpers.finish          | 0.129532 | 2               |
+| pkg.helpers.helper          | 0.062995 | 2               |
+| pkg.helpers.deep_three      | 0.055648 | 2               |
+| pkg.helpers.deep_two        | 0.045469 | 2               |
+| pkg.controls.record         | 0.044251 | 2               |
+| pkg.helpers.prepare         | 0.035903 | 2               |
+| pkg.handlers.Handler.handle | 0.033495 | 2               |
+| pkg.helpers.deep_one        | 0.033495 | 2               |
++-----------------------------+----------+-----------------+

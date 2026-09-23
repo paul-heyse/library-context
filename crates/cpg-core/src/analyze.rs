@@ -19,12 +19,12 @@ use cpg_schema::id::{Digest, Id, content_digest, recipe};
 use cpg_schema::projection::{self, ProjectionSpec, schemas};
 use cpg_schema::tables::{ProducersRow, RunsRow};
 use datafusion::prelude::SessionContext;
-use lctx_analytics::communities;
 use lctx_analytics::config::AnalyticsConfig;
 use lctx_analytics::graph::Projection;
 use lctx_analytics::pass_a::{self, Budgets, Seed};
 use lctx_analytics::pass_b::{self, Flows, SeedParameter};
 use lctx_analytics::pass_c::{self, Handoffs};
+use lctx_analytics::{communities, ranking};
 use serde::Serialize;
 
 use crate::delta::to_schema;
@@ -419,6 +419,14 @@ struct PassCParameters<'a> {
 }
 
 #[derive(Serialize)]
+struct RankingParameters<'a> {
+    pagerank: &'a ranking::Params,
+    weight_policy: &'a str,
+    module_prefixes: &'a [String],
+    public_roots: &'a [String],
+}
+
+#[derive(Serialize)]
 struct CommunityParameters<'a> {
     communities: &'a communities::Params,
     module_prefixes: &'a [String],
@@ -713,6 +721,12 @@ pub async fn run(
     // Communities (§9.4): Leiden over the subsystem's invocation and co-use layers, at the
     // pre-registered resolutions and seeds; the consensus's communities cite it.
     let community_digest = cpg_schema::communities::digest();
+    let public = collect(
+        ctx,
+        &cpg_schema::communities::public_callables_sql(&config.subsystem.public_roots),
+        &cpg_schema::communities::schemas::public_callables(),
+    )
+    .await?;
     let input = communities::Input::build(
         &p,
         &subsystem,
@@ -722,12 +736,7 @@ pub async fn run(
             &cpg_schema::communities::schemas::co_use(),
         )
         .await?,
-        &collect(
-            ctx,
-            &cpg_schema::communities::public_callables_sql(&config.subsystem.public_roots),
-            &cpg_schema::communities::schemas::public_callables(),
-        )
-        .await?,
+        &public,
     )
     .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let params = communities::Params::preregistered();
@@ -815,6 +824,57 @@ pub async fn run(
     });
     rows.findings.extend(outcome.findings);
     rows.members.extend(outcome.members);
+    // Centrality (§9.5): PageRank over the usage projection; each public API's rank.
+    let usage_digest = ranking::projection_digest(spec.digest());
+    let rank_params = ranking::Params::preregistered();
+    let parameters = serde_json::to_string(&RankingParameters {
+        pagerank: &rank_params,
+        weight_policy: ranking::WEIGHT_POLICY,
+        module_prefixes: &config.subsystem.module_prefixes,
+        public_roots: &config.subsystem.public_roots,
+    })
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let parameters_digest = content_digest(parameters.as_bytes());
+    let invocation_id = findings::invocation(
+        AnalyticMethod::PageRank.code(),
+        parameters_digest,
+        Some(usage_digest),
+        None,
+        None,
+    );
+    let ranked = ranking::run(
+        &ranking::UsageGraph::build(&p, &subsystem),
+        &public,
+        &rank_params,
+        snapshot_id,
+        invocation_id,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    rows.invocations.push(AnalysisInvocationsRow {
+        snapshot_id,
+        invocation_id,
+        run_id: compiler.run_id,
+        model_id: compiler.model("pagerank"),
+        extraction_mode: ExtractionMode::GraphAnalysis,
+        method: AnalyticMethod::PageRank,
+        parameters,
+        parameters_digest,
+        projection_digest: Some(usage_digest),
+        library_versions: lctx_analytics::libraries(),
+        subject_node_id: None,
+        seed: None,
+        iterations: Some(ranked.ranks.iterations),
+        residual: Some(ranked.ranks.residual),
+        converged: Some(ranked.ranks.converged),
+        quality_history: Vec::new(),
+        candidate_set_size: Some(ranked.vertices as i64),
+        vertices_examined: Some(ranked.vertices as i64),
+        arcs_examined: Some(ranked.arcs as i64),
+        completion: ranked.completion,
+        stop_reason: None,
+        diagnostics: Some(ranked.diagnostics),
+    });
+    rows.findings.extend(ranked.findings);
     // Two seeds may reach the same finding only with different subjects, so ids are unique; the
     // key rules check it.
     Ok(rows)

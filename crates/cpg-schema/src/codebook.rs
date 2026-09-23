@@ -815,6 +815,8 @@ codebook!(
         /// The consensus over the Leiden runs: the pre-registered resolution choice, seed
         /// stability and per-community agreement (§9.4). Its communities cite it.
         CommunityConsensus = 4 => "community_consensus",
+        /// Our weighted power iteration over the usage projection (§9.5).
+        PageRank = 5 => "pagerank",
     }
 );
 
@@ -857,6 +859,9 @@ codebook!(
         /// are its public APIs; the subject its strongest public member; the score its seed
         /// agreement. Statistical: it never states a control or a limit.
         Community = 11 => "community",
+        /// A public API's rank in the usage projection (§9.5): the score is its PageRank.
+        /// Statistical: it orders seeds and Related entries, never states behaviour.
+        Centrality = 12 => "centrality",
     }
 );
 
