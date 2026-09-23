@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, RecordBatch};
+use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch};
 use cpg_core::CoreError;
 use cpg_core::attempt::{compile, publish};
 use cpg_core::delta::read_at;
@@ -86,7 +86,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
-    assert_eq!(versions.len(), 19 + 6, "every raw and derived table");
+    assert_eq!(versions.len(), 22 + 13, "every raw and derived table");
 
     // A second attempt fails validation after writing its rows: it publishes nothing.
     let mut raw_b = raw("pysa_variants", b);
@@ -153,13 +153,25 @@ async fn derived_text(fixture: &str) -> (String, SessionContext, tempfile::TempD
         (
             "call_targets",
             "SELECT c.start_byte, c.end_byte, p.phase, p.higher_order_index AS ho, \
-                    p.target_module, p.target_name, d.qualified_name AS target, f.modality, \
-                    t.reason \
+                    p.target_module, p.target_name, \
+                    COALESCE(d.qualified_name, x.qualified_name) AS target, n.node_kind AS kind, \
+                    f.modality, t.reason \
              FROM call_targets t JOIN call_syntax c ON c.node_id = t.call_site_node_id \
              JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
              JOIN facts f ON f.fact_id = t.pysa_fact_id \
              LEFT JOIN declarations d ON d.node_id = t.target_node_id \
+             LEFT JOIN context_definitions x ON x.symbol_node_id = t.target_node_id \
+             LEFT JOIN nodes n ON n.node_id = t.target_node_id \
              ORDER BY c.start_byte, c.end_byte, p.phase, ho NULLS FIRST, p.target_name",
+        ),
+        (
+            "nodes",
+            "SELECT node_kind, count(*) AS n FROM nodes GROUP BY node_kind ORDER BY node_kind",
+        ),
+        (
+            "edges",
+            "SELECT edge_kind, src_kind, dst_kind, count(*) AS n FROM edges \
+             GROUP BY edge_kind, src_kind, dst_kind ORDER BY edge_kind, src_kind, dst_kind",
         ),
     ] {
         out.push_str(&format!("## {title}\n{}\n", text(&ctx, statement).await));
@@ -287,14 +299,17 @@ async fn derived_tables_on_the_keys_fixture() {
 async fn derived_tables_on_the_derive_cases_fixture() {
     let (out, ctx, _root) = derived_text("derive_cases").await;
     insta::assert_snapshot!(out);
-    // F1: constructing a release dataclass names no declaration, and says why.
+    // F1, then ADR-0014: constructing a release dataclass calls its synthesized `__init__`, which
+    // has no declaration: the target is a typed `synthetic_callable` node, with no reason left.
     let init = text(
         &ctx,
-        "SELECT t.reason FROM call_targets t JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
+        "SELECT n.node_kind, t.reason FROM call_targets t \
+         JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
+         JOIN nodes n ON n.node_id = t.target_node_id \
          WHERE p.target_name = '__init__' AND p.target_module = '@dc/impl.py'",
     )
     .await;
-    assert!(init.contains("| 13 "), "no_source_declaration: {init}");
+    assert!(init.contains("| 9         |"), "synthetic_callable: {init}");
     // F2: the public `load` is the definition Pyrefly binds under Python 3.14 (the `if` branch);
     // the `else` branch is unreachable in the context, not missing evidence.
     let load = text(
@@ -371,7 +386,7 @@ async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
     type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
-    let cases: [(&str, Mutation); 9] = [
+    let cases: [(&str, Mutation); 10] = [
         ("key:declarations", |raw| {
             let b = table(raw, "declarations");
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &b.slice(0, 1)]).unwrap();
@@ -413,20 +428,40 @@ async fn every_rule_kind_rejects_its_violation() {
             keep_rows(raw, "boundaries", "fact_family", |f| f != "3");
             keep_rows(raw, "facts", "table_name", |t| t != "boundaries");
         }),
-        // F1: a release target that names nothing and says nothing.
-        ("semantic:release-target-explained", |raw| {
+        // ADR-0014 lineage: a Pysa call record that matches no call site is not silently dropped.
+        ("lineage:call_target", |raw| {
             let b = table(raw, "pysa_calls");
-            let i = b.schema().index_of("target_module").unwrap();
-            let modules = b
-                .column(i)
-                .as_any()
-                .downcast_ref::<arrow_array::StringArray>()
-                .unwrap();
-            let moved: arrow_array::StringArray = modules
-                .iter()
-                .map(|m| m.map(|m| if m.starts_with('@') { "@nowhere.py" } else { m }))
-                .collect();
-            *b = replace(b, "target_module", Arc::new(moved));
+            for column in ["start_byte", "end_byte"] {
+                let i = b.schema().index_of(column).unwrap();
+                let moved: Int64Array = b
+                    .column(i)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.map(|v| v + 1_000_000))
+                    .collect();
+                *b = replace(b, column, Arc::new(moved));
+            }
+        }),
+        // ADR-0014 endpoint kinds: a declaration whose parent is a call site.
+        ("endpoint:declares", |raw| {
+            let call = {
+                let c = table(raw, "call_syntax");
+                let ids = c
+                    .column(c.schema().index_of("node_id").unwrap())
+                    .as_any()
+                    .downcast_ref::<FixedSizeBinaryArray>()
+                    .unwrap();
+                ids.value(0).to_vec()
+            };
+            let b = table(raw, "declarations");
+            let parents = FixedSizeBinaryArray::try_from_iter(std::iter::repeat_n(
+                call.as_slice(),
+                b.num_rows(),
+            ))
+            .unwrap();
+            *b = replace(b, "parent_node_id", Arc::new(parents));
         }),
     ];
     for (rule, mutate) in cases {

@@ -29,6 +29,14 @@ pub struct Reference {
 
 const MODULE: &[(&str, &str)] = &[("source_files", "module_node_id")];
 const DECLARATION: &[(&str, &str)] = &[("declarations", "node_id")];
+const ARGUMENT: &[(&str, &str)] = &[("arguments", "node_id")];
+const EXTERNAL_SYMBOL: &[(&str, &str)] = &[("context_definitions", "symbol_node_id")];
+/// A callable: a declaration, a synthetic callable, or a dependency definition (ADR-0014).
+const CALLABLE: &[(&str, &str)] = &[
+    ("declarations", "node_id"),
+    ("synthetic_callables", "node_id"),
+    ("context_definitions", "symbol_node_id"),
+];
 const CALL: &[(&str, &str)] = &[("call_syntax", "node_id")];
 const FACT: &[(&str, &str)] = &[("facts", "fact_id")];
 
@@ -48,6 +56,11 @@ pub const REFERENCES: &[Reference] = &[
     r("runs", "release_id", &[("source_files", "release_id")]),
     r("releases", "release_id", &[("runs", "release_id")]),
     r("distributions", "context_id", &[("contexts", "context_id")]),
+    r(
+        "context_definitions",
+        "module_node_id",
+        &[("context_modules", "module_node_id")],
+    ),
     r("source_files", "release_id", &[("runs", "release_id")]),
     r("runs", "context_id", &[("contexts", "context_id")]),
     r("runs", "producer_id", &[("producers", "producer_id")]),
@@ -59,6 +72,7 @@ pub const REFERENCES: &[Reference] = &[
     r("pysa_functions", "module_node_id", MODULE),
     r("parameter_semantics", "module_node_id", MODULE),
     r("class_ancestry", "module_node_id", MODULE),
+    r("pysa_classes", "module_node_id", MODULE),
     r("call_syntax", "module_node_id", MODULE),
     r("call_syntax", "owner_node_id", DECLARATION),
     r("arguments", "call_node_id", CALL),
@@ -75,7 +89,14 @@ pub const REFERENCES: &[Reference] = &[
     r("provider_node_map", "node_id", DECLARATION),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
+    r("provider_class_map", "module_node_id", MODULE),
+    r("provider_class_map", "node_id", DECLARATION),
+    r("provider_class_map", "pysa_fact_id", FACT),
+    r("provider_class_map", "declaration_fact_id", FACT),
+    r("synthetic_callables", "module_node_id", MODULE),
+    r("synthetic_callables", "pysa_fact_id", FACT),
     r("exports", "declaration_node_id", DECLARATION),
+    r("exports", "external_node_id", EXTERNAL_SYMBOL),
     r("exports", "public_fact_id", FACT),
     r("exports", "declaration_fact_id", FACT),
     r("signatures", "signature_node_id", DECLARATION),
@@ -97,7 +118,31 @@ pub const REFERENCES: &[Reference] = &[
         &[("resolutions", "call_site_node_id")],
     ),
     r("call_targets", "pysa_fact_id", FACT),
-    r("call_targets", "target_node_id", DECLARATION),
+    r("call_targets", "argument_node_id", ARGUMENT),
+    r("call_targets", "target_node_id", CALLABLE),
+    r("argument_resolutions", "argument_node_id", ARGUMENT),
+    r("ancestry_targets", "ancestry_fact_id", FACT),
+    r("ancestry_targets", "class_node_id", DECLARATION),
+    r(
+        "ancestry_targets",
+        "ancestor_node_id",
+        &[
+            ("declarations", "node_id"),
+            ("context_definitions", "symbol_node_id"),
+        ],
+    ),
+    r("override_targets", "function_fact_id", FACT),
+    r("override_targets", "function_node_id", CALLABLE),
+    r("override_targets", "overridden_node_id", CALLABLE),
+    r("nodes", "existence_fact_id", FACT),
+    r(
+        "nodes",
+        "module_node_id",
+        &[
+            ("source_files", "module_node_id"),
+            ("context_modules", "module_node_id"),
+        ],
+    ),
 ];
 
 /// Name, key and schema of a stored table.
@@ -134,12 +179,6 @@ fn quoted(values: impl IntoIterator<Item = impl std::fmt::Display>) -> String {
 fn semantic() -> Vec<Rule> {
     let calls = FactFamily::Calls.code();
     [
-        (
-            // Slice-2 review F1: a target in the release either names a declaration or says why not.
-            "semantic:release-target-explained",
-            "SELECT t.pysa_fact_id FROM call_targets t              JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id              WHERE p.target_module LIKE '@%' AND t.target_node_id IS NULL AND t.reason IS NULL"
-                .to_owned(),
-        ),
         (
             // F2: every Pysa function with signatures is some signature row's callable.
             "semantic:pysa-signatures-placed",
@@ -306,5 +345,6 @@ pub fn rules() -> Vec<Rule> {
         ),
     });
     out.extend(semantic());
+    out.extend(crate::graph::rules());
     out
 }

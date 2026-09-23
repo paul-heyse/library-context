@@ -392,7 +392,7 @@ declaration, and an AST node is not an execution point.
 - **The family → node/edge mapping.** `cpg-schema` declares how each family maps to node and edge
   kinds: kinds, endpoint kinds, role and ordinal columns. Endpoint-kind validation (§8) consumes
   this mapping.
-- **The node and edge catalogs** (ADR-0014; **Proposed**, C1).
+- **The node and edge catalogs** (ADR-0014; **Implemented** and **Tested** in C1, §3.8).
   - `nodes` and `edges` are Stage-D derived tables of family `graph`, generated from one registry
     (§3.8).
   - They carry identity, kind, endpoints and evidence, never a payload. So the family tables stay
@@ -419,7 +419,7 @@ declaration, and an AST node is not an execution point.
   A null node with a null reason has one declared meaning per table: in `exports`, the origin is
   not a `def` or `class` of the release; in `call_targets`, the target is outside the release (a
   rule rejects a release target with neither).
-  - **From C1 (ADR-0014; Proposed):** these null meanings are retired.
+  - **From C1 (ADR-0014; Implemented):** these null meanings are retired.
     - Every target is a typed node, with a target outside the release being an
       `external_symbol`.
     - An export of a variable reads `variable_origin` until C3 gives it a `binding` node.
@@ -429,8 +429,8 @@ declaration, and an AST node is not an execution point.
 |---|---|---|
 | `provenance` | `releases` (library, requirement, lock digest, or a source tree's label), `distributions` (every installed distribution: version, artifact sha256s, `RECORD` digest, in the release or not), `source_files` (C1: with its release `distribution`), `contexts`, `producers`, `runs`, `facts`. C1: `context_modules` (each dependency module a fact references: name, site-relative path or Pyrefly's bundled typeshed, distribution and version) and `context_definitions` (the Pysa definitions of those modules: the existence source of `external_symbol` nodes; §3.8) | 1 |
 | `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin and its file, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → the seed declaration in the origin's file: an implementation before an `@overload` stub, then the one Pysa describes, then the last in source order; one row per `public_names` row, so a `.py`/`.pyi` pair gives an access path two rows, one seeding each file, told apart by `source_files.is_stub`; Pass A seeds from the source row) | 1 |
-| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO), C1 `pysa_classes` (one row per class, so a class without bases is keyed). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal); C1 `provider_class_map` (Stage C for classes), `synthetic_callables` | 1 |
-| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). C1: `arguments.node_id`, `pysa_calls.payload_id`, `argument_resolutions` (higher-order arguments: status and unresolved remainder), `external_symbols`. Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) stay raw, as a declared pending class of the lineage rule, until C2 and C3 give them nodes | 1 |
+| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO), C1 `pysa_classes` (one row per class, so a class without bases is keyed). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal); C1 `provider_class_map` (Stage C for classes), `synthetic_callables`, `ancestry_targets` and `override_targets` (bases, MRO entries and overridden methods resolved to nodes, a reason where an end does not resolve) | 1 |
+| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). C1: `arguments.node_id`, `pysa_calls.payload_id`, `argument_resolutions` (higher-order arguments: status and unresolved remainder); `call_targets` typed (a declaration, a synthetic callable or a dependency definition, with the higher-order argument). Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) stay raw, as a declared pending class of the lineage rule, until C2 and C3 give them nodes | 1 |
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `graph` | derived: `nodes`, `edges` (§3.8). Not a coverage unit | C1 |
@@ -507,12 +507,13 @@ migration (DM-51).
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id` | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. `capability_id` = `brief_id` | content |
 | `edge_id` (C1, Proposed) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
-| Role and derived node ids (C1+, Proposed) | argument: `argument`, call node, ordinal. Reference (C3): `reference`, the name's syntax id. Export: `export`, `release_id`, access path. Synthetic callable: `synthetic_callable`, module node, Pysa function key. External module: `external_module`, distribution and version (or `pyrefly-typeshed` and the producer revision), module name. External symbol: `external_symbol`, the external module id, qualified name. Type term (C4): `type`, its canonical structure (a typevar with its binder) | stable across snapshots and runs, for the same dependency environment |
+| Role and derived node ids (C1 **Implemented**; C3–C4 Proposed) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, its canonical structure (a typevar with its binder) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
 | `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context), compiler digest, analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first two | compares reruns |
 | `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script), a hand-bumped compiler output version, every derivation query, table contract and validation rule. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
 
-- **Ids in SQL** (C1, Proposed). Stage D computes its ids with one scalar UDF, `lctx_id(kind, …)`,
+- **Ids in SQL** (C1, **Implemented** in `cpg_core::udf`, **Tested** by its known-answer and
+  plan-time refusal tests). Stage D computes its ids with one scalar UDF, `lctx_id(kind, …)`,
   registered in every session.
   - It implements `IdHasher` exactly: the kind through `IdHasher::new`, and every other argument
     in the `opt_*` encoding (a presence byte, then the length-prefixed value).
@@ -641,7 +642,7 @@ migration (DM-51).
 - **Two channels, one fact each.** `coverage` and `boundaries` describe the producer's run. Gaps
   that Stage C/D finds are `reason` columns on the derived rows (§3.2). Where both describe one
   fact (a call with no Pysa record), a rule requires them to agree per call site, both ways (§8).
-- **What a projection can cite as completeness** (C1, Proposed). These state what the graph
+- **What a projection can cite as completeness** (C1, **Implemented**). These state what the graph
   covers and where it stops:
   - `coverage` per family and module;
   - `boundaries`;
@@ -656,8 +657,20 @@ migration (DM-51).
 
 ### §3.8 Graph catalog and edge registry
 
-**Proposed** (C1–C5; ADR-0014). This is how the typed family tables become a graph without a
-second authority, following the operator's guidelines
+**Implemented** for C1 in `cpg_schema::graph` (registry, catalogs, rules) and `cpg_core::udf`, and
+**Tested** (C1, 2026-09-22):
+- `cpg-core/tests/graph.rs` on the `graph_shapes` fixture: the catalogs as an insta snapshot; an
+  isolate; two parallel call sites giving two edge ids; a self-loop; a cross-file SCC and a
+  diamond found by a petgraph projection built from the catalogs, with each arc's lineage; an
+  unresolved call with no edge; a higher-order `potential` edge; `f(g(x))`'s argument distinct
+  from the inner call; a variable export with its reason; identical catalogs across two locations
+  and the reversed module order;
+- every registry rule rejects an injected violation: lineage and endpoint from raw rows
+  (`compile.rs`), and evidence, support, one-per-evidence, no-parallel and typed targets from a
+  doctored catalog (`graph.rs`).
+
+C2–C5 are **Proposed**. This is how the typed family tables become a graph without a second
+authority, following the operator's guidelines
 (`docs/design_review/design_principles/rust_code_intelligence_data_graph_guidelines.md` §2–§4,
 §10–§12).
 
@@ -705,6 +718,20 @@ rules are generated from (DM-52).
   remainder, or a declared pending class. This also catches provider rows that match nothing.
 - A rule whose target is built from its own source column is not generated, because it cannot
   fail.
+
+**Measured** (`lctx compile fastmcp`, release build, FastMCP 4.0.5, this Linux host,
+2026-09-22):
+- 47,145 nodes and 65,176 edges, with every rule passing;
+- every call target (17,174), ancestry entry (1,182) and overridden method (1,107) is a typed node;
+- 978 exports have a target, and 335 are variables (`variable_origin`);
+- 329 dependency modules: 249 site-packages modules, all with their distribution, and 80 from
+  Pyrefly's bundled typeshed;
+- 1,913 external symbols;
+- `nodes` and `edges` derive in 0.05 s and 0.08 s, and validation takes 1.1 s;
+- the whole compile takes 13.6 s wall time at 2.53 GB peak RSS, against 7.9 s and 1.61 GB before
+  C1. The difference is the Pyrefly check of the referenced dependency modules at
+  `Require::Everything` (3.7 s) and their definitions (0.7 s);
+- two runs give one `content_digest`.
 
 **What the catalogs never hold:**
 - transitive closures, paths or all-pairs results (guidelines §7);
@@ -825,6 +852,12 @@ when mapping output changes, which the variant and id snapshots show).
 no-op, this Linux host, 2026-09-22): FastMCP 4.0.5, 275 modules, 103 distributions; acquire +
 extract 7.1 s, the whole compile 7.9 s wall time, 1.61 GB peak RSS. Two runs, and two environment
 paths, give the same `release_id` and `content_digest`.
+- **After C1 (ADR-0014)** the compile takes 13.6 s at 2.53 GB. `lctx compile` now prints each
+  stage (§4.3): acquire 0.01 s, Stage A 0.04 s, the release check 2.1 s, per-module extraction 4.5 s
+  (the Pysa collectors 4.4 s, the Ruff walk 0.08 s), the dependency check 3.7 s, dependency
+  definitions 0.7 s, the Delta stages 1.6 s.
+- A published snapshot is inspected with `lctx query --store DIR --snapshot HEX "SQL"`: read-only,
+  every table at its recorded version, filtered to the snapshot (§6.2).
 
 > Decision: ADR-0013 (superseding ADR-0007), ADR-0012
 
@@ -1062,7 +1095,7 @@ Operations are methods on `DeltaTable`. `DeltaOps` does not exist at this pin.
 no files. The Parquet footers do carry binary statistics, and row groups are pruned (3 → 1 in
 P1). A `snapshot_id` filter therefore costs one footer read per file, not a full scan.
 
-**Metrics** (C1, Proposed; guidelines §12).
+**Metrics** (C1, **Implemented**; guidelines §12; `cpg_schema::metrics`).
 - `lctx compile` reports wall time and peak RSS (`VmHWM`) per stage: acquire, Stage A, the
   Pyrefly check, extraction per family, raw write per table, derive per table, validate and
   publish.
@@ -1164,7 +1197,8 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 - **No vacuum or optimize on fact tables** in stage 1. Vacuum defaults to `dry_run=false` and Lite
   mode.
 - **Retention keeps every published snapshot readable** (C1, ADR-0014; read in the pinned
-  delta-rs 58f07cd and kernel 8ba063f sources, 2026-09-22).
+  delta-rs 58f07cd and kernel 8ba063f sources; **Tested** by
+  `retention_keeps_old_versions_loadable`, 2026-09-22).
   - **The problem.**
     - By default, every commit's post-commit hook writes a checkpoint every 100 versions.
     - It also runs expired-log cleanup (`delta.enableExpiredLogCleanup` true,
@@ -1286,8 +1320,8 @@ contracts and snapshot-tested:
   `resolutions` reason and the extractor's call boundary agree per call site, both ways;
   Stage C is injective; `parameter_semantics` names an existing Pysa function; `facts.model_id`
   names its run's producer;
-- **graph** (C1, Proposed; ADR-0014), generated from the registry (§3.8), so the references and
-  the mapping are one authority:
+- **graph** (C1, **Implemented** and **Tested**; ADR-0014), generated from the registry (§3.8), so
+  the references and the mapping are one authority:
   - endpoint kinds;
   - node-valued references;
   - evidence exists;

@@ -6,6 +6,7 @@ pub mod delta;
 pub mod derive;
 pub mod snapshot;
 pub mod sql;
+pub mod udf;
 pub mod validate;
 
 use validate::Violation;
@@ -36,6 +37,12 @@ pub enum CoreError {
     SchemaDrift(&'static str),
     #[error("{0}: delta.appendOnly is not set")]
     NotAppendOnly(&'static str),
+    #[error("{table}: {property} is {found:?}, not the retention pinned reads need (DESIGN §6.1)")]
+    Retention {
+        table: &'static str,
+        property: String,
+        found: Option<String>,
+    },
     #[error("{table}: CHECK constraints differ from the declaration: {detail}")]
     ConstraintMismatch { table: &'static str, detail: String },
     #[error("{table}: requested version {requested}, loaded {loaded:?}")]

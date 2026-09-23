@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use cpg_schema::codebook::{Fidelity, Modality, Origin};
+use cpg_schema::codebook::{ExtractionMode, Fidelity, Modality, Origin};
 use cpg_schema::id::Id;
 use cpg_schema::tables::{PublicNames, PublicNamesRow};
 use pyrefly::commands::coverage::collect::{
@@ -21,21 +21,27 @@ use crate::facts::{FactSink, Provenance, Surface, fact_row};
 fn provenance() -> Provenance {
     Provenance {
         surface: Surface::PyreflyPublic,
+        mode: ExtractionMode::NativeTraversal,
         origin: Origin::AnalyzerAssertion,
         modality: Modality::Definite,
         fidelity: Fidelity::NativeStructural,
     }
 }
 
+/// A module outside the release a public export traces to, and the name in it.
+pub(crate) type ExportOrigin = (Handle, String);
+
 /// `release_files` maps each module handle of the release to its `source_files` node: the file an
-/// origin traces to, since a `.py` and its `.pyi` share a module name.
+/// origin traces to, since a `.py` and its `.pyi` share a module name. Also returns the modules
+/// outside the release that origins trace to (their definitions become `context_definitions`).
 pub(crate) fn public_names(
     handles: &[Handle],
     release_files: &HashMap<Handle, Id>,
     txn: &Transaction<'_>,
     sink: &mut FactSink,
-) -> Result<Vec<PublicNamesRow>, ExtractError> {
+) -> Result<(Vec<PublicNamesRow>, Vec<ExportOrigin>), ExtractError> {
     let mut rows = Vec::new();
+    let mut outside = Vec::new();
     for handle in handles.iter().filter(|h| is_public_module(h.module())) {
         let data = txn.get_exports_data(handle);
         let exports = txn.get_exports(handle);
@@ -66,6 +72,11 @@ pub(crate) fn public_names(
             let origin_module_node_id = origin
                 .as_ref()
                 .and_then(|(h, _)| release_files.get(h).copied());
+            if let Some((h, n)) = &origin
+                && !release_files.contains_key(h)
+            {
+                outside.push((h.clone(), n.to_string()));
+            }
             rows.push(fact_row!(
                 sink,
                 PublicNames,
@@ -79,6 +90,8 @@ pub(crate) fn public_names(
                     origin_path,
                     origin_module_node_id,
                     via_dunder_all: via_all,
+                    origin_module: origin.as_ref().map(|(h, _)| h.module().to_string()),
+                    origin_name: origin.as_ref().map(|(_, n)| n.to_string()),
                 }
             ));
         }
@@ -97,5 +110,5 @@ pub(crate) fn public_names(
             .collect();
         return Err(ExtractError::PublicMismatch(diff.join(", ")));
     }
-    Ok(rows)
+    Ok((rows, outside))
 }

@@ -19,3 +19,5 @@ relation: Int16 NOT NULL [lctx.codebook=ancestry_relation]
 ordinal: Int64 NULL
 ancestor: Utf8 NULL
 mro_cyclic: Boolean NOT NULL
+ancestor_module: Utf8 NULL
+ancestor_key: Utf8 NULL

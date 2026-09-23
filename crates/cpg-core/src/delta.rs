@@ -35,22 +35,38 @@ const STRICT: CastOptions<'static> = CastOptions {
 /// Key prefix delta-rs stores CHECK constraints under.
 const CONSTRAINT_PREFIX: &str = "delta.constraints.";
 
+/// Retention for pinned reads (DESIGN §6.1, ADR-0014). delta-rs's post-commit hook checkpoints
+/// every 100 versions and then deletes the log below the newest checkpoint older than 30 days,
+/// after which an old version no longer loads. Every table turns that cleanup off; checkpoints
+/// stay on. The values are compared as exact strings at open, because delta-rs silently falls
+/// back to its default on a value it cannot parse.
+pub fn retention() -> [(TableProperty, &'static str); 2] {
+    [
+        (TableProperty::EnableExpiredLogCleanup, "false"),
+        (TableProperty::LogRetentionDuration, "interval 36500 days"),
+    ]
+}
+
 /// The table's location. Touches nothing: a reader of a missing table gets "not a table".
 pub fn table_url(root: &Path, name: &str) -> Result<Url, CoreError> {
     let dir = std::path::absolute(root.join(name))?;
     Url::from_directory_path(&dir).map_err(|()| CoreError::Url(dir.display().to_string()))
 }
 
-/// Create the table: its declared schema, `delta.appendOnly`, then its immutable CHECKs.
+/// Create the table: its declared schema, `delta.appendOnly`, the retention properties, then its
+/// immutable CHECKs.
 pub async fn create<T: Table>(root: &Path) -> Result<DeltaTable, CoreError> {
     std::fs::create_dir_all(root.join(T::NAME))?;
     let kernel: StructType = T::schema().as_ref().try_into_kernel()?;
-    let table = DeltaTable::try_from_url(table_url(root, T::NAME)?)
+    let mut builder = DeltaTable::try_from_url(table_url(root, T::NAME)?)
         .await?
         .create()
         .with_columns(kernel.fields().cloned())
-        .with_configuration_property(TableProperty::AppendOnly, Some("true"))
-        .await?;
+        .with_configuration_property(TableProperty::AppendOnly, Some("true"));
+    for (property, value) in retention() {
+        builder = builder.with_configuration_property(property, Some(value));
+    }
+    let table = builder.await?;
     if T::checks().is_empty() {
         return Ok(table);
     }
@@ -96,6 +112,16 @@ pub fn verify<T: Table>(table: &DeltaTable) -> Result<(), CoreError> {
     let config = table.snapshot()?.metadata().configuration().clone();
     if config.get("delta.appendOnly").map(String::as_str) != Some("true") {
         return Err(CoreError::NotAppendOnly(T::NAME));
+    }
+    for (property, value) in retention() {
+        let key = property.as_ref();
+        if config.get(key).map(String::as_str) != Some(value) {
+            return Err(CoreError::Retention {
+                table: T::NAME,
+                property: key.to_owned(),
+                found: config.get(key).cloned(),
+            });
+        }
     }
     let stored: BTreeMap<String, String> = config
         .iter()

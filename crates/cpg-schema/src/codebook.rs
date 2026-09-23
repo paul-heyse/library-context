@@ -157,6 +157,9 @@ codebook!(
         /// A definition the analyzer's context never binds: a branch it decides statically
         /// (`sys.version_info`, `TYPE_CHECKING`) while a same-name definition is bound.
         UnreachableInContext = 14 => "unreachable_in_context",
+        /// An export whose origin is a variable, not a `def` or `class` (until the lexical family
+        /// gives it a binding node; DESIGN §3.2).
+        VariableOrigin = 15 => "variable_origin",
     }
 );
 
@@ -200,6 +203,8 @@ codebook!(
         Coverage = 4 => "coverage",
         /// The `snapshots` table: the publication act, not a fact family (DESIGN §6.1).
         Publication = 5 => "publication",
+        /// The derived `nodes`/`edges` catalogs (DESIGN §3.8): not a coverage unit.
+        Graph = 6 => "graph",
     }
 );
 
@@ -302,6 +307,66 @@ codebook!(
     }
 );
 
+codebook!(
+    /// Where a dependency module Pyrefly resolved comes from (`context_modules`, DESIGN §3.2).
+    ModuleOrigin = "module_origin" {
+        /// A file under a site-packages directory of the context.
+        SitePackages = 0 => "site_packages",
+        /// A file elsewhere on the search path.
+        SearchPath = 1 => "search_path",
+        Namespace = 2 => "namespace",
+        Memory = 3 => "memory",
+        BundledTypeshed = 4 => "bundled_typeshed",
+        BundledTypeshedThirdParty = 5 => "bundled_typeshed_third_party",
+        BundledThirdParty = 6 => "bundled_third_party",
+    }
+);
+
+codebook!(
+    /// What a Pysa definition in a dependency module defines (`context_definitions`).
+    DefinitionKind = "definition_kind" {
+        Function = 0 => "function",
+        Class = 1 => "class",
+    }
+);
+
+codebook!(
+    /// The v1 node kinds (DESIGN §3.1, §3.8), appended by CPG slice.
+    NodeKind = "node_kind" {
+        Module = 0 => "module",
+        Class = 1 => "class",
+        /// Every `def`, overload stubs included.
+        Function = 2 => "function",
+        Parameter = 3 => "parameter",
+        CallSite = 4 => "call_site",
+        Argument = 5 => "argument",
+        /// A public access path.
+        Export = 6 => "export",
+        ExternalModule = 7 => "external_module",
+        ExternalSymbol = 8 => "external_symbol",
+        SyntheticCallable = 9 => "synthetic_callable",
+    }
+);
+
+codebook!(
+    /// The edge kinds of the registry (DESIGN §3.8), appended by CPG slice.
+    EdgeKind = "edge_kind" {
+        Declares = 0 => "declares",
+        OverloadOf = 1 => "overload_of",
+        StubFor = 2 => "stub_for",
+        HasParameter = 3 => "has_parameter",
+        Exports = 4 => "exports",
+        EnclosesCall = 5 => "encloses_call",
+        HasArgument = 6 => "has_argument",
+        CallTarget = 7 => "call_target",
+        HigherOrderTarget = 8 => "higher_order_target",
+        BaseClass = 9 => "base_class",
+        MroEntry = 10 => "mro_entry",
+        Overrides = 11 => "overrides",
+        DeclaredIn = 12 => "declared_in",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -328,6 +393,10 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<PysaCalleeKind>(),
         CodebookEntry::of::<ImplicitReceiver>(),
         CodebookEntry::of::<AncestryRelation>(),
+        CodebookEntry::of::<ModuleOrigin>(),
+        CodebookEntry::of::<DefinitionKind>(),
+        CodebookEntry::of::<NodeKind>(),
+        CodebookEntry::of::<EdgeKind>(),
     ]
 }
 

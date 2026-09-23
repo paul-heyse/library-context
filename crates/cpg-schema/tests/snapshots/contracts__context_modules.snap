@@ -1,0 +1,17 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table context_modules
+family provenance
+key snapshot_id, module_node_id, fact_id
+@lctx.family=provenance
+@lctx.table=context_modules
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+module_name: Utf8 NOT NULL
+origin: Int16 NOT NULL [lctx.codebook=module_origin]
+path: Utf8 NULL
+distribution: Utf8 NULL
+version: Utf8 NULL

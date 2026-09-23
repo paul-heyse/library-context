@@ -1,0 +1,6 @@
+from typing import overload
+
+@overload
+def overloaded(x: int) -> int: ...
+@overload
+def overloaded(x: str) -> str: ...

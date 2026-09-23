@@ -11,6 +11,7 @@ check ordinal_nonnegative: ordinal >= 0
 @lctx.table=arguments
 snapshot_id: FixedSizeBinary(16) NOT NULL
 fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
 call_node_id: FixedSizeBinary(16) NOT NULL
 ordinal: Int64 NOT NULL
 kind: Int16 NOT NULL [lctx.codebook=argument_kind]

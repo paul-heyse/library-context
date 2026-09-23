@@ -1,0 +1,21 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table pysa_classes
+family signatures
+key snapshot_id, module_node_id, class_key, fact_id
+@lctx.family=signatures
+@lctx.table=pysa_classes
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+module_name: Utf8 NOT NULL
+class_key: Utf8 NOT NULL
+class_name: Utf8 NOT NULL
+name_start_byte: Int64 NOT NULL
+name_end_byte: Int64 NOT NULL
+is_synthesized: Boolean NOT NULL
+is_dataclass: Boolean NOT NULL
+is_named_tuple: Boolean NOT NULL
+is_typed_dict: Boolean NOT NULL

@@ -18,3 +18,9 @@ pub fn read_only() -> SQLOptions {
 pub async fn query(ctx: &SessionContext, sql: &str) -> Result<DataFrame> {
     ctx.sql_with_options(sql, read_only()).await
 }
+
+/// Run a read-only query and render its result as a table (the `lctx query` output).
+pub async fn render(ctx: &SessionContext, sql: &str) -> Result<String> {
+    let batches = query(ctx, sql).await?.collect().await?;
+    Ok(datafusion::arrow::util::pretty::pretty_format_batches(&batches)?.to_string())
+}

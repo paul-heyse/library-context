@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
     ArgumentKind, DeclarationKind, ExportSyntaxKind, Fidelity, Modality, Origin, ParameterKind,
 };
@@ -44,6 +45,7 @@ pub(crate) struct WalkOut {
 fn ruff() -> Provenance {
     Provenance {
         surface: Surface::RuffAst,
+        mode: ExtractionMode::NativeTraversal,
         origin: Origin::SourceObservation,
         modality: Modality::Definite,
         fidelity: Fidelity::NativeStructural,
@@ -376,6 +378,12 @@ impl Walker<'_, '_> {
                 ArgumentsRow {
                     snapshot_id: Id::ZERO,
                     fact_id: Id::ZERO,
+                    // A role in the call (§3.4.1): never the expression's own id, which for
+                    // `f(g(x))` would be the inner call site's.
+                    node_id: IdHasher::new(kind::ARGUMENT)
+                        .id(node_id)
+                        .i64(ordinal as i64)
+                        .finish_id(),
                     call_node_id: node_id,
                     ordinal: ordinal as i64,
                     kind: akind,

@@ -8,6 +8,7 @@ use std::path::Path;
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use cpg_schema::derived::{Derived, derivations};
 use cpg_schema::id::{Digest, Id, IdHasher, kind};
+use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::rules::rules;
 use cpg_schema::table::{Table, schema_digest};
 use cpg_schema::tables::{Runs, Snapshots, SnapshotsRow, contracts};
@@ -26,6 +27,9 @@ pub struct Published {
     pub versions: Versions,
     /// Rows the attempt wrote, per table (raw, then derived).
     pub rows: Vec<(&'static str, i64)>,
+    /// Wall time and peak RSS per stage: each raw write, each derivation (with its write),
+    /// validation, publication (DESIGN §4.3). Not content.
+    pub stages: Vec<Stage>,
 }
 
 /// Bumped by hand whenever the derive, cast or sort code changes output for the same inputs; the
@@ -40,12 +44,15 @@ pub const ENGINES: &str = env!("LCTX_ENGINES");
 pub fn compiler_digest_of(
     engines: &str,
     output_version: u32,
+    udf_version: u32,
     derivations: &[(&str, String)],
     contracts: &[(&str, String)],
     rules: &[(String, String)],
 ) -> Digest {
     let mut h = IdHasher::new(kind::COMPILER);
-    h.str(engines).i64(i64::from(output_version));
+    h.str(engines)
+        .i64(i64::from(output_version))
+        .i64(i64::from(udf_version));
     for (name, text) in derivations.iter().chain(contracts) {
         h.str(name).str(text);
     }
@@ -63,6 +70,7 @@ pub fn compiler_digest() -> Digest {
     compiler_digest_of(
         ENGINES,
         COMPILER_OUTPUT_VERSION,
+        crate::udf::VERSION,
         &derivations(),
         &contracts(),
         &rules,
@@ -119,6 +127,7 @@ async fn write_raw(
     raw: &[(&str, RecordBatch)],
     versions: &mut Versions,
     rows: &mut Vec<(&'static str, i64)>,
+    stages: &mut Stages,
 ) -> Result<(), CoreError> {
     for (name, _) in raw {
         macro_rules! known {
@@ -138,6 +147,7 @@ async fn write_raw(
             let version = write::<$t>(root, batch, snapshot_id).await?;
             versions.insert(name.to_owned(), version);
             rows.push((name, batch.num_rows() as i64));
+            stages.mark(format!("write {name}"));
         })+};
     }
     cpg_schema::for_each_table!(each);
@@ -150,12 +160,14 @@ async fn write_derived<T: Derived>(
     snapshot_id: Id,
     versions: &mut Versions,
     rows: &mut Vec<(&'static str, i64)>,
+    stages: &mut Stages,
 ) -> Result<(), CoreError> {
     let batch = derive::<T>(ctx, snapshot_id).await?;
     let version = write::<T>(root, &batch, snapshot_id).await?;
     register(ctx, root, T::NAME, version, snapshot_id).await?;
     versions.insert(T::NAME.to_owned(), version);
     rows.push((T::NAME, batch.num_rows() as i64));
+    stages.mark(format!("derive {}", T::NAME));
     Ok(())
 }
 
@@ -179,19 +191,31 @@ pub async fn compile(
     snapshot_id: Id,
     raw: &[(&str, RecordBatch)],
 ) -> Result<Published, CoreError> {
+    let mut stages = Stages::new();
     let mut versions = Versions::new();
     let mut rows = Vec::new();
-    write_raw(root, snapshot_id, raw, &mut versions, &mut rows).await?;
+    write_raw(
+        root,
+        snapshot_id,
+        raw,
+        &mut versions,
+        &mut rows,
+        &mut stages,
+    )
+    .await?;
 
     let ctx = session(root, snapshot_id, &versions).await?;
+    stages.mark("open session");
     macro_rules! derive_all {
         ($($t:ty),+) => {$(
-            write_derived::<$t>(&ctx, root, snapshot_id, &mut versions, &mut rows).await?;
+            write_derived::<$t>(&ctx, root, snapshot_id, &mut versions, &mut rows, &mut stages)
+                .await?;
         )+};
     }
     cpg_schema::for_each_derived_table!(derive_all);
 
     let violations = validate(&ctx).await?;
+    stages.mark("validate");
     if !violations.is_empty() {
         return Err(CoreError::Invalid(violations));
     }
@@ -216,11 +240,13 @@ pub async fn compile(
         })
         .collect();
     publish(root, snapshot_id, &snapshot_rows).await?;
+    stages.mark("publish");
     Ok(Published {
         snapshot_id,
         content_digest: digest,
         versions,
         rows,
+        stages: stages.stages,
     })
 }
 
@@ -252,13 +278,14 @@ mod tests {
         let d = vec![("t", "SELECT 1".to_owned())];
         let c = vec![("t", "contract".to_owned())];
         let r = vec![("key:t".to_owned(), "SELECT 2".to_owned())];
-        let base = compiler_digest_of("engines", 1, &d, &c, &r);
-        assert_ne!(base, compiler_digest_of("engines'", 1, &d, &c, &r));
-        assert_ne!(base, compiler_digest_of("engines", 2, &d, &c, &r));
+        let base = compiler_digest_of("engines", 1, 1, &d, &c, &r);
+        assert_ne!(base, compiler_digest_of("engines'", 1, 1, &d, &c, &r));
+        assert_ne!(base, compiler_digest_of("engines", 2, 1, &d, &c, &r));
+        assert_ne!(base, compiler_digest_of("engines", 1, 2, &d, &c, &r));
         let d2 = vec![("t", "SELECT 1 ".to_owned())];
-        assert_ne!(base, compiler_digest_of("engines", 1, &d2, &c, &r));
+        assert_ne!(base, compiler_digest_of("engines", 1, 1, &d2, &c, &r));
         let r2 = vec![("key:t".to_owned(), "SELECT 3".to_owned())];
-        assert_ne!(base, compiler_digest_of("engines", 1, &d, &c, &r2));
+        assert_ne!(base, compiler_digest_of("engines", 1, 1, &d, &c, &r2));
         assert!(ENGINES.contains("datafusion 55.1.0"), "{ENGINES}");
         assert!(ENGINES.contains("deltalake-core 1.0.0 git+"), "{ENGINES}");
     }

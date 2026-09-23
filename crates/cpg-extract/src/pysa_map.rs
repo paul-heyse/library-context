@@ -4,16 +4,19 @@
 //! the build instead of degrading silently (§3.5, DM-42).
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
-    AncestryRelation, Fidelity, ImplicitReceiver, InvocationPhase, Modality, Origin, ParameterKind,
-    PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, SignatureForm,
+    AncestryRelation, DefinitionKind, Fidelity, ImplicitReceiver, InvocationPhase, Modality,
+    Origin, ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason,
+    SignatureForm,
 };
-use cpg_schema::id::Id;
+use cpg_schema::id::{Id, IdHasher, kind};
 use cpg_schema::tables::{
     ClassAncestry, ClassAncestryRow, ParameterSemantics, ParameterSemanticsRow, PysaCalls,
-    PysaCallsRow, PysaFunctions, PysaFunctionsRow,
+    PysaCallsRow, PysaClasses, PysaClassesRow, PysaFunctions, PysaFunctionsRow,
 };
 use pyrefly::report::pysa::call_graph::{
     CallCallees, ExpressionCallees, ExpressionIdentifier, ImplicitReceiver as PyImplicitReceiver,
@@ -36,6 +39,7 @@ pub(crate) struct PysaOut {
     pub functions: Vec<PysaFunctionsRow>,
     pub parameters: Vec<ParameterSemanticsRow>,
     pub ancestry: Vec<ClassAncestryRow>,
+    pub classes: Vec<PysaClassesRow>,
     pub calls: Vec<PysaCallsRow>,
     /// Byte ranges of regular call sites Pysa described (the S5 join key).
     pub regular_call_ranges: HashSet<(i64, i64)>,
@@ -72,6 +76,7 @@ impl Locator<'_> {
 fn pysa(origin: Origin, modality: Modality) -> Provenance {
     Provenance {
         surface: Surface::PyreflyPysa,
+        mode: ExtractionMode::NativeTraversal,
         origin,
         modality,
         fidelity: Fidelity::ReportProjection,
@@ -84,31 +89,78 @@ fn pysa(origin: Origin, modality: Modality) -> Provenance {
 /// to one file in a context. `@` never starts a module name.
 pub(crate) struct ModuleRefs {
     pub release_files: HashMap<ModuleId, String>,
+    /// Every dependency module a mapped row referenced, with the id Pysa gave it: the modules
+    /// whose definitions become `context_definitions` (DESIGN §3.8).
+    pub dependencies: RefCell<BTreeMap<String, ModuleId>>,
+    /// The dependency definitions referenced: (module name, kind, Pysa key).
+    pub referenced: RefCell<BTreeSet<(String, DefinitionKind, String)>>,
 }
 
 impl ModuleRefs {
-    fn module(&self, id: ModuleId, name: ModuleName) -> String {
-        self.release_files
-            .get(&id)
-            .map_or_else(|| name.to_string(), |path| format!("@{path}"))
+    pub fn new(release_files: HashMap<ModuleId, String>) -> Self {
+        Self {
+            release_files,
+            dependencies: RefCell::default(),
+            referenced: RefCell::default(),
+        }
+    }
+
+    pub(crate) fn module(&self, id: ModuleId, name: ModuleName) -> String {
+        match self.release_files.get(&id) {
+            Some(path) => format!("@{path}"),
+            None => {
+                let name = name.to_string();
+                self.dependencies.borrow_mut().insert(name.clone(), id);
+                name
+            }
+        }
+    }
+
+    fn pair(
+        &self,
+        id: ModuleId,
+        name: ModuleName,
+        kind: DefinitionKind,
+        key: String,
+    ) -> (String, String) {
+        let module = self.module(id, name);
+        if !module.starts_with('@') {
+            self.referenced
+                .borrow_mut()
+                .insert((module.clone(), kind, key.clone()));
+        }
+        (module, key)
+    }
+
+    /// (module ref, `ClassId`): the typed form of a class reference.
+    fn class_pair(&self, c: &ClassRef) -> (String, String) {
+        self.pair(
+            c.module_id,
+            c.class.module_name(),
+            DefinitionKind::Class,
+            c.class_id.to_int().to_string(),
+        )
+    }
+
+    /// (module ref, `FunctionId`): the typed form of a function reference.
+    fn function_pair(&self, f: &FunctionRef) -> (String, String) {
+        self.pair(
+            f.module_id,
+            f.module_name,
+            DefinitionKind::Function,
+            f.function_id.serialize_to_string(),
+        )
     }
 
     /// `<module ref>:<name>#<ClassId>`: the id keys it, the name is for reading.
     fn class(&self, c: &ClassRef) -> String {
-        format!(
-            "{}:{}#{}",
-            self.module(c.module_id, c.class.module_name()),
-            c.class.name(),
-            c.class_id.to_int()
-        )
+        let (module, key) = self.class_pair(c);
+        format!("{module}:{}#{key}", c.class.name())
     }
 
     fn function(&self, f: &FunctionRef) -> String {
-        format!(
-            "{}::{}",
-            self.module(f.module_id, f.module_name),
-            f.function_id.serialize_to_string()
-        )
+        let (module, key) = self.function_pair(f);
+        format!("{module}::{key}")
     }
 }
 
@@ -233,6 +285,11 @@ pub(crate) fn map_definitions(
         let b = &def.base;
         let key = fid.serialize_to_string();
         let name_span = b.name_location.as_ref().map(|l| here.loc.range(l));
+        let defining = b.defining_class.as_ref().map(|c| refs.class_pair(c));
+        let overridden = def
+            .overridden_base_method
+            .as_ref()
+            .map(|f| refs.function_pair(f));
         out.functions.push(fact_row!(
             sink,
             PysaFunctions,
@@ -258,6 +315,10 @@ pub(crate) fn map_definitions(
                     .overridden_base_method
                     .as_ref()
                     .map(|f| refs.function(f)),
+                defining_class_module: defining.as_ref().map(|p| p.0.clone()),
+                defining_class_key: defining.map(|p| p.1),
+                overridden_module: overridden.as_ref().map(|p| p.0.clone()),
+                overridden_key: overridden.map(|p| p.1),
                 signature_count: def.undecorated_signatures.len() as i64,
             }
         ));
@@ -348,33 +409,43 @@ pub(crate) fn map_definitions(
     for (cid, cdef) in &defs.class_definitions {
         let class_key = cid.to_int().to_string();
         let name_span = here.loc.range(&cdef.name_location);
-        let mut rows: Vec<(AncestryRelation, Option<i64>, Option<String>, bool)> = cdef
+        out.classes.push(fact_row!(
+            sink,
+            PysaClasses,
+            pysa(Origin::AnalyzerAssertion, Modality::Definite),
+            PysaClassesRow {
+                snapshot_id: Id::ZERO,
+                fact_id: Id::ZERO,
+                module_node_id: here.module_node_id,
+                module_name: here.module_name.to_owned(),
+                class_key: class_key.clone(),
+                class_name: cdef.name.clone(),
+                name_start_byte: name_span.0,
+                name_end_byte: name_span.1,
+                is_synthesized: cdef.is_synthesized,
+                is_dataclass: cdef.is_dataclass,
+                is_named_tuple: cdef.is_named_tuple,
+                is_typed_dict: cdef.is_typed_dict,
+            }
+        ));
+        let mut rows: Vec<(AncestryRelation, Option<i64>, Option<&ClassRef>, bool)> = cdef
             .bases
             .iter()
             .enumerate()
-            .map(|(i, c)| {
-                (
-                    AncestryRelation::Base,
-                    Some(i as i64),
-                    Some(refs.class(c)),
-                    false,
-                )
-            })
+            .map(|(i, c)| (AncestryRelation::Base, Some(i as i64), Some(c), false))
             .collect();
         match &cdef.mro {
-            PysaClassMro::Resolved(classes) => {
-                rows.extend(classes.iter().enumerate().map(|(i, c)| {
-                    (
-                        AncestryRelation::Mro,
-                        Some(i as i64),
-                        Some(refs.class(c)),
-                        false,
-                    )
-                }))
-            }
+            PysaClassMro::Resolved(classes) => rows.extend(
+                classes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (AncestryRelation::Mro, Some(i as i64), Some(c), false)),
+            ),
             PysaClassMro::Cyclic => rows.push((AncestryRelation::Mro, None, None, true)),
         }
-        for (relation, ordinal, ancestor, cyclic) in rows {
+        for (relation, ordinal, ancestor_ref, cyclic) in rows {
+            let ancestor = ancestor_ref.map(|c| refs.class(c));
+            let pair = ancestor_ref.map(|c| refs.class_pair(c));
             out.ancestry.push(fact_row!(
                 sink,
                 ClassAncestry,
@@ -392,6 +463,8 @@ pub(crate) fn map_definitions(
                     ordinal,
                     ancestor,
                     mro_cyclic: cyclic,
+                    ancestor_module: pair.as_ref().map(|p| p.0.clone()),
+                    ancestor_key: pair.map(|p| p.1),
                 }
             ));
         }
@@ -443,36 +516,43 @@ fn push_target(
         Origin::AnalyzerAssertion
     };
     let refs = e.site.here.refs;
-    out.calls.push(fact_row!(
-        sink,
-        PysaCalls,
-        pysa(origin, modality),
-        PysaCallsRow {
-            snapshot_id: Id::ZERO,
-            fact_id: Id::ZERO,
-            module_node_id: e.site.here.module_node_id,
-            module_name: e.site.here.module_name.to_owned(),
-            caller_key: e.site.caller.clone(),
-            site_kind: e.site.kind,
-            callee_kind: e.callee_kind,
-            site_detail: e.site.detail.clone(),
-            start_byte: e.site.span.0,
-            end_byte: e.site.span.1,
-            phase: e.phase,
-            higher_order_index: e.higher_order_index,
-            target_kind,
-            target_module: f.map(|f| refs.module(f.module_id, f.module_name)),
-            target_key: f.map(|f| f.function_id.serialize_to_string()),
-            target_name: f.map(|f| f.function_name.to_string()),
-            receiver_class: t.and_then(|t| t.receiver_class.as_ref().map(|c| refs.class(c))),
-            implicit_receiver: t.map(|t| implicit_receiver(t.implicit_receiver)),
-            implicit_dunder_call: t.map(|t| t.implicit_dunder_call),
-            is_class_method: t.map(|t| t.is_class_method),
-            is_static_method: t.map(|t| t.is_static_method),
-            unresolved_reason: reason,
-            is_attribute: e.site.is_attribute,
-        }
-    ));
+    let target = f.map(|f| refs.function_pair(f));
+    let receiver = t.and_then(|t| t.receiver_class.as_ref().map(|c| refs.class_pair(c)));
+    let mut row = PysaCallsRow {
+        snapshot_id: Id::ZERO,
+        fact_id: Id::ZERO,
+        payload_id: Id::ZERO,
+        module_node_id: e.site.here.module_node_id,
+        module_name: e.site.here.module_name.to_owned(),
+        caller_key: e.site.caller.clone(),
+        site_kind: e.site.kind,
+        callee_kind: e.callee_kind,
+        site_detail: e.site.detail.clone(),
+        start_byte: e.site.span.0,
+        end_byte: e.site.span.1,
+        phase: e.phase,
+        higher_order_index: e.higher_order_index,
+        target_kind,
+        target_module: target.as_ref().map(|p| p.0.clone()),
+        target_key: target.map(|p| p.1),
+        target_name: f.map(|f| f.function_name.to_string()),
+        receiver_class: t.and_then(|t| t.receiver_class.as_ref().map(|c| refs.class(c))),
+        receiver_module: receiver.as_ref().map(|p| p.0.clone()),
+        receiver_key: receiver.map(|p| p.1),
+        implicit_receiver: t.map(|t| implicit_receiver(t.implicit_receiver)),
+        implicit_dunder_call: t.map(|t| t.implicit_dunder_call),
+        is_class_method: t.map(|t| t.is_class_method),
+        is_static_method: t.map(|t| t.is_static_method),
+        unresolved_reason: reason,
+        is_attribute: e.site.is_attribute,
+    };
+    // The run-independent payload digest: every column but the ids, before the fact id is taken
+    // (which then covers it too).
+    let mut h = IdHasher::new(kind::PYSA_CALL);
+    row.hash_fields(&mut h);
+    row.payload_id = h.finish_id();
+    out.calls
+        .push(fact_row!(sink, PysaCalls, pysa(origin, modality), row));
 }
 
 /// How one target list is read: its callee record, phase, the call's unresolved remainder,

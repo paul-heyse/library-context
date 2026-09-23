@@ -10,5 +10,6 @@ key snapshot_id, call_site_node_id, pysa_fact_id
 snapshot_id: FixedSizeBinary(16) NOT NULL
 call_site_node_id: FixedSizeBinary(16) NOT NULL
 pysa_fact_id: FixedSizeBinary(16) NOT NULL
+argument_node_id: FixedSizeBinary(16) NULL
 target_node_id: FixedSizeBinary(16) NULL
 reason: Int16 NULL [lctx.codebook=boundary_reason]

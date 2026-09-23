@@ -6,6 +6,7 @@
 //! extraction (§4.2.5): there is no per-module recovery.
 
 mod config;
+mod context;
 mod facts;
 pub mod library;
 mod public;
@@ -14,19 +15,23 @@ mod walk;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use arrow_array::RecordBatch;
 use arrow_schema::ArrowError;
+use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
     BoundaryReason, CoverageStatus, FactFamily, Fidelity, Modality, Origin, ScopeKind,
 };
 use cpg_schema::id::{Id, IdHasher, content_digest, kind};
+use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
-    Arguments, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, Contexts, ContextsRow,
-    Coverage, CoverageRow, Declarations, Distributions, DistributionsRow, ExportSyntax, Facts,
-    ParameterSemantics, ParameterSyntax, Producers, ProducersRow, PublicNames, PysaCalls,
-    PysaFunctions, Releases, ReleasesRow, Runs, RunsRow, SourceFiles, SourceFilesRow,
+    Arguments, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, ContextDefinitions,
+    ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
+    DistributionsRow, ExportSyntax, Facts, ParameterSemantics, ParameterSyntax, Producers,
+    ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, Releases, ReleasesRow, Runs,
+    RunsRow, SourceFiles, SourceFilesRow,
 };
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
@@ -79,6 +84,8 @@ pub enum ExtractError {
     ProvenanceConflict(String),
     #[error("library: {0}")]
     Library(String),
+    #[error("dependency context: {0}")]
+    Context(String),
     #[error("extraction panicked; the attempt is aborted")]
     Panicked,
 }
@@ -94,6 +101,8 @@ pub struct ExtractOutput {
     /// Per module name: the in-memory Pysa structs as JSON (`module_id` removed), when
     /// requested. A `.py`/`.pyi` pair shares a name, so the harness fixtures have none.
     pub pysa_json: BTreeMap<String, Value>,
+    /// Wall time and peak RSS per extraction stage (DESIGN §4.3); not content.
+    pub stages: Vec<Stage>,
 }
 
 impl ExtractOutput {
@@ -176,8 +185,11 @@ impl Report {
         span: Option<(i64, i64)>,
         detail: Option<String>,
     ) {
+        // A boundary compares two surfaces (a call Ruff sees and Pysa does not, an `__all__`
+        // Pyrefly cannot read): the extractor's own relational derivation (slice-1 review O4).
         let provenance = Provenance {
-            surface: Surface::Source,
+            surface: Surface::Compare,
+            mode: ExtractionMode::RelationalDerivation,
             origin: Origin::DerivedAnalysis,
             modality: Modality::Definite,
             fidelity: Fidelity::NativeStructural,
@@ -202,6 +214,7 @@ impl Report {
 }
 
 fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
+    let mut stages = Stages::new();
     let cfg = config::pyrefly_config(input)?;
     let context = config::context(&cfg, input)?;
     let producer = config::producer();
@@ -258,6 +271,8 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         write_files: false,
     })));
     txn.run(&handles, Require::Everything, None);
+    stages.mark("extract: pyrefly check (release)");
+    let (mut walk_time, mut pysa_time) = (Duration::ZERO, Duration::ZERO);
     let txn = txn;
     // The reporter stays installed: dependency modules solve lazily during extraction.
     let module_ids = &txn
@@ -265,12 +280,12 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .expect("the reporter was installed before run")
         .module_ids;
     // Project handles hold ids pre-assigned in sorted order; only dependencies are numbered lazily.
-    let refs = ModuleRefs {
-        release_files: modules
+    let refs = ModuleRefs::new(
+        modules
             .iter()
             .map(|m| (module_ids.get_from_handle(&m.handle), m.path.clone()))
             .collect(),
-    };
+    );
 
     let mut source_files = Vec::new();
     let mut walked = walk::WalkOut::default();
@@ -282,6 +297,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     let mut pysa_json = BTreeMap::new();
     let source = Provenance {
         surface: Surface::Source,
+        mode: ExtractionMode::NativeTraversal,
         origin: Origin::InputContext,
         modality: Modality::Definite,
         fidelity: Fidelity::Raw,
@@ -305,6 +321,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
                 content_digest: content_digest(&m.bytes),
                 byte_len: m.bytes.len() as i64,
                 utf8,
+                distribution: match &input.release.origin {
+                    ReleaseOrigin::Library(l) => l.owners.get(&m.path).cloned(),
+                    ReleaseOrigin::Tree { .. } => None,
+                },
             }
         ));
         if !utf8 {
@@ -346,7 +366,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             module_node_id: m.node_id,
             text: &text,
         };
+        let clock = Instant::now();
         let module_walk = walk::walk_module(&ctx, &ast, &mut sink);
+        walk_time += clock.elapsed();
+        let clock = Instant::now();
 
         let resolver = PysaResolver::new(&txn, module_ids, m.handle.clone());
         let context = ModuleContext {
@@ -369,6 +392,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         let mut module_pysa = PysaOut::default();
         pysa_map::map_definitions(&here, &defs, &mut sink, &mut module_pysa);
         pysa_map::map_call_graphs(&here, &graphs, &mut sink, &mut module_pysa);
+        pysa_time += clock.elapsed();
         if input.keep_pysa_json {
             let mut d = serde_json::to_value(&defs).unwrap_or(Value::Null);
             let mut g = serde_json::to_value(&graphs).unwrap_or(Value::Null);
@@ -489,9 +513,13 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         pysa.functions.extend(module_pysa.functions);
         pysa.parameters.extend(module_pysa.parameters);
         pysa.ancestry.extend(module_pysa.ancestry);
+        pysa.classes.extend(module_pysa.classes);
         pysa.calls.extend(module_pysa.calls);
     }
 
+    stages.mark("extract: per-module extraction");
+    stages.push("extract:   of which the ruff walk", walk_time);
+    stages.push("extract:   of which the pysa collectors", pysa_time);
     let readable: Vec<Handle> = modules
         .iter()
         .filter(|m| std::str::from_utf8(&m.bytes).is_ok())
@@ -501,7 +529,21 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .iter()
         .map(|m| (m.handle.clone(), m.node_id))
         .collect();
-    let mut public = public::public_names(&readable, &release_files, &txn, &mut sink)?;
+    let (mut public, export_origins) =
+        public::public_names(&readable, &release_files, &txn, &mut sink)?;
+
+    // The dependency context the facts reference (ADR-0014): a second check, over those modules.
+    stages.mark("extract: public names");
+    let mut txn = txn;
+    let mut context_out = context::context_facts(
+        &mut txn,
+        handles.first(),
+        &refs,
+        &export_origins,
+        input,
+        &mut sink,
+        &mut stages,
+    )?;
 
     let snapshot_id = input.snapshot_id;
     let runs = vec![RunsRow {
@@ -546,6 +588,9 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     dedup_by_fact(&mut pysa.functions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.parameters, |r| r.fact_id);
     dedup_by_fact(&mut pysa.ancestry, |r| r.fact_id);
+    dedup_by_fact(&mut pysa.classes, |r| r.fact_id);
+    dedup_by_fact(&mut context_out.modules, |r| r.fact_id);
+    dedup_by_fact(&mut context_out.definitions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.calls, |r| r.fact_id);
     dedup_by_fact(&mut public, |r| r.fact_id);
     dedup_by_fact(&mut report.boundaries, |r| r.fact_id);
@@ -562,6 +607,14 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         (
             SourceFiles::NAME,
             SourceFiles::to_sorted_batch(&source_files)?,
+        ),
+        (
+            ContextModules::NAME,
+            ContextModules::to_sorted_batch(&context_out.modules)?,
+        ),
+        (
+            ContextDefinitions::NAME,
+            ContextDefinitions::to_sorted_batch(&context_out.definitions)?,
         ),
         (
             Declarations::NAME,
@@ -589,6 +642,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             ClassAncestry::to_sorted_batch(&pysa.ancestry)?,
         ),
         (
+            PysaClasses::NAME,
+            PysaClasses::to_sorted_batch(&pysa.classes)?,
+        ),
+        (
             CallSyntax::NAME,
             CallSyntax::to_sorted_batch(&walked.call_syntax)?,
         ),
@@ -604,12 +661,14 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         ),
         (Facts::NAME, Facts::to_sorted_batch(&sink.into_rows()?)?),
     ];
+    stages.mark("extract: batches");
     Ok(ExtractOutput {
         run_id,
         context_id: context.id,
         producer_id: producer.id,
         tables,
         pysa_json,
+        stages: stages.stages,
     })
 }
 

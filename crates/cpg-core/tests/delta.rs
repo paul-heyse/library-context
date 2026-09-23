@@ -144,16 +144,12 @@ async fn open_refuses_a_table_whose_checks_drift_or_are_missing() {
 
     // A crash between create and add_constraint leaves a table without its CHECKs.
     let other = tempfile::tempdir().unwrap();
-    let kernel: StructType = Declarations::schema().as_ref().try_into_kernel().unwrap();
-    std::fs::create_dir_all(other.path().join(Declarations::NAME)).unwrap();
-    DeltaTable::try_from_url(table_url(other.path(), Declarations::NAME).unwrap())
-        .await
-        .unwrap()
-        .create()
-        .with_columns(kernel.fields().cloned())
-        .with_configuration_property(deltalake::TableProperty::AppendOnly, Some("true"))
-        .await
-        .unwrap();
+    table_with(
+        other.path(),
+        Declarations::NAME,
+        cpg_core::delta::retention().into(),
+    )
+    .await;
     let err = open_verified::<Declarations>(other.path())
         .await
         .unwrap_err();
@@ -258,4 +254,81 @@ async fn open_refuses_a_table_whose_schema_drifted() {
         .unwrap();
     let err = open_verified::<Declarations>(dir.path()).await.unwrap_err();
     assert!(matches!(err, CoreError::SchemaDrift(_)), "{err}");
+}
+
+/// A Declarations-shaped table at `root/name` with `properties` (no CHECKs): for driving delta-rs's
+/// checkpoint and log cleanup directly.
+async fn table_with(
+    root: &Path,
+    name: &str,
+    properties: Vec<(deltalake::TableProperty, &str)>,
+) -> DeltaTable {
+    std::fs::create_dir_all(root.join(name)).unwrap();
+    let kernel: StructType = Declarations::schema().as_ref().try_into_kernel().unwrap();
+    let mut builder = DeltaTable::try_from_url(table_url(root, name).unwrap())
+        .await
+        .unwrap()
+        .create()
+        .with_columns(kernel.fields().cloned())
+        .with_configuration_property(deltalake::TableProperty::AppendOnly, Some("true"));
+    for (property, value) in properties {
+        builder = builder.with_configuration_property(property, Some(value));
+    }
+    builder.await.unwrap()
+}
+
+#[tokio::test]
+async fn retention_keeps_old_versions_loadable() {
+    // DESIGN §6.1, ADR-0014: under delta-rs's defaults the post-commit hook checkpoints and then
+    // deletes the log below the newest checkpoint older than the retention, so an old version no
+    // longer loads. The shipped retention keeps it. `checkpointInterval = 2` and a zero retention
+    // make both happen within the test.
+    use deltalake::TableProperty::{CheckpointInterval, LogRetentionDuration};
+    let dir = tempfile::tempdir().unwrap();
+    let defaults = vec![
+        (CheckpointInterval, "2"),
+        (LogRetentionDuration, "interval 0 seconds"),
+    ];
+    let mut ours = vec![(CheckpointInterval, "2")];
+    ours.extend(cpg_core::delta::retention());
+    for (name, properties, survives) in [("defaults", defaults, false), ("ours", ours, true)] {
+        let mut t = table_with(dir.path(), name, properties).await;
+        for i in 0..6 {
+            // The cleanup compares file modification times with now minus the retention.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            t = append(t, decl(i * 10, i * 10 + 5), Id([1; 16]))
+                .await
+                .unwrap();
+        }
+        let old = cpg_core::snapshot::load_at(dir.path(), name, 1).await;
+        assert_eq!(
+            old.is_ok(),
+            survives,
+            "{name}: version 1 loadable = {:?}",
+            old.err()
+        );
+    }
+    // Open refuses a table without the shipped retention (here: cleanup left at its default).
+    let err = open_verified::<Declarations>(&dir.path().join("x")).await;
+    assert!(err.is_err());
+    let root = dir.path().join("refuse");
+    let t = create::<Declarations>(&root).await.unwrap();
+    let t = t
+        .set_tbl_properties()
+        .with_properties(
+            [(
+                "delta.enableExpiredLogCleanup".to_owned(),
+                "true".to_owned(),
+            )]
+            .into(),
+        )
+        .await
+        .unwrap();
+    drop(t);
+    match open_verified::<Declarations>(&root).await {
+        Err(CoreError::Retention { property, .. }) => {
+            assert_eq!(property, "delta.enableExpiredLogCleanup")
+        }
+        other => panic!("expected a retention refusal, got {other:?}"),
+    }
 }

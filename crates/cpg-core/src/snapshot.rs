@@ -19,9 +19,11 @@ use crate::{CoreError, sql};
 /// Table name → the Delta version a snapshot's rows are visible at.
 pub type Versions = BTreeMap<String, u64>;
 
-/// A session over Delta's planner defaults, with no tables registered.
+/// A session over Delta's planner defaults, with the `lctx_id` UDF (§3.4.1) and no tables.
 pub fn empty_session() -> SessionContext {
-    create_session().into_inner()
+    let ctx = create_session().into_inner();
+    ctx.register_udf(crate::udf::lctx_id());
+    ctx
 }
 
 /// Load a table at exactly `version`. A provider built on an already-loaded handle ignores the

@@ -5,9 +5,9 @@
 
 use crate::codebook::{
     AncestryRelation, ArgumentKind, BoundaryReason, CoverageStatus, DeclarationKind,
-    ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver, InvocationPhase,
-    Modality, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
-    PysaUnresolvedReason, ScopeKind, SignatureForm,
+    DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
+    InvocationPhase, Modality, ModuleOrigin, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind,
+    PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -158,6 +158,58 @@ table!(
         byte_len: i64,
         /// The acquired bytes decoded as UTF-8 (`false` makes every family `unavailable`).
         utf8: bool,
+        /// The release distribution whose `RECORD` lists the file (ADR-0013's module →
+        /// distribution link); null for a source tree.
+        distribution: Option<String>,
+    }
+);
+
+table!(
+    /// Every dependency module a fact of the run references (DESIGN §3.2, §3.8; ADR-0014): the
+    /// `external_module` nodes. Its node id is the owning distribution and version (or Pyrefly's
+    /// bundled typeshed and revision) and the module name, so it survives a moved environment.
+    ContextModules, ContextModulesRow = "context_modules",
+    family = Provenance,
+    key = [snapshot_id, module_node_id, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        module_name: String,
+        origin: ModuleOrigin,
+        /// Site-relative (site-packages, search path) or bundle-relative path; null in memory.
+        path: Option<String>,
+        /// The installed distribution whose `RECORD` lists the file.
+        distribution: Option<String>,
+        version: Option<String>,
+    }
+);
+
+table!(
+    /// Pysa's definitions, in the dependency modules of `context_modules`, of every function and
+    /// class a fact of the run references, and of every name a public export traces to (DESIGN
+    /// §3.8): the `external_symbol` nodes. They come from Pyrefly's own collectors over those
+    /// modules, independent of the columns that reference them.
+    ContextDefinitions, ContextDefinitionsRow = "context_definitions",
+    family = Provenance,
+    key = [snapshot_id, symbol_node_id, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        symbol_node_id: Id,
+        /// The `context_modules` node.
+        module_node_id: Id,
+        module_name: String,
+        kind: DefinitionKind,
+        /// Pysa's `FunctionId` or `ClassId`, unique within the module and kind.
+        key: String,
+        name: String,
+        /// The enclosing classes and the name (`<locals>` marks a function scope).
+        qualified_name: String,
+        /// Defined at module level (what an export can trace to).
+        is_top_level: bool,
     }
 );
 
@@ -238,6 +290,9 @@ table!(
         /// its `.pyi` share `origin_path`).
         origin_module_node_id: Option<Id>,
         via_dunder_all: bool,
+        /// `origin_path` as a typed pair: the defining module's name and the name in it.
+        origin_module: Option<String>,
+        origin_name: Option<String>,
     }
 );
 
@@ -297,6 +352,12 @@ table!(
         defining_class: Option<String>,
         /// `<module ref>::<function_key>` of the method this one overrides (§4.2.3).
         overridden_base: Option<String>,
+        /// `defining_class` and `overridden_base` as typed (module ref, key) pairs, so joins never
+        /// parse the strings.
+        defining_class_module: Option<String>,
+        defining_class_key: Option<String>,
+        overridden_module: Option<String>,
+        overridden_key: Option<String>,
         /// How many undecorated signatures Pysa gives (one per `@overload`, else one). A
         /// signature without parameters has no `parameter_semantics` row, so this is its trace.
         signature_count: i64,
@@ -354,6 +415,34 @@ table!(
         /// Class reference (§4.2.3).
         ancestor: Option<String>,
         mro_cyclic: bool,
+        /// `ancestor` as a typed (module ref, class key) pair.
+        ancestor_module: Option<String>,
+        ancestor_key: Option<String>,
+    }
+);
+
+table!(
+    /// Pysa's class definitions (`pyrefly-pysa`), one row per class: the key Stage C maps to a
+    /// class declaration. `class_ancestry` has no row for a class without bases.
+    PysaClasses, PysaClassesRow = "pysa_classes",
+    family = Signatures,
+    key = [snapshot_id, module_node_id, class_key, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        module_name: String,
+        /// Pysa's `ClassId`, unique within a file.
+        class_key: String,
+        class_name: String,
+        name_start_byte: i64,
+        name_end_byte: i64,
+        /// Synthesized (a functional `namedtuple`, …), not a `class` statement.
+        is_synthesized: bool,
+        is_dataclass: bool,
+        is_named_tuple: bool,
+        is_typed_dict: bool,
     }
 );
 
@@ -396,6 +485,9 @@ table!(
     {
         snapshot_id: Id,
         fact_id: Id,
+        /// A role in the call, not the expression: `H(argument, call node, ordinal)` (§3.4.1), so
+        /// `f(g(x))`'s argument is not the inner call site.
+        node_id: Id,
         call_node_id: Id,
         ordinal: i64,
         kind: ArgumentKind,
@@ -414,6 +506,9 @@ table!(
     {
         snapshot_id: Id,
         fact_id: Id,
+        /// The row's run-independent payload digest (`pysa-call` over every other column): an
+        /// edge discriminator stable across runs (§3.4.1).
+        payload_id: Id,
         module_node_id: Id,
         module_name: String,
         caller_key: String,
@@ -432,6 +527,9 @@ table!(
         target_name: Option<String>,
         /// Class reference (§4.2.3).
         receiver_class: Option<String>,
+        /// `receiver_class` as a typed (module ref, class key) pair.
+        receiver_module: Option<String>,
+        receiver_key: Option<String>,
         implicit_receiver: Option<ImplicitReceiver>,
         implicit_dunder_call: Option<bool>,
         is_class_method: Option<bool>,
@@ -525,6 +623,8 @@ macro_rules! for_each_table {
             $crate::tables::Releases,
             $crate::tables::Distributions,
             $crate::tables::SourceFiles,
+            $crate::tables::ContextModules,
+            $crate::tables::ContextDefinitions,
             $crate::tables::Declarations,
             $crate::tables::ExportSyntax,
             $crate::tables::PublicNames,
@@ -532,6 +632,7 @@ macro_rules! for_each_table {
             $crate::tables::PysaFunctions,
             $crate::tables::ParameterSemantics,
             $crate::tables::ClassAncestry,
+            $crate::tables::PysaClasses,
             $crate::tables::CallSyntax,
             $crate::tables::Arguments,
             $crate::tables::PysaCalls,

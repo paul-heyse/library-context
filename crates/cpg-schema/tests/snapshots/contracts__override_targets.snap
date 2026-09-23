@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table override_targets
+family signatures
+key snapshot_id, function_fact_id
+@lctx.family=signatures
+@lctx.table=override_targets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_fact_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NULL
+overridden_node_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

@@ -13,6 +13,8 @@ pub(crate) enum Surface {
     PyreflyPysa,
     PyreflyPublic,
     Source,
+    /// The extractor's own comparison of two surfaces (boundary facts; slice-1 review O4).
+    Compare,
 }
 
 impl Surface {
@@ -22,6 +24,7 @@ impl Surface {
             Surface::PyreflyPysa => "pyrefly-pysa",
             Surface::PyreflyPublic => "pyrefly-public",
             Surface::Source => "source",
+            Surface::Compare => "compare",
         }
     }
 }
@@ -39,6 +42,7 @@ pub(crate) struct FactSink {
 
 pub(crate) struct Provenance {
     pub surface: Surface,
+    pub mode: ExtractionMode,
     pub origin: Origin,
     pub modality: Modality,
     pub fidelity: Fidelity,
@@ -67,7 +71,7 @@ impl FactSink {
             run_id: self.run_id,
             table_name: table.to_owned(),
             origin: p.origin,
-            extraction_mode: ExtractionMode::NativeTraversal,
+            extraction_mode: p.mode,
             modality: p.modality,
             fidelity: p.fidelity,
             model_id: format!("{}/{}", self.producer_hex, p.surface.name()),
@@ -119,6 +123,7 @@ mod tests {
     fn p(modality: Modality) -> Provenance {
         Provenance {
             surface: Surface::PyreflyPysa,
+            mode: ExtractionMode::NativeTraversal,
             origin: Origin::AnalyzerAssertion,
             modality,
             fidelity: Fidelity::ReportProjection,

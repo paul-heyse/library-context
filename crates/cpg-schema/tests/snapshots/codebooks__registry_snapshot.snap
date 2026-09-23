@@ -68,6 +68,7 @@ boundary_reason
   12 undecodable_source
   13 no_source_declaration
   14 unreachable_in_context
+  15 variable_origin
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
@@ -96,6 +97,7 @@ fact_family
   3 calls
   4 coverage
   5 publication
+  6 graph
 scope_kind
   0 release
   1 module
@@ -147,3 +149,39 @@ implicit_receiver
 ancestry_relation
   0 base
   1 mro
+module_origin
+  0 site_packages
+  1 search_path
+  2 namespace
+  3 memory
+  4 bundled_typeshed
+  5 bundled_typeshed_third_party
+  6 bundled_third_party
+definition_kind
+  0 function
+  1 class
+node_kind
+  0 module
+  1 class
+  2 function
+  3 parameter
+  4 call_site
+  5 argument
+  6 export
+  7 external_module
+  8 external_symbol
+  9 synthetic_callable
+edge_kind
+  0 declares
+  1 overload_of
+  2 stub_for
+  3 has_parameter
+  4 exports
+  5 encloses_call
+  6 has_argument
+  7 call_target
+  8 higher_order_target
+  9 base_class
+  10 mro_entry
+  11 overrides
+  12 declared_in

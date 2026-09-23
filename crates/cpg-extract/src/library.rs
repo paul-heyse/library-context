@@ -48,6 +48,9 @@ pub struct AcquiredLibrary {
     /// The installer `pyvenv.cfg` names (`uv 0.12.18`).
     pub installer: Option<String>,
     pub distributions: Vec<Distribution>,
+    /// Every verified analyzer-readable file, site-relative, → the distribution whose `RECORD`
+    /// lists it: `source_files.distribution` and `context_modules.distribution` (ADR-0014).
+    pub owners: BTreeMap<String, String>,
 }
 
 fn fail(msg: impl Into<String>) -> ExtractError {
@@ -319,6 +322,7 @@ pub fn acquired(
     }
 
     let mut files = Vec::new();
+    let mut owners = BTreeMap::new();
     let mut release_content: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
     let mut distributions = Vec::new();
     for (dist, (version, dist_info)) in &dists {
@@ -352,6 +356,7 @@ pub fn acquired(
                     "{dist}: {path} does not match its RECORD sha256; {remedy}"
                 )));
             }
+            owners.insert(path.clone(), dist.clone());
             if in_release {
                 if path.ends_with(".py") || path.ends_with(".pyi") {
                     files.push(file);
@@ -399,6 +404,7 @@ pub fn acquired(
                     .collect(),
                 installer: cfg.get("uv").map(|v| format!("uv {v}")),
                 distributions,
+                owners,
             }),
         },
         venv_root: env_dir.to_path_buf(),

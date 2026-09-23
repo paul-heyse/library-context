@@ -9,6 +9,9 @@ key snapshot_id, access_path, public_fact_id
 @lctx.table=exports
 snapshot_id: FixedSizeBinary(16) NOT NULL
 access_path: Utf8 NOT NULL
+export_node_id: FixedSizeBinary(16) NOT NULL
 declaration_node_id: FixedSizeBinary(16) NULL
+external_node_id: FixedSizeBinary(16) NULL
 public_fact_id: FixedSizeBinary(16) NOT NULL
 declaration_fact_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

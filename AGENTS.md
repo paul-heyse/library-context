@@ -37,7 +37,7 @@ real consumer.
 | `docs/design_review/design_principles/` | Charter (DM-01–60, gates G1–G7), with the repo layer in `ADDENDUM.md` |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts; `cpg-extract` (Stage A in `library.rs`, extraction), `cpg-core` (Delta, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0012) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0014); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0012) |
 | `docs/initial_plan/` | Research input (don't edit it) and `DISPOSITION.md`, which maps each input section to where it landed |
 | `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0013). Environments go to `build/envs/` (gitignored) |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
@@ -51,7 +51,8 @@ real consumer.
 |---|---|
 | Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules scan and rule tests, `adr lint`, `lint-agents` |
 | Before committing | `just test-all`: adds fixture parsing, `just deps` and `just gold` (the fastmcp skill and `libraries/fastmcp` name one FastMCP) |
-| The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`; report its outcome at every slice end |
+| The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`, printing rows and per-stage time and peak RSS; report its outcome at every slice end |
+| Inspect a published snapshot | `target/release/lctx query --store build/store --snapshot <hex> "SQL"` (read-only; every table by name at its recorded version) |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt` |
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |

@@ -18,3 +18,4 @@ is_stub: Boolean NOT NULL
 content_digest: FixedSizeBinary(32) NOT NULL
 byte_len: Int64 NOT NULL
 utf8: Boolean NOT NULL
+distribution: Utf8 NULL

@@ -10,6 +10,7 @@ check span_order: start_byte >= 0 AND end_byte >= start_byte
 @lctx.table=pysa_calls
 snapshot_id: FixedSizeBinary(16) NOT NULL
 fact_id: FixedSizeBinary(16) NOT NULL
+payload_id: FixedSizeBinary(16) NOT NULL
 module_node_id: FixedSizeBinary(16) NOT NULL
 module_name: Utf8 NOT NULL
 caller_key: Utf8 NOT NULL
@@ -25,6 +26,8 @@ target_module: Utf8 NULL
 target_key: Utf8 NULL
 target_name: Utf8 NULL
 receiver_class: Utf8 NULL
+receiver_module: Utf8 NULL
+receiver_key: Utf8 NULL
 implicit_receiver: Int16 NULL [lctx.codebook=implicit_receiver]
 implicit_dunder_call: Boolean NULL
 is_class_method: Boolean NULL

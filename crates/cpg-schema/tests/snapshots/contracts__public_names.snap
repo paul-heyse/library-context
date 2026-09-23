@@ -15,3 +15,5 @@ name: Utf8 NOT NULL
 origin_path: Utf8 NULL
 origin_module_node_id: FixedSizeBinary(16) NULL
 via_dunder_all: Boolean NOT NULL
+origin_module: Utf8 NULL
+origin_name: Utf8 NULL

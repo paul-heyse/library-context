@@ -57,6 +57,15 @@ pub mod kind {
     pub const ENVIRONMENT: &str = "environment";
     pub const COMPILER: &str = "compiler";
     pub const SNAPSHOT_CONTENT: &str = "snapshot-content";
+    // The graph catalog (DESIGN §3.4.1, §3.8; ADR-0014).
+    pub const EDGE: &str = "edge";
+    pub const ARGUMENT: &str = "argument";
+    pub const EXPORT: &str = "export";
+    pub const SYNTHETIC_CALLABLE: &str = "synthetic_callable";
+    pub const EXTERNAL_MODULE: &str = "external_module";
+    pub const EXTERNAL_SYMBOL: &str = "external_symbol";
+    /// A Pysa call row's run-independent payload digest (`pysa_calls.payload_id`).
+    pub const PYSA_CALL: &str = "pysa-call";
 }
 
 /// Length-prefixed BLAKE3 hasher for ids and digests.
@@ -117,6 +126,13 @@ impl IdHasher {
         match field {
             None => self.bytes(&[0]),
             Some(v) => self.bytes(&[1]).bool(v),
+        }
+    }
+
+    pub fn opt_bytes(&mut self, field: Option<&[u8]>) -> &mut Self {
+        match field {
+            None => self.bytes(&[0]),
+            Some(v) => self.bytes(&[1]).bytes(v),
         }
     }
 

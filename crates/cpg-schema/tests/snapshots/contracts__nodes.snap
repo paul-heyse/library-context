@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table nodes
+family graph
+key snapshot_id, node_id
+@lctx.family=graph
+@lctx.table=nodes
+snapshot_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+node_kind: Int16 NOT NULL [lctx.codebook=node_kind]
+module_node_id: FixedSizeBinary(16) NULL
+existence_fact_id: FixedSizeBinary(16) NOT NULL

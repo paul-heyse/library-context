@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table edges
+family graph
+key snapshot_id, edge_id
+check ordinal_nonnegative: ordinal IS NULL OR ordinal >= 0
+@lctx.family=graph
+@lctx.table=edges
+snapshot_id: FixedSizeBinary(16) NOT NULL
+edge_id: FixedSizeBinary(16) NOT NULL
+edge_kind: Int16 NOT NULL [lctx.codebook=edge_kind]
+src_node_id: FixedSizeBinary(16) NOT NULL
+src_kind: Int16 NULL [lctx.codebook=node_kind]
+dst_node_id: FixedSizeBinary(16) NOT NULL
+dst_kind: Int16 NULL [lctx.codebook=node_kind]
+ordinal: Int64 NULL
+evidence_fact_id: FixedSizeBinary(16) NOT NULL
+support_fact_id: FixedSizeBinary(16) NULL

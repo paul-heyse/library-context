@@ -6,6 +6,8 @@
 //! lctx acquire <name> [--reinstall]                              uv sync --frozen into build/envs/<name>
 //! lctx compile <name> --store DIR                                acquire, Stage A, extract, derive,
 //!                                                                validate, publish
+//! lctx query --store DIR --snapshot HEX "SQL"                    read-only SQL over a published
+//!                                                                snapshot (its tables by name)
 //! ```
 //! Common options: `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`).
 //! Upgrading a library: edit its pin, `uv lock --project libraries/<name> --upgrade-package <dist>`,
@@ -28,6 +30,7 @@ struct Options {
     requirement: Option<String>,
     python: String,
     reinstall: bool,
+    snapshot: Option<String>,
 }
 
 fn absolute(p: &Path) -> Result<PathBuf, String> {
@@ -43,6 +46,7 @@ fn parse() -> Result<Options, String> {
         requirement: None,
         python: "3.14.7".to_owned(),
         reinstall: false,
+        snapshot: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -54,6 +58,7 @@ fn parse() -> Result<Options, String> {
             "--requirement" => o.requirement = Some(value()?),
             "--python" => o.python = value()?,
             "--reinstall" => o.reinstall = true,
+            "--snapshot" => o.snapshot = Some(value()?),
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => o.command.push(arg),
         }
@@ -127,8 +132,10 @@ fn random_id() -> Result<Id, String> {
 fn compile(library_dir: &Path, env_dir: &Path, store: &Path) -> Result<(), String> {
     let started = Instant::now();
     acquire(library_dir, env_dir, false)?;
+    let acquired = started.elapsed();
     let snapshot = random_id()?;
     let input = library::acquired(library_dir, env_dir, snapshot).map_err(|e| e.to_string())?;
+    let staged = started.elapsed() - acquired;
     println!(
         "release {} ({} modules)",
         input.release.release_id.hex(),
@@ -146,6 +153,27 @@ fn compile(library_dir: &Path, env_dir: &Path, store: &Path) -> Result<(), Strin
         println!(
             "  {name:<20} {rows:>7} rows  v{}",
             published.versions[*name]
+        );
+    }
+    println!("stages (wall time, peak RSS so far):");
+    println!(
+        "  {:<52} {:>7.2}s",
+        "acquire (uv sync --frozen)",
+        acquired.as_secs_f64()
+    );
+    println!(
+        "  {:<52} {:>7.2}s",
+        "Stage A (verify RECORDs)",
+        staged.as_secs_f64()
+    );
+    for stage in output.stages.iter().chain(&published.stages) {
+        println!(
+            "  {:<52} {:>7.2}s  {:>6} MiB",
+            stage.name,
+            stage.seconds,
+            stage
+                .peak_rss_bytes
+                .map_or("?".to_owned(), |b| (b >> 20).to_string())
         );
     }
     println!(
@@ -237,19 +265,50 @@ fn init(name: &str, o: &Options) -> Result<(), String> {
     Ok(())
 }
 
+/// Read-only SQL over one published snapshot: every table registered under its own name, at its
+/// recorded version, filtered to the snapshot (DESIGN §6.2).
+fn query(store: &Path, hex: &str, sql: &str) -> Result<(), String> {
+    let bytes: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2).unwrap_or("zz"), 16))
+        .collect::<Result<_, _>>()
+        .map_err(|_| format!("--snapshot {hex}: not hex"))?;
+    let id = Id(bytes
+        .try_into()
+        .map_err(|_| format!("--snapshot {hex}: not 16 bytes"))?);
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    runtime.block_on(async {
+        let (_, ctx) = cpg_core::snapshot::published(store, id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("snapshot {hex} is not published in {}", store.display()))?;
+        let text = cpg_core::sql::render(&ctx, sql)
+            .await
+            .map_err(|e| e.to_string())?;
+        println!("{text}");
+        Ok(())
+    })
+}
+
 fn run() -> Result<(), String> {
     let o = parse()?;
     let words: Vec<&str> = o.command.iter().map(String::as_str).collect();
     match words[..] {
         ["library", "init", name] => init(name, &o),
         ["acquire", name] => acquire(&o.libraries.join(name), &o.envs.join(name), o.reinstall),
+        ["query", sql] => {
+            let store = absolute(o.store.as_deref().ok_or("query needs --store DIR")?)?;
+            let hex = o.snapshot.as_deref().ok_or("query needs --snapshot HEX")?;
+            query(&store, hex, sql)
+        }
         ["compile", name] => {
             let store = absolute(o.store.as_deref().ok_or("compile needs --store DIR")?)?;
             compile(&o.libraries.join(name), &o.envs.join(name), &store)
         }
         _ => Err(
             "usage: lctx library init <name> --requirement REQ | lctx acquire <name> | \
-                  lctx compile <name> --store DIR"
+                  lctx compile <name> --store DIR | \
+                  lctx query --store DIR --snapshot HEX \"SQL\""
                 .to_owned(),
         ),
     }

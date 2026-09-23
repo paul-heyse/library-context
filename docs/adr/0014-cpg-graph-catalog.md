@@ -6,7 +6,7 @@ date: 2026-09-22
 supersedes: [ADR-0008]
 superseded-by: null
 design: [§1.2, §B6, §3.1, §3.2, §3.4.1, §3.5, §3.7, §3.8, §4.3, §6.1, §8]
-evidence: Proposed
+evidence: Tested
 revisit: A pass needs a relationship that neither a family table nor the edge catalog can express without a second writable copy (carried from ADR-0008); two runs over the same inputs give a different node_id or edge_id; an endpoint rule or lineage rule can pass vacuously (its target built from its own source column); or `nodes`/`edges` derivation dominates compile time or memory on the pilot.
 ---
 
@@ -174,5 +174,22 @@ New or changed:
   - a retention test (an old version unloadable under delta-rs's defaults, loadable under ours);
   - a graph-readiness reader that builds a petgraph projection and checks isolates, parallel
     edges, the self-loop, a cross-file SCC and each arc's lineage.
+- **C1 as built** (2026-09-22). Three shapes chosen while building, each recorded in DESIGN:
+  - `context_definitions` carries each external symbol's node id, computed in the extractor, so it
+    is itself the existence source and no derived `external_symbols` table exists;
+  - an external symbol is keyed by its external module, definition kind and Pysa key, because
+    conditional definitions can share a qualified name;
+  - bases, MRO entries and overridden methods resolve through `ancestry_targets` and
+    `override_targets`, the same typed-target shape as `call_targets`, so every unresolved end
+    keeps a reason.
+- **C1 evidence.**
+  - **Tested:** `just check` passes (70 tests), with the `graph_shapes` oracles above,
+    `retention_keeps_old_versions_loadable`, and the UDF known answers.
+  - **Measured** (FastMCP 4.0.5, release build, 2026-09-22):
+    - 47,145 nodes and 65,176 edges, every rule passing, and every call, ancestry and override
+      target typed;
+    - 13.6 s at 2.53 GB peak RSS (before: 7.9 s and 1.61 GB), the difference being the
+      dependency check and definitions;
+    - one `content_digest` across two runs.
 - **Superseded.** ADR-0008's deferral of the family → node/edge mapping and its generic views. All
   its other decisions are carried forward here.

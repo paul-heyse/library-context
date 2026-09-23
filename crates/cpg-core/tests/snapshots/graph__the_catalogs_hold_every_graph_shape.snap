@@ -1,0 +1,153 @@
+---
+source: crates/cpg-core/tests/graph.rs
+expression: out
+---
+## nodes
++-----------+----+
+| node_kind | n  |
++-----------+----+
+| 0         | 7  |
+| 1         | 4  |
+| 2         | 25 |
+| 3         | 23 |
+| 4         | 20 |
+| 5         | 21 |
+| 6         | 41 |
+| 7         | 4  |
+| 8         | 20 |
+| 9         | 2  |
++-----------+----+
+## named edges
++-----------+--------------------------+--------------------------+---------+
+| edge_kind | src                      | dst                      | ordinal |
++-----------+--------------------------+--------------------------+---------+
+| 0         | shapes.models.Base       | shapes.models.Base.run   |         |
+| 0         | shapes.models.Child      | shapes.models.Child.run  |         |
+| 0         | shapes/core.py           | shapes.core.Point        |         |
+| 0         | shapes/core.py           | shapes.core.apply_all    |         |
+| 0         | shapes/core.py           | shapes.core.bottom       |         |
+| 0         | shapes/core.py           | shapes.core.callee       |         |
+| 0         | shapes/core.py           | shapes.core.compat       |         |
+| 0         | shapes/core.py           | shapes.core.compat       |         |
+| 0         | shapes/core.py           | shapes.core.dispatch     |         |
+| 0         | shapes/core.py           | shapes.core.double       |         |
+| 0         | shapes/core.py           | shapes.core.fact         |         |
+| 0         | shapes/core.py           | shapes.core.left         |         |
+| 0         | shapes/core.py           | shapes.core.lonely       |         |
+| 0         | shapes/core.py           | shapes.core.make_point   |         |
+| 0         | shapes/core.py           | shapes.core.mode         |         |
+| 0         | shapes/core.py           | shapes.core.mode         |         |
+| 0         | shapes/core.py           | shapes.core.nested       |         |
+| 0         | shapes/core.py           | shapes.core.right        |         |
+| 0         | shapes/core.py           | shapes.core.top          |         |
+| 0         | shapes/core.py           | shapes.core.twice        |         |
+| 0         | shapes/core.py           | shapes.core.unresolved   |         |
+| 0         | shapes/models.py         | shapes.models.Base       |         |
+| 0         | shapes/models.py         | shapes.models.Child      |         |
+| 0         | shapes/models.py         | shapes.models.Plain      |         |
+| 0         | shapes/ping.py           | shapes.ping.ping         |         |
+| 0         | shapes/pong.py           | shapes.pong.pong         |         |
+| 0         | shapes/typed.py          | shapes.typed.overloaded  |         |
+| 0         | shapes/typed.pyi         | shapes.typed.overloaded  |         |
+| 0         | shapes/typed.pyi         | shapes.typed.overloaded  |         |
+| 1         | shapes.typed.overloaded  | shapes.typed.overloaded  |         |
+| 2         | shapes.typed.overloaded  | shapes.typed.overloaded  |         |
+| 2         | shapes.typed.overloaded  | shapes.typed.overloaded  |         |
+| 4         | shapes.Base              | shapes.models.Base       |         |
+| 4         | shapes.Child             | shapes.models.Child      |         |
+| 4         | shapes.Plain             | shapes.models.Plain      |         |
+| 4         | shapes.apply_all         | shapes.core.apply_all    |         |
+| 4         | shapes.compat            | shapes.core.compat       |         |
+| 4         | shapes.core.Point        | shapes.core.Point        |         |
+| 4         | shapes.core.apply_all    | shapes.core.apply_all    |         |
+| 4         | shapes.core.bottom       | shapes.core.bottom       |         |
+| 4         | shapes.core.callee       | shapes.core.callee       |         |
+| 4         | shapes.core.compat       | shapes.core.compat       |         |
+| 4         | shapes.core.dispatch     | shapes.core.dispatch     |         |
+| 4         | shapes.core.double       | shapes.core.double       |         |
+| 4         | shapes.core.fact         | shapes.core.fact         |         |
+| 4         | shapes.core.left         | shapes.core.left         |         |
+| 4         | shapes.core.lonely       | shapes.core.lonely       |         |
+| 4         | shapes.core.make_point   | shapes.core.make_point   |         |
+| 4         | shapes.core.mode         | shapes.core.mode         |         |
+| 4         | shapes.core.nested       | shapes.core.nested       |         |
+| 4         | shapes.core.right        | shapes.core.right        |         |
+| 4         | shapes.core.top          | shapes.core.top          |         |
+| 4         | shapes.core.twice        | shapes.core.twice        |         |
+| 4         | shapes.core.unresolved   | shapes.core.unresolved   |         |
+| 4         | shapes.dispatch          | shapes.core.dispatch     |         |
+| 4         | shapes.fact              | shapes.core.fact         |         |
+| 4         | shapes.helper            | depmod:helper            |         |
+| 4         | shapes.lonely            | shapes.core.lonely       |         |
+| 4         | shapes.make_point        | shapes.core.make_point   |         |
+| 4         | shapes.mode              | shapes.core.mode         |         |
+| 4         | shapes.models.Base       | shapes.models.Base       |         |
+| 4         | shapes.models.Child      | shapes.models.Child      |         |
+| 4         | shapes.models.Plain      | shapes.models.Plain      |         |
+| 4         | shapes.nested            | shapes.core.nested       |         |
+| 4         | shapes.overloaded        | shapes.typed.overloaded  |         |
+| 4         | shapes.ping              | shapes.ping.ping         |         |
+| 4         | shapes.ping.ping         | shapes.ping.ping         |         |
+| 4         | shapes.pong.pong         | shapes.pong.pong         |         |
+| 4         | shapes.top               | shapes.core.top          |         |
+| 4         | shapes.twice             | shapes.core.twice        |         |
+| 4         | shapes.typed.overloaded  | shapes.typed.overloaded  |         |
+| 4         | shapes.typed.overloaded  | shapes.typed.overloaded  |         |
+| 4         | shapes.unresolved        | shapes.core.unresolved   |         |
+| 9         | shapes.models.Base       | depmod:DepBase           | 0       |
+| 9         | shapes.models.Child      | shapes.models.Base       | 0       |
+| 10        | shapes.models.Base       | depmod:DepBase           | 0       |
+| 10        | shapes.models.Child      | depmod:DepBase           | 1       |
+| 10        | shapes.models.Child      | shapes.models.Base       | 0       |
+| 11        | shapes.models.Base.run   | depmod:DepBase.run       |         |
+| 11        | shapes.models.Child.run  | shapes.models.Base.run   |         |
+| 11        | synthetic:CF:0:2         | builtins:object.__init__ |         |
+| 12        | builtins:getattr         | builtins                 |         |
+| 12        | builtins:int             | builtins                 |         |
+| 12        | builtins:int.__add__     | builtins                 |         |
+| 12        | builtins:int.__le__      | builtins                 |         |
+| 12        | builtins:int.__mul__     | builtins                 |         |
+| 12        | builtins:list            | builtins                 |         |
+| 12        | builtins:list.__init__   | builtins                 |         |
+| 12        | builtins:map.__new__     | builtins                 |         |
+| 12        | builtins:object.__init__ | builtins                 |         |
+| 12        | builtins:object.__new__  | builtins                 |         |
+| 12        | builtins:str             | builtins                 |         |
+| 12        | builtins:super           | builtins                 |         |
+| 12        | builtins:super.__init__  | builtins                 |         |
+| 12        | builtins:tuple           | builtins                 |         |
+| 12        | builtins:tuple.__ge__    | builtins                 |         |
+| 12        | dataclasses:dataclass    | dataclasses              |         |
+| 12        | depmod:DepBase           | depmod                   |         |
+| 12        | depmod:DepBase.run       | depmod                   |         |
+| 12        | depmod:helper            | depmod                   |         |
+| 12        | typing:overload          | typing                   |         |
++-----------+--------------------------+--------------------------+---------+
+## call graph
++-------------------------+------+--------------------------+----------+
+| caller                  | site | callee                   | dst_kind |
++-------------------------+------+--------------------------+----------+
+| shapes.core.apply_all   | 1070 | builtins:list.__init__   | 8        |
+| shapes.core.apply_all   | 1070 | builtins:object.__new__  | 8        |
+| shapes.core.apply_all   | 1075 | builtins:map.__new__     | 8        |
+| shapes.core.apply_all   | 1075 | builtins:object.__init__ | 8        |
+| shapes.core.bottom      | 563  | depmod:helper            | 8        |
+| shapes.core.dispatch    | 757  | builtins:getattr         | 8        |
+| shapes.core.fact        | 423  | shapes.core.fact         | 2        |
+| shapes.core.left        | 461  | shapes.core.bottom       | 2        |
+| shapes.core.make_point  | 961  | builtins:object.__new__  | 8        |
+| shapes.core.make_point  | 961  | synthetic:CF:0:2         | 9        |
+| shapes.core.nested      | 1187 | shapes.core.callee       | 2        |
+| shapes.core.nested      | 1194 | shapes.core.double       | 2        |
+| shapes.core.right       | 498  | shapes.core.bottom       | 2        |
+| shapes.core.top         | 645  | shapes.core.left         | 2        |
+| shapes.core.top         | 655  | shapes.core.right        | 2        |
+| shapes.core.twice       | 308  | shapes.core.callee       | 2        |
+| shapes.core.twice       | 329  | shapes.core.callee       | 2        |
+| shapes.core.unresolved  | 818  | shapes.core.dispatch     | 2        |
+| shapes.models.Child.run | 259  | builtins:object.__new__  | 8        |
+| shapes.models.Child.run | 259  | builtins:super.__init__  | 8        |
+| shapes.models.Child.run | 259  | shapes.models.Base.run   | 2        |
+| shapes.ping.ping        | 99   | shapes.pong.pong         | 2        |
+| shapes.pong.pong        | 58   | shapes.ping.ping         | 2        |
++-------------------------+------+--------------------------+----------+

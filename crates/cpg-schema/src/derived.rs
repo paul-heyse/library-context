@@ -7,8 +7,8 @@
 //! reason where one applies; no inner join drops it.
 
 use crate::codebook::{
-    BoundaryReason, Codebook, DeclarationKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
-    PysaUnresolvedReason, ResolutionDomain, ResolutionStatus, SignatureForm,
+    BoundaryReason, Codebook, DeclarationKind, DefinitionKind, PysaCalleeKind, PysaSiteKind,
+    PysaTargetKind, PysaUnresolvedReason, ResolutionDomain, ResolutionStatus, SignatureForm,
 };
 use crate::id::Id;
 use crate::table::{Table, table};
@@ -66,6 +66,72 @@ impl Derived for ProviderNodeMap {
 }
 
 table!(
+    /// Stage C for classes: Pysa class keys → class declarations, joined on the name span within
+    /// one file. A synthesized class (a functional `namedtuple`) reads `no_source_declaration`; a
+    /// class statement Pysa places where no declaration sits reads `provider_disagreement`.
+    ProviderClassMap, ProviderClassMapRow = "provider_class_map",
+    family = Signatures,
+    key = [snapshot_id, module_node_id, class_key],
+    checks = [],
+    {
+        snapshot_id: Id,
+        module_node_id: Id,
+        class_key: String,
+        node_id: Option<Id>,
+        pysa_fact_id: Id,
+        declaration_fact_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for ProviderClassMap {
+    fn sql() -> String {
+        format!(
+            "SELECT c.module_node_id, c.class_key, d.node_id AS node_id, \
+                    c.fact_id AS pysa_fact_id, d.fact_id AS declaration_fact_id, \
+                    CAST(CASE WHEN d.node_id IS NOT NULL THEN NULL \
+                              WHEN c.is_synthesized THEN {synthesized} \
+                              ELSE {disagreement} END AS SMALLINT) AS reason \
+             FROM pysa_classes c \
+             LEFT JOIN declarations d \
+               ON d.module_node_id = c.module_node_id AND d.kind = {class} \
+              AND d.name_start_byte = c.name_start_byte \
+              AND d.name_end_byte = c.name_end_byte",
+            synthesized = c(BoundaryReason::NoSourceDeclaration),
+            disagreement = c(BoundaryReason::ProviderDisagreement),
+            class = c(DeclarationKind::Class),
+        )
+    }
+}
+
+table!(
+    /// The `synthetic_callable` nodes (DESIGN §3.8): a Pysa function with no `def` of its own (a
+    /// dataclass `__init__`, a callable class field), so a call to one has a typed target.
+    SyntheticCallables, SyntheticCallablesRow = "synthetic_callables",
+    family = Signatures,
+    key = [snapshot_id, node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        node_id: Id,
+        module_node_id: Id,
+        function_key: String,
+        pysa_fact_id: Id,
+    }
+);
+
+impl Derived for SyntheticCallables {
+    fn sql() -> String {
+        format!(
+            "SELECT lctx_id('synthetic_callable', module_node_id, function_key) AS node_id, \
+                    module_node_id, function_key, pysa_fact_id \
+             FROM provider_node_map WHERE node_id IS NULL AND reason = {synthesized}",
+            synthesized = c(BoundaryReason::NoSourceDeclaration),
+        )
+    }
+}
+
+table!(
     /// Public access path → the declaration Pass A seeds from (DESIGN §9.1). Among the origin
     /// file's declarations of that name: an implementation before an `@overload` stub, then one
     /// Pysa describes (Stage C, so Pyrefly's binding choice under the context decides between
@@ -80,30 +146,62 @@ table!(
     {
         snapshot_id: Id,
         access_path: String,
+        /// The `export` node: `H(export, release, access path)` (§3.4.1).
+        export_node_id: Id,
         declaration_node_id: Option<Id>,
+        /// The dependency definition the path re-exports (a module-level `def` or `class`).
+        external_node_id: Option<Id>,
         public_fact_id: Id,
         declaration_fact_id: Option<Id>,
+        /// Why neither node is set: `variable_origin` (the origin is a variable), or
+        /// `missing_evidence` (Pyrefly could not trace the origin).
+        reason: Option<BoundaryReason>,
     }
 );
 
 impl Derived for Exports {
     fn sql() -> String {
-        "WITH keyed AS ( \
+        format!(
+            "WITH keyed AS ( \
            SELECT DISTINCT node_id FROM provider_node_map WHERE node_id IS NOT NULL), \
          ranked AS ( \
            SELECT d.node_id, d.fact_id, d.module_node_id, d.qualified_name, \
                   row_number() OVER (PARTITION BY d.module_node_id, d.qualified_name \
                                      ORDER BY d.is_overload, k.node_id IS NULL, \
                                               d.start_byte DESC, d.node_id) AS pick \
-           FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id) \
-         SELECT p.access_path, r.node_id AS declaration_node_id, \
-                p.fact_id AS public_fact_id, r.fact_id AS declaration_fact_id \
+           FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id), \
+         ext AS ( \
+           SELECT m.module_name, d.name, d.symbol_node_id, \
+                  row_number() OVER (PARTITION BY m.module_name, d.name \
+                                     ORDER BY d.kind, d.key) AS pick \
+           FROM context_definitions d \
+           JOIN context_modules m ON m.module_node_id = d.module_node_id \
+           WHERE d.is_top_level), \
+         release AS ( \
+           SELECT f.fact_id, r.release_id FROM facts f JOIN runs r ON r.run_id = f.run_id \
+           WHERE f.table_name = 'public_names') \
+         SELECT p.access_path, lctx_id('export', x.release_id, p.access_path) AS export_node_id, \
+                r.node_id AS declaration_node_id, \
+                CASE WHEN p.origin_module_node_id IS NULL THEN e.symbol_node_id END \
+                  AS external_node_id, \
+                p.fact_id AS public_fact_id, r.fact_id AS declaration_fact_id, \
+                CAST(CASE WHEN r.node_id IS NOT NULL THEN NULL \
+                          WHEN p.origin_path IS NULL THEN {missing} \
+                          WHEN p.origin_module_node_id IS NULL \
+                           AND e.symbol_node_id IS NOT NULL THEN NULL \
+                          ELSE {variable} END AS SMALLINT) AS reason \
          FROM public_names p \
+         JOIN release x ON x.fact_id = p.fact_id \
          LEFT JOIN ranked r \
            ON r.pick = 1 \
           AND r.module_node_id = p.origin_module_node_id \
-          AND r.qualified_name = p.origin_path"
-            .to_owned()
+          AND r.qualified_name = p.origin_path \
+         LEFT JOIN ext e \
+           ON e.pick = 1 AND p.origin_module_node_id IS NULL \
+          AND e.module_name = p.origin_module AND e.name = p.origin_name",
+            missing = c(BoundaryReason::MissingEvidence),
+            variable = c(BoundaryReason::VariableOrigin),
+        )
     }
 }
 
@@ -353,11 +451,105 @@ impl Derived for Resolutions {
 }
 
 table!(
-    /// Each Pysa target of a call site (higher-order argument targets included), with the
-    /// declaration it names when the target is a function of the release. A release target with
-    /// no declaration carries the Stage-C reason (`missing_evidence` if Pysa has no such key);
-    /// a null node with a null reason means a target outside the release. Modality, origin and
-    /// phase stay on the Pysa row and its `facts` row.
+    /// One resolution per higher-order argument (DESIGN §3.6): the callables Pysa says an
+    /// argument may be invoked as (`potential` targets), and its unresolved remainder, which the
+    /// call's own resolution leaves out.
+    ArgumentResolutions, ArgumentResolutionsRow = "argument_resolutions",
+    family = Calls,
+    key = [snapshot_id, argument_node_id],
+    checks = [("target_count_nonnegative", "target_count >= 0")],
+    {
+        snapshot_id: Id,
+        argument_node_id: Id,
+        status: ResolutionStatus,
+        has_unresolved_remainder: bool,
+        unresolved_reason: Option<PysaUnresolvedReason>,
+        target_count: i64,
+    }
+);
+
+impl Derived for ArgumentResolutions {
+    fn sql() -> String {
+        format!(
+            "WITH hits AS ( \
+               SELECT c.node_id AS call_node_id, p.higher_order_index, p.target_kind, \
+                      p.unresolved_reason \
+               FROM call_syntax c JOIN pysa_calls p \
+                 ON p.module_node_id = c.module_node_id AND p.start_byte = c.start_byte \
+                AND p.end_byte = c.end_byte AND p.site_kind = {regular} \
+                AND p.callee_kind = {call} AND p.higher_order_index IS NOT NULL), \
+             agg AS ( \
+               SELECT a.node_id, \
+                      SUM(CASE WHEN h.target_kind <> {unresolved} THEN 1 ELSE 0 END) AS targets, \
+                      SUM(CASE WHEN h.target_kind = {unresolved} THEN 1 ELSE 0 END) AS remainders, \
+                      MIN(h.unresolved_reason) AS unresolved_reason \
+               FROM hits h JOIN arguments a \
+                 ON a.call_node_id = h.call_node_id AND a.ordinal = h.higher_order_index \
+               GROUP BY a.node_id) \
+             SELECT node_id AS argument_node_id, \
+                    CAST(CASE WHEN targets = 0 THEN {status_unresolved} \
+                              WHEN remainders > 0 THEN {partial} \
+                              ELSE {resolved} END AS SMALLINT) AS status, \
+                    remainders > 0 AS has_unresolved_remainder, unresolved_reason, \
+                    CAST(targets AS BIGINT) AS target_count \
+             FROM agg",
+            regular = c(PysaSiteKind::Regular),
+            call = c(PysaCalleeKind::Call),
+            unresolved = c(PysaTargetKind::Unresolved),
+            status_unresolved = c(ResolutionStatus::Unresolved),
+            partial = c(ResolutionStatus::Partial),
+            resolved = c(ResolutionStatus::Resolved),
+        )
+    }
+}
+
+/// Pysa function references resolved to nodes: a release function (Stage C), a synthetic callable,
+/// or a dependency definition. `{module}` and `{key}` name the reference's typed pair columns.
+fn function_target(alias: &str, module: &str, key: &str) -> String {
+    format!(
+        "LEFT JOIN source_files {alias}_f ON {module} = '@' || {alias}_f.path \
+         LEFT JOIN provider_node_map {alias}_m \
+           ON {alias}_m.module_node_id = {alias}_f.module_node_id AND {alias}_m.function_key = {key} \
+         LEFT JOIN synthetic_callables {alias}_s \
+           ON {alias}_s.module_node_id = {alias}_f.module_node_id AND {alias}_s.function_key = {key} \
+         LEFT JOIN external_functions {alias}_e \
+           ON {alias}_f.module_node_id IS NULL AND {alias}_e.module_name = {module} \
+          AND {alias}_e.key = {key}"
+    )
+}
+
+/// The node a `function_target` join found, and the reason when it found none.
+fn function_target_node(alias: &str) -> String {
+    format!("COALESCE({alias}_m.node_id, {alias}_s.node_id, {alias}_e.symbol_node_id)")
+}
+
+fn function_target_reason(alias: &str) -> String {
+    format!(
+        "CASE WHEN {node} IS NOT NULL THEN NULL \
+              WHEN {alias}_f.module_node_id IS NOT NULL AND {alias}_m.function_key IS NOT NULL \
+                THEN {alias}_m.reason \
+              ELSE {missing} END",
+        node = function_target_node(alias),
+        missing = c(BoundaryReason::MissingEvidence),
+    )
+}
+
+/// Dependency definitions by module name and key, for the typed-target joins.
+fn external(kind: DefinitionKind) -> String {
+    format!(
+        "SELECT m.module_name, d.key, d.symbol_node_id FROM context_definitions d \
+         JOIN context_modules m ON m.module_node_id = d.module_node_id WHERE d.kind = {}",
+        c(kind)
+    )
+}
+
+table!(
+    /// Each Pysa target of a call site (higher-order argument targets included, with their
+    /// argument): the node it names, which is always typed (DESIGN §3.8; ADR-0014). A function of
+    /// the release is its declaration (Stage C) or a synthetic callable; any other is a dependency
+    /// definition. A null target always carries a reason: Stage C's, or `missing_evidence` when
+    /// no definition has the key. Modality, origin and phase stay on the Pysa row and its `facts`
+    /// row.
     CallTargets, CallTargetsRow = "call_targets",
     family = Calls,
     key = [snapshot_id, call_site_node_id, pysa_fact_id],
@@ -366,6 +558,8 @@ table!(
         snapshot_id: Id,
         call_site_node_id: Id,
         pysa_fact_id: Id,
+        /// For a higher-order target: the argument whose value may be invoked.
+        argument_node_id: Option<Id>,
         target_node_id: Option<Id>,
         reason: Option<BoundaryReason>,
     }
@@ -374,23 +568,109 @@ table!(
 impl Derived for CallTargets {
     fn sql() -> String {
         format!(
-            "SELECT c.node_id AS call_site_node_id, p.fact_id AS pysa_fact_id, \
-                    m.node_id AS target_node_id, \
-                    CAST(CASE WHEN f.module_node_id IS NULL THEN NULL \
-                              WHEN m.function_key IS NULL THEN {missing} \
-                              ELSE m.reason END AS SMALLINT) AS reason \
+            "WITH external_functions AS ({external}) \
+             SELECT c.node_id AS call_site_node_id, p.fact_id AS pysa_fact_id, \
+                    a.node_id AS argument_node_id, \
+                    {node} AS target_node_id, CAST({reason} AS SMALLINT) AS reason \
              FROM call_syntax c \
              JOIN pysa_calls p \
                ON p.module_node_id = c.module_node_id AND p.start_byte = c.start_byte \
               AND p.end_byte = c.end_byte AND p.site_kind = {regular} \
               AND p.callee_kind = {call} AND p.target_kind <> {unresolved} \
-             LEFT JOIN source_files f ON p.target_module = '@' || f.path \
-             LEFT JOIN provider_node_map m \
-               ON m.module_node_id = f.module_node_id AND m.function_key = p.target_key",
+             LEFT JOIN arguments a \
+               ON a.call_node_id = c.node_id AND a.ordinal = p.higher_order_index \
+             {target}",
+            external = external(DefinitionKind::Function),
+            node = function_target_node("t"),
+            reason = function_target_reason("t"),
+            target = function_target("t", "p.target_module", "p.target_key"),
             regular = c(PysaSiteKind::Regular),
             call = c(PysaCalleeKind::Call),
             unresolved = c(PysaTargetKind::Unresolved),
+        )
+    }
+}
+
+table!(
+    /// Each base and MRO entry Pysa reports, resolved to nodes (DESIGN §3.5.1, §3.8): the class
+    /// (Stage C for classes) and the ancestor (a class of the release, or a dependency
+    /// definition). An end that does not resolve carries a reason.
+    AncestryTargets, AncestryTargetsRow = "ancestry_targets",
+    family = Signatures,
+    key = [snapshot_id, ancestry_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        ancestry_fact_id: Id,
+        class_node_id: Option<Id>,
+        ancestor_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for AncestryTargets {
+    fn sql() -> String {
+        format!(
+            "WITH external_classes AS ({external}) \
+             SELECT a.fact_id AS ancestry_fact_id, s.node_id AS class_node_id, \
+                    COALESCE(t.node_id, e.symbol_node_id) AS ancestor_node_id, \
+                    CAST(CASE WHEN s.node_id IS NULL THEN s.reason \
+                              WHEN COALESCE(t.node_id, e.symbol_node_id) IS NOT NULL THEN NULL \
+                              WHEN t.class_key IS NOT NULL THEN t.reason \
+                              ELSE {missing} END AS SMALLINT) AS reason \
+             FROM class_ancestry a \
+             JOIN provider_class_map s \
+               ON s.module_node_id = a.module_node_id AND s.class_key = a.class_key \
+             LEFT JOIN source_files f ON a.ancestor_module = '@' || f.path \
+             LEFT JOIN provider_class_map t \
+               ON t.module_node_id = f.module_node_id AND t.class_key = a.ancestor_key \
+             LEFT JOIN external_classes e \
+               ON f.module_node_id IS NULL AND e.module_name = a.ancestor_module \
+              AND e.key = a.ancestor_key \
+             WHERE a.ancestor_module IS NOT NULL",
+            external = external(DefinitionKind::Class),
             missing = c(BoundaryReason::MissingEvidence),
+        )
+    }
+}
+
+table!(
+    /// Each method Pysa says overrides a base method, resolved to nodes (DESIGN §3.8): the method
+    /// and the overridden method (of the release, synthetic, or a dependency definition). An end
+    /// that does not resolve carries a reason.
+    OverrideTargets, OverrideTargetsRow = "override_targets",
+    family = Signatures,
+    key = [snapshot_id, function_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        function_fact_id: Id,
+        function_node_id: Option<Id>,
+        overridden_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for OverrideTargets {
+    fn sql() -> String {
+        format!(
+            "WITH external_functions AS ({external}) \
+             SELECT p.fact_id AS function_fact_id, \
+                    COALESCE(m.node_id, s.node_id) AS function_node_id, \
+                    {node} AS overridden_node_id, \
+                    CAST(CASE WHEN COALESCE(m.node_id, s.node_id) IS NULL THEN m.reason \
+                              ELSE {reason} END AS SMALLINT) AS reason \
+             FROM pysa_functions p \
+             JOIN provider_node_map m \
+               ON m.module_node_id = p.module_node_id AND m.function_key = p.function_key \
+             LEFT JOIN synthetic_callables s \
+               ON s.module_node_id = p.module_node_id AND s.function_key = p.function_key \
+             {target} \
+             WHERE p.overridden_module IS NOT NULL",
+            external = external(DefinitionKind::Function),
+            node = function_target_node("t"),
+            reason = function_target_reason("t"),
+            target = function_target("t", "p.overridden_module", "p.overridden_key"),
         )
     }
 }
@@ -402,11 +682,18 @@ macro_rules! for_each_derived_table {
     ($mac:ident) => {
         $mac!(
             $crate::derived::ProviderNodeMap,
+            $crate::derived::ProviderClassMap,
+            $crate::derived::SyntheticCallables,
             $crate::derived::Exports,
             $crate::derived::Signatures,
             $crate::derived::Parameters,
             $crate::derived::Resolutions,
-            $crate::derived::CallTargets
+            $crate::derived::ArgumentResolutions,
+            $crate::derived::CallTargets,
+            $crate::derived::AncestryTargets,
+            $crate::derived::OverrideTargets,
+            $crate::graph::Nodes,
+            $crate::graph::Edges
         )
     };
 }

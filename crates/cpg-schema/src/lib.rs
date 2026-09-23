@@ -6,8 +6,10 @@
 pub mod codebook;
 pub mod column;
 pub mod derived;
+pub mod graph;
 pub mod hash;
 pub mod id;
+pub mod metrics;
 pub mod rules;
 pub mod table;
 pub mod tables;
