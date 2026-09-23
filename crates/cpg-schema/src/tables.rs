@@ -649,8 +649,9 @@ table!(
         /// iterables, `with` context managers), joinable to `syntax_nodes` and `call_syntax`.
         value_start_byte: Option<i64>,
         value_end_byte: Option<i64>,
-        /// The innermost statically decided branch the binding sits in, and whether it is the
-        /// branch taken when the test holds.
+        /// The innermost branch Pyrefly decides statically that the binding sits in (the kind of
+        /// the deciding test), and whether Pyrefly analyzes that branch (`true`) or prunes it
+        /// (`false`), clause by clause as `SysInfo::pruned_if_branches` decides (H1 C1).
         static_branch: Option<StaticBranch>,
         static_polarity: Option<bool>,
     }

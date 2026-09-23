@@ -594,6 +594,7 @@ fn run_release(
             module_name: &m.name,
             module_node_id: m.node_id,
             text: &text,
+            sys_info: m.handle.sys_info(),
         };
         let clock = Instant::now();
 

@@ -35,6 +35,8 @@ pub(crate) struct ModuleCtx<'s> {
     pub module_name: &'s str,
     pub module_node_id: Id,
     pub text: &'s str,
+    /// The module's Python version and platform (its handle's), for Pyrefly's static tests.
+    pub sys_info: &'s pyrefly_python::sys_info::SysInfo,
 }
 
 #[derive(Default)]
@@ -143,7 +145,13 @@ pub(crate) fn walk_module(
         ctx,
         sink,
         frames: vec![Some(Frame::new(ctx.module_node_id, AnyNodeRef::from(ast)))],
-        lex: Lexical::new(ctx.module_node_id, module_span, outside, stars),
+        lex: Lexical::new(
+            ctx.module_node_id,
+            module_span,
+            ctx.sys_info,
+            outside,
+            stars,
+        ),
         param_ids: HashMap::new(),
         path: Vec::new(),
         counters: vec![0],
@@ -632,7 +640,6 @@ impl<'a> SourceOrderVisitor<'a> for Walker<'_, '_> {
             param_id,
             parent,
             self.annotation_depth > 0,
-            self.ctx.text,
             self.sink,
         );
         self.place(node, own_id);

@@ -393,6 +393,8 @@ static_branch
   0 type_checking
   1 version_info
   2 platform
+  3 constant
+  4 combined
 type_term_kind
   0 class_instance
   1 class_object

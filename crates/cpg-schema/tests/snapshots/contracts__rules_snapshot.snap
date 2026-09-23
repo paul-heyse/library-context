@@ -329,7 +329,7 @@ codebook:scopes.kind
 codebook:bindings.kind
   SELECT kind FROM bindings WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:bindings.static_branch
-  SELECT static_branch FROM bindings WHERE static_branch IS NOT NULL AND static_branch NOT IN (0, 1, 2)
+  SELECT static_branch FROM bindings WHERE static_branch IS NOT NULL AND static_branch NOT IN (0, 1, 2, 3, 4)
 codebook:references.field
   SELECT field FROM references WHERE field IS NOT NULL AND field NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
 codebook:reference_resolutions.reason

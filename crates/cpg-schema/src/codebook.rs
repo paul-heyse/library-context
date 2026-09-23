@@ -641,7 +641,12 @@ codebook!(
     StaticBranch = "static_branch" {
         TypeChecking = 0 => "type_checking",
         VersionInfo = 1 => "version_info",
+        /// `sys.platform`, or `os.name`.
         Platform = 2 => "platform",
+        /// A literal Pyrefly decides (`if False:`, `if 0:`), naming none of the above (H1 C1).
+        Constant = 3 => "constant",
+        /// A test mixing two of the above (`sys.version_info >= (3, 10) and TYPE_CHECKING`).
+        Combined = 4 => "combined",
     }
 );
 

@@ -31,7 +31,10 @@ use cpg_schema::tables::{
     Bindings, BindingsRow, ReferenceResolutions, ReferenceResolutionsRow, References,
     ReferencesRow, Scopes, ScopesRow,
 };
-use ruff_python_ast::{Expr, Stmt};
+use pyrefly_python::ast::Ast;
+use pyrefly_python::sys_info::SysInfo;
+use ruff_python_ast::helpers::any_over_expr;
+use ruff_python_ast::{Expr, Stmt, StmtIf};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
@@ -130,6 +133,8 @@ struct Pushed {
 
 pub(crate) struct Lexical<'b> {
     module_node_id: Id,
+    /// The module's Python version and platform, for Pyrefly's static tests.
+    sys: &'b SysInfo,
     outside: &'b Outside,
     stars: &'b Stars,
     scopes: Vec<ScopeRec>,
@@ -150,17 +155,71 @@ pub(crate) struct Lexical<'b> {
     out: LexicalOut,
 }
 
-/// A statically decided test: `TYPE_CHECKING`, `sys.version_info …`, `sys.platform …`.
-fn static_test(test: &Expr, text: &str) -> Option<StaticBranch> {
-    let src = text.get(test.start().to_usize()..test.end().to_usize())?;
-    if src == "TYPE_CHECKING" || src.ends_with(".TYPE_CHECKING") {
-        Some(StaticBranch::TypeChecking)
-    } else if src.contains("version_info") {
-        Some(StaticBranch::VersionInfo)
-    } else if src.contains("sys.platform") {
-        Some(StaticBranch::Platform)
-    } else {
-        None
+/// Each clause of an `if` statement as Pyrefly decides it (H1 C1): `SysInfo::evaluate_bool` per
+/// clause, applied as `SysInfo::pruned_if_branches` applies it. `Some((kind, kept))`: the clause is
+/// statically decided, and Pyrefly analyzes it (`kept`) or prunes it; `None`: it depends on the
+/// runtime. An `else` is decided when every earlier test was decided false, and every clause after
+/// one decided true is pruned. The kind is the deciding test's (the true one's, for the clauses it
+/// prunes).
+pub(crate) fn clause_marks(sys: &SysInfo, i: &StmtIf) -> Vec<Option<(StaticBranch, bool)>> {
+    let mut marks = Vec::new();
+    let mut taken: Option<StaticBranch> = None;
+    let mut all_false = true;
+    let mut last_false: Option<StaticBranch> = None;
+    for (test, _) in Ast::if_branches(i) {
+        let mark = if let Some(kind) = taken {
+            Some((kind, false))
+        } else {
+            match test {
+                None if all_false => last_false.map(|kind| (kind, true)),
+                None => None,
+                Some(test) => match sys.evaluate_bool(test) {
+                    Some(holds) => {
+                        let kind = static_kind(test);
+                        if holds {
+                            taken = Some(kind);
+                        } else {
+                            last_false = Some(kind);
+                        }
+                        Some((kind, holds))
+                    }
+                    None => {
+                        all_false = false;
+                        None
+                    }
+                },
+            }
+        };
+        marks.push(mark);
+    }
+    marks
+}
+
+/// What a decided test reads: the kind is from the expression tree, never its text.
+fn static_kind(test: &Expr) -> StaticBranch {
+    let named = |e: &Expr, module: &str| matches!(e, Expr::Name(n) if n.id.as_str() == module);
+    let checking = any_over_expr(test, |e| match e {
+        Expr::Name(n) => SysInfo::is_type_checking_constant_name(n.id.as_str()),
+        Expr::Attribute(a) => {
+            a.value.is_name_expr() && SysInfo::is_type_checking_constant_name(a.attr.as_str())
+        }
+        _ => false,
+    });
+    let version = any_over_expr(
+        test,
+        |e| matches!(e, Expr::Attribute(a) if a.attr.as_str() == "version_info" && named(&a.value, "sys")),
+    );
+    let platform = any_over_expr(test, |e| {
+        matches!(e, Expr::Attribute(a)
+            if (a.attr.as_str() == "platform" && named(&a.value, "sys"))
+                || (a.attr.as_str() == "name" && named(&a.value, "os")))
+    });
+    match (checking, version, platform) {
+        (true, false, false) => StaticBranch::TypeChecking,
+        (false, true, false) => StaticBranch::VersionInfo,
+        (false, false, true) => StaticBranch::Platform,
+        (false, false, false) => StaticBranch::Constant,
+        _ => StaticBranch::Combined,
     }
 }
 
@@ -172,11 +231,13 @@ impl<'b> Lexical<'b> {
     pub(crate) fn new(
         module_node_id: Id,
         module_span: TextRange,
+        sys: &'b SysInfo,
         outside: &'b Outside,
         stars: &'b Stars,
     ) -> Self {
         let mut this = Self {
             module_node_id,
+            sys,
             outside,
             stars,
             scopes: Vec::new(),
@@ -271,7 +332,6 @@ impl<'b> Lexical<'b> {
         param_id: Option<Id>,
         parent: (Id, SyntaxField),
         in_annotation: bool,
-        text: &str,
         sink: &mut FactSink,
     ) {
         use ruff_python_ast::AnyNodeRef as N;
@@ -445,13 +505,11 @@ impl<'b> Lexical<'b> {
                 pushed.stores += 1;
             }
             N::StmtIf(i) => {
-                if let Some(kind) = static_test(&i.test, text) {
-                    if let Some(b) = suite(&i.body) {
-                        self.branches.push((b, kind, true));
-                        pushed.branches += 1;
-                    }
-                    for c in &i.elif_else_clauses {
-                        self.branches.push((c.range(), kind, false));
+                let ranges = std::iter::once(suite(&i.body))
+                    .chain(i.elif_else_clauses.iter().map(|c| Some(c.range())));
+                for (mark, range) in clause_marks(self.sys, i).into_iter().zip(ranges) {
+                    if let (Some((kind, kept)), Some(range)) = (mark, range) {
+                        self.branches.push((range, kind, kept));
                         pushed.branches += 1;
                     }
                 }
@@ -1087,5 +1145,65 @@ impl<'b> Lexical<'b> {
             cur = ps.parent;
         }
         (Vec::new(), false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pyrefly_python::ast::Ast;
+    use pyrefly_python::sys_info::{PythonPlatform, PythonVersion, SysInfo};
+    use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, walk_stmt};
+    use ruff_python_ast::{PySourceType, Stmt, StmtIf};
+
+    use super::clause_marks;
+
+    /// Every `if` statement of a module, nested ones included.
+    #[derive(Default)]
+    struct Ifs(Vec<StmtIf>);
+
+    impl<'a> SourceOrderVisitor<'a> for Ifs {
+        fn visit_stmt(&mut self, stmt: &'a Stmt) {
+            if let Stmt::If(i) = stmt {
+                self.0.push(i.clone());
+            }
+            walk_stmt(self, stmt);
+        }
+    }
+
+    /// Differential (H1 C1): on every `if` of the `lexical_shapes` fixture, the clauses our marks
+    /// keep are exactly those Pyrefly's own `pruned_if_branches` analyzes, under the fixture
+    /// compile's configuration (3.14, Linux).
+    #[test]
+    fn static_marks_agree_with_pyrefly_pruning() {
+        let sys = SysInfo::new(PythonVersion::new(3, 14, 0), PythonPlatform::new("linux"));
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/python/lexical_shapes/lex");
+        let mut checked = 0;
+        for module in ["__init__.py", "branches.py", "flow.py", "helpers.py"] {
+            let text = std::fs::read_to_string(dir.join(module)).unwrap();
+            let (ast, errors, _) = Ast::parse(&text, PySourceType::Python);
+            assert!(errors.is_empty(), "{module}: {errors:?}");
+            let mut ifs = Ifs::default();
+            for stmt in &ast.body {
+                ifs.visit_stmt(stmt);
+            }
+            for i in &ifs.0 {
+                let bodies: Vec<*const Stmt> =
+                    Ast::if_branches(i).map(|(_, body)| body.as_ptr()).collect();
+                let ours: Vec<*const Stmt> = clause_marks(&sys, i)
+                    .iter()
+                    .zip(&bodies)
+                    .filter(|(mark, _)| !matches!(mark, Some((_, false))))
+                    .map(|(_, body)| *body)
+                    .collect();
+                let pyrefly: Vec<*const Stmt> = sys
+                    .pruned_if_branches(i)
+                    .map(|(_, body)| body.as_ptr())
+                    .collect();
+                assert_eq!(ours, pyrefly, "{module}: the `if` at {:?}", i.range);
+                checked += 1;
+            }
+        }
+        assert!(checked >= 8, "only {checked} `if` statements checked");
     }
 }

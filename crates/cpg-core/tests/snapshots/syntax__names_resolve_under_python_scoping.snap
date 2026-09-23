@@ -35,6 +35,16 @@ lex/__init__.py:1071 values (scope lex.shadowed_builtin) -> binding 2 in scope l
 lex/__init__.py:1080 os (scope lex.shadowed_builtin) -> binding 9 in scope 0@0 at 88
 lex/__init__.py:1133 helper_from_star (scope lex.uses_star) -> binding 11 in scope 0@0 at 154
 lex/__init__.py:1153 open (scope lex.uses_star) -> binding 11 in scope 0@0 at 154
+lex/branches.py:207 Cfg (scope 0@0) -> binding 1 in scope 0@0 at 162
+lex/branches.py:221 TYPE_CHECKING (scope 0@0) -> binding 10 in scope 0@0 at 140
+lex/branches.py:261 typing (scope 0@0) -> binding 9 in scope 0@0 at 114
+lex/branches.py:303 os (scope 0@0) -> binding 9 in scope 0@0 at 93
+lex/branches.py:360 cfg (scope 0@0) -> binding 3 in scope 0@0 at 201
+lex/branches.py:448 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:523 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:572 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:637 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
+lex/branches.py:669 sys (scope 0@0) -> binding 9 in scope 0@0 at 103
 lex/flow.py:113 print (scope 0@0) -> builtin print
 lex/flow.py:119 __name__ (scope 0@0) -> binding 20 in scope 0@0 at 0
 lex/flow.py:129 __file__ (scope 0@0) -> binding 20 in scope 0@0 at 0
@@ -109,6 +119,37 @@ lex/__init__.py:1109 uses_star kind 0 in scope 0@0 #27
 lex/__init__.py:1213 dropped kind 0 in scope 0@0 #28
 lex/__init__.py:1228 tmp kind 3 in scope lex.dropped #0
 lex/__init__.py:1244 tmp kind 15 in scope lex.dropped #1
+lex/branches.py:0 __annotations__ kind 20 in scope 0@0 #0
+lex/branches.py:0 __builtins__ kind 20 in scope 0@0 #1
+lex/branches.py:0 __cached__ kind 20 in scope 0@0 #2
+lex/branches.py:0 __debug__ kind 20 in scope 0@0 #3
+lex/branches.py:0 __dict__ kind 20 in scope 0@0 #4
+lex/branches.py:0 __doc__ kind 20 in scope 0@0 #11
+lex/branches.py:0 __file__ kind 20 in scope 0@0 #5
+lex/branches.py:0 __loader__ kind 20 in scope 0@0 #6
+lex/branches.py:0 __name__ kind 20 in scope 0@0 #7
+lex/branches.py:0 __package__ kind 20 in scope 0@0 #8
+lex/branches.py:0 __path__ kind 20 in scope 0@0 #9
+lex/branches.py:0 __spec__ kind 20 in scope 0@0 #10
+lex/branches.py:93 os kind 9 in scope 0@0 #12
+lex/branches.py:103 sys kind 9 in scope 0@0 #13
+lex/branches.py:114 typing kind 9 in scope 0@0 #14
+lex/branches.py:140 TYPE_CHECKING kind 10 in scope 0@0 #15
+lex/branches.py:162 Cfg kind 1 in scope 0@0 #16
+lex/branches.py:171 version_info_cache kind 3 in scope lex.branches.Cfg #0
+lex/branches.py:201 cfg kind 3 in scope 0@0 #17
+lex/branches.py:240 runtime_only kind 3 in scope 0@0 #18 [static 0 false]
+lex/branches.py:287 checked kind 3 in scope 0@0 #19 [static 0 true]
+lex/branches.py:324 windows kind 3 in scope 0@0 #20 [static 2 false]
+lex/branches.py:346 posix kind 3 in scope 0@0 #21 [static 2 true]
+lex/branches.py:432 cached kind 3 in scope 0@0 #22
+lex/branches.py:479 old_python kind 3 in scope 0@0 #23 [static 1 false]
+lex/branches.py:504 new_python kind 3 in scope 0@0 #24
+lex/branches.py:556 modern kind 3 in scope 0@0 #25 [static 1 true]
+lex/branches.py:601 win_old kind 3 in scope 0@0 #26 [static 1 false]
+lex/branches.py:623 other kind 3 in scope 0@0 #27 [static 1 false]
+lex/branches.py:698 mixed kind 3 in scope 0@0 #28 [static 4 true]
+lex/branches.py:723 never kind 3 in scope 0@0 #29 [static 3 false]
 lex/flow.py:0 __annotations__ kind 20 in scope 0@0 #0
 lex/flow.py:0 __builtins__ kind 20 in scope 0@0 #1
 lex/flow.py:0 __cached__ kind 20 in scope 0@0 #2
