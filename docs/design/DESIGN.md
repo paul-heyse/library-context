@@ -470,7 +470,9 @@ Deferred: CFG, dataflow and alias tables (§1.3, §13). Type structure and `reco
 
 ### §3.3 Physical profiles
 
-**Tested** (`every_table_round_trips_through_delta_exactly`; C6 review, 2026-09-23).
+**Tested** (`every_table_round_trips_through_delta_exactly`; C6 review, 2026-09-23). Every data
+file is written with **zstd level 3** (H1 P6, `delta::writer_properties`; `data_files_are_zstd`),
+with Parquet's default dictionary encoding and page statistics.
 
 | Logical value | Computation (Arrow) | Delta | Invariant |
 |---|---|---|---|

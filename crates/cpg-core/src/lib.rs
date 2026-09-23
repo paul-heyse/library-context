@@ -33,6 +33,8 @@ pub enum CoreError {
     Url(String),
     #[error("a validation rule's task failed: {0}")]
     Rule(String),
+    #[error("parquet: {0}")]
+    Parquet(String),
     #[error(
         "{0}: the stored schema differs from the declared contract (a schema migration: use a new store or migrate the table)"
     )]

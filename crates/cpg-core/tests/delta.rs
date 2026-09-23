@@ -400,3 +400,28 @@ async fn a_pinned_read_opens_only_its_commits_files() {
     assert!(count(at_a).await.is_err());
     assert_eq!(count(at_b).await.unwrap(), 1);
 }
+
+/// Every data file is written with zstd (H1 P6), not the Snappy default.
+#[tokio::test(flavor = "multi_thread")]
+async fn data_files_are_zstd() {
+    use parquet::file::reader::{FileReader, SerializedFileReader};
+    let dir = tempfile::tempdir().unwrap();
+    let a = Id([1; 16]);
+    let t = create::<Declarations>(dir.path()).await.unwrap();
+    let t = append(t, decl_in(a, 10, 20), a).await.unwrap();
+    let version = t.version().unwrap();
+    let adds = cpg_core::snapshot::commit_adds(&t, version).await.unwrap();
+    assert_eq!(adds.len(), 1);
+    let file =
+        std::fs::File::open(dir.path().join(Declarations::NAME).join(&adds[0].path)).unwrap();
+    let reader = SerializedFileReader::new(file).unwrap();
+    let meta = reader.metadata();
+    for c in meta.row_group(0).columns() {
+        assert!(
+            matches!(c.compression(), parquet::basic::Compression::ZSTD(_)),
+            "{}: {:?}",
+            c.column_path(),
+            c.compression()
+        );
+    }
+}

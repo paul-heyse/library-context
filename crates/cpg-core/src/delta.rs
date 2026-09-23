@@ -9,6 +9,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use parquet::basic::{Compression, ZstdLevel};
+use parquet::file::properties::WriterProperties;
+
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_cast::{CastOptions, cast_with_options};
 use arrow_schema::DataType;
@@ -177,7 +180,21 @@ pub async fn append(
             .with_metadata(HashMap::new()),
     );
     let batch = RecordBatch::try_new(bare, batch.columns().to_vec())?;
-    Ok(table.write([batch]).with_commit_properties(props).await?)
+    Ok(table
+        .write([batch])
+        .with_writer_properties(writer_properties()?)
+        .with_commit_properties(props)
+        .await?)
+}
+
+/// zstd level 3 for every data file (H1 P6): 13.7% smaller than the Snappy default on the pilot
+/// store (`source_files` 36.5%), scans unchanged; dictionary encoding and page statistics stay at
+/// their defaults. Content is unaffected, and files written before read as they are.
+pub fn writer_properties() -> Result<WriterProperties, CoreError> {
+    let level = ZstdLevel::try_new(3).map_err(|e| CoreError::Parquet(e.to_string()))?;
+    Ok(WriterProperties::builder()
+        .set_compression(Compression::ZSTD(level))
+        .build())
 }
 
 /// Cast a batch read back from Delta to the declared schema: `BinaryView → Binary →
