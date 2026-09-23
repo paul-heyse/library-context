@@ -247,3 +247,7 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
   - Appended values: `analytic_method` `pass_c_handoffs`; `finding_kind` `handoff`; `member_role`
     `producer_site` and `consumer_site`; `assertion_kind` `usage_pattern` and `handoff`.
   - A usage pattern is an assertion citing `example` evidence, not a `usage_patterns` table.
+
+## Amendments
+
+After acceptance (2026-09-23), amendments are appended here, dated. Those above were made while the record was proposed.
