@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use cpg_schema::codebook::{ExtractionMode, Fidelity, Modality, Origin};
+use cpg_schema::codebook::{ExtractionMode, Fidelity, Modality, Origin, SymbolKind};
 use cpg_schema::id::Id;
 use cpg_schema::tables::{PublicNames, PublicNamesRow};
 use pyrefly::commands::coverage::collect::{
@@ -14,9 +14,39 @@ use pyrefly::commands::coverage::collect::{
 use pyrefly::export::exports::ExportLocation;
 use pyrefly::state::state::Transaction;
 use pyrefly_build::handle::Handle;
+use pyrefly_python::symbol_kind::SymbolKind as PyreflySymbolKind;
 
 use crate::ExtractError;
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
+
+/// Pyrefly's symbol kind as the codebook value: an exhaustive match (§3.5).
+#[deny(clippy::wildcard_enum_match_arm)]
+fn symbol_kind(k: PyreflySymbolKind) -> SymbolKind {
+    match k {
+        PyreflySymbolKind::Module => SymbolKind::Module,
+        PyreflySymbolKind::Attribute => SymbolKind::Attribute,
+        PyreflySymbolKind::Variable => SymbolKind::Variable,
+        PyreflySymbolKind::Constant => SymbolKind::Constant,
+        PyreflySymbolKind::Parameter => SymbolKind::Parameter,
+        PyreflySymbolKind::TypeParameter => SymbolKind::TypeParameter,
+        PyreflySymbolKind::TypeAlias => SymbolKind::TypeAlias,
+        PyreflySymbolKind::Function => SymbolKind::Function,
+        PyreflySymbolKind::Method => SymbolKind::Method,
+        PyreflySymbolKind::Class => SymbolKind::Class,
+    }
+}
+
+/// The kind Pyrefly records for `name` where the origin module defines it.
+fn origin_kind(
+    handle: &Handle,
+    name: &ruff_python_ast::name::Name,
+    txn: &Transaction<'_>,
+) -> Option<SymbolKind> {
+    match txn.get_exports(handle).get(name)? {
+        ExportLocation::ThisModule(e) => e.symbol_kind.map(symbol_kind),
+        ExportLocation::OtherModule(..) => None,
+    }
+}
 
 fn provenance() -> Provenance {
     Provenance {
@@ -92,6 +122,8 @@ pub(crate) fn public_names(
                     via_dunder_all: via_all,
                     origin_module: origin.as_ref().map(|(h, _)| h.module().to_string()),
                     origin_name: origin.as_ref().map(|(_, n)| n.to_string()),
+                    access_module_node_id: release_files[handle],
+                    origin_symbol_kind: origin.as_ref().and_then(|(h, n)| origin_kind(h, n, txn)),
                 }
             ));
         }

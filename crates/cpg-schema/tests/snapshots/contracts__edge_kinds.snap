@@ -1,0 +1,17 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table edge_kinds
+family graph
+key snapshot_id, edge_kind
+@lctx.family=graph
+@lctx.table=edge_kinds
+snapshot_id: FixedSizeBinary(16) NOT NULL
+edge_kind: Int16 NOT NULL [lctx.codebook=edge_kind]
+derivation: Int16 NOT NULL [lctx.codebook=derivation_class]
+direction: Utf8 NOT NULL
+parallel: Boolean NOT NULL
+evidence_table: Utf8 NOT NULL
+src_kinds: Utf8 NOT NULL
+dst_kinds: Utf8 NOT NULL

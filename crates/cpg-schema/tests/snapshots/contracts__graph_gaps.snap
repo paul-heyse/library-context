@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table graph_gaps
+family graph
+key snapshot_id, gap_fact_id
+@lctx.family=graph
+@lctx.table=graph_gaps
+snapshot_id: FixedSizeBinary(16) NOT NULL
+gap_fact_id: FixedSizeBinary(16) NOT NULL
+table_name: Utf8 NOT NULL
+reason: Int16 NOT NULL [lctx.codebook=boundary_reason]
+detail: Utf8 NOT NULL

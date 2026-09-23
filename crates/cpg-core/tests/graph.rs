@@ -251,6 +251,19 @@ async fn the_catalogs_hold_every_graph_shape() {
     )
     .await;
     assert_eq!(higher, 1, "one potential higher-order target");
+    // Review F2: a `.py`/`.pyi` pair publishing one path to one origin gives two edges, one per
+    // access file, with two ids.
+    let dual = count(
+        &ctx,
+        &format!(
+            "SELECT count(DISTINCT e.edge_id) FROM edges e \
+             JOIN exports x ON x.public_fact_id = e.evidence_fact_id \
+             WHERE e.edge_kind = {} AND x.access_path = 'shapes.dual.lonely'",
+            EdgeKind::Exports.code()
+        ),
+    )
+    .await;
+    assert_eq!(dual, 2, "one export edge per access file");
     // The variable export says why it has no edge.
     let version = text(
         &ctx,

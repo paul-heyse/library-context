@@ -1,7 +1,7 @@
 ---
 id: ADR-0014
 title: The CPG is typed family tables plus derived node and edge catalogs; every edge has a persistent id and every endpoint is a typed node
-status: proposed
+status: accepted
 date: 2026-09-22
 supersedes: [ADR-0008]
 superseded-by: null
@@ -110,6 +110,12 @@ New or changed:
   - An unresolved target produces **no** edge. It stays explicit on `resolutions` (whose id is the
     call-site id, §3.6), on `argument_resolutions` (higher-order arguments), and on `boundaries`.
   - The §3.2 meaning "a null node with a null reason is outside the release" is retired.
+  - **A reason only where a provider gives one.**
+    - Stage C's own reason, or, for an export, Pyrefly's symbol kind of the origin
+      (`variable_origin` for variable-like kinds; `missing_evidence` when there is no origin or
+      no kind).
+    - Any other unmapped target keeps a null reason, and a `typed:*` rule rejects the snapshot. No
+      derivation has a catch-all reason.
 - **The registry, `cpg_schema::graph`.**
   - Per node kind, one existence source **independent of the columns that reference it**.
   - Per edge kind:
@@ -121,13 +127,22 @@ New or changed:
     - its evidence columns, ordinal and discriminator.
   - Generated from it:
     - the `nodes`/`edges` SQL;
-    - the node-valued references (closing slice-2 review O8);
-    - the endpoint-kind rules;
-    - the lineage rules from raw rows (every raw row yields its declared edges, a counted
-      remainder, or a declared pending class).
+    - the node-valued references, one per `node_columns` entry, checked against `nodes` with
+      their kinds (closing slice-2 review O8);
+    - the endpoint-kind, evidence and support rules;
+    - the lineage rules from raw rows (every raw row yields its declared edges, or its derived
+      row carries a provider's reason);
+    - the partition of `pysa_calls` (lineage, counted remainder, or published gap);
+    - the `edge_kinds` table (each kind's derivation class, direction, parallel policy, evidence
+      table and endpoint kinds, published per snapshot);
+    - the `graph_gaps` table (the raw rows the graph does not represent yet, with their reason
+      and the slice that will).
   - A rule whose target is built from its own source column is never generated, because it
     cannot fail.
-- **Ids in SQL.** One scalar UDF, `lctx_id(kind, …)`, registered in every session.
+- **Ids in SQL and in Rust.** The Rust-computed ids whose inputs are also columns (argument,
+  external module, external symbol) are `cpg_schema::id::recipe` functions in the `opt_*`
+  encoding. A generated `id:*` rule recomputes each in SQL on every compile.
+- **The UDF.** One scalar UDF, `lctx_id(kind, …)`, registered in every session.
   - It implements `IdHasher` exactly: the kind through `new`, every other argument in the `opt_*`
     encoding.
   - It accepts Utf8, Int16/Int64, Binary and Boolean families only, and rejects UInt64, Int32 and
@@ -191,5 +206,26 @@ New or changed:
     - 13.6 s at 2.53 GB peak RSS (before: 7.9 s and 1.61 GB), the difference being the
       dependency check and definitions;
     - one `content_digest` across two runs.
+- **Standard review** (2026-09-23,
+  `docs/design_review/reviews/design_review_adr-0014-cpg-graph-catalog_2026-09-22.md`). It
+  recommended Revise:
+  - F1: catch-all reasons made the typed rules unfalsifiable;
+  - F2: `exports` edges had no discriminator, so `attrs` 26.1.0 could not publish;
+  - F3: Rust and SQL used two id encodings;
+  - F4: slice-2 O8 was not closed;
+  - F5: undeclared pending rows;
+  - F6: unused registry fields.
+
+  All six were fixed as the Decision now reads, each with its oracle:
+  - raw mutations of a release and of a dependency target fail `typed:call_targets`;
+  - a `.py`/`.pyi` re-export pair in `graph_shapes` gives two edges, and `attrs` 26.1.0
+    publishes;
+  - Rust = SQL known answers, and the `id:*` rules;
+  - the generated `ref:*->nodes` rules;
+  - `graph_gaps` and the partition rules;
+  - `edge_kinds` in the derivations snapshot.
+
+  On the pilot every tightened rule passes: 261 rules, no reason left to a catch-all, 17,282
+  published gaps.
 - **Superseded.** ADR-0008's deferral of the family → node/edge mapping and its generic views. All
   its other decisions are carried forward here.

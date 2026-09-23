@@ -6,13 +6,13 @@ expression: out
 +-----------+----+
 | node_kind | n  |
 +-----------+----+
-| 0         | 7  |
+| 0         | 9  |
 | 1         | 4  |
 | 2         | 25 |
 | 3         | 23 |
 | 4         | 20 |
 | 5         | 21 |
-| 6         | 41 |
+| 6         | 42 |
 | 7         | 4  |
 | 8         | 20 |
 | 9         | 2  |
@@ -76,6 +76,8 @@ expression: out
 | 4         | shapes.core.twice        | shapes.core.twice        |         |
 | 4         | shapes.core.unresolved   | shapes.core.unresolved   |         |
 | 4         | shapes.dispatch          | shapes.core.dispatch     |         |
+| 4         | shapes.dual.lonely       | shapes.core.lonely       |         |
+| 4         | shapes.dual.lonely       | shapes.core.lonely       |         |
 | 4         | shapes.fact              | shapes.core.fact         |         |
 | 4         | shapes.helper            | depmod:helper            |         |
 | 4         | shapes.lonely            | shapes.core.lonely       |         |

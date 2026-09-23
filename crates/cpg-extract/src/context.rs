@@ -16,7 +16,7 @@ use std::path::Path;
 use cpg_schema::codebook::{
     DefinitionKind, ExtractionMode, Fidelity, Modality, ModuleOrigin, Origin,
 };
-use cpg_schema::id::{Id, IdHasher, kind};
+use cpg_schema::id::{Id, recipe};
 use cpg_schema::metrics::Stages;
 use cpg_schema::tables::{
     ContextDefinitions, ContextDefinitionsRow, ContextModules, ContextModulesRow,
@@ -50,6 +50,18 @@ fn provenance(fidelity: Fidelity) -> Provenance {
         origin: Origin::AnalyzerAssertion,
         modality: Modality::Definite,
         fidelity,
+    }
+}
+
+/// A `context_modules` row joins Pyrefly's resolution of the module with Stage A's `RECORD` index
+/// (its distribution and version): the extractor's own comparison of two sources (review O5).
+fn module_provenance() -> Provenance {
+    Provenance {
+        surface: Surface::Compare,
+        mode: ExtractionMode::RelationalDerivation,
+        origin: Origin::AnalyzerAssertion,
+        modality: Modality::Definite,
+        fidelity: Fidelity::NativeStructural,
     }
 }
 
@@ -206,15 +218,11 @@ pub(crate) fn context_facts(
                 )
             }
         };
-        let module_node_id = IdHasher::new(kind::EXTERNAL_MODULE)
-            .str(&owner)
-            .str(&owner_version)
-            .str(name)
-            .finish_id();
+        let module_node_id = recipe::external_module(&owner, &owner_version, name);
         out.modules.push(fact_row!(
             sink,
             ContextModules,
-            provenance(Fidelity::NativeStructural),
+            module_provenance(),
             ContextModulesRow {
                 snapshot_id: Id::ZERO,
                 fact_id: Id::ZERO,
@@ -248,11 +256,11 @@ pub(crate) fn context_facts(
                 if !wanted {
                     return;
                 }
-                let symbol_node_id = IdHasher::new(kind::EXTERNAL_SYMBOL)
-                    .id(module_node_id)
-                    .i64(i64::from(cpg_schema::Codebook::code(kind_code)))
-                    .str(&key)
-                    .finish_id();
+                let symbol_node_id = recipe::external_symbol(
+                    module_node_id,
+                    cpg_schema::Codebook::code(kind_code),
+                    &key,
+                );
                 out.definitions.push(fact_row!(
                     sink,
                     ContextDefinitions,

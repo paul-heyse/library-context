@@ -421,9 +421,15 @@ declaration, and an AST node is not an execution point.
   rule rejects a release target with neither).
   - **From C1 (ADR-0014; Implemented):** these null meanings are retired.
     - Every target is a typed node, with a target outside the release being an
-      `external_symbol`.
-    - An export of a variable reads `variable_origin` until C3 gives it a `binding` node.
-    - A null node then always carries a reason.
+      `external_symbol`. `exports.target_node_id` is the declaration, the dependency definition,
+      or the module (of the release or a dependency) the path names.
+    - A reason appears **only where a provider says why**: Stage C's own reason; for an export,
+      Pyrefly's symbol kind of the origin (`variable_origin` for a variable, attribute, constant,
+      parameter, type parameter or type alias, until C3 gives it a `binding` node), or
+      `missing_evidence` when Pyrefly traces no origin or records no kind.
+    - Any other unmapped target is our own failure to find what the provider referenced. It keeps
+      a null reason, and a `typed:*` rule rejects the snapshot. There is no catch-all reason
+      (ADR-0014 review F1).
 
 | Family | Tables | First increment |
 |---|---|---|
@@ -525,7 +531,17 @@ migration (DM-51).
   - The UDF's recipe is part of `compiler_digest`.
 - **Keys are snapshot-qualified.** Uniqueness is checked on `(snapshot_id, key)`, so an identical
   rerun re-emits the same `node_id` and `fact_id` in a new snapshot without conflict.
-- **Collisions are validator failures** (§8), never silently merged.
+- **Collisions are validator failures** (§8), never silently merged. `nodes` keeps one row per id
+  only for the kinds several existence rows legitimately assert (an export read from a `.py` and
+  its `.pyi`, a dependency module or symbol two runs reference); any other repeated id fails
+  `key:nodes` (review O2).
+- **One recipe, two places.** The ids the extractor computes in Rust whose inputs are also
+  columns (argument, external module, external symbol) are `cpg_schema::id::recipe` functions in
+  the UDF's `opt_*` encoding. A generated `id:*` rule recomputes each in SQL on every compile, and
+  known-answer values are pinned (review F3).
+- **Producer scope.** `call_target` and `higher_order_target` edge ids take Pysa's payload,
+  function keys included, so a Pyrefly bump may rename them, like syntax and external-symbol ids
+  (review O6).
 - **The compiler has its own run** (Proposed, with analytics). Analytics, synthesis and
   publication are a run of producer `lctx-compiler`, whose config digest is the analytics
   config's. Until then its identity is the `compiler_digest` stored on `snapshots`.
@@ -566,7 +582,8 @@ migration (DM-51).
 | `node_kind`, `edge_kind` (C1+) | The v1 node kinds (§3.1) and the edge kinds of the registry (§3.8), appended by slice |
 | `syntax_kind` (C2), `lexical_scope_kind`, `binding_kind` (C3), `type_role`, `type_term_kind` (C4) | Defined in `cpg-schema` with their slice. `lexical_scope_kind` is separate from the coverage `scope_kind`. `binding_kind` is the subset of Ruff's `BindingKind` the recognizer emits |
 | `fact_family` additions | `graph` (C1; not a coverage unit), `syntax`, `lexical`, `types`, `docs` as their slices land |
-| `boundary_reason` addition (C1) | `variable_origin`: an export whose origin is a variable, until C3 gives it a `binding` node |
+| `boundary_reason` addition (C1) | `variable_origin`: an export whose origin Pyrefly calls a variable-like symbol, until C3 gives it a `binding` node |
+| C1 codebooks | `module_origin`, `definition_kind`, `symbol_kind` (Pyrefly's export kinds, an exhaustive match), `derivation_class` |
 | slice-1 extraction codebooks | `fact_family`, `scope_kind`, `declaration_kind`, `export_syntax_kind`, `parameter_kind`, `signature_form`, `argument_kind`, `pysa_site_kind`, `pysa_target_kind`, `pysa_callee_kind`, `implicit_receiver`, `ancestry_relation`; values in `cpg-schema`, whose snapshot-tested registry is authoritative |
 
 - **Missing output is not negative evidence.** "Unavailable", "not requested", "failed" and
@@ -648,7 +665,10 @@ migration (DM-51).
   - `boundaries`;
   - the unresolved remainders on `resolutions` and `argument_resolutions`;
   - the `external_module` and `external_symbol` nodes: the edge of the analyzed universe, with no
-    outgoing call edges because their bodies are not analyzed.
+    outgoing call edges because their bodies are not analyzed;
+  - `synthetic_callable` nodes: functions with no body in source (a dataclass `__init__`), so a
+    call path ends there (279 call edges on the pilot);
+  - `graph_gaps`: the raw rows the graph does not represent yet, with the slice that will.
 
   A projection's spec (§5) states which of them it accepts. A non-finding outside that coverage
   is never read as absence (guidelines §7).
@@ -702,7 +722,7 @@ rules are generated from (DM-52).
 
 | Slice | Edge kind: source → target (derivation) |
 |---|---|
-| C1 | `declares`: module/class/function → class/function (extracted). `overload_of`: stub → callable (joined). `stub_for`: `.pyi` declaration → the `.py` declaration the `exports` seed rank picks (joined). `has_parameter`: function → parameter, ordinal (extracted). `exports`: export → declaration or external symbol (analyzer). `encloses_call`: owner → call site (extracted). `has_argument`: call site → argument, ordinal (extracted). `call_target`: call site → function, synthetic callable or external symbol (analyzer; discriminator `payload_id`; phase, receiver and modality on the evidence row). `higher_order_target`: argument → callable (analyzer; `potential`). `base_class`, `mro_entry`: class → class or external symbol, ordinal, MRO as reported (analyzer). `overrides`: function → function or external symbol (analyzer). `declared_in`: external symbol → external module (joined) |
+| C1 | `declares`: module/class/function → class/function (extracted). `overload_of`: stub → callable (joined). `stub_for`: `.pyi` declaration → the `.py` declaration the `exports` seed rank picks, one shared rank (joined). `has_parameter`: function → parameter, ordinal (extracted). `exports`: export → declaration, external symbol, module or external module, one edge per access file, the file as discriminator (analyzer; parallel). `encloses_call`: owner → call site (extracted). `has_argument`: call site → argument, ordinal (extracted). `call_target`: call site → function, synthetic callable or external symbol (analyzer; discriminator `payload_id`; phase, receiver and modality on the evidence row). `higher_order_target`: argument → callable (analyzer; `potential`). `base_class`, `mro_entry`: class → class or external symbol, ordinal, MRO as reported (analyzer). `overrides`: function → function or external symbol (analyzer). `declared_in`: external symbol → external module (joined) |
 | C2 | `ast_child`: syntax node, declaration, call site or module → child, ordinal (extracted). `argument_value`: argument → expression node (extracted). `site_target`: attribute, artificial or format-string site → callable (analyzer; `synthetic_model` for artificial sites) |
 | C3 | `owns_scope`, `lexical_parent`, `binds`, `introduces` (recognizer). `reads_binding`: reference → binding (recognizer; `candidate` when not unique). `shadows`: binding → the previous binding of its name in its scope. `captures`, `global_binding`, `nonlocal_binding`. `potential_target`: reference or site → callable (analyzer; `if_called`). `imports_module`, `imports_symbol` (analyzer where Pyrefly answers, else joined) |
 | C4 | `has_type`: subject → type term (analyzer; role on the evidence row). `type_arg`: term → term, ordinal. `type_class`: term → class or external symbol. `has_field`: class → field. `field_type`: field → term |
@@ -711,26 +731,47 @@ rules are generated from (DM-52).
 **Rules** generated from the registry (§8):
 - Endpoint kinds: both ends exist in `nodes` with an allowed kind, and `src_kind`/`dst_kind`
   equal it.
-- Node-valued references.
-- Evidence exists.
+- **Node-valued references**, from the registry's `node_columns`: every node-valued column of every
+  family table names a node of an allowed kind in `nodes`. The hand-kept `REFERENCES` holds only
+  fact, provenance and composite references (slice-2 O8, closed).
+- Evidence exists, in the kind's evidence table; support exists.
 - `key:nodes`, where one id with two kinds is a collision, and `key:edges`.
-- **Lineage from raw rows:** each source row yields exactly its declared edges, or a counted
-  remainder, or a declared pending class. This also catches provider rows that match nothing.
+- **Lineage from raw rows:** each source row yields exactly its declared edges, or its derived row
+  carries a provider's reason.
+- **Partition of `pysa_calls`:** every row is a call-site row (lineage), an unresolved remainder
+  counted on its `resolutions` or `argument_resolutions` row, or a published gap.
+- **Typed targets:** a null target carries a reason.
+- **Ids:** the Rust recipes equal their SQL form (`id:*`).
 - A rule whose target is built from its own source column is not generated, because it cannot
   fail.
+
+**The registry as data.**
+- `edge_kinds` publishes each kind's derivation class (`derivation_class`: extracted, analyzer,
+  joined, recognizer), direction meaning, parallel policy, evidence table and endpoint kinds with
+  every snapshot. A projection selects by them from the store, not from its own build (review F6).
+- `graph_gaps` publishes each raw row the graph does not represent yet, with its reason
+  (`not_requested`) and the slice that will represent it: Pysa's records at attribute,
+  artificial and format-string sites (C2) and at identifiers (C3). Nothing is left out silently
+  (review F5).
 
 **Measured** (`lctx compile fastmcp`, release build, FastMCP 4.0.5, this Linux host,
 2026-09-22):
 - 47,145 nodes and 65,176 edges, with every rule passing;
 - every call target (17,174), ancestry entry (1,182) and overridden method (1,107) is a typed node;
-- 978 exports have a target, and 335 are variables (`variable_origin`);
+- 978 exports have a target, and 335 are variables (`variable_origin`), every one a symbol Pyrefly
+  itself calls a variable;
+- 17,282 Pysa rows are published gaps: 8,083 artificial, 1,502 attribute and 1,942 format-string
+  sites for C2, and 5,755 identifier sites for C3;
 - 329 dependency modules: 249 site-packages modules, all with their distribution, and 80 from
   Pyrefly's bundled typeshed;
 - 1,913 external symbols;
-- `nodes` and `edges` derive in 0.05 s and 0.08 s, and validation takes 1.1 s;
-- the whole compile takes 13.6 s wall time at 2.53 GB peak RSS, against 7.9 s and 1.61 GB before
-  C1. The difference is the Pyrefly check of the referenced dependency modules at
-  `Require::Everything` (3.7 s) and their definitions (0.7 s);
+- `nodes` and `edges` derive in 0.05 s and 0.08 s, and validation takes 1.3 s;
+- the whole compile takes 14.4 s wall time at 2.49 GB peak RSS, against 7.9 s and 1.61 GB before
+  C1. Of the difference, the Pyrefly check of the referenced dependency modules at
+  `Require::Everything` and their definitions take 4.4 s, and validation (now 261 rules) most of
+  the rest (review O4);
+- `attrs` 26.1.0, which failed `key:edges` before review F2, publishes (4,061 nodes, 5,184
+  edges, 1.5 s);
 - two runs give one `content_digest`.
 
 **What the catalogs never hold:**
@@ -1096,9 +1137,10 @@ no files. The Parquet footers do carry binary statistics, and row groups are pru
 P1). A `snapshot_id` filter therefore costs one footer read per file, not a full scan.
 
 **Metrics** (C1, **Implemented**; guidelines §12; `cpg_schema::metrics`).
-- `lctx compile` reports wall time and peak RSS (`VmHWM`) per stage: acquire, Stage A, the
-  Pyrefly check, extraction per family, raw write per table, derive per table, validate and
-  publish.
+- `lctx compile` reports, per stage, wall time and the process's peak RSS so far (`VmHWM`, which
+  only grows): acquire, Stage A, the Pyrefly check, per-module extraction (with its Ruff walk and
+  Pysa collectors), public names, the dependency check and definitions, raw write per table,
+  derive per table, validate and publish (review O4).
 - They are returned with the published attempt and never stored in Delta: they are not content.
 
 **Deferred, with triggers.**
@@ -1315,20 +1357,23 @@ contracts and snapshot-tested:
 - `codebook`: every codebook column holds a code of its codebook (a query, since not a CHECK);
 - `coverage`: a row for every declared family × module of the run's release, and every declared
   family is in the codebook;
-- `semantic` (hand-written, one query each): a release call target names a declaration or gives
-  a reason; every Pysa function with signatures is some signature row's callable; a
+- `semantic` (hand-written, one query each): every Pysa function with signatures is some
+  signature row's callable; a
   `resolutions` reason and the extractor's call boundary agree per call site, both ways;
   Stage C is injective; `parameter_semantics` names an existing Pysa function; `facts.model_id`
   names its run's producer;
 - **graph** (C1, **Implemented** and **Tested**; ADR-0014), generated from the registry (§3.8), so
   the references and the mapping are one authority:
   - endpoint kinds;
-  - node-valued references;
-  - evidence exists;
+  - node-valued references (from `node_columns`);
+  - evidence and support exist;
   - `key:nodes`/`key:edges`;
-  - lineage from raw rows (each source row yields its declared edges, a counted remainder or a
-    declared pending class);
-  - typed targets (a null call target carries a reason).
+  - lineage from raw rows (each source row yields its declared edges, or its derived row carries
+    a provider's reason);
+  - the partition of `pysa_calls` (lineage, counted remainder, or published gap);
+  - typed targets: a null target carries a reason, and no derivation supplies a catch-all one
+    (this replaces slice 2's "a release call target names a declaration or gives a reason");
+  - ids: each Rust recipe equals its SQL form.
 
   A rule that could only pass (its target built from its own source column) is not generated;
 - every assertion cites existing findings and evidence;

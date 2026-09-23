@@ -185,3 +185,19 @@ edge_kind
   10 mro_entry
   11 overrides
   12 declared_in
+symbol_kind
+  0 module
+  1 attribute
+  2 variable
+  3 constant
+  4 parameter
+  5 type_parameter
+  6 type_alias
+  7 function
+  8 method
+  9 class
+derivation_class
+  0 extracted
+  1 analyzer
+  2 joined
+  3 recognizer

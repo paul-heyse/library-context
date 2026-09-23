@@ -9,6 +9,7 @@
 use crate::codebook::{
     BoundaryReason, Codebook, DeclarationKind, DefinitionKind, PysaCalleeKind, PysaSiteKind,
     PysaTargetKind, PysaUnresolvedReason, ResolutionDomain, ResolutionStatus, SignatureForm,
+    SymbolKind,
 };
 use crate::id::Id;
 use crate::table::{Table, table};
@@ -131,14 +132,30 @@ impl Derived for SyntheticCallables {
     }
 }
 
+/// The seed rank (DESIGN §3.4.1): among one scope's declarations of a name, an implementation
+/// before an `@overload` stub, then one Pysa describes (Stage C, so Pyrefly's binding choice
+/// under the context decides between `sys.version_info` or `TYPE_CHECKING` branches), then the
+/// last in source order. `exports` seeds with it and `stub_for` targets with it, so the two cannot
+/// drift (review O1). `d` is the declarations alias; `keyed` must be in scope.
+pub(crate) fn seed_rank(partition: &str) -> String {
+    format!(
+        "row_number() OVER (PARTITION BY {partition} \
+                            ORDER BY d.is_overload, k.node_id IS NULL, d.start_byte DESC, \
+                                     d.node_id)"
+    )
+}
+
+/// The Stage-C-described declarations, for `seed_rank`.
+pub(crate) const KEYED: &str =
+    "keyed AS (SELECT DISTINCT node_id FROM provider_node_map WHERE node_id IS NOT NULL)";
+
 table!(
-    /// Public access path → the declaration Pass A seeds from (DESIGN §9.1). Among the origin
-    /// file's declarations of that name: an implementation before an `@overload` stub, then one
-    /// Pysa describes (Stage C, so Pyrefly's binding choice under the context decides between
-    /// `sys.version_info` or `TYPE_CHECKING` branches), then the last in source order. Null when
-    /// the origin is not a `def` or `class` of the release: a variable, or a dependency. One row
-    /// per `public_names` row, so a `.py`/`.pyi` pair gives an access path two rows, one per file
-    /// (`source_files.is_stub` tells them apart).
+    /// Public access path → what it names (DESIGN §3.2, §9.1). `declaration_node_id` is the
+    /// declaration Pass A seeds from: the origin file's declaration of that name by the seed rank.
+    /// `target_node_id` is the typed target (ADR-0014): that declaration, else the dependency
+    /// definition the path re-exports, else the module it names (of the release, or a dependency
+    /// module). One row per `public_names` row, so a `.py`/`.pyi` pair gives an access path two
+    /// rows, one per access file (`public_names.access_module_node_id`).
     Exports, ExportsRow = "exports",
     family = Exports,
     key = [snapshot_id, access_path, public_fact_id],
@@ -149,56 +166,87 @@ table!(
         /// The `export` node: `H(export, release, access path)` (§3.4.1).
         export_node_id: Id,
         declaration_node_id: Option<Id>,
-        /// The dependency definition the path re-exports (a module-level `def` or `class`).
-        external_node_id: Option<Id>,
+        target_node_id: Option<Id>,
         public_fact_id: Id,
         declaration_fact_id: Option<Id>,
-        /// Why neither node is set: `variable_origin` (the origin is a variable), or
-        /// `missing_evidence` (Pyrefly could not trace the origin).
+        /// Why there is no target, only where a provider says so: `variable_origin` when Pyrefly
+        /// calls the origin a variable, attribute, constant, parameter, type parameter or type
+        /// alias; `missing_evidence` when Pyrefly traces no origin or records no kind. A function,
+        /// class, method or module we fail to find keeps a null reason, which `typed:exports`
+        /// rejects (review F1).
         reason: Option<BoundaryReason>,
     }
 );
 
 impl Derived for Exports {
     fn sql() -> String {
+        let variable_like = [
+            SymbolKind::Attribute,
+            SymbolKind::Variable,
+            SymbolKind::Constant,
+            SymbolKind::Parameter,
+            SymbolKind::TypeParameter,
+            SymbolKind::TypeAlias,
+        ]
+        .iter()
+        .map(|k| c(*k).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
         format!(
-            "WITH keyed AS ( \
-           SELECT DISTINCT node_id FROM provider_node_map WHERE node_id IS NOT NULL), \
-         ranked AS ( \
-           SELECT d.node_id, d.fact_id, d.module_node_id, d.qualified_name, \
-                  row_number() OVER (PARTITION BY d.module_node_id, d.qualified_name \
-                                     ORDER BY d.is_overload, k.node_id IS NULL, \
-                                              d.start_byte DESC, d.node_id) AS pick \
-           FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id), \
-         ext AS ( \
-           SELECT m.module_name, d.name, d.symbol_node_id, \
-                  row_number() OVER (PARTITION BY m.module_name, d.name \
-                                     ORDER BY d.kind, d.key) AS pick \
-           FROM context_definitions d \
-           JOIN context_modules m ON m.module_node_id = d.module_node_id \
-           WHERE d.is_top_level), \
-         release AS ( \
-           SELECT f.fact_id, r.release_id FROM facts f JOIN runs r ON r.run_id = f.run_id \
-           WHERE f.table_name = 'public_names') \
-         SELECT p.access_path, lctx_id('export', x.release_id, p.access_path) AS export_node_id, \
-                r.node_id AS declaration_node_id, \
-                CASE WHEN p.origin_module_node_id IS NULL THEN e.symbol_node_id END \
-                  AS external_node_id, \
-                p.fact_id AS public_fact_id, r.fact_id AS declaration_fact_id, \
-                CAST(CASE WHEN r.node_id IS NOT NULL THEN NULL \
-                          WHEN p.origin_path IS NULL THEN {missing} \
-                          WHEN p.origin_module_node_id IS NULL \
-                           AND e.symbol_node_id IS NOT NULL THEN NULL \
-                          ELSE {variable} END AS SMALLINT) AS reason \
-         FROM public_names p \
-         JOIN release x ON x.fact_id = p.fact_id \
-         LEFT JOIN ranked r \
-           ON r.pick = 1 \
-          AND r.module_node_id = p.origin_module_node_id \
-          AND r.qualified_name = p.origin_path \
-         LEFT JOIN ext e \
-           ON e.pick = 1 AND p.origin_module_node_id IS NULL \
-          AND e.module_name = p.origin_module AND e.name = p.origin_name",
+            "WITH {KEYED}, \
+             ranked AS ( \
+               SELECT d.node_id, d.fact_id, d.module_node_id, d.qualified_name, \
+                      {rank} AS pick \
+               FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id), \
+             ext AS ( \
+               SELECT m.module_name, d.name, d.symbol_node_id, \
+                      row_number() OVER (PARTITION BY m.module_name, d.name \
+                                         ORDER BY d.kind, d.key) AS pick \
+               FROM context_definitions d \
+               JOIN context_modules m ON m.module_node_id = d.module_node_id \
+               WHERE d.is_top_level), \
+             release_modules AS ( \
+               SELECT module_name, module_node_id, \
+                      row_number() OVER (PARTITION BY module_name ORDER BY is_stub, path) AS pick \
+               FROM source_files), \
+             dependency_modules AS ( \
+               SELECT DISTINCT module_name, module_node_id FROM context_modules), \
+             release AS ( \
+               SELECT f.fact_id, r.release_id FROM facts f JOIN runs r ON r.run_id = f.run_id \
+               WHERE f.table_name = 'public_names'), \
+             resolved AS ( \
+               SELECT p.access_path, x.release_id, p.fact_id AS public_fact_id, p.origin_path, \
+                      p.origin_symbol_kind, r.node_id AS declaration_node_id, \
+                      r.fact_id AS declaration_fact_id, \
+                      COALESCE(r.node_id, \
+                               CASE WHEN p.origin_module_node_id IS NULL \
+                                    THEN e.symbol_node_id END, \
+                               CASE WHEN p.origin_symbol_kind IS NULL \
+                                      OR p.origin_symbol_kind = {module} \
+                                    THEN COALESCE(sm.module_node_id, dm.module_node_id) END) \
+                        AS target_node_id \
+               FROM public_names p \
+               JOIN release x ON x.fact_id = p.fact_id \
+               LEFT JOIN ranked r \
+                 ON r.pick = 1 \
+                AND r.module_node_id = p.origin_module_node_id \
+                AND r.qualified_name = p.origin_path \
+               LEFT JOIN ext e \
+                 ON e.pick = 1 AND p.origin_module_node_id IS NULL \
+                AND e.module_name = p.origin_module AND e.name = p.origin_name \
+               LEFT JOIN release_modules sm ON sm.pick = 1 AND sm.module_name = p.origin_path \
+               LEFT JOIN dependency_modules dm \
+                 ON sm.module_name IS NULL AND dm.module_name = p.origin_path) \
+             SELECT access_path, lctx_id('export', release_id, access_path) AS export_node_id, \
+                    declaration_node_id, target_node_id, public_fact_id, declaration_fact_id, \
+                    CAST(CASE WHEN target_node_id IS NOT NULL THEN NULL \
+                              WHEN origin_path IS NULL OR origin_symbol_kind IS NULL \
+                                THEN {missing} \
+                              WHEN origin_symbol_kind IN ({variable_like}) THEN {variable} END \
+                         AS SMALLINT) AS reason \
+             FROM resolved",
+            rank = seed_rank("d.module_node_id, d.qualified_name"),
+            module = c(SymbolKind::Module),
             missing = c(BoundaryReason::MissingEvidence),
             variable = c(BoundaryReason::VariableOrigin),
         )
@@ -523,14 +571,14 @@ fn function_target_node(alias: &str) -> String {
     format!("COALESCE({alias}_m.node_id, {alias}_s.node_id, {alias}_e.symbol_node_id)")
 }
 
+/// Only Stage C's own reason explains a missing node (a key Pysa describes with no `def` at its
+/// span). Any other miss is our failure to find what Pysa referenced, so the reason stays null and
+/// the `typed:*` rule rejects the snapshot (review F1).
 fn function_target_reason(alias: &str) -> String {
     format!(
         "CASE WHEN {node} IS NOT NULL THEN NULL \
-              WHEN {alias}_f.module_node_id IS NOT NULL AND {alias}_m.function_key IS NOT NULL \
-                THEN {alias}_m.reason \
-              ELSE {missing} END",
+              WHEN {alias}_m.function_key IS NOT NULL THEN {alias}_m.reason END",
         node = function_target_node(alias),
-        missing = c(BoundaryReason::MissingEvidence),
     )
 }
 
@@ -616,8 +664,8 @@ impl Derived for AncestryTargets {
                     COALESCE(t.node_id, e.symbol_node_id) AS ancestor_node_id, \
                     CAST(CASE WHEN s.node_id IS NULL THEN s.reason \
                               WHEN COALESCE(t.node_id, e.symbol_node_id) IS NOT NULL THEN NULL \
-                              WHEN t.class_key IS NOT NULL THEN t.reason \
-                              ELSE {missing} END AS SMALLINT) AS reason \
+                              WHEN t.class_key IS NOT NULL THEN t.reason END AS SMALLINT) \
+                      AS reason \
              FROM class_ancestry a \
              JOIN provider_class_map s \
                ON s.module_node_id = a.module_node_id AND s.class_key = a.class_key \
@@ -629,7 +677,6 @@ impl Derived for AncestryTargets {
               AND e.key = a.ancestor_key \
              WHERE a.ancestor_module IS NOT NULL",
             external = external(DefinitionKind::Class),
-            missing = c(BoundaryReason::MissingEvidence),
         )
     }
 }
@@ -693,7 +740,9 @@ macro_rules! for_each_derived_table {
             $crate::derived::AncestryTargets,
             $crate::derived::OverrideTargets,
             $crate::graph::Nodes,
-            $crate::graph::Edges
+            $crate::graph::Edges,
+            $crate::graph::GraphGaps,
+            $crate::graph::EdgeKinds
         )
     };
 }

@@ -17,3 +17,5 @@ origin_module_node_id: FixedSizeBinary(16) NULL
 via_dunder_all: Boolean NOT NULL
 origin_module: Utf8 NULL
 origin_name: Utf8 NULL
+access_module_node_id: FixedSizeBinary(16) NOT NULL
+origin_symbol_kind: Int16 NULL [lctx.codebook=symbol_kind]

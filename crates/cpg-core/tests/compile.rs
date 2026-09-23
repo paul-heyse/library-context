@@ -86,7 +86,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
-    assert_eq!(versions.len(), 22 + 13, "every raw and derived table");
+    assert_eq!(versions.len(), 22 + 15, "every raw and derived table");
 
     // A second attempt fails validation after writing its rows: it publishes nothing.
     let mut raw_b = raw("pysa_variants", b);
@@ -386,7 +386,7 @@ async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
     type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
-    let cases: [(&str, Mutation); 10] = [
+    let cases: [(&str, Mutation); 13] = [
         ("key:declarations", |raw| {
             let b = table(raw, "declarations");
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &b.slice(0, 1)]).unwrap();
@@ -427,6 +427,57 @@ async fn every_rule_kind_rejects_its_violation() {
         ("semantic:resolution-has-boundary", |raw| {
             keep_rows(raw, "boundaries", "fact_family", |f| f != "3");
             keep_rows(raw, "facts", "table_name", |t| t != "boundaries");
+        }),
+        // Slice-2 F1, then ADR-0014 review F1: a release target that names nothing publishes
+        // with no reason, and the typed rule rejects it (no catch-all reason hides it).
+        ("typed:call_targets", |raw| {
+            let b = table(raw, "pysa_calls");
+            let i = b.schema().index_of("target_module").unwrap();
+            let modules = b
+                .column(i)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            let moved: arrow_array::StringArray = modules
+                .iter()
+                .map(|m| m.map(|m| if m.starts_with('@') { "@nowhere.py" } else { m }))
+                .collect();
+            *b = replace(b, "target_module", Arc::new(moved));
+        }),
+        // Review F1: a dependency target whose definition is missing is our failure, too.
+        ("typed:call_targets", |raw| {
+            let b = table(raw, "pysa_calls");
+            let (m, k) = (
+                b.schema().index_of("target_module").unwrap(),
+                b.schema().index_of("target_key").unwrap(),
+            );
+            let modules = b
+                .column(m)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap()
+                .clone();
+            let keys: arrow_array::StringArray = b
+                .column(k)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap()
+                .iter()
+                .zip(modules.iter())
+                .map(|(key, module)| match (key, module) {
+                    (Some(_), Some(m)) if !m.starts_with('@') => Some("F:999999"),
+                    (key, _) => key,
+                })
+                .collect();
+            *b = replace(b, "target_key", Arc::new(keys));
+        }),
+        // Review O2: two rows asserting one argument id are a collision, never merged.
+        ("key:nodes", |raw| {
+            let b = table(raw, "arguments");
+            let dup = b.slice(0, 1);
+            let fact = FixedSizeBinaryArray::try_from_iter(std::iter::once([7u8; 16])).unwrap();
+            let dup = replace(&dup, "fact_id", Arc::new(fact));
+            *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &dup]).unwrap();
         }),
         // ADR-0014 lineage: a Pysa call record that matches no call site is not silently dropped.
         ("lineage:call_target", |raw| {

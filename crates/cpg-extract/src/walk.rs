@@ -380,10 +380,7 @@ impl Walker<'_, '_> {
                     fact_id: Id::ZERO,
                     // A role in the call (§3.4.1): never the expression's own id, which for
                     // `f(g(x))` would be the inner call site's.
-                    node_id: IdHasher::new(kind::ARGUMENT)
-                        .id(node_id)
-                        .i64(ordinal as i64)
-                        .finish_id(),
+                    node_id: cpg_schema::id::recipe::argument(node_id, ordinal as i64),
                     call_node_id: node_id,
                     ordinal: ordinal as i64,
                     kind: akind,

@@ -367,6 +367,37 @@ codebook!(
     }
 );
 
+codebook!(
+    /// Pyrefly's kind for an exported symbol (`public_names.origin_symbol_kind`, ADR-0014):
+    /// what decides whether an unmapped export origin is a variable or our own failure.
+    SymbolKind = "symbol_kind" {
+        Module = 0 => "module",
+        Attribute = 1 => "attribute",
+        Variable = 2 => "variable",
+        Constant = 3 => "constant",
+        Parameter = 4 => "parameter",
+        TypeParameter = 5 => "type_parameter",
+        TypeAlias = 6 => "type_alias",
+        Function = 7 => "function",
+        Method = 8 => "method",
+        Class = 9 => "class",
+    }
+);
+
+codebook!(
+    /// How an edge kind is asserted (DESIGN §3.8, `edge_kinds`).
+    DerivationClass = "derivation_class" {
+        /// One provider row states it.
+        Extracted = 0 => "extracted",
+        /// A provider's own resolution states it (Pysa, Pyrefly's public names).
+        Analyzer = 1 => "analyzer",
+        /// A Stage-C/D join decides it.
+        Joined = 2 => "joined",
+        /// Our own analysis decides it.
+        Recognizer = 3 => "recognizer",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -397,6 +428,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<DefinitionKind>(),
         CodebookEntry::of::<NodeKind>(),
         CodebookEntry::of::<EdgeKind>(),
+        CodebookEntry::of::<SymbolKind>(),
+        CodebookEntry::of::<DerivationClass>(),
     ]
 }
 

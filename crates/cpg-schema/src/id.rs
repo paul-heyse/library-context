@@ -68,6 +68,41 @@ pub mod kind {
     pub const PYSA_CALL: &str = "pysa-call";
 }
 
+/// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
+/// them in SQL and a generated rule checks they agree (DESIGN §3.4.1, ADR-0014). Every field uses
+/// the `opt_*` encoding, as the UDF does.
+pub mod recipe {
+    use super::{Id, IdHasher, kind};
+
+    /// A call's argument at an ordinal: a role, never the expression's own id.
+    pub fn argument(call: Id, ordinal: i64) -> Id {
+        IdHasher::new(kind::ARGUMENT)
+            .opt_id(Some(call))
+            .opt_i64(Some(ordinal))
+            .finish_id()
+    }
+
+    /// A dependency module: its owner (the distribution whose `RECORD` lists the file, else
+    /// `pyrefly-bundled`, else `unowned`), the owner's version (else the fork revision, else the
+    /// file's content digest), and its name.
+    pub fn external_module(owner: &str, owner_version: &str, module: &str) -> Id {
+        IdHasher::new(kind::EXTERNAL_MODULE)
+            .opt_str(Some(owner))
+            .opt_str(Some(owner_version))
+            .opt_str(Some(module))
+            .finish_id()
+    }
+
+    /// A definition in a dependency module: its module, definition kind code and Pysa key.
+    pub fn external_symbol(module: Id, definition_kind: i16, key: &str) -> Id {
+        IdHasher::new(kind::EXTERNAL_SYMBOL)
+            .opt_id(Some(module))
+            .opt_i64(Some(i64::from(definition_kind)))
+            .opt_str(Some(key))
+            .finish_id()
+    }
+}
+
 /// Length-prefixed BLAKE3 hasher for ids and digests.
 #[derive(Clone)]
 pub struct IdHasher(blake3::Hasher);

@@ -202,6 +202,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_rust_recipe_equals_its_sql_form() {
+        // Review F3: the recipes the extractor computes in Rust, recomputed by the UDF with the
+        // field order the `id:*` rules use.
+        use cpg_schema::id::recipe;
+        let call = Id([3; 16]);
+        let module = recipe::external_module("fastmcp-slim", "4.0.5", "fastmcp.server");
+        let cases = [
+            (
+                recipe::argument(call, 2),
+                format!(
+                    "SELECT lctx_id('argument', X'{}', CAST(2 AS BIGINT))",
+                    call.hex()
+                ),
+            ),
+            (
+                module,
+                "SELECT lctx_id('external_module', 'fastmcp-slim', '4.0.5', 'fastmcp.server')"
+                    .to_owned(),
+            ),
+            (
+                recipe::external_symbol(module, 1, "7"),
+                format!(
+                    "SELECT lctx_id('external_symbol', X'{}', CAST(1 AS SMALLINT), '7')",
+                    module.hex()
+                ),
+            ),
+        ];
+        for (rust, sql) in cases {
+            assert_eq!(eval(&sql).await.unwrap(), [rust], "{sql}");
+        }
+        // Pinned values: a recipe change is a migration (DM-51).
+        insta::assert_snapshot!(
+            [
+                recipe::argument(call, 2),
+                module,
+                recipe::external_symbol(module, 1, "7")
+            ]
+            .iter()
+            .map(Id::hex)
+            .collect::<Vec<_>>()
+            .join("\n")
+        );
+    }
+
+    #[tokio::test]
     async fn unsupported_types_are_refused_at_plan_time() {
         for sql in [
             "SELECT lctx_id('k', CAST(1 AS INT))",

@@ -7,7 +7,7 @@ use crate::codebook::{
     AncestryRelation, ArgumentKind, BoundaryReason, CoverageStatus, DeclarationKind,
     DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
     InvocationPhase, Modality, ModuleOrigin, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind,
-    PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm,
+    PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm, SymbolKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -293,6 +293,10 @@ table!(
         /// `origin_path` as a typed pair: the defining module's name and the name in it.
         origin_module: Option<String>,
         origin_name: Option<String>,
+        /// The release file the access path is read from (a `.py` and its `.pyi` are two).
+        access_module_node_id: Id,
+        /// Pyrefly's kind for the origin's export; null when Pyrefly records none.
+        origin_symbol_kind: Option<SymbolKind>,
     }
 );
 
