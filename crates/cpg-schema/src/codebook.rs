@@ -807,6 +807,8 @@ codebook!(
         PassABfs = 0 => "pass_a_bfs",
         /// Pass B: a bounded worklist over argument flows and parameter guards (§9.2).
         PassBFlows = 1 => "pass_b_flows",
+        /// Pass C: producer → consumer handoffs in the official usage code (§9.3).
+        PassCHandoffs = 2 => "pass_c_handoffs",
     }
 );
 
@@ -837,6 +839,10 @@ codebook!(
         /// A reached callable raises in the branch of an `if` that tests a parameter the seed's
         /// parameter reaches (Pass B). The related node is the `raise`, the condition the test.
         ConditionalRaise = 8 => "conditional_raise",
+        /// Official usage code passes what one public callable returns directly to another (Pass
+        /// C, §9.3): `x = producer(...); consumer(x)` in one straight-line block, or nested. The
+        /// subject is the seed, the related node the other callable; the score counts occurrences.
+        Handoff = 9 => "handoff",
     }
 );
 
@@ -873,8 +879,12 @@ codebook!(
         Value = 2 => "value",
         /// The alias a forwarded value passes through.
         Alias = 3 => "alias",
-        /// The callee formal a Pass B finding's guard tests.
+        /// The callee formal a Pass B finding's guard tests, or a handoff's consumer formal.
         Formal = 4 => "formal",
+        /// A handoff occurrence's producer call site (its module path as label).
+        ProducerSite = 5 => "producer_site",
+        /// A handoff occurrence's consumer call site.
+        ConsumerSite = 6 => "consumer_site",
     }
 );
 
@@ -912,6 +922,11 @@ codebook!(
         /// A branch in which the implementation raises (Pass B `conditional_raise`); a public
         /// precondition only with documented support.
         Restriction = 8 => "restriction",
+        /// A verbatim statement subset of an official example, test or doc block that uses the
+        /// operation, with its setup (§10.5).
+        UsagePattern = 9 => "usage_pattern",
+        /// A direct handoff official usage code shows (Pass C `handoff`).
+        Handoff = 10 => "handoff",
     }
 );
 

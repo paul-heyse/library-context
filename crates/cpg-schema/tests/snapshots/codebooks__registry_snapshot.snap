@@ -468,6 +468,7 @@ source_role
 analytic_method
   0 pass_a_bfs
   1 pass_b_flows
+  2 pass_c_handoffs
 finding_kind
   0 public_alias
   1 direct_delegation
@@ -478,6 +479,7 @@ finding_kind
   6 forwarding
   7 transformed_argument
   8 conditional_raise
+  9 handoff
 stop_reason
   0 depth_limit
   1 vertex_budget
@@ -493,6 +495,8 @@ member_role
   2 value
   3 alias
   4 formal
+  5 producer_site
+  6 consumer_site
 assertion_kind
   0 outcome
   1 public_access
@@ -503,6 +507,8 @@ assertion_kind
   6 control
   7 transformed_control
   8 restriction
+  9 usage_pattern
+  10 handoff
 brief_section
   0 outcome
   1 public_access

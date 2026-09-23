@@ -380,6 +380,17 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
             EvidenceStatus::Documented,
         ],
     ),
+    // Pass C and §10.5: a pattern is official usage code (documented), or an executed fixture.
+    (
+        AssertionKind::UsagePattern,
+        BriefSection::UsagePattern,
+        &[EvidenceStatus::Documented, EvidenceStatus::FixtureChecked],
+    ),
+    (
+        AssertionKind::Handoff,
+        BriefSection::UsagePattern,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
 ];
 
 /// The brief sections every brief is expected to fill (DESIGN §10.3; increment-1 deep review F4,
@@ -488,6 +499,7 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
         FindingKind::ConditionalRaise,
         EvidenceStatus::StructurallyObserved,
     ),
+    (FindingKind::Handoff, EvidenceStatus::StructurallyObserved),
 ];
 
 /// The status each evidence kind supports (slice 1.5 review F1): an extracted fact is observed
@@ -556,6 +568,7 @@ pub const ANALYSIS_BACKED: &[FindingKind] = &[
     FindingKind::Forwarding,
     FindingKind::TransformedArgument,
     FindingKind::ConditionalRaise,
+    FindingKind::Handoff,
 ];
 
 /// The content-derived ids of analysis results (ADR-0019). Rust-only: no SQL recomputes them.

@@ -11,6 +11,7 @@ pub mod snapshot;
 pub mod sql;
 pub mod synth;
 pub mod udf;
+pub mod usage;
 pub mod validate;
 
 use validate::Violation;

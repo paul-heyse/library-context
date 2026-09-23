@@ -7,12 +7,17 @@ expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS seed, i.completion, i.stop
 +-------------------------+------------+-------------+-------------------+
 | pkg.controls.configure  | 1          | 1           | 1                 |
 | pkg.controls.configure  | 0          |             | 16                |
+| pkg.controls.configure  | 0          |             |                   |
 | pkg.helpers.describe    | 0          |             | 1                 |
 | pkg.helpers.describe    | 0          |             | 0                 |
+| pkg.helpers.describe    | 0          |             |                   |
 | pkg.helpers.helper      | 1          | 1           | 1                 |
 | pkg.helpers.helper      | 0          |             | 3                 |
+| pkg.helpers.helper      | 0          |             |                   |
 | pkg.server.Server.route | 1          | 1           | 1                 |
 | pkg.server.Server.route | 0          |             | 1                 |
+| pkg.server.Server.route | 0          |             |                   |
 | pkg.server.Server.tool  | 1          | 1           | 1                 |
 | pkg.server.Server.tool  | 0          |             | 4                 |
+| pkg.server.Server.tool  | 0          |             |                   |
 +-------------------------+------------+-------------+-------------------+

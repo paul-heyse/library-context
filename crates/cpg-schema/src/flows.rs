@@ -23,7 +23,7 @@
 
 use crate::codebook::{
     ArgumentKind, BindingKind, Codebook, EdgeKind, Fidelity, ImplicitReceiver, InvocationPhase,
-    Modality, NodeKind, Origin, ParameterKind, SyntaxField, SyntaxKind,
+    Modality, NodeKind, Origin, ParameterKind, SourceRole, SyntaxField, SyntaxKind,
 };
 use crate::id::{Digest, IdHasher};
 
@@ -219,11 +219,135 @@ pub fn guards_sql() -> String {
     )
 }
 
-/// The relations' identity, for the compiler digest and each Pass B invocation.
+/// Pass C's handoffs query (DESIGN §9.3), over the official usage code (examples, tests, doc
+/// blocks), totally ordered by `(consumer, producer, formal, module path, consumer site)`.
+///
+/// One row per occurrence in which what a release callable returns reaches an argument of
+/// another: either `x = producer(...)` with `x` bound once in its scope and read once, by
+/// `consumer(..., x)` in a later statement of the same block (the call being that statement's
+/// value, awaited or not: no `with` item, no nesting); or `consumer(..., producer(...))`. The
+/// argument maps to one formal of the consumer as a flow's does. A read of `x` as a receiver
+/// (`x.method()`, `@x.tool`) configures it: setup, not another consumer. A reassigned `x`, one
+/// read anywhere else too (another argument, a return, a store), and a use inside a `with` item
+/// are no handoff.
+pub fn handoffs_sql() -> String {
+    let accepted = format!(
+        "f.modality IN ({}) AND f.origin = {} AND f.fidelity = {}",
+        list(&[Modality::Definite.code(), Modality::Candidate.code()]),
+        Origin::AnalyzerAssertion.code(),
+        Fidelity::ReportProjection.code()
+    );
+    let receivers = list(&[
+        ImplicitReceiver::TrueWithClassReceiver.code(),
+        ImplicitReceiver::TrueWithObjectReceiver.code(),
+    ]);
+    let usage = list(&[
+        SourceRole::Example.code(),
+        SourceRole::Test.code(),
+        SourceRole::DocBlock.code(),
+    ]);
+    format!(
+        "WITH usage AS (SELECT module_node_id, role, path FROM source_files \
+                        WHERE role IN ({usage})), \
+         single AS (SELECT scope_id, name FROM bindings GROUP BY scope_id, name \
+                    HAVING count(*) = 1), \
+         reads AS ( \
+           SELECT rr.binding_id, count(*) AS n FROM reference_resolutions rr \
+           JOIN references rf ON rf.node_id = rr.reference_id \
+           JOIN syntax_nodes nm ON nm.node_id = rf.name_node_id \
+           LEFT JOIN syntax_nodes par ON par.node_id = nm.parent_node_id \
+           WHERE rr.binding_id IS NOT NULL \
+             AND NOT (COALESCE(par.kind, -1) = {attribute} AND nm.field = {value_field}) \
+           GROUP BY rr.binding_id), \
+         targets AS ( \
+           SELECT ct.src_node_id AS site, ct.dst_node_id AS target, ct.edge_id, f.modality, \
+                  CASE WHEN p.implicit_receiver IN ({receivers}) THEN 1 ELSE 0 END AS receiver \
+           FROM edges ct JOIN pysa_calls p ON p.fact_id = ct.evidence_fact_id \
+           JOIN facts f ON f.fact_id = ct.evidence_fact_id \
+           WHERE ct.edge_kind = {call_target} AND ct.dst_kind = {function} AND {accepted} \
+             AND p.phase IN ({call}, {init})), \
+         bound AS ( \
+           SELECT b.node_id AS binding_id, c.node_id AS producer_site, \
+                  st.parent_node_id AS block, st.field AS block_field, st.ordinal AS after \
+           FROM bindings b JOIN usage u ON u.module_node_id = b.module_node_id \
+           JOIN single s ON s.scope_id = b.scope_id AND s.name = b.name \
+           JOIN reads x ON x.binding_id = b.node_id AND x.n = 1 \
+           JOIN syntax_nodes tgt ON tgt.node_id = b.site_node_id \
+           JOIN syntax_nodes st ON st.node_id = tgt.parent_node_id AND st.kind = {assign} \
+           JOIN call_syntax c ON c.module_node_id = b.module_node_id \
+                AND c.start_byte = b.value_start_byte AND c.end_byte = b.value_end_byte \
+           WHERE b.kind = {assignment}), \
+         args AS ( \
+           SELECT a.node_id AS argument_node_id, a.call_node_id AS consumer_site, a.ordinal, \
+                  a.kind, a.keyword, v.dst_node_id AS value_node_id \
+           FROM arguments a \
+           JOIN edges v ON v.edge_kind = {argument_value} AND v.src_node_id = a.node_id), \
+         statement_of AS ( \
+           SELECT c.node_id AS site, \
+                  CASE WHEN p1.kind IN ({expr_stmt}, {assign}) THEN p1.node_id \
+                       WHEN p1.kind = {await_} AND p2.kind IN ({expr_stmt}, {assign}) \
+                       THEN p2.node_id END AS statement_node_id \
+           FROM syntax_nodes c JOIN syntax_nodes p1 ON p1.node_id = c.parent_node_id \
+           LEFT JOIN syntax_nodes p2 ON p2.node_id = p1.parent_node_id \
+           JOIN usage u ON u.module_node_id = c.module_node_id), \
+         named AS ( \
+           SELECT bd.producer_site, a.consumer_site, a.ordinal, a.kind, a.keyword, \
+                  true AS named \
+           FROM args a JOIN references rf ON rf.name_node_id = a.value_node_id \
+           JOIN reference_resolutions rr ON rr.reference_id = rf.node_id \
+           JOIN bound bd ON bd.binding_id = rr.binding_id \
+           JOIN statement_of so ON so.site = a.consumer_site \
+           JOIN syntax_nodes st ON st.node_id = so.statement_node_id \
+           WHERE st.parent_node_id = bd.block AND st.field = bd.block_field \
+             AND st.ordinal > bd.after), \
+         nested AS ( \
+           SELECT a.value_node_id AS producer_site, a.consumer_site, a.ordinal, a.kind, \
+                  a.keyword, false AS named \
+           FROM args a JOIN call_syntax c ON c.node_id = a.value_node_id \
+           JOIN usage u ON u.module_node_id = c.module_node_id), \
+         occurrences AS (SELECT * FROM named UNION ALL SELECT * FROM nested) \
+         SELECT DISTINCT ct.target AS consumer_node_id, pt.target AS producer_node_id, \
+                fm.node_id AS formal_node_id, fm.name AS formal_name, u.path, u.role, \
+                cs.start_byte AS consumer_start_byte, o.consumer_site AS consumer_site_node_id, \
+                o.producer_site AS producer_site_node_id, o.named, \
+                ct.modality AS consumer_modality \
+         FROM occurrences o \
+         JOIN targets pt ON pt.site = o.producer_site \
+         JOIN targets ct ON ct.site = o.consumer_site \
+         JOIN call_syntax cs ON cs.node_id = o.consumer_site \
+         JOIN usage u ON u.module_node_id = cs.module_node_id \
+         JOIN parameter_syntax fm ON fm.function_node_id = ct.target \
+           AND ((o.kind = {positional} AND fm.kind IN ({posonly}, {pos_or_kw}) \
+                 AND fm.ordinal = o.ordinal + ct.receiver) \
+             OR (o.kind = {keyword} AND fm.name = o.keyword \
+                 AND fm.kind IN ({pos_or_kw}, {kw_only}))) \
+         ORDER BY consumer_node_id, producer_node_id, formal_node_id, u.path, \
+                  consumer_start_byte, consumer_site_node_id, producer_site_node_id",
+        call_target = EdgeKind::CallTarget.code(),
+        argument_value = EdgeKind::ArgumentValue.code(),
+        function = NodeKind::Function.code(),
+        call = InvocationPhase::Call.code(),
+        init = InvocationPhase::Init.code(),
+        assign = SyntaxKind::StmtAssign.code(),
+        expr_stmt = SyntaxKind::StmtExpr.code(),
+        await_ = SyntaxKind::ExprAwait.code(),
+        assignment = BindingKind::Assignment.code(),
+        positional = ArgumentKind::Positional.code(),
+        keyword = ArgumentKind::Keyword.code(),
+        posonly = ParameterKind::PositionalOnly.code(),
+        pos_or_kw = ParameterKind::PositionalOrKeyword.code(),
+        kw_only = ParameterKind::KeywordOnly.code(),
+        attribute = SyntaxKind::ExprAttribute.code(),
+        value_field = SyntaxField::Value.code(),
+    )
+}
+
+/// The relations' identity, for the compiler digest and each Pass B or C invocation.
 pub fn digest() -> Digest {
     IdHasher::new("pass-b-relations")
         .str(&argument_flows_sql())
         .str(&guards_sql())
+        .str(&handoffs_sql())
         .finish_digest()
 }
 
@@ -254,6 +378,22 @@ pub mod schemas {
             Field::new("alias_name", DataType::Utf8, true),
             Field::new("value_text", DataType::Utf8, true),
             Field::new("in_try", DataType::Boolean, false),
+        ]))
+    }
+
+    pub fn handoffs() -> SchemaRef {
+        Arc::new(Schema::new(vec![
+            id("consumer_node_id", false),
+            id("producer_node_id", false),
+            id("formal_node_id", false),
+            Field::new("formal_name", DataType::Utf8, false),
+            Field::new("path", DataType::Utf8, false),
+            Field::new("role", DataType::Int16, false),
+            Field::new("consumer_start_byte", DataType::Int64, false),
+            id("consumer_site_node_id", false),
+            id("producer_site_node_id", false),
+            Field::new("named", DataType::Boolean, false),
+            Field::new("consumer_modality", DataType::Int16, false),
         ]))
     }
 

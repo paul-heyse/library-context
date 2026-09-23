@@ -1139,6 +1139,7 @@ dependencies = [
  "lctx-analytics",
  "parquet",
  "petgraph",
+ "ruff_python_parser",
  "serde",
  "serde_json",
  "sha2 0.10.9",

@@ -42,6 +42,7 @@ pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7ba
 pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
 pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
 ruff_python_ast = "=0.0.11"
+ruff_python_parser = "=0.0.11"
 ruff_source_file = "=0.0.11"
 ruff_text_size = "=0.0.11"
 # Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.

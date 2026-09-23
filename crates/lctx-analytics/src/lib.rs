@@ -8,6 +8,7 @@ pub mod config;
 pub mod graph;
 pub mod pass_a;
 pub mod pass_b;
+pub mod pass_c;
 
 /// What an analysis refuses.
 #[derive(Debug, thiserror::Error)]

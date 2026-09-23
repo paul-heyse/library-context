@@ -2,12 +2,14 @@
 stdio in a subprocess and check it (DESIGN §6.4's smoke query, §11.3).
 
 For every brief: its own access path finds it first, promoted, and it hydrates whole through
-`get_capability` and the resource. Prints one line per brief; exits 1 on the first failure.
+`get_capability` and the resource, and every usage pattern it serves parses (§10.4). Prints one
+line per brief; exits 1 on the first failure.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import asyncio
 import json
 import os
@@ -49,6 +51,14 @@ async def smoke(generation: Path, embedder: str) -> int:
             if not card.get("assertions") or not getattr(text, "text", "").startswith("# "):
                 print(f"smoke: {brief['access_path']} does not hydrate", file=sys.stderr)
                 return 1
+            for a in card["assertions"]:
+                if a["kind"] == "usage_pattern" and a["text"]:
+                    code = a["text"].split("```python\n", 1)[-1].rsplit("\n```", 1)[0]
+                    try:
+                        ast.parse(code)
+                    except SyntaxError as e:
+                        print(f"smoke: {brief['access_path']}'s pattern: {e}", file=sys.stderr)
+                        return 1
             print(
                 f"smoke: {brief['access_path']}: found first ({hits[0]['rank_source']}, "
                 f"{result['mode']}), {len(card['assertions'])} assertions"

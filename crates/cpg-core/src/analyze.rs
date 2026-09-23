@@ -21,6 +21,7 @@ use lctx_analytics::config::AnalyticsConfig;
 use lctx_analytics::graph::Projection;
 use lctx_analytics::pass_a::{self, Budgets, Seed};
 use lctx_analytics::pass_b::{self, Flows, SeedParameter};
+use lctx_analytics::pass_c::{self, Handoffs};
 use serde::Serialize;
 
 use crate::delta::to_schema;
@@ -409,6 +410,12 @@ struct PassAParameters<'a> {
 }
 
 #[derive(Serialize)]
+struct PassCParameters<'a> {
+    seed: &'a str,
+    max_occurrences: u32,
+}
+
+#[derive(Serialize)]
 struct PassBParameters<'a> {
     seed: &'a str,
     max_depth: u32,
@@ -622,6 +629,64 @@ pub async fn run(
         rows.findings.extend(result.findings);
         rows.members.extend(result.members);
         rows.witnesses.extend(result.witnesses);
+    }
+    // Pass C (§9.3): handoffs in the official usage code, from every seed.
+    let handoffs = Handoffs::build(
+        &collect(
+            ctx,
+            &cpg_schema::flows::handoffs_sql(),
+            &cpg_schema::flows::schemas::handoffs(),
+        )
+        .await?,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    for (name, node) in rows.seeds.clone() {
+        let parameters = serde_json::to_string(&PassCParameters {
+            seed: &name,
+            max_occurrences: budgets.max_witnesses,
+        })
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        let parameters_digest = content_digest(parameters.as_bytes());
+        let invocation_id = findings::invocation(
+            AnalyticMethod::PassCHandoffs.code(),
+            parameters_digest,
+            Some(flows_digest),
+            Some(node),
+            None,
+        );
+        let result = pass_c::run(
+            &handoffs,
+            node,
+            budgets.max_witnesses as usize,
+            snapshot_id,
+            invocation_id,
+        )
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        rows.invocations.push(AnalysisInvocationsRow {
+            snapshot_id,
+            invocation_id,
+            run_id: compiler.run_id,
+            model_id: compiler.model("pass-c"),
+            extraction_mode: ExtractionMode::GraphAnalysis,
+            method: AnalyticMethod::PassCHandoffs,
+            parameters,
+            parameters_digest,
+            projection_digest: Some(flows_digest),
+            library_versions: lctx_analytics::libraries(),
+            subject_node_id: Some(node),
+            seed: None,
+            iterations: None,
+            residual: None,
+            converged: None,
+            quality_history: Vec::new(),
+            candidate_set_size: Some(result.occurrences),
+            vertices_examined: None,
+            arcs_examined: None,
+            completion: result.completion,
+            stop_reason: None,
+        });
+        rows.findings.extend(result.findings);
+        rows.members.extend(result.members);
     }
     // Two seeds may reach the same finding only with different subjects, so ids are unique; the
     // key rules check it.

@@ -40,8 +40,9 @@ use crate::{CoreError, sql};
 /// depth, requiredness cited, traversal stops cited. 4: the brief document leaves out the
 /// analysis's own boundaries (slice 1.9). 5: documented parameters, controls, transformed
 /// controls and restrictions (slice 2.1). 6: call sites count call arcs only, "may call" over an
-/// override-open final arc, a definition claims nothing more (increment-1 deep review F5).
-pub const TEMPLATE_VERSION: i64 = 6;
+/// override-open final arc, a definition claims nothing more (increment-1 deep review F5). 7: usage
+/// patterns and handoffs, and the pattern's code in the brief document (slice 2.2).
+pub const TEMPLATE_VERSION: i64 = 7;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -767,6 +768,48 @@ pub async fn run(
         }
     }
 
+    // Pass C and §10.5: each seed's handoffs, the formals they name, and its usage pattern.
+    let handoff_formals: BTreeSet<Id> = found
+        .members
+        .iter()
+        .filter(|m| m.role == MemberRole::Formal)
+        .filter_map(|m| m.node_id)
+        .collect();
+    let mut formal_function: BTreeMap<Id, Id> = BTreeMap::new();
+    for (b, i) in Table::read(
+        ctx,
+        &format!(
+            "SELECT node_id, function_node_id FROM parameter_syntax WHERE node_id IN ({}) \
+             ORDER BY node_id",
+            hex_list(handoff_formals.iter().copied())
+        ),
+        &[("node_id", ID), ("function_node_id", ID)],
+    )
+    .await?
+    .rows()
+    {
+        if let (Some(n), Some(f)) = (id(b, "node_id", i), id(b, "function_node_id", i)) {
+            formal_function.entry(n).or_insert(f);
+        }
+    }
+    let mut preferred: BTreeMap<Id, BTreeSet<Id>> = BTreeMap::new();
+    for f in found
+        .findings
+        .iter()
+        .filter(|f| f.finding_kind == FindingKind::Handoff)
+    {
+        // The seed's own sites are its handoffs' consumer sites or producer sites.
+        for m in found.members.iter().filter(|m| {
+            m.finding_id == f.finding_id
+                && matches!(m.role, MemberRole::ConsumerSite | MemberRole::ProducerSite)
+        }) {
+            if let Some(n) = m.node_id {
+                preferred.entry(f.subject_node_id).or_default().insert(n);
+            }
+        }
+    }
+    let patterns = crate::usage::patterns(ctx, &seeds, &preferred).await?;
+
     let mut evidence: BTreeMap<Id, EvidenceRow> = BTreeMap::new();
     let mut add_evidence = |row: EvidenceRow| -> Id {
         let id = row.evidence_id;
@@ -1279,6 +1322,104 @@ pub async fn run(
             drafts.push(draft);
         }
 
+        // Usage pattern (§10.5): official code using the operation, with its setup, verbatim.
+        if let Some(pattern) = patterns.get(&seed) {
+            let mut draft = Draft::new(
+                AssertionKind::UsagePattern,
+                format!("From `{}`:\n```python\n{}\n```", pattern.path, pattern.code),
+            );
+            for st in &pattern.statements {
+                draft.evidence.push((
+                    add_evidence(EvidenceRow {
+                        snapshot_id,
+                        evidence_id: recipe::evidence(
+                            EvidenceKind::Example.code(),
+                            Some(st.node),
+                            Some(st.module),
+                            Some((st.span.0 as i64, st.span.1 as i64)),
+                            Some(&st.text),
+                        ),
+                        evidence_kind: EvidenceKind::Example,
+                        cited_fact_id: None,
+                        node_id: Some(st.node),
+                        module_node_id: Some(st.module),
+                        start_byte: Some(st.span.0 as i64),
+                        end_byte: Some(st.span.1 as i64),
+                        text: Some(st.text.clone()),
+                    }),
+                    EvidenceKind::Example,
+                ));
+            }
+            // The handoff it shows, if any.
+            for f in findings.iter().filter(|f| {
+                f.finding_kind == FindingKind::Handoff
+                    && found.members.iter().any(|m| {
+                        m.finding_id == f.finding_id
+                            && matches!(m.role, MemberRole::ConsumerSite | MemberRole::ProducerSite)
+                            && m.node_id == Some(pattern.site)
+                    })
+            }) {
+                draft = draft.citing(f);
+            }
+            drafts.push(draft);
+        }
+        // Handoffs (Pass C): the most frequent three, the seed consuming or producing.
+        let mut handoffs: Vec<&&FindingsRow> = findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::Handoff)
+            .collect();
+        handoffs.sort_by(|a, b| {
+            b.score
+                .unwrap_or_default()
+                .total_cmp(&a.score.unwrap_or_default())
+                .then_with(|| {
+                    a.related_node_id
+                        .map(label)
+                        .cmp(&b.related_node_id.map(label))
+                })
+        });
+        for f in handoffs.into_iter().take(3) {
+            let Some(other) = f.related_node_id.map(label) else {
+                continue;
+            };
+            let formal = found
+                .members
+                .iter()
+                .find(|m| m.finding_id == f.finding_id && m.role == MemberRole::Formal);
+            let consumes = formal
+                .and_then(|m| m.node_id)
+                .and_then(|n| formal_function.get(&n))
+                == Some(&seed);
+            let formal_name = formal.and_then(|m| m.label.clone()).unwrap_or_default();
+            let example = found
+                .members
+                .iter()
+                .find(|m| m.finding_id == f.finding_id && m.role == MemberRole::ConsumerSite)
+                .and_then(|m| m.label.clone())
+                .unwrap_or_default();
+            let n = f.score.unwrap_or_default() as i64;
+            let occurrences = format!(
+                "{n} occurrence{}, e.g. in `{example}`",
+                if n == 1 { "" } else { "s" }
+            );
+            let text = if consumes {
+                let what = match other.strip_suffix(".__init__") {
+                    Some(class) => format!("a `{class}` instance"),
+                    None => format!("what `{other}` returns"),
+                };
+                format!(
+                    "Official usage passes {what} straight to `{seed_label}` as `{formal_name}` \
+                     ({occurrences})."
+                )
+            } else {
+                format!(
+                    "Official usage passes what `{seed_label}` returns straight to `{other}` as \
+                     `{formal_name}` ({occurrences})."
+                )
+            };
+            drafts.push(Draft::new(AssertionKind::Handoff, text).citing(f));
+        }
+
         // Limits: where the analysis stopped, one entry per reason, and apart for what the seed
         // calls itself and what the callables it reaches call (slice 1.5 review F3).
         // A boundary whose final arc is override-open is one the code may call (increment-1 deep
@@ -1534,6 +1675,10 @@ pub async fn run(
             .collect();
         let mut document =
             format!("Outcome: {outcome}\nPublic APIs: {apis}\nBuilt-in controls: {controls}");
+        // The usage description (§11.1): the pattern's code.
+        if let Some(pattern) = patterns.get(&seed) {
+            document += &format!("\nUsage:\n{}", pattern.code);
+        }
         if !limits.is_empty() {
             document += &format!("\nConditions and limitations: {}", limits.join(" "));
         }

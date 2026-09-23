@@ -982,3 +982,83 @@ budget = 2
     assert_eq!(checked.len(), 2, "{checked:?}");
     assert!(checked.iter().any(|t| t.contains('\n')), "{checked:?}");
 }
+
+/// Pass C and usage patterns (DESIGN §9.3, §10.5) on a corpus. A named handoff with a receiver
+/// use before it, and a nested one, are counted; a binding read by two consumers and a reassigned
+/// one are not. The pattern is the smallest self-contained official example, with its import,
+/// and it cites the handoff it shows.
+#[tokio::test(flavor = "multi_thread")]
+async fn handoffs_and_usage_patterns_come_from_official_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Id([7; 16]);
+    let input = corpus_input(dir.path(), s, &[("usage", "examples")]);
+    let out = extract(&input).unwrap();
+    let analysis = cpg_core::analyze::Analysis {
+        config: lctx_analytics::config::AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["pkg.core"]
+public_roots = ["pkg"]
+[seeds]
+primary = ["pkg.Server.tool"]
+distractors = ["pkg.make_server"]
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 2
+"#,
+        )
+        .unwrap(),
+        embedder: None,
+    };
+    let store = dir.path().join("store");
+    cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis))
+        .await
+        .unwrap();
+    let (_, ctx) = published(&store, s).await.unwrap().unwrap();
+    let handoffs = lines(
+        &ctx,
+        "SELECT sd.qualified_name, od.qualified_name, CAST(f.score AS BIGINT), m.label \
+         FROM findings f JOIN declarations sd ON sd.node_id = f.subject_node_id \
+         JOIN declarations od ON od.node_id = f.related_node_id \
+         JOIN finding_members m ON m.finding_id = f.finding_id AND m.role = 4 \
+         WHERE f.finding_kind = 9 ORDER BY 1, 2",
+    )
+    .await;
+    assert_eq!(
+        handoffs,
+        "pkg.core.Server.tool | pkg.core.make_server | 2 | fn\n\
+         pkg.core.make_server | pkg.core.Server.tool | 2 | fn\n"
+    );
+    let patterns = lines(
+        &ctx,
+        "SELECT b.title, a.evidence_status, a.text, count(s.finding_id) \
+         FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         LEFT JOIN assertion_support s ON s.assertion_id = a.assertion_id \
+         WHERE a.assertion_kind = 9 GROUP BY b.title, a.evidence_status, a.text ORDER BY b.title",
+    )
+    .await;
+    // The smallest pattern among the handoff's sites: the nested one, with its setup.
+    assert!(
+        patterns.contains(
+            "pkg.Server.tool | 1 | From `examples/handoff.py`:\n```python\n\
+             from pkg import make_server\nprimary = make_server(\"primary\")\n\
+             primary.tool(make_server(\"nested\"))\n``` | 1"
+        ),
+        "{patterns}"
+    );
+    // The producer's pattern is one of its handoff's sites too, and cites it.
+    assert!(
+        patterns.contains(
+            "pkg.make_server | 1 | From `examples/handoff.py`:\n```python\n\
+             from pkg import make_server\nhelper = make_server(\"helper\")\n``` | 1"
+        ),
+        "{patterns}"
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+}

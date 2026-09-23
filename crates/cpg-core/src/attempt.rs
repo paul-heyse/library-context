@@ -37,8 +37,8 @@ pub struct Published {
 /// inputs; the derived-table and analysis snapshots are what show such a change. 2: Stage E
 /// (ADR-0019). 3: definition arcs, the witness-cap kind fix (slice 1.4 review F1, F3). 4: the
 /// documents' spec hash and `embedding_specs` (slice 1.7). 5: Pass B and parameter docs (slice
-/// 2.1).
-pub const COMPILER_OUTPUT_VERSION: u32 = 5;
+/// 2.1). 6: Pass C (slice 2.2).
+pub const COMPILER_OUTPUT_VERSION: u32 = 6;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

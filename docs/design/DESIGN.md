@@ -1628,7 +1628,8 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - `embedding_spec` and `vectors` (§11.1), whose vector type is `fixed_size_list(float32 not null
     "item", D)`, `D` the spec's dimensions. The spec comes from the snapshot's `embedding_specs`
     row, and each document's key is `(spec_hash, input_hash)` (slice 1.7).
-  - `usage_patterns` joins with slice 2.2.
+  - Usage patterns are `usage_pattern` assertions in `assertions` and `evidence` (slice 2.2,
+    deviation log D24), so no separate served file exists.
 - **`MANIFEST.json`** has sorted keys. It lists:
   - the format, the snapshot, and its content and compiler digests;
   - the spec hash (none for a lexical-only generation);
@@ -1902,6 +1903,25 @@ comes before the definition (it could define the name, and we cannot see it). Te
   Type compatibility alone is a `candidate`, never a published pattern.
 - **Output.** A `handoff` finding with example id, region, producer call, consumer call, binding,
   consumer argument and status.
+
+**Implemented** and **Tested** in slice 2.2 (2026-09-23; deviation log D24, D25):
+- **Relation.** A declared relation (`cpg_schema::flows::handoffs_sql`) over the official examples,
+  tests and doc blocks. It holds each occurrence of:
+  - `x = producer(...)` then `consumer(..., x)`, in a later statement of the same block, with the
+    call as that statement's value (awaited or not). `x` must be bound once and read once, except
+    as a receiver;
+  - or `consumer(..., producer(...))`.
+  - The argument maps to a formal as a Pass B flow's does.
+- **Setup is not a consumer.** A read of `x` as a receiver (`x.method()`, `@x.tool`) configures
+  the produced object (D25). A second argument use, a return, a store or a reassignment rejects
+  the occurrence, and so does a `with` item.
+- **Kernel.** `lctx_analytics::pass_c` groups occurrences per `(other callable, formal)` into one
+  `handoff` finding. Its score is the count. Its members are the formal and three occurrences:
+  examples first, then doc blocks, then tests.
+- **Tests.** `handoffs_and_usage_patterns_come_from_official_code` covers a named handoff after a
+  receiver use and a nested one (counted), and two consumers and a reassignment (not counted).
+- **Pilot (Measured, 2026-09-23).** FastMCP → `FastMCP.mount(server=…)` has 156 occurrences, and
+  `require_scopes(...)` → `FastMCP.tool(auth=…)` 24.
 
 ### §9.4 Community detection
 
@@ -2198,6 +2218,20 @@ Repository text is treated as untrusted data. It is never an instruction to the 
 - **Publication.** A pattern is published only with an official example, a relevant test, or an
   executed fixture.
 - **Fixtures** run offline, with no network or credentials. A pass supports only the tested case.
+
+**Implemented** and **Tested** in slice 2.2 (2026-09-23; `cpg_core::usage`; deviation log D24):
+- **Selection.** Candidates are the seed's call and decorator sites in official examples, then doc
+  blocks, then tests. A handoff site comes first within its role, and then the smallest wins.
+- **The pattern.** It is the statement holding the site plus, transitively, the same-block
+  statements before it that bind a name it reads, and the imports binding one. A candidate that
+  reads a name bound anywhere else is not self-contained and is refused.
+- **Publication.** Each statement is dedented by its own indentation, and the code must parse
+  (Ruff) at publication. `lctx_mcp.smoke` parses every served pattern again.
+- **Assertion.** The pattern is a `usage_pattern` assertion (`documented`) citing each
+  statement's `example` span verbatim, and the handoff it shows. Its code enters the brief
+  document as §11.1's usage description.
+- **Not modelled:** a name read only in an annotation is C4's, not a reference, so its import is
+  not added. The pattern still parses, but would fail at definition time.
 
 > Decision: ADR-0005, ADR-0019
 
