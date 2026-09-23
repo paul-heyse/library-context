@@ -1286,7 +1286,7 @@ rules.
 | Stage | Built-in | Ours |
 |---|---|---|
 | Build | Typed builders against the table's `cpg-schema` `SchemaRef` (`FixedSizeBinaryBuilder`, `Int16Builder`, `BooleanBuilder::append_option`, `GenericListBuilder`, `StructBuilder`). `RecordBatch::try_new` with default options is the local type check: exact types, nested names, nullability, metadata | One builder per table. The arrow-json serde path is tests-only: it expects hex for `FixedSizeBinary` |
-| Canonicalize | `lexsort_to_indices` + `take_record_batch` on the table's declared **total** key. Arrow's sort is unstable | Key declarations |
+| Canonicalize | `lexsort_to_indices` + `take_record_batch` on the table's declared **total** key, over the in-memory batch (Arrow's sort is unstable). The Delta writer may store the rows in another order (it fans partitions into one writer), so readers sort (`read_at`, every rendered query) and never rely on storage order (H1 review O1) | Key declarations |
 | Ids | The `blake3` crate (`=1.8.6`, shared with Pyrefly) inside one `IdHasher` (§3.4.1). Not `RowConverter` bytes: the encoding may change between releases. Not SQL `digest`: it can't write length prefixes | `IdHasher` |
 | Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))` plus, from C1, `EnableExpiredLogCleanup = "false"` and `LogRetentionDuration = "interval 36500 days"` (§6.1), then `add_constraint()` with the table's **immutable** per-row CHECKs: span order and non-negative offsets. delta-rs counts a NULL result as a violation (**Tested**), so a CHECK on a nullable column reads `c IS NULL OR …`. Codebook membership is not a CHECK, because codebooks grow (§8). `CreateBuilder` rejects `delta.constraints.*` keys (Interface-checked: observed in S6, not asserted) | CHECK declarations |
 | Open | When an attempt opens a table, compare its `delta.constraints.*`, `delta.appendOnly` and (C1) the two retention properties, as exact strings, with the generated set, in delta-rs's normalized form, and abort on a mismatch. A table left without its constraints (a crash between create and `add_constraint`) is refused | The verify helper |
@@ -1360,8 +1360,8 @@ FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the
 | Raw writes | 0.73 s | 0.95 s (zstd) |
 | Derivation | 2.56 s | 2.24 s (`edges` 1.02 s, `nodes` 0.50 s) |
 | Validation | 10.16 s | **0.90 s** (the slowest rule's compute 0.28 s, `key:edges`; the largest hash build 160 MiB) |
-| Peak RSS | 7.59 GB (6.7–8.0 GB across runs) | **3.65 GB**, flat from extraction on |
-| Store | 272 MB | 235 MB |
+| Peak RSS (`VmHWM`, MiB as `lctx` prints) | 7,587 MiB (6,678–8,044 MiB across seven runs) | **3,646 MiB** (3.6 GiB), flat from extraction on |
+| Store (`du -h`) | 272 MiB | 235 MiB |
 
 - 905,648 nodes and 1,449,162 edges, all 496 rules passing, before and after.
 - **What stayed the same.** Through H1b, every runtime-only commit left the content digest
@@ -1378,7 +1378,8 @@ FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the
   still enforces CHECKs (read in the pinned source, `write/execution.rs:405-431`, 2026-09-22).
   - It would need its own schema and foreign-snapshot checks, and row counts from write metrics.
   - Reopen when derivation dominates the per-stage time, or its working set dominates the peak.
-    Under jemalloc (ADR-0016) the reported peak **is** the working set; the earlier
+    Under jemalloc (ADR-0016) the reported peak tracks the working set (flat and repeatable,
+    within 7 MiB across runs; jemalloc still holds freed pages for its decay period); the earlier
     `MALLOC_ARENA_MAX=2` reading applied only to glibc. At C6 it did neither (above).
 - **Validation over cached tables and concurrent rules: taken** (H1 P2, operator 2026-09-23).
   `validate` reads every registered table once through its pinned, snapshot-filtered Delta view
@@ -1387,8 +1388,8 @@ FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the
   query per rule, the same SQL, the one shared validator (§B3). Per-rule cost is read from each
   rule's own physical plan (wall time, summed `elapsed_compute`, largest `build_mem_used`; H1 P5),
   since a process-wide peak delta means nothing under concurrency. **Measured** on the pilot:
-  validation 10.2 s → 0.89 s, the peak unchanged (3.65 GB under jemalloc).
-- **Peak memory:** taken by ADR-0016 (jemalloc: the peak is the working set, 3.6 GB on the
+  validation 10.2 s → 0.89 s, the peak unchanged (3,646 MiB under jemalloc).
+- **Peak memory:** taken by ADR-0016 (jemalloc: the peak tracks the working set, 3,646 MiB on the
   pilot, flat from extraction on) and the raw batches released once written. Reopen when the
   peak nears the host's memory.
 - **File skipping on `snapshot_id`: taken** (H1 P3, above): no schema, partition or store change.
@@ -1430,7 +1431,7 @@ The vertex universe is selected separately from the edges, so isolated public AP
 `petgraph::Graph<(), u32, Directed, u32>`, whose edge weight is the arc's row index (the arc columns
 stay in Arrow).
 - **Two queries on the pinned snapshot:** the vertex universe (`ORDER BY node_id`, isolates
-  included) and the arcs with the columns above (`ORDER BY src, dst, call_site_id`).
+  included) and the arcs with the columns above (`ORDER BY src, dst, call_site_id, edge_id`: total, since `edge_id` is unique; H1 review F9).
 - **The dense index is the sorted domain ids:** read the `FixedSizeBinaryArray` directly (no hex
   strings); domain → dense is a `binary_search`.
 - `Graph::with_capacity(n, m)`, then `try_add_node` in order so `NodeIndex(i) == i`, and
@@ -1760,7 +1761,9 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
 - **Input normal form** (the library-leverage review, D2; Tested by probe). The undirected builder
   does not normalize orientation, and shuffled input changed an LFR partition at μ=0.5. So
   DataFusion aggregates each (min,max) pair under a named weight policy and sorts, and a fixture
-  asserts that shuffled and flipped edges give an identical partition.
+  asserts that shuffled and flipped edges give an identical partition. **Owed by the §9.4 slice**
+  (H1 review F9): each aggregated pair keeps its contributing arcs, so a community can cite them
+  (guidelines §4, §10).
 - **Determinism.**
   - The seed is always set (`None` draws OS entropy) and recorded; `track_quality_history` stands
     in for the missing converged flag.
@@ -1786,7 +1789,9 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
   canonical order. The edge weights are the usage counts from examples and tests (a named weight
   policy), with dangling-mass redistribution. It records iterations, the final L1 residual and a
   converged flag (guidelines §8). petgraph's `page_rank` is rejected (the library-leverage review,
-  D1).
+  D1). **Owed by the §9.5 slice** (H1 review F9): the input projection (§5 declares only the
+  invocation projection), and the damping, tolerance, iteration budget and dangling target,
+  recorded in the analytics-config digest.
 - **Tests:**
   - a hand-computed 3-node fixture;
   - two parallel arcs counted with their weights;
@@ -2145,4 +2150,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | C5 compact review F1–F8: the corpus run names the release's installed files by their `@path`, so usage calls, type terms and imports reach the release's own nodes and `usage_targets` and `usage_link` retire; a tree shadowing the release fails; the corpus identity is location-free and includes the library release; hermetic git attributes; source keys and globs checked, `coverage:family-has-scope`; `exact` members need their prefix; injective block paths; injected violations for every C5 rule (§3.2, §3.4.1, §3.8, §4.0, §8) | ADR-0014; ADR-0013 |
 | 2026-09-23 | C6 deep review (Accept, claims narrowed): §8 states the 18 edit-guard rules (`EDIT_GUARDS`) and counts them apart (493 rules, 475 falsifiable), and a meta-test holds every other hand-written rule to an injected case; 14 new cases, `ref:documents.release_id`, unique tie-breaks; the C6 memory figures restated with their allocator conditions and range, the arena-limited peak, retargeted triggers, and the raw batches released once written; the usage run's §10 consumers narrowed, with the text-and-role decision open in §13; labels raised where verified (§B2, §B3, §B6, §B7, §3.3, §3.4.1, §3.5, §3.6, §4.0, §8) | ADR-0014 amendment |
 | 2026-09-23 | ADR-0015 (operator decision, closing C6 review F2): every analyzed module's text and role are stored in `source_files` (`source_role` appended); `[tool.lctx.source]` `examples` and `tests` replace `usage`; `semantic:source-text` and `semantic:source-role-by-run` (496 rules); the §13 open row removed (§3.2, §3.5, §4.0, §8, §13) | ADR-0015 |
-| 2026-09-23 | H1, the library-leverage hardening slice (operator: every review item adopted). Static branches are Pyrefly's own decisions (`constant`, `combined` appended); globset/walkdir selection that follows no link; typed library definitions; `RECORD` as CSV; clap CLI; hermetic `git init`; Pyrefly's own predicates; hash and sort known answers. jemalloc (ADR-0016); cached, concurrent validation with plan metrics; per-commit Delta reads; zstd; the UDF's literal kind; a log subscriber; fs-err/anyhow; `cargo shear`. The declared return annotation read from Pyrefly (fork `a07b7bae`); ADR-0011 amended (own PageRank, normalized Leiden input, own FCA with an oracle, condensation from SCCs, §5's adapter recipe). Pilot 45.0 s → 29.9 s, 7.6 → 3.65 GB, 272 → 235 MB (§3.2, §3.3, §3.4.1, §3.5, §4.0, §4.3, §5, §6.2, §7, §8, §9.4–§9.6, §13) | ADR-0016; ADR-0011; ADR-0009, ADR-0012, ADR-0013, ADR-0002 amendments |
+| 2026-09-23 | H1, the library-leverage hardening slice (operator: every review item adopted). Static branches are Pyrefly's own decisions (`constant`, `combined` appended); globset/walkdir selection that follows no link; typed library definitions; `RECORD` as CSV; clap CLI; hermetic `git init`; Pyrefly's own predicates; hash and sort known answers. jemalloc (ADR-0016); cached, concurrent validation with plan metrics; per-commit Delta reads; zstd; the UDF's literal kind; a log subscriber; fs-err/anyhow; `cargo shear`. The declared return annotation read from Pyrefly (fork `a07b7bae`); ADR-0011 amended (own PageRank, normalized Leiden input, own FCA with an oracle, condensation from SCCs, §5's adapter recipe). Pilot 45.0 s → 29.9 s, 7,587 → 3,646 MiB peak, 272 → 235 MiB store (§3.2, §3.3, §3.4.1, §3.5, §4.0, §4.3, §5, §6.2, §7, §8, §9.4–§9.6, §13) | ADR-0016; ADR-0011; ADR-0009, ADR-0012, ADR-0013, ADR-0002 amendments |

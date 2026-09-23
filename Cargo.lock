@@ -3447,7 +3447,6 @@ dependencies = [
  "tempfile",
  "tikv-jemallocator",
  "tokio",
- "tracing-subscriber",
 ]
 
 [[package]]

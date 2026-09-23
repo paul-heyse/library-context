@@ -33,9 +33,41 @@ def duplicates(lockfile: Path) -> dict[str, list[str]]:
     return {name: sorted(v) for name, v in versions.items() if len(v) > 1}
 
 
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def unpinned(manifest: Path, pins: Path) -> list[str]:
+    """Workspace dependencies without an exact pin (`=x.y.z` or a git `rev`) or a pins.md row.
+
+    A range pin lets `cargo update` move a dependency without a reviewed diff (H1 review F8). A row
+    names the crate anywhere in `pins.md`, or matches a first-column glob such as `arrow-*`.
+    """
+    deps = tomllib.loads(manifest.read_text())["workspace"]["dependencies"]
+    text = pins.read_text()
+    globs = [
+        cell.strip(" `")[:-1]
+        for line in text.splitlines()
+        if line.startswith("| ")
+        for cell in line.split("|")[1].split(",")
+        if cell.strip(" `").endswith("*")
+    ]
+    problems = []
+    for name, spec in sorted(deps.items()):
+        version = spec if isinstance(spec, str) else spec.get("version")
+        exact = (version or "").startswith("=") or (isinstance(spec, dict) and "rev" in spec)
+        if not exact:
+            problems.append(f"{name}: not pinned exactly ({version!r})")
+        if name not in text and not any(name.startswith(g) for g in globs):
+            problems.append(f"{name}: no docs/pins.md row")
+    return problems
+
+
 def main(argv: list[str]) -> int:
     lockfiles = [Path(a) for a in argv] or [Path("Cargo.lock")]
     failed = False
+    for problem in unpinned(ROOT / "Cargo.toml", ROOT / "docs" / "pins.md"):
+        print(f"Cargo.toml: {problem}")
+        failed = True
     for lock in lockfiles:
         if not lock.exists():
             print(f"{lock}: not_run (no lockfile)")

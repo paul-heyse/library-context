@@ -143,3 +143,5 @@ author decisions on 2026-09-22. The Decision below includes its corrections:
   annotation directly instead of undoing Pyrefly's `async def` `Coroutine` wrapping; it removes
   the `Defs` re-walk and the inversion from `types.rs`. The patch is 51 changed lines, within this
   ADR's trigger. Earlier branches stay published.
+- 2026-09-23: correction to the line above (the H1 review, F7). The patch's diffstat is 42
+  insertions and 12 deletions, 54 changed lines, still within the trigger.

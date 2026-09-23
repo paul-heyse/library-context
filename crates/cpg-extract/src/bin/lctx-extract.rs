@@ -14,9 +14,9 @@ use clap::{ArgGroup, Parser};
 use cpg_extract::{ExtractInput, Release, extract, library, write_ipc};
 use cpg_schema::id::Id;
 
-/// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a 6.1-7.3
-/// GB pilot peak; jemalloc peaks at the working set (3.6 GB) and is no slower. Pyrefly's own CLI
-/// uses it on the same platforms.
+/// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
+/// 6,100-7,300 MiB pilot peak; under jemalloc the peak stays flat at extraction's working set
+/// (about 3,640 MiB) and the compile is no slower. Pyrefly's own CLI uses it on the same platforms.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -95,20 +95,8 @@ fn input(a: Args) -> Result<ExtractInput, String> {
     })
 }
 
-/// Warnings from Pyrefly, delta-kernel and DataFusion (its `log` records through the tracing-log
-/// bridge) go to stderr; without a subscriber they were dropped (H1 O1). `LCTX_LOG` overrides the
-/// level (`LCTX_LOG=debug`); it changes output only, never an identity.
-fn init_logging() {
-    let filter = tracing_subscriber::EnvFilter::try_from_env("LCTX_LOG")
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .try_init();
-}
-
 fn main() -> ExitCode {
-    init_logging();
+    cpg_extract::logging::init_logging();
     let run = || -> Result<(), String> {
         let a = Args::parse();
         let out = a.out.clone();

@@ -50,3 +50,10 @@ prefixed, so C libraries that call `malloc` directly (zstd) stay on glibc; tunin
 - **No `cargo deny` or `check_family.py` change:** the licenses (MIT/Apache-2.0; the C source is
   BSD-2-Clause, which `deny.toml` allows) and the version were already in the graph.
 - **Windows builds keep the system allocator**, because of the `cfg` guard.
+
+## Amendments
+
+- 2026-09-23: units and wording (the H1 review, F7). The figures above are MiB as `lctx` prints
+  them, written as GB: "3.64 GB" is 3,640 MiB (3.55 GiB), and glibc's "6.1–7.3 GB" is
+  6,100–7,300 MiB. "The peak is the working set" means that it tracks the working set: it is flat
+  and repeatable, while jemalloc still holds freed pages for its decay period.

@@ -35,6 +35,24 @@ DataFusion) before it became a direct dependency, so none adds a version; `just 
 | fs-err | =3.3.1: filesystem calls whose errors name their path (`cpg-extract`, `cpg-core`, `lctx`; H1 O3) | 2026-09-23 | same; MIT OR Apache-2.0; `an_io_error_names_its_path` |
 | anyhow | =1.0.104: `lctx`'s error type, printed as the whole chain (H1 O4) | 2026-09-23 | same; MIT OR Apache-2.0 |
 
+## Supporting crates (H1 review F8)
+
+Exact pins at the versions `Cargo.lock` already held, so none moved; `just deps` fails on a
+`[workspace.dependencies]` entry without an exact pin or a row here.
+
+| Component | Pin | Verified | How |
+|---|---|---|---|
+| tokio | =1.53.1 (`macros`, `rt-multi-thread`) | 2026-09-23 | `Cargo.lock`; `just deps` |
+| base64 | =0.22.1: `RECORD` hashes (Stage A, ADR-0013) | 2026-09-23 | same (already in the graph at this version) |
+| getrandom | =0.3.4: each attempt's `snapshot_id` (§3.4.1) | 2026-09-23 | same |
+| futures | =0.3.34 (the validation stream, H1 P2) | 2026-09-23 | same |
+| serde_json | =1.0.151 | 2026-09-23 | same |
+| thiserror | =2.0.20 | 2026-09-23 | same |
+| url | =2.5.8 | 2026-09-23 | same |
+| insta | =1.48.0 (dev) | 2026-09-23 | same |
+| proptest | =1.11.0 (dev) | 2026-09-23 | same |
+| tempfile | =3.27.0 (dev) | 2026-09-23 | same |
+
 ## Analyzers (ADR-0012, accepted)
 
 Both analyzers are workspace dependencies since increment 1, slice 1 (`Cargo.toml`, `Cargo.lock`).
@@ -42,7 +60,7 @@ These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and 
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
-| pyrefly (library) | git `github.com/paul-heyse/pyrefly` rev `a07b7baead9e0c7b496346d879b88e2fff9cbda7`, in-process. That is tag 1.3.1 (`3e3177d0f4755b56c2d5a710d830eed89b14c2e3`) plus `third_party/pyrefly-1.3.1.patch` (sha256 `fc18dc4a884a8593220370ba053968fd10de65c020ef257931f97b91426fdb73`; 8 files, 51 changed lines: visibility, a `write_files` switch, a `pysa_reporter()` borrow; C4's `ClassField::dataclass_flags_of` and `Transaction::get_wildcard`; H1 D6's `Answers::get_annotation`, composing `key_to_idx_hashed_opt` and `get_idx`: still no logic change and under ADR-0012's ~60-line trigger). Published 2026-09-23 as branch `lctx/1.3.1-r3`; `lctx/1.3.1-r2` (`6a93da34`) and `lctx/1.3.1` (`b9f28575`) stay, so older commits of this repository still build | 2026-09-23 | `git ls-remote https://github.com/paul-heyse/pyrefly.git 'refs/heads/lctx/*'` gives `a07b7bae` for `r3` (and `6a93da34`, `b9f28575` unchanged). `git format-patch -1 --stdout` on the clone the branch was pushed from gives the patch sha256. Its parent is the 1.3.1 tag (`check_pyrefly_fork.py`). The pilot's outputs were fingerprint-identical on the patched fork before the push |
+| pyrefly (library): `pyrefly`, `pyrefly_build`, `pyrefly_config`, `pyrefly_python`, `pyrefly_types`, `pyrefly_util` | git `github.com/paul-heyse/pyrefly` rev `a07b7baead9e0c7b496346d879b88e2fff9cbda7`, in-process. That is tag 1.3.1 (`3e3177d0f4755b56c2d5a710d830eed89b14c2e3`) plus `third_party/pyrefly-1.3.1.patch` (sha256 `fc18dc4a884a8593220370ba053968fd10de65c020ef257931f97b91426fdb73`; 8 files, 54 changed lines (42+/12−): visibility, a `write_files` switch, a `pysa_reporter()` borrow; C4's `ClassField::dataclass_flags_of` and `Transaction::get_wildcard`; H1 D6's `Answers::get_annotation`, composing `key_to_idx_hashed_opt` and `get_idx`: still no logic change and under ADR-0012's ~60-line trigger). Published 2026-09-23 as branch `lctx/1.3.1-r3`; `lctx/1.3.1-r2` (`6a93da34`) and `lctx/1.3.1` (`b9f28575`) stay, so older commits of this repository still build | 2026-09-23 | `git ls-remote https://github.com/paul-heyse/pyrefly.git 'refs/heads/lctx/*'` gives `a07b7bae` for `r3` (and `6a93da34`, `b9f28575` unchanged). `git format-patch -1 --stdout` on the clone the branch was pushed from gives the patch sha256. Its parent is the 1.3.1 tag (`check_pyrefly_fork.py`). The pilot's outputs were fingerprint-identical on the patched fork before the push |
 | pyrefly (CLI) | 1.3.1 (uv dev group). **Parity-test oracle only** | 2026-09-22 | `uv run pyrefly --version`; spike S4 |
 | ruff library crates | `=0.0.11`, in-process: the line pyrefly 1.3.1 requires (`ruff_python_ast`, `ruff_python_parser`, `ruff_source_file`, `ruff_text_size`, `ruff_notebook`, `ruff_annotate_snippets`) | 2026-09-22 | pyrefly 1.3.1 `pyrefly/Cargo.toml` L69–L74 (`"0.0.11"`, which is exact on the 0.0.x line); the spike `Cargo.lock` resolves only 0.0.11. The pyrefly-ruff skill indexes **0.0.13**. Its contracts transfer except for the known deltas: `TokenKind::is_dot`/`is_lbrace`, `TokenIterWithContext::new`, `parenthesized_range` on unclosed calls, `case +1` handling, lexer accessors |
 | blake3 | `=1.8.6` (pyrefly's exact pin; DataFusion's `"1.8"` accepts it) | 2026-09-22 | pyrefly 1.3.1 `pyrefly/Cargo.toml` L40; spike `Cargo.lock` |

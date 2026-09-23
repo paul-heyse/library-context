@@ -11,6 +11,7 @@ mod docs;
 mod facts;
 mod lexical;
 pub mod library;
+pub mod logging;
 mod public;
 mod pysa_map;
 mod syntax;
