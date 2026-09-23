@@ -6,10 +6,10 @@
 use crate::codebook::{
     AncestryRelation, ArgumentKind, BindingKind, BoundaryReason, CoverageStatus, DeclarationKind,
     DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
-    InvocationPhase, LexicalScopeKind, Modality, ModuleOrigin, Origin, ParameterKind,
-    PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind, ScopeKind,
-    SignatureForm, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TypeArgRole, TypeRole,
-    TypeTermKind,
+    InvocationPhase, LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin,
+    ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind,
+    ScopeKind, SignatureForm, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TypeArgRole,
+    TypeRole, TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -862,6 +862,138 @@ table!(
     }
 );
 
+// ---------------------------------------------------------------- docs
+
+table!(
+    /// The documents of a corpus release (CPG slice C5, DESIGN §3.2 `docs`): each selected file of
+    /// the upstream tree at its pinned commit. A document that does not parse is still a document;
+    /// its coverage row says why it has no passages.
+    Documents, DocumentsRow = "documents",
+    family = Docs,
+    key = [snapshot_id, node_id, fact_id],
+    checks = [("byte_len_nonnegative", "byte_len >= 0")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        /// `H(document, release, path)`.
+        node_id: Id,
+        release_id: Id,
+        /// Release-relative (the tree's root).
+        path: String,
+        content_digest: Digest,
+        byte_len: i64,
+        /// The frontmatter's `title`, as written.
+        title: Option<String>,
+        /// markdown-rs parsed it (MDX constructs, frontmatter).
+        parsed: bool,
+    }
+);
+
+table!(
+    /// A document's sections (`markdown-rs`; C5): each top-level heading opens one, which runs to
+    /// the next top-level heading, so a document's passages partition it; the text before the
+    /// first heading is passage 0 at level 0. The heading path is the enclosing headings' text.
+    Passages, PassagesRow = "passages",
+    family = Docs,
+    key = [snapshot_id, document_node_id, ordinal, fact_id],
+    checks = [
+        ("ordinal_nonnegative", "ordinal >= 0"),
+        ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        /// `H(passage, document, ordinal)`.
+        node_id: Id,
+        document_node_id: Id,
+        ordinal: i64,
+        /// The heading's depth (1–6); 0 before the first heading.
+        level: i64,
+        heading: Option<String>,
+        heading_path: Vec<String>,
+        start_byte: i64,
+        end_byte: i64,
+        /// The passage's source text, as written.
+        text: String,
+    }
+);
+
+table!(
+    /// Fenced code blocks (`markdown-rs`; C5), at any depth (inside MDX components too), in their
+    /// document's order.
+    CodeBlocks, CodeBlocksRow = "code_blocks",
+    family = Docs,
+    key = [snapshot_id, document_node_id, ordinal, fact_id],
+    checks = [
+        ("ordinal_nonnegative", "ordinal >= 0"),
+        ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        /// `H(code_block, document, ordinal)`.
+        node_id: Id,
+        document_node_id: Id,
+        passage_node_id: Id,
+        ordinal: i64,
+        language: Option<String>,
+        meta: Option<String>,
+        /// The fence's span in the document.
+        start_byte: i64,
+        end_byte: i64,
+        code: String,
+        content_digest: Digest,
+    }
+);
+
+table!(
+    /// Links in passages (`markdown-rs`; C5): the URL and its text, as written.
+    DocLinks, DocLinksRow = "doc_links",
+    family = Docs,
+    key = [snapshot_id, passage_node_id, ordinal, fact_id],
+    checks = [
+        ("ordinal_nonnegative", "ordinal >= 0"),
+        ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        passage_node_id: Id,
+        ordinal: i64,
+        url: String,
+        title: Option<String>,
+        text: String,
+        start_byte: i64,
+        end_byte: i64,
+    }
+);
+
+table!(
+    /// Mentions of the library's API in passages (`lctx-docs`, our recognizer; C5). `exact`: the
+    /// text is a public access path or a public class's member; `lexical`: a bare public name, one
+    /// row per access path it could be (`candidate`). The two classes are never merged, and a
+    /// mention by embedding similarity is not one (§9.7).
+    Mentions, MentionsRow = "mentions",
+    family = Docs,
+    key = [snapshot_id, passage_node_id, start_byte, fact_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        passage_node_id: Id,
+        class: MentionClass,
+        source: MentionSource,
+        /// The text as written.
+        form: String,
+        /// The public access path it names (an export), or
+        access_path: Option<String>,
+        /// the release declaration it names (a public class's member).
+        qualified_name: Option<String>,
+        start_byte: i64,
+        end_byte: i64,
+    }
+);
+
 // ---------------------------------------------------------------- publication
 
 table!(
@@ -923,6 +1055,11 @@ macro_rules! for_each_table {
             $crate::tables::TypeTermArgs,
             $crate::tables::TypeObservations,
             $crate::tables::RecordFields,
+            $crate::tables::Documents,
+            $crate::tables::Passages,
+            $crate::tables::CodeBlocks,
+            $crate::tables::DocLinks,
+            $crate::tables::Mentions,
             $crate::tables::PysaCalls,
             $crate::tables::Coverage,
             $crate::tables::Boundaries

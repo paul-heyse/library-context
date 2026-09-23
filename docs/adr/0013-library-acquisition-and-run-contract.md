@@ -166,3 +166,16 @@ changing, because the context did not see the dependency environment.
 - **Superseded.** ADR-0007's acquisition clause (manifest, `ACQUISITION.json`, the skill's
   pattern, the 4.0.3 three-distribution release) is superseded. Everything else it decided is
   carried forward here.
+
+## Amendments
+
+- 2026-09-23: CPG slice C5 (ADR-0014; operator decision "CPG first"). A library's upstream tree
+  (`[tool.lctx.source]`) is compiled as a **corpus run** beside the library run, in the same
+  attempt. `releases`, `distributions` and `source_files` are written **once per extractor run**:
+  an attempt holds several runs only over distinct releases (the library, its corpus), because the
+  family tables' keys carry no run. The corpus run analyzes in the library's environment, so it
+  shares the library's context, and `distributions` is written once. `lctx acquire` also fetches
+  the tree hermetically at its pinned commit into `build/sources/<name>/<commit>`, checked by
+  `rev-parse` every time. The corpus release's id hashes `repository@commit` and every selected
+  file's path and content. This replaces "once per attempt, by the extractor run" in the
+  Provenance clause above.

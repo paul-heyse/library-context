@@ -34,6 +34,7 @@ fn fixture_output(dir: &Path) -> cpg_extract::ExtractOutput {
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
         snapshot_id: Id([9; 16]),
+        corpus: None,
         keep_pysa_json: false,
         test_hooks: Default::default(),
     })

@@ -101,10 +101,12 @@ fact_family
   7 syntax
   8 lexical
   9 types
+  10 docs
 scope_kind
   0 release
   1 module
   2 callable
+  3 document
 declaration_kind
   0 function
   1 async_function
@@ -181,6 +183,9 @@ node_kind
   13 reference
   14 type
   15 field
+  16 document
+  17 passage
+  18 code_block
 edge_kind
   0 declares
   1 overload_of
@@ -213,6 +218,9 @@ edge_kind
   28 type_class
   29 has_field
   30 field_type
+  31 contains_passage
+  32 contains_block
+  33 mentions
 symbol_kind
   0 module
   1 attribute
@@ -437,3 +445,9 @@ record_kind
   2 pydantic
   3 typed_dict
   4 named_tuple
+mention_class
+  0 exact
+  1 lexical
+mention_source
+  0 inline_code
+  1 prose

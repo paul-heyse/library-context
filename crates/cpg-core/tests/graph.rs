@@ -47,6 +47,7 @@ async fn shapes(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDir)
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
         snapshot_id: s,
+        corpus: None,
         keep_pysa_json: false,
         test_hooks: TestHooks {
             reverse_module_order: reverse,

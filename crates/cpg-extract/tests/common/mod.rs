@@ -58,6 +58,7 @@ pub fn input(l: &Layout, label: &str) -> ExtractInput {
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
         snapshot_id: Id([7; 16]),
+        corpus: None,
         keep_pysa_json: false,
         test_hooks: Default::default(),
     }

@@ -1,0 +1,22 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table passages
+family docs
+key snapshot_id, document_node_id, ordinal, fact_id
+check ordinal_nonnegative: ordinal >= 0
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+@lctx.family=docs
+@lctx.table=passages
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+document_node_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+level: Int64 NOT NULL
+heading: Utf8 NULL
+heading_path: List(non-null Utf8) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+text: Utf8 NOT NULL

@@ -211,6 +211,8 @@ codebook!(
         Lexical = 8 => "lexical",
         /// C4: type terms, their structure, type observations and record fields (DESIGN §3.2).
         Types = 9 => "types",
+        /// C5: documents, passages, code blocks, links and mentions (DESIGN §3.2).
+        Docs = 10 => "docs",
     }
 );
 
@@ -219,6 +221,8 @@ codebook!(
         Release = 0 => "release",
         Module = 1 => "module",
         Callable = 2 => "callable",
+        /// C5: a document of a corpus release (the `docs` family's unit).
+        Document = 3 => "document",
     }
 );
 
@@ -365,6 +369,13 @@ codebook!(
         Type = 14 => "type",
         /// A record field of a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple`.
         Field = 15 => "field",
+        // C5
+        /// A document of the source corpus (`documents`).
+        Document = 16 => "document",
+        /// A section of a document under its heading (`passages`).
+        Passage = 17 => "passage",
+        /// A fenced code block (`code_blocks`).
+        CodeBlock = 18 => "code_block",
     }
 );
 
@@ -405,6 +416,10 @@ codebook!(
         TypeClass = 28 => "type_class",
         HasField = 29 => "has_field",
         FieldType = 30 => "field_type",
+        // C5
+        ContainsPassage = 31 => "contains_passage",
+        ContainsBlock = 32 => "contains_block",
+        Mentions = 33 => "mentions",
     }
 );
 
@@ -729,6 +744,25 @@ codebook!(
     }
 );
 
+codebook!(
+    /// How a mention names an API (C5, `mentions`; DESIGN §3.2 `docs`): the two classes are never
+    /// merged.
+    MentionClass = "mention_class" {
+        /// The text is a public access path, or a public class's member (`FastMCP.tool`).
+        Exact = 0 => "exact",
+        /// The text is a bare public name: a candidate of every access path with that name.
+        Lexical = 1 => "lexical",
+    }
+);
+
+codebook!(
+    /// Where in a passage a mention's text sits (C5, `mentions`).
+    MentionSource = "mention_source" {
+        InlineCode = 0 => "inline_code",
+        Prose = 1 => "prose",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -770,6 +804,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<TypeArgRole>(),
         CodebookEntry::of::<TypeRole>(),
         CodebookEntry::of::<RecordKind>(),
+        CodebookEntry::of::<MentionClass>(),
+        CodebookEntry::of::<MentionSource>(),
     ]
 }
 

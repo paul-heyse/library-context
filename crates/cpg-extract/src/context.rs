@@ -33,7 +33,7 @@ use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_path::ModulePathDetails;
 
 use crate::ExtractError;
-use crate::config::{ExtractInput, PYREFLY_REV, ReleaseOrigin};
+use crate::config::{ExtractInput, PYREFLY_REV};
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
 use crate::pysa_map::ModuleRefs;
 
@@ -198,10 +198,7 @@ pub(crate) fn context_facts(
         .pysa_reporter()
         .expect("the reporter was installed before run")
         .module_ids;
-    let owners = match &input.release.origin {
-        ReleaseOrigin::Library(l) => Some(l),
-        ReleaseOrigin::Tree { .. } => None,
-    };
+    let owners = input.release.environment_library();
 
     let mut out = ContextOut::default();
     let mut all: BTreeMap<&String, (&Handle, bool)> =

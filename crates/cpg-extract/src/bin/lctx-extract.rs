@@ -85,6 +85,7 @@ fn input(a: Args, snapshot: Id) -> Result<ExtractInput, String> {
         python_version: a.python.unwrap_or((3, 14, 0)),
         python_platform: a.platform.unwrap_or_else(|| "linux".to_owned()),
         snapshot_id: snapshot,
+        corpus: None,
         keep_pysa_json: false,
         test_hooks: Default::default(),
     })

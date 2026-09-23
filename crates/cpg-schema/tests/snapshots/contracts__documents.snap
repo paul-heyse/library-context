@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table documents
+family docs
+key snapshot_id, node_id, fact_id
+check byte_len_nonnegative: byte_len >= 0
+@lctx.family=docs
+@lctx.table=documents
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+release_id: FixedSizeBinary(16) NOT NULL
+path: Utf8 NOT NULL
+content_digest: FixedSizeBinary(32) NOT NULL
+byte_len: Int64 NOT NULL
+title: Utf8 NULL
+parsed: Boolean NOT NULL

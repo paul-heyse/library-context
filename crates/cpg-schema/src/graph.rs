@@ -216,6 +216,25 @@ pub fn node_sources() -> Vec<NodeSource> {
             "SELECT node_id, module_node_id, fact_id AS existence_fact_id FROM record_fields"
                 .to_owned(),
         ),
+        // C5: the source corpus. A document is not a module, so these have no module.
+        n(
+            NodeKind::Document,
+            "SELECT node_id, CAST(NULL AS BYTEA) AS module_node_id, fact_id AS existence_fact_id \
+             FROM documents"
+                .to_owned(),
+        ),
+        n(
+            NodeKind::Passage,
+            "SELECT node_id, CAST(NULL AS BYTEA) AS module_node_id, fact_id AS existence_fact_id \
+             FROM passages"
+                .to_owned(),
+        ),
+        n(
+            NodeKind::CodeBlock,
+            "SELECT node_id, CAST(NULL AS BYTEA) AS module_node_id, fact_id AS existence_fact_id \
+             FROM code_blocks"
+                .to_owned(),
+        ),
     ]
 }
 
@@ -956,6 +975,66 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             ("r.node_id", "r.term_node_id", None, "r.fact_id"),
             Some("SELECT fact_id FROM record_fields"),
         ),
+        // C5: the source corpus.
+        simple(
+            EdgeKind::ContainsPassage,
+            &[N::Document],
+            &[N::Passage],
+            "the document holds the passage, at its ordinal",
+            DerivationClass::Extracted,
+            "passages",
+            "SELECT {} FROM passages p",
+            (
+                "p.document_node_id",
+                "p.node_id",
+                Some("p.ordinal"),
+                "p.fact_id",
+            ),
+            Some("SELECT fact_id FROM passages"),
+        ),
+        simple(
+            EdgeKind::ContainsBlock,
+            &[N::Passage],
+            &[N::CodeBlock],
+            "the passage holds the code block, at its ordinal in the document",
+            DerivationClass::Extracted,
+            "code_blocks",
+            "SELECT {} FROM code_blocks b",
+            ("b.passage_node_id", "b.node_id", Some("b.ordinal"), "b.fact_id"),
+            Some("SELECT fact_id FROM code_blocks"),
+        ),
+        EdgeSource {
+            kind: EdgeKind::Mentions,
+            src: &[N::Passage],
+            dst: &[N::Export, N::Class, N::Function],
+            direction: "the passage names the API element at the byte offset (`exact` or \
+                        `lexical` on the evidence row; a lexical mention is `candidate`)",
+            // One passage names one export at several places.
+            parallel: true,
+            derivation: DerivationClass::Recognizer,
+            evidence_table: "mentions",
+            sql: format!(
+                "SELECT {} FROM mention_targets t JOIN mentions m ON m.fact_id = t.mention_fact_id \
+                 WHERE t.target_node_id IS NOT NULL",
+                row(
+                    "t.passage_node_id",
+                    "t.target_node_id",
+                    Some("m.start_byte"),
+                    "t.mention_fact_id",
+                    None,
+                    None
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: "SELECT fact_id FROM mentions".to_owned(),
+                explained: Some(
+                    "SELECT mention_fact_id AS fact_id FROM mention_targets \
+                     WHERE reason IS NOT NULL"
+                        .to_owned(),
+                ),
+            }),
+        },
     ]
 }
 
@@ -1314,7 +1393,7 @@ pub fn node_columns() -> Vec<NodeColumn> {
         nc("call_syntax", "owner_node_id", DECL),
         nc("arguments", "call_node_id", &[N::CallSite]),
         nc("pysa_calls", "module_node_id", MODULE),
-        nc("coverage", "scope_node_id", MODULE),
+        nc("coverage", "scope_node_id", &[N::Module, N::Document]),
         nc("boundaries", "module_node_id", MODULE),
         nc(
             "boundaries",
@@ -1435,6 +1514,18 @@ pub fn node_columns() -> Vec<NodeColumn> {
             "class_node_id",
             &[N::Class, N::ExternalSymbol],
         ),
+        // C5
+        nc("passages", "document_node_id", &[N::Document]),
+        nc("code_blocks", "document_node_id", &[N::Document]),
+        nc("code_blocks", "passage_node_id", &[N::Passage]),
+        nc("doc_links", "passage_node_id", &[N::Passage]),
+        nc("mentions", "passage_node_id", &[N::Passage]),
+        nc("mention_targets", "passage_node_id", &[N::Passage]),
+        nc(
+            "mention_targets",
+            "target_node_id",
+            &[N::Export, N::Class, N::Function],
+        ),
     ]
 }
 
@@ -1549,6 +1640,23 @@ pub fn rules() -> Vec<Rule> {
              WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('field', class_node_id, name) AS BYTEA)",
         ),
         (
+            "id:documents",
+            "SELECT node_id FROM documents \
+             WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('document', release_id, path) AS BYTEA)",
+        ),
+        (
+            "id:passages",
+            "SELECT node_id FROM passages \
+             WHERE CAST(node_id AS BYTEA) \
+                <> CAST(lctx_id('passage', document_node_id, ordinal) AS BYTEA)",
+        ),
+        (
+            "id:code_blocks",
+            "SELECT node_id FROM code_blocks \
+             WHERE CAST(node_id AS BYTEA) \
+                <> CAST(lctx_id('code_block', document_node_id, ordinal) AS BYTEA)",
+        ),
+        (
             "id:context_modules",
             "SELECT module_node_id FROM context_modules WHERE distribution IS NOT NULL \
                AND CAST(module_node_id AS BYTEA) \
@@ -1648,6 +1756,7 @@ pub fn rules() -> Vec<Rule> {
             "binding_id IS NULL AND builtin_name IS NULL",
         ),
         ("type_class_targets", "class_node_id IS NULL"),
+        ("mention_targets", "target_node_id IS NULL"),
     ] {
         out.push(rule(
             format!("typed:{table}"),

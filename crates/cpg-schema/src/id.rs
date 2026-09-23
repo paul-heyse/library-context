@@ -72,6 +72,9 @@ pub mod kind {
     pub const REFERENCE: &str = "reference";
     pub const TYPE: &str = "type";
     pub const FIELD: &str = "field";
+    pub const DOCUMENT: &str = "document";
+    pub const PASSAGE: &str = "passage";
+    pub const CODE_BLOCK: &str = "code_block";
 }
 
 /// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
@@ -126,6 +129,29 @@ pub mod recipe {
         IdHasher::new(kind::FIELD)
             .opt_id(Some(class))
             .opt_str(Some(name))
+            .finish_id()
+    }
+
+    /// A document of a corpus release (C5).
+    pub fn document(release: Id, path: &str) -> Id {
+        IdHasher::new(kind::DOCUMENT)
+            .opt_id(Some(release))
+            .opt_str(Some(path))
+            .finish_id()
+    }
+
+    /// A passage or code block: a role of its document at an ordinal (C5).
+    pub fn passage(document: Id, ordinal: i64) -> Id {
+        IdHasher::new(kind::PASSAGE)
+            .opt_id(Some(document))
+            .opt_i64(Some(ordinal))
+            .finish_id()
+    }
+
+    pub fn code_block(document: Id, ordinal: i64) -> Id {
+        IdHasher::new(kind::CODE_BLOCK)
+            .opt_id(Some(document))
+            .opt_i64(Some(ordinal))
             .finish_id()
     }
 

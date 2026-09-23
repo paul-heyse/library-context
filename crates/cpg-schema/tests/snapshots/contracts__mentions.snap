@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table mentions
+family docs
+key snapshot_id, passage_node_id, start_byte, fact_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+@lctx.family=docs
+@lctx.table=mentions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+passage_node_id: FixedSizeBinary(16) NOT NULL
+class: Int16 NOT NULL [lctx.codebook=mention_class]
+source: Int16 NOT NULL [lctx.codebook=mention_source]
+form: Utf8 NOT NULL
+access_path: Utf8 NULL
+qualified_name: Utf8 NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL

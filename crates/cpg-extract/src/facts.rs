@@ -19,6 +19,10 @@ pub(crate) enum Surface {
     Lexical,
     /// Pyrefly's native types (C4).
     PyreflyTypes,
+    /// markdown-rs's syntax tree of a document (C5).
+    MarkdownRs,
+    /// Our docs recognizer (C5 mentions).
+    Docs,
 }
 
 impl Surface {
@@ -31,6 +35,8 @@ impl Surface {
             Surface::Compare => "compare",
             Surface::Lexical => "lctx-lexical",
             Surface::PyreflyTypes => "pyrefly-types",
+            Surface::MarkdownRs => "markdown-rs",
+            Surface::Docs => "lctx-docs",
         }
     }
 }

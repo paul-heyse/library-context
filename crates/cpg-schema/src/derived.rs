@@ -749,6 +749,44 @@ impl Derived for TypeClassTargets {
 }
 
 table!(
+    /// Each mention resolved to the node it names (C5, DESIGN §3.8): an access path's `export`
+    /// node, or a member's release declaration (the `.py` one when a `.pyi` also declares it, by the
+    /// seed rank). The recognizer draws both from the release's own public names and declarations,
+    /// so a mention that names nothing is our failure: a null target with a null reason, which
+    /// `typed:mention_targets` rejects.
+    MentionTargets, MentionTargetsRow = "mention_targets",
+    family = Docs,
+    key = [snapshot_id, mention_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        mention_fact_id: Id,
+        passage_node_id: Id,
+        target_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for MentionTargets {
+    fn sql() -> String {
+        format!(
+            "WITH {KEYED}, \
+             exported AS (SELECT DISTINCT access_path, export_node_id FROM exports), \
+             ranked AS ( \
+               SELECT d.node_id, d.qualified_name, {rank} AS pick \
+               FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id) \
+             SELECT m.fact_id AS mention_fact_id, m.passage_node_id, \
+                    COALESCE(e.export_node_id, r.node_id) AS target_node_id, \
+                    CAST(NULL AS SMALLINT) AS reason \
+             FROM mentions m \
+             LEFT JOIN exported e ON e.access_path = m.access_path \
+             LEFT JOIN ranked r ON r.pick = 1 AND r.qualified_name = m.qualified_name",
+            rank = seed_rank("d.qualified_name"),
+        )
+    }
+}
+
+table!(
     /// Each method Pysa says overrides a base method, resolved to nodes (DESIGN §3.8): the method
     /// and the overridden method (of the release, synthetic, or a dependency definition). An end
     /// that does not resolve carries a reason.
@@ -983,6 +1021,7 @@ macro_rules! for_each_derived_table {
             $crate::derived::IdentifierTargets,
             $crate::derived::ImportTargets,
             $crate::derived::TypeClassTargets,
+            $crate::derived::MentionTargets,
             $crate::graph::Nodes,
             $crate::graph::Edges,
             $crate::graph::GraphGaps,

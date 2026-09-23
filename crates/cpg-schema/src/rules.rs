@@ -43,8 +43,12 @@ pub const REFERENCES: &[Reference] = &[
     // against `nodes` with their kinds; these are the fact, provenance and composite references.
     r("facts", "run_id", &[("runs", "run_id")]),
     r("runs", "release_id", &[("releases", "release_id")]),
-    // A run's release has modules, so `coverage:complete` cannot pass vacuously.
-    r("runs", "release_id", &[("source_files", "release_id")]),
+    // A run's release has modules or documents, so `coverage:complete` cannot pass vacuously.
+    r(
+        "runs",
+        "release_id",
+        &[("source_files", "release_id"), ("documents", "release_id")],
+    ),
     r("releases", "release_id", &[("runs", "release_id")]),
     r("distributions", "context_id", &[("contexts", "context_id")]),
     r("source_files", "release_id", &[("runs", "release_id")]),
@@ -271,7 +275,13 @@ pub fn rules() -> Vec<Rule> {
              expected AS ( \
                SELECT d.run_id, s.module_node_id, c.code \
                FROM declared d JOIN codes c ON c.family = d.family \
-               JOIN source_files s ON s.release_id = d.release_id) \
+               JOIN source_files s ON s.release_id = d.release_id \
+               WHERE d.family <> 'docs' \
+               UNION ALL \
+               SELECT d.run_id, x.node_id AS module_node_id, c.code \
+               FROM declared d JOIN codes c ON c.family = d.family \
+               JOIN documents x ON x.release_id = d.release_id \
+               WHERE d.family = 'docs') \
              SELECT e.run_id, e.module_node_id, e.code FROM expected e \
              LEFT ANTI JOIN coverage v \
                ON v.run_id = e.run_id AND v.scope_node_id = e.module_node_id \

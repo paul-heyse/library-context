@@ -26,7 +26,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 11;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 12;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -51,6 +51,13 @@ pub enum ReleaseOrigin {
     Tree { label: String },
     /// A library acquired from its committed uv project (Stage A, ADR-0013).
     Library(crate::library::AcquiredLibrary),
+    /// A library's upstream tree at its pinned commit (C5): its documents, examples and tests,
+    /// analyzed in the library's environment (so the context is the library's).
+    Corpus {
+        /// `<repository>@<commit>`.
+        label: String,
+        library: Option<crate::library::AcquiredLibrary>,
+    },
 }
 
 impl Release {
@@ -91,11 +98,57 @@ impl Release {
         })
     }
 
-    pub(crate) fn lock_digest(&self) -> Option<Digest> {
+    /// A corpus release (C5): the modules are the usage files (examples, tests), and the id hashes
+    /// the label and every selected file's release-relative path and content, so the release is
+    /// the tree's content, not where it was fetched.
+    pub fn corpus(
+        root: PathBuf,
+        label: &str,
+        documents: &[PathBuf],
+        usage: Vec<PathBuf>,
+        library: Option<crate::library::AcquiredLibrary>,
+    ) -> std::io::Result<Release> {
+        let mut selected: Vec<(String, Digest)> = Vec::new();
+        for f in documents.iter().chain(&usage) {
+            let rel = f.strip_prefix(&root).map_err(|_| {
+                std::io::Error::other(format!("{} is outside the tree", f.display()))
+            })?;
+            selected.push((
+                rel.display().to_string(),
+                content_digest(&std::fs::read(f)?),
+            ));
+        }
+        selected.sort();
+        let mut h = IdHasher::new(kind::RELEASE);
+        h.str("corpus").str(label).i64(selected.len() as i64);
+        for (path, digest) in &selected {
+            h.str(path).digest_field(*digest);
+        }
+        let mut files = usage;
+        files.sort();
+        Ok(Release {
+            release_id: h.finish_id(),
+            root,
+            files,
+            origin: ReleaseOrigin::Corpus {
+                label: label.to_owned(),
+                library,
+            },
+        })
+    }
+
+    /// The library whose environment the release is analyzed in: its `RECORD` owners name the
+    /// distribution of every installed file.
+    pub(crate) fn environment_library(&self) -> Option<&crate::library::AcquiredLibrary> {
         match &self.origin {
             ReleaseOrigin::Tree { .. } => None,
-            ReleaseOrigin::Library(l) => Some(l.lock_digest),
+            ReleaseOrigin::Library(l) => Some(l),
+            ReleaseOrigin::Corpus { library, .. } => library.as_ref(),
         }
+    }
+
+    pub(crate) fn lock_digest(&self) -> Option<Digest> {
+        self.environment_library().map(|l| l.lock_digest)
     }
 }
 
@@ -111,11 +164,21 @@ pub struct ExtractInput {
     pub python_platform: String,
     /// The compile attempt this extraction belongs to (execution identity, DM-12).
     pub snapshot_id: Id,
+    /// The library's upstream corpus, compiled as a second run of the attempt (C5).
+    pub corpus: Option<CorpusInput>,
     /// Keep the Pysa structs as JSON for the harness-equivalence test (§4.2.5).
     pub keep_pysa_json: bool,
     /// Test oracles only; the CLI never sets them.
     #[doc(hidden)]
     pub test_hooks: TestHooks,
+}
+
+/// A corpus run's input (C5): its release (the usage modules, and the identity) and its documents.
+#[derive(Debug, Clone)]
+pub struct CorpusInput {
+    pub release: Release,
+    /// Selected documents, absolute, under `release.root`, sorted.
+    pub documents: Vec<PathBuf>,
 }
 
 /// Hooks the tests use to show the driver's contracts can fail (review F1, F6).

@@ -45,6 +45,9 @@ serde_json = "1"
 toml = "=1.1.6"
 sha2 = "=0.10.9"
 base64 = "=0.22.1"
+# The docs family (CPG slice C5, docs/pins.md): markdown-rs, MDX constructs and byte offsets
+# (probe P5).
+markdown = "=1.0.0"
 getrandom = "=0.3.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"

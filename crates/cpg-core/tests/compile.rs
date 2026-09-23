@@ -47,6 +47,7 @@ fn raw(fixture: &str, snapshot_id: Id) -> Vec<(&'static str, RecordBatch)> {
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
         snapshot_id,
+        corpus: None,
         keep_pysa_json: false,
         test_hooks: Default::default(),
     })
@@ -87,7 +88,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
-    assert_eq!(versions.len(), 31 + 19, "every raw and derived table");
+    assert_eq!(versions.len(), 36 + 20, "every raw and derived table");
 
     // A second attempt fails validation after writing its rows: it publishes nothing.
     let mut raw_b = raw("pysa_variants", b);

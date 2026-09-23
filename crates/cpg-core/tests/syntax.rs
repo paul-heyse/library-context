@@ -1,6 +1,7 @@
-//! CPG slices C2–C4 (DESIGN §3.2): the placed syntax tree on the `syntax_shapes` fixture and
+//! CPG slices C2–C5 (DESIGN §3.2): the placed syntax tree on the `syntax_shapes` fixture and
 //! Pysa's non-call sites resolved to its nodes; name resolution on `lexical_shapes`; type terms,
-//! observations and record fields on `type_shapes`.
+//! observations and record fields on `type_shapes`; a corpus's documents and mentions on
+//! `docs_shapes`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -47,6 +48,7 @@ async fn published_fixture(fixture: &str) -> (SessionContext, tempfile::TempDir)
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
         snapshot_id: s,
+        corpus: None,
         keep_pysa_json: false,
         test_hooks: Default::default(),
     })
@@ -386,4 +388,105 @@ async fn types_keep_structure_binders_and_record_fields() {
     assert_eq!(ts, "ts.first\nts.ident\n");
     let truncated = lines(&ctx, "SELECT count(*) FROM type_terms WHERE kind = 27").await;
     assert_eq!(truncated, "0\n");
+}
+
+/// C5 (DESIGN §3.2 `docs`): a corpus run beside the library run. The documents the selection
+/// keeps, their passages, code blocks and links, the mentions of the library's API by class, and
+/// each document's coverage.
+#[tokio::test]
+async fn a_corpus_documents_its_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = repo.join("fixtures/python/docs_shapes");
+    copy(&fixture.join("release"), &dir.path().join("release"));
+    copy(&fixture.join("corpus"), &dir.path().join("corpus"));
+    std::fs::create_dir_all(dir.path().join("venv/site-packages")).unwrap();
+    let s = Id([7; 16]);
+    let mut input = ExtractInput {
+        release: cpg_extract::Release::from_tree(
+            std::fs::canonicalize(dir.path().join("release")).unwrap(),
+            "docs_shapes",
+        )
+        .unwrap(),
+        venv_root: std::fs::canonicalize(dir.path().join("venv")).unwrap(),
+        site_packages: vec![std::fs::canonicalize(dir.path().join("venv/site-packages")).unwrap()],
+        python_version: (3, 14, 0),
+        python_platform: "linux".to_owned(),
+        snapshot_id: s,
+        corpus: None,
+        keep_pysa_json: false,
+        test_hooks: Default::default(),
+    };
+    let source = cpg_extract::library::Source {
+        repository: "https://example.invalid/pkg".to_owned(),
+        tag: "v1".to_owned(),
+        commit: "0".repeat(40),
+        documents: vec!["docs/**/*.mdx".to_owned()],
+        documents_exclude: vec!["docs/old/**".to_owned()],
+        usage: Vec::new(),
+    };
+    let tree = std::fs::canonicalize(dir.path().join("corpus")).unwrap();
+    input.corpus = Some(cpg_extract::library::corpus(&tree, &source, &input).unwrap());
+    let out = extract(&input).unwrap();
+    let store = dir.path().join("store");
+    compile(&store, s, &out.tables).await.unwrap();
+    let (_, ctx) = published(&store, s).await.unwrap().unwrap();
+
+    let mut text = String::from("## documents: path | title | parsed\n");
+    text += &lines(
+        &ctx,
+        "SELECT path, title, CAST(parsed AS VARCHAR) FROM documents ORDER BY path",
+    )
+    .await;
+    text += "## passages: ordinal | level | heading | path | span\n";
+    text += &lines(
+        &ctx,
+        "SELECT CAST(p.ordinal AS VARCHAR) AS ord, CAST(p.level AS VARCHAR) AS lvl, p.heading, \
+                array_to_string(p.heading_path, ' > '), \
+                CAST(p.start_byte AS VARCHAR) || '-' || CAST(p.end_byte AS VARCHAR) \
+         FROM passages p ORDER BY p.ordinal",
+    )
+    .await;
+    text += "## code blocks: passage | language | code\n";
+    text += &lines(
+        &ctx,
+        "SELECT p.heading, b.language, replace(b.code, chr(10), ' / ') \
+         FROM code_blocks b JOIN passages p ON p.node_id = b.passage_node_id ORDER BY b.ordinal",
+    )
+    .await;
+    text += "## links: passage | url | text\n";
+    text += &lines(
+        &ctx,
+        "SELECT p.heading, l.url, l.text \
+         FROM doc_links l JOIN passages p ON p.node_id = l.passage_node_id ORDER BY l.start_byte",
+    )
+    .await;
+    text += "## mentions: passage | class | source | form | target | modality | edge target\n";
+    text += &lines(
+        &ctx,
+        &format!(
+            "SELECT COALESCE(p.heading, '(preamble)'), \
+                    CASE m.class WHEN 0 THEN 'exact' ELSE 'lexical' END, \
+                    CASE m.source WHEN 0 THEN 'code' ELSE 'prose' END, m.form, \
+                    COALESCE(m.access_path, m.qualified_name), CAST(f.modality AS VARCHAR), \
+                    COALESCE(x.access_path, d.qualified_name) \
+             FROM mentions m JOIN passages p ON p.node_id = m.passage_node_id \
+             JOIN facts f ON f.fact_id = m.fact_id \
+             LEFT JOIN edges e ON e.evidence_fact_id = m.fact_id AND e.edge_kind = {} \
+             LEFT JOIN (SELECT DISTINCT access_path, export_node_id FROM exports) x \
+               ON x.export_node_id = e.dst_node_id \
+             LEFT JOIN declarations d ON d.node_id = e.dst_node_id \
+             ORDER BY m.start_byte, 5",
+            EdgeKind::Mentions.code()
+        ),
+    )
+    .await;
+    text += "## coverage: path | status | reason\n";
+    text += &lines(
+        &ctx,
+        "SELECT d.path, CAST(c.status AS VARCHAR), CAST(c.reason AS VARCHAR) \
+         FROM coverage c JOIN documents d ON d.node_id = c.scope_node_id ORDER BY d.path",
+    )
+    .await;
+    insta::assert_snapshot!(text);
 }

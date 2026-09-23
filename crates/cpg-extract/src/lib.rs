@@ -7,6 +7,7 @@
 
 mod config;
 mod context;
+mod docs;
 mod facts;
 mod lexical;
 pub mod library;
@@ -30,12 +31,13 @@ use cpg_schema::id::{Id, IdHasher, content_digest, kind};
 use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
-    Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, ContextDefinitions,
-    ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
-    DistributionsRow, ExportSyntax, Facts, ParameterSemantics, ParameterSyntax, Producers,
-    ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields,
-    ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles,
-    SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
+    Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
+    ContextDefinitions, ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
+    Distributions, DistributionsRow, DocLinks, Documents, ExportSyntax, Facts, Mentions,
+    ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls,
+    PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions, References, Releases,
+    ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations,
+    TypeTermArgs, TypeTerms,
 };
 use pyrefly::export::exports::ExportLocation;
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
@@ -61,7 +63,7 @@ use ruff_text_size::Ranged;
 use serde_json::Value;
 
 pub use config::{
-    DRIVER_STACK_BYTES, ExtractInput, PYREFLY_PATCH_SHA256, PYREFLY_REV, REFUSED_ENV,
+    CorpusInput, DRIVER_STACK_BYTES, ExtractInput, PYREFLY_PATCH_SHA256, PYREFLY_REV, REFUSED_ENV,
     REFUSED_ENV_PREFIX, Release, ReleaseOrigin, TOOL, TestHooks,
 };
 use facts::{FactSink, Provenance, Surface, dedup_by_fact, fact_row};
@@ -77,6 +79,9 @@ pub const FAMILIES: [FactFamily; 6] = [
     FactFamily::Lexical,
     FactFamily::Types,
 ];
+
+/// The families a corpus run declares (C5): its documents.
+pub const CORPUS_FAMILIES: [FactFamily; 1] = [FactFamily::Docs];
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExtractError {
@@ -171,11 +176,36 @@ impl Report {
         reason: Option<BoundaryReason>,
         detail: Option<String>,
     ) {
+        self.cover_scope(
+            sink,
+            ScopeKind::Module,
+            module,
+            family,
+            status,
+            reason,
+            detail,
+        );
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a coverage row has this many facets"
+    )]
+    fn cover_scope(
+        &mut self,
+        sink: &FactSink,
+        scope_kind: ScopeKind,
+        scope: Id,
+        family: FactFamily,
+        status: CoverageStatus,
+        reason: Option<BoundaryReason>,
+        detail: Option<String>,
+    ) {
         self.coverage.push(CoverageRow {
             snapshot_id: sink.snapshot_id,
             run_id: sink.run_id,
-            scope_kind: ScopeKind::Module,
-            scope_node_id: module,
+            scope_kind,
+            scope_node_id: scope,
             fact_family: family,
             status,
             reason,
@@ -225,14 +255,85 @@ impl Report {
     }
 }
 
+/// The library run, then the corpus run when one is declared (C5), merged into one attempt.
 fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
+    let (library, vocabulary) = run_release(input, &FAMILIES, None)?;
+    let Some(corpus) = &input.corpus else {
+        return Ok(library);
+    };
+    let corpus_input = ExtractInput {
+        release: corpus.release.clone(),
+        corpus: None,
+        ..input.clone()
+    };
+    let (corpus_out, _) = run_release(
+        &corpus_input,
+        &CORPUS_FAMILIES,
+        Some((&corpus.documents, &vocabulary)),
+    )?;
+    merge(library, corpus_out)
+}
+
+/// Two runs' tables as one attempt's: every table concatenated and sorted by its key. A context
+/// or producer both runs share is written once.
+fn merge(a: ExtractOutput, b: ExtractOutput) -> Result<ExtractOutput, ExtractError> {
+    macro_rules! keys {
+        ($($t:ty),+) => { vec![$((<$t as Table>::NAME, <$t as Table>::key())),+] };
+    }
+    let keys: HashMap<&str, &[&str]> = cpg_schema::for_each_table!(keys).into_iter().collect();
+    let shared = |name: &str| {
+        (name == Producers::NAME && a.producer_id == b.producer_id)
+            || ((name == Contexts::NAME || name == Distributions::NAME)
+                && a.context_id == b.context_id)
+    };
+    let mut tables = Vec::new();
+    for (name, batch) in &a.tables {
+        let other = b.tables.iter().find(|(n, _)| n == name).map(|(_, x)| x);
+        let merged = match other {
+            Some(other) if !shared(name) && other.num_rows() > 0 => {
+                let both = arrow_select::concat::concat_batches(&batch.schema(), [batch, other])?;
+                cpg_schema::table::canonical_sort(&both, keys[name])?
+            }
+            Some(_) | None => batch.clone(),
+        };
+        tables.push((*name, merged));
+    }
+    let mut stages = a.stages;
+    stages.extend(b.stages.into_iter().map(|mut s| {
+        s.name = format!("corpus {}", s.name);
+        s
+    }));
+    Ok(ExtractOutput {
+        run_id: a.run_id,
+        context_id: a.context_id,
+        producer_id: a.producer_id,
+        tables,
+        pysa_json: a.pysa_json,
+        stages,
+    })
+}
+
+/// One extractor run over one release: the declared `families`, and for a corpus its documents
+/// with the library's vocabulary. Returns the run's tables and the vocabulary its public names
+/// and declarations make.
+fn run_release(
+    input: &ExtractInput,
+    families: &[FactFamily],
+    documents: Option<(&[PathBuf], &docs::Vocabulary)>,
+) -> Result<(ExtractOutput, docs::Vocabulary), ExtractError> {
     let mut stages = Stages::new();
     let cfg = config::pyrefly_config(input)?;
     let context = config::context(&cfg, input)?;
     let producer = config::producer();
-    let family_names: Vec<&str> = FAMILIES
+    let family_names: Vec<&str> = families
         .iter()
         .map(|f| cpg_schema::Codebook::text(*f))
+        .collect();
+    // The code families, whose unit is a module (the `docs` family's is a document).
+    let code_families: Vec<FactFamily> = families
+        .iter()
+        .copied()
+        .filter(|f| *f != FactFamily::Docs)
         .collect();
     let run_id = config::run_id(
         input.release.release_id,
@@ -373,13 +474,13 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
                 utf8,
                 distribution: match &input.release.origin {
                     ReleaseOrigin::Library(l) => l.owners.get(&m.path).cloned(),
-                    ReleaseOrigin::Tree { .. } => None,
+                    ReleaseOrigin::Tree { .. } | ReleaseOrigin::Corpus { .. } => None,
                 },
             }
         ));
         if !utf8 {
             // Pyrefly would load it as an empty module, which must not read as "no API".
-            for family in FAMILIES {
+            for &family in &code_families {
                 report.cover(
                     &sink,
                     m.node_id,
@@ -494,7 +595,11 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .filter(|e| e.error_kind() == ErrorKind::ParseError)
         .collect();
         if !parse_errors.is_empty() {
-            partial.extend(FAMILIES.map(|f| (f, BoundaryReason::SyntaxError)));
+            partial.extend(
+                code_families
+                    .iter()
+                    .map(|&f| (f, BoundaryReason::SyntaxError)),
+            );
             for e in &parse_errors {
                 report.boundary(
                     &mut sink,
@@ -582,7 +687,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
                 Some("__all__ is not a literal list or tuple of strings".to_owned()),
             );
         }
-        for family in FAMILIES {
+        for &family in &code_families {
             let (status, reason) = match partial.get(&family) {
                 Some(reason) => (CoverageStatus::Partial, Some(*reason)),
                 None => (CoverageStatus::CompleteUnderStatedModel, None),
@@ -616,8 +721,11 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .iter()
         .map(|m| (m.handle.clone(), m.node_id))
         .collect();
-    let (mut public, mut export_origins) =
-        public::public_names(&readable, &release_files, &txn, &mut sink)?;
+    let (mut public, mut export_origins) = if families.contains(&FactFamily::Exports) {
+        public::public_names(&readable, &release_files, &txn, &mut sink)?
+    } else {
+        (Vec::new(), Vec::new())
+    };
     // Every module an import names that is not the release's (C3's `imports_module`).
     let release_modules: std::collections::BTreeSet<&str> =
         modules.iter().map(|m| m.name.as_str()).collect();
@@ -645,6 +753,38 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         &mut sink,
         &mut stages,
     )?;
+
+    // A corpus's documents (C5), recognized against the library's vocabulary.
+    let mut docs_out = docs::DocsOut::default();
+    if let Some((documents, vocabulary)) = documents {
+        for path in documents {
+            let rel = path
+                .strip_prefix(&input.release.root)
+                .map_err(|_| ExtractError::RelativePath(path.clone()))?
+                .display()
+                .to_string();
+            let bytes = std::fs::read(path)?;
+            let c = docs::document(
+                &mut sink,
+                input.release.release_id,
+                &rel,
+                &bytes,
+                vocabulary,
+                &mut docs_out,
+            );
+            report.cover_scope(
+                &sink,
+                ScopeKind::Document,
+                c.document,
+                FactFamily::Docs,
+                c.status,
+                c.reason,
+                c.detail,
+            );
+        }
+        stages.mark("extract: documents");
+    }
+    let vocabulary = docs::Vocabulary::new(&public, &walked.declarations);
 
     let snapshot_id = input.snapshot_id;
     let runs = vec![RunsRow {
@@ -703,6 +843,11 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     dedup_by_fact(&mut context_out.definitions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.calls, |r| r.fact_id);
     dedup_by_fact(&mut public, |r| r.fact_id);
+    dedup_by_fact(&mut docs_out.documents, |r| r.fact_id);
+    dedup_by_fact(&mut docs_out.passages, |r| r.fact_id);
+    dedup_by_fact(&mut docs_out.code_blocks, |r| r.fact_id);
+    dedup_by_fact(&mut docs_out.links, |r| r.fact_id);
+    dedup_by_fact(&mut docs_out.mentions, |r| r.fact_id);
     dedup_by_fact(&mut report.boundaries, |r| r.fact_id);
 
     let tables = vec![
@@ -796,6 +941,23 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             RecordFields::NAME,
             RecordFields::to_sorted_batch(&types_out.fields)?,
         ),
+        (
+            Documents::NAME,
+            Documents::to_sorted_batch(&docs_out.documents)?,
+        ),
+        (
+            Passages::NAME,
+            Passages::to_sorted_batch(&docs_out.passages)?,
+        ),
+        (
+            CodeBlocks::NAME,
+            CodeBlocks::to_sorted_batch(&docs_out.code_blocks)?,
+        ),
+        (DocLinks::NAME, DocLinks::to_sorted_batch(&docs_out.links)?),
+        (
+            Mentions::NAME,
+            Mentions::to_sorted_batch(&docs_out.mentions)?,
+        ),
         (PysaCalls::NAME, PysaCalls::to_sorted_batch(&pysa.calls)?),
         (Coverage::NAME, Coverage::to_sorted_batch(&report.coverage)?),
         (
@@ -805,14 +967,17 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         (Facts::NAME, Facts::to_sorted_batch(&sink.into_rows()?)?),
     ];
     stages.mark("extract: batches");
-    Ok(ExtractOutput {
-        run_id,
-        context_id: context.id,
-        producer_id: producer.id,
-        tables,
-        pysa_json,
-        stages: stages.stages,
-    })
+    Ok((
+        ExtractOutput {
+            run_id,
+            context_id: context.id,
+            producer_id: producer.id,
+            tables,
+            pysa_json,
+            stages: stages.stages,
+        },
+        vocabulary,
+    ))
 }
 
 /// Each `from m import *` of a module → the names Pyrefly's wildcard set for `m` holds, or `None`
@@ -873,6 +1038,20 @@ fn release_rows(
                 snapshot_id,
                 release_id,
                 library: None,
+                requirement: None,
+                lock_digest: None,
+                distributions: Vec::new(),
+                installer: None,
+                label: Some(label.clone()),
+            }],
+            Vec::new(),
+        ),
+        // The corpus shares the library's context, whose distributions the library run writes.
+        ReleaseOrigin::Corpus { label, library } => (
+            vec![ReleasesRow {
+                snapshot_id,
+                release_id,
+                library: library.as_ref().map(|l| l.name.clone()),
                 requirement: None,
                 lock_digest: None,
                 distributions: Vec::new(),

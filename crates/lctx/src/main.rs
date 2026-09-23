@@ -3,13 +3,16 @@
 //!
 //! ```text
 //! lctx library init <name> --requirement REQ [--python 3.14.7]   write, lock, acquire, propose release
-//! lctx acquire <name> [--reinstall]                              uv sync --frozen into build/envs/<name>
+//! lctx acquire <name> [--reinstall]                              uv sync --frozen into build/envs/<name>,
+//!                                                                and the declared source tree at its
+//!                                                                commit into build/sources/<name>
 //! lctx compile <name> --store DIR                                acquire, Stage A, extract, derive,
 //!                                                                validate, publish
 //! lctx query --store DIR --snapshot HEX "SQL"                    read-only SQL over a published
 //!                                                                snapshot (its tables by name)
 //! ```
-//! Common options: `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`).
+//! Common options: `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`),
+//! `--sources DIR` (default `build/sources`).
 //! Upgrading a library: edit its pin, `uv lock --project libraries/<name> --upgrade-package <dist>`,
 //! then `lctx compile <name>`.
 
@@ -26,6 +29,7 @@ struct Options {
     command: Vec<String>,
     libraries: PathBuf,
     envs: PathBuf,
+    sources: PathBuf,
     store: Option<PathBuf>,
     requirement: Option<String>,
     python: String,
@@ -42,6 +46,7 @@ fn parse() -> Result<Options, String> {
         command: Vec::new(),
         libraries: PathBuf::from("libraries"),
         envs: PathBuf::from("build/envs"),
+        sources: PathBuf::from("build/sources"),
         store: None,
         requirement: None,
         python: "3.14.7".to_owned(),
@@ -54,6 +59,7 @@ fn parse() -> Result<Options, String> {
         match arg.as_str() {
             "--libraries" => o.libraries = PathBuf::from(value()?),
             "--envs" => o.envs = PathBuf::from(value()?),
+            "--sources" => o.sources = PathBuf::from(value()?),
             "--store" => o.store = Some(PathBuf::from(value()?)),
             "--requirement" => o.requirement = Some(value()?),
             "--python" => o.python = value()?,
@@ -65,6 +71,7 @@ fn parse() -> Result<Options, String> {
     }
     o.libraries = absolute(&o.libraries)?;
     o.envs = absolute(&o.envs)?;
+    o.sources = absolute(&o.sources)?;
     Ok(o)
 }
 
@@ -123,24 +130,118 @@ fn acquire(library_dir: &Path, env_dir: &Path, reinstall: bool) -> Result<(), St
     uv(&args, env_dir)
 }
 
+/// Run git hermetically: every `GIT_*` variable removed, no system or global configuration, no
+/// prompts, so nothing ambient steers what is fetched (C5, like `uv`).
+fn git(args: &[&str], dir: &Path) -> Result<String, String> {
+    let mut command = Command::new("git");
+    command.args(args).current_dir(dir);
+    for (key, _) in std::env::vars_os() {
+        let key = key.to_string_lossy().into_owned();
+        if key.starts_with("GIT_") {
+            command.env_remove(key);
+        }
+    }
+    command
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let output = command
+        .output()
+        .map_err(|e| format!("blocked: `git` could not run ({e})"))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    } else {
+        Err(format!(
+            "git {} failed ({}): {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+/// The library's declared source tree at its pinned commit, fetched once into
+/// `<sources>/<commit>` (a shallow fetch of that one commit) and checked by `rev-parse` every
+/// time; `None` when no source is declared.
+fn fetch_source(
+    library_dir: &Path,
+    sources: &Path,
+) -> Result<Option<(PathBuf, library::Source)>, String> {
+    let Some(source) = library::source(library_dir).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let tree = sources.join(&source.commit);
+    if !tree.join(".git").is_dir() {
+        let partial = sources.join(format!("{}.partial", source.commit));
+        if partial.exists() {
+            std::fs::remove_dir_all(&partial).map_err(|e| e.to_string())?;
+        }
+        std::fs::create_dir_all(&partial).map_err(|e| e.to_string())?;
+        git(&["init", "-q"], &partial)?;
+        git(
+            &[
+                "fetch",
+                "-q",
+                "--depth",
+                "1",
+                &source.repository,
+                &source.commit,
+            ],
+            &partial,
+        )?;
+        git(
+            &[
+                "-c",
+                "advice.detachedHead=false",
+                "checkout",
+                "-q",
+                "FETCH_HEAD",
+            ],
+            &partial,
+        )?;
+        std::fs::rename(&partial, &tree).map_err(|e| e.to_string())?;
+    }
+    let head = git(&["rev-parse", "HEAD"], &tree)?;
+    if head != source.commit {
+        return Err(format!(
+            "{} is at {head}, not the pinned {}; delete it to refetch",
+            tree.display(),
+            source.commit
+        ));
+    }
+    Ok(Some((tree, source)))
+}
+
 fn random_id() -> Result<Id, String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|e| format!("randomness: {e}"))?;
     Ok(Id(bytes))
 }
 
-fn compile(library_dir: &Path, env_dir: &Path, store: &Path) -> Result<(), String> {
+fn compile(library_dir: &Path, env_dir: &Path, sources: &Path, store: &Path) -> Result<(), String> {
     let started = Instant::now();
     acquire(library_dir, env_dir, false)?;
+    let tree = fetch_source(library_dir, sources)?;
     let acquired = started.elapsed();
     let snapshot = random_id()?;
-    let input = library::acquired(library_dir, env_dir, snapshot).map_err(|e| e.to_string())?;
+    let mut input = library::acquired(library_dir, env_dir, snapshot).map_err(|e| e.to_string())?;
+    if let Some((tree, source)) = &tree {
+        input.corpus = Some(library::corpus(tree, source, &input).map_err(|e| e.to_string())?);
+    }
     let staged = started.elapsed() - acquired;
     println!(
         "release {} ({} modules)",
         input.release.release_id.hex(),
         input.release.files.len()
     );
+    if let Some(c) = &input.corpus {
+        println!(
+            "corpus  {} ({} documents, {} usage modules)",
+            c.release.release_id.hex(),
+            c.documents.len(),
+            c.release.files.len()
+        );
+    }
     let output = extract(&input).map_err(|e| e.to_string())?;
     let extracted = started.elapsed();
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
@@ -158,7 +259,7 @@ fn compile(library_dir: &Path, env_dir: &Path, store: &Path) -> Result<(), Strin
     println!("stages (wall time, peak RSS so far):");
     println!(
         "  {:<52} {:>7.2}s",
-        "acquire (uv sync --frozen)",
+        "acquire (uv sync --frozen, source fetch)",
         acquired.as_secs_f64()
     );
     println!(
@@ -295,7 +396,11 @@ fn run() -> Result<(), String> {
     let words: Vec<&str> = o.command.iter().map(String::as_str).collect();
     match words[..] {
         ["library", "init", name] => init(name, &o),
-        ["acquire", name] => acquire(&o.libraries.join(name), &o.envs.join(name), o.reinstall),
+        ["acquire", name] => {
+            let library_dir = o.libraries.join(name);
+            acquire(&library_dir, &o.envs.join(name), o.reinstall)?;
+            fetch_source(&library_dir, &o.sources.join(name)).map(|_| ())
+        }
         ["query", sql] => {
             let store = absolute(o.store.as_deref().ok_or("query needs --store DIR")?)?;
             let hex = o.snapshot.as_deref().ok_or("query needs --snapshot HEX")?;
@@ -303,7 +408,12 @@ fn run() -> Result<(), String> {
         }
         ["compile", name] => {
             let store = absolute(o.store.as_deref().ok_or("compile needs --store DIR")?)?;
-            compile(&o.libraries.join(name), &o.envs.join(name), &store)
+            compile(
+                &o.libraries.join(name),
+                &o.envs.join(name),
+                &o.sources.join(name),
+                &store,
+            )
         }
         _ => Err(
             "usage: lctx library init <name> --requirement REQ | lctx acquire <name> | \

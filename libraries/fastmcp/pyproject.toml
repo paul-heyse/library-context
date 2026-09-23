@@ -18,8 +18,14 @@ package = false
 release = ["fastmcp", "fastmcp-slim", "fastmcp-tasks"]
 
 [tool.lctx.source]
-# Upstream docs, examples and tests for the docs family (increment 3), fetched then. Pinned by
-# the full commit the tag names (a tag can move); Stage A checks the tag names the locked version.
+# Upstream docs, examples and tests: the corpus run (CPG slice C5), fetched by `lctx acquire` into
+# build/sources/fastmcp/<commit>. Pinned by the full commit the tag names (a tag can move); Stage A
+# checks the tag names the locked version.
 repository = "https://github.com/PrefectHQ/fastmcp"
 tag = "v4.0.5"
 commit = "004bf15a2ba99f077160993c00a404e1a9da83ea"
+# Globs from the tree's root: `**` spans directories, `*` stays within one name.
+documents = ["docs/**/*.mdx"]
+# Other versions' pages, and the generated API reference (it repeats the docstrings).
+documents_exclude = ["docs/v2/**", "docs/v3/**", "docs/python-sdk/**"]
+usage = ["examples/**/*.py", "tests/**/*.py"]

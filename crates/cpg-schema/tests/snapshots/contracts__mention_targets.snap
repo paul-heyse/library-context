@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table mention_targets
+family docs
+key snapshot_id, mention_fact_id
+@lctx.family=docs
+@lctx.table=mention_targets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+mention_fact_id: FixedSizeBinary(16) NOT NULL
+passage_node_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

@@ -412,6 +412,7 @@ pub fn acquired(
         python_version: python,
         python_platform: std::env::consts::OS.to_owned(),
         snapshot_id,
+        corpus: None,
         keep_pysa_json: false,
         test_hooks: TestHooks::default(),
     })
@@ -436,5 +437,157 @@ mod tests {
         assert!(analyzer_readable("pkg/py.typed"));
         assert!(!analyzer_readable("pkg/data.json"));
         assert!(!analyzer_readable("_virtualenv.pth"));
+    }
+}
+
+/// A library's upstream tree (`[tool.lctx.source]`, C5): where it is, at which commit, and which of
+/// its files are the corpus. The selections are globs from the tree's root: `**` spans
+/// directories, `*` stays within one name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Source {
+    pub repository: String,
+    pub tag: String,
+    pub commit: String,
+    pub documents: Vec<String>,
+    pub documents_exclude: Vec<String>,
+    pub usage: Vec<String>,
+}
+
+/// The declared `[tool.lctx.source]`, checked as Stage A checks it; `None` when not declared.
+pub fn source(library_dir: &Path) -> Result<Option<Source>, ExtractError> {
+    let def = definition(library_dir)?;
+    let Some(t) = def.source else {
+        return Ok(None);
+    };
+    let text = |key: &str| {
+        t.get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .ok_or_else(|| fail(format!("[tool.lctx.source] needs `{key}`")))
+    };
+    let list = |key: &str| -> Vec<String> {
+        t.get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Ok(Some(Source {
+        repository: text("repository")?,
+        tag: text("tag")?,
+        commit: text("commit")?,
+        documents: list("documents"),
+        documents_exclude: list("documents_exclude"),
+        usage: list("usage"),
+    }))
+}
+
+/// Whether `path` (`/`-separated, relative) matches `pattern`.
+pub fn glob_match(pattern: &str, path: &str) -> bool {
+    fn name(p: &[u8], s: &[u8]) -> bool {
+        match (p.first(), s.first()) {
+            (None, None) => true,
+            (Some(b'*'), _) => name(&p[1..], s) || (!s.is_empty() && name(p, &s[1..])),
+            (Some(a), Some(b)) if a == b => name(&p[1..], &s[1..]),
+            _ => false,
+        }
+    }
+    fn segments(p: &[&str], s: &[&str]) -> bool {
+        match (p.first(), s.first()) {
+            (None, None) => true,
+            (Some(&"**"), _) => segments(&p[1..], s) || (!s.is_empty() && segments(p, &s[1..])),
+            (Some(a), Some(b)) => name(a.as_bytes(), b.as_bytes()) && segments(&p[1..], &s[1..]),
+            _ => false,
+        }
+    }
+    let p: Vec<&str> = pattern.split('/').collect();
+    let s: Vec<&str> = path.split('/').collect();
+    segments(&p, &s)
+}
+
+/// The files under `root` some `include` pattern matches and no `exclude` pattern does, absolute
+/// and sorted. Dot-directories are skipped.
+pub fn select(
+    root: &Path,
+    include: &[String],
+    exclude: &[String],
+) -> std::io::Result<Vec<PathBuf>> {
+    fn walk(root: &Path, dir: &Path, acc: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
+            .map(|e| e.map(|e| e.path()))
+            .collect::<Result<_, _>>()?;
+        entries.sort();
+        for p in entries {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if name.starts_with('.') {
+                continue;
+            }
+            if p.is_dir() {
+                walk(root, &p, acc)?;
+            } else if let Ok(rel) = p.strip_prefix(root) {
+                let rel = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                acc.push((rel, p));
+            }
+        }
+        Ok(())
+    }
+    let mut all = Vec::new();
+    walk(root, root, &mut all)?;
+    Ok(all
+        .into_iter()
+        .filter(|(rel, _)| {
+            include.iter().any(|g| glob_match(g, rel))
+                && !exclude.iter().any(|g| glob_match(g, rel))
+        })
+        .map(|(_, p)| p)
+        .collect())
+}
+
+/// The corpus run's input (C5): the fetched `tree`'s selected documents and usage modules, in the
+/// environment of `library` (the library run's input). The usage modules join in slice C5b.
+pub fn corpus(
+    tree: &Path,
+    source: &Source,
+    library: &ExtractInput,
+) -> Result<crate::config::CorpusInput, ExtractError> {
+    let documents = select(tree, &source.documents, &source.documents_exclude)?;
+    let label = format!("{}@{}", source.repository, source.commit);
+    let environment = match &library.release.origin {
+        ReleaseOrigin::Library(l) => Some(l.clone()),
+        ReleaseOrigin::Tree { .. } | ReleaseOrigin::Corpus { .. } => None,
+    };
+    let release = Release::corpus(
+        tree.to_path_buf(),
+        &label,
+        &documents,
+        Vec::new(),
+        environment,
+    )?;
+    Ok(crate::config::CorpusInput { release, documents })
+}
+
+#[cfg(test)]
+mod glob_tests {
+    use super::glob_match;
+
+    #[test]
+    fn globs_span_directories_only_with_double_star() {
+        assert!(glob_match("docs/**/*.mdx", "docs/a.mdx"));
+        assert!(glob_match("docs/**/*.mdx", "docs/servers/tools.mdx"));
+        assert!(!glob_match("docs/*.mdx", "docs/servers/tools.mdx"));
+        assert!(glob_match("docs/v2/**", "docs/v2/servers/tools.mdx"));
+        assert!(!glob_match("docs/v2/**", "docs/v20.mdx"));
+        assert!(glob_match("tests/**/*.py", "tests/test_a.py"));
+        assert!(!glob_match("tests/**/*.py", "tests/data/a.pyc"));
     }
 }
