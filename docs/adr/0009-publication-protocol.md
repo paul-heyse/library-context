@@ -1,10 +1,10 @@
 ---
 id: ADR-0009
 title: Abort-on-error compile attempts published by a snapshots append; file-based serving generations
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0017
 design: [§B7, §B12, §6]
 evidence: Tested
 revisit: The local probe shows Binary columns lack Delta statistics and snapshot filtering becomes a full scan at pilot scale, or an injected failure test finds a reader seeing unpublished rows.

@@ -705,6 +705,52 @@ async fn every_rule_kind_rejects_its_violation() {
     compile(root.path(), s, &base).await.unwrap();
 }
 
+/// An attempt validation rejected is inspected at its own commits, even after a later attempt
+/// wrote every table again (H1 review F2): `attempt_versions` finds each table's commit carrying
+/// the attempt's `lctx.snapshot_id`, and registering a table at another snapshot's commit is
+/// refused, never read as empty.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rejected_attempt_is_inspected_at_its_own_commits() {
+    let root = tempfile::tempdir().unwrap();
+    let (a, b) = (Id([1; 16]), Id([2; 16]));
+    let mut raw_a = raw("pysa_variants", a);
+    drop_rows(&mut raw_a, "coverage", 1);
+    assert!(matches!(
+        compile(root.path(), a, &raw_a).await,
+        Err(CoreError::Invalid(_))
+    ));
+    compile(root.path(), b, &raw("pysa_variants", b))
+        .await
+        .unwrap();
+    let versions = cpg_core::snapshot::attempt_versions(root.path(), a)
+        .await
+        .unwrap();
+    let ctx = cpg_core::snapshot::session(root.path(), a, &versions)
+        .await
+        .unwrap();
+    let declarations = raw_a.iter().find(|(n, _)| *n == "declarations").unwrap();
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM declarations").await,
+        declarations.1.num_rows() as i64
+    );
+    let published = resolve(root.path(), b).await.unwrap().unwrap();
+    let other = cpg_core::snapshot::empty_session();
+    let err = cpg_core::snapshot::register(
+        &other,
+        root.path(),
+        "declarations",
+        published["declarations"],
+        a,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, CoreError::ForeignCommit { .. }), "{err}");
+    assert!(matches!(
+        cpg_core::snapshot::attempt_versions(root.path(), Id([9; 16])).await,
+        Err(CoreError::NoAttempt(_))
+    ));
+}
+
 /// Rules run concurrently, but violations come back in `rules()` order, so a report never depends
 /// on which rule finished first (H1 P2).
 #[tokio::test(flavor = "multi_thread")]

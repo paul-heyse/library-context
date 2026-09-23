@@ -253,7 +253,7 @@ the derived snapshots; C6 review, 2026-09-23).
   validation passes.
 - Readers resolve table versions through that row and filter by `snapshot_id` (§6).
 
-> Decision: ADR-0009
+> Decision: ADR-0017 (superseding ADR-0009)
 
 ### §B8 Pyrefly and Ruff link in-process; one workspace, one process
 
@@ -324,7 +324,7 @@ Excluded in stage 1:
   - any search index built from the bundle is derived from it in turn.
 - **No cross-store transactions:** the bundle manifest names the snapshot it came from.
 
-> Decision: ADR-0009
+> Decision: ADR-0017 (superseding ADR-0009)
 
 ### §B13 The agent interface is a FastMCP server over file-based generations
 
@@ -1063,10 +1063,13 @@ paths, give the same `release_id` and `content_digest`.
   definitions 0.7 s, the Delta stages 1.6 s.
 - A published snapshot is inspected with `lctx query --store DIR --snapshot HEX "SQL"`: read-only,
   every table at its recorded version, filtered to the snapshot (§6.2). `lctx compile` prints
-  the attempt's id first, and `--unpublished` reads an attempt validation rejected, at each
-  table's latest version: for inspecting a failure, never for a reader.
+  the attempt's id first, and `--unpublished` reads an attempt validation rejected at the commits
+  carrying its own `lctx.snapshot_id`, found in each table's kept log whatever was written after
+  it; a table it did not write is left out, so a query naming it fails (`attempt_versions`;
+  ADR-0017, H1 review F2; `a_rejected_attempt_is_inspected_at_its_own_commits`). For inspecting a
+  failure, never for a reader.
 
-> Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015
+> Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015, ADR-0017
 
 ### §4.1 Stages
 
@@ -1515,9 +1518,13 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 
    A provider built on an already-loaded handle ignores the requested version
    (`delta.open.2`, `delta.read.4`).
-3. **Read only that commit's files** (`snapshot::commit_provider`, H1 P3): a snapshot's rows of a
-   table are exactly the commit at its recorded version, so a read at another snapshot's version
-   sees none of them. Then **filter `snapshot_id`** as the row predicate.
+3. **A snapshot-qualified table: read only that commit's files** (`snapshot::commit_provider`, H1
+   P3; ADR-0017). A snapshot's rows of a table are exactly the commit at its recorded version (one
+   commit per table per attempt), and the commit's `lctx.snapshot_id` must name the snapshot:
+   another snapshot's commit is refused (`ForeignCommit`), never read as empty (H1 review F2).
+   Then **filter `snapshot_id`** as the row predicate. **A global table that accumulates across
+   attempts** (`embedding_cache`) is read at its recorded version over **all** its active files,
+   with no commit selection and no snapshot filter (H1 review F3).
 4. Project columns by name through the DataFusion provider. Never use `scan_table().with_columns`,
    which returned the wrong column for a partition-first schema (`delta.read.3`).
 5. Never scan the Parquet directory directly (`delta.read.2`).
@@ -1551,7 +1558,7 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - Then the `generations/active` symlink is switched by atomic rename.
   - A running server keeps the generation it loaded; restarting it picks up the new one.
 
-> Decision: ADR-0009, ADR-0012
+> Decision: ADR-0017 (superseding ADR-0009), ADR-0012
 
 ---
 

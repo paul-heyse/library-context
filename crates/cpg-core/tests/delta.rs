@@ -118,11 +118,14 @@ async fn reads_pin_the_version_and_filter_the_snapshot() {
     let at_b = t.version().unwrap();
     let back = read_at::<Declarations>(dir.path(), at_a, a).await.unwrap();
     assert_eq!(back, decl_in(a, 10, 20), "snapshot A at its own version");
-    // A read opens only the commit at its version (H1 P3): A's rows are not in B's commit.
-    let other = read_at::<Declarations>(dir.path(), at_b, a).await.unwrap();
-    assert_eq!(other.num_rows(), 0, "A is not in B's commit");
-    let early = read_at::<Declarations>(dir.path(), at_a, b).await.unwrap();
-    assert_eq!(early.num_rows(), 0, "B is not visible at A's version");
+    // A read opens only its own snapshot's commit (H1 P3), and refuses another's rather than
+    // reading it as empty (H1 review F2).
+    for (version, snapshot) in [(at_b, a), (at_a, b)] {
+        let err = read_at::<Declarations>(dir.path(), version, snapshot)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::ForeignCommit { .. }), "{err}");
+    }
     let late = read_at::<Declarations>(dir.path(), at_b, b).await.unwrap();
     assert_eq!(late, decl_in(b, 30, 40));
     // A missing table is "not a table", and reading it creates nothing.
@@ -350,7 +353,7 @@ async fn a_pinned_read_opens_only_its_commits_files() {
     let t = append(t, decl_in(c, 0, 1).slice(0, 0), c).await.unwrap();
     let at_empty = t.version().unwrap();
 
-    let count = |version: u64| {
+    let count = |version: u64, snapshot: Id| {
         let root = dir.path().to_path_buf();
         async move {
             let table = cpg_core::snapshot::load_at(&root, Declarations::NAME, version)
@@ -360,7 +363,7 @@ async fn a_pinned_read_opens_only_its_commits_files() {
             table.update_datafusion_session(&ctx.state()).unwrap();
             ctx.register_table(
                 "t",
-                cpg_core::snapshot::commit_provider(&table, version)
+                cpg_core::snapshot::commit_provider(&table, version, snapshot)
                     .await
                     .unwrap(),
             )
@@ -377,9 +380,9 @@ async fn a_pinned_read_opens_only_its_commits_files() {
         }
     };
     // Without any snapshot filter: only the commit's own rows (a full scan would count 3).
-    assert_eq!(count(at_b).await.unwrap(), 1);
-    assert_eq!(count(at_c).await.unwrap(), 1);
-    assert_eq!(count(at_empty).await.unwrap(), 0);
+    assert_eq!(count(at_b, b).await.unwrap(), 1);
+    assert_eq!(count(at_c, c).await.unwrap(), 1);
+    assert_eq!(count(at_empty, c).await.unwrap(), 0);
     assert_eq!(
         read_at::<Declarations>(dir.path(), at_b, b).await.unwrap(),
         decl_in(b, 30, 40)
@@ -389,7 +392,9 @@ async fn a_pinned_read_opens_only_its_commits_files() {
     let table = cpg_core::snapshot::load_at(dir.path(), Declarations::NAME, at_a)
         .await
         .unwrap();
-    let adds = cpg_core::snapshot::commit_adds(&table, at_a).await.unwrap();
+    let adds = cpg_core::snapshot::commit_adds(&table, at_a, a)
+        .await
+        .unwrap();
     assert_eq!(adds.len(), 1);
     std::fs::remove_file(
         dir.path()
@@ -397,8 +402,8 @@ async fn a_pinned_read_opens_only_its_commits_files() {
             .join(adds[0].path.replace("%2F", "/")),
     )
     .unwrap();
-    assert!(count(at_a).await.is_err());
-    assert_eq!(count(at_b).await.unwrap(), 1);
+    assert!(count(at_a, a).await.is_err());
+    assert_eq!(count(at_b, b).await.unwrap(), 1);
 }
 
 /// Every data file is written with zstd (H1 P6), not the Snappy default.
@@ -410,7 +415,9 @@ async fn data_files_are_zstd() {
     let t = create::<Declarations>(dir.path()).await.unwrap();
     let t = append(t, decl_in(a, 10, 20), a).await.unwrap();
     let version = t.version().unwrap();
-    let adds = cpg_core::snapshot::commit_adds(&t, version).await.unwrap();
+    let adds = cpg_core::snapshot::commit_adds(&t, version, a)
+        .await
+        .unwrap();
     assert_eq!(adds.len(), 1);
     let file =
         std::fs::File::open(dir.path().join(Declarations::NAME).join(&adds[0].path)).unwrap();

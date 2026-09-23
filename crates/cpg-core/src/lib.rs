@@ -36,6 +36,17 @@ pub enum CoreError {
     #[error("parquet: {0}")]
     Parquet(String),
     #[error(
+        "{table} version {version} is not snapshot {snapshot}'s commit (it records {recorded:?}); a pinned read opens only its own snapshot's commit"
+    )]
+    ForeignCommit {
+        table: String,
+        version: u64,
+        snapshot: String,
+        recorded: Option<String>,
+    },
+    #[error("no table holds a commit of attempt {0}")]
+    NoAttempt(String),
+    #[error(
         "{0}: the stored schema differs from the declared contract (a schema migration: use a new store or migrate the table)"
     )]
     SchemaDrift(&'static str),

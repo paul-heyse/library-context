@@ -421,7 +421,7 @@ fn query(store: &Path, id: Id, sql: &str, unpublished: bool) -> anyhow::Result<(
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
         let ctx = if unpublished {
-            let versions = cpg_core::snapshot::latest(store).await?;
+            let versions = cpg_core::snapshot::attempt_versions(store, id).await?;
             cpg_core::snapshot::session(store, id, &versions).await?
         } else {
             cpg_core::snapshot::published(store, id)

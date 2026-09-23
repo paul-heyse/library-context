@@ -62,11 +62,9 @@ pub async fn load_at(root: &Path, name: &str, version: u64) -> Result<DeltaTable
     Ok(table)
 }
 
-/// The data files commit `version` of `table` added. A snapshot's rows of a table are exactly one
-/// commit's (one commit per table per attempt, §6.1), so a pinned read opens these files and no
-/// other (H1 P3). The JSON commits are kept (log cleanup off, verified at open), so the entry is
-/// always there to read.
-pub async fn commit_adds(table: &DeltaTable, version: u64) -> Result<Vec<Add>, CoreError> {
+/// The actions of `table`'s commit `version`. The JSON commits are kept (log cleanup off, verified
+/// at open), so the entry is always there to read.
+async fn commit_actions(table: &DeltaTable, version: u64) -> Result<Vec<Action>, CoreError> {
     let bytes = table
         .log_store()
         .read_commit_entry(version)
@@ -76,7 +74,44 @@ pub async fn commit_adds(table: &DeltaTable, version: u64) -> Result<Vec<Add>, C
             requested: version,
             loaded: None,
         })?;
-    Ok(get_actions(version, &bytes)?
+    Ok(get_actions(version, &bytes)?)
+}
+
+/// The snapshot a commit's `commitInfo` records (`lctx.snapshot_id`, which `delta::append` writes
+/// on every data commit), if any.
+fn recorded_snapshot(actions: &[Action]) -> Option<String> {
+    actions.iter().find_map(|a| match a {
+        Action::CommitInfo(ci) => ci
+            .info
+            .get("lctx.snapshot_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned),
+        _ => None,
+    })
+}
+
+/// The data files commit `version` of `table` added, once the commit is shown to be
+/// `snapshot_id`'s. A snapshot's rows of a table are exactly one commit's (one commit per table
+/// per attempt, §6.1), so a pinned read opens these files and no other (H1 P3). The commit's own
+/// `lctx.snapshot_id` must name `snapshot_id`: a commit of another snapshot, or of none, is
+/// refused rather than read as an empty or foreign snapshot (H1 review F2). `snapshots` remains
+/// the authority for which version; the commit metadata only confirms it.
+pub async fn commit_adds(
+    table: &DeltaTable,
+    version: u64,
+    snapshot_id: Id,
+) -> Result<Vec<Add>, CoreError> {
+    let actions = commit_actions(table, version).await?;
+    let recorded = recorded_snapshot(&actions);
+    if recorded.as_deref() != Some(snapshot_id.hex().as_str()) {
+        return Err(CoreError::ForeignCommit {
+            table: table.table_url().to_string(),
+            version,
+            snapshot: snapshot_id.hex(),
+            recorded,
+        });
+    }
+    Ok(actions
         .into_iter()
         .filter_map(|a| match a {
             Action::Add(add) => Some(add),
@@ -85,13 +120,15 @@ pub async fn commit_adds(table: &DeltaTable, version: u64) -> Result<Vec<Add>, C
         .collect())
 }
 
-/// A provider over `table` (loaded at `version`) that reads only the files that commit added.
-/// A selected file the snapshot does not hold active fails the scan, never a silent shortfall.
+/// A provider over `table` (loaded at `version`) that reads only the files that commit added,
+/// after [`commit_adds`] confirms the commit is `snapshot_id`'s. A selected file the snapshot does
+/// not hold active fails the scan, never a silent shortfall.
 pub async fn commit_provider(
     table: &DeltaTable,
     version: u64,
+    snapshot_id: Id,
 ) -> Result<std::sync::Arc<dyn datafusion::catalog::TableProvider>, CoreError> {
-    let adds = commit_adds(table, version).await?;
+    let adds = commit_adds(table, version, snapshot_id).await?;
     Ok(table.table_provider().with_adds(adds).await?)
 }
 
@@ -108,7 +145,7 @@ pub async fn register(
     let table = load_at(root, name, version).await?;
     table.update_datafusion_session(&ctx.state())?;
     let view = ctx
-        .read_table(commit_provider(&table, version).await?)?
+        .read_table(commit_provider(&table, version, snapshot_id).await?)?
         .filter(col("snapshot_id").eq(lit(ScalarValue::Binary(Some(snapshot_id.0.to_vec())))))?
         .into_view();
     ctx.register_table(name, view)?;
@@ -128,23 +165,36 @@ pub async fn session(
     Ok(ctx)
 }
 
-/// Every table of the store at its latest version. What an attempt that failed validation wrote is
-/// there, though no `snapshots` row publishes it: for inspecting that attempt, never for a reader.
-pub async fn latest(root: &Path) -> Result<Versions, CoreError> {
-    let mut versions = Versions::new();
+/// Each table's version holding `snapshot_id`'s own commit (its `lctx.snapshot_id`), found by
+/// walking the table's kept JSON commits from the latest down. This is how an attempt that
+/// published nothing (validation rejected it) is inspected, never how a reader reads: the
+/// tables it did not write are left out, so a query naming them fails rather than reading an
+/// empty snapshot (H1 review F2).
+pub async fn attempt_versions(root: &Path, snapshot_id: Id) -> Result<Versions, CoreError> {
     let mut names: Vec<String> = fs_err::read_dir(root)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.join("_delta_log").is_dir())
         .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .collect();
     names.sort();
+    let wanted = snapshot_id.hex();
+    let mut versions = Versions::new();
     for name in names {
         let table = DeltaTableBuilder::from_url(table_url(root, &name)?)?
             .load()
             .await?;
-        if let Some(v) = table.version() {
-            versions.insert(name, v);
+        let Some(latest) = table.version() else {
+            continue;
+        };
+        for v in (0..=latest).rev() {
+            if recorded_snapshot(&commit_actions(&table, v).await?).as_deref() == Some(&wanted) {
+                versions.insert(name, v);
+                break;
+            }
         }
+    }
+    if versions.is_empty() {
+        return Err(CoreError::NoAttempt(wanted));
     }
     Ok(versions)
 }
