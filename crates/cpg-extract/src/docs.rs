@@ -343,6 +343,47 @@ fn collect(n: &Node, text: &str, v: &Vocabulary, out: &mut Collected) {
     }
 }
 
+fn language_of(language: &Option<String>) -> &str {
+    language.as_deref().unwrap_or("")
+}
+
+/// A fenced block the usage run compiles (C5b): tagged Python.
+fn is_python(language: &str) -> bool {
+    matches!(language, "python" | "py" | "python3")
+}
+
+/// Where a document's Python code block `ordinal` is materialized, release-relative: a module of
+/// its own under `_lctx_blocks/`, named from the document's path so it is a valid module name.
+pub(crate) fn block_module_path(document: &str, ordinal: i64) -> String {
+    let name: String = document
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    format!("_lctx_blocks/d_{name}/block_{ordinal}.py")
+}
+
+/// A document's Python code blocks, with the ordinals `document` gives them: what the usage run
+/// materializes before it starts (C5b). A document that does not parse has none.
+pub(crate) fn python_blocks(bytes: &[u8]) -> Vec<(i64, String)> {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return Vec::new();
+    };
+    let mut options = markdown::ParseOptions::mdx();
+    options.constructs.frontmatter = true;
+    let Ok(tree) = markdown::to_mdast(text, &options) else {
+        return Vec::new();
+    };
+    let mut found = Collected::default();
+    collect(&tree, text, &Vocabulary::default(), &mut found);
+    found
+        .code
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (_, _, language, _, _))| is_python(language_of(language)))
+        .map(|(i, (_, _, _, _, code))| (i as i64, code))
+        .collect()
+}
+
 /// One document: its row, and when it parses its passages, code blocks, links and mentions.
 pub(crate) fn document(
     sink: &mut FactSink,
@@ -464,6 +505,7 @@ pub(crate) fn document(
     let mut found = Collected::default();
     collect(tree, text, v, &mut found);
     for (ordinal, (s, e, language, meta, code)) in found.code.into_iter().enumerate() {
+        let code_language = language.clone();
         let Some(passage) = passage_of(s) else {
             continue;
         };
@@ -487,6 +529,8 @@ pub(crate) fn document(
                 start_byte: s as i64,
                 end_byte: e as i64,
                 content_digest: content_digest(code.as_bytes()),
+                module_path: is_python(language_of(&code_language))
+                    .then(|| block_module_path(path, ordinal as i64)),
                 code,
             }
         ));

@@ -35,6 +35,7 @@ struct Options {
     python: String,
     reinstall: bool,
     snapshot: Option<String>,
+    unpublished: bool,
 }
 
 fn absolute(p: &Path) -> Result<PathBuf, String> {
@@ -52,6 +53,7 @@ fn parse() -> Result<Options, String> {
         python: "3.14.7".to_owned(),
         reinstall: false,
         snapshot: None,
+        unpublished: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -64,6 +66,7 @@ fn parse() -> Result<Options, String> {
             "--requirement" => o.requirement = Some(value()?),
             "--python" => o.python = value()?,
             "--reinstall" => o.reinstall = true,
+            "--unpublished" => o.unpublished = true,
             "--snapshot" => o.snapshot = Some(value()?),
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => o.command.push(arg),
@@ -229,6 +232,8 @@ fn compile(library_dir: &Path, env_dir: &Path, sources: &Path, store: &Path) -> 
         input.corpus = Some(library::corpus(tree, source, &input).map_err(|e| e.to_string())?);
     }
     let staged = started.elapsed() - acquired;
+    // Printed first, so an attempt validation rejects can be inspected (`query --unpublished`).
+    println!("attempt  {}", snapshot.hex());
     println!(
         "release {} ({} modules)",
         input.release.release_id.hex(),
@@ -367,8 +372,9 @@ fn init(name: &str, o: &Options) -> Result<(), String> {
 }
 
 /// Read-only SQL over one published snapshot: every table registered under its own name, at its
-/// recorded version, filtered to the snapshot (DESIGN §6.2).
-fn query(store: &Path, hex: &str, sql: &str) -> Result<(), String> {
+/// recorded version, filtered to the snapshot (DESIGN §6.2). With `unpublished`, the tables' latest
+/// versions instead: an attempt validation rejected, for inspection only.
+fn query(store: &Path, hex: &str, sql: &str, unpublished: bool) -> Result<(), String> {
     let bytes: Vec<u8> = (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(hex.get(i..i + 2).unwrap_or("zz"), 16))
@@ -379,10 +385,20 @@ fn query(store: &Path, hex: &str, sql: &str) -> Result<(), String> {
         .map_err(|_| format!("--snapshot {hex}: not 16 bytes"))?);
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     runtime.block_on(async {
-        let (_, ctx) = cpg_core::snapshot::published(store, id)
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("snapshot {hex} is not published in {}", store.display()))?;
+        let ctx = if unpublished {
+            let versions = cpg_core::snapshot::latest(store)
+                .await
+                .map_err(|e| e.to_string())?;
+            cpg_core::snapshot::session(store, id, &versions)
+                .await
+                .map_err(|e| e.to_string())?
+        } else {
+            cpg_core::snapshot::published(store, id)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("snapshot {hex} is not published in {}", store.display()))?
+                .1
+        };
         let text = cpg_core::sql::render(&ctx, sql)
             .await
             .map_err(|e| e.to_string())?;
@@ -404,7 +420,7 @@ fn run() -> Result<(), String> {
         ["query", sql] => {
             let store = absolute(o.store.as_deref().ok_or("query needs --store DIR")?)?;
             let hex = o.snapshot.as_deref().ok_or("query needs --snapshot HEX")?;
-            query(&store, hex, sql)
+            query(&store, hex, sql, o.unpublished)
         }
         ["compile", name] => {
             let store = absolute(o.store.as_deref().ok_or("compile needs --store DIR")?)?;

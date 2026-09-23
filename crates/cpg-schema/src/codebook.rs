@@ -420,6 +420,8 @@ codebook!(
         ContainsPassage = 31 => "contains_passage",
         ContainsBlock = 32 => "contains_block",
         Mentions = 33 => "mentions",
+        BlockModule = 34 => "block_module",
+        UsageLink = 35 => "usage_link",
     }
 );
 

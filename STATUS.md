@@ -70,8 +70,11 @@ _Updated 2026-09-22 by the handoff skill._
   - C4 compact review (`design_review_cpg-c4-types_2026-09-23.md`): F1–F7 fixed with the
     simpler alternative (term ids from Pyrefly alone, binders derived). The pilot store was
     rebuilt (the old one is `build/store.pre-c4fix`).
-- **C5b:** the usage run (examples, tests, materialized code blocks), `usage_targets` (probe P4),
-  release-scoped joins; then C5's compact review.
-- **C6:** pilot measurement (the ~4 GB peak decides the streaming trigger) and a deep review.
+  - C5b: the usage run (1,512 examples, tests and code blocks), `usage_targets` (P4: all 1,464
+    link), release-scoped joins, one node per shared fact. Pilot 907,845 nodes, 1,452,970
+    edges, 46.3 s at 6.7–7.7 GB peak (in validation).
+- **C5 compact review:** due (C5a `3e223f9` and C5b).
+- **C6:** the whole-CPG measurement decides the streaming trigger: validation now peaks at
+  6.7–7.7 GB. Then the deep review.
 
 Then increment 1, slice 4: the analytics config, the invocation projection and Pass A.

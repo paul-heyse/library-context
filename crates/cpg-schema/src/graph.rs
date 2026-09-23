@@ -313,14 +313,15 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             sql: format!(
                 "WITH {keyed}, \
                  py AS ( \
-                   SELECT d.node_id, d.fact_id, s.module_name, d.qualified_name, \
+                   SELECT d.node_id, d.fact_id, s.release_id, s.module_name, d.qualified_name, \
                           {rank} AS pick \
                    FROM declarations d \
                    JOIN source_files s ON s.module_node_id = d.module_node_id AND NOT s.is_stub \
                    LEFT JOIN keyed k ON k.node_id = d.node_id) \
                  SELECT {} FROM declarations d \
                  JOIN source_files s ON s.module_node_id = d.module_node_id AND s.is_stub \
-                 JOIN py p ON p.pick = 1 AND p.module_name = s.module_name \
+                 JOIN py p ON p.pick = 1 AND p.release_id = s.release_id \
+                  AND p.module_name = s.module_name \
                   AND p.qualified_name = d.qualified_name",
                 row(
                     "d.node_id",
@@ -331,7 +332,7 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                     None
                 ),
                 keyed = crate::derived::KEYED,
-                rank = crate::derived::seed_rank("s.module_name, d.qualified_name"),
+                rank = crate::derived::seed_rank("s.release_id, s.module_name, d.qualified_name"),
             ),
             one_per_evidence: true,
             // A stub may type a module with no `.py` in the release: no lineage obligation.
@@ -567,8 +568,9 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             parallel: false,
             derivation: DerivationClass::Joined,
             evidence_table: "context_definitions",
+            // Two runs of one attempt may both describe a symbol: one edge, from the first fact.
             sql: format!(
-                "SELECT {} FROM context_definitions d",
+                "SELECT {} FROM {} d WHERE d.pick = 1",
                 row(
                     "d.symbol_node_id",
                     "d.module_node_id",
@@ -576,12 +578,16 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                     "d.fact_id",
                     None,
                     None
-                )
+                ),
+                first_fact("context_definitions", "symbol_node_id")
             ),
             one_per_evidence: true,
             lineage: Some(Lineage {
                 expected: "SELECT fact_id FROM context_definitions".to_owned(),
-                explained: None,
+                explained: Some(format!(
+                    "SELECT fact_id FROM {} d WHERE d.pick > 1",
+                    first_fact("context_definitions", "symbol_node_id")
+                )),
             }),
         },
         // C2: the syntax tree and Pysa's non-call sites.
@@ -907,8 +913,9 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             parallel: true,
             derivation: DerivationClass::Analyzer,
             evidence_table: "type_term_args",
+            // A term both runs of an attempt observe has its children twice: one edge each.
             sql: format!(
-                "SELECT {} FROM type_term_args a",
+                "SELECT {} FROM {} a WHERE a.pick = 1",
                 row(
                     "a.parent_node_id",
                     "a.child_node_id",
@@ -916,12 +923,16 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                     "a.fact_id",
                     None,
                     Some("lctx_id('type_arg_role', a.role)")
-                )
+                ),
+                first_fact("type_term_args", "parent_node_id, role, ordinal")
             ),
             one_per_evidence: true,
             lineage: Some(Lineage {
                 expected: "SELECT fact_id FROM type_term_args".to_owned(),
-                explained: None,
+                explained: Some(format!(
+                    "SELECT fact_id FROM {} a WHERE a.pick > 1",
+                    first_fact("type_term_args", "parent_node_id, role, ordinal")
+                )),
             }),
         },
         EdgeSource {
@@ -947,10 +958,12 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             lineage: Some(Lineage {
                 expected: "SELECT fact_id FROM type_terms WHERE class_module IS NOT NULL"
                     .to_owned(),
-                explained: Some(
-                    "SELECT term_fact_id AS fact_id FROM type_class_targets WHERE reason IS NOT NULL"
-                        .to_owned(),
-                ),
+                explained: Some(format!(
+                    "SELECT term_fact_id AS fact_id FROM type_class_targets \
+                     WHERE reason IS NOT NULL \
+                     UNION ALL SELECT fact_id FROM {} t WHERE t.pick > 1",
+                    first_fact("type_terms", "node_id")
+                )),
             }),
         },
         simple(
@@ -961,7 +974,12 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             DerivationClass::Analyzer,
             "record_fields",
             "SELECT {} FROM record_fields r",
-            ("r.class_node_id", "r.node_id", Some("r.ordinal"), "r.fact_id"),
+            (
+                "r.class_node_id",
+                "r.node_id",
+                Some("r.ordinal"),
+                "r.fact_id",
+            ),
             Some("SELECT fact_id FROM record_fields"),
         ),
         simple(
@@ -1000,7 +1018,12 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             DerivationClass::Extracted,
             "code_blocks",
             "SELECT {} FROM code_blocks b",
-            ("b.passage_node_id", "b.node_id", Some("b.ordinal"), "b.fact_id"),
+            (
+                "b.passage_node_id",
+                "b.node_id",
+                Some("b.ordinal"),
+                "b.fact_id",
+            ),
             Some("SELECT fact_id FROM code_blocks"),
         ),
         EdgeSource {
@@ -1030,6 +1053,64 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                 expected: "SELECT fact_id FROM mentions".to_owned(),
                 explained: Some(
                     "SELECT mention_fact_id AS fact_id FROM mention_targets \
+                     WHERE reason IS NOT NULL"
+                        .to_owned(),
+                ),
+            }),
+        },
+        // C5b: the usage run.
+        EdgeSource {
+            kind: EdgeKind::BlockModule,
+            src: &[N::CodeBlock],
+            dst: &[N::Module],
+            direction: "the Python code block is compiled as the module (materialized in the usage run)",
+            parallel: false,
+            derivation: DerivationClass::Joined,
+            evidence_table: "code_blocks",
+            sql: format!(
+                "SELECT {} FROM code_blocks b JOIN documents d ON d.node_id = b.document_node_id \
+                 JOIN source_files f ON f.release_id = d.release_id AND f.path = b.module_path",
+                row(
+                    "b.node_id",
+                    "f.module_node_id",
+                    None,
+                    "b.fact_id",
+                    None,
+                    None
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: "SELECT fact_id FROM code_blocks WHERE module_path IS NOT NULL"
+                    .to_owned(),
+                explained: None,
+            }),
+        },
+        EdgeSource {
+            kind: EdgeKind::UsageLink,
+            src: &[N::ExternalSymbol],
+            dst: &[N::Function, N::Class, N::SyntheticCallable],
+            direction: "the definition a usage run reaches through the installed library is the \
+                        release's own",
+            parallel: false,
+            derivation: DerivationClass::Joined,
+            evidence_table: "context_definitions",
+            sql: format!(
+                "SELECT {} FROM usage_targets u WHERE u.target_node_id IS NOT NULL",
+                row(
+                    "u.symbol_node_id",
+                    "u.target_node_id",
+                    None,
+                    "u.definition_fact_id",
+                    None,
+                    None
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: "SELECT definition_fact_id AS fact_id FROM usage_targets".to_owned(),
+                explained: Some(
+                    "SELECT definition_fact_id AS fact_id FROM usage_targets \
                      WHERE reason IS NOT NULL"
                         .to_owned(),
                 ),
@@ -1151,6 +1232,16 @@ fn ancestry(kind: EdgeKind, relation: AncestryRelation, direction: &'static str)
     }
 }
 
+/// `table` with each row's rank among the rows sharing `partition` (by fact id): what two runs of
+/// one attempt both assert is written once, from its first fact (`pick = 1`).
+fn first_fact(table: &str, partition: &str) -> String {
+    format!(
+        "(SELECT *, row_number() OVER (PARTITION BY {partition} ORDER BY fact_id \
+                                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pick \
+          FROM {table})"
+    )
+}
+
 fn kinds(ks: &[NodeKind]) -> String {
     ks.iter()
         .map(|k| k.code().to_string())
@@ -1193,13 +1284,15 @@ impl crate::derived::Derived for Nodes {
             .collect::<Vec<_>>()
             .join(" UNION ALL ");
         // Only the kinds several existence rows legitimately assert keep one row: an export read
-        // from a `.py` and its `.pyi`, and a dependency module or symbol two runs of one attempt
-        // both reference. Any other repeated id stays twice, and `key:nodes` rejects it: a
+        // from a `.py` and its `.pyi`, and a dependency module, symbol or type term two runs of
+        // one attempt both reference (a term's collision check is `unique:type_terms`). Any other repeated id stays twice, and `key:nodes` rejects it: a
         // collision is never merged (§3.4.1; review O2).
         let merged = [
             NodeKind::Export,
             NodeKind::ExternalModule,
             NodeKind::ExternalSymbol,
+            // One structure is one term, whichever runs observe it.
+            NodeKind::Type,
         ];
         format!(
             "SELECT node_id, node_kind, module_node_id, existence_fact_id FROM ( \
@@ -1531,6 +1624,12 @@ pub fn node_columns() -> Vec<NodeColumn> {
             "target_node_id",
             &[N::Export, N::Class, N::Function],
         ),
+        nc("usage_targets", "symbol_node_id", &[N::ExternalSymbol]),
+        nc(
+            "usage_targets",
+            "target_node_id",
+            &[N::Function, N::Class, N::SyntheticCallable],
+        ),
     ]
 }
 
@@ -1729,6 +1828,23 @@ pub fn rules() -> Vec<Rule> {
             OR c.module_node_id <> p.module_node_id"
             .to_owned(),
     ));
+    // C5b: an attempt's releases never share a release-relative path, so a `@path` module reference
+    // names one file.
+    // One type-term id is one term: two runs may both emit it, but never with a different kind,
+    // detail or display (a Merkle-id collision is rejected, never merged; C4 review).
+    out.push(rule(
+        "unique:type_terms".to_owned(),
+        "SELECT node_id FROM type_terms GROUP BY node_id \
+         HAVING count(DISTINCT kind) > 1 OR count(DISTINCT display) > 1 \
+             OR count(DISTINCT COALESCE(detail, '')) > 1"
+            .to_owned(),
+    ));
+    out.push(rule(
+        "unique:release-paths".to_owned(),
+        "SELECT path, count(DISTINCT release_id) AS n FROM source_files GROUP BY path \
+         HAVING count(DISTINCT release_id) > 1"
+            .to_owned(),
+    ));
     out.push(rule(
         "support:edges".to_owned(),
         "SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.support_fact_id \
@@ -1763,6 +1879,7 @@ pub fn rules() -> Vec<Rule> {
         ("type_class_targets", "class_node_id IS NULL"),
         ("type_binders", "binder_node_id IS NULL"),
         ("mention_targets", "target_node_id IS NULL"),
+        ("usage_targets", "target_node_id IS NULL"),
     ] {
         out.push(rule(
             format!("typed:{table}"),

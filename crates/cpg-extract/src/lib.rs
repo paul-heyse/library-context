@@ -80,8 +80,16 @@ pub const FAMILIES: [FactFamily; 6] = [
     FactFamily::Types,
 ];
 
-/// The families a corpus run declares (C5): its documents.
-pub const CORPUS_FAMILIES: [FactFamily; 1] = [FactFamily::Docs];
+/// The families a corpus run declares (C5): its documents, and every code family but `exports` for
+/// its examples, tests and materialized code blocks (the usage run, C5b).
+pub const CORPUS_FAMILIES: [FactFamily; 6] = [
+    FactFamily::Signatures,
+    FactFamily::Calls,
+    FactFamily::Syntax,
+    FactFamily::Lexical,
+    FactFamily::Types,
+    FactFamily::Docs,
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExtractError {
@@ -1045,7 +1053,7 @@ fn release_rows(
             }],
             Vec::new(),
         ),
-        // The corpus shares the library's context, whose distributions the library run writes.
+        // The corpus runs in the library's environment: its context lists the same distributions.
         ReleaseOrigin::Corpus { label, library } => (
             vec![ReleasesRow {
                 snapshot_id,
@@ -1057,7 +1065,18 @@ fn release_rows(
                 installer: None,
                 label: Some(label.clone()),
             }],
-            Vec::new(),
+            library
+                .iter()
+                .flat_map(|lib| &lib.distributions)
+                .map(|d| DistributionsRow {
+                    snapshot_id,
+                    context_id,
+                    name: d.name.clone(),
+                    version: d.version.clone(),
+                    artifact_sha256: d.artifact_sha256.clone(),
+                    record_digest: d.record_digest,
+                })
+                .collect(),
         ),
         ReleaseOrigin::Library(lib) => (
             vec![ReleasesRow {

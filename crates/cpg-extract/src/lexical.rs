@@ -560,33 +560,7 @@ impl<'b> Lexical<'b> {
                 let here = self.scope_at(r.start());
                 match n.ctx {
                     ruff_python_ast::ExprContext::Load => {
-                        let id = recipe::reference(syntax_id);
-                        let (start, end) = span(r);
-                        let row = fact_row!(
-                            sink,
-                            References,
-                            provenance(Modality::Definite),
-                            ReferencesRow {
-                                snapshot_id: Id::ZERO,
-                                fact_id: Id::ZERO,
-                                node_id: id,
-                                name_node_id: syntax_id,
-                                scope_id: self.scopes[here].id,
-                                module_node_id: self.module_node_id,
-                                name: n.id.to_string(),
-                                parent_node_id: parent.0,
-                                field: parent.1,
-                                start_byte: start,
-                                end_byte: end,
-                            }
-                        );
-                        self.out.references.push(row);
-                        self.refs.push(RefRec {
-                            id,
-                            scope: here,
-                            name: n.id.to_string(),
-                            at: r.start(),
-                        });
+                        self.reference(here, syntax_id, &n.id, r, parent, sink);
                     }
                     ruff_python_ast::ExprContext::Store => {
                         let ctx = self.stores.iter().rev().find(|s| s.range.contains_range(r));
@@ -597,6 +571,10 @@ impl<'b> Lexical<'b> {
                         } else {
                             here
                         };
+                        // `x += 1` reads `x` before it binds it (and Pysa reports the read).
+                        if kind == BindingKind::AugAssignment {
+                            self.reference(here, syntax_id, &n.id, r, parent, sink);
+                        }
                         self.bind(target, &n.id, kind, syntax_id, r, value);
                     }
                     ruff_python_ast::ExprContext::Del => {
@@ -611,6 +589,45 @@ impl<'b> Lexical<'b> {
             self.in_from_import = true;
         }
         self.pushed.push(pushed);
+    }
+
+    /// A name read in scope `here`: its `references` row, resolved in `finish`.
+    fn reference(
+        &mut self,
+        here: usize,
+        syntax_id: Id,
+        name: &str,
+        r: TextRange,
+        parent: (Id, SyntaxField),
+        sink: &mut FactSink,
+    ) {
+        let id = recipe::reference(syntax_id);
+        let (start, end) = span(r);
+        let row = fact_row!(
+            sink,
+            References,
+            provenance(Modality::Definite),
+            ReferencesRow {
+                snapshot_id: Id::ZERO,
+                fact_id: Id::ZERO,
+                node_id: id,
+                name_node_id: syntax_id,
+                scope_id: self.scopes[here].id,
+                module_node_id: self.module_node_id,
+                name: name.to_owned(),
+                parent_node_id: parent.0,
+                field: parent.1,
+                start_byte: start,
+                end_byte: end,
+            }
+        );
+        self.out.references.push(row);
+        self.refs.push(RefRec {
+            id,
+            scope: here,
+            name: name.to_owned(),
+            at: r.start(),
+        });
     }
 
     /// Leave a node: undo what entering it pushed.

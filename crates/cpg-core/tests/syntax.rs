@@ -439,16 +439,40 @@ async fn a_corpus_documents_its_library() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let fixture = repo.join("fixtures/python/docs_shapes");
-    copy(&fixture.join("release"), &dir.path().join("release"));
+    // The library installed as an acquired one is: its files in site-packages, owned by its
+    // distribution's `RECORD`, so the usage run reaches it as a dependency (C5b).
+    copy(
+        &fixture.join("release"),
+        &dir.path().join("venv/site-packages"),
+    );
     copy(&fixture.join("corpus"), &dir.path().join("corpus"));
-    std::fs::create_dir_all(dir.path().join("venv/site-packages")).unwrap();
+    let site = std::fs::canonicalize(dir.path().join("venv/site-packages")).unwrap();
     let s = Id([7; 16]);
+    let files = vec![site.join("pkg/__init__.py"), site.join("pkg/core.py")];
+    let library = cpg_extract::library::AcquiredLibrary {
+        name: "pkg".to_owned(),
+        requirement: "pkg==1.0".to_owned(),
+        lock_digest: cpg_schema::id::Digest::ZERO,
+        release: vec!["pkg==1.0".to_owned()],
+        installer: None,
+        distributions: vec![cpg_extract::library::Distribution {
+            name: "pkg".to_owned(),
+            version: "1.0".to_owned(),
+            artifact_sha256: Vec::new(),
+            record_digest: cpg_schema::id::Digest::ZERO,
+        }],
+        owners: ["pkg/__init__.py", "pkg/core.py"]
+            .into_iter()
+            .map(|p| (p.to_owned(), "pkg".to_owned()))
+            .collect(),
+    };
     let mut input = ExtractInput {
-        release: cpg_extract::Release::from_tree(
-            std::fs::canonicalize(dir.path().join("release")).unwrap(),
-            "docs_shapes",
-        )
-        .unwrap(),
+        release: cpg_extract::Release {
+            root: site.clone(),
+            files,
+            release_id: Id([8; 16]),
+            origin: cpg_extract::ReleaseOrigin::Library(library),
+        },
         venv_root: std::fs::canonicalize(dir.path().join("venv")).unwrap(),
         site_packages: vec![std::fs::canonicalize(dir.path().join("venv/site-packages")).unwrap()],
         python_version: (3, 14, 0),
@@ -464,7 +488,7 @@ async fn a_corpus_documents_its_library() {
         commit: "0".repeat(40),
         documents: vec!["docs/**/*.mdx".to_owned()],
         documents_exclude: vec!["docs/old/**".to_owned()],
-        usage: Vec::new(),
+        usage: vec!["tests/**/*.py".to_owned()],
     };
     let tree = std::fs::canonicalize(dir.path().join("corpus")).unwrap();
     input.corpus = Some(cpg_extract::library::corpus(&tree, &source, &input).unwrap());
@@ -520,6 +544,38 @@ async fn a_corpus_documents_its_library() {
              ORDER BY m.start_byte, 5",
             EdgeKind::Mentions.code()
         ),
+    )
+    .await;
+    text += "## corpus modules: path | coverage (family: status)\n";
+    text += &lines(
+        &ctx,
+        "SELECT f.path, string_agg(CAST(c.fact_family AS VARCHAR) || ':' \
+                                   || CAST(c.status AS VARCHAR), ' ' ORDER BY c.fact_family) \
+         FROM source_files f JOIN releases r ON r.release_id = f.release_id \
+         JOIN coverage c ON c.scope_node_id = f.module_node_id \
+         WHERE r.label IS NOT NULL GROUP BY f.path ORDER BY f.path",
+    )
+    .await;
+    text += "## code block → module\n";
+    text += &lines(
+        &ctx,
+        &format!(
+            "SELECT b.module_path, f.module_name FROM edges e \
+             JOIN code_blocks b ON b.node_id = e.src_node_id \
+             JOIN source_files f ON f.module_node_id = e.dst_node_id \
+             WHERE e.edge_kind = {} ORDER BY 1",
+            EdgeKind::BlockModule.code()
+        ),
+    )
+    .await;
+    text += "## usage targets: dependency definition | release declaration | reason\n";
+    text += &lines(
+        &ctx,
+        "SELECT m.module_name || ':' || x.qualified_name, d.qualified_name, \
+                CAST(u.reason AS VARCHAR) \
+         FROM usage_targets u JOIN context_definitions x ON x.symbol_node_id = u.symbol_node_id \
+         JOIN context_modules m ON m.module_node_id = x.module_node_id \
+         LEFT JOIN declarations d ON d.node_id = u.target_node_id ORDER BY 1",
     )
     .await;
     text += "## coverage: path | status | reason\n";

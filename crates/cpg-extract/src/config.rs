@@ -26,7 +26,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 13;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 14;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -216,9 +216,17 @@ pub(crate) fn require_absolute(input: &ExtractInput) -> Result<(), ExtractError>
 /// The constructed configuration: no discovery, heuristics, fallback or interpreter query.
 pub(crate) fn pyrefly_config(input: &ExtractInput) -> Result<ConfigFile, ExtractError> {
     let (major, minor, micro) = input.python_version;
+    // A corpus resolves imports as its tests run: the tree first, then the environment's
+    // site-packages, which is the library run's search path. So a module both runs import is the
+    // same file in both (C5b); with site-packages only as site packages, Pyrefly's bundled stubs
+    // would win for the corpus and not for the library.
+    let mut search_path = vec![input.release.root.clone()];
+    if let ReleaseOrigin::Corpus { .. } = input.release.origin {
+        search_path.extend(input.site_packages.iter().cloned());
+    }
     let mut cfg = ConfigFile {
         source: ConfigSource::File(input.release.root.join("pyrefly.toml")),
-        search_path_from_args: vec![input.release.root.clone()],
+        search_path_from_args: search_path,
         disable_search_path_heuristics: true,
         disable_project_excludes_heuristics: true,
         enable_fallback_search_path: false,

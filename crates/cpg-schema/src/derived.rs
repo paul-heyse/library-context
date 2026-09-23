@@ -207,8 +207,9 @@ impl Derived for Exports {
                JOIN context_modules m ON m.module_node_id = d.module_node_id \
                WHERE d.is_top_level), \
              release_modules AS ( \
-               SELECT module_name, module_node_id, \
-                      row_number() OVER (PARTITION BY module_name ORDER BY is_stub, path) AS pick \
+               SELECT release_id, module_name, module_node_id, \
+                      row_number() OVER (PARTITION BY release_id, module_name \
+                                         ORDER BY is_stub, path) AS pick \
                FROM source_files), \
              dependency_modules AS ( \
                SELECT DISTINCT module_name, module_node_id FROM context_modules \
@@ -248,7 +249,8 @@ impl Derived for Exports {
                LEFT JOIN module_bindings mb \
                  ON mb.pick = 1 AND mb.module_node_id = p.origin_module_node_id \
                 AND mb.name = p.origin_name \
-               LEFT JOIN release_modules sm ON sm.pick = 1 AND sm.module_name = p.origin_path \
+               LEFT JOIN release_modules sm \
+                 ON sm.pick = 1 AND sm.release_id = x.release_id AND sm.module_name = p.origin_path \
                LEFT JOIN dependency_modules dm \
                  ON sm.module_name IS NULL AND dm.module_name = p.origin_path) \
              SELECT access_path, lctx_id('export', release_id, access_path) AS export_node_id, \
@@ -612,7 +614,7 @@ fn function_target_reason(alias: &str) -> String {
 /// Dependency definitions by module name and key, for the typed-target joins.
 fn external(kind: DefinitionKind) -> String {
     format!(
-        "SELECT m.module_name, d.key, d.symbol_node_id FROM context_definitions d \
+        "SELECT DISTINCT m.module_name, d.key, d.symbol_node_id FROM context_definitions d \
          JOIN context_modules m ON m.module_node_id = d.module_node_id WHERE d.kind = {}",
         c(kind)
     )
@@ -735,14 +737,17 @@ impl Derived for TypeClassTargets {
                     CAST(CASE WHEN COALESCE(m.node_id, e.symbol_node_id) IS NOT NULL THEN NULL \
                               WHEN m.class_key IS NOT NULL THEN m.reason END AS SMALLINT) \
                       AS reason \
-             FROM type_terms t \
+             FROM (SELECT *, row_number() OVER (PARTITION BY node_id ORDER BY fact_id \
+                                                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) \
+                               AS pick \
+                   FROM type_terms) t \
              LEFT JOIN source_files f ON t.class_module = '@' || f.path \
              LEFT JOIN provider_class_map m \
                ON m.module_node_id = f.module_node_id AND m.class_key = t.class_key \
              LEFT JOIN external_classes e \
                ON f.module_node_id IS NULL AND e.module_name = t.class_module \
               AND e.key = t.class_key \
-             WHERE t.class_module IS NOT NULL",
+             WHERE t.class_module IS NOT NULL AND t.pick = 1",
             external = external(DefinitionKind::Class),
         )
     }
@@ -810,14 +815,23 @@ impl Derived for TypeBinders {
     fn sql() -> String {
         format!(
             "WITH anchored AS ( \
-               SELECT DISTINCT node_id, fact_id, anchor_module, anchor_start, anchor_end \
-               FROM type_terms WHERE anchor_module IS NOT NULL), \
+               SELECT node_id, fact_id, anchor_module, anchor_start, anchor_end FROM ( \
+                 SELECT *, row_number() OVER (PARTITION BY node_id ORDER BY fact_id \
+                                              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) \
+                          AS pick \
+                 FROM type_terms WHERE anchor_module IS NOT NULL) x WHERE pick = 1), \
+             named AS ( \
+               SELECT module_name FROM source_files GROUP BY module_name \
+               HAVING count(DISTINCT CASE WHEN is_stub THEN NULL ELSE path END) <= 1 \
+                  AND count(DISTINCT CASE WHEN is_stub THEN path END) <= 1), \
              holders AS ( \
                SELECT f.module_name, f.is_stub, d.node_id, d.start_byte, d.end_byte \
                FROM declarations d JOIN source_files f ON f.module_node_id = d.module_node_id \
+               JOIN named n ON n.module_name = f.module_name \
                UNION ALL \
                SELECT f.module_name, f.is_stub, s.node_id, s.start_byte, s.end_byte \
                FROM syntax_nodes s JOIN source_files f ON f.module_node_id = s.module_node_id \
+               JOIN named n ON n.module_name = f.module_name \
                WHERE s.kind IN ({alias}, {assign}, {ann_assign})), \
              ranked AS ( \
                SELECT a.node_id AS term_node_id, h.node_id AS binder_node_id, \
@@ -831,15 +845,74 @@ impl Derived for TypeBinders {
                 AND a.anchor_end <= h.end_byte), \
              release_modules AS (SELECT DISTINCT module_name FROM source_files) \
              SELECT a.node_id AS term_node_id, a.fact_id AS term_fact_id, r.binder_node_id, \
-                    CAST(CASE WHEN r.binder_node_id IS NULL AND m.module_name IS NULL \
-                              THEN {outside} END AS SMALLINT) AS reason \
+                    CAST(CASE WHEN r.binder_node_id IS NOT NULL THEN NULL \
+                              WHEN m.module_name IS NULL THEN {outside} \
+                              WHEN n.module_name IS NULL THEN {ambiguous} END AS SMALLINT) \
+                      AS reason \
              FROM anchored a \
              LEFT JOIN ranked r ON r.term_node_id = a.node_id AND r.pick = 1 \
-             LEFT JOIN release_modules m ON m.module_name = a.anchor_module",
+             LEFT JOIN release_modules m ON m.module_name = a.anchor_module \
+             LEFT JOIN named n ON n.module_name = a.anchor_module",
             alias = c(SyntaxKind::StmtTypeAlias),
             assign = c(SyntaxKind::StmtAssign),
             ann_assign = c(SyntaxKind::StmtAnnAssign),
             outside = c(BoundaryReason::ScopeBoundary),
+            ambiguous = c(BoundaryReason::AmbiguousBinding),
+        )
+    }
+}
+
+table!(
+    /// Each dependency definition that is the library's own (C5b, DESIGN §3.8): a usage run reaches
+    /// the library through its installed files, which are the release's files (the same
+    /// site-relative path under the same distribution's `RECORD`). Pysa keys a definition by its
+    /// file, so the same key names the release's own declaration (Stage C), or its synthetic
+    /// callable (probe P4). A key Stage C maps to no node carries Stage C's reason; a key nothing
+    /// has is our failure, which `typed:usage_targets` rejects.
+    UsageTargets, UsageTargetsRow = "usage_targets",
+    family = Calls,
+    key = [snapshot_id, symbol_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        symbol_node_id: Id,
+        definition_fact_id: Id,
+        target_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for UsageTargets {
+    fn sql() -> String {
+        format!(
+            "WITH owned AS ( \
+               SELECT DISTINCT m.module_node_id AS external, f.module_node_id AS release \
+               FROM context_modules m \
+               JOIN source_files f ON f.path = m.path AND f.distribution = m.distribution \
+               WHERE m.origin = {site} AND m.distribution IS NOT NULL) \
+             SELECT d.symbol_node_id, d.fact_id AS definition_fact_id, \
+                    COALESCE(pm.node_id, sc.node_id, pc.node_id) AS target_node_id, \
+                    CAST(CASE WHEN COALESCE(pm.node_id, sc.node_id, pc.node_id) IS NOT NULL \
+                                THEN NULL \
+                              WHEN pm.function_key IS NOT NULL THEN pm.reason \
+                              WHEN pc.class_key IS NOT NULL THEN pc.reason END AS SMALLINT) \
+                      AS reason \
+             FROM (SELECT *, row_number() OVER (PARTITION BY symbol_node_id ORDER BY fact_id \
+                                                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) \
+                               AS pick \
+                   FROM context_definitions) d \
+             JOIN owned o ON o.external = d.module_node_id AND d.pick = 1 \
+             LEFT JOIN provider_node_map pm \
+               ON d.kind = {function} AND pm.module_node_id = o.release \
+              AND pm.function_key = d.key \
+             LEFT JOIN synthetic_callables sc \
+               ON d.kind = {function} AND sc.module_node_id = o.release \
+              AND sc.function_key = d.key \
+             LEFT JOIN provider_class_map pc \
+               ON d.kind = {class} AND pc.module_node_id = o.release AND pc.class_key = d.key",
+            site = c(ModuleOrigin::SitePackages),
+            function = c(DefinitionKind::Function),
+            class = c(DefinitionKind::Class),
         )
     }
 }
@@ -1033,8 +1106,9 @@ impl Derived for ImportTargets {
     fn sql() -> String {
         format!(
             "WITH release_modules AS ( \
-               SELECT module_name, module_node_id, \
-                      row_number() OVER (PARTITION BY module_name ORDER BY is_stub, path) AS pick \
+               SELECT release_id, module_name, module_node_id, \
+                      row_number() OVER (PARTITION BY release_id, module_name \
+                                         ORDER BY is_stub, path) AS pick \
                FROM source_files), \
              dependency_modules AS ( \
                SELECT DISTINCT module_name, module_node_id, origin FROM context_modules) \
@@ -1046,7 +1120,9 @@ impl Derived for ImportTargets {
                               WHEN x.resolved_module IS NULL OR d.origin = {not_found} \
                                 THEN {unresolved} END AS SMALLINT) AS reason \
              FROM export_syntax x \
-             LEFT JOIN release_modules r ON r.pick = 1 AND r.module_name = x.resolved_module \
+             JOIN source_files xs ON xs.module_node_id = x.module_node_id \
+             LEFT JOIN release_modules r \
+               ON r.pick = 1 AND r.release_id = xs.release_id AND r.module_name = x.resolved_module \
              LEFT JOIN dependency_modules d \
                ON r.module_name IS NULL AND d.module_name = x.resolved_module \
              WHERE x.kind IN ({import}, {import_from})",
@@ -1081,6 +1157,7 @@ macro_rules! for_each_derived_table {
             $crate::derived::TypeClassTargets,
             $crate::derived::TypeBinders,
             $crate::derived::MentionTargets,
+            $crate::derived::UsageTargets,
             $crate::graph::Nodes,
             $crate::graph::Edges,
             $crate::graph::GraphGaps,

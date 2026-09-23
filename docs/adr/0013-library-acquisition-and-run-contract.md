@@ -179,3 +179,9 @@ changing, because the context did not see the dependency environment.
   `rev-parse` every time. The corpus release's id hashes `repository@commit` and every selected
   file's path and content. This replaces "once per attempt, by the extractor run" in the
   Provenance clause above.
+- 2026-09-23: CPG slice C5b corrects the C5 amendment above. The corpus run does **not** share the
+  library's context: to resolve a module both runs import to one file, its search path puts the
+  tree ahead of the environment's site-packages (the library run's search path), so its context
+  id differs. It runs in the same environment, and its context lists the same `distributions`.
+  What the two runs both assert (a dependency module or definition, a type term) is one node,
+  written once from its first fact.

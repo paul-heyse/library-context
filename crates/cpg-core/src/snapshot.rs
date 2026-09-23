@@ -74,6 +74,27 @@ pub async fn session(
     Ok(ctx)
 }
 
+/// Every table of the store at its latest version. What an attempt that failed validation wrote is
+/// there, though no `snapshots` row publishes it: for inspecting that attempt, never for a reader.
+pub async fn latest(root: &Path) -> Result<Versions, CoreError> {
+    let mut versions = Versions::new();
+    let mut names: Vec<String> = std::fs::read_dir(root)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.join("_delta_log").is_dir())
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    names.sort();
+    for name in names {
+        let table = DeltaTableBuilder::from_url(table_url(root, &name)?)?
+            .load()
+            .await?;
+        if let Some(v) = table.version() {
+            versions.insert(name, v);
+        }
+    }
+    Ok(versions)
+}
+
 /// The published row set of `snapshot_id`: `None` unless its `snapshots` append committed. The
 /// latest `snapshots` version is the authority (it is append-only).
 pub async fn resolve(root: &Path, snapshot_id: Id) -> Result<Option<Versions>, CoreError> {

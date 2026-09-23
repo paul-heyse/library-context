@@ -947,6 +947,9 @@ table!(
         end_byte: i64,
         code: String,
         content_digest: Digest,
+        /// A Python block's materialized module in the usage run (C5b), release-relative; null for
+        /// any other language.
+        module_path: Option<String>,
     }
 );
 

@@ -21,3 +21,4 @@ start_byte: Int64 NOT NULL
 end_byte: Int64 NOT NULL
 code: Utf8 NOT NULL
 content_digest: FixedSizeBinary(32) NOT NULL
+module_path: Utf8 NULL

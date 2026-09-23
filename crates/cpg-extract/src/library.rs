@@ -553,26 +553,43 @@ pub fn select(
         .collect())
 }
 
-/// The corpus run's input (C5): the fetched `tree`'s selected documents and usage modules, in the
-/// environment of `library` (the library run's input). The usage modules join in slice C5b.
+/// The corpus run's input (C5): the fetched `tree`'s selected documents, and its usage modules (the
+/// selected examples and tests, and each document's Python code blocks, written as modules of their
+/// own under `<tree>/_lctx_blocks/`, which is cleared first), in the environment of `library` (the
+/// library run's input). The blocks derive from the documents, so the release id, which hashes the
+/// documents, already covers them.
 pub fn corpus(
     tree: &Path,
     source: &Source,
     library: &ExtractInput,
 ) -> Result<crate::config::CorpusInput, ExtractError> {
     let documents = select(tree, &source.documents, &source.documents_exclude)?;
+    let mut usage = select(tree, &source.usage, &[])?;
+    let blocks = tree.join("_lctx_blocks");
+    if blocks.exists() {
+        std::fs::remove_dir_all(&blocks)?;
+    }
+    for d in &documents {
+        let rel = d
+            .strip_prefix(tree)
+            .map_err(|_| ExtractError::RelativePath(d.clone()))?
+            .display()
+            .to_string();
+        for (ordinal, code) in crate::docs::python_blocks(&std::fs::read(d)?) {
+            let module = tree.join(crate::docs::block_module_path(&rel, ordinal));
+            if let Some(dir) = module.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&module, code)?;
+            usage.push(module);
+        }
+    }
     let label = format!("{}@{}", source.repository, source.commit);
     let environment = match &library.release.origin {
         ReleaseOrigin::Library(l) => Some(l.clone()),
         ReleaseOrigin::Tree { .. } | ReleaseOrigin::Corpus { .. } => None,
     };
-    let release = Release::corpus(
-        tree.to_path_buf(),
-        &label,
-        &documents,
-        Vec::new(),
-        environment,
-    )?;
+    let release = Release::corpus(tree.to_path_buf(), &label, &documents, usage, environment)?;
     Ok(crate::config::CorpusInput { release, documents })
 }
 

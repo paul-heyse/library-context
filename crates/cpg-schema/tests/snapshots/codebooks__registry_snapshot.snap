@@ -221,6 +221,8 @@ edge_kind
   31 contains_passage
   32 contains_block
   33 mentions
+  34 block_module
+  35 usage_link
 symbol_kind
   0 module
   1 attribute

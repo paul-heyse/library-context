@@ -4,8 +4,12 @@ expression: out
 ---
 lex/__init__.py:174 TYPE_CHECKING (scope 0@0) -> binding 10 in scope 0@0 at 115
 lex/__init__.py:251 list (scope 0@0) -> builtin list
+lex/__init__.py:357 counter (scope lex.bump) -> binding 3 in scope 0@0 at 257
+lex/__init__.py:357 counter (scope lex.bump) -> binding 4 in scope 0@0 at 357
 lex/__init__.py:381 counter (scope lex.bump) -> binding 3 in scope 0@0 at 257
 lex/__init__.py:381 counter (scope lex.bump) -> binding 4 in scope 0@0 at 357
+lex/__init__.py:473 total (scope lex.outer.inner) -> binding 3 in scope lex.outer at 413 (captured)
+lex/__init__.py:473 total (scope lex.outer.inner) -> binding 4 in scope lex.outer at 473 (captured)
 lex/__init__.py:482 x (scope lex.outer.inner) -> binding 2 in scope lex.outer.inner at 438
 lex/__init__.py:486 scale (scope lex.outer.inner) -> binding 2 in scope lex.outer at 401 (captured)
 lex/__init__.py:530 total (scope lex.outer.inner) -> binding 3 in scope lex.outer at 413 (captured)

@@ -8,8 +8,8 @@
 //! one term wherever it is observed; its bound, constraints and default are its children, walked
 //! once. A class is a (module ref, class key) pair and a recursive alias a reference to its name,
 //! so a term is finite; a depth cap makes that a guarantee rather than an expectation. Two
-//! structures that share an id but display differently are both emitted, so `key:nodes` fails
-//! instead of one silently standing for the other.
+//! structures that share an id but display differently are both emitted, so `unique:type_terms`
+//! fails instead of one silently standing for the other.
 //!
 //! Observations attach terms to the walker's nodes by exact span or name: parameters and returns
 //! of every `def`, call results, argument values and raised exceptions. Record fields come from
@@ -696,7 +696,7 @@ impl Builder<'_, '_> {
         let node_id = h.finish_id();
         match self.out.emitted.get(&node_id) {
             // Emitted already. A different display for one id is a collision: emit it too, so
-            // `key:nodes` rejects the snapshot rather than one term standing for another.
+            // `unique:type_terms` rejects the snapshot rather than one term standing for another.
             Some(seen) if *seen == display || t.variable.is_some() => return node_id,
             Some(_) | None => {}
         }

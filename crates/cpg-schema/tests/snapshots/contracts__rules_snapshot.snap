@@ -108,6 +108,8 @@ key:type_binders
   SELECT snapshot_id, term_node_id, count(*) AS n FROM type_binders GROUP BY snapshot_id, term_node_id HAVING count(*) > 1
 key:mention_targets
   SELECT snapshot_id, mention_fact_id, count(*) AS n FROM mention_targets GROUP BY snapshot_id, mention_fact_id HAVING count(*) > 1
+key:usage_targets
+  SELECT snapshot_id, symbol_node_id, count(*) AS n FROM usage_targets GROUP BY snapshot_id, symbol_node_id HAVING count(*) > 1
 key:nodes
   SELECT snapshot_id, node_id, count(*) AS n FROM nodes GROUP BY snapshot_id, node_id HAVING count(*) > 1
 key:edges
@@ -410,10 +412,12 @@ codebook:type_binders.reason
   SELECT reason FROM type_binders WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:mention_targets.reason
   SELECT reason FROM mention_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+codebook:usage_targets.reason
+  SELECT reason FROM usage_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:nodes.node_kind
   SELECT node_kind FROM nodes WHERE node_kind IS NOT NULL AND node_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 codebook:edges.edge_kind
-  SELECT edge_kind FROM edges WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33)
+  SELECT edge_kind FROM edges WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35)
 codebook:edges.src_kind
   SELECT src_kind FROM edges WHERE src_kind IS NOT NULL AND src_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 codebook:edges.dst_kind
@@ -421,7 +425,7 @@ codebook:edges.dst_kind
 codebook:graph_gaps.reason
   SELECT reason FROM graph_gaps WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:edge_kinds.edge_kind
-  SELECT edge_kind FROM edge_kinds WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33)
+  SELECT edge_kind FROM edge_kinds WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35)
 codebook:edge_kinds.derivation
   SELECT derivation FROM edge_kinds WHERE derivation IS NOT NULL AND derivation NOT IN (0, 1, 2, 3)
 coverage:declared-family
@@ -561,7 +565,7 @@ one-per-evidence:declared_in
 no-parallel:declared_in
   SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 12 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
 lineage:declared_in
-  WITH expected AS (SELECT fact_id FROM context_definitions), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 12) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+  WITH expected AS (SELECT fact_id FROM context_definitions), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 12 UNION ALL SELECT fact_id FROM (SELECT fact_id FROM (SELECT *, row_number() OVER (PARTITION BY symbol_node_id ORDER BY fact_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pick FROM context_definitions) d WHERE d.pick > 1) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
 endpoint:ast_child
   SELECT edge_id FROM edges WHERE edge_kind = 13 AND (src_kind IS NULL OR src_kind NOT IN (0, 1, 2, 4, 10) OR dst_kind IS NULL OR dst_kind NOT IN (1, 2, 4, 10))
 evidence:ast_child
@@ -699,7 +703,7 @@ evidence:type_arg
 one-per-evidence:type_arg
   SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 27 GROUP BY evidence_fact_id HAVING count(*) > 1
 lineage:type_arg
-  WITH expected AS (SELECT fact_id FROM type_term_args), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 27) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+  WITH expected AS (SELECT fact_id FROM type_term_args), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 27 UNION ALL SELECT fact_id FROM (SELECT fact_id FROM (SELECT *, row_number() OVER (PARTITION BY parent_node_id, role, ordinal ORDER BY fact_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pick FROM type_term_args) a WHERE a.pick > 1) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
 endpoint:type_class
   SELECT edge_id FROM edges WHERE edge_kind = 28 AND (src_kind IS NULL OR src_kind NOT IN (14) OR dst_kind IS NULL OR dst_kind NOT IN (1, 8))
 evidence:type_class
@@ -709,7 +713,7 @@ one-per-evidence:type_class
 no-parallel:type_class
   SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 28 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
 lineage:type_class
-  WITH expected AS (SELECT fact_id FROM type_terms WHERE class_module IS NOT NULL), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 28 UNION ALL SELECT fact_id FROM (SELECT term_fact_id AS fact_id FROM type_class_targets WHERE reason IS NOT NULL) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+  WITH expected AS (SELECT fact_id FROM type_terms WHERE class_module IS NOT NULL), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 28 UNION ALL SELECT fact_id FROM (SELECT term_fact_id AS fact_id FROM type_class_targets WHERE reason IS NOT NULL UNION ALL SELECT fact_id FROM (SELECT *, row_number() OVER (PARTITION BY node_id ORDER BY fact_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pick FROM type_terms) t WHERE t.pick > 1) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
 endpoint:has_field
   SELECT edge_id FROM edges WHERE edge_kind = 29 AND (src_kind IS NULL OR src_kind NOT IN (1) OR dst_kind IS NULL OR dst_kind NOT IN (15))
 evidence:has_field
@@ -758,6 +762,26 @@ one-per-evidence:mentions
   SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 33 GROUP BY evidence_fact_id HAVING count(*) > 1
 lineage:mentions
   WITH expected AS (SELECT fact_id FROM mentions), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 33 UNION ALL SELECT fact_id FROM (SELECT mention_fact_id AS fact_id FROM mention_targets WHERE reason IS NOT NULL) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+endpoint:block_module
+  SELECT edge_id FROM edges WHERE edge_kind = 34 AND (src_kind IS NULL OR src_kind NOT IN (18) OR dst_kind IS NULL OR dst_kind NOT IN (0))
+evidence:block_module
+  SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.evidence_fact_id AND f.table_name = 'code_blocks' WHERE e.edge_kind = 34
+one-per-evidence:block_module
+  SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 34 GROUP BY evidence_fact_id HAVING count(*) > 1
+no-parallel:block_module
+  SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 34 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
+lineage:block_module
+  WITH expected AS (SELECT fact_id FROM code_blocks WHERE module_path IS NOT NULL), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 34) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
+endpoint:usage_link
+  SELECT edge_id FROM edges WHERE edge_kind = 35 AND (src_kind IS NULL OR src_kind NOT IN (8) OR dst_kind IS NULL OR dst_kind NOT IN (2, 1, 9))
+evidence:usage_link
+  SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.evidence_fact_id AND f.table_name = 'context_definitions' WHERE e.edge_kind = 35
+one-per-evidence:usage_link
+  SELECT evidence_fact_id, count(*) AS n FROM edges WHERE edge_kind = 35 GROUP BY evidence_fact_id HAVING count(*) > 1
+no-parallel:usage_link
+  SELECT src_node_id, dst_node_id, count(*) AS n FROM edges WHERE edge_kind = 35 GROUP BY src_node_id, dst_node_id, ordinal HAVING count(*) > 1
+lineage:usage_link
+  WITH expected AS (SELECT definition_fact_id AS fact_id FROM usage_targets), accounted AS (SELECT evidence_fact_id AS fact_id FROM edges WHERE edge_kind = 35 UNION ALL SELECT fact_id FROM (SELECT definition_fact_id AS fact_id FROM usage_targets WHERE reason IS NOT NULL) x) SELECT x.fact_id FROM expected x LEFT ANTI JOIN accounted a ON a.fact_id = x.fact_id
 ref:declarations.module_node_id->nodes
   SELECT f.module_node_id AS value FROM declarations f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
 ref:declarations.parent_node_id->nodes
@@ -914,6 +938,10 @@ ref:mention_targets.passage_node_id->nodes
   SELECT f.passage_node_id AS value FROM mention_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (17)) r ON f.passage_node_id = r.node_id WHERE f.passage_node_id IS NOT NULL
 ref:mention_targets.target_node_id->nodes
   SELECT f.target_node_id AS value FROM mention_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (6, 1, 2)) r ON f.target_node_id = r.node_id WHERE f.target_node_id IS NOT NULL
+ref:usage_targets.symbol_node_id->nodes
+  SELECT f.symbol_node_id AS value FROM usage_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (8)) r ON f.symbol_node_id = r.node_id WHERE f.symbol_node_id IS NOT NULL
+ref:usage_targets.target_node_id->nodes
+  SELECT f.target_node_id AS value FROM usage_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (2, 1, 9)) r ON f.target_node_id = r.node_id WHERE f.target_node_id IS NOT NULL
 id:arguments
   SELECT node_id FROM arguments WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('argument', call_node_id, ordinal) AS BYTEA)
 id:context_definitions
@@ -946,6 +974,10 @@ unique:syntax_nodes
   SELECT node_id, count(*) AS n FROM syntax_nodes GROUP BY node_id HAVING count(*) > 1
 contained:syntax_nodes
   SELECT c.node_id FROM syntax_nodes c JOIN syntax_nodes p ON p.node_id = c.parent_node_id WHERE c.start_byte < p.start_byte OR c.end_byte > p.end_byte OR c.module_node_id <> p.module_node_id
+unique:type_terms
+  SELECT node_id FROM type_terms GROUP BY node_id HAVING count(DISTINCT kind) > 1 OR count(DISTINCT display) > 1 OR count(DISTINCT COALESCE(detail, '')) > 1
+unique:release-paths
+  SELECT path, count(DISTINCT release_id) AS n FROM source_files GROUP BY path HAVING count(DISTINCT release_id) > 1
 support:edges
   SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.support_fact_id WHERE e.support_fact_id IS NOT NULL
 typed:call_targets
@@ -970,3 +1002,5 @@ typed:type_binders
   SELECT * FROM type_binders WHERE binder_node_id IS NULL AND reason IS NULL
 typed:mention_targets
   SELECT * FROM mention_targets WHERE target_node_id IS NULL AND reason IS NULL
+typed:usage_targets
+  SELECT * FROM usage_targets WHERE target_node_id IS NULL AND reason IS NULL
