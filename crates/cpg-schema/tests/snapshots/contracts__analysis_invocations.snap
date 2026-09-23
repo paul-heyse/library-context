@@ -1,0 +1,34 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table analysis_invocations
+family findings
+key snapshot_id, invocation_id
+check iterations_nonnegative: iterations IS NULL OR iterations >= 0
+check candidate_set_size_nonnegative: candidate_set_size IS NULL OR candidate_set_size >= 0
+check vertices_examined_nonnegative: vertices_examined IS NULL OR vertices_examined >= 0
+check arcs_examined_nonnegative: arcs_examined IS NULL OR arcs_examined >= 0
+@lctx.family=findings
+@lctx.table=analysis_invocations
+snapshot_id: FixedSizeBinary(16) NOT NULL
+invocation_id: FixedSizeBinary(16) NOT NULL
+run_id: FixedSizeBinary(16) NOT NULL
+model_id: Utf8 NOT NULL
+extraction_mode: Int16 NOT NULL [lctx.codebook=extraction_mode]
+method: Int16 NOT NULL [lctx.codebook=analytic_method]
+parameters: Utf8 NOT NULL
+parameters_digest: FixedSizeBinary(32) NOT NULL
+projection_digest: FixedSizeBinary(32) NULL
+library_versions: List(non-null Utf8) NOT NULL
+subject_node_id: FixedSizeBinary(16) NULL
+seed: Int64 NULL
+iterations: Int64 NULL
+residual: Float64 NULL
+converged: Boolean NULL
+quality_history: List(non-null Float64) NOT NULL
+candidate_set_size: Int64 NULL
+vertices_examined: Int64 NULL
+arcs_examined: Int64 NULL
+completion: Int16 NOT NULL [lctx.codebook=coverage_status]
+stop_reason: Int16 NULL [lctx.codebook=stop_reason]

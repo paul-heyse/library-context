@@ -1,0 +1,122 @@
+# Pre-registered analytics config for FastMCP 4.0.5.
+#
+# Written by a docs-only subagent on 2026-09-23. The only inputs were FastMCP's
+# own docs (build/sources/fastmcp/004bf15a.../docs, mainly servers/ and
+# getting-started/) and the installed package (build/envs/fastmcp), read through
+# its layout and by introspection. No evaluation gold, skill, brief or held-out
+# material was opened.
+#
+# Rules applied, literally:
+#  1. subsystem.module_prefixes: the server-components surface. These are the
+#     modules that implement the server object and the components a server author
+#     registers on it (tools, resources, prompts), the errors those raise, and the
+#     server's middleware and dependency-injection machinery. The client, CLI,
+#     auth, apps, contrib, experimental and settings/telemetry packages are
+#     excluded. A module is in scope if its dotted name equals a prefix or starts
+#     with the prefix followed by ".".
+#  2. subsystem.public_roots: the top-level public package(s) that seeds are
+#     named from.
+#  3. seeds.primary is fixed by the design: fastmcp.FastMCP.tool.
+#  4. seeds.distractors: 2-4 of "the seed class's other public methods that a
+#     server author calls to add a component or behaviour to the server, as the
+#     server docs present them, in the order the docs first introduce them; each
+#     must be a distinct public method defined on or inherited by FastMCP".
+#
+# Why each prefix is in scope:
+#   fastmcp.server.server              defines the FastMCP class, the server object itself
+#   fastmcp.server.mixins              LifespanMixin, MCPOperationsMixin and TransportMixin;
+#                                      all three are in FastMCP.__mro__
+#   fastmcp.server.providers.base      Provider, in FastMCP.__mro__
+#   fastmcp.server.providers.aggregate AggregateProvider, FastMCP's direct base
+#   fastmcp.server.providers.local_provider
+#                                      FastMCP.tool/resource/prompt/add_* delegate to
+#                                      self._local_provider (checked with inspect.getsource)
+#   fastmcp.server.low_level           LowLevelServer, which FastMCP owns, and
+#                                      FastMCPServerMiddleware, the "root dispatch for the
+#                                      FastMCP middleware chain"
+#   fastmcp.tools                      Tool and the function-tool implementation (docs servers/tools.mdx)
+#   fastmcp.resources                  Resource and ResourceTemplate (docs servers/resources.mdx)
+#   fastmcp.prompts                    Prompt (docs servers/prompts.mdx)
+#   fastmcp.utilities.components       FastMCPComponent, the base of Tool, Resource,
+#                                      ResourceTemplate and Prompt (checked via __mro__)
+#   fastmcp.decorators                 the shared metadata protocol behind the component
+#                                      decorators (ToolMeta/ResourceMeta/PromptMeta)
+#   fastmcp.exceptions                 ToolError, ResourceError, PromptError, NotFoundError
+#                                      and the rest (docs import ToolError and ResourceError from here)
+#   fastmcp.server.middleware          Middleware and the built-in middleware (docs servers/middleware.mdx)
+#   fastmcp.dependencies               the public DI exports: Depends, CurrentContext, ...
+#                                      (docs servers/dependency-injection.mdx)
+#   fastmcp.server.dependencies        the DI implementation: get_context, get_server,
+#                                      TokenClaim, ... (same doc)
+#   fastmcp.server.context             Context, which the DI doc lists first under
+#                                      "Built-in Dependencies" ("MCP Context")
+# Left out deliberately, because the rule does not name them:
+#   fastmcp.server.transforms, the other fastmcp.server.providers.* modules
+#   (openapi, proxy, filesystem, skills, fastmcp_provider, wrapped_provider, prefab_*),
+#   fastmcp.server.{http, lifespan, sessions, elicitation, completions, caching,
+#   event_store, session_scoped_event_store, extensions}, fastmcp.utilities.* apart
+#   from components, fastmcp.types, fastmcp.mcp_config, and the fastmcp.server package
+#   __init__ (lazy re-exports only; a "fastmcp.server" prefix would also pull in
+#   fastmcp.server.auth).
+# Excluded by the rule itself: fastmcp.client, fastmcp.cli, fastmcp.server.auth,
+#   fastmcp.apps, fastmcp.contrib, fastmcp.experimental, fastmcp.settings,
+#   fastmcp.telemetry, fastmcp.server.telemetry.
+#
+# public_roots: "fastmcp" is the only top-level public package. FastMCP is exported
+#   from fastmcp/__init__.py __all__, so seeds are written fastmcp.FastMCP.<method>.
+#
+# Distractors: "the server docs" is read as servers/server.mdx ("The FastMCP Server",
+#   the landing page of the Servers group in docs.json and the page that documents
+#   the seed class). In that page's order:
+#     line 38   @mcp.tool                  primary seed, so skipped
+#     line 47   @mcp.resource("data://config")  adds a component -> distractor 1
+#     line 55   @mcp.prompt                adds a component       -> distractor 2
+#     line 65   mcp.run()                  starts the server, adds nothing; skipped
+#     line 261+ mcp.enable / mcp.disable   the docs present these as "Tag-Based
+#                                          Filtering" that hides or exposes components
+#                                          already registered, not as adding one; skipped
+#     line 296  @mcp.custom_route(...)     adds behaviour (an HTTP route) -> distractor 3
+#   Each was checked by introspection (fastmcp.FastMCP is build/envs/fastmcp):
+#     FastMCP.resource      defined on fastmcp.server.server.FastMCP
+#     FastMCP.prompt        defined on fastmcp.server.server.FastMCP
+#     FastMCP.custom_route  inherited from fastmcp.server.mixins.transport.TransportMixin
+version = 1
+
+[subsystem]
+module_prefixes = [
+    "fastmcp.server.server",
+    "fastmcp.server.mixins",
+    "fastmcp.server.providers.base",
+    "fastmcp.server.providers.aggregate",
+    "fastmcp.server.providers.local_provider",
+    "fastmcp.server.low_level",
+    "fastmcp.tools",
+    "fastmcp.resources",
+    "fastmcp.prompts",
+    "fastmcp.utilities.components",
+    "fastmcp.decorators",
+    "fastmcp.exceptions",
+    "fastmcp.server.middleware",
+    "fastmcp.dependencies",
+    "fastmcp.server.dependencies",
+    "fastmcp.server.context",
+]
+public_roots = ["fastmcp"]
+
+[seeds]
+primary = ["fastmcp.FastMCP.tool"]
+distractors = [
+    "fastmcp.FastMCP.resource",
+    "fastmcp.FastMCP.prompt",
+    "fastmcp.FastMCP.custom_route",
+]
+
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+
+[briefs]
+budget = 4
+serve_unreviewed = true

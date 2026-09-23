@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table finding_members
+family findings
+key snapshot_id, finding_id, role, ordinal
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=findings
+@lctx.table=finding_members
+snapshot_id: FixedSizeBinary(16) NOT NULL
+finding_id: FixedSizeBinary(16) NOT NULL
+role: Int16 NOT NULL [lctx.codebook=member_role]
+ordinal: Int64 NOT NULL
+node_id: FixedSizeBinary(16) NULL
+cited_fact_id: FixedSizeBinary(16) NULL
+label: Utf8 NULL
+weight: Float64 NULL

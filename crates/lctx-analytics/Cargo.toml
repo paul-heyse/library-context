@@ -1,0 +1,20 @@
+[package]
+name = "lctx-analytics"
+description = "Projections to graphs and the analysis kernels (DESIGN §5, §9; ADR-0019): Arrow in, Arrow out, no DataFusion or Delta."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+cpg-schema = { path = "../cpg-schema" }
+arrow-array.workspace = true
+petgraph.workspace = true
+fixedbitset.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table witnesses
+family findings
+key snapshot_id, finding_id, path, step
+check path_nonnegative: path >= 0
+check step_nonnegative: step >= 0
+@lctx.family=findings
+@lctx.table=witnesses
+snapshot_id: FixedSizeBinary(16) NOT NULL
+finding_id: FixedSizeBinary(16) NOT NULL
+path: Int64 NOT NULL
+step: Int64 NOT NULL
+caller_node_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+callee_node_id: FixedSizeBinary(16) NOT NULL
+edge_id: FixedSizeBinary(16) NOT NULL
+modality: Int16 NOT NULL [lctx.codebook=modality]
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]

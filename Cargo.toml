@@ -23,6 +23,9 @@ parquet = { version = "=59.3.0", default-features = false, features = ["zstd"] }
 datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet"] }
 deltalake = { git = "https://github.com/delta-io/delta-rs", rev = "58f07cd62bfbce3649a7e1c87c696288068ae184", default-features = false, features = ["datafusion", "rustls"] }
 petgraph = "=0.8.3"
+# The analytics adapter's subsystem masks and FCA contexts (DESIGN §5, §9.6): petgraph's own
+# `fixedbitset`, already in the graph at this version.
+fixedbitset = "=0.5.7"
 
 # Analyzers (ADR-0012, docs/pins.md): Pyrefly 1.3.1 + third_party/pyrefly-1.3.1.patch from the
 # fork, and the ruff crate line it compiles against. One version each (scripts/check_family.py).

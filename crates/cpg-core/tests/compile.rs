@@ -88,7 +88,11 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
-    assert_eq!(versions.len(), 36 + 21, "every raw and derived table");
+    assert_eq!(
+        versions.len(),
+        36 + 21 + 4,
+        "every raw, derived and analysis table"
+    );
 
     // A second attempt fails validation after writing its rows: it publishes nothing.
     let mut raw_b = raw("pysa_variants", b);
@@ -843,6 +847,7 @@ fn every_rule_is_exercised_or_declared_an_edit_guard() {
         "one-per-evidence",
         "no-parallel",
         "lineage",
+        "finite",
     ];
     let names: Vec<String> = cpg_schema::rules::rules()
         .into_iter()
@@ -860,6 +865,7 @@ fn every_rule_is_exercised_or_declared_an_edit_guard() {
         include_str!("compile.rs"),
         include_str!("graph.rs"),
         include_str!("syntax.rs"),
+        include_str!("analysis.rs"),
     ] {
         for kind in &kinds {
             for (at, _) in source.match_indices(&format!("\"{kind}:")) {

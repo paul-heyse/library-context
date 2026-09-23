@@ -421,11 +421,7 @@ pub(crate) fn producer() -> Producer {
     let build = format!("{}/{EXTRACTOR_OUTPUT_VERSION}", env!("CARGO_PKG_VERSION"));
     let build_digest = content_digest(build.as_bytes());
     let config_digest = content_digest(config.as_bytes());
-    let id = IdHasher::new(kind::PRODUCER)
-        .str(TOOL)
-        .str(&revision)
-        .digest_field(build_digest)
-        .finish_id();
+    let id = cpg_schema::id::recipe::producer(TOOL, &revision, build_digest);
     Producer {
         id,
         revision,
@@ -435,13 +431,11 @@ pub(crate) fn producer() -> Producer {
 }
 
 pub(crate) fn run_id(release: Id, context: Id, producer: &Producer, families: &[&str]) -> Id {
-    let mut sorted = families.to_vec();
-    sorted.sort_unstable();
-    IdHasher::new(kind::RUN)
-        .id(release)
-        .id(context)
-        .id(producer.id)
-        .strs(sorted)
-        .digest_field(producer.config_digest)
-        .finish_id()
+    cpg_schema::id::recipe::run(
+        release,
+        context,
+        producer.id,
+        families,
+        producer.config_digest,
+    )
 }

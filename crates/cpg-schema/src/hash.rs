@@ -73,3 +73,21 @@ impl HashField for Vec<String> {
         h.strs(self.iter().map(String::as_str));
     }
 }
+impl HashField for f64 {
+    fn hash_into(&self, h: &mut IdHasher) {
+        h.f64(*self);
+    }
+}
+impl HashField for Option<f64> {
+    fn hash_into(&self, h: &mut IdHasher) {
+        h.opt_f64(*self);
+    }
+}
+impl HashField for Vec<f64> {
+    fn hash_into(&self, h: &mut IdHasher) {
+        h.i64(self.len() as i64);
+        for v in self {
+            h.f64(*v);
+        }
+    }
+}

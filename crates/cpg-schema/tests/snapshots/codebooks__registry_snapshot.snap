@@ -102,6 +102,8 @@ fact_family
   8 lexical
   9 types
   10 docs
+  11 findings
+  12 embedding_cache
 scope_kind
   0 release
   1 module
@@ -463,3 +465,22 @@ source_role
   1 example
   2 test
   3 doc_block
+analytic_method
+  0 pass_a_bfs
+finding_kind
+  0 public_alias
+  1 direct_delegation
+  2 bounded_delegation_path
+  3 implementation_boundary
+  4 incomplete_resolution
+stop_reason
+  0 depth_limit
+  1 vertex_budget
+  2 edge_budget
+  3 witness_limit
+  4 subsystem_boundary
+  5 external_boundary
+  6 synthetic_boundary
+  7 unresolved_site
+member_role
+  0 access_path

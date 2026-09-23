@@ -1,6 +1,7 @@
 //! Delta persistence of the fact-family tables, the one read-only SQL helper, and the compile
 //! attempt: write, derive, validate, publish (DESIGN §4.3, §6, §8).
 
+pub mod analyze;
 pub mod attempt;
 pub mod delta;
 pub mod derive;
@@ -78,6 +79,8 @@ pub enum CoreError {
     SchemaMismatch(&'static str),
     #[error("{0}: a row carries another snapshot_id")]
     ForeignSnapshot(&'static str),
+    #[error("analysis: {0}")]
+    Analysis(String),
     #[error("validation failed, nothing published: {}", summary(.0))]
     Invalid(Vec<Violation>),
     #[error("snapshot {0} is already published")]

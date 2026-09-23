@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow_array::builder::{ListBuilder, StringBuilder};
+use arrow_array::builder::{Float64Builder, ListBuilder, StringBuilder};
 use arrow_array::{
-    ArrayRef, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, StringArray,
+    ArrayRef, BooleanArray, FixedSizeBinaryArray, Float64Array, Int16Array, Int64Array, StringArray,
 };
 use arrow_schema::{DataType, Field};
 
@@ -214,6 +214,56 @@ impl ArrowColumn for Vec<String> {
         for list in values {
             for s in list {
                 b.values().append_value(s);
+            }
+            b.append(true);
+        }
+        Arc::new(b.finish())
+    }
+}
+
+/// A score or weight (DESIGN §3.3): `Float64`, finite. Finiteness is checked where the value is
+/// made (the analytics refuse a non-finite result) and by a generated `finite:` rule.
+impl ArrowColumn for f64 {
+    fn data_type() -> DataType {
+        DataType::Float64
+    }
+    fn nullable() -> bool {
+        false
+    }
+    fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
+        Arc::new(Float64Array::from_iter_values(values.copied()))
+    }
+}
+
+impl ArrowColumn for Option<f64> {
+    fn data_type() -> DataType {
+        DataType::Float64
+    }
+    fn nullable() -> bool {
+        true
+    }
+    fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
+        Arc::new(values.copied().collect::<Float64Array>())
+    }
+}
+
+fn float_item() -> Arc<Field> {
+    Arc::new(Field::new("item", DataType::Float64, false))
+}
+
+/// A sequence of scores in order (a quality history).
+impl ArrowColumn for Vec<f64> {
+    fn data_type() -> DataType {
+        DataType::List(float_item())
+    }
+    fn nullable() -> bool {
+        false
+    }
+    fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
+        let mut b = ListBuilder::new(Float64Builder::new()).with_field(float_item());
+        for list in values {
+            for v in list {
+                b.values().append_value(*v);
             }
             b.append(true);
         }

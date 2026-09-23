@@ -40,6 +40,7 @@ fn references_name_real_columns() {
         }
         let mut v = cpg_schema::for_each_table!(all);
         v.extend(cpg_schema::for_each_derived_table!(all));
+        v.extend(cpg_schema::for_each_analysis_table!(all));
         v.into_iter().collect()
     };
     for r in cpg_schema::rules::REFERENCES {
@@ -146,4 +147,103 @@ fn batches_type_check_and_sort_canonically_regardless_of_input_order() {
     assert_eq!(empty.num_rows(), 0);
     // Re-sorting a sorted batch is the identity.
     assert_eq!(canonical_sort(&a, Declarations::key()).unwrap(), a);
+}
+
+/// ADR-0019 review O2: an analysis table never has a column named `fact_id`, which would make the
+/// generator demand a `facts` row for it; a cited fact is `cited_fact_id`.
+#[test]
+fn no_analysis_table_has_a_fact_id_column() {
+    macro_rules! all {
+        ($($t:ty),+) => { vec![$((<$t as Table>::NAME, <$t as Table>::schema())),+] };
+    }
+    for (name, schema) in cpg_schema::for_each_analysis_table!(all) {
+        assert!(schema.index_of("fact_id").is_err(), "{name} has fact_id");
+    }
+}
+
+/// ADR-0019 review F1: perturbing any identity column of a finding changes its id; the lineage
+/// columns (the invocation, the score, a step's edge id, a member's weight) are not inputs.
+#[test]
+fn a_finding_id_follows_every_identity_column() {
+    use cpg_schema::findings::recipe::FindingKey;
+    use cpg_schema::findings::{MemberKey, StepKey};
+    use cpg_schema::id::Id;
+    let step = StepKey {
+        call_site: Id([1; 16]),
+        callee: Id([2; 16]),
+        modality: 0,
+        phase: 0,
+    };
+    let member = MemberKey {
+        role: 0,
+        ordinal: 0,
+        node: Some(Id([3; 16])),
+        cited_fact: None,
+        label: Some("pkg.S".to_owned()),
+    };
+    let paths = vec![vec![step]];
+    let members = vec![member.clone()];
+    let base = FindingKey {
+        finding_kind: 1,
+        subject: Id([4; 16]),
+        related: Some(Id([5; 16])),
+        condition: None,
+        evidence_status: 0,
+        depth: Some(1),
+        stop_reason: None,
+        witnesses_omitted: false,
+        paths: &paths,
+        members: &members,
+    };
+    let id = base.id();
+    let changed = |f: &dyn Fn(&mut FindingKey<'_>)| {
+        let mut k = FindingKey { ..base };
+        f(&mut k);
+        k.id()
+    };
+    assert_ne!(id, changed(&|k| k.finding_kind = 2));
+    assert_ne!(id, changed(&|k| k.subject = Id([9; 16])));
+    assert_ne!(id, changed(&|k| k.related = None));
+    assert_ne!(id, changed(&|k| k.condition = Some(Id([9; 16]))));
+    assert_ne!(id, changed(&|k| k.evidence_status = 2));
+    assert_ne!(id, changed(&|k| k.depth = Some(2)));
+    assert_ne!(id, changed(&|k| k.stop_reason = Some(0)));
+    assert_ne!(id, changed(&|k| k.witnesses_omitted = true));
+    for alter in [
+        |s: &mut StepKey| s.call_site = Id([9; 16]),
+        |s: &mut StepKey| s.callee = Id([9; 16]),
+        |s: &mut StepKey| s.modality = 1,
+        |s: &mut StepKey| s.phase = 4,
+    ] {
+        let mut s = step;
+        alter(&mut s);
+        let other = vec![vec![s]];
+        assert_ne!(
+            id,
+            FindingKey {
+                paths: &other,
+                ..base
+            }
+            .id()
+        );
+    }
+    for alter in [
+        |m: &mut MemberKey| m.role = 1,
+        |m: &mut MemberKey| m.ordinal = 1,
+        |m: &mut MemberKey| m.node = None,
+        |m: &mut MemberKey| m.cited_fact = Some(Id([9; 16])),
+        |m: &mut MemberKey| m.label = None,
+    ] {
+        let mut m = member.clone();
+        alter(&mut m);
+        let other = vec![m];
+        assert_ne!(
+            id,
+            FindingKey {
+                members: &other,
+                ..base
+            }
+            .id()
+        );
+    }
 }

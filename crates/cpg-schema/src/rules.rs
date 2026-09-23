@@ -4,6 +4,7 @@
 //! - `ref`: every reference below names an existing row (null passes);
 //! - `fact`: every raw row has its `facts` row, and every `facts` row has its raw row;
 //! - `codebook`: every `Int16` codebook column holds a code of its codebook;
+//! - `finite`: every `Float64` value, scalar or listed, is finite;
 //! - `coverage`: every family a run declares has a row for every module of its release;
 //! - `semantic`: hand-written rules no declaration generates (listed in [`semantic`]).
 //!
@@ -28,6 +29,7 @@ pub struct Reference {
 }
 
 const FACT: &[(&str, &str)] = &[("facts", "fact_id")];
+const NODE: &[(&str, &str)] = &[("nodes", "node_id")];
 
 const fn r(
     table: &'static str,
@@ -56,6 +58,29 @@ pub const REFERENCES: &[Reference] = &[
     r("runs", "context_id", &[("contexts", "context_id")]),
     r("runs", "producer_id", &[("producers", "producer_id")]),
     r("coverage", "run_id", &[("runs", "run_id")]),
+    // Analysis results (ADR-0019): provenance in-row, citing runs, nodes, edges and facts.
+    r("analysis_invocations", "run_id", &[("runs", "run_id")]),
+    r("analysis_invocations", "subject_node_id", NODE),
+    r(
+        "findings",
+        "invocation_id",
+        &[("analysis_invocations", "invocation_id")],
+    ),
+    r("findings", "subject_node_id", NODE),
+    r("findings", "related_node_id", NODE),
+    r("findings", "condition_node_id", NODE),
+    r(
+        "finding_members",
+        "finding_id",
+        &[("findings", "finding_id")],
+    ),
+    r("finding_members", "node_id", NODE),
+    r("finding_members", "cited_fact_id", FACT),
+    r("witnesses", "finding_id", &[("findings", "finding_id")]),
+    r("witnesses", "caller_node_id", NODE),
+    r("witnesses", "call_site_node_id", NODE),
+    r("witnesses", "callee_node_id", NODE),
+    r("witnesses", "edge_id", &[("edges", "edge_id")]),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
     r("provider_class_map", "pysa_fact_id", FACT),
@@ -103,6 +128,7 @@ fn shapes() -> Vec<Shape> {
     }
     let mut out = crate::for_each_table!(all);
     out.extend(crate::for_each_derived_table!(all));
+    out.extend(crate::for_each_analysis_table!(all));
     out
 }
 
@@ -157,6 +183,49 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
+            // ADR-0019: an analysis invocation's model is its own run's producer, as for facts.
+            "semantic:invocation-model-producer",
+            "SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id \
+             WHERE split_part(i.model_id, '/', 1) <> encode(r.producer_id, 'hex')"
+                .to_owned(),
+        ),
+        (
+            // ADR-0019 review F6: a finding's status is the one its kind permits.
+            "semantic:finding-status-policy",
+            format!(
+                "SELECT f.finding_id FROM findings f \
+                 LEFT ANTI JOIN (VALUES {}) AS p(kind, status) \
+                   ON p.kind = f.finding_kind AND p.status = f.evidence_status",
+                crate::findings::FINDING_STATUS
+                    .iter()
+                    .map(|(k, s)| format!("({}, {})", k.code(), s.code()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ),
+        (
+            // ADR-0019 review F6: every analysis invocation is the compiler's.
+            "semantic:invocation-run-is-compiler",
+            "SELECT i.invocation_id FROM analysis_invocations i \
+             JOIN runs r ON r.run_id = i.run_id \
+             JOIN producers p ON p.producer_id = r.producer_id \
+             WHERE p.tool <> 'lctx-compiler'"
+                .to_owned(),
+        ),
+        (
+            // ADR-0019: a witness path is a chain from the finding's subject: each step starts
+            // where the previous one ended, and the first at the subject.
+            "semantic:witness-chain",
+            "SELECT w.finding_id, w.path, w.step FROM witnesses w \
+             JOIN findings f ON f.finding_id = w.finding_id \
+             LEFT JOIN witnesses p ON p.finding_id = w.finding_id AND p.path = w.path \
+               AND p.step = w.step - 1 \
+             WHERE (w.step = 0 AND w.caller_node_id <> f.subject_node_id) \
+                OR (w.step > 0 AND (p.callee_node_id IS NULL \
+                    OR p.callee_node_id <> w.caller_node_id))"
+                .to_owned(),
+        ),
+        (
             // ADR-0015: a module's text is present exactly when its bytes are UTF-8, and it is
             // those bytes (their length; the digest is BLAKE3, which SQL does not compute).
             "semantic:source-text",
@@ -167,11 +236,13 @@ fn semantic() -> Vec<Rule> {
         (
             // ADR-0015: the release's modules are those of a run that declares `exports` (the
             // library, or a source tree); a corpus run's modules are its examples, tests and
-            // doc blocks.
+            // doc blocks. Only extractor runs declare families: the `lctx-compiler` run is over
+            // the library release too and declares none (ADR-0019).
             "semantic:source-role-by-run",
             format!(
                 "SELECT f.fact_id FROM source_files f JOIN runs r ON r.release_id = f.release_id \
-                 WHERE array_has(r.families, 'exports') <> (f.role = {release})",
+                 WHERE cardinality(r.families) > 0 \
+                   AND array_has(r.families, 'exports') <> (f.role = {release})",
                 release = SourceRole::Release.code()
             ),
         ),
@@ -300,6 +371,31 @@ pub fn rules() -> Vec<Rule> {
             });
         }
     }
+    // Scores and weights are finite (DESIGN §3.3, §8): one rule per `Float64` column, scalar or
+    // list. SQL has no `isfinite`; NaN is `isnan`, and an infinity is the only value whose
+    // absolute value equals the largest double's successor.
+    for s in &shapes {
+        for f in s.schema.fields() {
+            let values = match f.data_type() {
+                arrow_schema::DataType::Float64 => {
+                    format!("SELECT {c} AS v FROM {t}", c = f.name(), t = s.name)
+                }
+                arrow_schema::DataType::List(item)
+                    if item.data_type() == &arrow_schema::DataType::Float64 =>
+                {
+                    format!("SELECT unnest({c}) AS v FROM {t}", c = f.name(), t = s.name)
+                }
+                _ => continue,
+            };
+            out.push(Rule {
+                name: format!("finite:{}.{}", s.name, f.name()),
+                sql: format!(
+                    "SELECT v FROM ({values}) x \
+                     WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))"
+                ),
+            });
+        }
+    }
     let families = FactFamily::all()
         .iter()
         .map(|f| format!("('{}', {})", f.text(), f.code()))
@@ -310,7 +406,12 @@ pub fn rules() -> Vec<Rule> {
         sql: format!(
             "WITH declared AS (SELECT unnest(families) AS family FROM runs) \
              SELECT family FROM declared WHERE family NOT IN ({})",
-            quoted(FactFamily::all().iter().map(|f| f.text()))
+            quoted(
+                FactFamily::all()
+                    .iter()
+                    .filter(|f| f.is_coverage_unit())
+                    .map(|f| f.text())
+            )
         ),
     });
     out.push(Rule {

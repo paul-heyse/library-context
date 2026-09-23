@@ -1,0 +1,22 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table findings
+family findings
+key snapshot_id, finding_id
+check depth_nonnegative: depth IS NULL OR depth >= 0
+@lctx.family=findings
+@lctx.table=findings
+snapshot_id: FixedSizeBinary(16) NOT NULL
+finding_id: FixedSizeBinary(16) NOT NULL
+invocation_id: FixedSizeBinary(16) NOT NULL
+finding_kind: Int16 NOT NULL [lctx.codebook=finding_kind]
+subject_node_id: FixedSizeBinary(16) NOT NULL
+related_node_id: FixedSizeBinary(16) NULL
+evidence_status: Int16 NOT NULL [lctx.codebook=evidence_status]
+depth: Int64 NULL
+stop_reason: Int16 NULL [lctx.codebook=stop_reason]
+witnesses_omitted: Boolean NOT NULL
+score: Float64 NULL
+condition_node_id: FixedSizeBinary(16) NULL

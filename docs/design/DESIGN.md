@@ -70,7 +70,7 @@ slices 1–3 built the extraction, derivation and publication path. Before its a
 So `syntax` and `lexical` move up from increment 2, and `types` and `docs` from increment 3. The
 analytics that read them stay in their increments, and every family names its consumer.
 
-> Decision: ADR-0004, ADR-0014
+> Decision: ADR-0004, ADR-0014, ADR-0001, ADR-0013
 
 ### §1.3 Non-goals for stage 1
 
@@ -119,7 +119,7 @@ analytics that read them stay in their increments, and every family names its co
 - **Serving.** The agent interface runs on FastMCP from the project's own environment
   (ADR-0010), which today is also 4.0.5. That environment is never an analysis input.
 
-> Decision: ADR-0004
+> Decision: ADR-0004, ADR-0013
 
 ### §1.5 Definition of done
 
@@ -231,11 +231,13 @@ the derived snapshots; C6 review, 2026-09-23).
 
 - Every extracted assertion is a `facts` row carrying its run, `origin`, `extraction_mode`,
   `modality`, `fidelity` and model.
-- **Analysis results carry their provenance in-row** (ADR-0019): findings, assertions and briefs
+- **Analysis results carry their provenance in-row** (ADR-0019; **Proposed**, Pass A's findings
+  **Implemented** in slice 1.4): findings, assertions and briefs
   hold their run (`lctx-compiler`), model, extraction mode, method invocation and
   `evidence_status`, cite the `fact_id`s, `edge_id`s and node ids they rest on, and are
   rebuildable from the snapshot, the analytics config and the `compiler_digest`. Operator review
-  verdicts (ADR-0020) are the one analysis-side input, so they are `facts` rows.
+  verdicts (ADR-0020, to be written in slice 3.5; **Proposed**) are the one analysis-side input,
+  so they are `facts` rows.
 - **Scope** (ADR-0008, carried by ADR-0014, amended by ADR-0019): `facts` rows are the extracted
   assertions and operator review verdicts. A derived join row (Stage C/D, §4.1) is not a `facts` row: it is
   traced by the `fact_id`s it cites plus its snapshot's `compiler_digest` (§3.4.1, §6.1), and it
@@ -1410,13 +1412,17 @@ FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the
   peak nears the host's memory.
 - **File skipping on `snapshot_id`: taken** (H1 P3, above): no schema, partition or store change.
 
-> Decision: ADR-0012
+> Decision: ADR-0012, ADR-0014, ADR-0016
 
 ---
 
 ## §5 Projections
 
-**Interface-checked** (petgraph skill). Source: IP L1335–L1415, L2233–L2362.
+**Interface-checked** (petgraph skill). Source: IP L1335–L1415, L2233–L2362. The invocation
+projection, its declared spec (`cpg_schema::projection`) and the adapter (`lctx_analytics::graph`)
+are **Implemented** and **Tested** (slice 1.4, 2026-09-23: `the_adapter_keeps_parallel_arcs_isolates_and_refuses_disorder`;
+`pass_a_finds_the_known_answers_on_analysis_shapes` checks the property-getter arc, the
+override-open candidate arc and a module-level caller on the real pipeline).
 
 **Declaring a projection.** A projection declares:
 - the snapshot;
@@ -1588,14 +1594,16 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - `symbol_map` (exact qualified public symbol → brief);
   - `embedding_spec`, `vectors` (§11.1);
   - `MANIFEST.json`, listing the snapshot, content digest, per-file sha256, row counts and per-file
-    **schema digests** in `cpg-schema`'s canonical schema form (field name, type, nullability,
-    metadata; conformance-tested in Rust and Python).
+    **serving schema digests**: SHA-256 over a language-neutral canonical form (field name, a
+    declared type grammar, nullability, sorted metadata), which Python recomputes with its standard
+    library; known answers are shared by the Rust and Python tests. It is not the store's
+    `canonical_schema` (§6.3), whose Rust type display Python cannot reproduce (ADR-0019).
 - **Activation.**
   - The bundle is smoke-queried by the serving code's own test entry point.
   - Then the `generations/active` symlink is switched by atomic rename.
   - A running server keeps the generation it loaded; restarting it picks up the new one.
 
-> Decision: ADR-0017 (superseding ADR-0009), ADR-0012
+> Decision: ADR-0017 (superseding ADR-0009), ADR-0012, ADR-0019, ADR-0014
 
 ---
 
@@ -1712,7 +1720,8 @@ embeddings.
 **Rules for every technique:**
 - it must have a **named consumer** in the brief;
 - it must be **deterministic** for fixed inputs and parameters;
-- it must record its method and parameters in `analytic_method` / `findings`;
+- it must record its method, parameters, projection and diagnostics in `analysis_invocations`
+  (ADR-0019);
 - its effect must be measurable by ablation (§9.8).
 
 **Parameters.** Analysis parameters and the subsystem declaration (§1.4) live in one versioned,
@@ -1720,6 +1729,12 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
 `content_digest`. Defaults below are starting budgets, not measured optima.
 
 ### §9.1 Pass A — public entry point and delegation
+
+**Implemented** and **Tested** (slice 1.4, 2026-09-23): `lctx_analytics::pass_a` with its
+hand-worked projection (`pass_a_finds_delegations_boundaries_and_gaps_with_witnesses`,
+`budgets_truncate_and_say_so`), and on `fixtures/python/analysis_shapes` through the whole attempt,
+identical across module order and location (`pass_a_is_identical_across_module_order_and_location`).
+Seeds resolve through `exports`, then each remaining name as a member of its own body or MRO.
 
 - **Question.** Which public API exposes the mechanism, and what does it already coordinate?
 - **Method.**
@@ -1729,7 +1744,10 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
      - **Witnesses.** The first witness to a target is the BFS path under sorted adjacency. Up to
        two alternatives are the next paths that differ in their final arc, taken in canonical
        arc order. Parallel call sites are distinct arcs, so each can be a witness.
-     - **Truncation.** `omitted_paths = true` when more existed.
+     - **Truncation.** `witnesses_omitted = true` when more witness paths existed (presentation
+       only). A vertex or arc budget is operational truncation: the invocation is `partial`, and
+       Stage F reports it as a limit. The depth bound and the boundaries are the stated model
+       (ADR-0019 review F4).
      - Default budgets: depth ≤ 2; ≤ 128 vertices and ≤ 512 edges per seed; ≤ 3 witness paths per
        target.
      - The traversal stays inside the subsystem and never crosses `potential`, `synthetic` or
@@ -1889,7 +1907,7 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
   check is the increment-5 held-out evaluation.
 - **Agent-based evaluation** is reserved for the raw-vs-compiled comparison (§12).
 
-> Decision: ADR-0011, ADR-0019
+> Decision: ADR-0011, ADR-0019, ADR-0005
 
 ---
 
@@ -1903,7 +1921,8 @@ LLM interpreter.
 **A finding is a typed record,** carrying:
 - `finding_kind`;
 - its subject and related nodes;
-- ordered witnesses (fact ids, spans);
+- ordered witness steps (call site, callee, modality and phase; the `edge_id` as lineage) and
+  cited facts (ADR-0019);
 - conditions: source-linked text plus predicate node references;
 - boundaries;
 - method and parameters.
@@ -2111,7 +2130,7 @@ thousand briefs, or ANN / managed FTS needed.
   **Tested** (E3): `auto` negotiated `2026-07-28` and `legacy` `2025-11-25`; both mismatch
   fixtures failed at connect.
 
-> Decision: ADR-0010
+> Decision: ADR-0010, ADR-0013
 
 ---
 
@@ -2148,7 +2167,7 @@ rule, and record the result in the increment-3 review.
 If the increment-5 evaluation attributes failures to those slots, an ADR adds a local generation
 model under §10.4 grounding.
 
-> Decision: ADR-0004
+> Decision: ADR-0004, ADR-0013
 
 ---
 
@@ -2199,3 +2218,7 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | ADR-0015 (operator decision, closing C6 review F2): every analyzed module's text and role are stored in `source_files` (`source_role` appended); `[tool.lctx.source]` `examples` and `tests` replace `usage`; `semantic:source-text` and `semantic:source-role-by-run` (496 rules); the §13 open row removed (§3.2, §3.5, §4.0, §8, §13) | ADR-0015 |
 | 2026-09-23 | H1, the library-leverage hardening slice (operator: every review item adopted). Static branches are Pyrefly's own decisions (`constant`, `combined` appended); globset/walkdir selection that follows no link; typed library definitions; `RECORD` as CSV; clap CLI; hermetic `git init`; Pyrefly's own predicates; hash and sort known answers. jemalloc (ADR-0016); cached, concurrent validation with plan metrics; per-commit Delta reads; zstd; the UDF's literal kind; a log subscriber; fs-err/anyhow; `cargo shear`. The declared return annotation read from Pyrefly (fork `a07b7bae`); ADR-0011 amended (own PageRank, normalized Leiden input, own FCA with an oracle, condensation from SCCs, §5's adapter recipe). Pilot 45.0 s → 29.9 s, 7,587 → 3,646 MiB peak, 272 → 235 MiB store (§3.2, §3.3, §3.4.1, §3.5, §4.0, §4.3, §5, §6.2, §7, §8, §9.4–§9.6, §13) | ADR-0016; ADR-0011; ADR-0009, ADR-0012, ADR-0013, ADR-0002 amendments |
 | 2026-09-23 | Remaining-scope plan, Phase 0: analysis results are typed tables with in-row provenance, content ids and new crates `lctx-analytics`/`lctx-embed` (§B6, §3.2, §3.4.1, §4.1); global read mode and the `embedding_cache` MERGE, a key digest in `content_digest` (§3.2, §3.4.1, §6.1, §6.2); hybrid retrieval moves into increment 1 and increment 4 becomes the generation lifecycle (§1.2); FCA within a structural scope (§1.2); §5's resolution id, unknown-target policy, typed callers and property arcs; RBER, integer aggregation, the γ grid, `compute_flow` oracle, `kosaraju_scc` (§B4, §9.4, §9.5, §13); bm25s and the stdio start flags (§11.2, §11.3) | ADR-0019; ADR-0004, ADR-0010, ADR-0011, ADR-0017 amendments |
+
+> Decision: ADR-0012
+| 2026-09-23 | Slice 1.4: table groups for analysis results, the `lctx-compiler` run, the declared invocation projection (§5) and its petgraph adapter, Pass A (§9.1) with `analysis_invocations`/`findings`/`finding_members`/`witnesses`; `libraries/fastmcp/analytics.toml` (docs-only authored); the ADR-0019 standard review's P1 items (identity and lineage per contract, completion mapping, status policy, `adr lint` checks for Decision lines and cited records) (§B6, §5, §6.4, §9, §9.1, §10.1) | ADR-0019 (amended), ADR-0004 |
+

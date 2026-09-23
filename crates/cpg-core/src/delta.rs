@@ -14,7 +14,7 @@ use parquet::file::properties::WriterProperties;
 
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_cast::{CastOptions, cast_with_options};
-use arrow_schema::DataType;
+use arrow_schema::{DataType, SchemaRef};
 use cpg_schema::id::Id;
 use cpg_schema::table::Table;
 use datafusion::common::DFSchema;
@@ -203,7 +203,13 @@ pub fn writer_properties() -> Result<WriterProperties, CoreError> {
 /// FixedSizeBinary` in two steps (no direct cast exists), `Utf8View → Utf8`, and list children
 /// back to their declared field (§3.3). Casts are strict: a wrong width is an error.
 pub fn to_declared<T: Table>(batch: &RecordBatch) -> Result<RecordBatch, CoreError> {
-    let schema = T::schema();
+    to_schema(batch, &T::schema())
+}
+
+/// [`to_declared`] for any declared schema (a projection's output, §5): columns by name, the same
+/// strict casts.
+pub fn to_schema(batch: &RecordBatch, schema: &SchemaRef) -> Result<RecordBatch, CoreError> {
+    let schema = schema.clone();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
     for field in schema.fields() {
         let col = batch.column(batch.schema().index_of(field.name())?).clone();

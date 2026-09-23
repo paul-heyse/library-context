@@ -1135,8 +1135,10 @@ dependencies = [
  "fs-err",
  "futures 0.3.34",
  "insta",
+ "lctx-analytics",
  "parquet",
  "petgraph",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
@@ -3444,9 +3446,24 @@ dependencies = [
  "cpg-schema",
  "fs-err",
  "getrandom 0.3.4",
+ "lctx-analytics",
  "tempfile",
  "tikv-jemallocator",
  "tokio",
+]
+
+[[package]]
+name = "lctx-analytics"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "cpg-schema",
+ "fixedbitset",
+ "petgraph",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "toml",
 ]
 
 [[package]]

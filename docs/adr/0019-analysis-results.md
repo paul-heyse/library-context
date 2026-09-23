@@ -66,18 +66,22 @@ property: it is rebuildable from the snapshot, the analytics config and the comp
   - This is guidelines §8/§10's run record: a digest alone would not say what ran.
 - **`findings`**:
   - kind (`finding_kind`), subject node and related node, invocation;
-  - `evidence_status`;
-  - the stop reason, `omitted_paths` and depth;
+  - `evidence_status`, the one its kind permits (`FINDING_STATUS`, a generated rule; review F6);
+  - the stop reason, `witnesses_omitted` and depth;
   - a score where the method has one;
   - a condition node where a guard applies (Pass B).
   - A finding is never a sentence (§10.1).
+  - A rooted analysis (Pass A) carries its root, the seed, as the subject. A result several
+    invocations produce (increment 2's seed consensus) is published once, as the consensus, or
+    linked by a `finding_invocations` table added with that slice (review F1).
 - **`finding_members`**: the members of a finding that has several (a community, a ranking, a
   concept's extent or intent) and the boundaries it cites, by role and ordinal, each a node or a
-  `fact_id`.
+  cited fact (`cited_fact_id`).
 - **`witnesses`**: ordered path steps.
-  - **Keyed** by `(finding, path, step)`, with the step's call-site and callee node ids.
-  - The `edge_id`, modality and phase are **lineage**. Call edge ids are producer-scoped
-    (ADR-0014 O6), so they never enter a finding's identity.
+  - **Keyed** by `(finding, path, step)`, with the step's call-site and callee node ids, modality
+    and phase.
+  - The `edge_id` is **lineage**: call edge ids are producer-scoped (ADR-0014 O6), so they never
+    enter a finding's identity. Modality and phase are codebook values, so they do (review F9).
   - This is §5's persisted "projection row: links an arc to its evidence rows".
 - **`evidence`**: one row per cited thing: a fact, a byte span of a source file, a passage, an
   example module, a fixture run. Each holds the **resolved text** the serving bundle carries,
@@ -105,15 +109,24 @@ property: it is rebuildable from the snapshot, the analytics config and the comp
   generated from it.
 - `usage_patterns` and later kinds' tables join the group with the slice that produces them.
 
-**Identity** (§3.4.1, `lctx_id` kinds, one recipe in Rust and SQL). Each id is content-derived
-and contains **no analytics-config digest**, so an unchanged result keeps its id when parameters
-change, and an ablation diff is a join:
+**Identity** (§3.4.1). Each id is content-derived and contains **no analytics-config digest**,
+so an unchanged result keeps its id when parameters change, and an ablation diff is a join.
+- Each contract declares its **identity** columns and its **lineage** columns (ids like
+  `edge_id` and `invocation_id`, and values like `score` whose change should not rename a
+  result). A finding's id hashes every identity column, plus its child rows in key order: each
+  witness step's call site, callee, modality and phase (codebook values, stable across producers;
+  review F9), and each member's role, ordinal, node, cited fact and label.
+- The recipes are Rust-only (`cpg_schema::findings::recipe`): `lctx_id` takes scalars, not lists.
+  A property test per contract checks that perturbing an identity column changes the id and a
+  lineage column does not (review F1).
+- Two seeds that name one declaration refuse the compile.
+
 
 | Id | Recipe |
 |---|---|
 | invocation | method, parameters digest, projection digest, subject, seed |
-| finding | kind, subject, related node, canonical payload (witness steps by node ids, depth, stop reason, omitted flag) |
-| evidence | kind, fact, node, module, span |
+| finding | kind, subject, related node, condition node, status, depth, stop reason, `witnesses_omitted`, witness steps (call site, callee, modality, phase), members |
+| evidence | kind, node, module, span, digest of the resolved text; a cited `fact_id` is lineage, because fact ids are run-scoped (review F7) |
 | assertion | kind, subject, section, applicable case, text, status, sorted supports |
 | brief | seed, applicable case, sorted (section, ordinal, assertion) |
 
@@ -131,8 +144,21 @@ change, and an ablation diff is a join:
   - its `runs` and `producers` rows go in the raw write, because every input is known before
     Stage B, so `content_digest` includes it.
   - **It declares no families.** Its completion lives in `analysis_invocations`, not `coverage`.
-  - The extractor-only rules (`semantic:source-role-by-run`, the coverage rules) are scoped to
-    runs that declare a code family.
+  - Only `semantic:source-role-by-run` needed scoping: the coverage rules pass for a run with no
+    families, because unnesting an empty list yields no rows (review O1). `coverage:declared-family`
+    now also refuses a run declaring a family that is no coverage unit (`graph`, `publication`,
+    `findings`, `embedding_cache`).
+  - Every invocation's run is the compiler's (`semantic:invocation-run-is-compiler`).
+  - Without an analytics config there is no compiler run, and the analysis tables are written
+    empty, so "not requested" is readable (review O9).
+
+**Completion** (review F4). The depth bound and the subsystem, dependency and synthetic
+boundaries are the stated model: a result inside them is complete under it. A vertex or arc
+budget is operational truncation: the invocation is `partial` with its stop reason, and Stage F
+turns it into a Limits entry. The witness cap is presentation only (`witnesses_omitted`).
+
+**Parameters** hold every config field the method reads (review O3); the projection spec is
+recorded by digest, and its SQL is part of the compiler digest.
 - **Operator review verdicts** are the one analysis-side *input*. They are `facts` of a
   `manual-review` producer, written in the raw write (ADR-0020).
 
@@ -146,6 +172,8 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
   **hashed with SHA-256**.
 - Python recomputes the digest with its standard library, and known answers are shared by the
   Rust and Python tests.
+- No analysis table has a column named `fact_id`: a cited fact is `cited_fact_id`, so the
+  generator never demands a `facts` row for an analysis row (review O2).
 - The store's `canonical_schema` (the `snapshots.schema_digest` and `compiler_digest` input) is
   unchanged.
 
@@ -174,3 +202,16 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
 - **Ablation** (§9.8) joins on content ids across two snapshots.
 - **Tested** as each slice lands: generated rules reject injected violations; shuffled input
   gives byte-identical analysis tables; two identical compiles give identical ids.
+
+## Amendments (in place; the record is still proposed)
+
+- 2026-09-23: the standard review (`design_review_adr-0019-analysis-results_2026-09-23.md`,
+  Revise) P1 items, decided before slice 1.4's contracts were committed: identity and lineage per
+  contract, Rust-only recipes with a property test, and refused duplicate seeds (F1); DESIGN §6.4,
+  §9 and §10.1 amended (F2); the analytics config's subsystem and distractors rewritten by a
+  docs-only author (F3, deviation log D3); the completion mapping and the `witnesses_omitted`
+  split (F4); §B6's labels and the ADR-0020 pointer (F5); the finding-status policy and the
+  compiler-run rule (F6); modality and phase in the step key (F9); O1, O2, O3 and O9. F7, F8 and
+  O5 are owed by slices 1.5 and 1.6 (F7 decided now: evidence identity by content, the fact as
+  lineage); O6, O7 and O10 are deferred with the review's triggers.
+

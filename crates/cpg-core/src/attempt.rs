@@ -11,9 +11,10 @@ use cpg_schema::id::{Digest, Id, IdHasher, kind};
 use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::rules::rules;
 use cpg_schema::table::{Table, schema_digest};
-use cpg_schema::tables::{Runs, Snapshots, SnapshotsRow, contracts};
+use cpg_schema::tables::{Producers, Runs, Snapshots, SnapshotsRow, contracts};
 
 use crate::CoreError;
+use crate::analyze::{Analysis, AnalysisRows, CompilerRun, compiler_rows};
 use crate::delta::{append, open_or_create};
 use crate::derive::derive;
 use crate::snapshot::{Versions, register, resolve, session};
@@ -32,9 +33,10 @@ pub struct Published {
     pub stages: Vec<Stage>,
 }
 
-/// Bumped by hand whenever the derive, cast or sort code changes output for the same inputs; the
-/// derived-table snapshots are what show such a change.
-pub const COMPILER_OUTPUT_VERSION: u32 = 1;
+/// Bumped by hand whenever the derive, cast, sort or analysis code changes output for the same
+/// inputs; the derived-table and analysis snapshots are what show such a change. 2: Stage E
+/// (ADR-0019).
+pub const COMPILER_OUTPUT_VERSION: u32 = 2;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -62,16 +64,21 @@ pub fn compiler_digest_of(
     h.finish_digest()
 }
 
-/// The identity of the code that derives, validates and publishes: the locked engines, the output
-/// version, every derivation query, every table contract and every validation rule. Stored on each
-/// `snapshots` row and folded into `content_digest`.
+/// The identity of the code that derives, analyzes, validates and publishes: the locked engines
+/// and analysis libraries, the output version, every derivation query and declared projection,
+/// every table contract and every validation rule. Stored on each `snapshots` row and folded into
+/// `content_digest`.
 pub fn compiler_digest() -> Digest {
     let rules: Vec<(String, String)> = rules().into_iter().map(|r| (r.name, r.sql)).collect();
+    let mut queries = derivations();
+    for spec in cpg_schema::projection::projections() {
+        queries.push((spec.name, spec.digest().hex()));
+    }
     compiler_digest_of(
-        ENGINES,
+        &format!("{ENGINES}; {}", lctx_analytics::LIBRARIES),
         COMPILER_OUTPUT_VERSION,
         crate::udf::VERSION,
-        &derivations(),
+        &queries,
         &contracts(),
         &rules,
     )
@@ -171,17 +178,92 @@ async fn write_derived<T: Derived>(
     Ok(())
 }
 
-fn schema_digest_of(name: &str) -> Digest {
+/// A stored table's schema digest. An unknown name is an error, never another table's digest
+/// (ADR-0019).
+fn schema_digest_of(name: &str) -> Result<Digest, CoreError> {
     macro_rules! find {
         ($($t:ty),+) => {$(
             if name == <$t as Table>::NAME {
-                return schema_digest(&<$t as Table>::schema());
+                return Ok(schema_digest(&<$t as Table>::schema()));
             }
         )+};
     }
     cpg_schema::for_each_table!(find);
     cpg_schema::for_each_derived_table!(find);
-    schema_digest(&Snapshots::schema())
+    cpg_schema::for_each_analysis_table!(find);
+    Err(CoreError::UnknownTable(name.to_owned()))
+}
+
+/// Add the `lctx-compiler` run and producer to the raw `runs` and `producers` batches: the run is
+/// over the release and context of the extractor run that declares `exports` (ADR-0019).
+fn with_compiler_run(
+    raw: &mut [(&str, RecordBatch)],
+    snapshot_id: Id,
+    analysis: &Analysis,
+) -> Result<CompilerRun, CoreError> {
+    let runs = raw
+        .iter()
+        .find(|(n, _)| *n == Runs::NAME)
+        .map(|(_, b)| b.clone())
+        .ok_or(CoreError::MissingTable(Runs::NAME))?;
+    let families = runs
+        .column(runs.schema().index_of("families")?)
+        .as_any()
+        .downcast_ref::<arrow_array::ListArray>()
+        .ok_or(CoreError::ColumnType("families"))?
+        .clone();
+    let declares_exports: Vec<usize> = (0..runs.num_rows())
+        .filter(|&i| {
+            let list = families.value(i);
+            let names = list
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .map(|a| (0..a.len()).any(|j| a.value(j) == "exports"));
+            names.unwrap_or(false)
+        })
+        .collect();
+    let [row] = declares_exports[..] else {
+        return Err(CoreError::Analysis(format!(
+            "{} runs declare exports; the compiler run needs exactly one library run",
+            declares_exports.len()
+        )));
+    };
+    let release = ids(&runs, "release_id")?[row];
+    let context = ids(&runs, "context_id")?[row];
+    let (compiler, run, producer) =
+        compiler_rows(snapshot_id, release, context, analysis.config.digest());
+    for (name, batch) in raw.iter_mut() {
+        let extra = match *name {
+            n if n == Runs::NAME => Runs::to_batch(std::slice::from_ref(&run))?,
+            n if n == Producers::NAME => Producers::to_batch(std::slice::from_ref(&producer))?,
+            _ => continue,
+        };
+        let joined = arrow_select::concat::concat_batches(&batch.schema(), [&*batch, &extra])?;
+        let key = if *name == Runs::NAME {
+            Runs::key()
+        } else {
+            Producers::key()
+        };
+        *batch = cpg_schema::table::canonical_sort(&joined, key)?;
+    }
+    Ok(compiler)
+}
+
+/// Write one analysis table's rows and register it in the session.
+async fn write_analysis<T: Table>(
+    ctx: &datafusion::prelude::SessionContext,
+    root: &Path,
+    snapshot_id: Id,
+    rows_of: &[T::Row],
+    w: &mut Written,
+) -> Result<(), CoreError> {
+    let batch = T::to_sorted_batch(rows_of)?;
+    let version = write::<T>(root, &batch, snapshot_id).await?;
+    register(ctx, root, T::NAME, version, snapshot_id).await?;
+    w.versions.insert(T::NAME.to_owned(), version);
+    w.rows.push((T::NAME, batch.num_rows() as i64));
+    w.stages.mark(format!("analyze {}", T::NAME));
+    Ok(())
 }
 
 /// Run one attempt over the extractor's raw batches. On success the snapshot is published; a
@@ -191,23 +273,42 @@ pub async fn compile(
     snapshot_id: Id,
     raw: &[(&str, RecordBatch)],
 ) -> Result<Published, CoreError> {
-    let mut written = Written::new();
-    let runs = write_all(root, snapshot_id, raw, &mut written).await?;
-    finish(root, snapshot_id, runs, written).await
+    compile_analyzed(root, snapshot_id, raw, None).await
 }
 
-/// [`compile`], releasing the raw batches once they are written: derivation and validation read
-/// the Delta tables, and only the run ids are still needed (C6 review F3).
+/// [`compile`] with Stage E and F over the given analytics config (ADR-0019). Without one, the
+/// analysis tables are written empty and no compiler run is recorded.
+pub async fn compile_analyzed(
+    root: &Path,
+    snapshot_id: Id,
+    raw: &[(&str, RecordBatch)],
+    analysis: Option<&Analysis>,
+) -> Result<Published, CoreError> {
+    let mut raw = raw.to_vec();
+    let compiler = analysis
+        .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
+        .transpose()?;
+    let mut written = Written::new();
+    let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
+    finish(root, snapshot_id, runs, written, analysis.zip(compiler)).await
+}
+
+/// [`compile_analyzed`], releasing the raw batches once they are written: derivation and
+/// validation read the Delta tables, and only the run ids are still needed (C6 review F3).
 pub async fn compile_owned(
     root: &Path,
     snapshot_id: Id,
-    raw: Vec<(&'static str, RecordBatch)>,
+    mut raw: Vec<(&'static str, RecordBatch)>,
+    analysis: Option<&Analysis>,
 ) -> Result<Published, CoreError> {
+    let compiler = analysis
+        .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
+        .transpose()?;
     let mut written = Written::new();
     let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
     drop(raw);
     written.stages.mark("release raw batches");
-    finish(root, snapshot_id, runs, written).await
+    finish(root, snapshot_id, runs, written, analysis.zip(compiler)).await
 }
 
 /// What the raw writes leave for the rest of the attempt.
@@ -251,27 +352,54 @@ async fn write_all(
         .unwrap_or_default())
 }
 
-/// Derive, validate and publish over the written raw tables.
+/// Derive, analyze, validate and publish over the written raw tables.
 async fn finish(
     root: &Path,
     snapshot_id: Id,
     runs: Vec<Id>,
-    written: Written,
+    mut written: Written,
+    analysis: Option<(&Analysis, CompilerRun)>,
 ) -> Result<Published, CoreError> {
+    let ctx = session(root, snapshot_id, &written.versions).await?;
+    written.stages.mark("open session");
+    {
+        let Written {
+            stages,
+            versions,
+            rows,
+        } = &mut written;
+        macro_rules! derive_all {
+            ($($t:ty),+) => {$(
+                write_derived::<$t>(&ctx, root, snapshot_id, versions, rows, stages).await?;
+            )+};
+        }
+        cpg_schema::for_each_derived_table!(derive_all);
+    }
+
+    // Stage E (ADR-0019): the analyses read the session, and their rows are written like any
+    // other table's, one commit each.
+    let found = match analysis {
+        Some((a, compiler)) => crate::analyze::run(&ctx, snapshot_id, a, compiler).await?,
+        None => AnalysisRows::default(),
+    };
+    written.stages.mark("analyze (Pass A)");
+    use cpg_schema::findings::{AnalysisInvocations, FindingMembers, Findings, Witnesses};
+    write_analysis::<AnalysisInvocations>(
+        &ctx,
+        root,
+        snapshot_id,
+        &found.invocations,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<Findings>(&ctx, root, snapshot_id, &found.findings, &mut written).await?;
+    write_analysis::<FindingMembers>(&ctx, root, snapshot_id, &found.members, &mut written).await?;
+    write_analysis::<Witnesses>(&ctx, root, snapshot_id, &found.witnesses, &mut written).await?;
     let Written {
         mut stages,
-        mut versions,
-        mut rows,
+        versions,
+        rows,
     } = written;
-    let ctx = session(root, snapshot_id, &versions).await?;
-    stages.mark("open session");
-    macro_rules! derive_all {
-        ($($t:ty),+) => {$(
-            write_derived::<$t>(&ctx, root, snapshot_id, &mut versions, &mut rows, &mut stages)
-                .await?;
-        )+};
-    }
-    cpg_schema::for_each_derived_table!(derive_all);
 
     let (violations, costs) = validate_costed(&ctx).await?;
     stages.mark("validate");
@@ -302,16 +430,18 @@ async fn finish(
     let digest = content_digest(&runs);
     let snapshot_rows: Vec<SnapshotsRow> = rows
         .iter()
-        .map(|(name, count)| SnapshotsRow {
-            snapshot_id,
-            content_digest: digest,
-            table_name: (*name).to_owned(),
-            table_version: versions[*name] as i64,
-            schema_digest: schema_digest_of(name),
-            compiler_digest: compiler_digest(),
-            row_count: *count,
+        .map(|(name, count)| {
+            Ok(SnapshotsRow {
+                snapshot_id,
+                content_digest: digest,
+                table_name: (*name).to_owned(),
+                table_version: versions[*name] as i64,
+                schema_digest: schema_digest_of(name)?,
+                compiler_digest: compiler_digest(),
+                row_count: *count,
+            })
         })
-        .collect();
+        .collect::<Result<_, CoreError>>()?;
     publish(root, snapshot_id, &snapshot_rows).await?;
     stages.mark("publish");
     Ok(Published {

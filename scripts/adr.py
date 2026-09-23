@@ -238,10 +238,72 @@ def lint(root: Path, *, check_git: bool = True) -> list[str]:
                     "write a superseding ADR instead (`just adr supersede`)",
                 )
 
+    problems.extend(design_decisions(root, adrs))
+
     index = adr_dir(root) / "README.md"
     if adrs and (not index.exists() or index.read_text() != render_index(adrs)):
         problems.append("docs/adr/README.md is stale: run `just adr index`")
     return problems
+
+
+SECTION_RE = re.compile(r"^(#+)\s+§([A-Z]?\d+(?:\.\d+)*)\b")
+CITED_RE = re.compile(r"ADR-(\d{4})")
+
+
+def design_decisions(root: Path, adrs: list[Adr]) -> list[str]:
+    """DESIGN.md and the ADRs agree on who decides what (ADR-0019 review F2, F5).
+
+    - Every section an active record lists in `design:` ends, itself or through an enclosing
+      section, with a `> Decision:` line naming the record.
+    - Every `ADR-NNNN` DESIGN.md cites exists, unless the citation says it is "to be written".
+    """
+    design = root / "docs" / "design" / "DESIGN.md"
+    if not design.exists():
+        return []
+    lines = design.read_text().splitlines()
+    heads = [
+        (i, len(m.group(1)), m.group(2))
+        for i, line in enumerate(lines)
+        if (m := SECTION_RE.match(line))
+    ]
+
+    def end(k: int) -> int:
+        level = heads[k][1]
+        return next((j for j, lv, _ in heads[k + 1 :] if lv <= level), len(lines))
+
+    def spans(ref: str) -> list[tuple[int, int]]:
+        for k, (i, level, sid) in enumerate(heads):
+            if sid != ref:
+                continue
+            out = [(i, end(k))]
+            for kk in range(k - 1, -1, -1):
+                if heads[kk][1] < level:
+                    out.append((heads[kk][0], end(kk)))
+                    level = heads[kk][1]
+            return out
+        return []
+
+    problems = []
+    for a in adrs:
+        if a.status not in ACTIVE:
+            continue
+        for ref in a.refs("design"):
+            found = spans(ref[1:])
+            if found and not any(
+                line.startswith("> Decision:") and a.id in line
+                for s, e in found
+                for line in lines[s:e]
+            ):
+                problems.append(
+                    f"DESIGN.md {ref}: no `> Decision:` line names {a.id}, which lists it"
+                )
+    known = {a.id for a in adrs}
+    text = "\n".join(lines)
+    for m in CITED_RE.finditer(text):
+        cited = f"ADR-{m.group(1)}"
+        if cited not in known and "to be written" not in text[m.end() : m.end() + 40]:
+            problems.append(f"DESIGN.md cites {cited}, which does not exist")
+    return sorted(set(problems))
 
 
 def next_number(root: Path) -> int:

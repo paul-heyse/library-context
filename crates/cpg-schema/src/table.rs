@@ -72,7 +72,8 @@ fn constant(column: &dyn Array) -> Result<bool, ArrowError> {
     Ok(not_distinct(&column, &first)?.true_count() == column.len())
 }
 
-/// The canonical schema form (DESIGN §6.4): table metadata, then per field its name, type,
+/// The store's canonical schema form (DESIGN §6.3; the serving bundle has its own, ADR-0019): table
+/// metadata, then per field its name, type,
 /// nullability and sorted metadata. Snapshot-tested, and the input to [`schema_digest`].
 pub fn canonical_schema(schema: &Schema) -> String {
     let mut out = String::new();

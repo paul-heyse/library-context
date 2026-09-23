@@ -15,7 +15,8 @@ DESIGN §7 / ADR-0002. A row without a date is not verified.
 | object_store | 0.13.2, held by `Cargo.lock` (no crate depends on it directly, so a workspace pin would pin nothing; H1 O2) and kept single by `check_family.py` | 2026-09-23 | `Cargo.lock`; `cargo shear` in `just deps` |
 | deltalake | git 58f07cd62bfbce3649a7e1c87c696288068ae184, features `datafusion`,`rustls` | 2026-09-22 | same; matches `.claude/skills/deltalake` capture profile |
 | buoyant_kernel | 0.25.1, git 8ba063f8f84fec222000f66d40d70911d7c79675 (branch `buoyant/main`, pinned by `Cargo.lock` only) | 2026-09-22 | `Cargo.lock`; matches the skill's kernel pin |
-| petgraph | =0.8.3 | 2026-09-22 | resolves; no code uses it yet |
+| petgraph | =0.8.3, default features (no `rayon`, `serde-1`): the §5 adapter and Pass A in `lctx-analytics` (increment 1 slice 1.4) | 2026-09-23 | resolves; `lctx-analytics` tests (shuffled arcs give identical adjacency; parallel arcs and isolates kept) |
+| fixedbitset | =0.5.7: subsystem masks for `NodeFiltered`, later FCA contexts (§9.6) | 2026-09-23 | already in `Cargo.lock` as petgraph's dependency at this version, so no version is added; MIT OR Apache-2.0 |
 | markdown (markdown-rs) | =1.0.0, default features (none): the docs family's MDX parser (CPG slice C5) | 2026-09-23 | the crate's `Cargo.toml` read from the registry: MIT, one required dependency (`unicode-id` 0.3). Probe P5: `ParseOptions::mdx()` plus frontmatter parsed 144 of FastMCP 4.0.5's 148 guide pages; the 4 `snippets/*.mdx` React components are JS it cannot read (their coverage says so). Offsets are **bytes** (every inline-code and code-block value reproduced by slicing at them, 117 non-ASCII files). No skill covers it; Context7 `/wooorm/markdown-rs` was the lead. `just deps` and cargo-deny in `just test-all` |
 
 ## Utility crates (H1, the library-leverage review)

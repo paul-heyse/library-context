@@ -299,7 +299,21 @@ fn compile(
     let extracted = started.elapsed();
     let runtime = tokio::runtime::Runtime::new()?;
     let tables = std::mem::take(&mut output.tables);
-    let published = runtime.block_on(cpg_core::attempt::compile_owned(store, snapshot, tables))?;
+    // The pre-registered analytics config (DESIGN §1.4, §9): without one, no analysis runs.
+    let config_path = library_dir.join("analytics.toml");
+    let analysis = if config_path.exists() {
+        Some(cpg_core::analyze::Analysis {
+            config: lctx_analytics::config::AnalyticsConfig::load(&config_path)?,
+        })
+    } else {
+        None
+    };
+    let published = runtime.block_on(cpg_core::attempt::compile_owned(
+        store,
+        snapshot,
+        tables,
+        analysis.as_ref(),
+    ))?;
     println!("snapshot {} published", published.snapshot_id.hex());
     println!("content  {}", published.content_digest.hex());
     for (name, rows) in &published.rows {

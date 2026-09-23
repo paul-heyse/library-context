@@ -213,6 +213,11 @@ codebook!(
         Types = 9 => "types",
         /// C5: documents, passages, code blocks, links and mentions (DESIGN §3.2).
         Docs = 10 => "docs",
+        /// Analysis results: invocations, findings, witnesses, evidence, assertions and briefs
+        /// (ADR-0019). Not a coverage unit: no run declares it.
+        Findings = 11 => "findings",
+        /// The global embedding cache (DESIGN §3.2, §11.1): not snapshot-qualified.
+        EmbeddingCache = 12 => "embedding_cache",
     }
 );
 
@@ -794,6 +799,78 @@ codebook!(
     }
 );
 
+codebook!(
+    /// The analytic method an `analysis_invocations` row ran (ADR-0019; DESIGN §9).
+    AnalyticMethod = "analytic_method" {
+        /// Pass A: a bounded breadth-first search with parent pointers over the invocation
+        /// projection (§9.1).
+        PassABfs = 0 => "pass_a_bfs",
+    }
+);
+
+codebook!(
+    /// What a finding states (DESIGN §9, §10.1). Never a sentence.
+    FindingKind = "finding_kind" {
+        /// A public access path names the seed's declaration (§9.1).
+        PublicAlias = 0 => "public_alias",
+        /// The seed calls the target directly, through a definite arc inside the subsystem.
+        DirectDelegation = 1 => "direct_delegation",
+        /// The seed reaches the target through a bounded path, or through a candidate
+        /// (override-open) arc, inside the subsystem.
+        BoundedDelegationPath = 2 => "bounded_delegation_path",
+        /// A reached arc leaves what the pass analyzes: the subsystem, the release (a dependency
+        /// or bundled definition) or a body in source (a synthetic callable).
+        ImplementationBoundary = 3 => "implementation_boundary",
+        /// A reached call site has no target, or an unresolved remainder.
+        IncompleteResolution = 4 => "incomplete_resolution",
+    }
+);
+
+codebook!(
+    /// Why an analysis stopped where it did (a finding's or an invocation's).
+    StopReason = "stop_reason" {
+        /// The depth budget.
+        DepthLimit = 0 => "depth_limit",
+        /// The per-seed vertex budget.
+        VertexBudget = 1 => "vertex_budget",
+        /// The per-seed arc budget.
+        EdgeBudget = 2 => "edge_budget",
+        /// More witness paths existed than the witness budget.
+        WitnessLimit = 3 => "witness_limit",
+        /// The target is a release callable outside the subsystem.
+        SubsystemBoundary = 4 => "subsystem_boundary",
+        /// The target is outside the release: a dependency or bundled definition.
+        ExternalBoundary = 5 => "external_boundary",
+        /// The target has no body in source (a synthetic callable).
+        SyntheticBoundary = 6 => "synthetic_boundary",
+        /// The call site has no target, or an unresolved remainder.
+        UnresolvedSite = 7 => "unresolved_site",
+    }
+);
+
+codebook!(
+    /// The role of a `finding_members` row.
+    MemberRole = "member_role" {
+        /// A public access path (an `export` node) of a `public_alias` finding.
+        AccessPath = 0 => "access_path",
+    }
+);
+
+impl FactFamily {
+    /// Whether a run may declare the family and so owe a coverage row per module or document:
+    /// the extraction families. Publication, the catalogs, analysis results and the embedding
+    /// cache are not coverage units (ADR-0019 review O1).
+    pub fn is_coverage_unit(self) -> bool {
+        !matches!(
+            self,
+            FactFamily::Publication
+                | FactFamily::Graph
+                | FactFamily::Findings
+                | FactFamily::EmbeddingCache
+        )
+    }
+}
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -838,6 +915,10 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<MentionClass>(),
         CodebookEntry::of::<MentionSource>(),
         CodebookEntry::of::<SourceRole>(),
+        CodebookEntry::of::<AnalyticMethod>(),
+        CodebookEntry::of::<FindingKind>(),
+        CodebookEntry::of::<StopReason>(),
+        CodebookEntry::of::<MemberRole>(),
     ]
 }
 

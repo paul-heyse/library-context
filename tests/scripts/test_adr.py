@@ -26,9 +26,19 @@ def root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def new(root: Path, slug: str, design: str = "[§B1]") -> Path:
+def new(root: Path, slug: str, design: str = "[§B1]", decide: bool = True) -> Path:
     path = adr.create(root, slug, slug, [])
     adr.set_field(path, "design", design)
+    if decide:
+        # DESIGN names the record in each section it lists, as the lint requires.
+        record = f"ADR-{path.name[:4]}"
+        text = (root / "docs" / "design" / "DESIGN.md").read_text()
+        for ref in design.strip("[]").split(","):
+            heading = next(
+                line for line in text.splitlines() if line.split(" ", 1)[-1].startswith(ref.strip())
+            )
+            text = text.replace(heading, f"{heading}\n> Decision: {record}", 1)
+        (root / "docs" / "design" / "DESIGN.md").write_text(text)
     return path
 
 
@@ -46,7 +56,7 @@ def test_new_numbers_sequentially_and_index_makes_lint_pass(root: Path) -> None:
 
 
 def test_unresolved_design_ref_is_reported(root: Path) -> None:
-    new(root, "bad-ref", "[§9.9]")
+    new(root, "bad-ref", "[§9.9]", decide=False)
     run(root, "index")
     problems = adr.lint(root, check_git=False)
     assert any("§9.9 does not resolve" in p for p in problems)
@@ -57,6 +67,7 @@ def test_supersede_links_both_sides(root: Path) -> None:
     assert run(root, "supersede", "ADR-0001", "replacement") == 0
     replacement = root / "docs" / "adr" / "0002-replacement.md"
     adr.set_field(replacement, "design", "[§B1]")
+    decide(root, "ADR-0002")
     records = {a.id: a for a in adr.load_all(root)}
     assert records["ADR-0001"].status == "superseded"
     assert records["ADR-0001"].refs("superseded-by") == ["ADR-0002"]
@@ -80,6 +91,12 @@ def test_invalid_evidence_label_is_reported(root: Path) -> None:
     assert any("not a charter §D label" in p for p in adr.lint(root, check_git=False))
 
 
+def decide(root: Path, record: str, heading: str = "### §B1 Front ends") -> None:
+    """Name `record` in `heading`'s section, as the lint requires of a listed section."""
+    design = root / "docs" / "design" / "DESIGN.md"
+    design.write_text(design.read_text().replace(heading, f"{heading}\n> Decision: {record}", 1))
+
+
 def git(root: Path, *argv: str) -> None:
     subprocess.run(["git", "-C", str(root), *argv], check=True, capture_output=True)
 
@@ -97,6 +114,7 @@ def test_accepted_record_is_immutable_except_status_fields(root: Path) -> None:
     # Superseding (status fields only) is allowed.
     run(root, "supersede", "ADR-0001", "next")
     adr.set_field(root / "docs" / "adr" / "0002-next.md", "design", "[§B1]")
+    decide(root, "ADR-0002")
     run(root, "index")
     assert adr.lint(root) == []
 
@@ -121,3 +139,30 @@ def test_amendments_may_be_appended_but_not_rewritten(root: Path) -> None:
 
     path.write_text(path.read_text().replace("first.", "rewritten."))
     assert any("accepted record edited" in p for p in adr.lint(root))
+
+
+def test_a_listed_section_must_name_its_record(root: Path) -> None:
+    new(root, "undecided", decide=False)
+    run(root, "index")
+    problems = adr.lint(root, check_git=False)
+    assert any("§B1: no `> Decision:` line names ADR-0001" in p for p in problems)
+
+
+def test_an_enclosing_sections_decision_line_counts(root: Path) -> None:
+    new(root, "parent", "[§4]")
+    path = new(root, "child", "[§4.2]", decide=False)
+    text = (root / "docs" / "design" / "DESIGN.md").read_text()
+    (root / "docs" / "design" / "DESIGN.md").write_text(
+        text.replace("> Decision: ADR-0001", f"> Decision: ADR-0001, ADR-{path.name[:4]}")
+    )
+    run(root, "index")
+    assert adr.lint(root, check_git=False) == []
+
+
+def test_a_cited_record_must_exist_unless_to_be_written(root: Path) -> None:
+    new(root, "real")
+    run(root, "index")
+    design = root / "docs" / "design" / "DESIGN.md"
+    design.write_text(design.read_text() + "Verdicts (ADR-0042, to be written) and ADR-0043.\n")
+    problems = adr.lint(root, check_git=False)
+    assert problems == ["DESIGN.md cites ADR-0043, which does not exist"]

@@ -87,13 +87,20 @@ pub mod kind {
     pub const DOCUMENT: &str = "document";
     pub const PASSAGE: &str = "passage";
     pub const CODE_BLOCK: &str = "code_block";
+    // Analysis results (ADR-0019).
+    pub const ANALYTICS_CONFIG: &str = "analytics-config";
+    pub const INVOCATION: &str = "invocation";
+    pub const FINDING: &str = "finding";
+    pub const EVIDENCE: &str = "evidence";
+    pub const ASSERTION: &str = "assertion";
+    pub const BRIEF: &str = "brief";
 }
 
 /// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
 /// them in SQL and a generated rule checks they agree (DESIGN §3.4.1, ADR-0014). Every field uses
 /// the `opt_*` encoding, as the UDF does.
 pub mod recipe {
-    use super::{Id, IdHasher, kind};
+    use super::{Digest, Id, IdHasher, kind};
 
     /// A call's argument at an ordinal: a role, never the expression's own id.
     pub fn argument(call: Id, ordinal: i64) -> Id {
@@ -167,6 +174,29 @@ pub mod recipe {
             .finish_id()
     }
 
+    /// A producer: its tool, its revision and its build digest (DESIGN §3.4.1).
+    pub fn producer(tool: &str, revision: &str, build: Digest) -> Id {
+        IdHasher::new(kind::PRODUCER)
+            .str(tool)
+            .str(revision)
+            .digest_field(build)
+            .finish_id()
+    }
+
+    /// A run: its release, context and producer, its sorted families and the producer's own
+    /// config digest (DESIGN §3.4.1).
+    pub fn run(release: Id, context: Id, producer: Id, families: &[&str], config: Digest) -> Id {
+        let mut sorted = families.to_vec();
+        sorted.sort_unstable();
+        IdHasher::new(kind::RUN)
+            .id(release)
+            .id(context)
+            .id(producer)
+            .strs(sorted)
+            .digest_field(config)
+            .finish_id()
+    }
+
     /// A definition in a dependency module: its module, definition kind code and Pysa key.
     pub fn external_symbol(module: Id, definition_kind: i16, key: &str) -> Id {
         IdHasher::new(kind::EXTERNAL_SYMBOL)
@@ -202,6 +232,19 @@ impl IdHasher {
 
     pub fn i64(&mut self, field: i64) -> &mut Self {
         self.bytes(&field.to_le_bytes())
+    }
+
+    /// A float by its IEEE-754 bits, so `-0.0` and `0.0` differ and every NaN payload is its own
+    /// value; the analytics refuse non-finite results before hashing.
+    pub fn f64(&mut self, field: f64) -> &mut Self {
+        self.bytes(&field.to_bits().to_le_bytes())
+    }
+
+    pub fn opt_f64(&mut self, field: Option<f64>) -> &mut Self {
+        match field {
+            None => self.bytes(&[0]),
+            Some(v) => self.bytes(&[1]).f64(v),
+        }
     }
 
     pub fn bool(&mut self, field: bool) -> &mut Self {
