@@ -1,0 +1,73 @@
+---
+source: crates/cpg-core/tests/syntax.rs
+expression: out
+---
+lex/__init__.py:174 TYPE_CHECKING (scope 0) -> binding 10 in scope 0 at 115
+lex/__init__.py:251 list (scope 0) -> builtin list
+lex/__init__.py:381 counter (scope 2) -> binding 3 in scope 0 at 257
+lex/__init__.py:381 counter (scope 2) -> binding 4 in scope 0 at 357
+lex/__init__.py:482 x (scope 2) -> binding 2 in scope 2 at 438
+lex/__init__.py:486 scale (scope 2) -> binding 2 in scope 2 at 401 (captured)
+lex/__init__.py:530 total (scope 2) -> binding 3 in scope 2 at 413 (captured)
+lex/__init__.py:530 total (scope 2) -> binding 4 in scope 2 at 473 (captured)
+lex/__init__.py:548 inner (scope 2) -> binding 0 in scope 2 at 432
+lex/__init__.py:603 name (scope 4) -> binding 11 in scope 0 at 154
+lex/__init__.py:617 range (scope 1) -> builtin range
+lex/__init__.py:726 name_or_default (scope 2) -> binding 0 in scope 0 at 796
+lex/__init__.py:742 self (scope 2) -> binding 2 in scope 2 at 704
+lex/__init__.py:829 getattr (scope 2) -> builtin getattr
+lex/__init__.py:837 obj (scope 2) -> binding 2 in scope 2 at 812
+lex/__init__.py:907 x (scope 4) -> binding 13 in scope 4 at 917
+lex/__init__.py:922 items (scope 2) -> binding 2 in scope 2 at 884
+lex/__init__.py:937 x (scope 4) -> binding 13 in scope 4 at 917
+lex/__init__.py:956 doubled (scope 2) -> binding 3 in scope 2 at 896
+lex/__init__.py:965 y (scope 2) -> binding 12 in scope 2 at 932
+lex/__init__.py:979 z (scope 3) -> binding 2 in scope 3 at 976
+lex/__init__.py:983 limit (scope 3) -> binding 3 in scope 0 at 269
+lex/__init__.py:983 limit (scope 3) -> binding 3 in scope 0 at 280
+lex/__init__.py:1062 len (scope 2) -> binding 3 in scope 2 at 1029
+lex/__init__.py:1067 max (scope 2) -> builtin max
+lex/__init__.py:1071 values (scope 2) -> binding 2 in scope 2 at 1016
+lex/__init__.py:1080 os (scope 2) -> binding 9 in scope 0 at 88
+lex/__init__.py:1133 helper_from_star (scope 2) -> binding 11 in scope 0 at 154
+## bindings
+lex/__init__.py:88 os kind 9 in scope 0 #0
+lex/__init__.py:115 TYPE_CHECKING kind 10 in scope 0 #1
+lex/__init__.py:154 * kind 11 in scope 0 #2
+lex/__init__.py:221 Sequence kind 10 in scope 0 #3 [static 0 true]
+lex/__init__.py:240 Sequence kind 3 in scope 0 #4 [static 0 false]
+lex/__init__.py:257 counter kind 3 in scope 0 #5
+lex/__init__.py:269 limit kind 3 in scope 0 #6
+lex/__init__.py:280 limit kind 3 in scope 0 #7
+lex/__init__.py:326 bump kind 0 in scope 0 #8
+lex/__init__.py:345 counter kind 16 in scope 2 #0
+lex/__init__.py:357 counter kind 4 in scope 0 #9
+lex/__init__.py:395 outer kind 0 in scope 0 #10
+lex/__init__.py:401 scale kind 2 in scope 2 #0
+lex/__init__.py:413 total kind 3 in scope 2 #1
+lex/__init__.py:432 inner kind 0 in scope 2 #2
+lex/__init__.py:438 x kind 2 in scope 2 #0
+lex/__init__.py:459 total kind 17 in scope 2 #1
+lex/__init__.py:473 total kind 4 in scope 2 #3
+lex/__init__.py:562 Config kind 1 in scope 0 #11
+lex/__init__.py:574 name kind 3 in scope 1 #0
+lex/__init__.py:594 names kind 3 in scope 1 #1
+lex/__init__.py:612 _ kind 13 in scope 4 #0
+lex/__init__.py:695 describe kind 0 in scope 1 #2
+lex/__init__.py:704 self kind 2 in scope 2 #0
+lex/__init__.py:796 name_or_default kind 0 in scope 0 #12
+lex/__init__.py:812 obj kind 2 in scope 2 #0
+lex/__init__.py:875 filtered kind 0 in scope 0 #13
+lex/__init__.py:884 items kind 2 in scope 2 #0
+lex/__init__.py:896 doubled kind 3 in scope 2 #1
+lex/__init__.py:917 x kind 13 in scope 4 #0
+lex/__init__.py:932 y kind 12 in scope 2 #2
+lex/__init__.py:976 z kind 2 in scope 3 #0
+lex/__init__.py:999 shadowed_builtin kind 0 in scope 0 #14
+lex/__init__.py:1016 values kind 2 in scope 2 #0
+lex/__init__.py:1029 len kind 3 in scope 2 #1
+lex/__init__.py:1109 uses_star kind 0 in scope 0 #15
+lex/__init__.py:1158 dropped kind 0 in scope 0 #16
+lex/__init__.py:1173 tmp kind 3 in scope 2 #0
+lex/__init__.py:1189 tmp kind 15 in scope 2 #1
+lex/helpers.py:4 helper_from_star kind 0 in scope 0 #0

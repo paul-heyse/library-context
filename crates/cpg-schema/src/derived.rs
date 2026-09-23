@@ -7,9 +7,9 @@
 //! reason where one applies; no inner join drops it.
 
 use crate::codebook::{
-    BoundaryReason, Codebook, DeclarationKind, DefinitionKind, PysaCalleeKind, PysaSiteKind,
-    PysaTargetKind, PysaUnresolvedReason, ResolutionDomain, ResolutionStatus, SignatureForm,
-    SymbolKind, SyntaxKind,
+    BindingKind, BoundaryReason, Codebook, DeclarationKind, DefinitionKind, ExportSyntaxKind,
+    LexicalScopeKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason,
+    ResolutionDomain, ResolutionStatus, SignatureForm, SymbolKind, SyntaxKind,
 };
 use crate::id::Id;
 use crate::table::{Table, table};
@@ -211,6 +211,12 @@ impl Derived for Exports {
                FROM source_files), \
              dependency_modules AS ( \
                SELECT DISTINCT module_name, module_node_id FROM context_modules), \
+             module_bindings AS ( \
+               SELECT b.module_node_id, b.name, b.node_id, \
+                      row_number() OVER (PARTITION BY b.module_node_id, b.name \
+                                         ORDER BY b.ordinal DESC) AS pick \
+               FROM bindings b JOIN scopes s ON s.node_id = b.scope_id AND s.kind = {module_scope} \
+               WHERE b.kind NOT IN ({unbinding})), \
              release AS ( \
                SELECT f.fact_id, r.release_id FROM facts f JOIN runs r ON r.run_id = f.run_id \
                WHERE f.table_name = 'public_names'), \
@@ -221,6 +227,8 @@ impl Derived for Exports {
                       COALESCE(r.node_id, \
                                CASE WHEN p.origin_module_node_id IS NULL \
                                     THEN e.symbol_node_id END, \
+                               CASE WHEN p.origin_symbol_kind IN ({variable_like}) \
+                                    THEN mb.node_id END, \
                                CASE WHEN p.origin_symbol_kind IS NULL \
                                       OR p.origin_symbol_kind = {module} \
                                     THEN COALESCE(sm.module_node_id, dm.module_node_id) END) \
@@ -234,6 +242,9 @@ impl Derived for Exports {
                LEFT JOIN ext e \
                  ON e.pick = 1 AND p.origin_module_node_id IS NULL \
                 AND e.module_name = p.origin_module AND e.name = p.origin_name \
+               LEFT JOIN module_bindings mb \
+                 ON mb.pick = 1 AND mb.module_node_id = p.origin_module_node_id \
+                AND mb.name = p.origin_name \
                LEFT JOIN release_modules sm ON sm.pick = 1 AND sm.module_name = p.origin_path \
                LEFT JOIN dependency_modules dm \
                  ON sm.module_name IS NULL AND dm.module_name = p.origin_path) \
@@ -247,6 +258,17 @@ impl Derived for Exports {
              FROM resolved",
             rank = seed_rank("d.module_node_id, d.qualified_name"),
             module = c(SymbolKind::Module),
+            module_scope = c(LexicalScopeKind::Module),
+            unbinding = [
+                BindingKind::Del,
+                BindingKind::Global,
+                BindingKind::Nonlocal,
+                BindingKind::StarImport,
+            ]
+            .iter()
+            .map(|k| c(*k).to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
             missing = c(BoundaryReason::MissingEvidence),
             variable = c(BoundaryReason::VariableOrigin),
         )
@@ -726,9 +748,9 @@ table!(
     /// Pysa's records at attribute, artificial and format-string sites (CPG slice C2), each
     /// resolved to the syntax node at its range (the deepest placed node with exactly that span;
     /// a chained comparison's pairwise site, which no node spans, to the innermost comparison that
-    /// contains it) and to its typed target. A span no placed node has reads `provider_disagreement`; an
-    /// unresolved record `unresolved_target`; otherwise a reason only from Stage C, as for
-    /// `call_targets` (ADR-0014 review F1). Identifier sites wait for C3's references.
+    /// contains it) and to its typed target. Every expression is placed, so a span with no node is our
+    /// own failure: a null reason `typed:site_targets` rejects (C2 review F2). An unresolved record
+    /// reads `unresolved_target`; otherwise a reason only from Stage C.
     SiteTargets, SiteTargetsRow = "site_targets",
     family = Syntax,
     key = [snapshot_id, pysa_fact_id],
@@ -772,7 +794,7 @@ impl Derived for SiteTargets {
                  ON d.fact_id = c.fact_id AND d.parent_node_id = c.node_id) \
              SELECT s.fact_id AS pysa_fact_id, x.node_id AS site_node_id, \
                     CASE WHEN s.target_kind <> {unresolved} THEN {node} END AS target_node_id, \
-                    CAST(CASE WHEN x.node_id IS NULL THEN {disagreement} \
+                    CAST(CASE WHEN x.node_id IS NULL THEN NULL \
                               WHEN s.target_kind = {unresolved} THEN {unresolved_target} \
                               ELSE {reason} END AS SMALLINT) AS reason \
              FROM sites s \
@@ -785,10 +807,108 @@ impl Derived for SiteTargets {
             unresolved = c(PysaTargetKind::Unresolved),
             node = function_target_node("t"),
             reason = function_target_reason("t"),
-            disagreement = c(BoundaryReason::ProviderDisagreement),
             unresolved_target = c(BoundaryReason::UnresolvedTarget),
             target = function_target("t", "s.target_module", "s.target_key"),
             compare = c(SyntaxKind::ExprCompare),
+        )
+    }
+}
+
+table!(
+    /// Pysa's records at identifier sites (a callable value that may be invoked, `if_called`; CPG
+    /// slice C3), each resolved to the reference at its exact span and to its typed target. A span
+    /// with no reference is our own failure (a null reason `typed:identifier_targets` rejects); an
+    /// unresolved record reads `unresolved_target`; otherwise a reason only from Stage C.
+    IdentifierTargets, IdentifierTargetsRow = "identifier_targets",
+    family = Lexical,
+    key = [snapshot_id, pysa_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        pysa_fact_id: Id,
+        reference_node_id: Option<Id>,
+        target_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for IdentifierTargets {
+    fn sql() -> String {
+        format!(
+            "WITH external_functions AS ({external}), \
+             sites AS ( \
+               SELECT fact_id, module_node_id, start_byte, end_byte, target_kind, target_module, \
+                      target_key \
+               FROM pysa_calls \
+               WHERE NOT (site_kind = {regular} AND callee_kind = {call}) \
+                 AND callee_kind = {identifier}), \
+             hits AS ( \
+               SELECT s.fact_id, r.node_id, \
+                      row_number() OVER (PARTITION BY s.fact_id ORDER BY r.node_id \
+                                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pick \
+               FROM sites s JOIN references r \
+                 ON r.module_node_id = s.module_node_id AND r.start_byte = s.start_byte \
+                AND r.end_byte = s.end_byte) \
+             SELECT s.fact_id AS pysa_fact_id, h.node_id AS reference_node_id, \
+                    CASE WHEN s.target_kind <> {unresolved} THEN {node} END AS target_node_id, \
+                    CAST(CASE WHEN h.node_id IS NULL THEN NULL \
+                              WHEN s.target_kind = {unresolved} THEN {unresolved_target} \
+                              ELSE {reason} END AS SMALLINT) AS reason \
+             FROM sites s \
+             LEFT JOIN hits h ON h.fact_id = s.fact_id AND h.pick = 1 \
+             {target}",
+            external = external(DefinitionKind::Function),
+            regular = c(PysaSiteKind::Regular),
+            call = c(PysaCalleeKind::Call),
+            identifier = c(PysaCalleeKind::Identifier),
+            unresolved = c(PysaTargetKind::Unresolved),
+            node = function_target_node("t"),
+            reason = function_target_reason("t"),
+            unresolved_target = c(BoundaryReason::UnresolvedTarget),
+            target = function_target("t", "s.target_module", "s.target_key"),
+        )
+    }
+}
+
+table!(
+    /// Each import (C3): the module it names (`export_syntax.resolved_module`), as a module of the
+    /// release (the `.py` before the `.pyi`) or a dependency module. A module that does not
+    /// resolve in the context (an optional dependency) reads `unresolved_target`.
+    ImportTargets, ImportTargetsRow = "import_targets",
+    family = Lexical,
+    key = [snapshot_id, import_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        import_fact_id: Id,
+        /// The importing module.
+        module_node_id: Id,
+        target_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for ImportTargets {
+    fn sql() -> String {
+        format!(
+            "WITH release_modules AS ( \
+               SELECT module_name, module_node_id, \
+                      row_number() OVER (PARTITION BY module_name ORDER BY is_stub, path) AS pick \
+               FROM source_files), \
+             dependency_modules AS ( \
+               SELECT DISTINCT module_name, module_node_id FROM context_modules) \
+             SELECT x.fact_id AS import_fact_id, x.module_node_id, \
+                    COALESCE(r.module_node_id, d.module_node_id) AS target_node_id, \
+                    CAST(CASE WHEN COALESCE(r.module_node_id, d.module_node_id) IS NULL \
+                              THEN {unresolved} END AS SMALLINT) AS reason \
+             FROM export_syntax x \
+             LEFT JOIN release_modules r ON r.pick = 1 AND r.module_name = x.resolved_module \
+             LEFT JOIN dependency_modules d \
+               ON r.module_name IS NULL AND d.module_name = x.resolved_module \
+             WHERE x.kind IN ({import}, {import_from})",
+            unresolved = c(BoundaryReason::UnresolvedTarget),
+            import = c(ExportSyntaxKind::Import),
+            import_from = c(ExportSyntaxKind::ImportFrom),
         )
     }
 }
@@ -811,6 +931,8 @@ macro_rules! for_each_derived_table {
             $crate::derived::AncestryTargets,
             $crate::derived::OverrideTargets,
             $crate::derived::SiteTargets,
+            $crate::derived::IdentifierTargets,
+            $crate::derived::ImportTargets,
             $crate::graph::Nodes,
             $crate::graph::Edges,
             $crate::graph::GraphGaps,

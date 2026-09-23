@@ -440,8 +440,8 @@ declaration, and an AST node is not an execution point.
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `graph` | derived: `nodes`, `edges` (§3.8). Not a coverage unit | C1 |
-| `syntax` | **Implemented and Tested (C2).** Raw `syntax_nodes` (Ruff): every statement; the clause nodes (`elif`/`else`, `except`, `case`, `with` items); the expressions Pysa reports sites at (attribute, subscript, operators, comparisons, format strings, `await`, `yield`, walrus, lambda), and any expression at the exact range of one of Pysa's attribute, artificial or format-string sites; and the full expression subtree under every `test`, `exc`, `cause`, `guard` and `msg`. Each row has its parent (the nearest placed ancestor), owner, field (`syntax_field`), ordinal in that field (a statement's block index), span, `kind` (Ruff's `NodeKind`, the `syntax_kind` codebook, an exhaustive match) and detail (a name, attribute, operator, literal as written, or a handler's name). A `def`, a `class` and a call are placed under their declaration and call-site ids; nothing inside an annotation is placed. Derived: `site_targets` (each Pysa attribute, artificial and format-string record → the deepest syntax node at its span, a chained comparison's pairwise site → its comparison → its typed target). Consumers: Pass B guards, raises and handlers; Pass C straight-line regions; FCA raised types | C2 |
-| `lexical` | raw, from our recognizer (`recognizer`): `scopes`, `bindings` (with shadowed history: ordinal per scope, kind, value, the statically decided branch it sits in), `references`, `reference_resolutions` (full Python scoping: LEGB, class-scope skip, comprehension, lambda and annotation scopes, `global`/`nonlocal`, `del`; candidate sets; builtins as external symbols; reasons otherwise). Imports resolved through Pyrefly where it answers. Consumers: Pass B binding order (§4.2.4), Pass C bindings, the import graph, `if_called` targets, variable exports | C3 |
+| `syntax` | **Implemented and Tested (C2; revised by its compact review).** Raw `syntax_nodes` (Ruff): every statement, the clause nodes (`elif`/`else`, `except`, `case`, `with` items) and **every expression outside annotations** (the IP 2.1 exhaustive-exporter contract; placement depends on the source alone, never on a provider). Each row has its parent (the nearest placed ancestor), owner, field (`syntax_field`: body, test, orelse, handler, exc, cause, default, argument, …), ordinal in that field (a statement's block index), span, `kind` (Ruff's `NodeKind`, the `syntax_kind` codebook, an exhaustive match) and detail (a name, attribute, operator, literal as written, or a handler's name). A `def`, a `class` and a call are placed under their declaration and call-site ids; nothing inside an annotation is placed. Derived: `site_targets` (each Pysa attribute, artificial and format-string record → the deepest syntax node at its span, a chained comparison's pairwise site → its comparison → its typed target; a span with no node is our own failure, never a reason). Consumers: Pass B guards, raises, handlers and defaults; Pass C straight-line regions; FCA raised types (their type is C4's) | C2 |
+| `lexical` | **Implemented and Tested (C3).** Raw, from our recognizer (surface `lctx-lexical`, `recognizer`, inside the Ruff walk): `scopes` (module, class, function, lambda, comprehension; owner and parent), `bindings` (every binding event in source order per scope: kind, site, span, the assigned value's span, and the statically decided branch it sits in with its polarity; a store under `global`/`nonlocal` binds in the declared scope), `references` (every name load outside annotations, a role of its placed name, with its parent and field), `reference_resolutions` (full Python scoping: the scope's own bindings, else the nearest enclosing function scope with class scopes skipped, else the module, else a builtin; comprehension first iterables and function defaults in the enclosing scope; walrus in the nearest non-comprehension scope; flow-insensitive candidates; a star import as a candidate for a name nothing else binds; a builtin names itself, a builtin variable reads `variable_origin`, anything else `unresolved_target`). `export_syntax.resolved_module` is each import's absolute module. Derived: `identifier_targets` (Pysa's identifier sites → the reference at their span → typed target), `import_targets` (each import → the release or dependency module it names, else `unresolved_target`). Consumers: Pass B binding order (§4.2.4), Pass C bindings and values, the import graph, `if_called` targets, variable exports | C3 |
 | `types` | raw, from Pyrefly's native types: `type_terms` (one row per distinct term; typevars keep their binder), `type_term_args` (structure), `type_observations` (subject, role, term; §3.5.1), `record_fields` (dataclass, attrs, pydantic, `TypedDict`, `NamedTuple`). Consumers: Pass C type compatibility, FCA type attributes, controls from record fields | C4 |
 | `docs` | raw: `documents`, `passages`, `code_blocks`, `doc_links`, `mentions` (exact, and lexical candidates, never merged; embedding-based linking is §9.7's). Examples, tests and materialized code blocks are compiled as a usage run of their own release, with every code family, linked to the library by the derived `usage_targets` | C5 |
 | `findings` | `findings`, `witnesses`, `evidence` (evidence_id → one of: fact, span, passage, example, fixture run), `assertions`, `assertion_support` (assertion → finding / evidence), `briefs` (with `review_state`), `brief_members`, `usage_patterns` | 1 |
@@ -536,8 +536,9 @@ migration (DM-51).
   its `.pyi`, a dependency module or symbol two runs reference); any other repeated id fails
   `key:nodes` (review O2).
 - **One recipe, two places.** The ids the extractor computes in Rust whose inputs are also
-  columns (argument, external module, external symbol) are `cpg_schema::id::recipe` functions in
-  the UDF's `opt_*` encoding. A generated `id:*` rule recomputes each in SQL on every compile, and
+  columns (argument, external module, external symbol; C3's scope `H(scope, owner)`, binding
+  `H(binding, site, name)` and reference `H(reference, name node)`) are `cpg_schema::id::recipe`
+  functions in the UDF's `opt_*` encoding. A generated `id:*` rule recomputes each in SQL on every compile, and
   known-answer values are pinned (review F3).
 - **Producer scope.** `call_target` and `higher_order_target` edge ids take Pysa's payload,
   function keys included, so a Pyrefly bump may rename them, like syntax and external-symbol ids
@@ -580,7 +581,7 @@ migration (DM-51).
 | `evidence_status` | structurally_observed, documented, statistically_derived, fixture_checked, unresolved |
 | `finding_kind`, `assertion_kind`, `analytic_method` | Defined in `cpg-schema` as their consumers land (§9, §10) |
 | `node_kind`, `edge_kind` (C1+) | The v1 node kinds (§3.1) and the edge kinds of the registry (§3.8), appended by slice |
-| `syntax_kind` (C2), `lexical_scope_kind`, `binding_kind` (C3), `type_role`, `type_term_kind` (C4) | Defined in `cpg-schema` with their slice. `lexical_scope_kind` is separate from the coverage `scope_kind`. `binding_kind` is the subset of Ruff's `BindingKind` the recognizer emits |
+| `syntax_kind`, `syntax_field` (C2), `lexical_scope_kind`, `binding_kind`, `static_branch` (C3), `type_role`, `type_term_kind` (C4) | Defined in `cpg-schema` with their slice. `lexical_scope_kind` is separate from the coverage `scope_kind`. `binding_kind` is the recognizer's binding events: Ruff's kinds it emits plus `del` and the `global`/`nonlocal` declarations |
 | `fact_family` additions | `graph` (C1; not a coverage unit), `syntax`, `lexical`, `types`, `docs` as their slices land |
 | `boundary_reason` addition (C1) | `variable_origin`: an export whose origin Pyrefly calls a variable-like symbol, until C3 gives it a `binding` node |
 | C1 codebooks | `module_origin`, `definition_kind`, `symbol_kind` (Pyrefly's export kinds, an exhaustive match), `derivation_class` |
@@ -689,8 +690,10 @@ migration (DM-51).
   (`compile.rs`), and evidence, support, one-per-evidence, no-parallel and typed targets from a
   doctored catalog (`graph.rs`).
 
-C2–C5 are **Proposed**. This is how the typed family tables become a graph without a second
-authority, following the operator's guidelines
+C2 and C3 are **Implemented** and **Tested** (`cpg-core/tests/syntax.rs`: the placed tree of
+`syntax_shapes`, and every name of `lexical_shapes` with its resolution and bindings; each new rule
+rejects an injected violation). C4 and C5 are **Proposed**. This is how the typed family tables
+become a graph without a second authority, following the operator's guidelines
 (`docs/design_review/design_principles/rust_code_intelligence_data_graph_guidelines.md` §2–§4,
 §10–§12).
 
@@ -723,8 +726,8 @@ rules are generated from (DM-52).
 | Slice | Edge kind: source → target (derivation) |
 |---|---|
 | C1 | `declares`: module/class/function → class/function (extracted). `overload_of`: stub → callable (joined). `stub_for`: `.pyi` declaration → the `.py` declaration the `exports` seed rank picks, one shared rank (joined). `has_parameter`: function → parameter, ordinal (extracted). `exports`: export → declaration, external symbol, module or external module, one edge per access file, the file as discriminator (analyzer; parallel). `encloses_call`: owner → call site (extracted). `has_argument`: call site → argument, ordinal (extracted). `call_target`: call site → function, synthetic callable or external symbol (analyzer; discriminator `payload_id`; phase, receiver and modality on the evidence row). `higher_order_target`: argument → callable (analyzer; `potential`). `base_class`, `mro_entry`: class → class or external symbol, ordinal, MRO as reported (analyzer). `overrides`: function → function or external symbol (analyzer). `declared_in`: external symbol → external module (joined) |
-| C2 (**Implemented**) | `ast_child`: module, declaration, call site or syntax node → the placed child, ordinal (extracted; one parent per node). `argument_value`: argument → each placed node directly in its value (joined; no lineage obligation, since a plain name or literal is not placed). `site_target`: the syntax node or call site at a Pysa attribute, artificial or format-string site → function, synthetic callable or external symbol (analyzer; parallel, discriminator `payload_id`; `synthetic_model` for artificial sites) |
-| C3 | `owns_scope`, `lexical_parent`, `binds`, `introduces` (recognizer). `reads_binding`: reference → binding (recognizer; `candidate` when not unique). `shadows`: binding → the previous binding of its name in its scope. `captures`, `global_binding`, `nonlocal_binding`. `potential_target`: reference or site → callable (analyzer; `if_called`). `imports_module`, `imports_symbol` (analyzer where Pyrefly answers, else joined) |
+| C2 (**Implemented**) | `ast_child`: module, declaration, call site or syntax node → the placed child, ordinal (extracted; one parent per node). `argument_value`: argument → its value's placed node (joined; one per argument of a call outside an annotation). `site_target`: the syntax node or call site at a Pysa attribute, artificial or format-string site → function, synthetic callable or external symbol, **not** `potential` records (analyzer; parallel, discriminator `payload_id`; `synthetic_model` for artificial sites) |
+| C3 (**Implemented**) | `owns_scope`: module, declaration, lambda or comprehension → scope. `lexical_parent`: scope → enclosing scope. `binds`: scope → binding, ordinal. `introduces`: binding → the declaration, parameter or placed statement that makes it (recognizer). `reads_binding`: reference → binding in its own or the module scope (recognizer; `candidate` when several). `captures`: reference → a binding of an enclosing function scope (recognizer). `reads_builtin`: reference → the builtin function or class (recognizer). `shadows`: binding → the previous event of its name in its scope (joined). `potential_target`: reference (Pysa identifier sites) or syntax node (Pysa `if_called` at attribute sites) → callable (analyzer; `potential`). `imports_module`: module → the module an import names (joined; one per alias). **Deferred:** `imports_symbol` (Pyrefly's `find_definition` at an alias; reopen when a consumer needs symbol-level import targets, since `exports` already trace re-export origins) and separate `global`/`nonlocal` edges (their effect is the declared scope of the binding and the resolution) |
 | C4 | `has_type`: subject → type term (analyzer; role on the evidence row). `type_arg`: term → term, ordinal. `type_class`: term → class or external symbol. `has_field`: class → field. `field_type`: field → term |
 | C5 | `contains_passage`, `contains_block`, `block_module` (extracted). `mentions`: passage → export or declaration (recognizer; `definite` for exact, `candidate` for lexical). `usage_link`: usage call site → release declaration (joined) |
 
@@ -742,7 +745,11 @@ rules are generated from (DM-52).
   counted on its `resolutions` or `argument_resolutions` row, a C2 site row (lineage through
   `site_targets`), or an identifier site published as a gap.
 - **Placement (C2):** every declaration, and every call outside an annotation, has its
-  `syntax_nodes` row; a placed child lies within its placed parent, in the same module.
+  `syntax_nodes` row; a node is placed once; a placed child lies within its placed parent, in the
+  same module; a Pysa site with no node, or a name with no reference, is a `typed:*` violation
+  (never a reason).
+- **Lexical (C3):** `id:scopes`, `id:bindings`, `id:references`; `typed:reference_resolutions` (no
+  binding, builtin or reason); every reference's name is a placed syntax node.
 - **Typed targets:** a null target carries a reason.
 - **Ids:** the Rust recipes equal their SQL form (`id:*`).
 - A rule whose target is built from its own source column is not generated, because it cannot
@@ -768,8 +775,17 @@ rules are generated from (DM-52).
   identifier sites remain. Every other site lands on a placed node: 8,500 resolve to targets and
   3,027 are unresolved by Pysa itself (`unresolved_target`). Thirteen chained-comparison sites
   that no node spans attach to their comparison;
-- **C2 on the pilot** (2026-09-23): 83,627 placed syntax nodes; 113,897 nodes and 165,053 edges
-  in all; every rule passing; 14.9 s, 2.91 GB peak RSS; validation 1.8 s;
+- **C2 on the pilot** (2026-09-23, as first committed): 83,627 placed syntax nodes; 113,897 nodes
+  and 165,064 edges; every rule passing; 14.9 s, 2.91 GB. After its review every expression
+  outside annotations is placed: 138,136 syntax nodes. 829 attribute-site records are `potential`
+  and are `potential_target` edges;
+- **C3 on the pilot** (2026-09-23): 3,667 scopes, 22,230 bindings, 39,950 references and 45,713
+  resolutions. **No name is unresolved**: 45,591 resolutions read a binding (756 are closure
+  captures) or a builtin function or class, and 122 read a builtin variable. Every Pysa identifier
+  site lands on a reference (5,675 resolved, 80 unresolved by Pysa). All 4,526 imports resolve.
+  `graph_gaps` is empty. 234,328 nodes and 335,442 edges; every rule passing; 17.5 s at 3.91 GB
+  peak RSS, validation 3.4 s. The memory now reaches the C6 streaming trigger's question
+  (§4.3);
 - 329 dependency modules: 249 site-packages modules, all with their distribution, and 80 from
   Pyrefly's bundled typeshed;
 - 1,913 external symbols;
@@ -1852,3 +1868,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | ADR-0013 standard review F1–F9: one equivalence (verified analyzer-readable bytes) for `release_id` and the environment digest; hermetic acquisition (`--no-config --python --link-mode copy`, `--reinstall`); hash-less releases refused; docs source pinned by commit; `distributions` keyed by context; writer rule; schema drift refused at open; `just gold`; ADR-0013 accepted | ADR-0013 |
 | 2026-09-22 | CPG first (operator): slices C1–C6 before Pass A (§1.2). The node and edge catalogs, persistent `edge_id`, typed external and synthetic endpoints, the graph registry and its generated rules (§3.1, §3.2, §3.4.1, §3.5, §3.7, new §3.8, §8); `lctx_id` UDF, metrics, deferred streaming and file skipping (§4.3); retention for pinned reads (§6.1); the syntax, lexical, types and docs families specified for C2–C5, with type structure and record fields no longer deferred. Aligned with the operator's Rust code-intelligence guidelines; probe P1 (dependency definitions) recorded | ADR-0014 (supersedes ADR-0008), ADR-0004 and ADR-0009 amendments |
 | 2026-09-23 | ADR-0014 standard review F1–F6 fixed and ADR-0014 accepted: reasons only from providers, export edges per access file, one id recipe in Rust and SQL, generated node references, `graph_gaps`, `edge_kinds` (§3.2, §3.4.1, §3.5, §3.7, §3.8, §8). CPG slice C2: the `syntax` family (`syntax_nodes`, `site_targets`, `ast_child`/`argument_value`/`site_target`) (§3.2, §3.8, §4.2.2) | ADR-0014 |
+| 2026-09-23 | C2 compact review F1–F4: every expression outside annotations placed (placement no longer provider-dependent), `if_called` attribute sites as `potential_target`, no catch-all reason for a node-less site, `argument_value` lineage, `unique:syntax_nodes`, the `default` field. CPG slice C3: the `lexical` family (scopes, bindings, references, full Python name resolution, identifier and import targets; ten edge kinds) (§3.2, §3.4.1, §3.5, §3.8, §8) | ADR-0014 |

@@ -1,0 +1,26 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table bindings
+family lexical
+key snapshot_id, scope_id, ordinal, node_id, fact_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=lexical
+@lctx.table=bindings
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+scope_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+name: Utf8 NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=binding_kind]
+ordinal: Int64 NOT NULL
+site_node_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+value_start_byte: Int64 NULL
+value_end_byte: Int64 NULL
+static_branch: Int16 NULL [lctx.codebook=static_branch]
+static_polarity: Boolean NULL

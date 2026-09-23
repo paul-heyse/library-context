@@ -207,6 +207,8 @@ codebook!(
         Graph = 6 => "graph",
         /// C2: syntax nodes the passes read (DESIGN §3.2).
         Syntax = 7 => "syntax",
+        /// C3: scopes, bindings, references and their resolution (DESIGN §3.2).
+        Lexical = 8 => "lexical",
     }
 );
 
@@ -349,6 +351,10 @@ codebook!(
         SyntheticCallable = 9 => "synthetic_callable",
         /// C2: a placed syntax node that is not a declaration or a call site.
         SyntaxNode = 10 => "syntax_node",
+        // C3
+        Scope = 11 => "scope",
+        Binding = 12 => "binding",
+        Reference = 13 => "reference",
     }
 );
 
@@ -372,6 +378,17 @@ codebook!(
         AstChild = 13 => "ast_child",
         ArgumentValue = 14 => "argument_value",
         SiteTarget = 15 => "site_target",
+        // C3
+        OwnsScope = 16 => "owns_scope",
+        LexicalParent = 17 => "lexical_parent",
+        Binds = 18 => "binds",
+        Introduces = 19 => "introduces",
+        ReadsBinding = 20 => "reads_binding",
+        Captures = 21 => "captures",
+        ReadsBuiltin = 22 => "reads_builtin",
+        Shadows = 23 => "shadows",
+        PotentialTarget = 24 => "potential_target",
+        ImportsModule = 25 => "imports_module",
     }
 );
 
@@ -536,6 +553,56 @@ codebook!(
         Decorator = 22 => "decorator",
         Element = 23 => "element",
         Child = 24 => "child",
+        /// A parameter's default value (C2 review: every expression is placed).
+        Default = 25 => "default",
+    }
+);
+
+codebook!(
+    /// A lexical scope's kind (C3; separate from the coverage `scope_kind`).
+    LexicalScopeKind = "lexical_scope_kind" {
+        Module = 0 => "module",
+        Class = 1 => "class",
+        Function = 2 => "function",
+        Lambda = 3 => "lambda",
+        Comprehension = 4 => "comprehension",
+    }
+);
+
+codebook!(
+    /// How a binding event binds its name (C3): the subset of Ruff's `BindingKind` our recognizer
+    /// emits, plus the unbinding (`del`) and the scope declarations.
+    BindingKind = "binding_kind" {
+        FunctionDef = 0 => "function_def",
+        ClassDef = 1 => "class_def",
+        Parameter = 2 => "parameter",
+        Assignment = 3 => "assignment",
+        AugAssignment = 4 => "aug_assignment",
+        AnnotationOnly = 5 => "annotation_only",
+        ForTarget = 6 => "for_target",
+        WithTarget = 7 => "with_target",
+        ExceptHandler = 8 => "except_handler",
+        Import = 9 => "import",
+        FromImport = 10 => "from_import",
+        StarImport = 11 => "star_import",
+        Walrus = 12 => "walrus",
+        ComprehensionTarget = 13 => "comprehension_target",
+        MatchCapture = 14 => "match_capture",
+        Del = 15 => "del",
+        Global = 16 => "global",
+        Nonlocal = 17 => "nonlocal",
+        TypeAlias = 18 => "type_alias",
+        TypeParam = 19 => "type_param",
+    }
+);
+
+codebook!(
+    /// A branch the analyzer decides statically (C3): Pyrefly drops the branch it decides
+    /// against, the recognizer keeps both.
+    StaticBranch = "static_branch" {
+        TypeChecking = 0 => "type_checking",
+        VersionInfo = 1 => "version_info",
+        Platform = 2 => "platform",
     }
 );
 
@@ -573,6 +640,9 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<DerivationClass>(),
         CodebookEntry::of::<SyntaxKind>(),
         CodebookEntry::of::<SyntaxField>(),
+        CodebookEntry::of::<LexicalScopeKind>(),
+        CodebookEntry::of::<BindingKind>(),
+        CodebookEntry::of::<StaticBranch>(),
     ]
 }
 

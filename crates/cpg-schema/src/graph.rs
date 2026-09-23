@@ -15,7 +15,8 @@
 
 use crate::codebook::{
     AncestryRelation, BoundaryReason, Codebook, DeclarationKind, DerivationClass, EdgeKind,
-    NodeKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, SyntaxField, SyntaxKind,
+    ExportSyntaxKind, Modality, NodeKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
+    SyntaxField, SyntaxKind,
 };
 use crate::id::Id;
 use crate::rules::Rule;
@@ -186,6 +187,20 @@ pub fn node_sources() -> Vec<NodeSource> {
                 c(SyntaxKind::ExprCall)
             ),
         ),
+        // C3: the lexical family's own nodes.
+        n(
+            NodeKind::Scope,
+            "SELECT node_id, module_node_id, fact_id AS existence_fact_id FROM scopes".to_owned(),
+        ),
+        n(
+            NodeKind::Binding,
+            "SELECT node_id, module_node_id, fact_id AS existence_fact_id FROM bindings".to_owned(),
+        ),
+        n(
+            NodeKind::Reference,
+            "SELECT node_id, module_node_id, fact_id AS existence_fact_id FROM references"
+                .to_owned(),
+        ),
     ]
 }
 
@@ -322,6 +337,7 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                 N::ExternalSymbol,
                 N::Module,
                 N::ExternalModule,
+                N::Binding,
             ],
             direction: "the public access path, read from one file, names the target",
             // A `.py` and its `.pyi` both publish the path: one edge per access file, told apart by
@@ -564,10 +580,10 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             kind: EdgeKind::ArgumentValue,
             src: &[N::Argument],
             dst: &[N::CallSite, N::SyntaxNode],
-            direction: "the placed expression is (part of) the argument's value, directly in it",
+            direction: "the argument's value is the placed expression",
             parallel: false,
             derivation: DerivationClass::Joined,
-            evidence_table: "syntax_nodes",
+            evidence_table: "arguments",
             sql: format!(
                 "SELECT {} FROM arguments a JOIN syntax_nodes s \
                    ON s.parent_node_id = a.call_node_id AND s.field = {} \
@@ -576,16 +592,22 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                     "a.node_id",
                     "s.node_id",
                     None,
-                    "s.fact_id",
-                    Some("a.fact_id"),
+                    "a.fact_id",
+                    Some("s.fact_id"),
                     None
                 ),
                 c(SyntaxField::Argument)
             ),
+            // Every expression outside annotations is placed, so every argument of a call outside
+            // an annotation has exactly one value node.
             one_per_evidence: true,
-            // An argument whose value is a plain name or literal has no placed node (C3's
-            // references carry names): no lineage obligation.
-            lineage: None,
+            lineage: Some(Lineage {
+                expected: "SELECT a.fact_id FROM arguments a \
+                           JOIN call_syntax c ON c.node_id = a.call_node_id \
+                           WHERE NOT c.in_annotation"
+                    .to_owned(),
+                explained: None,
+            }),
         },
         EdgeSource {
             kind: EdgeKind::SiteTarget,
@@ -599,7 +621,9 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             evidence_table: "pysa_calls",
             sql: format!(
                 "SELECT {} FROM site_targets t JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
-                 WHERE t.site_node_id IS NOT NULL AND t.target_node_id IS NOT NULL",
+                 JOIN facts f ON f.fact_id = t.pysa_fact_id \
+                 WHERE t.site_node_id IS NOT NULL AND t.target_node_id IS NOT NULL \
+                   AND f.modality <> {potential}",
                 row(
                     "t.site_node_id",
                     "t.target_node_id",
@@ -607,14 +631,17 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                     "t.pysa_fact_id",
                     None,
                     Some("p.payload_id")
-                )
+                ),
+                potential = c(Modality::Potential),
             ),
             one_per_evidence: true,
             lineage: Some(Lineage {
                 expected: format!(
-                    "SELECT fact_id FROM pysa_calls WHERE NOT ({}) AND callee_kind <> {}",
+                    "SELECT p.fact_id FROM pysa_calls p JOIN facts f ON f.fact_id = p.fact_id \
+                     WHERE NOT ({}) AND p.callee_kind <> {} AND f.modality <> {}",
                     call_site_rows(),
-                    c(PysaCalleeKind::Identifier)
+                    c(PysaCalleeKind::Identifier),
+                    c(Modality::Potential)
                 ),
                 explained: Some(
                     "SELECT pysa_fact_id AS fact_id FROM site_targets WHERE reason IS NOT NULL"
@@ -622,7 +649,272 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                 ),
             }),
         },
+        // C3: the lexical family.
+        simple(
+            EdgeKind::OwnsScope,
+            &[N::Module, N::Class, N::Function, N::SyntaxNode],
+            &[N::Scope],
+            "the module, declaration, lambda or comprehension opens the scope",
+            DerivationClass::Recognizer,
+            "scopes",
+            "SELECT {} FROM scopes s",
+            ("s.owner_node_id", "s.node_id", None, "s.fact_id"),
+            Some("SELECT fact_id FROM scopes"),
+        ),
+        simple(
+            EdgeKind::LexicalParent,
+            &[N::Scope],
+            &[N::Scope],
+            "the scope is nested in its parent scope",
+            DerivationClass::Recognizer,
+            "scopes",
+            "SELECT {} FROM scopes s WHERE s.parent_scope_id IS NOT NULL",
+            ("s.node_id", "s.parent_scope_id", None, "s.fact_id"),
+            Some("SELECT fact_id FROM scopes WHERE parent_scope_id IS NOT NULL"),
+        ),
+        simple(
+            EdgeKind::Binds,
+            &[N::Scope],
+            &[N::Binding],
+            "the scope holds the binding event, at its ordinal (source order)",
+            DerivationClass::Recognizer,
+            "bindings",
+            "SELECT {} FROM bindings b",
+            ("b.scope_id", "b.node_id", Some("b.ordinal"), "b.fact_id"),
+            Some("SELECT fact_id FROM bindings"),
+        ),
+        simple(
+            EdgeKind::Introduces,
+            &[N::Binding],
+            &[N::Class, N::Function, N::Parameter, N::SyntaxNode],
+            "the binding event is made by the declaration, parameter or placed statement",
+            DerivationClass::Recognizer,
+            "bindings",
+            "SELECT {} FROM bindings b JOIN nodes n ON n.node_id = b.site_node_id",
+            ("b.node_id", "b.site_node_id", None, "b.fact_id"),
+            // A binding whose site is a name, alias or pattern has no node of its own.
+            None,
+        ),
+        resolution(EdgeKind::ReadsBinding, false),
+        resolution(EdgeKind::Captures, true),
+        EdgeSource {
+            kind: EdgeKind::ReadsBuiltin,
+            src: &[N::Reference],
+            dst: &[N::ExternalSymbol],
+            direction: "the free name reads the builtin function or class",
+            parallel: false,
+            derivation: DerivationClass::Recognizer,
+            evidence_table: "reference_resolutions",
+            sql: format!(
+                "WITH builtins AS ( \
+                   SELECT d.name, d.symbol_node_id, \
+                          row_number() OVER (PARTITION BY d.name ORDER BY d.kind, d.key) AS pick \
+                   FROM context_definitions d \
+                   JOIN context_modules m ON m.module_node_id = d.module_node_id \
+                   WHERE m.module_name = 'builtins' AND d.is_top_level) \
+                 SELECT {} FROM reference_resolutions r \
+                 JOIN builtins b ON b.pick = 1 AND b.name = r.builtin_name \
+                 WHERE r.reason IS NULL",
+                row(
+                    "r.reference_id",
+                    "b.symbol_node_id",
+                    None,
+                    "r.fact_id",
+                    None,
+                    None
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: "SELECT fact_id FROM reference_resolutions \
+                           WHERE builtin_name IS NOT NULL AND reason IS NULL"
+                    .to_owned(),
+                explained: None,
+            }),
+        },
+        EdgeSource {
+            kind: EdgeKind::Shadows,
+            src: &[N::Binding],
+            dst: &[N::Binding],
+            direction: "the binding event follows the previous event of its name in its scope",
+            parallel: false,
+            derivation: DerivationClass::Joined,
+            evidence_table: "bindings",
+            sql: format!(
+                "WITH ordered AS ( \
+                   SELECT node_id, fact_id, \
+                          lag(node_id) OVER (PARTITION BY scope_id, name ORDER BY ordinal) \
+                            AS previous \
+                   FROM bindings) \
+                 SELECT {} FROM ordered o WHERE o.previous IS NOT NULL",
+                row("o.node_id", "o.previous", None, "o.fact_id", None, None)
+            ),
+            one_per_evidence: true,
+            lineage: None,
+        },
+        EdgeSource {
+            kind: EdgeKind::PotentialTarget,
+            src: &[N::Reference, N::SyntaxNode, N::CallSite],
+            dst: callables,
+            direction: "the referenced callable value may be invoked as the target (`if_called`; \
+                        `potential`)",
+            parallel: true,
+            derivation: DerivationClass::Analyzer,
+            evidence_table: "pysa_calls",
+            sql: format!(
+                "SELECT {} FROM identifier_targets t \
+                 JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
+                 WHERE t.reference_node_id IS NOT NULL AND t.target_node_id IS NOT NULL \
+                 UNION ALL \
+                 SELECT {} FROM site_targets t \
+                 JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
+                 JOIN facts f ON f.fact_id = t.pysa_fact_id \
+                 WHERE t.site_node_id IS NOT NULL AND t.target_node_id IS NOT NULL \
+                   AND f.modality = {potential}",
+                row(
+                    "t.reference_node_id",
+                    "t.target_node_id",
+                    None,
+                    "t.pysa_fact_id",
+                    None,
+                    Some("p.payload_id")
+                ),
+                row(
+                    "t.site_node_id",
+                    "t.target_node_id",
+                    None,
+                    "t.pysa_fact_id",
+                    None,
+                    Some("p.payload_id")
+                ),
+                potential = c(Modality::Potential),
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: format!(
+                    "SELECT p.fact_id FROM pysa_calls p JOIN facts f ON f.fact_id = p.fact_id \
+                     WHERE NOT ({}) AND (p.callee_kind = {} OR f.modality = {})",
+                    call_site_rows(),
+                    c(PysaCalleeKind::Identifier),
+                    c(Modality::Potential)
+                ),
+                explained: Some(
+                    "SELECT pysa_fact_id AS fact_id FROM identifier_targets \
+                     WHERE reason IS NOT NULL \
+                     UNION ALL SELECT pysa_fact_id AS fact_id FROM site_targets \
+                     WHERE reason IS NOT NULL"
+                        .to_owned(),
+                ),
+            }),
+        },
+        EdgeSource {
+            kind: EdgeKind::ImportsModule,
+            src: &[N::Module],
+            dst: &[N::Module, N::ExternalModule],
+            direction: "the module imports the module (one edge per imported alias)",
+            parallel: true,
+            derivation: DerivationClass::Joined,
+            evidence_table: "export_syntax",
+            sql: format!(
+                "SELECT {} FROM import_targets t JOIN export_syntax x ON x.fact_id = t.import_fact_id \
+                 WHERE t.target_node_id IS NOT NULL",
+                row(
+                    "t.module_node_id",
+                    "t.target_node_id",
+                    None,
+                    "t.import_fact_id",
+                    None,
+                    Some("x.node_id")
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: format!(
+                    "SELECT fact_id FROM export_syntax WHERE kind IN ({}, {})",
+                    c(ExportSyntaxKind::Import),
+                    c(ExportSyntaxKind::ImportFrom)
+                ),
+                explained: Some(
+                    "SELECT import_fact_id AS fact_id FROM import_targets WHERE reason IS NOT NULL"
+                        .to_owned(),
+                ),
+            }),
+        },
     ]
+}
+
+/// An edge kind read straight off one table: `sql` has one `{}` for the row, and each lineage row
+/// yields one edge.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a registry row or binding event is these fields"
+)]
+fn simple(
+    kind: EdgeKind,
+    src: &'static [NodeKind],
+    dst: &'static [NodeKind],
+    direction: &'static str,
+    derivation: DerivationClass,
+    evidence_table: &'static str,
+    sql: &str,
+    (from, to, ordinal, evidence): (&str, &str, Option<&str>, &str),
+    lineage: Option<&str>,
+) -> EdgeSource {
+    EdgeSource {
+        kind,
+        src,
+        dst,
+        direction,
+        parallel: false,
+        derivation,
+        evidence_table,
+        sql: sql.replacen("{}", &row(from, to, ordinal, evidence, None, None), 1),
+        one_per_evidence: true,
+        lineage: lineage.map(|expected| Lineage {
+            expected: expected.to_owned(),
+            explained: None,
+        }),
+    }
+}
+
+/// A reference reads a binding (`reads_binding`), or a binding of an enclosing function scope
+/// (`captures`): one row of the recognizer's resolution each.
+fn resolution(kind: EdgeKind, captured: bool) -> EdgeSource {
+    use NodeKind as N;
+    let not = if captured { "" } else { "NOT " };
+    EdgeSource {
+        kind,
+        src: &[N::Reference],
+        dst: &[N::Binding],
+        direction: if captured {
+            "the free name reads a binding of an enclosing function scope (a closure)"
+        } else {
+            "the name reads the binding event (flow-insensitive; `candidate` when several)"
+        },
+        parallel: false,
+        derivation: DerivationClass::Recognizer,
+        evidence_table: "reference_resolutions",
+        sql: format!(
+            "SELECT {} FROM reference_resolutions r \
+             WHERE r.binding_id IS NOT NULL AND {not}r.captured",
+            row(
+                "r.reference_id",
+                "r.binding_id",
+                None,
+                "r.fact_id",
+                None,
+                None
+            )
+        ),
+        one_per_evidence: true,
+        lineage: Some(Lineage {
+            expected: format!(
+                "SELECT fact_id FROM reference_resolutions \
+                 WHERE binding_id IS NOT NULL AND {not}captured"
+            ),
+            explained: None,
+        }),
+    }
 }
 
 fn ancestry(kind: EdgeKind, relation: AncestryRelation, direction: &'static str) -> EdgeSource {
@@ -804,7 +1096,8 @@ impl crate::derived::Derived for GraphGaps {
             "SELECT fact_id AS gap_fact_id, 'pysa_calls' AS table_name, \
                     CAST({not_requested} AS SMALLINT) AS reason, \
                     'identifier site: C3 lexical references' AS detail \
-             FROM pysa_calls WHERE NOT ({call_site}) AND callee_kind = {identifier}",
+             FROM pysa_calls \
+             WHERE NOT ({call_site}) AND callee_kind = {identifier} AND FALSE",
             not_requested = c(BoundaryReason::NotRequested),
             identifier = c(PysaCalleeKind::Identifier),
             call_site = call_site_rows(),
@@ -932,6 +1225,7 @@ pub fn node_columns() -> Vec<NodeColumn> {
                 N::ExternalSymbol,
                 N::Module,
                 N::ExternalModule,
+                N::Binding,
             ],
         ),
         nc("signatures", "signature_node_id", &[N::Function]),
@@ -970,6 +1264,35 @@ pub fn node_columns() -> Vec<NodeColumn> {
             &[N::SyntaxNode, N::CallSite],
         ),
         nc("site_targets", "target_node_id", CALLABLE),
+        // C3
+        nc("scopes", "module_node_id", MODULE),
+        nc(
+            "scopes",
+            "owner_node_id",
+            &[N::Module, N::Class, N::Function, N::SyntaxNode],
+        ),
+        nc("scopes", "parent_scope_id", &[N::Scope]),
+        nc("bindings", "scope_id", &[N::Scope]),
+        nc("bindings", "module_node_id", MODULE),
+        nc("references", "scope_id", &[N::Scope]),
+        // The reference is a role of its placed name (annotation names are C4's, not references).
+        nc("references", "name_node_id", &[N::SyntaxNode]),
+        nc("references", "module_node_id", MODULE),
+        nc(
+            "references",
+            "parent_node_id",
+            &[N::Module, N::Class, N::Function, N::CallSite, N::SyntaxNode],
+        ),
+        nc("reference_resolutions", "reference_id", &[N::Reference]),
+        nc("reference_resolutions", "binding_id", &[N::Binding]),
+        nc("identifier_targets", "reference_node_id", &[N::Reference]),
+        nc("identifier_targets", "target_node_id", CALLABLE),
+        nc("import_targets", "module_node_id", MODULE),
+        nc(
+            "import_targets",
+            "target_node_id",
+            &[N::Module, N::ExternalModule],
+        ),
     ]
 }
 
@@ -1064,6 +1387,21 @@ pub fn rules() -> Vec<Rule> {
                 <> CAST(lctx_id('external_symbol', module_node_id, kind, key) AS BYTEA)",
         ),
         (
+            "id:scopes",
+            "SELECT node_id FROM scopes \
+             WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('scope', owner_node_id) AS BYTEA)",
+        ),
+        (
+            "id:bindings",
+            "SELECT node_id FROM bindings \
+             WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('binding', site_node_id, name) AS BYTEA)",
+        ),
+        (
+            "id:references",
+            "SELECT node_id FROM references \
+             WHERE CAST(node_id AS BYTEA) <> CAST(lctx_id('reference', name_node_id) AS BYTEA)",
+        ),
+        (
             "id:context_modules",
             "SELECT module_node_id FROM context_modules WHERE distribution IS NOT NULL \
                AND CAST(module_node_id AS BYTEA) \
@@ -1077,13 +1415,10 @@ pub fn rules() -> Vec<Rule> {
     // gap the snapshot publishes.
     out.push(rule(
         "partition:pysa_calls-gaps".to_owned(),
-        format!(
-            "SELECT p.fact_id FROM pysa_calls p LEFT ANTI JOIN graph_gaps g \
-               ON g.gap_fact_id = p.fact_id AND g.table_name = 'pysa_calls' \
-             WHERE NOT ({}) AND p.callee_kind = {}",
-            call_site_rows(),
-            c(PysaCalleeKind::Identifier)
-        ),
+        "SELECT g.gap_fact_id FROM graph_gaps g \
+         LEFT ANTI JOIN pysa_calls p ON p.fact_id = g.gap_fact_id \
+         WHERE g.table_name = 'pysa_calls'"
+            .to_owned(),
     ));
     out.push(rule(
         "partition:pysa_calls-remainders".to_owned(),
@@ -1123,6 +1458,11 @@ pub fn rules() -> Vec<Rule> {
             .to_owned(),
     ));
     out.push(rule(
+        "unique:syntax_nodes".to_owned(),
+        "SELECT node_id, count(*) AS n FROM syntax_nodes GROUP BY node_id HAVING count(*) > 1"
+            .to_owned(),
+    ));
+    out.push(rule(
         "contained:syntax_nodes".to_owned(),
         "SELECT c.node_id FROM syntax_nodes c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
          WHERE c.start_byte < p.start_byte OR c.end_byte > p.end_byte \
@@ -1150,6 +1490,15 @@ pub fn rules() -> Vec<Rule> {
         (
             "site_targets",
             "(site_node_id IS NULL OR target_node_id IS NULL)",
+        ),
+        (
+            "identifier_targets",
+            "(reference_node_id IS NULL OR target_node_id IS NULL)",
+        ),
+        ("import_targets", "target_node_id IS NULL"),
+        (
+            "reference_resolutions",
+            "binding_id IS NULL AND builtin_name IS NULL",
         ),
     ] {
         out.push(rule(

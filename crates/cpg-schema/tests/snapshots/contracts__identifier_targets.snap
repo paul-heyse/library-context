@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table identifier_targets
+family lexical
+key snapshot_id, pysa_fact_id
+@lctx.family=lexical
+@lctx.table=identifier_targets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+reference_node_id: FixedSizeBinary(16) NULL
+target_node_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

@@ -17,6 +17,7 @@ imported_module: Utf8 NULL
 imported_name: Utf8 NULL
 alias: Utf8 NULL
 level: Int64 NOT NULL
+resolved_module: Utf8 NULL
 start_byte: Int64 NOT NULL
 end_byte: Int64 NOT NULL
 dunder_all_literal: Boolean NULL

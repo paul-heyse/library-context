@@ -43,9 +43,6 @@ pub(crate) struct PysaOut {
     pub calls: Vec<PysaCallsRow>,
     /// Byte ranges of regular call sites Pysa described (the S5 join key).
     pub regular_call_ranges: HashSet<(i64, i64)>,
-    /// Byte ranges of Pysa's other sites except identifiers (attribute accesses, artificial and
-    /// format-string sites): the syntax walk places a node at each (CPG slice C2).
-    pub site_ranges: HashSet<(i64, i64)>,
 }
 
 /// Converts Pysa locations (1-based line, 1-based UTF-8 byte column) back to byte offsets with
@@ -519,11 +516,6 @@ fn push_target(
         Origin::AnalyzerAssertion
     };
     let refs = e.site.here.refs;
-    if !(e.site.kind == PysaSiteKind::Regular && e.callee_kind == PysaCalleeKind::Call)
-        && e.callee_kind != PysaCalleeKind::Identifier
-    {
-        out.site_ranges.insert(e.site.span);
-    }
     let target = f.map(|f| refs.function_pair(f));
     let receiver = t.and_then(|t| t.receiver_class.as_ref().map(|c| refs.class_pair(c)));
     let mut row = PysaCallsRow {

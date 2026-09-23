@@ -4,11 +4,11 @@
 //! (run, origin, extraction mode, modality, fidelity, model) is one `facts` row (§B6).
 
 use crate::codebook::{
-    AncestryRelation, ArgumentKind, BoundaryReason, CoverageStatus, DeclarationKind,
+    AncestryRelation, ArgumentKind, BindingKind, BoundaryReason, CoverageStatus, DeclarationKind,
     DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
-    InvocationPhase, Modality, ModuleOrigin, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind,
-    PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm, SymbolKind, SyntaxField,
-    SyntaxKind,
+    InvocationPhase, LexicalScopeKind, Modality, ModuleOrigin, Origin, ParameterKind,
+    PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm,
+    StaticBranch, SymbolKind, SyntaxField, SyntaxKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -266,6 +266,9 @@ table!(
         alias: Option<String>,
         /// Relative-import level; 0 for absolute imports and `__all__`.
         level: i64,
+        /// The imported module as an absolute name, relative levels resolved against this module
+        /// (C3); null for `__all__` or a relative import that climbs past the top package.
+        resolved_module: Option<String>,
         start_byte: i64,
         end_byte: i64,
         /// For `__all__`: whether it is a literal list or tuple of strings (F3 detector input).
@@ -584,6 +587,118 @@ table!(
     }
 );
 
+// ---------------------------------------------------------------- lexical
+
+table!(
+    /// Lexical scopes (our recognizer, `lctx-lexical`; CPG slice C3, DESIGN §3.2): the module, each
+    /// class, function, lambda and comprehension. Node id `H(scope, owner)`.
+    Scopes, ScopesRow = "scopes",
+    family = Lexical,
+    key = [snapshot_id, node_id, fact_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        node_id: Id,
+        module_node_id: Id,
+        kind: LexicalScopeKind,
+        /// The node that opens the scope: the module, a declaration, a lambda or a comprehension.
+        owner_node_id: Id,
+        /// The enclosing scope; null for the module.
+        parent_scope_id: Option<Id>,
+        start_byte: i64,
+        end_byte: i64,
+    }
+);
+
+table!(
+    /// Binding events, with shadowed history (C3): every binding of a name in a scope, in source
+    /// order, including those in branches Pyrefly decides statically (marked). Node id
+    /// `H(binding, site, name)`.
+    Bindings, BindingsRow = "bindings",
+    family = Lexical,
+    key = [snapshot_id, scope_id, ordinal, node_id, fact_id],
+    checks = [
+        ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+        ("ordinal_nonnegative", "ordinal >= 0"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        node_id: Id,
+        scope_id: Id,
+        module_node_id: Id,
+        name: String,
+        kind: BindingKind,
+        /// Position among the scope's binding events, in source order.
+        ordinal: i64,
+        /// The binding site: a declaration, a parameter, or the syntax id of the name, alias,
+        /// handler or statement that binds.
+        site_node_id: Id,
+        /// The span of the bound name (or of the site when the name has no node of its own).
+        start_byte: i64,
+        end_byte: i64,
+        /// The assigned value's span (assignments, augmented assignments, walrus, `for`
+        /// iterables, `with` context managers), joinable to `syntax_nodes` and `call_syntax`.
+        value_start_byte: Option<i64>,
+        value_end_byte: Option<i64>,
+        /// The innermost statically decided branch the binding sits in, and whether it is the
+        /// branch taken when the test holds.
+        static_branch: Option<StaticBranch>,
+        static_polarity: Option<bool>,
+    }
+);
+
+table!(
+    /// Name loads (C3): each a role of its name's syntax node, `H(reference, name node)`, with its
+    /// scope and its place under the nearest placed syntax node.
+    References, ReferencesRow = "references",
+    family = Lexical,
+    key = [snapshot_id, module_node_id, start_byte, node_id, fact_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        node_id: Id,
+        /// The name's structural syntax id.
+        name_node_id: Id,
+        scope_id: Id,
+        module_node_id: Id,
+        name: String,
+        /// The nearest placed ancestor (a syntax node, declaration, call site or the module), and
+        /// the field the name sits in there (its role: callee, argument, attribute value, …).
+        parent_node_id: Id,
+        field: SyntaxField,
+        start_byte: i64,
+        end_byte: i64,
+    }
+);
+
+table!(
+    /// The recognizer's name resolution (C3), full Python scoping: the scope's own bindings of the
+    /// name, else the nearest enclosing function scope (class scopes skipped), else the module,
+    /// else a builtin, honoring `global`/`nonlocal`; comprehension, lambda and class scopes. One
+    /// row per candidate binding (flow-insensitive: `candidate` when more than one); a builtin
+    /// names its builtin; otherwise a reason. Bindings in statically decided branches are kept.
+    ReferenceResolutions, ReferenceResolutionsRow = "reference_resolutions",
+    family = Lexical,
+    key = [snapshot_id, reference_id, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        reference_id: Id,
+        binding_id: Option<Id>,
+        /// The binding is in an enclosing function scope (a closure).
+        captured: bool,
+        /// The builtin the name resolves to, when no scope binds it.
+        builtin_name: Option<String>,
+        /// Why there is no binding: `unresolved_target` (nothing binds the name), or
+        /// `variable_origin` (a builtin that is not a function or class).
+        reason: Option<BoundaryReason>,
+    }
+);
+
 // ---------------------------------------------------------------- coverage
 
 table!(
@@ -679,6 +794,10 @@ macro_rules! for_each_table {
             $crate::tables::CallSyntax,
             $crate::tables::Arguments,
             $crate::tables::SyntaxNodes,
+            $crate::tables::Scopes,
+            $crate::tables::Bindings,
+            $crate::tables::References,
+            $crate::tables::ReferenceResolutions,
             $crate::tables::PysaCalls,
             $crate::tables::Coverage,
             $crate::tables::Boundaries

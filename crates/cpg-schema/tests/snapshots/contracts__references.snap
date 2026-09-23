@@ -1,0 +1,21 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table references
+family lexical
+key snapshot_id, module_node_id, start_byte, node_id, fact_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+@lctx.family=lexical
+@lctx.table=references
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+name_node_id: FixedSizeBinary(16) NOT NULL
+scope_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+name: Utf8 NOT NULL
+parent_node_id: FixedSizeBinary(16) NOT NULL
+field: Int16 NOT NULL [lctx.codebook=syntax_field]
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL

@@ -1,6 +1,6 @@
 //! One Ruff walk over Pyrefly's own parse (DESIGN §4.2.2): the `ruff-ast` raw tables.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
@@ -23,6 +23,7 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
+use crate::lexical::{Builtins, Lexical, LexicalOut};
 use crate::syntax;
 
 pub(crate) struct ModuleCtx<'s> {
@@ -42,6 +43,7 @@ pub(crate) struct WalkOut {
     pub call_syntax: Vec<CallSyntaxRow>,
     pub arguments: Vec<ArgumentsRow>,
     pub syntax_nodes: Vec<SyntaxNodesRow>,
+    pub lexical: LexicalOut,
     /// Ranges of module-level `__all__` statements that are not literal (F3 detector input).
     pub nonliteral_dunder_all: Vec<TextRange>,
 }
@@ -77,8 +79,6 @@ struct Frame {
     id: Id,
     fields: Vec<(SyntaxField, TextRange)>,
     counts: HashMap<SyntaxField, i64>,
-    /// Subtree-field ranges this frame opened (popped when it closes).
-    opened: usize,
 }
 
 impl Frame {
@@ -87,17 +87,20 @@ impl Frame {
             id,
             fields: syntax::fields(node),
             counts: HashMap::new(),
-            opened: 0,
         }
+    }
+
+    /// The field `r` sits in.
+    fn field_of(&self, r: TextRange) -> SyntaxField {
+        self.fields
+            .iter()
+            .find(|(_, fr)| fr.contains_range(r))
+            .map_or(SyntaxField::Child, |(f, _)| *f)
     }
 
     /// The field `r` sits in, and its ordinal there.
     fn place(&mut self, r: TextRange) -> (SyntaxField, i64) {
-        let field = self
-            .fields
-            .iter()
-            .find(|(_, fr)| fr.contains_range(r))
-            .map_or(SyntaxField::Child, |(f, _)| *f);
+        let field = self.field_of(r);
         let n = self.counts.entry(field).or_insert(0);
         *n += 1;
         (field, *n - 1)
@@ -109,10 +112,11 @@ struct Walker<'s, 'f> {
     sink: &'f mut FactSink,
     /// The module frame, then one entry per entered node (`None` when it is not placed).
     frames: Vec<Option<Frame>>,
-    /// Ranges of the `test`/`exc`/`cause`/`guard`/`msg` fields whose whole subtree is placed.
-    subtree: Vec<TextRange>,
-    /// Pysa's non-call, non-identifier site ranges: a node there is always placed.
-    sites: &'f HashSet<(i64, i64)>,
+
+    /// The lexical recognizer (C3), in the same walk so name ids agree.
+    lex: Lexical<'f>,
+    /// Each `def` parameter's range → its `parameter_syntax` node id.
+    param_ids: HashMap<TextRange, Id>,
     /// Structural occurrence path of the current node: `Kind#ordinal` from the module body down.
     path: Vec<String>,
     counters: Vec<u32>,
@@ -127,14 +131,15 @@ pub(crate) fn walk_module(
     ctx: &ModuleCtx<'_>,
     ast: &ModModule,
     sink: &mut FactSink,
-    sites: &HashSet<(i64, i64)>,
+    builtins: &Builtins,
 ) -> WalkOut {
+    let module_span = TextRange::up_to(TextSize::try_from(ctx.text.len()).unwrap_or_default());
     let mut w = Walker {
         ctx,
         sink,
         frames: vec![Some(Frame::new(ctx.module_node_id, AnyNodeRef::from(ast)))],
-        subtree: Vec::new(),
-        sites,
+        lex: Lexical::new(ctx.module_node_id, module_span, builtins),
+        param_ids: HashMap::new(),
         path: Vec::new(),
         counters: vec![0],
         decls: Vec::new(),
@@ -146,7 +151,38 @@ pub(crate) fn walk_module(
     for stmt in &ast.body {
         w.visit_stmt(stmt);
     }
-    w.out
+    let Walker {
+        lex, sink, mut out, ..
+    } = w;
+    out.lexical = lex.finish(sink);
+    out
+}
+
+/// The absolute module an import names: `level` 0 is the name itself; otherwise the package of
+/// `module` (itself when it is a package) climbed `level - 1` times, then the name.
+pub(crate) fn absolute_module(
+    module: &str,
+    is_package: bool,
+    level: i64,
+    imported: Option<&str>,
+) -> Option<String> {
+    if level == 0 {
+        return imported.map(str::to_owned);
+    }
+    let mut parts: Vec<&str> = module.split('.').collect();
+    if !is_package {
+        parts.pop();
+    }
+    for _ in 1..level {
+        parts.pop()?;
+    }
+    let base = parts.join(".");
+    let full = match (base.is_empty(), imported) {
+        (true, Some(m)) => m.to_owned(),
+        (false, Some(m)) => format!("{base}.{m}"),
+        (_, None) => base,
+    };
+    (!full.is_empty()).then_some(full)
 }
 
 fn trailing_name(expr: &Expr) -> String {
@@ -225,9 +261,7 @@ impl Walker<'_, '_> {
             .find(|d| d.body_start <= r.start())
             .map(|d| d.node_id);
         let (start, end) = span(r);
-        let in_subtree = self.subtree.iter().any(|s| s.contains_range(r));
-        let at_site = self.sites.contains(&(start, end)) && node.as_expr_ref().is_some();
-        let placed = self.annotation_depth == 0 && (syntax::placed(node, in_subtree) || at_site);
+        let placed = self.annotation_depth == 0 && syntax::placed(node);
         if !placed {
             self.frames.push(None);
             return;
@@ -261,14 +295,7 @@ impl Walker<'_, '_> {
             }
         );
         self.out.syntax_nodes.push(row);
-        let mut frame = Frame::new(node_id, node);
-        for (f, fr) in &frame.fields {
-            if syntax::subtree_field(*f) {
-                self.subtree.push(*fr);
-                frame.opened += 1;
-            }
-        }
-        self.frames.push(Some(frame));
+        self.frames.push(Some(Frame::new(node_id, node)));
     }
 
     fn text(&self, r: TextRange) -> String {
@@ -396,6 +423,7 @@ impl Walker<'_, '_> {
                 .id(function_node_id)
                 .i64(ordinal)
                 .finish_id();
+            self.param_ids.insert(param.range(), node_id);
             let (start, end) = span(range);
             let row = fact_row!(
                 self.sink,
@@ -514,6 +542,15 @@ impl Walker<'_, '_> {
         let node_id = self.syntax_id();
         let (start, end) = span(range);
         let (imported_module, imported_name, alias, level) = imported;
+        let resolved_module = match kind_code {
+            ExportSyntaxKind::DunderAll => None,
+            ExportSyntaxKind::Import | ExportSyntaxKind::ImportFrom => absolute_module(
+                self.ctx.module_name,
+                self.ctx.path.ends_with("__init__.py") || self.ctx.path.ends_with("__init__.pyi"),
+                level,
+                imported_module.as_deref(),
+            ),
+        };
         let row = fact_row!(
             self.sink,
             ExportSyntax,
@@ -528,6 +565,7 @@ impl Walker<'_, '_> {
                 imported_name,
                 alias,
                 level,
+                resolved_module,
                 start_byte: start,
                 end_byte: end,
                 dunder_all_literal: literal,
@@ -566,6 +604,28 @@ impl<'a> SourceOrderVisitor<'a> for Walker<'_, '_> {
             AnyNodeRef::ExprCall(c) => Some(self.call(c)),
             _ => None,
         };
+        let syntax_id = self.syntax_id();
+        let parent = self
+            .frames
+            .iter()
+            .rev()
+            .find_map(Option::as_ref)
+            .map(|f| (f.id, f.field_of(node.range())))
+            .expect("the module frame is never popped");
+        let param_id = match node {
+            AnyNodeRef::Parameter(p) => self.param_ids.get(&p.range()).copied(),
+            _ => None,
+        };
+        self.lex.enter(
+            node,
+            syntax_id,
+            own_id,
+            param_id,
+            parent,
+            self.annotation_depth > 0,
+            self.ctx.text,
+            self.sink,
+        );
         self.place(node, own_id);
         match node {
             AnyNodeRef::StmtImport(_) => {
@@ -618,10 +678,8 @@ impl<'a> SourceOrderVisitor<'a> for Walker<'_, '_> {
     }
 
     fn leave_node(&mut self, node: AnyNodeRef<'a>) {
-        if let Some(Some(frame)) = self.frames.pop() {
-            let keep = self.subtree.len() - frame.opened;
-            self.subtree.truncate(keep);
-        }
+        self.lex.leave(node);
+        self.frames.pop();
         match node {
             AnyNodeRef::StmtFunctionDef(_) | AnyNodeRef::StmtClassDef(_) => {
                 self.decls.pop();

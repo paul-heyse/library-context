@@ -21,7 +21,7 @@ use crate::facts::{FactSink, Provenance, Surface, fact_row};
 
 /// Pyrefly's symbol kind as the codebook value: an exhaustive match (§3.5).
 #[deny(clippy::wildcard_enum_match_arm)]
-fn symbol_kind(k: PyreflySymbolKind) -> SymbolKind {
+pub(crate) fn symbol_kind(k: PyreflySymbolKind) -> SymbolKind {
     match k {
         PyreflySymbolKind::Module => SymbolKind::Module,
         PyreflySymbolKind::Attribute => SymbolKind::Attribute,

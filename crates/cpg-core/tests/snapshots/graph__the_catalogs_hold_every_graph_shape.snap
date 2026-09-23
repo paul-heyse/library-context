@@ -3,21 +3,24 @@ source: crates/cpg-core/tests/graph.rs
 expression: out
 ---
 ## nodes
-+-----------+----+
-| node_kind | n  |
-+-----------+----+
-| 0         | 9  |
-| 1         | 4  |
-| 2         | 25 |
-| 3         | 23 |
-| 4         | 20 |
-| 5         | 21 |
-| 6         | 42 |
-| 7         | 4  |
-| 8         | 20 |
-| 9         | 2  |
-| 10        | 71 |
-+-----------+----+
++-----------+-----+
+| node_kind | n   |
++-----------+-----+
+| 0         | 9   |
+| 1         | 4   |
+| 2         | 25  |
+| 3         | 23  |
+| 4         | 20  |
+| 5         | 21  |
+| 6         | 42  |
+| 7         | 5   |
+| 8         | 21  |
+| 9         | 2   |
+| 10        | 172 |
+| 11        | 38  |
+| 12        | 85  |
+| 13        | 50  |
++-----------+-----+
 ## named edges
 +-----------+--------------------------+--------------------------+---------+
 | edge_kind | src                      | dst                      | ordinal |
@@ -57,6 +60,7 @@ expression: out
 | 4         | shapes.Base              | shapes.models.Base       |         |
 | 4         | shapes.Child             | shapes.models.Child      |         |
 | 4         | shapes.Plain             | shapes.models.Plain      |         |
+| 4         | shapes.VERSION           |                          |         |
 | 4         | shapes.apply_all         | shapes.core.apply_all    |         |
 | 4         | shapes.compat            | shapes.core.compat       |         |
 | 4         | shapes.core.Point        | shapes.core.Point        |         |
@@ -112,6 +116,7 @@ expression: out
 | 12        | builtins:int.__mul__     | builtins                 |         |
 | 12        | builtins:list            | builtins                 |         |
 | 12        | builtins:list.__init__   | builtins                 |         |
+| 12        | builtins:map             | builtins                 |         |
 | 12        | builtins:map.__new__     | builtins                 |         |
 | 12        | builtins:object.__init__ | builtins                 |         |
 | 12        | builtins:object.__new__  | builtins                 |         |
@@ -125,6 +130,7 @@ expression: out
 | 12        | depmod:DepBase.run       | depmod                   |         |
 | 12        | depmod:helper            | depmod                   |         |
 | 12        | typing:overload          | typing                   |         |
+| 13        | shapes.core.Point        |                          | 0       |
 | 13        | shapes.core.Point        |                          | 0       |
 | 13        | shapes.core.Point        |                          | 1       |
 | 13        | shapes.core.apply_all    |                          | 0       |
@@ -148,14 +154,17 @@ expression: out
 | 13        | shapes.core.twice        |                          | 1       |
 | 13        | shapes.core.unresolved   |                          | 0       |
 | 13        | shapes.models.Base       | shapes.models.Base.run   | 0       |
+| 13        | shapes.models.Base       |                          | 0       |
 | 13        | shapes.models.Base.run   |                          | 0       |
 | 13        | shapes.models.Child      | shapes.models.Child.run  | 0       |
+| 13        | shapes.models.Child      |                          | 0       |
 | 13        | shapes.models.Child.run  |                          | 0       |
 | 13        | shapes.models.Plain      |                          | 0       |
 | 13        | shapes.ping.ping         |                          | 0       |
 | 13        | shapes.ping.ping         |                          | 1       |
 | 13        | shapes.pong.pong         |                          | 0       |
 | 13        | shapes.pong.pong         |                          | 1       |
+| 13        | shapes.typed.overloaded  |                          | 0       |
 | 13        | shapes.typed.overloaded  |                          | 0       |
 | 13        | shapes.typed.overloaded  |                          | 0       |
 | 13        | shapes.typed.overloaded  |                          | 0       |
@@ -219,13 +228,349 @@ expression: out
 | 13        |                          |                          | 0       |
 | 13        |                          |                          | 0       |
 | 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
 | 13        |                          |                          | 1       |
 | 13        |                          |                          | 1       |
+| 13        |                          |                          | 2       |
+| 13        |                          |                          | 3       |
+| 13        |                          |                          | 4       |
+| 13        |                          |                          | 5       |
+| 13        |                          |                          | 6       |
+| 13        |                          |                          | 7       |
+| 13        |                          |                          | 8       |
+| 13        |                          |                          | 9       |
+| 13        |                          |                          | 10      |
+| 13        |                          |                          | 11      |
+| 13        |                          |                          | 12      |
+| 13        |                          |                          | 13      |
+| 13        |                          |                          | 14      |
+| 13        |                          |                          | 15      |
+| 13        |                          |                          | 16      |
+| 13        |                          |                          | 17      |
 | 15        |                          | builtins:int.__add__     |         |
 | 15        |                          | builtins:int.__le__      |         |
 | 15        |                          | builtins:int.__mul__     |         |
 | 15        |                          | builtins:tuple.__ge__    |         |
 | 15        |                          | typing:overload          |         |
+| 16        | shapes.core.Point        |                          |         |
+| 16        | shapes.core.apply_all    |                          |         |
+| 16        | shapes.core.bottom       |                          |         |
+| 16        | shapes.core.callee       |                          |         |
+| 16        | shapes.core.compat       |                          |         |
+| 16        | shapes.core.compat       |                          |         |
+| 16        | shapes.core.dispatch     |                          |         |
+| 16        | shapes.core.double       |                          |         |
+| 16        | shapes.core.fact         |                          |         |
+| 16        | shapes.core.left         |                          |         |
+| 16        | shapes.core.lonely       |                          |         |
+| 16        | shapes.core.make_point   |                          |         |
+| 16        | shapes.core.mode         |                          |         |
+| 16        | shapes.core.mode         |                          |         |
+| 16        | shapes.core.nested       |                          |         |
+| 16        | shapes.core.right        |                          |         |
+| 16        | shapes.core.top          |                          |         |
+| 16        | shapes.core.twice        |                          |         |
+| 16        | shapes.core.unresolved   |                          |         |
+| 16        | shapes.models.Base       |                          |         |
+| 16        | shapes.models.Base.run   |                          |         |
+| 16        | shapes.models.Child      |                          |         |
+| 16        | shapes.models.Child.run  |                          |         |
+| 16        | shapes.models.Plain      |                          |         |
+| 16        | shapes.ping.ping         |                          |         |
+| 16        | shapes.pong.pong         |                          |         |
+| 16        | shapes.typed.overloaded  |                          |         |
+| 16        | shapes.typed.overloaded  |                          |         |
+| 16        | shapes.typed.overloaded  |                          |         |
+| 16        | shapes/__init__.py       |                          |         |
+| 16        | shapes/core.py           |                          |         |
+| 16        | shapes/dual/__init__.py  |                          |         |
+| 16        | shapes/dual/__init__.pyi |                          |         |
+| 16        | shapes/models.py         |                          |         |
+| 16        | shapes/ping.py           |                          |         |
+| 16        | shapes/pong.py           |                          |         |
+| 16        | shapes/typed.py          |                          |         |
+| 16        | shapes/typed.pyi         |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 17        |                          |                          |         |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 0       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 1       |
+| 18        |                          |                          | 2       |
+| 18        |                          |                          | 2       |
+| 18        |                          |                          | 2       |
+| 18        |                          |                          | 2       |
+| 18        |                          |                          | 3       |
+| 18        |                          |                          | 3       |
+| 18        |                          |                          | 3       |
+| 18        |                          |                          | 4       |
+| 18        |                          |                          | 4       |
+| 18        |                          |                          | 5       |
+| 18        |                          |                          | 5       |
+| 18        |                          |                          | 6       |
+| 18        |                          |                          | 6       |
+| 18        |                          |                          | 7       |
+| 18        |                          |                          | 7       |
+| 18        |                          |                          | 8       |
+| 18        |                          |                          | 8       |
+| 18        |                          |                          | 9       |
+| 18        |                          |                          | 9       |
+| 18        |                          |                          | 10      |
+| 18        |                          |                          | 10      |
+| 18        |                          |                          | 11      |
+| 18        |                          |                          | 11      |
+| 18        |                          |                          | 12      |
+| 18        |                          |                          | 12      |
+| 18        |                          |                          | 13      |
+| 18        |                          |                          | 13      |
+| 18        |                          |                          | 14      |
+| 18        |                          |                          | 14      |
+| 18        |                          |                          | 15      |
+| 18        |                          |                          | 15      |
+| 18        |                          |                          | 16      |
+| 18        |                          |                          | 16      |
+| 18        |                          |                          | 17      |
+| 18        |                          |                          | 17      |
+| 18        |                          |                          | 18      |
+| 18        |                          |                          | 18      |
+| 18        |                          |                          | 19      |
+| 18        |                          |                          | 20      |
+| 18        |                          |                          | 21      |
+| 18        |                          |                          | 22      |
+| 19        |                          | shapes.core.Point        |         |
+| 19        |                          | shapes.core.apply_all    |         |
+| 19        |                          | shapes.core.bottom       |         |
+| 19        |                          | shapes.core.callee       |         |
+| 19        |                          | shapes.core.compat       |         |
+| 19        |                          | shapes.core.compat       |         |
+| 19        |                          | shapes.core.dispatch     |         |
+| 19        |                          | shapes.core.double       |         |
+| 19        |                          | shapes.core.fact         |         |
+| 19        |                          | shapes.core.left         |         |
+| 19        |                          | shapes.core.lonely       |         |
+| 19        |                          | shapes.core.make_point   |         |
+| 19        |                          | shapes.core.mode         |         |
+| 19        |                          | shapes.core.mode         |         |
+| 19        |                          | shapes.core.nested       |         |
+| 19        |                          | shapes.core.right        |         |
+| 19        |                          | shapes.core.top          |         |
+| 19        |                          | shapes.core.twice        |         |
+| 19        |                          | shapes.core.unresolved   |         |
+| 19        |                          | shapes.models.Base       |         |
+| 19        |                          | shapes.models.Base.run   |         |
+| 19        |                          | shapes.models.Child      |         |
+| 19        |                          | shapes.models.Child.run  |         |
+| 19        |                          | shapes.models.Plain      |         |
+| 19        |                          | shapes.ping.ping         |         |
+| 19        |                          | shapes.pong.pong         |         |
+| 19        |                          | shapes.typed.overloaded  |         |
+| 19        |                          | shapes.typed.overloaded  |         |
+| 19        |                          | shapes.typed.overloaded  |         |
+| 19        |                          |                          |         |
+| 19        |                          |                          |         |
+| 19        |                          |                          |         |
+| 19        |                          |                          |         |
+| 19        |                          |                          |         |
+| 19        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 20        |                          |                          |         |
+| 22        |                          | builtins:getattr         |         |
+| 22        |                          | builtins:list            |         |
+| 22        |                          | builtins:map             |         |
+| 22        |                          | builtins:super           |         |
+| 23        |                          |                          |         |
+| 23        |                          |                          |         |
+| 23        |                          |                          |         |
+| 24        |                          | builtins:object.__init__ |         |
+| 24        |                          | builtins:object.__init__ |         |
+| 24        |                          | builtins:object.__new__  |         |
+| 24        |                          | builtins:object.__new__  |         |
+| 24        |                          | dataclasses:dataclass    |         |
+| 24        |                          | shapes.core.double       |         |
+| 25        | shapes/__init__.py       | depmod                   |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/core.py           |         |
+| 25        | shapes/__init__.py       | shapes/models.py         |         |
+| 25        | shapes/__init__.py       | shapes/models.py         |         |
+| 25        | shapes/__init__.py       | shapes/models.py         |         |
+| 25        | shapes/__init__.py       | shapes/ping.py           |         |
+| 25        | shapes/__init__.py       | shapes/typed.py          |         |
+| 25        | shapes/core.py           | dataclasses              |         |
+| 25        | shapes/core.py           | depmod                   |         |
+| 25        | shapes/core.py           | sys                      |         |
+| 25        | shapes/core.py           | typing                   |         |
+| 25        | shapes/dual/__init__.py  | shapes/core.py           |         |
+| 25        | shapes/dual/__init__.pyi | shapes/core.py           |         |
+| 25        | shapes/models.py         | depmod                   |         |
+| 25        | shapes/ping.py           | shapes/pong.py           |         |
+| 25        | shapes/pong.py           | shapes/ping.py           |         |
+| 25        | shapes/typed.pyi         | typing                   |         |
 +-----------+--------------------------+--------------------------+---------+
 ## call graph
 +-------------------------+------+--------------------------+----------+

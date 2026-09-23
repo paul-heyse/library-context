@@ -190,3 +190,71 @@ async fn the_syntax_tree_places_what_the_passes_read() {
     assert_eq!(counts[0], 0, "every site has its node");
     assert!(counts[1] > 0, "site edges exist");
 }
+
+/// C3 (DESIGN §3.2 `lexical`): every name reference of the `lexical_shapes` fixture and what the
+/// recognizer resolves it to, rendered by name, line and scope.
+#[tokio::test]
+async fn names_resolve_under_python_scoping() {
+    let (ctx, _dir) = published_fixture("lexical_shapes").await;
+    let text = |b: &RecordBatch, c: usize| -> Vec<Option<String>> {
+        let a = arrow_cast::cast(b.column(c), &arrow_schema::DataType::Utf8).unwrap();
+        let a = a.as_any().downcast_ref::<StringArray>().unwrap().clone();
+        (0..a.len())
+            .map(|i| (!a.is_null(i)).then(|| a.value(i).to_owned()))
+            .collect()
+    };
+    let mut out = String::new();
+    for b in batches(
+        &ctx,
+        "SELECT f.path || ':' || CAST(r.start_byte AS VARCHAR) || ' ' || r.name AS reference, \
+                CAST(s.kind AS VARCHAR) AS scope, \
+                CASE WHEN x.binding_id IS NOT NULL \
+                     THEN 'binding ' || CAST(b.kind AS VARCHAR) || ' in scope ' \
+                          || CAST(bs.kind AS VARCHAR) || ' at ' || CAST(b.start_byte AS VARCHAR) \
+                          || CASE WHEN b.static_branch IS NOT NULL \
+                                  THEN ' [static ' || CAST(b.static_branch AS VARCHAR) || ' ' \
+                                       || CAST(b.static_polarity AS VARCHAR) || ']' ELSE '' END \
+                          || CASE WHEN x.captured THEN ' (captured)' ELSE '' END \
+                     WHEN x.builtin_name IS NOT NULL THEN 'builtin ' || x.builtin_name \
+                     ELSE 'reason ' || CAST(x.reason AS VARCHAR) END AS resolves_to \
+         FROM references r \
+         JOIN source_files f ON f.module_node_id = r.module_node_id \
+         JOIN scopes s ON s.node_id = r.scope_id \
+         JOIN reference_resolutions x ON x.reference_id = r.node_id \
+         LEFT JOIN bindings b ON b.node_id = x.binding_id \
+         LEFT JOIN scopes bs ON bs.node_id = b.scope_id \
+         ORDER BY f.path, r.start_byte, resolves_to",
+    )
+    .await
+    {
+        let (a, s, t) = (text(&b, 0), text(&b, 1), text(&b, 2));
+        for i in 0..b.num_rows() {
+            out.push_str(&format!(
+                "{} (scope {}) -> {}\n",
+                a[i].as_deref().unwrap_or(""),
+                s[i].as_deref().unwrap_or(""),
+                t[i].as_deref().unwrap_or("")
+            ));
+        }
+    }
+    out.push_str("## bindings\n");
+    for b in batches(
+        &ctx,
+        "SELECT f.path || ':' || CAST(b.start_byte AS VARCHAR) || ' ' || b.name || ' kind ' \
+                || CAST(b.kind AS VARCHAR) || ' in scope ' || CAST(s.kind AS VARCHAR) \
+                || ' #' || CAST(b.ordinal AS VARCHAR) \
+                || CASE WHEN b.static_branch IS NOT NULL \
+                        THEN ' [static ' || CAST(b.static_branch AS VARCHAR) || ' ' \
+                             || CAST(b.static_polarity AS VARCHAR) || ']' ELSE '' END AS line \
+         FROM bindings b JOIN scopes s ON s.node_id = b.scope_id \
+         JOIN source_files f ON f.module_node_id = b.module_node_id \
+         ORDER BY f.path, b.start_byte, b.name",
+    )
+    .await
+    {
+        for line in text(&b, 0) {
+            out.push_str(&format!("{}\n", line.unwrap_or_default()));
+        }
+    }
+    insta::assert_snapshot!(out);
+}

@@ -117,11 +117,16 @@ fn prefix(parent: &ScopeParent, classes: &HashMap<u32, (String, &ScopeParent)>) 
 }
 
 /// Resolve, check and describe the dependency modules the release references.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the stage's inputs, each distinct"
+)]
 pub(crate) fn context_facts(
     txn: &mut Transaction<'_>,
     anchor: Option<&Handle>,
     refs: &ModuleRefs,
     export_origins: &[(Handle, String)],
+    imported: &BTreeSet<String>,
     input: &ExtractInput,
     sink: &mut FactSink,
     stages: &mut Stages,
@@ -156,6 +161,22 @@ pub(crate) fn context_facts(
                 .or_insert_with(|| handle.clone());
         }
     }
+    // Modules only imported (C3's `imports_module`): a row each, no check and no definitions. An
+    // import that does not resolve (an optional dependency) is left out; its import row says so.
+    let mut imported_only: BTreeMap<String, Handle> = BTreeMap::new();
+    if let Some(anchor) = anchor {
+        for name in imported {
+            if handles.contains_key(name) {
+                continue;
+            }
+            if let Some(h) = txn
+                .import_handle(anchor, ModuleName::from_str(name), None)
+                .finding()
+            {
+                imported_only.insert(name.clone(), h);
+            }
+        }
+    }
     let exported: BTreeSet<(String, String)> = export_origins
         .iter()
         .map(|(h, n)| (h.module().to_string(), n.clone()))
@@ -176,7 +197,12 @@ pub(crate) fn context_facts(
     };
 
     let mut out = ContextOut::default();
-    for (name, handle) in &handles {
+    let mut all: BTreeMap<&String, (&Handle, bool)> =
+        handles.iter().map(|(n, h)| (n, (h, true))).collect();
+    for (n, h) in &imported_only {
+        all.entry(n).or_insert((h, false));
+    }
+    for (name, (handle, described)) in all {
         let (origin, path) = locate(handle, input);
         let (distribution, version) = match (owners, origin, &path) {
             (Some(l), ModuleOrigin::SitePackages, Some(p)) => match l.owners.get(p) {
@@ -235,6 +261,9 @@ pub(crate) fn context_facts(
             }
         ));
 
+        if !described {
+            continue;
+        }
         let resolver = PysaResolver::new(txn, module_ids, handle.clone());
         let context = ModuleContext {
             answers_context: ModuleAnswersContext::create(handle.clone(), txn, module_ids),

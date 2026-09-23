@@ -99,6 +99,7 @@ fact_family
   5 publication
   6 graph
   7 syntax
+  8 lexical
 scope_kind
   0 release
   1 module
@@ -173,6 +174,9 @@ node_kind
   8 external_symbol
   9 synthetic_callable
   10 syntax_node
+  11 scope
+  12 binding
+  13 reference
 edge_kind
   0 declares
   1 overload_of
@@ -190,6 +194,16 @@ edge_kind
   13 ast_child
   14 argument_value
   15 site_target
+  16 owns_scope
+  17 lexical_parent
+  18 binds
+  19 introduces
+  20 reads_binding
+  21 captures
+  22 reads_builtin
+  23 shadows
+  24 potential_target
+  25 imports_module
 symbol_kind
   0 module
   1 attribute
@@ -327,3 +341,35 @@ syntax_field
   22 decorator
   23 element
   24 child
+  25 default
+lexical_scope_kind
+  0 module
+  1 class
+  2 function
+  3 lambda
+  4 comprehension
+binding_kind
+  0 function_def
+  1 class_def
+  2 parameter
+  3 assignment
+  4 aug_assignment
+  5 annotation_only
+  6 for_target
+  7 with_target
+  8 except_handler
+  9 import
+  10 from_import
+  11 star_import
+  12 walrus
+  13 comprehension_target
+  14 match_capture
+  15 del
+  16 global
+  17 nonlocal
+  18 type_alias
+  19 type_param
+static_branch
+  0 type_checking
+  1 version_info
+  2 platform

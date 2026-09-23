@@ -15,6 +15,8 @@ pub(crate) enum Surface {
     Source,
     /// The extractor's own comparison of two surfaces (boundary facts; slice-1 review O4).
     Compare,
+    /// Our lexical recognizer (C3).
+    Lexical,
 }
 
 impl Surface {
@@ -25,6 +27,7 @@ impl Surface {
             Surface::PyreflyPublic => "pyrefly-public",
             Surface::Source => "source",
             Surface::Compare => "compare",
+            Surface::Lexical => "lctx-lexical",
         }
     }
 }

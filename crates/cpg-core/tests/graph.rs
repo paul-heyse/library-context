@@ -264,13 +264,14 @@ async fn the_catalogs_hold_every_graph_shape() {
     )
     .await;
     assert_eq!(dual, 2, "one export edge per access file");
-    // The variable export says why it has no edge.
+    // C3: the variable export targets its module-level binding (no longer `variable_origin`).
     let version = text(
         &ctx,
-        "SELECT reason FROM exports WHERE access_path = 'shapes.VERSION'",
+        "SELECT n.node_kind, e.reason FROM exports e JOIN nodes n ON n.node_id = e.target_node_id \
+         WHERE e.access_path = 'shapes.VERSION'",
     )
     .await;
-    assert!(version.contains("| 15     |"), "variable_origin: {version}");
+    assert!(version.contains("| 12        |"), "a binding: {version}");
 }
 
 #[tokio::test]

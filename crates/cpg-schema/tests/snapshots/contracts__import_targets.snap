@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table import_targets
+family lexical
+key snapshot_id, import_fact_id
+@lctx.family=lexical
+@lctx.table=import_targets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+import_fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

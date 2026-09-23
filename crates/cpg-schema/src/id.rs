@@ -66,6 +66,10 @@ pub mod kind {
     pub const EXTERNAL_SYMBOL: &str = "external_symbol";
     /// A Pysa call row's run-independent payload digest (`pysa_calls.payload_id`).
     pub const PYSA_CALL: &str = "pysa-call";
+    // The lexical family (C3).
+    pub const SCOPE: &str = "scope";
+    pub const BINDING: &str = "binding";
+    pub const REFERENCE: &str = "reference";
 }
 
 /// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
@@ -90,6 +94,28 @@ pub mod recipe {
             .opt_str(Some(owner))
             .opt_str(Some(owner_version))
             .opt_str(Some(module))
+            .finish_id()
+    }
+
+    /// A lexical scope: the node that opens it (the module, a declaration, a lambda or a
+    /// comprehension).
+    pub fn scope(owner: Id) -> Id {
+        IdHasher::new(kind::SCOPE).opt_id(Some(owner)).finish_id()
+    }
+
+    /// A binding event: its site (a declaration, a parameter, or the syntax id of the name,
+    /// alias, handler or statement that binds) and the name it binds there.
+    pub fn binding(site: Id, name: &str) -> Id {
+        IdHasher::new(kind::BINDING)
+            .opt_id(Some(site))
+            .opt_str(Some(name))
+            .finish_id()
+    }
+
+    /// A name reference: a role of the name's syntax node.
+    pub fn reference(name_node: Id) -> Id {
+        IdHasher::new(kind::REFERENCE)
+            .opt_id(Some(name_node))
             .finish_id()
     }
 

@@ -8,6 +8,7 @@
 mod config;
 mod context;
 mod facts;
+mod lexical;
 pub mod library;
 mod public;
 mod pysa_map;
@@ -28,12 +29,14 @@ use cpg_schema::id::{Id, IdHasher, content_digest, kind};
 use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
-    Arguments, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, ContextDefinitions,
+    Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, ContextDefinitions,
     ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
     DistributionsRow, ExportSyntax, Facts, ParameterSemantics, ParameterSyntax, Producers,
-    ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, Releases, ReleasesRow, Runs,
-    RunsRow, SourceFiles, SourceFilesRow, SyntaxNodes,
+    ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, ReferenceResolutions,
+    References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow,
+    SyntaxNodes,
 };
+use pyrefly::export::exports::ExportLocation;
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
 use pyrefly::report::pysa::module::ModuleIds;
@@ -46,6 +49,7 @@ use pyrefly::state::state::State;
 use pyrefly_build::handle::Handle;
 use pyrefly_config::error_kind::ErrorKind;
 use pyrefly_config::finder::ConfigFinder;
+use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_path::ModulePath;
 use pyrefly_util::arc_id::ArcId;
 use pyrefly_util::thread_pool::ThreadCount;
@@ -61,11 +65,12 @@ use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
 use walk::{ModuleCtx, span};
 
 /// The fact families this producer declares (coverage rows exist for each, per module).
-pub const FAMILIES: [FactFamily; 4] = [
+pub const FAMILIES: [FactFamily; 5] = [
     FactFamily::Exports,
     FactFamily::Signatures,
     FactFamily::Calls,
     FactFamily::Syntax,
+    FactFamily::Lexical,
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -274,6 +279,28 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     })));
     txn.run(&handles, Require::Everything, None);
     stages.mark("extract: pyrefly check (release)");
+    // Pyrefly's builtins and their kinds, for the lexical recognizer's free names (C3).
+    let builtins_handle = handles.first().and_then(|h| {
+        txn.import_handle(h, ModuleName::from_str("builtins"), None)
+            .finding()
+    });
+    let builtins: lexical::Builtins = builtins_handle
+        .as_ref()
+        .map(|h| {
+            txn.get_exports(h)
+                .iter()
+                .map(|(name, loc)| {
+                    let kind = match loc {
+                        ExportLocation::ThisModule(e) => e.symbol_kind.map(public::symbol_kind),
+                        ExportLocation::OtherModule(..) => None,
+                    };
+                    (name.to_string(), kind)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut builtins_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut lexical_out = lexical::LexicalOut::default();
     let (mut walk_time, mut pysa_time) = (Duration::ZERO, Duration::ZERO);
     let txn = txn;
     // The reporter stays installed: dependency modules solve lazily during extraction.
@@ -392,9 +419,14 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         pysa_map::map_definitions(&here, &defs, &mut sink, &mut module_pysa);
         pysa_map::map_call_graphs(&here, &graphs, &mut sink, &mut module_pysa);
         pysa_time += clock.elapsed();
-        // The walk places a syntax node at every Pysa site range (C2), so it runs second.
         let clock = Instant::now();
-        let module_walk = walk::walk_module(&ctx, &ast, &mut sink, &module_pysa.site_ranges);
+        let mut module_walk = walk::walk_module(&ctx, &ast, &mut sink, &builtins);
+        let lex = std::mem::take(&mut module_walk.lexical);
+        builtins_used.extend(lex.builtins_used);
+        lexical_out.scopes.extend(lex.scopes);
+        lexical_out.bindings.extend(lex.bindings);
+        lexical_out.references.extend(lex.references);
+        lexical_out.resolutions.extend(lex.resolutions);
         walk_time += clock.elapsed();
         if input.keep_pysa_json {
             let mut d = serde_json::to_value(&defs).unwrap_or(Value::Null);
@@ -533,8 +565,21 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .iter()
         .map(|m| (m.handle.clone(), m.node_id))
         .collect();
-    let (mut public, export_origins) =
+    let (mut public, mut export_origins) =
         public::public_names(&readable, &release_files, &txn, &mut sink)?;
+    // Every module an import names that is not the release's (C3's `imports_module`).
+    let release_modules: std::collections::BTreeSet<&str> =
+        modules.iter().map(|m| m.name.as_str()).collect();
+    let imported: std::collections::BTreeSet<String> = walked
+        .export_syntax
+        .iter()
+        .filter_map(|r| r.resolved_module.clone())
+        .filter(|m| !release_modules.contains(m.as_str()))
+        .collect();
+    // The builtin functions and classes names resolve to are described like re-exports (C3).
+    if let Some(h) = &builtins_handle {
+        export_origins.extend(builtins_used.iter().map(|n| (h.clone(), n.clone())));
+    }
 
     // The dependency context the facts reference (ADR-0014): a second check, over those modules.
     stages.mark("extract: public names");
@@ -544,6 +589,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         handles.first(),
         &refs,
         &export_origins,
+        &imported,
         input,
         &mut sink,
         &mut stages,
@@ -590,6 +636,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     dedup_by_fact(&mut walked.call_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.arguments, |r| r.fact_id);
     dedup_by_fact(&mut walked.syntax_nodes, |r| r.fact_id);
+    dedup_by_fact(&mut lexical_out.scopes, |r| r.fact_id);
+    dedup_by_fact(&mut lexical_out.bindings, |r| r.fact_id);
+    dedup_by_fact(&mut lexical_out.references, |r| r.fact_id);
+    dedup_by_fact(&mut lexical_out.resolutions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.functions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.parameters, |r| r.fact_id);
     dedup_by_fact(&mut pysa.ancestry, |r| r.fact_id);
@@ -661,6 +711,19 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         (
             SyntaxNodes::NAME,
             SyntaxNodes::to_sorted_batch(&walked.syntax_nodes)?,
+        ),
+        (Scopes::NAME, Scopes::to_sorted_batch(&lexical_out.scopes)?),
+        (
+            Bindings::NAME,
+            Bindings::to_sorted_batch(&lexical_out.bindings)?,
+        ),
+        (
+            References::NAME,
+            References::to_sorted_batch(&lexical_out.references)?,
+        ),
+        (
+            ReferenceResolutions::NAME,
+            ReferenceResolutions::to_sorted_batch(&lexical_out.resolutions)?,
         ),
         (PysaCalls::NAME, PysaCalls::to_sorted_batch(&pysa.calls)?),
         (Coverage::NAME, Coverage::to_sorted_batch(&report.coverage)?),

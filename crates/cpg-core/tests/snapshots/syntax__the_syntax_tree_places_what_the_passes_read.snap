@@ -3,10 +3,14 @@ source: crates/cpg-core/tests/syntax.rs
 expression: tree(&ctx).await
 ---
 stmt_expr [body 0]
+  expr_string_literal [value 0] """Syntax shapes (CPG slice C2): the constructs Passes B and C read."""
 stmt_import [body 1]
 stmt_class_def [body 2]
+  expr_name [argument 0] ValueError
   stmt_pass [body 0]
 stmt_function_def [body 3]
+  expr_string_literal [default 0] "fast"
+  expr_number_literal [default 1] 0
   stmt_if [body 0]
     expr_compare [test 0] is
       expr_name [left 0] x
@@ -34,18 +38,24 @@ stmt_function_def [body 3]
       expr_name [right 0] limit
       expr_number_literal [right 1] 10
     stmt_aug_assign [body 0] +
+      expr_name [target 0] limit
+      expr_number_literal [value 0] 1
   stmt_assert [body 2]
     expr_compare [test 0] >=
       expr_name [left 0] limit
       expr_number_literal [right 0] 0
     expr_string_literal [msg 0] "limit is negative"
   stmt_return [body 3]
+    expr_name [value 0] x
 stmt_function_def [body 4]
   stmt_try [body 0]
     stmt_assign [body 0]
+      expr_name [target 0] data
       expr_call [value 0]
         expr_attribute [callee 0] read
           expr_call [value 0]
+            expr_name [callee 0] open
+            expr_name [argument 0] path
     except_handler_except_handler [handler 0] err
       expr_tuple [test 0]
         expr_name [element 0] OSError
@@ -56,10 +66,13 @@ stmt_function_def [body 4]
           expr_string_literal [argument 0] "cannot read"
         expr_name [cause 0] err
     stmt_return [orelse 0]
+      expr_name [value 0] data
     stmt_pass [finalbody 0]
 stmt_function_def [body 5]
   stmt_match [body 0]
+    expr_name [subject 0] command
     match_case [case 0]
+      expr_string_literal [child 0] "op"
       expr_compare [guard 0] >
         expr_named [left 0]
           expr_name [target 0] n
@@ -68,23 +81,38 @@ stmt_function_def [body 5]
             expr_name [argument 0] op
         expr_number_literal [right 0] 3
       stmt_return [body 0]
+        expr_name [value 0] n
     match_case [case 1]
       stmt_return [body 0]
+        expr_number_literal [value 0] 0
 stmt_function_def [body 6]
   stmt_assign [body 0]
+    expr_name [target 0] total
+    expr_number_literal [value 0] 0
   stmt_for [body 1]
+    expr_name [target 0] item
     expr_name [iter 0] items
     stmt_with [body 0]
       with_item [item 0]
         expr_call [value 0]
+          expr_name [callee 0] open
+          expr_name [argument 0] item
+        expr_name [target 0] fh
       stmt_aug_assign [body 0] +
+        expr_name [target 0] total
         expr_call [value 0]
+          expr_name [callee 0] len
           expr_call [argument 0]
             expr_attribute [callee 0] read
+              expr_name [value 0] fh
   stmt_return [body 2]
+    expr_name [value 0] total
 stmt_function_def [body 7]
   expr_call [decorator 0]
     expr_attribute [callee 0] lru_cache
+      expr_name [value 0] functools
+    expr_number_literal [argument 0] 8
   stmt_return [body 0]
     expr_call [value 0]
       expr_attribute [callee 0] upper
+        expr_name [value 0] key

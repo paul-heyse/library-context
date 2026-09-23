@@ -53,11 +53,18 @@ _Updated 2026-09-22 by the handoff skill._
 
 ## Next
 
-**CPG first** (operator, 2026-09-22; ADR-0014 proposed, ADR-0004 amendment): slices C1–C6
-(DESIGN §1.2, §3.8) before Pass A.
-- **C1, in flight:** the node and edge catalogs over the increment-1 families; typed external and
-  synthetic endpoints (probe P1 passed); retention for pinned reads; per-stage metrics.
-- **C2–C5:** `syntax`, `lexical`, `types`, and the source corpus (`docs`, examples, tests).
-- **C6:** pilot measurement and a deep review.
+**CPG first** (operator, 2026-09-22; ADR-0014 accepted 2026-09-23): slices C1–C6 before Pass A.
+- **Done:**
+  - C1: the node and edge catalogs, typed endpoints, retention, stage metrics; standard review
+    fixed.
+  - C2: the `syntax` family; its compact review fixed (every expression placed).
+  - C3: the `lexical` family (scopes, bindings, references, full Python name resolution).
+  - Pilot 2026-09-23: 234,328 nodes, 335,442 edges, every rule, no unresolved name; 17.5 s at
+    3.91 GB.
+- **C3 compact review:** due.
+- **C4:** `types` (type terms, observations, record fields; probes P3/P3b answered by the Pyrefly
+  API survey).
+- **C5:** the source corpus (`docs`, examples, tests).
+- **C6:** pilot measurement (the 3.9 GB peak decides the streaming trigger) and a deep review.
 
 Then increment 1, slice 4: the analytics config, the invocation projection and Pass A.

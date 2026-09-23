@@ -11,6 +11,7 @@ use cpg_core::delta::read_at;
 use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
+use cpg_schema::codebook::Codebook;
 use cpg_schema::id::Id;
 use cpg_schema::table::Table;
 use cpg_schema::tables::{Declarations, SnapshotsRow};
@@ -86,7 +87,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
-    assert_eq!(versions.len(), 23 + 16, "every raw and derived table");
+    assert_eq!(versions.len(), 27 + 18, "every raw and derived table");
 
     // A second attempt fails validation after writing its rows: it publishes nothing.
     let mut raw_b = raw("pysa_variants", b);
@@ -386,7 +387,7 @@ async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
     type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
-    let cases: [(&str, Mutation); 13] = [
+    let cases: [(&str, Mutation); 19] = [
         ("key:declarations", |raw| {
             let b = table(raw, "declarations");
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &b.slice(0, 1)]).unwrap();
@@ -478,6 +479,99 @@ async fn every_rule_kind_rejects_its_violation() {
             let fact = FixedSizeBinaryArray::try_from_iter(std::iter::once([7u8; 16])).unwrap();
             let dup = replace(&dup, "fact_id", Arc::new(fact));
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &dup]).unwrap();
+        }),
+        // C2 review F3: a declaration without its placement row.
+        ("placed:declarations", |raw| {
+            let b = table(raw, "syntax_nodes");
+            *b = b.slice(0, 0);
+        }),
+        // C2 review F3: a `def` placed on a span its body does not fit in.
+        ("contained:syntax_nodes", |raw| {
+            let b = table(raw, "syntax_nodes");
+            let def = cpg_schema::codebook::SyntaxKind::StmtFunctionDef.code();
+            let kinds = b
+                .column(b.schema().index_of("kind").unwrap())
+                .as_any()
+                .downcast_ref::<Int16Array>()
+                .unwrap()
+                .clone();
+            for column in ["start_byte", "end_byte"] {
+                let i = b.schema().index_of(column).unwrap();
+                let moved: Int64Array = b
+                    .column(i)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .zip(kinds.iter())
+                    .map(|(v, k)| if k == Some(def) { Some(0) } else { v })
+                    .collect();
+                *b = replace(b, column, Arc::new(moved));
+            }
+        }),
+        // C2 review F2/F3: a Pysa site no node sits at is our failure, never a catch-all reason.
+        ("typed:site_targets", |raw| {
+            let b = table(raw, "pysa_calls");
+            let sites = b
+                .column(b.schema().index_of("site_kind").unwrap())
+                .as_any()
+                .downcast_ref::<Int16Array>()
+                .unwrap()
+                .clone();
+            for column in ["start_byte", "end_byte"] {
+                let i = b.schema().index_of(column).unwrap();
+                let moved: Int64Array = b
+                    .column(i)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .zip(sites.iter())
+                    .map(|(v, k)| {
+                        if k == Some(0) {
+                            v
+                        } else {
+                            v.map(|v| v + 1_000_000)
+                        }
+                    })
+                    .collect();
+                *b = replace(b, column, Arc::new(moved));
+            }
+        }),
+        // C2 review F3: one node placed twice.
+        ("unique:syntax_nodes", |raw| {
+            let b = table(raw, "syntax_nodes");
+            let dup = b.slice(0, 1);
+            let fact = FixedSizeBinaryArray::try_from_iter(std::iter::once([8u8; 16])).unwrap();
+            let dup = replace(&dup, "fact_id", Arc::new(fact));
+            *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &dup]).unwrap();
+        }),
+        // C3: a resolution with no binding, no builtin and no reason.
+        ("typed:reference_resolutions", |raw| {
+            let b = table(raw, "reference_resolutions");
+            let none: FixedSizeBinaryArray = FixedSizeBinaryArray::try_from_sparse_iter_with_size(
+                std::iter::repeat_n(None::<[u8; 16]>, b.num_rows()),
+                16,
+            )
+            .unwrap();
+            let no_text = arrow_array::StringArray::from(vec![None::<&str>; b.num_rows()]);
+            let no_reason = Int16Array::from(vec![None::<i16>; b.num_rows()]);
+            *b = replace(b, "binding_id", Arc::new(none));
+            *b = replace(b, "builtin_name", Arc::new(no_text));
+            *b = replace(b, "reason", Arc::new(no_reason));
+        }),
+        // C3: a binding whose id is not its recipe.
+        ("id:bindings", |raw| {
+            let b = table(raw, "bindings");
+            let names: arrow_array::StringArray = b
+                .column(b.schema().index_of("name").unwrap())
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap()
+                .iter()
+                .map(|n| n.map(|n| format!("{n}_renamed")))
+                .collect();
+            *b = replace(b, "name", Arc::new(names));
         }),
         // ADR-0014 lineage: a Pysa call record that matches no call site is not silently dropped.
         ("lineage:call_target", |raw| {

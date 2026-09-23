@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table reference_resolutions
+family lexical
+key snapshot_id, reference_id, fact_id
+@lctx.family=lexical
+@lctx.table=reference_resolutions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+reference_id: FixedSizeBinary(16) NOT NULL
+binding_id: FixedSizeBinary(16) NULL
+captured: Boolean NOT NULL
+builtin_name: Utf8 NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

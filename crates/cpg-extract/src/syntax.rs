@@ -3,13 +3,11 @@
 //! `NodeKind`, so a new Ruff variant fails the build), the fields a parent's children sit in,
 //! and each kind's detail text.
 //!
-//! Placed: every statement; the clause nodes (`elif`/`else`, `except`, `case`, `with` items);
-//! the expressions Pysa reports sites at (attribute, subscript, operators, comparisons, format
-//! strings, `await`, `yield`, walrus, lambda); and, under every `test`, `exc`, `cause`, `guard` and
-//! `msg`, the full expression subtree (the exhaustive-exporter contract, scoped to the fields the
-//! passes read). A `def`, a `class` and a call are placed under their existing declaration and
-//! call-site ids, so one syntax node never has two ids. Nothing inside an annotation is placed:
-//! types are the `types` family's.
+//! Placed: every statement, the clause nodes (`elif`/`else`, `except`, `case`, `with` items) and
+//! every expression, outside annotations (the IP 2.1 exhaustive-exporter contract). A `def`, a
+//! `class` and a call are placed under their existing declaration and call-site ids, so one syntax
+//! node never has two ids. Nothing inside an annotation is placed: types are the `types`
+//! family's.
 
 use cpg_schema::codebook::{SyntaxField, SyntaxKind};
 use ruff_python_ast::{AnyNodeRef, NodeKind, Stmt};
@@ -121,12 +119,12 @@ pub(crate) fn syntax_kind(k: NodeKind) -> SyntaxKind {
     )
 }
 
-/// Whether the node is placed (every kind decided explicitly); `in_subtree` says it lies in a `test`/`exc`/`cause`/`guard`/`msg`
-/// field of a placed ancestor.
+/// Whether the node is placed (every kind decided explicitly): every statement, the clause nodes,
+/// and every expression outside an annotation (the caller skips annotations). Placement depends on
+/// the source alone, never on a provider (C2 review, the simpler alternative).
 #[deny(clippy::wildcard_enum_match_arm)]
-pub(crate) fn placed(node: AnyNodeRef<'_>, in_subtree: bool) -> bool {
+pub(crate) fn placed(node: AnyNodeRef<'_>) -> bool {
     match node.kind() {
-        // Statements, and the clause nodes a branch's context is read from.
         NodeKind::StmtFunctionDef
         | NodeKind::StmtClassDef
         | NodeKind::StmtReturn
@@ -155,30 +153,25 @@ pub(crate) fn placed(node: AnyNodeRef<'_>, in_subtree: bool) -> bool {
         | NodeKind::ElifElseClause
         | NodeKind::ExceptHandlerExceptHandler
         | NodeKind::MatchCase
-        | NodeKind::WithItem => true,
-        // Calls always (under their call-site id), and the expressions Pysa reports sites at.
-        NodeKind::ExprCall
-        | NodeKind::ExprAttribute
-        | NodeKind::ExprSubscript
+        | NodeKind::WithItem
+        | NodeKind::ExprBoolOp
+        | NodeKind::ExprNamed
         | NodeKind::ExprBinOp
         | NodeKind::ExprUnaryOp
-        | NodeKind::ExprBoolOp
-        | NodeKind::ExprCompare
-        | NodeKind::ExprFString
-        | NodeKind::InterpolatedElement
-        | NodeKind::ExprAwait
-        | NodeKind::ExprYield
-        | NodeKind::ExprYieldFrom
-        | NodeKind::ExprNamed
-        | NodeKind::ExprLambda => true,
-        // Any other expression only inside a test, exception, cause, guard or message.
-        NodeKind::ExprIf
+        | NodeKind::ExprLambda
+        | NodeKind::ExprIf
         | NodeKind::ExprDict
         | NodeKind::ExprSet
         | NodeKind::ExprListComp
         | NodeKind::ExprSetComp
         | NodeKind::ExprDictComp
         | NodeKind::ExprGenerator
+        | NodeKind::ExprAwait
+        | NodeKind::ExprYield
+        | NodeKind::ExprYieldFrom
+        | NodeKind::ExprCompare
+        | NodeKind::ExprCall
+        | NodeKind::ExprFString
         | NodeKind::ExprTString
         | NodeKind::ExprStringLiteral
         | NodeKind::ExprBytesLiteral
@@ -186,12 +179,15 @@ pub(crate) fn placed(node: AnyNodeRef<'_>, in_subtree: bool) -> bool {
         | NodeKind::ExprBooleanLiteral
         | NodeKind::ExprNoneLiteral
         | NodeKind::ExprEllipsisLiteral
+        | NodeKind::ExprAttribute
+        | NodeKind::ExprSubscript
         | NodeKind::ExprStarred
         | NodeKind::ExprName
         | NodeKind::ExprList
         | NodeKind::ExprTuple
         | NodeKind::ExprSlice
-        | NodeKind::ExprIpyEscapeCommand => in_subtree,
+        | NodeKind::ExprIpyEscapeCommand
+        | NodeKind::InterpolatedElement => true,
         // Containers, patterns, parameters, type parameters and string parts are not placed.
         NodeKind::ModModule
         | NodeKind::ModExpression
@@ -246,6 +242,9 @@ pub(crate) fn fields(node: AnyNodeRef<'_>) -> Vec<(SyntaxField, TextRange)> {
         AnyNodeRef::StmtFunctionDef(f) => {
             for d in &f.decorator_list {
                 add(F::Decorator, Some(d.range()));
+            }
+            for p in f.parameters.iter_non_variadic_params() {
+                add(F::Default, p.default.as_ref().map(|d| d.range()));
             }
             add(F::Body, suite(&f.body));
         }
@@ -382,25 +381,20 @@ pub(crate) fn fields(node: AnyNodeRef<'_>) -> Vec<(SyntaxField, TextRange)> {
         AnyNodeRef::ExprYield(e) => add(F::Value, e.value.as_ref().map(|x| x.range())),
         AnyNodeRef::ExprYieldFrom(e) => add(F::Value, Some(e.value.range())),
         AnyNodeRef::ExprStarred(e) => add(F::Value, Some(e.value.range())),
-        AnyNodeRef::ExprLambda(e) => add(F::Value, Some(e.body.range())),
+        AnyNodeRef::ExprLambda(e) => {
+            if let Some(ps) = &e.parameters {
+                for p in ps.iter_non_variadic_params() {
+                    add(F::Default, p.default.as_ref().map(|d| d.range()));
+                }
+            }
+            add(F::Value, Some(e.body.range()));
+        }
         AnyNodeRef::ExprList(e) => e.elts.iter().for_each(|x| add(F::Element, Some(x.range()))),
         AnyNodeRef::ExprTuple(e) => e.elts.iter().for_each(|x| add(F::Element, Some(x.range()))),
         AnyNodeRef::ExprSet(e) => e.elts.iter().for_each(|x| add(F::Element, Some(x.range()))),
         _ => {}
     }
     v
-}
-
-/// Fields whose whole expression subtree is placed.
-pub(crate) fn subtree_field(f: SyntaxField) -> bool {
-    matches!(
-        f,
-        SyntaxField::Test
-            | SyntaxField::Exc
-            | SyntaxField::Cause
-            | SyntaxField::Guard
-            | SyntaxField::Msg
-    )
 }
 
 /// The kind's detail text: a name, an attribute, an operator, a literal as written, a handler's
