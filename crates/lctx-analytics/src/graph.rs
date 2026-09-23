@@ -11,7 +11,7 @@
 use arrow_array::{
     Array, BooleanArray, FixedSizeBinaryArray, Int16Array, RecordBatch, StringArray,
 };
-use cpg_schema::codebook::{Codebook, InvocationPhase, Modality, NodeKind, SourceRole};
+use cpg_schema::codebook::{ArcKind, Codebook, InvocationPhase, Modality, NodeKind, SourceRole};
 use cpg_schema::id::Id;
 use fixedbitset::FixedBitSet;
 use petgraph::graph::{EdgeIndex, Graph, NodeIndex};
@@ -29,9 +29,18 @@ pub struct Arc {
     pub dst: u32,
     pub call_site: Id,
     pub edge_id: Id,
-    pub phase: InvocationPhase,
+    /// A call's phase; a definition arc has none.
+    pub phase: Option<InvocationPhase>,
     pub modality: Modality,
     pub has_unresolved_remainder: bool,
+    pub arc_kind: ArcKind,
+}
+
+impl Arc {
+    /// A definite call: the only arc that can make a direct delegation (DESIGN §3.6).
+    pub fn is_definite_call(&self) -> bool {
+        self.arc_kind == ArcKind::Call && self.modality == Modality::Definite
+    }
 }
 
 /// A call site with no target, or an unresolved remainder, and the vertex whose body holds it.
@@ -74,7 +83,8 @@ fn code<C: Codebook>(array: &Int16Array, row: usize, name: &str) -> Result<C, An
 impl Projection {
     /// Build from the projection's three result sets (each a list of batches in its query's
     /// order): vertices `(node_id, node_kind, module_name, role)`, arcs `(src_node_id,
-    /// dst_node_id, call_site_node_id, edge_id, phase, modality, has_unresolved_remainder)` and
+    /// dst_node_id, call_site_node_id, edge_id, phase, modality, has_unresolved_remainder,
+    /// arc_kind)` and
     /// unresolved sites `(caller_node_id, call_site_node_id, …)`. Vertex ids must be strictly
     /// increasing; an arc whose ends are not vertices, or arcs out of canonical order, are refused.
     pub fn build(
@@ -120,15 +130,21 @@ impl Projection {
             let phase = column::<Int16Array>(b, "phase")?;
             let modality = column::<Int16Array>(b, "modality")?;
             let remainder = column::<BooleanArray>(b, "has_unresolved_remainder")?;
+            let arc_kind = column::<Int16Array>(b, "arc_kind")?;
             for row in 0..b.num_rows() {
                 out_arcs.push(Arc {
                     src: dense(id_at(src, row, "src_node_id")?)?,
                     dst: dense(id_at(dst, row, "dst_node_id")?)?,
                     call_site: id_at(site, row, "call_site_node_id")?,
                     edge_id: id_at(edge, row, "edge_id")?,
-                    phase: code(phase, row, "phase")?,
+                    phase: if phase.is_null(row) {
+                        None
+                    } else {
+                        Some(code(phase, row, "phase")?)
+                    },
                     modality: code(modality, row, "modality")?,
                     has_unresolved_remainder: remainder.value(row),
+                    arc_kind: code(arc_kind, row, "arc_kind")?,
                 });
             }
         }

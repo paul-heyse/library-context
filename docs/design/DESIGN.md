@@ -1437,6 +1437,13 @@ The vertex universe is selected separately from the edges, so isolated public AP
 - It is built by joining call-site ownership with call targets in DataFusion: `encloses_call` ⋈
   `call_target`, plus the non-potential `site_target` arcs of property getters and setters, whose
   site's owner is read from `syntax_nodes`.
+- **Definition arcs** (slice 1.4 review F1): a function → each function it declares
+  (`declares`), with the nested callable as the arc's site, no phase and `arc_kind = definition`.
+  A decorator factory's `decorator`, or a closure it registers, is then reachable, and so is what
+  it calls. A definition arc is never a `direct_delegation`. Every arc carries its `arc_kind`
+  (`call` | `definition`).
+- Call and property arcs read the site's owner through one fragment
+  (`cpg_schema::graph::owner_of`), so they cannot disagree about who calls (review O7).
 - It keeps `call_site_id` (which is also the resolution's id: a `ResolutionSet` is keyed by its
   call site, §3.6), `edge_id`, `invocation_phase`, the arc's modality and
   `has_unresolved_remainder` on every arc.
@@ -1476,7 +1483,10 @@ stay in Arrow).
   the original edge ids). Filtered views keep the base graph's `node_bound`.
 - **Not** `Csr` or `GraphMap` (they drop parallel edges), nor `StableGraph` (unneeded, and it blocks
   9 algorithms); no `rayon` or `serde-1` features.
-- **Test:** shuffled arc rows give an identical adjacency order.
+- **Order is a precondition, not a repair** (review O4): the adapter refuses arcs out of
+  canonical order, and the arcs query's total `ORDER BY` supplies it. Tests: the refusal
+  (`the_adapter_keeps_parallel_arcs_isolates_and_refuses_disorder`), and whole-attempt identity
+  across module order (`pass_a_is_identical_across_module_order_and_location`).
 
 **Determinism rules**
 - `edges_directed` returns the newest edge first (`graph_impl/mod.rs:919, 982`). So `Bfs` visits
@@ -1734,20 +1744,33 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
 hand-worked projection (`pass_a_finds_delegations_boundaries_and_gaps_with_witnesses`,
 `budgets_truncate_and_say_so`), and on `fixtures/python/analysis_shapes` through the whole attempt,
 identical across module order and location (`pass_a_is_identical_across_module_order_and_location`).
-Seeds resolve through `exports`, then each remaining name as a member of its own body or MRO.
+Seeds resolve through `exports`, then each remaining name as a member of its own body or MRO. The
+walk covers the whole MRO, external ancestors included, and **fails closed** (slice 1.4 review F2):
+the compile is refused when an ancestor is unresolved, when a class in the chain binds the name
+other than by `def` or `class` (an assignment or import in its body), or when a non-release class
+comes before the definition (it could define the name, and we cannot see it). Tested:
+`a_seed_that_could_name_another_method_is_refused`.
 
 - **Question.** Which public API exposes the mechanism, and what does it already coordinate?
 - **Method.**
   1. Map public access paths → declarations (`exports`).
   2. From each seed (the declaration node, §3.4.1), run an **explicit BFS with parent pointers**
      over the invocation projection (§5).
+     - **Arcs** are calls and definitions (§5). A definition arc reaches a nested callable, so a
+       decorator factory's behaviour is in its neighbourhood (slice 1.4 review F1).
      - **Witnesses.** The first witness to a target is the BFS path under sorted adjacency. Up to
-       two alternatives are the next paths that differ in their final arc, taken in canonical
-       arc order. Parallel call sites are distinct arcs, so each can be a witness.
-     - **Truncation.** `witnesses_omitted = true` when more witness paths existed (presentation
-       only). A vertex or arc budget is operational truncation: the invocation is `partial`, and
-       Stage F reports it as a limit. The depth bound and the boundaries are the stated model
-       (ADR-0019 review F4).
+       two alternatives are the next **shortest** paths that differ in their final arc, taken in
+       canonical arc order. Parallel call sites are distinct arcs, so each can be a witness. A
+       longer route to a target already reached is neither shown nor flagged (review O1).
+     - **Kind.** It is decided over every shortest final arc, never the kept witnesses: a
+       `direct_delegation` needs a definite call arc at depth 1, and its first witness is that
+       call (review F3; `semantic:direct-delegation-is-definite`).
+     - **Truncation.** `witnesses_omitted = true` when more shortest final arcs existed than the
+       witness budget kept (presentation only; `stop_reason` `witness_limit` is reserved). A
+       vertex or arc budget is operational truncation: the invocation is `partial`, and Stage F
+       reports it as a limit. The depth bound and the boundaries are the stated model (ADR-0019
+       review F4). The depth bound is recorded (`depth_limit`) when a frontier vertex has an arc
+       or an unresolved site that was not followed (review O2).
      - Default budgets: depth ≤ 2; ≤ 128 vertices and ≤ 512 edges per seed; ≤ 3 witness paths per
        target.
      - The traversal stays inside the subsystem and never crosses `potential`, `synthetic` or

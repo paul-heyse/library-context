@@ -835,7 +835,7 @@ codebook!(
         VertexBudget = 1 => "vertex_budget",
         /// The per-seed arc budget.
         EdgeBudget = 2 => "edge_budget",
-        /// More witness paths existed than the witness budget.
+        /// Reserved: the witness cap is `witnesses_omitted`, never a stop (slice 1.4 review O1).
         WitnessLimit = 3 => "witness_limit",
         /// The target is a release callable outside the subsystem.
         SubsystemBoundary = 4 => "subsystem_boundary",
@@ -853,6 +853,17 @@ codebook!(
     MemberRole = "member_role" {
         /// A public access path (an `export` node) of a `public_alias` finding.
         AccessPath = 0 => "access_path",
+    }
+);
+
+codebook!(
+    /// How a projection arc joins its ends (DESIGN §5; slice 1.4 review F1).
+    ArcKind = "arc_kind" {
+        /// The caller may invoke the callee at a call (or property) site.
+        Call = 0 => "call",
+        /// The caller defines the callee in its body (a nested function it returns or
+        /// registers, as a decorator factory does).
+        Definition = 1 => "definition",
     }
 );
 
@@ -993,6 +1004,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<SupportRole>(),
         CodebookEntry::of::<EvidenceKind>(),
         CodebookEntry::of::<ReviewState>(),
+        CodebookEntry::of::<ArcKind>(),
     ]
 }
 

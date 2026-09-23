@@ -344,6 +344,30 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
+            // Slice 1.4 review F3: a direct delegation's first witness is one definite call.
+            "semantic:direct-delegation-is-definite",
+            format!(
+                "SELECT f.finding_id FROM findings f \
+                 JOIN witnesses w ON w.finding_id = f.finding_id AND w.path = 0 \
+                 WHERE f.finding_kind = {direct} \
+                   AND (w.modality <> {definite} OR w.arc_kind <> {call} OR w.step > 0 \
+                        OR f.depth <> 1)",
+                direct = crate::codebook::FindingKind::DirectDelegation.code(),
+                definite = crate::codebook::Modality::Definite.code(),
+                call = crate::codebook::ArcKind::Call.code()
+            ),
+        ),
+        (
+            // Slice 1.4 review O6: each witness step is the edge it cites: the edge ends at the
+            // callee and starts at the step's site (a call) or its caller (a definition).
+            "semantic:witness-edge",
+            "SELECT w.finding_id, w.path, w.step FROM witnesses w \
+             JOIN edges e ON e.edge_id = w.edge_id \
+             WHERE e.dst_node_id <> w.callee_node_id \
+                OR (e.src_node_id <> w.call_site_node_id AND e.src_node_id <> w.caller_node_id)"
+                .to_owned(),
+        ),
+        (
             // ADR-0019: a witness path is a chain from the finding's subject: each step starts
             // where the previous one ended, and the first at the subject.
             "semantic:witness-chain",

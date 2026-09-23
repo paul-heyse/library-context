@@ -7,9 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use arrow_array::{
-    Array, BooleanArray, FixedSizeBinaryArray, Int64Array, RecordBatch, StringArray,
-};
+use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{AnalyticMethod, Codebook, ExtractionMode, NodeKind, SourceRole};
 use cpg_schema::findings::{
@@ -277,9 +275,13 @@ async fn resolve_seeds(
     Ok(out)
 }
 
-/// A class's (or module's, or function's) member of a name: its own `def` or `class` by the seed
-/// rank, else the first MRO ancestor that declares it.
+/// A declaration's member of a name (DESIGN §9.1 step 1): its own `def` or `class` by the seed
+/// rank, else, for a class, the first ancestor along its MRO that declares it. The walk **refuses**
+/// rather than guesses (slice 1.4 review F2) when an ancestor it would pass is outside the release
+/// or unresolved (the name may be defined there), or when a class along the way binds the name by
+/// anything but a `def` or `class` (an assignment such as `tool = helper`).
 async fn member(ctx: &SessionContext, owner: Id, name: &str) -> Result<Option<Id>, CoreError> {
+    let refuse = |why: String| Err(CoreError::Analysis(format!("member {name}: {why}")));
     let mro_schema = schema(&[
         ("ancestor_node_id", DataType::FixedSizeBinary(16)),
         ("ordinal", DataType::Int64),
@@ -287,16 +289,28 @@ async fn member(ctx: &SessionContext, owner: Id, name: &str) -> Result<Option<Id
     let mro_sql = format!(
         "SELECT t.ancestor_node_id, a.ordinal FROM ancestry_targets t \
          JOIN class_ancestry a ON a.fact_id = t.ancestry_fact_id \
-         WHERE t.class_node_id = X'{}' AND a.relation = {} AND t.ancestor_node_id IS NOT NULL \
+         WHERE t.class_node_id = X'{}' AND a.relation = {} \
          ORDER BY a.ordinal, t.ancestor_node_id",
         owner.hex(),
         cpg_schema::codebook::AncestryRelation::Mro.code()
     );
-    let mut chain = vec![owner];
+    let mut chain: Vec<Option<Id>> = vec![Some(owner)];
     for b in collect(ctx, &mro_sql, &mro_schema).await? {
-        chain.extend(id_col(&b, "ancestor_node_id")?);
+        let a = b
+            .column_by_name("ancestor_node_id")
+            .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
+            .ok_or_else(|| CoreError::Analysis("column ancestor_node_id".to_owned()))?;
+        for i in 0..a.len() {
+            chain.push(
+                (!a.is_null(i))
+                    .then(|| <[u8; 16]>::try_from(a.value(i)).map(Id))
+                    .transpose()
+                    .map_err(|_| CoreError::Analysis("column ancestor_node_id".to_owned()))?,
+            );
+        }
     }
     chain.dedup();
+    let known: Vec<Id> = chain.iter().flatten().copied().collect();
     let decl_schema = schema(&[
         ("node_id", DataType::FixedSizeBinary(16)),
         ("parent_node_id", DataType::FixedSizeBinary(16)),
@@ -309,22 +323,75 @@ async fn member(ctx: &SessionContext, owner: Id, name: &str) -> Result<Option<Id
          FROM declarations d LEFT JOIN provider_node_map m ON m.node_id = d.node_id \
          WHERE d.parent_node_id IN ({}) AND d.name = '{name}' \
          ORDER BY d.parent_node_id, rank DESC, d.start_byte DESC, d.node_id",
-        hex_list(chain.iter().copied())
+        hex_list(known.iter().copied())
     );
-    let mut best: BTreeMap<Id, (i64, Id)> = BTreeMap::new();
+    let mut best: BTreeMap<Id, Id> = BTreeMap::new();
     for b in collect(ctx, &decl_sql, &decl_schema).await? {
         let node = id_col(&b, "node_id")?;
         let parent = id_col(&b, "parent_node_id")?;
-        let rank = b
-            .column_by_name("rank")
-            .and_then(|c| c.as_any().downcast_ref::<Int64Array>())
-            .ok_or_else(|| CoreError::Analysis("column rank".to_owned()))?;
-        for i in 0..b.num_rows() {
+        for (i, n) in node.into_iter().enumerate() {
             // Rows arrive best-first per parent; keep the first.
-            best.entry(parent[i]).or_insert((rank.value(i), node[i]));
+            best.entry(parent[i]).or_insert(n);
         }
     }
-    Ok(chain.iter().find_map(|c| best.get(c).map(|(_, n)| *n)))
+    // Which chain entries are release classes, and which classes bind the name otherwise.
+    let class_sql = format!(
+        "SELECT node_id FROM declarations WHERE node_id IN ({}) AND kind = {}",
+        hex_list(known.iter().copied()),
+        cpg_schema::codebook::DeclarationKind::Class.code()
+    );
+    let mut classes = std::collections::BTreeSet::new();
+    for b in collect(
+        ctx,
+        &class_sql,
+        &schema(&[("node_id", DataType::FixedSizeBinary(16))]),
+    )
+    .await?
+    {
+        classes.extend(id_col(&b, "node_id")?);
+    }
+    let bound_sql = format!(
+        "SELECT s.owner_node_id FROM bindings b JOIN scopes s ON s.node_id = b.scope_id \
+         WHERE s.owner_node_id IN ({}) AND s.kind = {} AND b.name = '{name}' \
+           AND b.kind NOT IN ({}, {}, {})",
+        hex_list(known.iter().copied()),
+        cpg_schema::codebook::LexicalScopeKind::Class.code(),
+        cpg_schema::codebook::BindingKind::FunctionDef.code(),
+        cpg_schema::codebook::BindingKind::ClassDef.code(),
+        cpg_schema::codebook::BindingKind::AnnotationOnly.code()
+    );
+    let mut rebound = std::collections::BTreeSet::new();
+    for b in collect(
+        ctx,
+        &bound_sql,
+        &schema(&[("owner_node_id", DataType::FixedSizeBinary(16))]),
+    )
+    .await?
+    {
+        rebound.extend(id_col(&b, "owner_node_id")?);
+    }
+    for (at, entry) in chain.iter().enumerate() {
+        let Some(c) = *entry else {
+            return refuse("an unresolved base precedes any definition of it".to_owned());
+        };
+        if rebound.contains(&c) {
+            return refuse(format!(
+                "{} binds it by an assignment or import, not a def",
+                c.hex()
+            ));
+        }
+        if let Some(found) = best.get(&c) {
+            return Ok(Some(*found));
+        }
+        // A module or function owner has no MRO; an ancestor outside the release may define it.
+        if at > 0 && !classes.contains(&c) {
+            return refuse(format!(
+                "ancestor {} is outside the analyzed release and may define it",
+                c.hex()
+            ));
+        }
+    }
+    Ok(None)
 }
 
 /// Pass A's parameters, as recorded on each invocation (fixed field order): every config field

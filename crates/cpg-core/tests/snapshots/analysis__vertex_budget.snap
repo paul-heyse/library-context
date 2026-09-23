@@ -1,0 +1,11 @@
+---
+source: crates/cpg-core/tests/analysis.rs
+expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \\\n                 FROM analysis_invocations i {} ORDER BY seed\",\nlabelled(\"i.subject_node_id\"))).await"
+---
++-------------------------+------------+-------------+-------------------+
+| seed                    | completion | stop_reason | vertices_examined |
++-------------------------+------------+-------------+-------------------+
+| pkg.helpers.helper      | 1          | 1           | 1                 |
+| pkg.server.Server.route | 1          | 1           | 1                 |
+| pkg.server.Server.tool  | 1          | 1           | 1                 |
++-------------------------+------------+-------------+-------------------+

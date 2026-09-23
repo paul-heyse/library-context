@@ -8,8 +8,8 @@ use arrow_array::{
     ArrayRef, BooleanArray, FixedSizeBinaryArray, Int16Array, RecordBatch, StringArray,
 };
 use cpg_schema::codebook::{
-    Codebook, CoverageStatus, FindingKind, InvocationPhase, Modality, NodeKind, SourceRole,
-    StopReason,
+    ArcKind, Codebook, CoverageStatus, FindingKind, InvocationPhase, Modality, NodeKind,
+    SourceRole, StopReason,
 };
 use cpg_schema::id::Id;
 use cpg_schema::projection::schemas;
@@ -80,6 +80,17 @@ const ARCS: &[ArcSpec] = &[
 ];
 
 fn arcs(specs: &[ArcSpec]) -> RecordBatch {
+    typed_arcs(
+        &specs
+            .iter()
+            .map(|a| (*a, ArcKind::Call))
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn typed_arcs(specs: &[(ArcSpec, ArcKind)]) -> RecordBatch {
+    let kinds: Vec<ArcKind> = specs.iter().map(|s| s.1).collect();
+    let specs: Vec<ArcSpec> = specs.iter().map(|s| s.0).collect();
     RecordBatch::try_new(
         schemas::arcs(),
         vec![
@@ -87,13 +98,17 @@ fn arcs(specs: &[ArcSpec]) -> RecordBatch {
             ids(&specs.iter().map(|a| id(a.1)).collect::<Vec<_>>()),
             ids(&specs.iter().map(|a| id(a.2)).collect::<Vec<_>>()),
             ids(&specs.iter().map(|a| id(a.2 + 100)).collect::<Vec<_>>()),
-            Shared::new(Int16Array::from_iter_values(
-                specs.iter().map(|_| InvocationPhase::Call.code()),
-            )),
+            Shared::new(
+                kinds
+                    .iter()
+                    .map(|k| (*k == ArcKind::Call).then(|| InvocationPhase::Call.code()))
+                    .collect::<Int16Array>(),
+            ),
             Shared::new(Int16Array::from_iter_values(
                 specs.iter().map(|a| a.3.code()),
             )),
             Shared::new(specs.iter().map(|_| Some(false)).collect::<BooleanArray>()),
+            Shared::new(Int16Array::from_iter_values(kinds.iter().map(|k| k.code()))),
         ],
     )
     .unwrap()
@@ -331,4 +346,151 @@ fn the_adapter_keeps_parallel_arcs_isolates_and_refuses_disorder() {
     assert!(Projection::build(&[vertices()], &[arcs(&shuffled)], &[]).is_err());
     let stray = [(S, 42, 30, Modality::Definite)];
     assert!(Projection::build(&[vertices()], &[arcs(&stray)], &[]).is_err());
+}
+
+/// Slice 1.4 review F3: the witness cap never changes the kind. Four parallel calls to A, three
+/// override-open and one definite: a direct delegation whatever the cap keeps, its first witness
+/// the definite call.
+#[test]
+fn the_witness_cap_never_changes_the_kind() {
+    let four = [
+        (S, A, 11, Modality::Candidate),
+        (S, A, 12, Modality::Candidate),
+        (S, A, 13, Modality::Candidate),
+        (S, A, 14, Modality::Definite),
+    ];
+    let p = Projection::build(&[vertices()], &[arcs(&four)], &[]).unwrap();
+    for cap in [1, 3, 4] {
+        let r = run(
+            &p,
+            &seed(),
+            &subsystem(&p),
+            Budgets {
+                max_witnesses: cap,
+                ..BUDGETS
+            },
+            id(1),
+            id(2),
+        )
+        .unwrap();
+        let a = r
+            .findings
+            .iter()
+            .find(|f| f.related_node_id == Some(id(A)))
+            .unwrap();
+        assert_eq!(a.finding_kind, FindingKind::DirectDelegation, "cap {cap}");
+        let first = r
+            .witnesses
+            .iter()
+            .find(|w| w.finding_id == a.finding_id && w.path == 0)
+            .unwrap();
+        assert_eq!(first.call_site_node_id, id(14));
+        assert_eq!(first.modality, Modality::Definite);
+    }
+}
+
+/// Slice 1.4 review F1: a decorator factory's nested callable is reached by a definition arc, and
+/// what it calls is reached through it; a definition is never a direct delegation.
+#[test]
+fn a_definition_arc_reaches_a_nested_callable_and_its_calls() {
+    let specs = [
+        ((S, A, A, Modality::Definite), ArcKind::Definition),
+        ((A, C, 21, Modality::Definite), ArcKind::Call),
+    ];
+    let p = Projection::build(&[vertices()], &[typed_arcs(&specs)], &[]).unwrap();
+    let r = run(&p, &seed(), &subsystem(&p), BUDGETS, id(1), id(2)).unwrap();
+    let kind = |t: u8| {
+        r.findings
+            .iter()
+            .find(|f| f.related_node_id == Some(id(t)))
+            .map(|f| f.finding_kind)
+    };
+    assert_eq!(kind(A), Some(FindingKind::BoundedDelegationPath));
+    assert_eq!(kind(C), Some(FindingKind::BoundedDelegationPath));
+    let step = r
+        .witnesses
+        .iter()
+        .find(|w| w.callee_node_id == id(A))
+        .unwrap();
+    assert_eq!((step.arc_kind, step.phase), (ArcKind::Definition, None));
+}
+
+/// Slice 1.4 review O3: a self-loop and a cycle back to the seed give no finding about the seed.
+#[test]
+fn cycles_back_to_the_seed_are_no_finding() {
+    let specs = [
+        (S, S, 31, Modality::Definite),
+        (S, A, 32, Modality::Definite),
+        (A, S, 33, Modality::Definite),
+    ];
+    let p = Projection::build(&[vertices()], &[arcs(&specs)], &[]).unwrap();
+    let r = run(&p, &seed(), &subsystem(&p), BUDGETS, id(1), id(2)).unwrap();
+    assert!(r.findings.iter().all(|f| f.related_node_id != Some(id(S))));
+    assert_eq!(kind_of(&r, Some(A), FindingKind::DirectDelegation), 1);
+}
+
+/// Slice 1.4 review O1: witnesses are shortest paths. C is reached directly and through A; the one
+/// witness is the direct call, and the longer route is neither kept nor flagged.
+#[test]
+fn witnesses_are_shortest_paths_only() {
+    let specs = [
+        (S, A, 41, Modality::Definite),
+        (S, C, 42, Modality::Definite),
+        (A, C, 43, Modality::Definite),
+    ];
+    let p = Projection::build(&[vertices()], &[arcs(&specs)], &[]).unwrap();
+    let r = run(&p, &seed(), &subsystem(&p), BUDGETS, id(1), id(2)).unwrap();
+    let c = r
+        .findings
+        .iter()
+        .find(|f| f.related_node_id == Some(id(C)))
+        .unwrap();
+    assert_eq!(
+        (c.finding_kind, c.depth, c.witnesses_omitted),
+        (FindingKind::DirectDelegation, Some(1), false)
+    );
+    let steps: Vec<_> = r
+        .witnesses
+        .iter()
+        .filter(|w| w.finding_id == c.finding_id)
+        .collect();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].call_site_node_id, id(42));
+}
+
+/// Slice 1.4 review O2: a frontier vertex's unresolved site is beyond the depth bound, and the
+/// invocation says the bound cut something.
+#[test]
+fn an_unresolved_site_at_the_frontier_records_the_depth_bound() {
+    let specs = [
+        (S, A, 51, Modality::Definite),
+        (A, B, 52, Modality::Definite),
+    ];
+    let frontier = RecordBatch::try_new(
+        schemas::unresolved(),
+        vec![
+            ids(&[id(B)]),
+            ids(&[id(53)]),
+            Shared::new(arrow_array::Int64Array::from(vec![0])),
+            Shared::new(BooleanArray::from(vec![true])),
+            Shared::new(Int16Array::from(vec![None])),
+            Shared::new(Int16Array::from(vec![None])),
+        ],
+    )
+    .unwrap();
+    let p = Projection::build(&[vertices()], &[arcs(&specs)], &[frontier]).unwrap();
+    let r = run(&p, &seed(), &subsystem(&p), BUDGETS, id(1), id(2)).unwrap();
+    assert_eq!(r.stop_reason, Some(StopReason::DepthLimit));
+    assert_eq!(r.completion, CoverageStatus::CompleteUnderStatedModel);
+    let without = Projection::build(&[vertices()], &[arcs(&specs)], &[]).unwrap();
+    let r = run(
+        &without,
+        &seed(),
+        &subsystem(&without),
+        BUDGETS,
+        id(1),
+        id(2),
+    )
+    .unwrap();
+    assert_eq!(r.stop_reason, None);
 }

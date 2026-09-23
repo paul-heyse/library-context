@@ -6,7 +6,9 @@
 //! candidate- and unknown-target policies, and its weight policy. Its SQL is generated here, and
 //! its digest joins the parameters of every invocation that reads it (ADR-0019).
 
-use crate::codebook::{Codebook, EdgeKind, Fidelity, InvocationPhase, Modality, NodeKind, Origin};
+use crate::codebook::{
+    ArcKind, Codebook, EdgeKind, Fidelity, InvocationPhase, Modality, NodeKind, Origin,
+};
 use crate::id::{Digest, IdHasher};
 
 /// A declared projection.
@@ -94,6 +96,9 @@ fn list(xs: &[i16]) -> String {
 ///   the resolution's id, §3.6), `edge_id`, phase, modality and whether its resolution has an
 ///   unresolved remainder, ordered by `(src, dst, call_site, edge_id)`, a total order because
 ///   `edge_id` is unique. Parallel call sites stay distinct arcs.
+/// - **Definition arcs** (slice 1.4 review F1): the `declares` edges from a function to a function
+///   it defines, so a decorator factory's nested callable, which the caller invokes later, is
+///   reached. Their site is the nested declaration, and they carry no phase.
 /// - **Excluded:** `potential` targets (every `higher_order_target`) and `synthetic_model`
 ///   evidence. Candidate (`Overrides`) arcs stay, with their modality.
 /// - **Unknown targets:** no arc to a placeholder; a site with no target or an unresolved
@@ -110,6 +115,7 @@ pub fn invocation() -> ProjectionSpec {
         EdgeKind::EnclosesCall,
         EdgeKind::CallTarget,
         EdgeKind::SiteTarget,
+        EdgeKind::Declares,
     ];
     const MODALITIES: &[Modality] = &[Modality::Definite, Modality::Candidate];
     const ORIGINS: &[Origin] = &[Origin::AnalyzerAssertion];
@@ -134,12 +140,17 @@ pub fn invocation() -> ProjectionSpec {
     let accepted = format!(
         "f.modality IN ({modalities}) AND f.origin IN ({origins}) AND f.fidelity IN ({fidelities})"
     );
+    let declares = EdgeKind::Declares.code();
+    let function = NodeKind::Function.code();
+    let (call, definition) = (ArcKind::Call.code(), ArcKind::Definition.code());
+    let definite = Modality::Definite.code();
+    let owner = crate::graph::owner_of("sn");
     let arcs_sql = format!(
         "SELECT caller AS src_node_id, callee AS dst_node_id, call_site_node_id, edge_id, \
-                phase, modality, has_unresolved_remainder FROM ( \
+                phase, modality, has_unresolved_remainder, arc_kind FROM ( \
            SELECT ec.src_node_id AS caller, ct.dst_node_id AS callee, \
                   ct.src_node_id AS call_site_node_id, ct.edge_id, p.phase, f.modality, \
-                  r.has_unresolved_remainder \
+                  r.has_unresolved_remainder, CAST({call} AS SMALLINT) AS arc_kind \
            FROM edges ct \
            JOIN edges ec ON ec.dst_node_id = ct.src_node_id AND ec.edge_kind = {encloses} \
            JOIN pysa_calls p ON p.fact_id = ct.evidence_fact_id \
@@ -147,14 +158,23 @@ pub fn invocation() -> ProjectionSpec {
            JOIN resolutions r ON r.call_site_node_id = ct.src_node_id \
            WHERE ct.edge_kind = {call_target} AND {accepted} \
            UNION ALL \
-           SELECT COALESCE(sn.owner_node_id, sn.module_node_id) AS caller, \
+           SELECT {owner} AS caller, \
                   st.dst_node_id AS callee, st.src_node_id AS call_site_node_id, st.edge_id, \
-                  p.phase, f.modality, false AS has_unresolved_remainder \
+                  p.phase, f.modality, false AS has_unresolved_remainder, \
+                  CAST({call} AS SMALLINT) AS arc_kind \
            FROM edges st \
            JOIN syntax_nodes sn ON sn.node_id = st.src_node_id \
            JOIN pysa_calls p ON p.fact_id = st.evidence_fact_id \
            JOIN facts f ON f.fact_id = st.evidence_fact_id \
-           WHERE st.edge_kind = {site_target} AND p.phase IN ({property}) AND {accepted}) a \
+           WHERE st.edge_kind = {site_target} AND p.phase IN ({property}) AND {accepted} \
+           UNION ALL \
+           SELECT d.src_node_id AS caller, d.dst_node_id AS callee, \
+                  d.dst_node_id AS call_site_node_id, d.edge_id, CAST(NULL AS SMALLINT) AS phase, \
+                  CAST({definite} AS SMALLINT) AS modality, false AS has_unresolved_remainder, \
+                  CAST({definition} AS SMALLINT) AS arc_kind \
+           FROM edges d \
+           WHERE d.edge_kind = {declares} AND d.src_kind = {function} \
+             AND d.dst_kind = {function}) a \
          ORDER BY src_node_id, dst_node_id, call_site_node_id, edge_id"
     );
     let unresolved_sql = format!(
@@ -173,7 +193,8 @@ pub fn invocation() -> ProjectionSpec {
         origins: ORIGINS,
         fidelities: FIDELITIES,
         candidate_policy: "kept with modality `candidate`: a traversal may follow it, never as a \
-                           direct delegation (DESIGN §3.6)",
+                           direct delegation (DESIGN §3.6); a definition arc is followed but is \
+                           never a call",
         unknown_target_policy: "no arc to a placeholder; a call site with no target or an \
                                 unresolved remainder is listed in the unresolved-sites relation",
         weight_policy: "none: each arc is one call site's resolution to one target",
@@ -214,9 +235,10 @@ pub mod schemas {
             id("dst_node_id", false),
             id("call_site_node_id", false),
             id("edge_id", false),
-            Field::new("phase", DataType::Int16, false),
+            Field::new("phase", DataType::Int16, true),
             Field::new("modality", DataType::Int16, false),
             Field::new("has_unresolved_remainder", DataType::Boolean, false),
+            Field::new("arc_kind", DataType::Int16, false),
         ]))
     }
 

@@ -65,6 +65,12 @@ fn c(v: impl Codebook) -> i16 {
 const NULL_ID: &str = "CAST(NULL AS BYTEA)";
 const NULL_ORDINAL: &str = "CAST(NULL AS BIGINT)";
 
+/// The node whose body holds a placed call or site: its owning declaration, else its module.
+/// One expression for `encloses_call` and the invocation projection (slice 1.4 review O7).
+pub fn owner_of(alias: &str) -> String {
+    format!("COALESCE({alias}.owner_node_id, {alias}.module_node_id)")
+}
+
 fn id(expr: &str) -> String {
     format!("CAST({expr} AS BYTEA)")
 }
@@ -411,14 +417,7 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             evidence_table: "call_syntax",
             sql: format!(
                 "SELECT {} FROM call_syntax s",
-                row(
-                    "COALESCE(s.owner_node_id, s.module_node_id)",
-                    "s.node_id",
-                    None,
-                    "s.fact_id",
-                    None,
-                    None
-                )
+                row(&owner_of("s"), "s.node_id", None, "s.fact_id", None, None)
             ),
             one_per_evidence: true,
             lineage: Some(Lineage {

@@ -172,7 +172,8 @@ fn a_finding_id_follows_every_identity_column() {
         call_site: Id([1; 16]),
         callee: Id([2; 16]),
         modality: 0,
-        phase: 0,
+        arc_kind: 0,
+        phase: Some(0),
     };
     let member = MemberKey {
         role: 0,
@@ -213,7 +214,9 @@ fn a_finding_id_follows_every_identity_column() {
         |s: &mut StepKey| s.call_site = Id([9; 16]),
         |s: &mut StepKey| s.callee = Id([9; 16]),
         |s: &mut StepKey| s.modality = 1,
-        |s: &mut StepKey| s.phase = 4,
+        |s: &mut StepKey| s.arc_kind = 1,
+        |s: &mut StepKey| s.phase = Some(4),
+        |s: &mut StepKey| s.phase = None,
     ] {
         let mut s = step;
         alter(&mut s);

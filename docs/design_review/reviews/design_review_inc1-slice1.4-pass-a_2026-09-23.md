@@ -278,3 +278,20 @@ Everything else holds, which is what makes the fixes small:
 | O5 | Stage F's concern | Slice 1.5 labels boundaries or writes Limits |
 | O7 | The two copies agree today | Either owner rule changes |
 | §8's petgraph-free BFS | ADR-0011 names later consumers | Increment 2 ends with no analysis using the `Graph` container |
+
+## Disposition (2026-09-23, the slice 1.4 review-fix commit)
+
+| Item | Disposition | Where |
+|---|---|---|
+| F1 | Fixed by option (b), a typed definition arc (deviation log D5). The invocation projection's third branch adds `declares` arcs, function → nested function, with `arc_kind = definition` and no phase. Pass A follows them, and a definition is never a `direct_delegation`. Stage F says "defines `T`, a nested callable it returns or registers", and "reaches `T` through `via`, a callable it defines". `arc_kind` is a new codebook and a witness identity column (ADR-0019 amended) | `projection.rs`, `pass_a.rs`, `synth.rs`; DESIGN §5, §9.1; tests `a_definition_arc_reaches_a_nested_callable_and_its_calls` and the `Server.route` fixture assertion in `briefs_are_synthesized_from_findings_and_verbatim_evidence` |
+| F2 | Fixed by the fail-closed walk (D6). `member()` walks the whole MRO, null ancestors included. It refuses an unresolved ancestor, a non-`def` binding of the name in the chain, and a non-release class before the definition | `analyze.rs`; DESIGN §9.1; `a_seed_that_could_name_another_method_is_refused` (fixture `pkg/shadow.py`) |
+| F3 | Fixed. The kind is decided over every shortest final arc, and a direct delegation's path 0 is its definite call | `pass_a.rs`; `the_witness_cap_never_changes_the_kind`; `semantic:direct-delegation-is-definite`, with an injected case |
+| O1 | Fixed. §9.1 and `findings.rs` say "shortest"; `witness_limit` marked reserved | DESIGN §9.1; `codebook.rs`; `witnesses_are_shortest_paths_only` (P2) |
+| O2 | Fixed. An unresolved site at the frontier sets `depth_limit` | `pass_a.rs`; `an_unresolved_site_at_the_frontier_records_the_depth_bound` (P4) |
+| O3 | Fixed | `cycles_back_to_the_seed_are_no_finding` (P3) |
+| O4 | Fixed. §5 states order as a precondition, and names the two tests that hold it | DESIGN §5 |
+| O5 | Fired with slice 1.5. Limits are one entry per boundary reason, each boundary node named once. Label choice is 1.5 review O4, and the retrieval effect is 1.5 review O7 (deferred to the ranking check) | `synth.rs` |
+| O6 | Fixed. `semantic:witness-edge` checks that a step's edge ends at its callee and starts at its site or caller. `semantic:direct-delegation-is-definite` covers the finding-path half. Each has an injected case | `rules.rs`; `the_analysis_rules_reject_their_violations` |
+| O7 | Fixed, not deferred. One owner fragment, `cpg_schema::graph::owner_of`, serves both call and property arcs | `graph.rs`, `projection.rs` |
+| §9 gap: vertex budget through the whole attempt | Fixed. `analysis_shapes` with `max_vertices = 1`: every invocation is `partial` with `vertex_budget`, and the brief states the budget stop | `a_vertex_budget_is_partial_and_a_stated_limit` |
+| §8's petgraph-free BFS | Still deferred with its trigger | — |

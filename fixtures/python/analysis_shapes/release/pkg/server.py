@@ -24,6 +24,16 @@ class Server:
     def dispatch(self) -> int:
         return deep_one()
 
+    def route(self, path):
+        """Register a handler at `path`."""
+
+        # A decorator factory: its work is in the nested callable it returns.
+        def decorator(fn):
+            helper(fn)
+            return fn
+
+        return decorator
+
     def tool(self, fn):
         """Register `fn` as a tool."""
         helper(fn)

@@ -2,11 +2,13 @@
 source: crates/cpg-core/tests/analysis.rs
 expression: "text(&ctx, \"SELECT m.label FROM finding_members m ORDER BY m.label\").await"
 ---
-+------------------------+
-| label                  |
-+------------------------+
-| pkg.Server.tool        |
-| pkg.helper             |
-| pkg.helpers.helper     |
-| pkg.server.Server.tool |
-+------------------------+
++-------------------------+
+| label                   |
++-------------------------+
+| pkg.Server.route        |
+| pkg.Server.tool         |
+| pkg.helper              |
+| pkg.helpers.helper      |
+| pkg.server.Server.route |
+| pkg.server.Server.tool  |
++-------------------------+

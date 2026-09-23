@@ -12,7 +12,8 @@
 //!   bundled definition, a synthetic callable or a release callable outside the subsystem: each
 //!   such arc is an `implementation_boundary`. `potential` arcs are not in the projection.
 //! - **Candidates.** An override-open (`candidate`) arc is followed, but a path through one is
-//!   never a `direct_delegation` (§3.6).
+//!   never a `direct_delegation` (§3.6). A definition arc (a nested callable the caller defines,
+//!   as a decorator factory does) is followed too, and is never a call.
 //! - **Unresolved sites** of every expanded vertex are `incomplete_resolution` findings.
 //! - **Budgets:** depth is the stated model (complete under it); a vertex or arc budget is
 //!   operational truncation, so the invocation is `partial` (ADR-0019 review F4).
@@ -20,7 +21,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use cpg_schema::codebook::{
-    Codebook, CoverageStatus, FindingKind, MemberRole, Modality, NodeKind, StopReason,
+    Codebook, CoverageStatus, FindingKind, MemberRole, NodeKind, StopReason,
 };
 use cpg_schema::findings::recipe::FindingKey;
 use cpg_schema::findings::{
@@ -112,10 +113,18 @@ pub fn run(
     let mut into: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     let mut boundary: BTreeMap<u32, StopReason> = BTreeMap::new();
 
+    let mut unresolved: HashMap<u32, Vec<Id>> = HashMap::new();
+    for site in &p.unresolved {
+        unresolved
+            .entry(site.caller)
+            .or_default()
+            .push(site.call_site);
+    }
     'search: while let Some(u) = queue.pop_front() {
         let rows = p.out_arcs(u);
         if depth[u as usize] >= budgets.max_depth {
-            depth_limited |= !rows.is_empty();
+            // What lies below the bound, arcs or unresolved sites, is not examined (review O2).
+            depth_limited |= !rows.is_empty() || unresolved.contains_key(&u);
             continue;
         }
         for row in rows {
@@ -189,8 +198,21 @@ pub fn run(
             .collect();
         finals.sort_unstable();
         finals.dedup();
+        // A target one call away with a definite call among all its shortest final arcs is a
+        // direct delegation, whatever the witness cap keeps; its first witness is that call
+        // (slice 1.4 review F3).
+        let direct = !boundary.contains_key(&t)
+            && best == 1
+            && finals
+                .iter()
+                .any(|&r| p.arcs[r as usize].is_definite_call());
         let first = match boundary.get(&t) {
             Some(_) => finals[0],
+            None if direct => finals
+                .iter()
+                .copied()
+                .find(|&r| p.arcs[r as usize].is_definite_call())
+                .expect("a direct target has a definite call"),
             None => parent[t as usize].expect("an inside target has a parent"),
         };
         let mut chosen = vec![first];
@@ -206,17 +228,8 @@ pub fn run(
             .collect();
         let (kind, stop) = match boundary.get(&t) {
             Some(reason) => (FindingKind::ImplementationBoundary, Some(*reason)),
-            None => {
-                let definite = |path: &Vec<u32>| {
-                    path.iter()
-                        .all(|&r| p.arcs[r as usize].modality == Modality::Definite)
-                };
-                if best == 1 && paths.iter().any(definite) {
-                    (FindingKind::DirectDelegation, None)
-                } else {
-                    (FindingKind::BoundedDelegationPath, None)
-                }
-            }
+            None if direct => (FindingKind::DirectDelegation, None),
+            None => (FindingKind::BoundedDelegationPath, None),
         };
         drafts.push(Draft {
             kind,
@@ -229,13 +242,6 @@ pub fn run(
         });
     }
 
-    let mut unresolved: HashMap<u32, Vec<Id>> = HashMap::new();
-    for site in &p.unresolved {
-        unresolved
-            .entry(site.caller)
-            .or_default()
-            .push(site.call_site);
-    }
     for &u in &expanded {
         let Some(sites) = unresolved.get(&u) else {
             continue;
@@ -273,7 +279,8 @@ pub fn run(
                             call_site: a.call_site,
                             callee: p.ids[a.dst as usize],
                             modality: a.modality.code(),
-                            phase: a.phase.code(),
+                            arc_kind: a.arc_kind.code(),
+                            phase: a.phase.map(Codebook::code),
                         }
                     })
                     .collect()
@@ -334,6 +341,7 @@ pub fn run(
                     callee_node_id: p.ids[a.dst as usize],
                     edge_id: a.edge_id,
                     modality: a.modality,
+                    arc_kind: a.arc_kind,
                     phase: a.phase,
                 });
             }

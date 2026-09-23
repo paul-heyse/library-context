@@ -125,7 +125,7 @@ so an unchanged result keeps its id when parameters change, and an ablation diff
 | Id | Recipe |
 |---|---|
 | invocation | method, parameters digest, projection digest, subject, seed |
-| finding | kind, subject, related node, condition node, status, depth, stop reason, `witnesses_omitted`, witness steps (call site, callee, modality, phase), members |
+| finding | kind, subject, related node, condition node, status, depth, stop reason, `witnesses_omitted`, witness steps (call site, callee, modality, arc kind, phase), members |
 | evidence | kind, node, module, span, digest of the resolved text; a cited `fact_id` is lineage, because fact ids are run-scoped (review F7) |
 | assertion | kind, subject, section, applicable case, text, status, sorted supports |
 | brief | seed, applicable case, sorted (section, ordinal, assertion) |
@@ -214,4 +214,7 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
   compiler-run rule (F6); modality and phase in the step key (F9); O1, O2, O3 and O9. F7, F8 and
   O5 are owed by slices 1.5 and 1.6 (F7 decided now: evidence identity by content, the fact as
   lineage); O6, O7 and O10 are deferred with the review's triggers.
-
+- 2026-09-23: the slice 1.4 compact review (`design_review_inc1-slice1.4-pass-a_2026-09-23.md`,
+  Revise): a witness step gains `arc_kind` (`call` | `definition`, a new codebook) as an identity
+  column, and its `phase` is null on a definition arc (F1, deviation log D5). The finding recipe
+  row above says so.

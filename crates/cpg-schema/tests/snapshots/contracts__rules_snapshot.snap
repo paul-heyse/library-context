@@ -532,6 +532,8 @@ codebook:finding_members.role
   SELECT role FROM finding_members WHERE role IS NOT NULL AND role NOT IN (0)
 codebook:witnesses.modality
   SELECT modality FROM witnesses WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:witnesses.arc_kind
+  SELECT arc_kind FROM witnesses WHERE arc_kind IS NOT NULL AND arc_kind NOT IN (0, 1)
 codebook:witnesses.phase
   SELECT phase FROM witnesses WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
 codebook:evidence.evidence_kind
@@ -604,6 +606,10 @@ semantic:brief-member-exported
   SELECT m.brief_id, m.access_path FROM brief_members m LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id AND (m.access_path = e.access_path OR starts_with(m.access_path, e.access_path || '.'))
 semantic:brief-cites-analysis
   SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( SELECT DISTINCT ba.brief_id FROM brief_assertions ba JOIN assertion_support s ON s.assertion_id = ba.assertion_id WHERE s.finding_id IS NOT NULL) x ON x.brief_id = b.brief_id WHERE NOT b.documentation_only
+semantic:direct-delegation-is-definite
+  SELECT f.finding_id FROM findings f JOIN witnesses w ON w.finding_id = f.finding_id AND w.path = 0 WHERE f.finding_kind = 1 AND (w.modality <> 0 OR w.arc_kind <> 0 OR w.step > 0 OR f.depth <> 1)
+semantic:witness-edge
+  SELECT w.finding_id, w.path, w.step FROM witnesses w JOIN edges e ON e.edge_id = w.edge_id WHERE e.dst_node_id <> w.callee_node_id OR (e.src_node_id <> w.call_site_node_id AND e.src_node_id <> w.caller_node_id)
 semantic:witness-chain
   SELECT w.finding_id, w.path, w.step FROM witnesses w JOIN findings f ON f.finding_id = w.finding_id LEFT JOIN witnesses p ON p.finding_id = w.finding_id AND p.path = w.path AND p.step = w.step - 1 WHERE (w.step = 0 AND w.caller_node_id <> f.subject_node_id) OR (w.step > 0 AND (p.callee_node_id IS NULL OR p.callee_node_id <> w.caller_node_id))
 semantic:source-text

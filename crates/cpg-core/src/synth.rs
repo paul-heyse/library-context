@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
-    AssertionKind, Codebook, EvidenceKind, EvidenceStatus, ExtractionMode, FindingKind,
+    ArcKind, AssertionKind, Codebook, EvidenceKind, EvidenceStatus, ExtractionMode, FindingKind,
     MentionClass, Modality, ParameterKind, ReviewState, StopReason, SupportRole,
 };
 use cpg_schema::findings::recipe::{self, AssertionKey};
@@ -32,8 +32,9 @@ use crate::delta::to_schema;
 use crate::{CoreError, sql};
 
 /// Bumped whenever a template's wording or an extractive rule changes; part of the compiler
-/// digest through the synthesis tables' contracts and this constant.
-pub const TEMPLATE_VERSION: i64 = 1;
+/// digest through the synthesis tables' contracts and this constant. 2: definition steps and
+/// "or more" call sites (slice 1.4 review F1, F3).
+pub const TEMPLATE_VERSION: i64 = 2;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -635,31 +636,43 @@ pub async fn run(
                 .filter(|w| w.finding_id == f.finding_id)
                 .collect();
             let paths = steps.iter().map(|w| w.path).collect::<BTreeSet<_>>().len();
-            let candidate = steps.iter().any(|w| w.modality == Modality::Candidate);
-            let via = steps
-                .iter()
-                .find(|w| w.path == 0 && w.step == 0 && w.callee_node_id != target)
-                .map(|w| label(w.callee_node_id));
-            let text = match (f.finding_kind, via) {
+            let mut first: Vec<_> = steps.iter().filter(|w| w.path == 0).collect();
+            first.sort_by_key(|w| w.step);
+            let defines = first
+                .first()
+                .is_some_and(|w| w.arc_kind == ArcKind::Definition);
+            let overridable = first
+                .first()
+                .is_some_and(|w| w.arc_kind == ArcKind::Call && w.modality == Modality::Candidate);
+            let more = if f.witnesses_omitted { " or more" } else { "" };
+            let text = match (f.finding_kind, first.len()) {
                 (FindingKind::DirectDelegation, _) => format!(
-                    "`{seed_label}` already calls `{}` ({paths} call site{}).",
+                    "`{seed_label}` already calls `{}` ({paths}{more} call site{}).",
                     label(target),
-                    if paths == 1 { "" } else { "s" }
-                ),
-                (_, Some(via)) => format!(
-                    "`{seed_label}` already reaches `{}` through `{via}`{}.",
-                    label(target),
-                    if candidate {
-                        ", an overridable call"
-                    } else {
+                    if paths == 1 && more.is_empty() {
                         ""
+                    } else {
+                        "s"
                     }
                 ),
-                (_, None) => format!(
-                    "`{seed_label}` already calls `{}`{}.",
+                (_, 1) if defines => format!(
+                    "`{seed_label}` defines `{}`, a nested callable it returns or registers.",
+                    label(target)
+                ),
+                (_, 1) if overridable => format!(
+                    "`{seed_label}` already calls `{}` through an overridable method, so a \
+                     subclass may replace it.",
+                    label(target)
+                ),
+                (_, 1) => format!("`{seed_label}` already calls `{}`.", label(target)),
+                (_, _) => format!(
+                    "`{seed_label}` already reaches `{}` through `{}`{}.",
                     label(target),
-                    if candidate {
-                        " through an overridable method, so a subclass may replace it"
+                    label(first[0].callee_node_id),
+                    if defines {
+                        ", a callable it defines"
+                    } else if overridable {
+                        ", an overridable call"
                     } else {
                         ""
                     }

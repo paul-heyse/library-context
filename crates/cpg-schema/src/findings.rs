@@ -12,9 +12,9 @@
 //! unchanged result keeps its id when a parameter changes and an ablation diff is a join.
 
 use crate::codebook::{
-    AnalyticMethod, AssertionKind, BriefSection, CoverageStatus, EvidenceKind, EvidenceStatus,
-    ExtractionMode, FindingKind, InvocationPhase, MemberRole, Modality, ReviewState, StopReason,
-    SupportRole,
+    AnalyticMethod, ArcKind, AssertionKind, BriefSection, CoverageStatus, EvidenceKind,
+    EvidenceStatus, ExtractionMode, FindingKind, InvocationPhase, MemberRole, Modality,
+    ReviewState, StopReason, SupportRole,
 };
 use crate::id::{Digest, Id, IdHasher, kind};
 use crate::table::table;
@@ -90,8 +90,8 @@ table!(
         evidence_status: EvidenceStatus,
         depth: Option<i64>,
         stop_reason: Option<StopReason>,
-        /// More witness paths existed than the witness budget kept (presentation only; DESIGN
-        /// §9.1's `omitted_paths`).
+        /// More shortest final arcs existed than the witness budget kept (presentation only;
+        /// DESIGN §9.1's `omitted_paths`). A longer route is neither kept nor flagged.
         witnesses_omitted: bool,
         score: Option<f64>,
         /// The guard a conditional finding depends on (Pass B).
@@ -138,7 +138,10 @@ table!(
         callee_node_id: Id,
         edge_id: Id,
         modality: Modality,
-        phase: InvocationPhase,
+        /// A call, or a definition (a nested callable the caller defines; review F1).
+        arc_kind: ArcKind,
+        /// A call's invocation phase; a definition has none.
+        phase: Option<InvocationPhase>,
     }
 );
 
@@ -377,7 +380,8 @@ pub struct StepKey {
     pub call_site: Id,
     pub callee: Id,
     pub modality: i16,
-    pub phase: i16,
+    pub arc_kind: i16,
+    pub phase: Option<i16>,
 }
 
 /// A member as its finding's identity sees it: every column but the weight (lineage).
@@ -478,7 +482,8 @@ pub mod recipe {
                     h.id(step.call_site)
                         .id(step.callee)
                         .i64(i64::from(step.modality))
-                        .i64(i64::from(step.phase));
+                        .i64(i64::from(step.arc_kind))
+                        .opt_i64(step.phase.map(i64::from));
                 }
             }
             h.i64(self.members.len() as i64);

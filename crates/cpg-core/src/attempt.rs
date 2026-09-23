@@ -35,8 +35,8 @@ pub struct Published {
 
 /// Bumped by hand whenever the derive, cast, sort or analysis code changes output for the same
 /// inputs; the derived-table and analysis snapshots are what show such a change. 2: Stage E
-/// (ADR-0019).
-pub const COMPILER_OUTPUT_VERSION: u32 = 2;
+/// (ADR-0019). 3: definition arcs, the witness-cap kind fix (slice 1.4 review F1, F3).
+pub const COMPILER_OUTPUT_VERSION: u32 = 3;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

@@ -24,11 +24,11 @@ use lctx_analytics::config::AnalyticsConfig;
 const CONFIG: &str = r#"
 version = 1
 [subsystem]
-module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot"]
+module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot", "pkg.shadow"]
 public_roots = ["pkg"]
 [seeds]
 primary = ["pkg.Server.tool"]
-distractors = ["pkg.helper"]
+distractors = ["pkg.helper", "pkg.Server.route"]
 [pass_a]
 max_depth = 2
 max_vertices = 128
@@ -50,6 +50,45 @@ fn copy(src: &Path, dst: &Path) {
             std::fs::copy(&p, &t).unwrap();
         }
     }
+}
+
+/// Compile the fixture under `config`, returning the attempt's result and the store's directory.
+async fn compile_config(
+    sub: &str,
+    config: &str,
+) -> (
+    Result<cpg_core::attempt::Published, cpg_core::CoreError>,
+    tempfile::TempDir,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join(sub);
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/analysis_shapes");
+    copy(&fixture.join("release"), &base.join("release"));
+    copy(&fixture.join("site"), &base.join("venv/site-packages"));
+    let s = Id([7; 16]);
+    let out = extract(&ExtractInput {
+        release: cpg_extract::Release::from_tree(
+            std::fs::canonicalize(base.join("release")).unwrap(),
+            "analysis_shapes",
+        )
+        .unwrap(),
+        venv_root: std::fs::canonicalize(base.join("venv")).unwrap(),
+        site_packages: vec![std::fs::canonicalize(base.join("venv/site-packages")).unwrap()],
+        python_version: (3, 14, 0),
+        python_platform: "linux".to_owned(),
+        snapshot_id: s,
+        corpus: None,
+        keep_pysa_json: false,
+        test_hooks: TestHooks::default(),
+    })
+    .unwrap();
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(config).unwrap(),
+        embedder: None,
+    };
+    let result = compile_analyzed(&dir.path().join("store"), s, &out.tables, Some(&analysis)).await;
+    (result, dir)
 }
 
 /// The fixture extracted and compiled with the analytics config; the session reads the published
@@ -269,8 +308,72 @@ async fn pass_a_finds_the_known_answers_on_analysis_shapes() {
             .any(|a| p.kinds[a.src as usize] == NodeKind::Module),
         "the module-level call in pkg.boot is an arc from its module"
     );
+    // A decorator factory reaches its nested callable by a definition arc, and what that calls
+    // (slice 1.4 review F1).
+    let nested = format!(
+        "SELECT count(*) FROM findings f JOIN declarations s ON s.node_id = f.subject_node_id \
+         {} WHERE s.qualified_name = 'pkg.server.Server.route' \
+           AND {LABEL} IN ('pkg.server.Server.route.decorator', 'pkg.helpers.helper')",
+        labelled("f.related_node_id")
+    );
+    assert_eq!(count(nested).await, 2);
     // Every published rule passes on the analyzed snapshot.
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+}
+
+/// Slice 1.4 review F2: seed resolution refuses rather than guesses when a member may come from a
+/// base outside the release, or is rebound by an assignment in a class body.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_seed_that_could_name_another_method_is_refused() {
+    for (seed, why) in [
+        ("pkg.Shadowed.run", "outside the analyzed release"),
+        ("pkg.Aliased.tool", "assignment"),
+    ] {
+        let config = CONFIG.replace(
+            r#"distractors = ["pkg.helper", "pkg.Server.route"]"#,
+            &format!(r#"distractors = ["{seed}"]"#),
+        );
+        let err = compile_config("refuse", &config)
+            .await
+            .0
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains(why), "{seed}: {err}");
+    }
+}
+
+/// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
+/// `partial` with its stop reason, and Stage F states it as a limit of the brief.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vertex_budget_is_partial_and_a_stated_limit() {
+    let (result, dir) = compile_config(
+        "budget",
+        &CONFIG.replace("max_vertices = 128", "max_vertices = 1"),
+    )
+    .await;
+    result.unwrap();
+    let (_, ctx) = published(&dir.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    insta::assert_snapshot!(
+        "vertex_budget",
+        text(
+            &ctx,
+            &format!(
+                "SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \
+                 FROM analysis_invocations i {} ORDER BY seed",
+                labelled("i.subject_node_id")
+            )
+        )
+        .await
+    );
+    let limits = text(
+        &ctx,
+        "SELECT a.text FROM assertions a WHERE a.text LIKE '%stopped at its budget%' ORDER BY a.text",
+    )
+    .await;
+    assert!(limits.contains("`pkg.Server.tool`"), "{limits}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -351,11 +454,18 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
     // ADR-0019 review O4: the analysis output is pinned to the versions that name it, so an
     // output change without a version bump fails here (the compiler digest would not move).
     // To change the output: bump COMPILER_OUTPUT_VERSION or TEMPLATE_VERSION and append a row.
-    const LEDGER: &[(u32, i64, &str)] = &[(
-        2,
-        1,
-        "d07a8be1d8d04d7ac762799bfc9f93546e9aaf08dce497cebfc6e0283e70b4d6",
-    )];
+    const LEDGER: &[(u32, i64, &str)] = &[
+        (
+            2,
+            1,
+            "d07a8be1d8d04d7ac762799bfc9f93546e9aaf08dce497cebfc6e0283e70b4d6",
+        ),
+        (
+            3,
+            2,
+            "1a936cb57baca6b2e5171b16edd2511185ebf488aaecafa0b4ff24851de063d8",
+        ),
+    ];
     let output = format!(
         "{}\n{}",
         text(&ctx, &findings_query("pkg.server.Server.tool")).await,
@@ -422,7 +532,7 @@ async fn the_analysis_rules_reject_their_violations() {
             "SELECT snapshot_id, finding_id, path, step, \
                     CASE WHEN step > 0 THEN callee_node_id ELSE caller_node_id END \
                       AS caller_node_id, \
-                    call_site_node_id, callee_node_id, edge_id, modality, phase \
+                    call_site_node_id, callee_node_id, edge_id, modality, arc_kind, phase \
              FROM witnesses_published",
         ),
         (
@@ -518,11 +628,25 @@ async fn the_analysis_rules_reject_their_violations() {
               FROM embedding_cache_published LIMIT 1)",
         ),
         (
+            "semantic:direct-delegation-is-definite",
+            "witnesses",
+            "SELECT snapshot_id, finding_id, path, step, caller_node_id, call_site_node_id, \
+                    callee_node_id, edge_id, CAST(1 AS SMALLINT) AS modality, arc_kind, phase \
+             FROM witnesses_published",
+        ),
+        (
+            "semantic:witness-edge",
+            "witnesses",
+            "SELECT snapshot_id, finding_id, path, step, caller_node_id, call_site_node_id, \
+                    caller_node_id AS callee_node_id, edge_id, modality, arc_kind, phase \
+             FROM witnesses_published",
+        ),
+        (
             "ref:witnesses.edge_id->edges",
             "witnesses",
             "SELECT snapshot_id, finding_id, path, step, caller_node_id, call_site_node_id, \
                     callee_node_id, CAST(X'00000000000000000000000000000000' AS BYTEA) AS edge_id, \
-                    modality, phase \
+                    modality, arc_kind, phase \
              FROM witnesses_published",
         ),
     ];

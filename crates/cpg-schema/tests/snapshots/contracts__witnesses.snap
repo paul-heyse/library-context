@@ -18,4 +18,5 @@ call_site_node_id: FixedSizeBinary(16) NOT NULL
 callee_node_id: FixedSizeBinary(16) NOT NULL
 edge_id: FixedSizeBinary(16) NOT NULL
 modality: Int16 NOT NULL [lctx.codebook=modality]
-phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
+arc_kind: Int16 NOT NULL [lctx.codebook=arc_kind]
+phase: Int16 NULL [lctx.codebook=invocation_phase]

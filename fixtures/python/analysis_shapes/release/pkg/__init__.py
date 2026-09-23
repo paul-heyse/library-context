@@ -2,5 +2,6 @@
 
 from pkg.helpers import helper
 from pkg.server import Server
+from pkg.shadow import Aliased, Shadowed
 
-__all__ = ["Server", "helper"]
+__all__ = ["Aliased", "Server", "Shadowed", "helper"]
