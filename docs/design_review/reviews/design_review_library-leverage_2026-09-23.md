@@ -267,3 +267,34 @@ sped up now; Delta files are written with zstd; PageRank is our own weighted pow
 are carried out as the hardening slice H1 (plan: `~/.claude/plans/h1-library-leverage-hardening.md`),
 before slice 4. D1, D2, D3 and D5 are recorded now (ADR-0011 amendment, DESIGN) and built by the
 slice that consumes them; D4 is slice 4's adapter recipe.
+
+## Disposition (author, 2026-09-23)
+
+H1 carried out every item, in 25 commits from `b4ee5cc` to `9714510`. It was reviewed at
+standard depth (`design_review_h1-library-leverage_2026-09-23.md`), and that review's findings
+are fixed.
+
+| Item | Outcome | Commit(s) | Note |
+|---|---|---|---|
+| C1 | done | `296000b`, `22a3605` | Per clause through Pyrefly's `SysInfo`, and recursive (H1 review F1). Pilot: 206 → 213 static-branch bindings |
+| C2 | done | `24ed13d`, `3775538` | globset and walkdir; links refused; strict exclude coverage; ADR-0018. Pilot selection identical (same corpus release id) |
+| C3 | done | `591f1f8` | serde with `deny_unknown_fields` on `[tool.lctx]`/`[tool.lctx.source]` |
+| C4 | done | `5586df7`, `6a86716` | clap; `compile --reinstall`; `Id::from_hex`; anyhow |
+| C5 | done | `a2a5cc1` | csv |
+| C6, C7, C9 | done | `e7fe21e` | `git init --template=`; the config digest error; Pyrefly's own predicates |
+| C8 | done | `9beb798` | All `hash_into → ()` and sort mutants caught (mutation results in the H1 review's disposition) |
+| P1 | done | `4fd8fa2` | ADR-0016 |
+| P2, P5 | done | `92ecb32` | Validation 10.2 s → 0.9 s |
+| P3 | done | `2056a2d`, `abe379c` | Per-commit reads, checked against the commit's `lctx.snapshot_id`; ADR-0017 supersedes ADR-0009 |
+| P4 | done | `d5e0434` | |
+| P6 | done | `c3d6cab` | 272 → 235 MiB |
+| P7 | done | `6691eb0` | |
+| O1 | done | `2f1ca94`, `55f3143`, `9714510` | Quiet by default |
+| O2, O5 | done | `c700f40`, `55f3143` | `cargo shear`; an exact-pin check; ADR-0002 amendment |
+| O3, O4 | done | `6a86716` | |
+| D1–D5 | recorded | `fff5aa5` | ADR-0011 amended; DESIGN §B4, §5, §9.4–§9.6, §13; built by the consuming slices |
+| D6 | done | `bda9e3c` | Fork `a07b7bae` (`lctx/1.3.1-r3`) |
+| §5 stale claims | done | `92ecb32`, `2056a2d`, `fff5aa5`, `4fd8fa2` | |
+
+**Measured** (DESIGN §4.3): the pilot went from 45.0 s to 29.9–33.4 s, from a 7,587 to a
+3,640–3,649 MiB peak, and from a 272 to a 235 MiB store; the test suite from 225 s to about 85 s.

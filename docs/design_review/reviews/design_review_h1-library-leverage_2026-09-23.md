@@ -448,3 +448,30 @@ first new library.
 - The scope matches the implemented guarantees once §3.2 and §4.0 are narrowed or fixed.
 - Slice 4 has a validated path: the §5 adapter recipe is specified and cited to source, F9 names
   what it must still decide, and the reader contract becomes explicit once F2 and F4 land.
+
+## Disposition (author, 2026-09-23)
+
+Every finding is fixed, or recorded for the slice that owns it. The decision's narrowings are no
+longer needed: F1, F2 and F5 are fixed rather than narrowed.
+
+| # | Outcome | Commit | What changed | Oracle |
+|---|---|---|---|---|
+| F1 | fixed | `22a3605` | An `if` inside a pruned clause pushes no marks, so its bindings take the pruning clause's mark. `lex/branches.py` gains the probe's nested cases. `EXTRACTOR_OUTPUT_VERSION` 18 | **test** `static_polarity_is_pyrefly_recursive_pruning` (cpg-extract): every assignment binding against Pyrefly's recursive pruning; it fails on `nested_a` with the guard removed (checked) |
+| F2 | fixed | `abe379c` | `commit_adds` reads the commit's `commitInfo` and refuses a commit whose `lctx.snapshot_id` is not the snapshot being read (`ForeignCommit`). `--unpublished` uses `attempt_versions`, which finds each table's commit carrying the attempt's id; a table the attempt did not write is left out. DESIGN §4.0, §6.2 | **test** `a_rejected_attempt_is_inspected_at_its_own_commits`; `reads_pin_the_version_and_filter_the_snapshot` asserts the refusal |
+| F3 | fixed (prose; the table is not built) | `abe379c` | §6.2 scopes per-commit reads to snapshot-qualified tables; `embedding_cache` is read over all active files at its version. ADR-0017 records it | none today; the cache-reuse test when `embedding_cache` lands |
+| F4 | fixed | `abe379c`, `3775538` | ADR-0017 supersedes ADR-0009: the protocol carried forward, the reader contract, the invariant and its check, the global-table scope, and a new trigger. `just adr revisit` no longer lists the closed one. ADR-0018 records the corpus selection semantics (ADR-0013 gains a pointer line). The ADDENDUM §B4 row names our own PageRank | `just adr lint` (18 records) |
+| F5 | fixed | `3775538` | An exclude covers a directory link only when it names the link or matches any name under it (two unrelated probe names, one nested). `examples_exclude` and `tests_exclude` added. DESIGN §4.0, `libraries/README.md` | **test** `symlinks_in_a_tree_are_refused_unless_excluded`: `docs/**/_*` still refused; a tests link covered by `tests_exclude` |
+| F6 | fixed | `55f3143`, `9714510` | `cpg_extract::logging::DEFAULT_LOG_FILTER` quiets delta-rs's two known Binary-statistics warnings (writer and scan). Tables are created from an unloaded handle, so a fresh store logs no kernel errors. A pilot compile's stderr is uv's one line | **test** `the_default_filter_parses_and_quiets_the_known_stats_warning`; the pilot's stderr (checked) |
+| F7 | fixed | `55f3143`, `abe379c` | Figures in MiB as `lctx` prints them; "tracks the working set" (ADR-0016 amendment line); the patch is 54 changed lines (ADR-0012 correction line, pins); `read_at` on `empty_session`; the mutation results below | prose |
+| F8 | fixed | `55f3143` | Every `[workspace.dependencies]` entry is pinned exactly with a pins row. `check_family.py` fails on an entry without either; it found `base64`, `getrandom` and the pyrefly sub-crates unlisted, and rows were added | `just deps` |
+| F9 | recorded for the owning slices | `55f3143` | §5's arc order is total (it ends in `edge_id`). §9.5's input projection and parameters, and §9.4's pair-to-arcs lineage, are marked as owed by those slices | their specified tests, when built |
+| O1 | fixed (prose) | `55f3143` | §4.3: the canonical sort orders the in-memory batch, and readers sort | — |
+| O2–O6 | deferred | — | as this review's table | — |
+
+**Mutation results** (F7e):
+- At C8 (`9beb798`, before P4), `hash.rs` and `table.rs`: 24 mutants, 20 caught, 4 unviable.
+- In this review (after P4): 23 caught, 4 missed, 4 unviable. The 4 misses are the equivalent
+  mutants of O3 (the constant-key skip loop): they change speed, not order.
+
+**Checks** (2026-09-23): `just test-all` passed at `9714510`: nextest 107/107, pytest 21/21, rule
+tests 4/4, adr lint 18, family and exact-pin check, cargo deny, shear, gold.
