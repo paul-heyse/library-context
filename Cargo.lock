@@ -1164,6 +1164,7 @@ dependencies = [
  "ruff_python_ast",
  "ruff_source_file",
  "ruff_text_size",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",

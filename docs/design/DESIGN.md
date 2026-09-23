@@ -953,8 +953,9 @@ needs to be a dependency of this project.
   hermetically (every `GIT_*` variable removed, no system or global git configuration, no
   prompts; `git init`, a shallow fetch of the one commit, checkout, then `rev-parse HEAD` checked
   every time; no ambient git attributes, `core.autocrlf` off) into
-  `build/sources/<name>/<commit>`; **Tested** by a stub `git`. Unknown keys and non-list values
-  are refused, and each include glob must select a file. The corpus release's id hashes its label
+  `build/sources/<name>/<commit>`; **Tested** by a stub `git`. `pyproject.toml` is read through typed serde structs:
+  `[tool.lctx]` and `[tool.lctx.source]` refuse unknown keys (a misspelled `[tool.lctx.sourse]`
+  fails, naming it; H1 C3) and mistyped values, and each include glob must select a file. The corpus release's id hashes its label
   (`repository@commit`), the library's `release_id` (its vocabulary and the files it reaches) and
   every selected file's path, content and role. It runs in the library's environment under its own
   context (the tree ahead of site-packages on its search path, each entry relative to its root).

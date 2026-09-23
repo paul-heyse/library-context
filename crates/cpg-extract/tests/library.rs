@@ -273,5 +273,14 @@ fn the_docs_source_is_pinned_and_names_the_locked_version() {
         ),
     )
     .unwrap();
+    refused(&a, "missing field `commit`");
+    std::fs::write(
+        &pyproject,
+        text.replace(
+            "commit = \"0123456789abcdef0123456789abcdef01234567\"",
+            "commit = \"0123abc\"",
+        ),
+    )
+    .unwrap();
     refused(&a, "must pin `commit`");
 }

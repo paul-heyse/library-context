@@ -22,6 +22,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cpg_schema::codebook::SourceRole;
 use cpg_schema::id::{Digest, IdHasher, content_digest, kind};
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
+use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 
 use crate::ExtractError;
@@ -96,82 +97,109 @@ fn read(path: &Path) -> Result<String, ExtractError> {
     std::fs::read_to_string(path).map_err(|e| fail(format!("{}: {e}", path.display())))
 }
 
+/// `pyproject.toml` as Stage A reads it (H1 C3). `[tool.lctx]` and its `source` table are ours and
+/// refuse unknown keys, so a misspelling (`[tool.lctx.sourse]`) fails, naming it, instead of
+/// silently disabling what it names; `[project]` and other tools' tables belong to their owners
+/// and stay open.
+#[derive(Deserialize)]
+struct PyProject {
+    project: Project,
+    tool: Tools,
+}
+
+#[derive(Deserialize)]
+struct Project {
+    dependencies: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct Tools {
+    lctx: Lctx,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Lctx {
+    release: Vec<String>,
+    source: Option<Source>,
+}
+
 /// The library definition: `[project].dependencies[0]`, `[tool.lctx]`.
 struct Definition {
     requirement: String,
     release: Vec<String>,
-    source: Option<toml::Table>,
+    source: Option<Source>,
+}
+
+fn parse_definition(text: &str) -> Result<Definition, String> {
+    let p: PyProject = toml::from_str(text).map_err(|e| e.to_string())?;
+    let [requirement] = <[String; 1]>::try_from(p.project.dependencies)
+        .map_err(|_| "[project] dependencies must be one requirement".to_owned())?;
+    let release: Vec<String> = p.tool.lctx.release.iter().map(|r| normalize(r)).collect();
+    if release.is_empty() {
+        return Err("[tool.lctx] release must name distributions".to_owned());
+    }
+    Ok(Definition {
+        requirement,
+        release,
+        source: p.tool.lctx.source,
+    })
 }
 
 fn definition(library_dir: &Path) -> Result<Definition, ExtractError> {
     let path = library_dir.join("pyproject.toml");
-    let t = read(&path)?
-        .parse::<toml::Table>()
-        .map_err(|e| fail(format!("{}: {e}", path.display())))?;
-    let requirement = t
-        .get("project")
-        .and_then(|p| p.get("dependencies"))
-        .and_then(|d| d.as_array())
-        .and_then(|d| match d.as_slice() {
-            [one] => one.as_str().map(str::to_owned),
-            _ => None,
-        })
-        .ok_or_else(|| fail("pyproject.toml: [project] dependencies must be one requirement"))?;
-    let lctx = t.get("tool").and_then(|t| t.get("lctx"));
-    let release = lctx
-        .and_then(|l| l.get("release"))
-        .and_then(|r| r.as_array())
-        .map(|r| {
-            r.iter()
-                .filter_map(|v| v.as_str().map(normalize))
-                .collect::<Vec<_>>()
-        })
-        .filter(|r| !r.is_empty())
-        .ok_or_else(|| fail("pyproject.toml: [tool.lctx] release must name distributions"))?;
-    let source = lctx
-        .and_then(|l| l.get("source"))
-        .and_then(|s| s.as_table())
-        .cloned();
-    Ok(Definition {
-        requirement,
-        release,
-        source,
-    })
+    parse_definition(&read(&path)?).map_err(|e| fail(format!("{}: {e}", path.display())))
+}
+
+/// `uv.lock`, as far as Stage A reads it. uv owns the format, so unknown keys pass.
+#[derive(Deserialize)]
+struct Lock {
+    #[serde(default)]
+    package: Vec<LockPackage>,
+}
+
+#[derive(Deserialize)]
+struct LockPackage {
+    name: String,
+    version: Option<String>,
+    source: Option<LockSource>,
+    #[serde(default)]
+    wheels: Vec<LockArtifact>,
+    sdist: Option<LockArtifact>,
+}
+
+#[derive(Deserialize)]
+struct LockSource {
+    #[serde(rename = "virtual")]
+    virtual_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LockArtifact {
+    hash: Option<String>,
 }
 
 /// Name → (version, sorted artifact sha256s) from `uv.lock`, skipping the virtual project.
 fn lock(bytes: &str) -> Result<BTreeMap<String, (String, Vec<String>)>, ExtractError> {
-    let t = bytes
-        .parse::<toml::Table>()
-        .map_err(|e| fail(format!("uv.lock: {e}")))?;
+    let lock: Lock = toml::from_str(bytes).map_err(|e| fail(format!("uv.lock: {e}")))?;
     let mut out = BTreeMap::new();
-    for p in t
-        .get("package")
-        .and_then(|p| p.as_array())
-        .into_iter()
-        .flatten()
-    {
-        let (Some(name), Some(version)) = (
-            p.get("name").and_then(|v| v.as_str()),
-            p.get("version").and_then(|v| v.as_str()),
-        ) else {
+    for p in lock.package {
+        let Some(version) = p.version else {
             continue;
         };
-        if p.get("source").and_then(|s| s.get("virtual")).is_some() {
+        if p.source.is_some_and(|s| s.virtual_path.is_some()) {
             continue;
         }
         let mut artifacts: Vec<String> = p
-            .get("wheels")
-            .and_then(|w| w.as_array())
-            .into_iter()
-            .flatten()
-            .chain(p.get("sdist"))
-            .filter_map(|a| a.get("hash").and_then(|h| h.as_str()))
+            .wheels
+            .iter()
+            .chain(&p.sdist)
+            .filter_map(|a| a.hash.as_deref())
             .filter_map(|h| h.strip_prefix("sha256:").map(str::to_owned))
             .collect();
         artifacts.sort();
         artifacts.dedup();
-        out.insert(normalize(name), (version.to_owned(), artifacts));
+        out.insert(normalize(&p.name), (version, artifacts));
     }
     Ok(out)
 }
@@ -240,20 +268,20 @@ fn installed(site_packages: &Path) -> Result<BTreeMap<String, (String, PathBuf)>
 /// `[tool.lctx.source]`, when declared, pins the upstream tree by a full commit, and its tag names
 /// the locked version of the requested distribution (so docs never drift from code).
 fn check_source(
-    source: Option<&toml::Table>,
+    source: Option<&Source>,
     requested: &str,
     locked: &BTreeMap<String, (String, Vec<String>)>,
 ) -> Result<(), ExtractError> {
     let Some(source) = source else {
         return Ok(());
     };
-    let commit = source.get("commit").and_then(|c| c.as_str()).unwrap_or("");
+    let commit = source.commit.as_str();
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(fail(
             "[tool.lctx.source] must pin `commit` as 40 hex digits",
         ));
     }
-    let tag = source.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+    let tag = source.tag.as_str();
     let version = locked.get(requested).map(|(v, _)| v.as_str()).unwrap_or("");
     if version.is_empty() || !tag.contains(version) {
         return Err(fail(format!(
@@ -445,68 +473,29 @@ mod tests {
 /// A library's upstream tree (`[tool.lctx.source]`, C5): where it is, at which commit, and which of
 /// its files are the corpus. The selections are globs from the tree's root: `**` spans
 /// directories, `*` stays within one name.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Source {
     pub repository: String,
     pub tag: String,
     pub commit: String,
+    #[serde(default)]
     pub documents: Vec<String>,
+    #[serde(default)]
     pub documents_exclude: Vec<String>,
     /// Official example code (`source_role` `example`, ADR-0015).
+    #[serde(default)]
     pub examples: Vec<String>,
     /// The library's own tests (`source_role` `test`).
+    #[serde(default)]
     pub tests: Vec<String>,
 }
 
-/// The declared `[tool.lctx.source]`, checked as Stage A checks it; `None` when not declared.
+/// The declared `[tool.lctx.source]`, checked as Stage A checks it; `None` when not declared. Its
+/// keys are typed (a string where a list belongs is refused) and unknown ones are refused (C5 review
+/// F5; H1 C3).
 pub fn source(library_dir: &Path) -> Result<Option<Source>, ExtractError> {
-    let def = definition(library_dir)?;
-    let Some(t) = def.source else {
-        return Ok(None);
-    };
-    let text = |key: &str| {
-        t.get(key)
-            .and_then(|v| v.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| fail(format!("[tool.lctx.source] needs `{key}`")))
-    };
-    // A misspelled key or a string where a list belongs would select nothing silently (C5
-    // review F5), so both are refused.
-    const KEYS: &[&str] = &[
-        "repository",
-        "tag",
-        "commit",
-        "documents",
-        "documents_exclude",
-        "examples",
-        "tests",
-    ];
-    if let Some(unknown) = t.keys().find(|k| !KEYS.contains(&k.as_str())) {
-        return Err(fail(format!(
-            "[tool.lctx.source] has an unknown key `{unknown}`"
-        )));
-    }
-    let list = |key: &str| -> Result<Vec<String>, ExtractError> {
-        let Some(v) = t.get(key) else {
-            return Ok(Vec::new());
-        };
-        v.as_array()
-            .and_then(|a| a.iter().map(|x| x.as_str().map(str::to_owned)).collect())
-            .ok_or_else(|| {
-                fail(format!(
-                    "[tool.lctx.source] `{key}` must be a list of globs"
-                ))
-            })
-    };
-    Ok(Some(Source {
-        repository: text("repository")?,
-        tag: text("tag")?,
-        commit: text("commit")?,
-        documents: list("documents")?,
-        documents_exclude: list("documents_exclude")?,
-        examples: list("examples")?,
-        tests: list("tests")?,
-    }))
+    Ok(definition(library_dir)?.source)
 }
 
 /// A tree walked once (H1 C2): every file outside dot-directories, relative (`/`-separated) and
@@ -762,5 +751,54 @@ mod glob_tests {
         assert!(nested("docs", "docs/api"));
         assert!(!nested("examples/x", "docs"));
         assert!(nested("anything", ""));
+    }
+}
+
+#[cfg(test)]
+mod definition_tests {
+    use super::{lock, parse_definition};
+
+    const BASE: &str =
+        "[project]\nname = \"x\"\ndependencies = [\"pkg==1\"]\n\n[tool.uv]\npackage = false\n\n";
+
+    fn parsed(tail: &str) -> Result<super::Definition, String> {
+        parse_definition(&format!("{BASE}{tail}"))
+    }
+
+    #[test]
+    fn the_pilot_definition_and_lock_read_as_before() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../libraries/fastmcp");
+        let def = parse_definition(&std::fs::read_to_string(dir.join("pyproject.toml")).unwrap())
+            .unwrap();
+        assert_eq!(def.release, ["fastmcp", "fastmcp-slim", "fastmcp-tasks"]);
+        let source = def.source.unwrap();
+        assert_eq!(source.tag, "v4.0.5");
+        assert_eq!(source.tests, ["tests/**/*.py"]);
+        let locked = lock(&std::fs::read_to_string(dir.join("uv.lock")).unwrap()).unwrap();
+        assert_eq!(locked.len(), 108);
+        assert!(locked.values().all(|(_, hashes)| !hashes.is_empty()));
+    }
+
+    /// A misspelled table or key names itself instead of silently disabling the corpus (H1 C3).
+    #[test]
+    fn unknown_lctx_keys_and_mistyped_values_are_refused() {
+        let err =
+            parsed("[tool.lctx]\nrelease = [\"pkg\"]\n\n[tool.lctx.sourse]\nrepository = \"r\"\n")
+                .err()
+                .unwrap();
+        assert!(err.contains("sourse"), "{err}");
+        let src = "[tool.lctx]\nrelease = [\"pkg\"]\n\n[tool.lctx.source]\nrepository = \"r\"\ntag = \"t\"\ncommit = \"c\"\n";
+        let err = parsed(&format!("{src}usage = [\"x\"]\n")).err().unwrap();
+        assert!(err.contains("usage"), "{err}");
+        let err = parsed(&format!("{src}documents = \"docs/**\"\n"))
+            .err()
+            .unwrap();
+        assert!(
+            err.contains("documents") || err.contains("sequence"),
+            "{err}"
+        );
+        let err = parsed("[tool.lctx]\nrelease = []\n").err().unwrap();
+        assert!(err.contains("release"), "{err}");
+        assert!(parsed(&format!("{src}documents = [\"docs/**\"]\n")).is_ok());
     }
 }
