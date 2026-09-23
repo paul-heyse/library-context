@@ -491,7 +491,7 @@ declaration, and an AST node is not an execution point.
 | `lexical` | **Implemented and Tested (C3; revised by its compact review).** Raw, from our recognizer (surface `lctx-lexical`, `recognizer`, inside the Ruff walk): `scopes` (module, class, function, lambda, comprehension; owner, and parent = the scope the scope's position evaluates in, so a lambda in a default or decorator belongs to the enclosing scope), `bindings` (every binding event per scope, ordinals in source order: kind, site, span, the assigned value's span, and the innermost branch Pyrefly decides statically that it sits in: the deciding test's kind (`type_checking`, `version_info`, `platform`, `constant`, `combined`) and whether Pyrefly analyzes or prunes that branch, clause by clause exactly as `SysInfo::pruned_if_branches` decides, recursively: an `if` inside a pruned clause is never walked, so its bindings take the pruning clause's mark (H1 C1, H1 review F1: `SysInfo::evaluate_bool` per clause, the kind from the expression tree; `static_marks_agree_with_pyrefly_pruning` checks every fixture `if`, and `static_polarity_is_pyrefly_recursive_pruning` every assignment binding, against Pyrefly's own pruning, nested cases included); every event under `global`/`nonlocal` binds in the declared scope, a `nonlocal` target decided once every binding is known; a repeated name in one declaration is one event; the module's implicit globals and a method's `__class__` cell are `implicit` events), `references` (every name load outside annotations, and an augmented assignment's target, which reads before it binds; a role of its placed name, with its parent and field; nothing inside an annotation opens a scope or binds), `reference_resolutions` (Python's scoping rules as modelled: the scope's own bindings, else the nearest enclosing function scope with class scopes skipped, else the module, else the star imports whose wildcard set holds the name, else a builtin; comprehension first iterables and function defaults in the enclosing scope; walrus in the nearest non-comprehension scope; flow-insensitive candidates, except that a module or class body reading a name it binds only later also reads it from outside, as `LOAD_NAME` does; a builtin names itself, a builtin variable reads `variable_origin`, anything else `unresolved_target`). Every name set from outside the module's text is Pyrefly's: its `ImplicitGlobal` set, its `builtins` definitions that are real public names, each star import's `Transaction::get_wildcard` set (a star module Pyrefly cannot find stays a candidate for any otherwise unbound name). **Not modelled:** PEP 695 annotation scopes (class and alias type parameters), the implicit unbinding at the end of an `except … as` handler (C3 review O4, O5, deferred). `export_syntax.resolved_module` is each import's absolute module by Pyrefly's own `ModuleName::new_maybe_relative`. Derived: `identifier_targets` (Pysa's identifier sites → the reference at their span → typed target), `import_targets` (each import → the release or dependency module it names; `unresolved_target` only where Pyrefly's finder says not found, a `context_modules` row of origin `not_found`, or where the import climbs past the top package). Consumers: Pass B binding order (§4.2.4), Pass C bindings and values, the import graph, `if_called` targets, variable exports | C3 |
 | `types` | **Implemented and Tested (C4; revised by its compact review).** Raw, from Pyrefly's native types (surface `pyrefly-types`, `native_structural`). `type_terms`: one row per distinct term, its id a Merkle hash over Pyrefly's own structure and identities (kind, detail, class pair, children with their roles; §3.4.1); the display is a label, and only a display-only kind (`other`, `truncated`) hashes it. Two structures that share an id but differ in kind, detail or display fail `unique:type_terms` (several runs may observe one term; `nodes` keeps it once). A class is a (module ref, class key) pair, an enum member keeps its class, and a recursive alias is a reference to its name, so a term is finite; a depth cap (32) makes that a guarantee. A type variable's id is Pyrefly's own identity (`QuantifiedIdentity`), so one variable is one term wherever it is observed and two unrelated `T`s are two; its bound, constraints and default are its children (`type_arg_role` `bound`, `constraint`, `default`). `type_term_kind` maps every `Type` variant by an exhaustive match; solver-internal and experimental variants are `other` (`display_only`). `type_term_args`: each child at its role and ordinal; a callable parameter carries its name, kind and requiredness. `type_observations` (§3.5.1): each parameter's type, each `def`'s return (`Key::ReturnType`; an annotated one is the annotation, §3.5.1), each call's result, each argument's value and each `raise`'s exception (Pyrefly's expression trace at the exact span; calls in annotations excluded). A subject Pyrefly records no type for (a `TypeVar(...)` declaration, a call in a lambda body, a branch Pyrefly skips for the platform) is a `types` boundary (`missing_evidence`) and the module's coverage is `partial`; a bare `raise` has no exception to type. `record_fields`: the fields a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple` declares itself (an inherited field a subclass assigns in a method stays its base's), with the flags as the field states them (default, `init`, alias and `kw_only` through `ClassField::dataclass_flags_of`; `TypedDict` required and read-only); the constructor they imply is Pyrefly's synthesized `__init__`, a `synthetic_callable` with its `parameter_semantics`. Derived: `type_class_targets` (each term's class → a release class or dependency definition; a miss is our failure, never a reason) and `type_binders` (each source-anchored variable → the innermost release declaration, type-alias or assignment statement holding Pyrefly's scope anchor, a joined fact; `scope_boundary` for an anchor outside the release). Consumers: Pass C type compatibility, FCA parameter, return and raised types. Controls from record fields are **not yet read**: Pass B follows parameters only (C4 O3, deferred until a seed's controls are a record's fields) | C4 |
 | `docs` | **Implemented and Tested (C5a, C5b).** A corpus run over the library's upstream tree at its pinned commit (§4.0), in the library's environment; its search path is the tree, then site-packages (the library run's search path), so a module both runs import is one file. Raw, parsed by markdown-rs 1.0 (MDX constructs and frontmatter; byte offsets, probe P5): `documents` (each selected file: path, digest, frontmatter title, whether it parsed; one that does not parse is `unavailable` with markdown-rs's message), `passages` (each top-level heading's section to the next, so a document's passages partition it, with level, heading and heading path; the text before the first heading is passage 0), `code_blocks` (fenced blocks at any depth, MDX components included: language, meta, code, digest; each in the passage its start falls in) and `doc_links` (URL, title, text). `mentions` (our recognizer, `lctx-docs`) against the library run's public names and declarations, two classes never merged: `exact` for inline code (or a dotted prose token) that is a public access path, an origin path or a public class's member (`FastMCP.tool`); `lexical` for inline code that is a bare public name of a class, function, method or module, or such a name in prose when it is distinctive (an underscore, or two capitals and a lower-case letter), one `candidate` per origin (re-exports collapse to the shortest access path). Embedding-based linking is §9.7's. Derived: `mention_targets` (→ the `export` node, or the member's release declaration by the seed rank). Consumers: exact doc links to APIs and extractive brief text, §9.4 co-mention. **The usage run (C5b)** is the same corpus run's code: the selected examples and tests, and every Python code block materialized as a module of its own (`_lctx_blocks/d_<document>/block_<n>.py`, named in `code_blocks.module_path`), with every code family but `exports`. The corpus names each installed file the release's distributions own by the library run's own site-relative `@path` (C5 review F2), so a usage call's target is the release's own declaration or synthetic callable (the same Pysa key, probe P4), a release class is one type term whichever run observes it, and an import of a library module targets the library's module node. A tree that holds its own copy of the package ahead of the installed one (a flat layout) would cut the usage code off the release, so it fails the compile, naming the module. Consumers: Pass C examples and tests, §10.3–§10.5 usage patterns, §9.4 co-use. Each usage module's text and role are in `source_files` (ADR-0015, closing C6 review F2), so a snippet and whether it is an example, a test or a doc block are read from Delta alone | C5 |
-| `findings` | ADR-0019 (contracts in `cpg_schema::findings`; provenance in-row, no `fact_id`; not a coverage unit; outside the `nodes`/`edges` catalogs): `analysis_invocations` (method, parameters as canonical JSON, projection digest, seed, diagnostics), `findings`, `finding_members`, `witnesses` (path steps keyed by node ids, `edge_id` as lineage), `evidence` (evidence_id → one of: fact, span, passage, example, fixture run, with resolved text), `assertions`, `assertion_support` (assertion → finding / evidence, role `support` or `scope`), `briefs` (with `review_state`, outside `brief_id`), `brief_assertions`, `brief_members`, `brief_documents`, `assertion_policy`; `usage_patterns` with Pass C | 1 |
+| `findings` | ADR-0019 (contracts in `cpg_schema::findings`; provenance in-row, no `fact_id`; not a coverage unit; outside the `nodes`/`edges` catalogs): `analysis_invocations` (method, parameters as canonical JSON, projection digest, seed, diagnostics), `findings`, `finding_members`, `witnesses` (path steps keyed by node ids, `edge_id` as lineage), `evidence` (evidence_id → one of: fact, span, passage, example, fixture run, with resolved text), `assertions`, `assertion_support` (assertion → finding / evidence, role `support` or `scope`), `briefs` (with `review_state`, outside `brief_id`), `brief_assertions`, `brief_members`, `brief_documents`, `assertion_policy`. A usage pattern is a `usage_pattern` assertion, not a table (D24) | 1 |
 
 Deferred: CFG, dataflow and alias tables (§1.3, §13). Type structure and `record_fields` are built in C4 (ADR-0014).
 
@@ -1945,27 +1945,41 @@ deviation log D17, D18, D26):
   - resource boundaries.
 
   Type compatibility alone is a `candidate`, never a published pattern.
-- **Output.** A `handoff` finding with example id, region, producer call, consumer call, binding,
-  consumer argument and status.
+- **Output.** A `handoff` finding per (other callable, consumer formal), with its status, its
+  occurrence count as score, and its first occurrences' producer and consumer sites (slice 2.2
+  review O2: the region and binding are the sites' statements).
 
-**Implemented** and **Tested** in slice 2.2 (2026-09-23; deviation log D24, D25):
+**Implemented** and **Tested** in slice 2.2, revised by its compact review (2026-09-23; deviation
+log D24, D25, D30):
 - **Relation.** A declared relation (`cpg_schema::flows::handoffs_sql`) over the official examples,
-  tests and doc blocks. It holds each occurrence of:
-  - `x = producer(...)` then `consumer(..., x)`, in a later statement of the same block, with the
-    call as that statement's value (awaited or not). `x` must be bound once and read once, except
-    as a receiver;
+  tests and doc blocks. Producer and consumer are both callables the release declares, never a
+  helper the usage code defines itself (review F2). It holds each occurrence of:
+  - `x = producer(...)`, the statement's only target, then `consumer(..., x)`, in a later
+    statement of the same block, with the call as that statement's value (awaited or not). `x`
+    must be bound once and read once, except as a receiver;
   - or `consumer(..., producer(...))`.
-  - The argument maps to a formal as a Pass B flow's does.
-- **Setup is not a consumer.** A read of `x` as a receiver (`x.method()`, `@x.tool`) configures
-  the produced object (D25). A second argument use, a return, a store or a reassignment rejects
-  the occurrence, and so does a `with` item.
+  - The argument maps to a formal by the mapping fragment Pass B shares (`maps_formal`).
+- **Setup is not a consumer.** A read of `x` as the object of a called attribute or a decorator
+  (`x.method()`, `@x.tool`) configures the produced object (D25, narrowed by review F4). A second
+  argument use, any other attribute read, a return, a store or a reassignment rejects the named
+  occurrence, and so does a `with` item. The nested form is counted wherever it occurs (review O5).
+- **Paths.** A doc block is named by its document and fence number (`docs/x.mdx, code block 3`),
+  never by the module the compiler materialized it as (review F5; `flows::usage_files_sql`,
+  checked by `semantic:no-materialized-block-path`).
 - **Kernel.** `lctx_analytics::pass_c` groups occurrences per `(other callable, formal)` into one
   `handoff` finding. Its score is the count. Its members are the formal and three occurrences:
   examples first, then doc blocks, then tests.
 - **Tests.** `handoffs_and_usage_patterns_come_from_official_code` covers a named handoff after a
-  receiver use and a nested one (counted), and two consumers and a reassignment (not counted).
-- **Pilot (Measured, 2026-09-23).** FastMCP → `FastMCP.mount(server=…)` has 156 occurrences, and
-  `require_scopes(...)` → `FastMCP.tool(auth=…)` 24.
+  receiver use and a nested one (counted), and two consumers, a reassignment, a usage-defined
+  helper, a chained assignment and a passed-on attribute (not counted).
+  `pass_c_and_usage_patterns_are_identical_across_location_and_module_order` (review F6).
+- **Pilot (Measured, 2026-09-23, snapshot `8a882a72`, after the review).** 205 seed occurrences
+  in 7 handoff findings, all between release callables: `FastMCP(...)` → `FastMCP.mount(server=…)`
+  153 (156 before one-target producers and the narrowed receiver rule), `require_scopes(...)` →
+  `FastMCP.tool(auth=…)` 24, `create_proxy(...)` → `mount` 13. The three findings on usage-defined
+  helpers (`require_tenant`, `require_access_level`, `two_question_server`) are gone. Every seed
+  has a pattern; doc blocks are named by document and fence (`docs/servers/authorization.mdx,
+  code block 10`), and `custom_route`'s pattern now comes from a test that imports what it reads.
 
 ### §9.4 Community detection
 
@@ -2234,6 +2248,8 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | `transformed_control` (2.1) | Important controls | Pass B `transformed_argument` | structurally_observed |
 | `restriction` (2.1) | Limits and prerequisites | Pass B `conditional_raise`, with the test's and raise's syntax facts and the path qualifiers | structurally_observed (documented only with precondition documentation, from 3.4 with its rule; review F7) |
 | `unfollowed_control` (2.1 review) | Limits and prerequisites | Pass B `unfollowed_argument`, per seed parameter | structurally_observed |
+| `usage_pattern` (2.2) | Usage pattern | `cpg_core::usage`: a verbatim statement subset of official usage code, its `example` spans, and each handoff it shows | documented, fixture_checked |
+| `handoff` (2.2) | Usage pattern | Pass C `handoff`: the other callable, the formal and the occurrence count | structurally_observed |
 | `analysis_boundary` | Limits and prerequisites | `boundaries` on the seed's neighbourhood | structurally_observed |
 | `related` | Related | community co-membership, page rank | statistically_derived |
 
@@ -2311,7 +2327,9 @@ a.evidence_status = 4 GROUP BY p.brief_section ORDER BY 1`.
 These are mechanical and run before publication.
 - Every named public symbol and parameter exists in this snapshot.
 - Every cited finding, witness path and evidence id exists in this snapshot.
-- Every snippet parses and refers only to existing public APIs.
+- Every snippet parses, and every name it loads is bound in it, imported by it or a builtin (§10.5).
+  Whether each imported API exists is the release's to say: a pattern is verbatim official code
+  (slice 2.2 review F1(d), narrowed).
 - No assertion's status exceeds its evidence (see the §10.2 rule).
 - Warnings and unresolved conditions are never dropped for length. An over-long brief is split by
   applicable case instead.
@@ -2332,19 +2350,24 @@ Repository text is treated as untrusted data. It is never an instruction to the 
   executed fixture.
 - **Fixtures** run offline, with no network or credentials. A pass supports only the tested case.
 
-**Implemented** and **Tested** in slice 2.2 (2026-09-23; `cpg_core::usage`; deviation log D24):
+**Implemented** and **Tested** in slice 2.2, revised by its compact review (2026-09-23;
+`cpg_core::usage`; deviation log D24, D30):
 - **Selection.** Candidates are the seed's call and decorator sites in official examples, then doc
-  blocks, then tests. A handoff site comes first within its role, and then the smallest wins.
-- **The pattern.** It is the statement holding the site plus, transitively, the same-block
-  statements before it that bind a name it reads, and the imports binding one. A candidate that
-  reads a name bound anywhere else is not self-contained and is refused.
-- **Publication.** Each statement is dedented by its own indentation, and the code must parse
-  (Ruff) at publication. `lctx_mcp.smoke` parses every served pattern again.
+  blocks, then tests; within a role a handoff's sites are tried first. The pattern that shows a
+  whole handoff occurrence (producer and consumer site) wins within its role, then the smallest.
+- **The pattern.** It is the statement holding the site, in a module or function body only (never
+  under a `with`, `if`, loop or `try` header it would drop, such as `with pytest.raises`), plus,
+  transitively, the same-block statements before it that bind a name it reads, and the imports
+  binding one. A candidate that reads a name bound anywhere else, or bound nowhere (neither a
+  binding nor a builtin: a continuation doc block's, C5 O2), is not self-contained and is refused.
+- **Publication.** Each statement is dedented by its own indentation. The code must parse (Ruff),
+  and every name it loads, annotations included, must be bound in it, imported by it or a builtin
+  of the analyzed Python (`ruff_python_stdlib`); otherwise the candidate is refused (review F1).
+  `lctx_mcp.smoke` parses every served pattern again.
 - **Assertion.** The pattern is a `usage_pattern` assertion (`documented`) citing each
-  statement's `example` span verbatim, and the handoff it shows. Its code enters the brief
-  document as §11.1's usage description.
-- **Not modelled:** a name read only in an annotation is C4's, not a reference, so its import is
-  not added. The pattern still parses, but would fail at definition time.
+  statement's `example` span verbatim, and each handoff it shows whole (review F3;
+  `semantic:usage-pattern-shows-its-handoff`). Its code enters the brief document as §11.1's
+  usage description.
 
 > Decision: ADR-0005, ADR-0019
 
@@ -2599,3 +2622,6 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Increment-1 deep review fixes: the template version in `compiler_digest` (§3.4.1); the fusion policy and pre-registered retrieval evaluation (§11.2); absent slot sections served (§10.3); the budget enforced and `serve_unreviewed` removed; truthful call-site, may-call and definition templates; a raw-pipe stdio test; the gold freeze at 1.9 | ADR-0004, ADR-0010, ADR-0019 |
 | 2026-09-23 | Slice 2.2: Pass C (`cpg_schema::flows::handoffs_sql`, `lctx_analytics::pass_c`) and usage patterns (`cpg_core::usage`), the `usage_pattern` and `handoff` kinds (§9.3, §10.2, §10.5) | ADR-0019 (amended) |
 | 2026-09-23 | Slice 2.1 compact review fixes: the path-qualifier rule, handler (`try`/`with`), conditional and tested calls, `unfollowed_argument` and `unfollowed_control`, supported predicates, receivers by the declaration's kind, one mapping fragment, header-anchored and extended parameter descriptions; §4.2.4's trace; `control` and `restriction` narrowed to `structurally_observed` (§3.2, §4.2.4, §9.2, §10.2) | ADR-0019; deviation log D26, D27 |
+| 2026-09-23 | Slice 2.3: communities (`cpg_schema::communities`, `lctx_analytics::communities`; leiden-rs RBER consensus), `analysis_invocations.diagnostics` (§3.2, §9.4) | ADR-0011 (amended); deviation log D28 |
+| 2026-09-23 | Slice 2.4: centrality (`lctx_analytics::ranking`, weighted PageRank over the usage projection) (§9.5) | ADR-0011; deviation log D29 |
+| 2026-09-23 | Slice 2.2 compact review fixes: release handoff endpoints, one-target producers, the narrowed receiver rule, doc blocks by document, self-contained usage patterns (block and free-name checks), citations of shown handoffs only; two rules; §10.2 rows for `usage_pattern` and `handoff`; §3.2, §9.3, §10.4, §10.5 (§3.2, §9.3, §10.2, §10.4, §10.5) | ADR-0019 (dated amendment); deviation log D30 |

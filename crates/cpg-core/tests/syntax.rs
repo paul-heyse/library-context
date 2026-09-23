@@ -983,15 +983,15 @@ budget = 2
     assert!(checked.iter().any(|t| t.contains('\n')), "{checked:?}");
 }
 
-/// Pass C and usage patterns (DESIGN §9.3, §10.5) on a corpus. A named handoff with a receiver
-/// use before it, and a nested one, are counted; a binding read by two consumers and a reassigned
-/// one are not. The pattern is the smallest self-contained official example, with its import,
-/// and it cites the handoff it shows.
-#[tokio::test(flavor = "multi_thread")]
-async fn handoffs_and_usage_patterns_come_from_official_code() {
+/// `docs_shapes` with its usage modules as official examples, compiled with the analytics config
+/// at `sub` under a temporary directory, module order reversed or not.
+async fn docs_shapes_analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join(sub);
+    std::fs::create_dir_all(&base).unwrap();
     let s = Id([7; 16]);
-    let input = corpus_input(dir.path(), s, &[("usage", "examples")]);
+    let mut input = corpus_input(&base, s, &[("usage", "examples")]);
+    input.test_hooks.reverse_module_order = reverse;
     let out = extract(&input).unwrap();
     let analysis = cpg_core::analyze::Analysis {
         config: lctx_analytics::config::AnalyticsConfig::parse(
@@ -1002,24 +1002,37 @@ module_prefixes = ["pkg.core"]
 public_roots = ["pkg"]
 [seeds]
 primary = ["pkg.Server.tool"]
-distractors = ["pkg.make_server"]
+distractors = ["pkg.make_server", "pkg.Server.stop"]
 [pass_a]
 max_depth = 2
 max_vertices = 128
 max_edges = 512
 max_witnesses = 3
 [briefs]
-budget = 2
+budget = 3
 "#,
         )
         .unwrap(),
         embedder: None,
     };
-    let store = dir.path().join("store");
+    let store = base.join("store");
     cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis))
         .await
         .unwrap();
     let (_, ctx) = published(&store, s).await.unwrap().unwrap();
+    (ctx, dir)
+}
+
+/// Pass C and usage patterns (DESIGN §9.3, §10.5) on a corpus. A named handoff with a receiver
+/// use before it, and a nested one, are counted; a binding read by two consumers, a reassigned
+/// one, a helper the usage code defines, a chained assignment and a binding whose attribute is
+/// passed on are not (slice 2.2 review F2, F4). The pattern is the smallest self-contained
+/// official example that shows a whole handoff, with its import, and it cites only a handoff it
+/// shows (F3). A seed whose only uses sit under a `with` or read an unbound name has no pattern
+/// (F1).
+#[tokio::test(flavor = "multi_thread")]
+async fn handoffs_and_usage_patterns_come_from_official_code() {
+    let (ctx, _dir) = docs_shapes_analyzed("one", false).await;
     let handoffs = lines(
         &ctx,
         "SELECT sd.qualified_name, od.qualified_name, CAST(f.score AS BIGINT), m.label \
@@ -1043,32 +1056,94 @@ budget = 2
          WHERE a.assertion_kind = 9 GROUP BY b.title, a.evidence_status, a.text ORDER BY b.title",
     )
     .await;
-    // The smallest pattern among the handoff's sites: the nested one, with its setup.
-    assert!(
-        patterns.contains(
-            "pkg.Server.tool | 1 | From `examples/handoff.py`:\n```python\n\
-             from pkg import make_server\nprimary = make_server(\"primary\")\n\
-             primary.tool(make_server(\"nested\"))\n``` | 1"
-        ),
-        "{patterns}"
-    );
-    // The producer's pattern is one of its handoff's sites too, and cites it.
-    assert!(
-        patterns.contains(
-            "pkg.make_server | 1 | From `examples/handoff.py`:\n```python\n\
-             from pkg import make_server\nhelper = make_server(\"helper\")\n``` | 1"
-        ),
-        "{patterns}"
-    );
-    // The community layers (§9.4): the usage code co-uses three subsystem callables, so the
-    // co-use layer has their three pairs; three vertices give only degenerate partitions, so
-    // nothing is chosen or reported.
+    // The smallest pattern that shows a whole handoff: the nested one, with its setup. The
+    // producer's pattern is the same, since a pattern cut at a named producer would not show its
+    // consumer.
+    for seed in ["pkg.Server.tool", "pkg.make_server"] {
+        assert!(
+            patterns.contains(&format!(
+                "{seed} | 1 | From `examples/handoff.py`:\n```python\n\
+                 from pkg import make_server\nprimary = make_server(\"primary\")\n\
+                 primary.tool(make_server(\"nested\"))\n``` | 1"
+            )),
+            "{patterns}"
+        );
+    }
+    assert!(!patterns.contains("pkg.Server.stop"), "{patterns}");
+    // The community layers (§9.4): the usage code co-uses the subsystem callables, so the co-use
+    // layer has their pairs; four vertices give only degenerate partitions, so nothing is chosen
+    // or reported.
     let consensus = lines(
         &ctx,
         "SELECT diagnostics FROM analysis_invocations WHERE method = 4",
     )
     .await;
-    assert!(consensus.contains("\"co_use_pairs\":3,"), "{consensus}");
     assert!(consensus.contains("\"chosen_gamma\":null,"), "{consensus}");
+    insta::assert_snapshot!("docs_shapes_consensus", consensus);
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    // Each rule the review added rejects an injected violation.
+    for table in ["assertions", "evidence"] {
+        let published = ctx.table(table).await.unwrap();
+        ctx.register_table(format!("{table}_published").as_str(), published.into_view())
+            .unwrap();
+    }
+    let rules = cpg_schema::rules::rules();
+    for (rule, table, view) in [
+        // The pattern's statements moved away from the consumer site it cites.
+        (
+            "semantic:usage-pattern-shows-its-handoff",
+            "evidence",
+            "SELECT snapshot_id, evidence_id, evidence_kind, cited_fact_id, node_id, \
+                    module_node_id, start_byte + 100000 AS start_byte, \
+                    end_byte + 100000 AS end_byte, text FROM evidence_published",
+        ),
+        (
+            "semantic:no-materialized-block-path",
+            "assertions",
+            "SELECT snapshot_id, assertion_id, run_id, model_id, extraction_mode, \
+                    assertion_kind, subject_node_id, applicable_case, evidence_status, \
+                    text || ' (_lctx_blocks/d_x/block_0.py)' AS text, conditions, limitations, \
+                    template_version FROM assertions_published",
+        ),
+    ] {
+        let doctored = sql::query(&ctx, view).await.unwrap().into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, doctored).unwrap();
+        let query = &rules.iter().find(|r| r.name == rule).expect(rule).sql;
+        let rows: usize = batches(&ctx, query)
+            .await
+            .iter()
+            .map(RecordBatch::num_rows)
+            .sum();
+        assert!(rows > 0, "{rule} accepted its violation");
+        let original = ctx
+            .table(format!("{table}_published").as_str())
+            .await
+            .unwrap()
+            .into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, original).unwrap();
+    }
+}
+
+/// Slice 2.2 review F6: Pass C, the usage patterns and the rest of Stage E and F are identical
+/// across the corpus's location and module order.
+#[tokio::test(flavor = "multi_thread")]
+async fn pass_c_and_usage_patterns_are_identical_across_location_and_module_order() {
+    let (a, _da) = docs_shapes_analyzed("one", false).await;
+    let (b, _db) = docs_shapes_analyzed("elsewhere/deeper", true).await;
+    for table in [
+        "findings",
+        "finding_members",
+        "witnesses",
+        "analysis_invocations",
+        "assertions",
+        "assertion_support",
+        "evidence",
+        "briefs",
+    ] {
+        let q = format!("SELECT * EXCLUDE (snapshot_id) FROM {table} ORDER BY 1, 2, 3, 4");
+        assert_eq!(lines(&a, &q).await, lines(&b, &q).await, "{table}");
+    }
 }

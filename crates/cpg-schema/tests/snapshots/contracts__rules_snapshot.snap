@@ -606,6 +606,10 @@ semantic:one-embedding-spec
   SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1
 semantic:documented-parameter-cites-its-doc
   SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( SELECT s.assertion_id FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id JOIN parameter_syntax ps ON ps.node_id = e.node_id JOIN parameter_docs d ON d.function_node_id = ps.function_node_id AND d.name = ps.name AND d.module_node_id = e.module_node_id AND d.start_byte = e.start_byte AND d.end_byte = e.end_byte WHERE e.evidence_kind = 1) own ON own.assertion_id = a.assertion_id WHERE a.assertion_kind = 3 AND a.evidence_status = 1
+semantic:usage-pattern-shows-its-handoff
+  SELECT a.assertion_id, s.finding_id FROM assertions a JOIN assertion_support s ON s.assertion_id = a.assertion_id JOIN findings f ON f.finding_id = s.finding_id AND f.finding_kind = 9 LEFT ANTI JOIN ( SELECT s2.assertion_id, s2.finding_id FROM assertion_support s2 JOIN finding_members m ON m.finding_id = s2.finding_id AND m.role = 6 JOIN call_syntax cs ON cs.node_id = m.node_id JOIN assertion_support se ON se.assertion_id = s2.assertion_id JOIN evidence e ON e.evidence_id = se.evidence_id AND e.evidence_kind = 3 AND e.module_node_id = cs.module_node_id AND e.start_byte <= cs.start_byte AND cs.end_byte <= e.end_byte) shown ON shown.assertion_id = a.assertion_id AND shown.finding_id = s.finding_id WHERE a.assertion_kind = 9
+semantic:no-materialized-block-path
+  SELECT assertion_id FROM assertions WHERE strpos(text, '_lctx_blocks/') > 0
 semantic:embedding-dimensions
   SELECT spec_hash FROM embedding_cache GROUP BY spec_hash HAVING count(DISTINCT cardinality(vector)) > 1
 semantic:assertion-policy

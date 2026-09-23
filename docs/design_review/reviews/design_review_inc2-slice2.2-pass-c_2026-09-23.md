@@ -334,3 +334,23 @@ check; F2's local-helper line; F3's flipped assertion and rule; F6's probe.
   endpoints and for pattern acceptance until F1 and F2 land.
 - The extension path (increment 3's seeds) is where F1(c) and F3 will fire: test-only seeds and
   factory seeds.
+
+## Disposition (2026-09-23, commit after slice 2.4)
+
+| Item | Disposition | Where |
+|---|---|---|
+| F1 | Fixed (D30). Unresolved reads refuse a candidate. Only a module or function body qualifies, so no header is dropped. A free-name check runs over the assembled code, annotations included, with builtins from `ruff_python_stdlib` at the analyzed minor version. §10.4's public-API clause is narrowed. Pilot: `custom_route`'s pattern now imports what it reads | `usage.rs` (`build`, `free_names`); `free_names_include_annotations_and_skip_builtins`; `usage/refused.py` (`pkg.Server.stop` gets no pattern); DESIGN §10.4, §10.5 |
+| F2 | Fixed. Both handoff endpoints are release declarations. Pilot: the three usage-helper findings are gone; `mount` 153 and `tool` 24 | `handoffs_sql`; `local_factory` in `usage/handoff.py` |
+| F3 | Fixed (D30). A pattern cites a handoff only when a whole occurrence of it lies inside the pattern. Within a role, a pattern that shows one wins. The flipped test pins `make_server`'s pattern as the nested one, and the rule `semantic:usage-pattern-shows-its-handoff` has an injected case | `synth.rs`, `usage.rs`; `rules.rs`; `syntax.rs` |
+| F4 | Fixed. A producer statement has one target. The receiver exclusion is narrowed to a called attribute or a decorator, which is D25's text | `handoffs_sql`; `a = b = …` and `print(named.run)` in `usage/handoff.py` |
+| F5 | Fixed. `flows::usage_files_sql` names a doc block by its document and fence number, for Pass C and the patterns alike. The rule `semantic:no-materialized-block-path` has an injected case | `flows.rs`, `usage.rs`; `rules.rs` |
+| F6 | Fixed. `pass_c_and_usage_patterns_are_identical_across_location_and_module_order` compiles `docs_shapes` with its corpus twice | `syntax.rs` |
+| O2 | Fixed: §10.2 rows, §3.2's findings row, §9.3's Output | DESIGN |
+| O3 | Fixed: a dated trailing line in ADR-0019 records the placement and lists the later appended values | ADR-0019 |
+| O5 | Fixed in §9.3 ("the nested form is counted wherever it occurs") | DESIGN |
+| O1, O4, O6, `MAX_CANDIDATES` | Deferred with this review's triggers (O6 is logged as D17's reuse) | — |
+| Deferred rows | As this review's table says. C5 O2 is closed into F1. The byte-level evidence rule stays deferred: `example` spans are sliced from `source_files.text` by construction | — |
+
+Pilot after the fixes (Measured, 2026-09-23, `lctx compile fastmcp --store build/store-next` and
+`lctx_mcp.smoke`): snapshot `8a882a72`, generation `0db5bc736fdb1115`, stdio smoke passed, 33.0 s,
+peak 4,048 MiB.

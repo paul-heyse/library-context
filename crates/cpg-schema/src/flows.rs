@@ -120,6 +120,24 @@ fn starred() -> String {
     )
 }
 
+/// The official usage modules (examples, tests, doc blocks), each with the path a reader can
+/// open: a doc block's is its document's path and its fence's number there, never the module the
+/// compiler materialized it as (slice 2.2 review F5).
+pub fn usage_files_sql() -> String {
+    format!(
+        "SELECT sf.module_node_id, sf.role, COALESCE(b.display, sf.path) AS path \
+         FROM source_files sf \
+         LEFT JOIN (SELECT cb.module_path, \
+                           min(dc.path || ', code block ' || CAST(cb.ordinal + 1 AS VARCHAR)) \
+                             AS display \
+                    FROM code_blocks cb JOIN documents dc ON dc.node_id = cb.document_node_id \
+                    WHERE cb.module_path IS NOT NULL GROUP BY cb.module_path) b \
+           ON b.module_path = sf.path \
+         WHERE sf.role IN ({usage})",
+        usage = codes(&[SourceRole::Example, SourceRole::Test, SourceRole::DocBlock]),
+    )
+}
+
 /// The argument → formal join condition: formal `fm` (`parameter_syntax`) of the target takes
 /// argument `arg` (its `kind`, `ordinal` and `keyword`), given the call's first starred argument
 /// `star` (`first`, NULL when none) and the arc's `receiver` expression.
@@ -442,18 +460,18 @@ pub fn receivers_sql() -> String {
 /// blocks), totally ordered by `(consumer, producer, formal, module path, consumer site)`.
 ///
 /// One row per occurrence in which what a release callable returns reaches an argument of
-/// another: either `x = producer(...)` with `x` bound once in its scope and read once, by
-/// `consumer(..., x)` in a later statement of the same block (the call being that statement's
-/// value, awaited or not: no `with` item, no nesting); or `consumer(..., producer(...))`. The
-/// argument maps to one formal of the consumer by the flows' mapping (`maps_formal`). A read of
-/// `x` as a receiver (`x.method()`, `@x.tool`) configures it: setup, not another consumer. A
-/// reassigned `x`, one read anywhere else too (another argument, a return, a store), and a use
-/// inside a `with` item are no handoff.
+/// another release callable (both declared in the release, never a helper the usage code defines;
+/// slice 2.2 review F2): either `x = producer(...)`, the statement's only target, with `x` bound
+/// once in its scope and read once, by `consumer(..., x)` in a later statement of the same block
+/// (the call being that statement's value, awaited or not: no `with` item, no nesting); or
+/// `consumer(..., producer(...))`. The argument maps to one formal of the consumer by the flows'
+/// mapping (`maps_formal`). A read of `x` as a receiver, the object of a called attribute or a
+/// decorator (`x.method()`, `@x.tool`), configures it: setup, not another consumer (D25, narrowed
+/// by the review's F4). A reassigned `x`, one read anywhere else too (another argument, a return,
+/// a store, another attribute), and a use inside a `with` item are no handoff.
 pub fn handoffs_sql() -> String {
-    let usage = codes(&[SourceRole::Example, SourceRole::Test, SourceRole::DocBlock]);
     format!(
-        "WITH usage AS (SELECT module_node_id, role, path FROM source_files \
-                        WHERE role IN ({usage})), \
+        "WITH usage AS ({usage}), \
          single AS (SELECT scope_id, name FROM bindings GROUP BY scope_id, name \
                     HAVING count(*) = 1), \
          reads AS ( \
@@ -462,12 +480,18 @@ pub fn handoffs_sql() -> String {
            JOIN syntax_nodes nm ON nm.node_id = rf.name_node_id \
            LEFT JOIN syntax_nodes par ON par.node_id = nm.parent_node_id \
            WHERE rr.binding_id IS NOT NULL \
-             AND NOT (COALESCE(par.kind, -1) = {attribute} AND nm.field = {value_field}) \
+             AND NOT (COALESCE(par.kind, -1) = {attribute} AND nm.field = {value_field} \
+                      AND par.field IN ({callee}, {decorator})) \
            GROUP BY rr.binding_id), \
          targets AS ( \
-           SELECT call_site_node_id AS site, target_node_id AS target, edge_id, modality, \
-                  receiver \
-           FROM ({targets})), \
+           SELECT t.call_site_node_id AS site, t.target_node_id AS target, t.edge_id, \
+                  t.modality, t.receiver \
+           FROM ({targets}) t JOIN declarations dt ON dt.node_id = t.target_node_id \
+           JOIN source_files rel ON rel.module_node_id = dt.module_node_id \
+             AND rel.role = {release}), \
+         targets_one AS ( \
+           SELECT parent_node_id FROM syntax_nodes WHERE field = {target_field} \
+           GROUP BY parent_node_id HAVING count(*) = 1), \
          starred AS ({starred}), \
          bound AS ( \
            SELECT b.node_id AS binding_id, c.node_id AS producer_site, \
@@ -477,6 +501,7 @@ pub fn handoffs_sql() -> String {
            JOIN reads x ON x.binding_id = b.node_id AND x.n = 1 \
            JOIN syntax_nodes tgt ON tgt.node_id = b.site_node_id \
            JOIN syntax_nodes st ON st.node_id = tgt.parent_node_id AND st.kind = {assign} \
+           JOIN targets_one one ON one.parent_node_id = st.node_id \
            JOIN call_syntax c ON c.module_node_id = b.module_node_id \
                 AND c.start_byte = b.value_start_byte AND c.end_byte = b.value_end_byte \
            WHERE b.kind = {assignment}), \
@@ -523,9 +548,14 @@ pub fn handoffs_sql() -> String {
          JOIN parameter_syntax fm ON fm.function_node_id = ct.target AND {maps} \
          ORDER BY consumer_node_id, producer_node_id, formal_node_id, u.path, \
                   consumer_start_byte, consumer_site_node_id, producer_site_node_id",
+        usage = usage_files_sql(),
         targets = call_targets(),
         starred = starred(),
         maps = maps_formal("fm", "o", "sr", "ct.receiver"),
+        release = SourceRole::Release.code(),
+        target_field = SyntaxField::Target.code(),
+        callee = SyntaxField::Callee.code(),
+        decorator = SyntaxField::Decorator.code(),
         argument_value = EdgeKind::ArgumentValue.code(),
         assign = SyntaxKind::StmtAssign.code(),
         expr_stmt = SyntaxKind::StmtExpr.code(),

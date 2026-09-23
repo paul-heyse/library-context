@@ -40,7 +40,9 @@ pub struct Published {
 /// 2.1). 6: Pass C (slice 2.2). 7: the slice 2.1 review: handler, conditional and tested calls,
 /// unfollowed arguments, supported predicates, receivers by kind, header-anchored descriptions.
 /// 8: communities and their invocations' diagnostics (slice 2.3). 9: centrality (slice 2.4).
-pub const COMPILER_OUTPUT_VERSION: u32 = 9;
+/// 10: the slice 2.2 review: release handoff endpoints, one-target producers, the narrowed
+/// receiver exclusion, doc blocks by document, self-contained usage patterns.
+pub const COMPILER_OUTPUT_VERSION: u32 = 10;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

@@ -22,8 +22,8 @@ use cpg_schema::codebook::{
 use cpg_schema::findings::recipe::{self, AssertionKey};
 use cpg_schema::findings::{
     ANALYSIS_BACKED, ASSERTION_POLICY, AssertionPolicyRow, AssertionSupportRow, AssertionsRow,
-    BriefAssertionsRow, BriefDocumentsRow, BriefMembersRow, BriefsRow, EvidenceRow, FindingsRow,
-    WitnessesRow, derive_status, evidence_status, section_of,
+    BriefAssertionsRow, BriefDocumentsRow, BriefMembersRow, BriefsRow, EvidenceRow,
+    FindingMembersRow, FindingsRow, WitnessesRow, derive_status, evidence_status, section_of,
 };
 use cpg_schema::id::Id;
 use datafusion::prelude::SessionContext;
@@ -43,7 +43,8 @@ use crate::{CoreError, sql};
 /// override-open final arc, a definition claims nothing more (increment-1 deep review F5). 7: usage
 /// patterns and handoffs, and the pattern's code in the brief document (slice 2.2). 8: one
 /// path-qualifier rule for Pass B's templates, and unfollowed controls (slice 2.1 review F1, F4).
-pub const TEMPLATE_VERSION: i64 = 8;
+/// 9: a usage pattern cites only a handoff it shows (slice 2.2 review F3).
+pub const TEMPLATE_VERSION: i64 = 9;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -804,19 +805,30 @@ pub async fn run(
             formal_function.entry(n).or_insert(f);
         }
     }
-    let mut preferred: BTreeMap<Id, BTreeSet<Id>> = BTreeMap::new();
+    // Each seed's handoff occurrences as (producer site, consumer site): a pattern that shows one
+    // whole is preferred within its role (slice 2.2 review F3).
+    let mut preferred: BTreeMap<Id, Vec<(Id, Id)>> = BTreeMap::new();
     for f in found
         .findings
         .iter()
         .filter(|f| f.finding_kind == FindingKind::Handoff)
     {
-        // The seed's own sites are its handoffs' consumer sites or producer sites.
-        for m in found.members.iter().filter(|m| {
-            m.finding_id == f.finding_id
-                && matches!(m.role, MemberRole::ConsumerSite | MemberRole::ProducerSite)
-        }) {
-            if let Some(n) = m.node_id {
-                preferred.entry(f.subject_node_id).or_default().insert(n);
+        let mut sites: Vec<&FindingMembersRow> = found
+            .members
+            .iter()
+            .filter(|m| {
+                m.finding_id == f.finding_id
+                    && matches!(m.role, MemberRole::ConsumerSite | MemberRole::ProducerSite)
+            })
+            .collect();
+        sites.sort_by_key(|m| m.ordinal);
+        for pair in sites.chunks(2) {
+            if let [p, c] = pair
+                && p.role == MemberRole::ProducerSite
+                && c.role == MemberRole::ConsumerSite
+                && let (Some(p), Some(c)) = (p.node_id, c.node_id)
+            {
+                preferred.entry(f.subject_node_id).or_default().push((p, c));
             }
         }
     }
@@ -1443,14 +1455,27 @@ pub async fn run(
                     EvidenceKind::Example,
                 ));
             }
-            // The handoff it shows, if any.
+            // The handoffs it shows: one whose recorded occurrence, producer and consumer site
+            // both, lies inside the pattern (slice 2.2 review F3).
             for f in findings.iter().filter(|f| {
-                f.finding_kind == FindingKind::Handoff
-                    && found.members.iter().any(|m| {
+                if f.finding_kind != FindingKind::Handoff {
+                    return false;
+                }
+                let mut sites: Vec<&FindingMembersRow> = found
+                    .members
+                    .iter()
+                    .filter(|m| {
                         m.finding_id == f.finding_id
-                            && matches!(m.role, MemberRole::ConsumerSite | MemberRole::ProducerSite)
-                            && m.node_id == Some(pattern.site)
+                            && matches!(m.role, MemberRole::ProducerSite | MemberRole::ConsumerSite)
                     })
+                    .collect();
+                sites.sort_by_key(|m| m.ordinal);
+                sites.chunks(2).any(|pair| {
+                    pair.len() == 2
+                        && pair
+                            .iter()
+                            .all(|m| m.node_id.is_some_and(|n| pattern.sites.contains(&n)))
+                })
             }) {
                 draft = draft.citing(f);
             }

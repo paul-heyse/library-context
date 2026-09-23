@@ -1139,7 +1139,9 @@ dependencies = [
  "lctx-analytics",
  "parquet",
  "petgraph",
+ "ruff_python_ast",
  "ruff_python_parser",
+ "ruff_python_stdlib",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5184,6 +5186,16 @@ dependencies = [
  "unicode-ident",
  "unicode-normalization",
  "unicode_names2",
+]
+
+[[package]]
+name = "ruff_python_stdlib"
+version = "0.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4017556e2d9d027714a1ecb9c682d1f2eb87518b208f031bf04b271c428f6b81"
+dependencies = [
+ "bitflags 2.13.2",
+ "unicode-ident",
 ]
 
 [[package]]

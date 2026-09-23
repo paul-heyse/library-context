@@ -251,3 +251,13 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
 ## Amendments
 
 After acceptance (2026-09-23), amendments are appended here, dated. Those above were made while the record was proposed.
+
+- 2026-09-23 (the slice 2.2 review's O3): one entry above is not what that sentence says. The
+  slice 2.2 entry was appended after acceptance, at `cf0990f`, before this section existed.
+  Later appended values go here:
+  - slice 2.1 review: `finding_kind` `unfollowed_argument`; `member_role` `conditional_call` and
+    `reason`; `assertion_kind` `unfollowed_control`;
+  - slice 2.3: `analytic_method` `leiden` and `community_consensus`; `finding_kind` `community`;
+    `member_role` `community_member` and `supporting_site`; `analysis_invocations.diagnostics`
+    (a declared migration);
+  - slice 2.4: `analytic_method` `pagerank`; `finding_kind` `centrality`.

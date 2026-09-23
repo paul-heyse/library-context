@@ -295,6 +295,38 @@ fn semantic() -> Vec<Rule> {
             ),
         ),
         (
+            // Slice 2.2 review F3: a usage pattern cites only a handoff it shows, one whose
+            // consumer site lies inside one of its verbatim example statements.
+            "semantic:usage-pattern-shows-its-handoff",
+            format!(
+                "SELECT a.assertion_id, s.finding_id FROM assertions a \
+                 JOIN assertion_support s ON s.assertion_id = a.assertion_id \
+                 JOIN findings f ON f.finding_id = s.finding_id AND f.finding_kind = {handoff} \
+                 LEFT ANTI JOIN ( \
+                   SELECT s2.assertion_id, s2.finding_id FROM assertion_support s2 \
+                   JOIN finding_members m ON m.finding_id = s2.finding_id \
+                     AND m.role = {consumer_site} \
+                   JOIN call_syntax cs ON cs.node_id = m.node_id \
+                   JOIN assertion_support se ON se.assertion_id = s2.assertion_id \
+                   JOIN evidence e ON e.evidence_id = se.evidence_id \
+                     AND e.evidence_kind = {example} AND e.module_node_id = cs.module_node_id \
+                     AND e.start_byte <= cs.start_byte AND cs.end_byte <= e.end_byte) shown \
+                   ON shown.assertion_id = a.assertion_id AND shown.finding_id = s.finding_id \
+                 WHERE a.assertion_kind = {usage_pattern}",
+                handoff = crate::codebook::FindingKind::Handoff.code(),
+                consumer_site = crate::codebook::MemberRole::ConsumerSite.code(),
+                example = crate::codebook::EvidenceKind::Example.code(),
+                usage_pattern = AssertionKind::UsagePattern.code(),
+            ),
+        ),
+        (
+            // Slice 2.2 review F5: a published text names a doc block by its document, never by
+            // the module the compiler materialized it as.
+            "semantic:no-materialized-block-path",
+            "SELECT assertion_id FROM assertions WHERE strpos(text, '_lctx_blocks/') > 0"
+                .to_owned(),
+        ),
+        (
             // §11.1: one spec gives one vector length (its declared dimensions).
             "semantic:embedding-dimensions",
             "SELECT spec_hash FROM embedding_cache GROUP BY spec_hash \
