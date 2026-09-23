@@ -1526,7 +1526,7 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 | Rust toolchain | 1.98.1 | `rust-toolchain.toml` |
 | DataFusion | =55.1.0 (`sql`, `parquet`) | `Cargo.toml` |
 | Arrow / Parquet | =59.3.0 | `Cargo.toml` |
-| object_store | =0.13.2 | `Cargo.toml` |
+| object_store | 0.13.2 | `Cargo.lock` (no crate depends on it directly; single version by `check_family.py`; H1 O2) |
 | delta-rs | git `58f07cd62bfbce3649a7e1c87c696288068ae184` (`datafusion`, `rustls`) | `Cargo.toml` |
 | delta kernel | `buoyant_kernel` 0.25.1, git `8ba063f8`, branch `buoyant/main` | `Cargo.lock` |
 | petgraph | =0.8.3 | `Cargo.toml` |

@@ -2,9 +2,11 @@
 # and kernel git repos) and licenses.
 #
 # The pinned-family single-version rule (DESIGN §7) is NOT here: it lives in
-# scripts/check_family.py, which reads Cargo.lock directly, because
-# cargo-deny 0.20.2 does not see duplicates that enter only through workspace
-# dev-dependencies (checked 2026-09-22).
+# scripts/check_family.py, which reads Cargo.lock directly. cargo-deny could do
+# it (0.20.2 does catch dev-only duplicates with `multiple-versions-include-dev`,
+# corrected 2026-09-23 by the library-leverage review), but only for crates it is
+# told by name: the family is 78 crates today, and an upgrade adds sub-crates a
+# name list would miss. The script's patterns cover them (ADR-0002 amendment).
 
 [graph]
 all-features = false

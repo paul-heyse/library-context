@@ -1192,7 +1192,6 @@ dependencies = [
  "blake3",
  "datafusion",
  "deltalake",
- "futures 0.3.34",
  "insta",
  "proptest",
  "tempfile",

@@ -21,7 +21,6 @@ arrow-cast = "=59.3.0"
 arrow-ord = "=59.3.0"
 parquet = { version = "=59.3.0", default-features = false, features = ["zstd"] }
 datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet"] }
-object_store = "=0.13.2"
 deltalake = { git = "https://github.com/delta-io/delta-rs", rev = "58f07cd62bfbce3649a7e1c87c696288068ae184", default-features = false, features = ["datafusion", "rustls"] }
 petgraph = "=0.8.3"
 

@@ -58,3 +58,12 @@ delta-rs's 1.94.1.
 
 We did not need the vendored DataFusion/kernel patches the predecessor repository carried for
 native replay. If we need them, that is a new ADR.
+
+## Amendments
+
+- 2026-09-23: the library-leverage review (O5) corrects the reason `check_family.py` exists.
+  cargo-deny 0.20.2 does see dev-only duplicates (`multiple-versions-include-dev`), but it needs
+  each crate named, and the family is 78 crates with sub-crates an upgrade can add; the script's
+  patterns cover them. Also (O2): a `[workspace.dependencies]` entry no crate uses pins nothing,
+  so `just deps` runs `cargo shear`. `object_store` is held by `Cargo.lock` and the family check,
+  and `parquet` became a real direct dependency (zstd writes).

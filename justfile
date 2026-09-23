@@ -44,6 +44,8 @@ deps:
     uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources licenses
     uv run python scripts/check_pyrefly_fork.py
+    # A dependency no crate uses pins nothing (H1 O2).
+    cargo shear
 
 # The gold reference and the analyzed library name one FastMCP (ADR-0013). Separate from `deps`,
 # so a skill refresh in progress never reads as a dependency-family break (ADR-0002's trigger).
@@ -84,7 +86,7 @@ lint-agents:
 # Tool presence and versions (compare with docs/pins.md)
 doctor:
     #!/usr/bin/env bash
-    for t in cargo rustc cargo-nextest cargo-insta cargo-deny uv ast-grep rg git gh; do
+    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear uv ast-grep rg git gh; do
       printf '%-14s ' "$t"; command -v "$t" >/dev/null && "$t" --version 2>/dev/null | head -1 || echo MISSING
     done
     printf '%-14s ' ruff; uv run ruff --version
