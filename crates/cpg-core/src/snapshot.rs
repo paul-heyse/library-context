@@ -12,6 +12,8 @@ use datafusion::common::ScalarValue;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::{SessionContext, col, lit};
 use deltalake::delta_datafusion::create_session;
+use deltalake::kernel::{Action, Add};
+use deltalake::logstore::get_actions;
 use deltalake::{DeltaTable, DeltaTableBuilder};
 
 use crate::delta::table_url;
@@ -60,7 +62,42 @@ pub async fn load_at(root: &Path, name: &str, version: u64) -> Result<DeltaTable
     Ok(table)
 }
 
-/// Register `name` at `version`, filtered to `snapshot_id`, as a view under its own name.
+/// The data files commit `version` of `table` added. A snapshot's rows of a table are exactly one
+/// commit's (one commit per table per attempt, §6.1), so a pinned read opens these files and no
+/// other (H1 P3). The JSON commits are kept (log cleanup off, verified at open), so the entry is
+/// always there to read.
+pub async fn commit_adds(table: &DeltaTable, version: u64) -> Result<Vec<Add>, CoreError> {
+    let bytes = table
+        .log_store()
+        .read_commit_entry(version)
+        .await?
+        .ok_or_else(|| CoreError::VersionMismatch {
+            table: table.table_url().to_string(),
+            requested: version,
+            loaded: None,
+        })?;
+    Ok(get_actions(version, &bytes)?
+        .into_iter()
+        .filter_map(|a| match a {
+            Action::Add(add) => Some(add),
+            _ => None,
+        })
+        .collect())
+}
+
+/// A provider over `table` (loaded at `version`) that reads only the files that commit added.
+/// A selected file the snapshot does not hold active fails the scan, never a silent shortfall.
+pub async fn commit_provider(
+    table: &DeltaTable,
+    version: u64,
+) -> Result<std::sync::Arc<dyn datafusion::catalog::TableProvider>, CoreError> {
+    let adds = commit_adds(table, version).await?;
+    Ok(table.table_provider().with_adds(adds).await?)
+}
+
+/// Register `name` at `version`, filtered to `snapshot_id`, as a view under its own name. Only the
+/// files of the commit at `version` are read (H1 P3); the `snapshot_id` filter stays as the row
+/// predicate.
 pub async fn register(
     ctx: &SessionContext,
     root: &Path,
@@ -71,7 +108,7 @@ pub async fn register(
     let table = load_at(root, name, version).await?;
     table.update_datafusion_session(&ctx.state())?;
     let view = ctx
-        .read_table(table.table_provider().await?)?
+        .read_table(commit_provider(&table, version).await?)?
         .filter(col("snapshot_id").eq(lit(ScalarValue::Binary(Some(snapshot_id.0.to_vec())))))?
         .into_view();
     ctx.register_table(name, view)?;

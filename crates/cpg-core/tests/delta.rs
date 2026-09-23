@@ -116,12 +116,11 @@ async fn reads_pin_the_version_and_filter_the_snapshot() {
     let at_a = t.version().unwrap();
     let t = append(t, decl_in(b, 30, 40), b).await.unwrap();
     let at_b = t.version().unwrap();
-    for version in [at_a, at_b] {
-        let back = read_at::<Declarations>(dir.path(), version, a)
-            .await
-            .unwrap();
-        assert_eq!(back, decl_in(a, 10, 20), "snapshot A at version {version}");
-    }
+    let back = read_at::<Declarations>(dir.path(), at_a, a).await.unwrap();
+    assert_eq!(back, decl_in(a, 10, 20), "snapshot A at its own version");
+    // A read opens only the commit at its version (H1 P3): A's rows are not in B's commit.
+    let other = read_at::<Declarations>(dir.path(), at_b, a).await.unwrap();
+    assert_eq!(other.num_rows(), 0, "A is not in B's commit");
     let early = read_at::<Declarations>(dir.path(), at_a, b).await.unwrap();
     assert_eq!(early.num_rows(), 0, "B is not visible at A's version");
     let late = read_at::<Declarations>(dir.path(), at_b, b).await.unwrap();
@@ -332,4 +331,72 @@ async fn retention_keeps_old_versions_loadable() {
         }
         other => panic!("expected a retention refusal, got {other:?}"),
     }
+}
+
+/// A pinned read opens only the files its version's commit added (H1 P3): with three snapshots
+/// in one table, an unfiltered scan of B's commit sees B's rows alone; an empty commit reads as
+/// empty; and a selected file that is gone fails the read instead of returning fewer rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pinned_read_opens_only_its_commits_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b, c) = (Id([1; 16]), Id([2; 16]), Id([3; 16]));
+    let t = create::<Declarations>(dir.path()).await.unwrap();
+    let t = append(t, decl_in(a, 10, 20), a).await.unwrap();
+    let at_a = t.version().unwrap();
+    let t = append(t, decl_in(b, 30, 40), b).await.unwrap();
+    let at_b = t.version().unwrap();
+    let t = append(t, decl_in(c, 50, 60), c).await.unwrap();
+    let at_c = t.version().unwrap();
+    let t = append(t, decl_in(c, 0, 1).slice(0, 0), c).await.unwrap();
+    let at_empty = t.version().unwrap();
+
+    let count = |version: u64| {
+        let root = dir.path().to_path_buf();
+        async move {
+            let table = cpg_core::snapshot::load_at(&root, Declarations::NAME, version)
+                .await
+                .unwrap();
+            let ctx = cpg_core::snapshot::empty_session();
+            table.update_datafusion_session(&ctx.state()).unwrap();
+            ctx.register_table(
+                "t",
+                cpg_core::snapshot::commit_provider(&table, version)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            // Read values, not `count(*)`: that is answered from the files' statistics without
+            // opening them.
+            let batches = cpg_core::sql::query(&ctx, "SELECT qualified_name FROM t")
+                .await?
+                .collect()
+                .await?;
+            Ok::<i64, datafusion::error::DataFusionError>(
+                batches.iter().map(|b| b.num_rows() as i64).sum(),
+            )
+        }
+    };
+    // Without any snapshot filter: only the commit's own rows (a full scan would count 3).
+    assert_eq!(count(at_b).await.unwrap(), 1);
+    assert_eq!(count(at_c).await.unwrap(), 1);
+    assert_eq!(count(at_empty).await.unwrap(), 0);
+    assert_eq!(
+        read_at::<Declarations>(dir.path(), at_b, b).await.unwrap(),
+        decl_in(b, 30, 40)
+    );
+
+    // Remove A's data file: reading A fails; B, whose commit does not name it, still reads.
+    let table = cpg_core::snapshot::load_at(dir.path(), Declarations::NAME, at_a)
+        .await
+        .unwrap();
+    let adds = cpg_core::snapshot::commit_adds(&table, at_a).await.unwrap();
+    assert_eq!(adds.len(), 1);
+    std::fs::remove_file(
+        dir.path()
+            .join(Declarations::NAME)
+            .join(adds[0].path.replace("%2F", "/")),
+    )
+    .unwrap();
+    assert!(count(at_a).await.is_err());
+    assert_eq!(count(at_b).await.unwrap(), 1);
 }

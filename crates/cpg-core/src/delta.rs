@@ -209,7 +209,10 @@ pub async fn read_at<T: Table>(
     let table = crate::snapshot::load_at(root, T::NAME, version).await?;
     let ctx: SessionContext = create_session().into_inner();
     table.update_datafusion_session(&ctx.state())?;
-    ctx.register_table("t", table.table_provider().await?)?;
+    ctx.register_table(
+        "t",
+        crate::snapshot::commit_provider(&table, version).await?,
+    )?;
     let quote = |c: &str| format!("\"{c}\"");
     let schema = T::schema();
     let columns: Vec<String> = schema.fields().iter().map(|f| quote(f.name())).collect();

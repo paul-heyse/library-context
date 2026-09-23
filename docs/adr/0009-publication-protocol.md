@@ -89,3 +89,9 @@ Delta has no multi-table commit. deltalake skill evidence at our exact pin (2026
   delta-rs's defaults delete the log that a pinned read of an old snapshot needs, so every table
   is created with expired-log cleanup off and effectively infinite log retention, and open-time
   verify refuses a table without them.
+
+- 2026-09-23: H1 P3 (the library-leverage review) closes the revisit trigger "Binary columns lack
+  Delta statistics and snapshot filtering becomes a full scan at pilot scale" without a schema
+  change: a pinned read opens only the files its version's commit added (`read_commit_entry` →
+  `Add` actions → `TableProviderBuilder::with_adds`), since one attempt writes one commit per
+  table. The publication protocol is unchanged.

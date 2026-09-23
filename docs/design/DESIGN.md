@@ -1296,9 +1296,15 @@ Operations are methods on `DeltaTable`. `DeltaOps` does not exist at this pin.
 - `SaveMode::Ignore`; deletion vectors (they switch off Parquet pushdown); column mapping; raw
   Parquet scans; vacuum or optimize.
 
-**Known limit (Tested, P1).** Delta log statistics skip the Binary `snapshot_id`, so Delta skips
-no files. The Parquet footers do carry binary statistics, and row groups are pruned (3 → 1 in
-P1). A `snapshot_id` filter therefore costs one footer read per file, not a full scan.
+**Snapshot-scoped reads (H1 P3; closes the known limit).** Delta log statistics skip the Binary
+`snapshot_id` (`writer/stats.rs:212-229` at `58f07cd`), so a filter alone skipped no file and
+cost one footer read per file of every snapshot. Instead each pinned read opens **only the files
+its version's commit added**: `LogStore::read_commit_entry(v)` + `logstore::get_actions` → the
+`Add` actions → `TableProviderBuilder::with_adds` (`snapshot::commit_provider`). A snapshot's rows
+of a table are exactly one commit's (one commit per table per attempt, §6.1), the JSON commits are
+kept (log cleanup off, verified at open), and a selected file that is gone fails the scan rather
+than returning fewer rows (**Tested**: `a_pinned_read_opens_only_its_commits_files`). The
+`snapshot_id` filter stays as the row predicate.
 
 **Metrics** (C1, **Implemented**; guidelines §12; `cpg_schema::metrics`).
 - `lctx compile` reports, per stage, wall time and the process's peak RSS so far (`VmHWM`, which
@@ -1351,9 +1357,7 @@ per-rule validation costs; FastMCP 4.0.5 and its corpus; fresh store, snapshot `
 - **Peak memory:** taken by ADR-0016 (jemalloc: the peak is the working set, 3.6 GB on the
   pilot, flat from extraction on) and the raw batches released once written. Reopen when the
   peak nears the host's memory.
-- **File skipping on `snapshot_id`:** the writer records no Delta-log statistics for Binary
-  columns (`writer/stats.rs:214-238`), so the known limit above stands. Reopen when a published
-  read's latency is measured to matter.
+- **File skipping on `snapshot_id`: taken** (H1 P3, above): no schema, partition or store change.
 
 > Decision: ADR-0012
 
@@ -1470,8 +1474,9 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 
    A provider built on an already-loaded handle ignores the requested version
    (`delta.open.2`, `delta.read.4`).
-3. **Filter `snapshot_id`.** The version is an audit coordinate and a lower bound, not a row
-   selector.
+3. **Read only that commit's files** (`snapshot::commit_provider`, H1 P3): a snapshot's rows of a
+   table are exactly the commit at its recorded version, so a read at another snapshot's version
+   sees none of them. Then **filter `snapshot_id`** as the row predicate.
 4. Project columns by name through the DataFusion provider. Never use `scan_table().with_columns`,
    which returned the wrong column for a partition-first schema (`delta.read.3`).
 5. Never scan the Parquet directory directly (`delta.read.2`).
