@@ -496,9 +496,14 @@ pub struct Source {
     /// Official example code (`source_role` `example`, ADR-0015).
     #[serde(default)]
     pub examples: Vec<String>,
+    #[serde(default)]
+    pub examples_exclude: Vec<String>,
     /// The library's own tests (`source_role` `test`).
     #[serde(default)]
     pub tests: Vec<String>,
+    /// Also what excludes a directory link under the tests (ADR-0018).
+    #[serde(default)]
+    pub tests_exclude: Vec<String>,
 }
 
 /// The declared `[tool.lctx.source]`, checked as Stage A checks it; `None` when not declared. Its
@@ -603,7 +608,12 @@ fn pick(
     let (inc, inc_globs) = glob_set(key, include)?;
     let (exc, _) = glob_set(&format!("{key}_exclude"), exclude)?;
     for (rel, is_dir) in &walked.symlinks {
-        let covered = exc.is_match(rel) || exc.is_match(format!("{rel}/_"));
+        // An exclude covers a directory link only when it names the link itself, or matches any
+        // name under it: two unrelated probe names, one nested. `docs/**/_*` matches a name
+        // starting with `_` and leaves the rest selectable, so it covers nothing (H1 review F5).
+        let covered = exc.is_match(rel)
+            || (exc.is_match(format!("{rel}/lctx-link-probe"))
+                && exc.is_match(format!("{rel}/lctx-link-probe/lctx-link-probe.x")));
         let refused = if *is_dir {
             !covered
                 && inc_globs
@@ -665,8 +675,14 @@ pub fn corpus(
         &source.documents,
         &source.documents_exclude,
     )?;
-    let examples = pick(tree, &walked, "examples", &source.examples, &[])?;
-    let tests = pick(tree, &walked, "tests", &source.tests, &[])?;
+    let examples = pick(
+        tree,
+        &walked,
+        "examples",
+        &source.examples,
+        &source.examples_exclude,
+    )?;
+    let tests = pick(tree, &walked, "tests", &source.tests, &source.tests_exclude)?;
     // A module has one role (ADR-0015): a file both keys select is refused, not ranked.
     if let Some(both) = examples.iter().find(|f| tests.contains(f)) {
         return Err(fail(format!(

@@ -952,9 +952,12 @@ needs to be a dependency of this project.
   and `tests` select is refused (ADR-0015). The tree is walked once (walkdir), dot-directories
   skipped, **no link followed**: a symlink a glob selects is refused, naming it, and so is a
   directory link that could hold a selection (it and a glob's literal prefix lie one under the
-  other) unless an exclude covers it (**Tested**: `symlinks_in_a_tree_are_refused_unless_excluded`;
-  a loop under an excluded path is harmless). A source tree (`Release::from_tree`) refuses any
-  link. `lctx acquire` fetches the tree
+  other) unless an exclude covers it. An exclude covers a link only when it names the link, or
+  matches any name under it (tested with two unrelated probe names); `documents`, `examples` and
+  `tests` each have an `_exclude` list (ADR-0018; H1 review F5; **Tested**:
+  `symlinks_in_a_tree_are_refused_unless_excluded`, with a partial exclude that does not cover and
+  a loop under an excluded path that is harmless). A source tree (`Release::from_tree`) refuses
+  any link. `lctx acquire` fetches the tree
   hermetically (every `GIT_*` variable removed, no system or global git configuration, no
   prompts; `git init`, a shallow fetch of the one commit, checkout, then `rev-parse HEAD` checked
   every time; no ambient git attributes, `core.autocrlf` off) into
@@ -1069,7 +1072,7 @@ paths, give the same `release_id` and `content_digest`.
   ADR-0017, H1 review F2; `a_rejected_attempt_is_inspected_at_its_own_commits`). For inspecting a
   failure, never for a reader.
 
-> Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015, ADR-0017
+> Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015, ADR-0017, ADR-0018
 
 ### §4.1 Stages
 

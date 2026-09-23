@@ -492,7 +492,9 @@ fn source() -> cpg_extract::library::Source {
         documents: vec!["docs/**/*.mdx".to_owned()],
         documents_exclude: vec!["docs/old/**".to_owned()],
         examples: vec!["examples/**/*.py".to_owned()],
+        examples_exclude: vec![],
         tests: vec!["tests/**/*.py".to_owned()],
+        tests_exclude: vec![],
     }
 }
 
@@ -732,6 +734,23 @@ fn symlinks_in_a_tree_are_refused_unless_excluded() {
     let err = corpus().unwrap_err();
     assert!(err.contains("symlink docs/more"), "{err}");
     std::fs::remove_file(tree.join("docs/more")).unwrap();
+    // An exclude matching only some names under a link does not cover it (H1 review F5).
+    symlink(dir.path(), tree.join("docs/more")).unwrap();
+    let mut partial = source();
+    partial.documents_exclude.push("docs/**/_*".to_owned());
+    let err = cpg_extract::library::corpus(&tree, &partial, &input)
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("symlink docs/more"), "{err}");
+    std::fs::remove_file(tree.join("docs/more")).unwrap();
+    // A link under the tests is refused, unless `tests_exclude` covers it.
+    symlink(dir.path(), tree.join("tests/fixtures")).unwrap();
+    assert!(corpus().unwrap_err().contains("symlink tests/fixtures"));
+    let mut excluded = source();
+    excluded.tests_exclude.push("tests/fixtures/**".to_owned());
+    cpg_extract::library::corpus(&tree, &excluded, &input).unwrap();
+    std::fs::remove_file(tree.join("tests/fixtures")).unwrap();
     symlink(&tree, tree.join("docs/old/loop")).unwrap();
     corpus().unwrap();
     let err = cpg_extract::Release::from_tree(tree.clone(), "t")

@@ -24,7 +24,7 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a `
 | §B1 | Pyrefly (in-process, pinned patched fork) for semantics and Ruff 0.0.11 crates for syntax, both over one parse; our own recognizer for binding history; no second parser or type checker | §2, §4.2 | DM-02, DM-04, DM-41, DM-57, DM-58 · G1, G7 |
 | §B2 | Arrow schemas in `cpg-schema` are the authoritative data contract; codebooks are append-only; nothing is inferred | §2, §3 | DM-02, DM-06, DM-09, DM-51, DM-52 · G1, G2 |
 | §B3 | DataFusion constructs and validates relations; one query per rule, shared by tests and publication | §2, §4, §8 | DM-07, DM-20, DM-22, DM-53 · G3 |
-| §B4 | Graph algorithms have named owners (petgraph traversal and `page_rank`, leiden-rs communities, own FCA/RCA), each with a named consumer | §2, §5, §9 | DM-34, DM-38, DM-40, DM-46 · G6 |
+| §B4 | Graph algorithms have named owners (petgraph traversal and SCCs, our own weighted PageRank, leiden-rs communities on a normalized input, own FCA/RCA; ADR-0011 as amended), each with a named consumer | §2, §5, §9 | DM-34, DM-38, DM-40, DM-46 · G6 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | §2, §9 | DM-13, DM-24, DM-40, DM-59 · G2, G7 |
 | §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained | §2, §3 | DM-08, DM-13, DM-23, DM-46, DM-47 · G1, G2 |
 | §B7 | Delta canonical store, published by one `snapshots` append; readers pin versions and filter by `snapshot_id` | §2, §6 | DM-12, DM-14, DM-29, DM-30 · G5 |

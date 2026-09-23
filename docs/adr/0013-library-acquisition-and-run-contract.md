@@ -191,3 +191,6 @@ changing, because the context did not see the dependency environment.
   that could hold a selection unless an exclude covers it; a source tree refuses any link. The hand
   matcher it replaces followed links (reading outside the tree, looping), read `?`, `[…]` and
   `{…}` as literals and backtracked exponentially.
+- 2026-09-23: pointer. The C2 selection semantics above are recorded as their own decision,
+  ADR-0018 (the H1 review, F4), with F5's stricter exclude coverage and the `examples_exclude`
+  and `tests_exclude` keys.
