@@ -38,7 +38,7 @@ DESIGN section or ADR changes what it points at. Line numbers refer to the 2026-
 | 410 | 3.8 Query interfaces: useful, but verify their semantics | adopted | `getDeclaredType` rule in §3.5.1; TSP deferred (§13) |
 | 427 | 4. The maximal graph obtained by synthesizing these sources | adapted | target model; demand-driven slice (ADR-0004, ADR-0008) |
 | 435 | 4.1 The ontology should distinguish entities that are often incorrectly merged | adopted | §3.1 |
-| 469 | 4.2 Exact core schema | adapted | authoritative family tables, one producer each; generic `nodes`/`edges` views deferred until a reader exists (ADR-0008) |
+| 469 | 4.2 Exact core schema | adapted | authoritative family tables, one producer each; generic `nodes`/`edges` are derived catalogs generated from one registry, with a persistent `edge_id` (ADR-0014, superseding ADR-0008) |
 | 576 | 4.3 Type observations must be contextual and multi-valued | adopted | §3.5.1; the `types` family from increment 3 |
 | 625 | 4.4 Resolution is a set with uncertainty, not a single edge | adopted | §3.6 |
 | 657 | 4.5 Relation families | adapted | fact families (§3.2); the 94-edge registry is not needed yet |
@@ -59,7 +59,7 @@ DESIGN section or ADR changes what it points at. Line numbers refer to the 2026-
 | 975 | 2. Make Arrow schemas authoritative | adopted | §B2 |
 | 977 | 2.1 Separate the logical ontology from physical representation | adopted | §3.3 |
 | 1034 | 2.2 Typed Arrow does not eliminate semantic validation | adopted | §8 |
-| 1066 | 2.3 Core Arrow tables | adapted | family tables by increment (§3.2, ADR-0008) |
+| 1066 | 2.3 Core Arrow tables | adapted | family tables by increment, then by CPG slice (§3.2, ADR-0014) |
 | 1121 | 2.4 Use nested Arrow selectively | adopted | child tables for arguments and parameters (§3.2) |
 | 1144 | 3. Construct the canonical graph with Arrow and DataFusion | adopted | §4.1 |
 | 1146 | Stage A: Establish the source and analysis universe | adopted | §4.0, §4.1 |

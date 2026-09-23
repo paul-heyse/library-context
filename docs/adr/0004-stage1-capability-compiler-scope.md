@@ -79,3 +79,9 @@ The operator chose:
   with the fastmcp skill's install line (release `fastmcp`, `fastmcp-slim`, `fastmcp-tasks`), and
   the skill moves to 4.0.5 with it (ADR-0013). This replaces "4.0.3" in the Decision and the
   "analyzed 4.0.3 and served 4.0.5" consequence above.
+- 2026-09-22: operator decision. The CPG is completed before the analytics. Slices C1–C6
+  (ADR-0014) run before Pass A: the node/edge catalogs, then the syntax, lexical, types and docs
+  families (including the examples and tests usage corpus). Each family names the consumer that
+  will read it. Review cadence: compact per slice, standard per ADR, deep at C6. This replaces
+  "the CPG grows only as consumers need it" as a sequencing rule; the named-consumer requirement
+  stays.

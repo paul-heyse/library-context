@@ -1,10 +1,10 @@
 ---
 id: ADR-0008
 title: Authoritative fact-family tables, declared view mapping, codebooks, coverage and boundaries
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0014
 design: [§B6, §3.2, §3.5, §3.7, §8]
 evidence: Tested
 revisit: A pass needs a relationship that neither a family table nor the derived edge view can express without a second writable copy.

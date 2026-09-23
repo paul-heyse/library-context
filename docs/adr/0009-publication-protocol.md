@@ -82,3 +82,10 @@ Delta has no multi-table commit. deltalake skill evidence at our exact pin (2026
     re-reading `snapshots`. An attempt that never appended is classified `unpublished`.
   - **Rebuild (P4).** A bundle rebuilt from Delta at the recorded versions is byte-identical,
     even after later appends and publications.
+
+## Amendments
+
+- 2026-09-22: pointer only. ADR-0014 adds table retention to the protocol this record decides.
+  delta-rs's defaults delete the log that a pinned read of an old snapshot needs, so every table
+  is created with expired-log cleanup off and effectively infinite log retention, and open-time
+  verify refuses a table without them.

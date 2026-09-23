@@ -53,6 +53,11 @@ _Updated 2026-09-22 by the handoff skill._
 
 ## Next
 
-Increment 1, slice 4: the **analytics config** (§1.4: the pilot's in-scope module prefixes and
-public roots, and the seed `fastmcp.FastMCP.tool`), the **invocation projection** (§5), and
-**Pass A** (§9.1) over the published FastMCP 4.0.5 snapshot, producing the first `findings`.
+**CPG first** (operator, 2026-09-22; ADR-0014 proposed, ADR-0004 amendment): slices C1–C6
+(DESIGN §1.2, §3.8) before Pass A.
+- **C1, in flight:** the node and edge catalogs over the increment-1 families; typed external and
+  synthetic endpoints (probe P1 passed); retention for pinned reads; per-stage metrics.
+- **C2–C5:** `syntax`, `lexical`, `types`, and the source corpus (`docs`, examples, tests).
+- **C6:** pilot measurement and a deep review.
+
+Then increment 1, slice 4: the analytics config, the invocation projection and Pass A.
