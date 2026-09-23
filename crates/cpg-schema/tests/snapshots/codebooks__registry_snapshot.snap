@@ -160,6 +160,7 @@ module_origin
   4 bundled_typeshed
   5 bundled_typeshed_third_party
   6 bundled_third_party
+  7 not_found
 definition_kind
   0 function
   1 class
@@ -377,6 +378,7 @@ binding_kind
   17 nonlocal
   18 type_alias
   19 type_param
+  20 implicit
 static_branch
   0 type_checking
   1 version_info

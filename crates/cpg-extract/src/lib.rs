@@ -46,14 +46,17 @@ use pyrefly::report::pysa::{
     PysaFormat, PysaReporter, export_module_call_graphs, export_module_definitions,
 };
 use pyrefly::state::require::Require;
-use pyrefly::state::state::State;
+use pyrefly::state::state::{State, Transaction};
 use pyrefly_build::handle::Handle;
 use pyrefly_config::error_kind::ErrorKind;
 use pyrefly_config::finder::ConfigFinder;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_path::ModulePath;
+use pyrefly_types::globals::ImplicitGlobal;
 use pyrefly_util::arc_id::ArcId;
 use pyrefly_util::thread_pool::ThreadCount;
+use ruff_python_ast::ModModule;
+use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
 use ruff_text_size::Ranged;
 use serde_json::Value;
 
@@ -281,26 +284,40 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     })));
     txn.run(&handles, Require::Everything, None);
     stages.mark("extract: pyrefly check (release)");
-    // Pyrefly's builtins and their kinds, for the lexical recognizer's free names (C3).
+    // The names from outside a module's text, as Pyrefly defines them (C3; review F1): a
+    // module's implicit globals, and the builtins, which are the real, public definitions of
+    // `builtins` (not the stub's implicit globals, private helpers or imports), with their kinds.
     let builtins_handle = handles.first().and_then(|h| {
         txn.import_handle(h, ModuleName::from_str("builtins"), None)
             .finding()
     });
-    let builtins: lexical::Builtins = builtins_handle
+    let implicit_globals: Vec<String> = ImplicitGlobal::implicit_globals(false)
+        .map(|g| g.name().to_string())
+        .collect();
+    let builtins = builtins_handle
         .as_ref()
         .map(|h| {
             txn.get_exports(h)
                 .iter()
-                .map(|(name, loc)| {
-                    let kind = match loc {
-                        ExportLocation::ThisModule(e) => e.symbol_kind.map(public::symbol_kind),
-                        ExportLocation::OtherModule(..) => None,
-                    };
-                    (name.to_string(), kind)
+                .filter_map(|(name, loc)| {
+                    let n = name.as_str();
+                    let private = n.starts_with('_') && !(n.starts_with("__") && n.ends_with("__"));
+                    match loc {
+                        ExportLocation::ThisModule(e)
+                            if !private && !implicit_globals.iter().any(|g| g == n) =>
+                        {
+                            Some((n.to_owned(), e.symbol_kind.map(public::symbol_kind)))
+                        }
+                        ExportLocation::ThisModule(_) | ExportLocation::OtherModule(..) => None,
+                    }
                 })
                 .collect()
         })
         .unwrap_or_default();
+    let outside = lexical::Outside {
+        builtins,
+        implicit_globals,
+    };
     let mut builtins_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut lexical_out = lexical::LexicalOut::default();
     let (mut walk_time, mut pysa_time, mut types_time) =
@@ -424,7 +441,8 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         pysa_map::map_call_graphs(&here, &graphs, &mut sink, &mut module_pysa);
         pysa_time += clock.elapsed();
         let clock = Instant::now();
-        let mut module_walk = walk::walk_module(&ctx, &ast, &mut sink, &builtins);
+        let stars = star_imports(&txn, m, &ast);
+        let mut module_walk = walk::walk_module(&ctx, &ast, &mut sink, &outside, &stars);
         let lex = std::mem::take(&mut module_walk.lexical);
         builtins_used.extend(lex.builtins_used);
         lexical_out.scopes.extend(lex.scopes);
@@ -795,6 +813,49 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         pysa_json,
         stages: stages.stages,
     })
+}
+
+/// Each `from m import *` of a module → the names Pyrefly's wildcard set for `m` holds, or `None`
+/// when Pyrefly cannot find `m` (C3 review F1). Star imports are module-level only.
+fn star_imports(txn: &Transaction<'_>, m: &SourceModule, ast: &ModModule) -> lexical::Stars {
+    struct Found<'a>(Vec<&'a ruff_python_ast::StmtImportFrom>);
+    impl<'a> StatementVisitor<'a> for Found<'a> {
+        fn visit_stmt(&mut self, stmt: &'a ruff_python_ast::Stmt) {
+            if let ruff_python_ast::Stmt::ImportFrom(i) = stmt
+                && i.names.iter().any(|a| a.name.as_str() == "*")
+            {
+                self.0.push(i);
+            }
+            walk_stmt(self, stmt);
+        }
+    }
+    let mut found = Found(Vec::new());
+    found.visit_body(&ast.body);
+    let is_package = m.path.ends_with("__init__.py") || m.path.ends_with("__init__.pyi");
+    let mut stars = lexical::Stars::new();
+    for i in found.0 {
+        let Some(star) = i.names.iter().find(|a| a.name.as_str() == "*") else {
+            continue;
+        };
+        let names = walk::absolute_module(
+            &m.name,
+            is_package,
+            i64::from(i.level),
+            i.module.as_ref().map(|n| n.as_str()),
+        )
+        .and_then(|name| {
+            txn.import_handle(&m.handle, ModuleName::from_str(&name), None)
+                .finding()
+        })
+        .map(|h| {
+            txn.get_wildcard(&h)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
+        stars.insert(star.start().to_u32(), names);
+    }
+    stars
 }
 
 /// The `releases` row and, for an acquired library, one `distributions` row per installed

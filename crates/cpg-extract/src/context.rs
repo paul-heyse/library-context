@@ -161,19 +161,26 @@ pub(crate) fn context_facts(
                 .or_insert_with(|| handle.clone());
         }
     }
-    // Modules only imported (C3's `imports_module`): a row each, no check and no definitions. An
-    // import that does not resolve (an optional dependency) is left out; its import row says so.
+    // Modules only imported (C3's `imports_module`): a row each, no check and no definitions. A
+    // module Pyrefly's finder cannot find (an optional dependency) keeps the finder's answer as a
+    // `not_found` row with no node, so an import's reason is the provider's (C3 review F2).
     let mut imported_only: BTreeMap<String, Handle> = BTreeMap::new();
+    let mut not_found: BTreeSet<String> = BTreeSet::new();
     if let Some(anchor) = anchor {
         for name in imported {
             if handles.contains_key(name) {
                 continue;
             }
-            if let Some(h) = txn
+            match txn
                 .import_handle(anchor, ModuleName::from_str(name), None)
                 .finding()
             {
-                imported_only.insert(name.clone(), h);
+                Some(h) => {
+                    imported_only.insert(name.clone(), h);
+                }
+                None => {
+                    not_found.insert(name.clone());
+                }
             }
         }
     }
@@ -232,7 +239,8 @@ pub(crate) fn context_facts(
                 ModuleOrigin::SitePackages
                 | ModuleOrigin::SearchPath
                 | ModuleOrigin::Namespace
-                | ModuleOrigin::Memory,
+                | ModuleOrigin::Memory
+                | ModuleOrigin::NotFound,
             ) => {
                 let text = txn
                     .get_module_info(handle)
@@ -324,6 +332,23 @@ pub(crate) fn context_facts(
                 &c.parent,
             );
         }
+    }
+    for name in &not_found {
+        out.modules.push(fact_row!(
+            sink,
+            ContextModules,
+            module_provenance(),
+            ContextModulesRow {
+                snapshot_id: Id::ZERO,
+                fact_id: Id::ZERO,
+                module_node_id: recipe::external_module("not-found", "", name),
+                module_name: name.clone(),
+                origin: ModuleOrigin::NotFound,
+                path: None,
+                distribution: None,
+                version: None,
+            }
+        ));
     }
     stages.mark("extract: dependency definitions");
     Ok(out)

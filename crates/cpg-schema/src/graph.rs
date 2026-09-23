@@ -14,9 +14,9 @@
 //! reads a relation built from the column it checks.
 
 use crate::codebook::{
-    AncestryRelation, BoundaryReason, Codebook, DeclarationKind, DerivationClass, EdgeKind,
-    ExportSyntaxKind, Modality, NodeKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
-    SyntaxField, SyntaxKind,
+    AncestryRelation, BindingKind, BoundaryReason, Codebook, DeclarationKind, DerivationClass,
+    EdgeKind, ExportSyntaxKind, Modality, ModuleOrigin, NodeKind, PysaCalleeKind, PysaSiteKind,
+    PysaTargetKind, SyntaxField, SyntaxKind,
 };
 use crate::id::Id;
 use crate::rules::Rule;
@@ -157,11 +157,14 @@ pub fn node_sources() -> Vec<NodeSource> {
                     public_fact_id AS existence_fact_id FROM exports"
                 .to_owned(),
         ),
+        // A module Pyrefly cannot find has a row (the provider's answer) and no node.
         n(
             NodeKind::ExternalModule,
-            "SELECT module_node_id AS node_id, CAST(NULL AS BYTEA) AS module_node_id, \
-                    fact_id AS existence_fact_id FROM context_modules"
-                .to_owned(),
+            format!(
+                "SELECT module_node_id AS node_id, CAST(NULL AS BYTEA) AS module_node_id, \
+                        fact_id AS existence_fact_id FROM context_modules WHERE origin <> {}",
+                c(ModuleOrigin::NotFound)
+            ),
         ),
         n(
             NodeKind::ExternalSymbol,
@@ -702,9 +705,14 @@ pub fn edge_sources() -> Vec<EdgeSource> {
             "the binding event is made by the declaration, parameter or placed statement",
             DerivationClass::Recognizer,
             "bindings",
-            "SELECT {} FROM bindings b JOIN nodes n ON n.node_id = b.site_node_id",
+            &format!(
+                "SELECT {{}} FROM bindings b JOIN nodes n ON n.node_id = b.site_node_id \
+                 WHERE b.kind <> {}",
+                c(BindingKind::Implicit)
+            ),
             ("b.node_id", "b.site_node_id", None, "b.fact_id"),
-            // A binding whose site is a name, alias or pattern has no node of its own.
+            // An import alias, a match pattern and a lambda parameter have no node of their own
+            // (review O1, deferred); an implicit name has no statement.
             None,
         ),
         resolution(EdgeKind::ReadsBinding, false),

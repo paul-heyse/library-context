@@ -13,6 +13,8 @@ use cpg_schema::tables::{
     ExportSyntax, ExportSyntaxRow, ParameterSyntax, ParameterSyntaxRow, SyntaxNodes,
     SyntaxNodesRow,
 };
+use pyrefly_python::module_name::ModuleName;
+use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::source_order::{
     SourceOrderVisitor, TraversalSignal, walk_annotation,
 };
@@ -23,7 +25,7 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
-use crate::lexical::{Builtins, Lexical, LexicalOut};
+use crate::lexical::{Lexical, LexicalOut, Outside, Stars};
 use crate::syntax;
 
 pub(crate) struct ModuleCtx<'s> {
@@ -133,14 +135,15 @@ pub(crate) fn walk_module(
     ctx: &ModuleCtx<'_>,
     ast: &ModModule,
     sink: &mut FactSink,
-    builtins: &Builtins,
+    outside: &Outside,
+    stars: &Stars,
 ) -> WalkOut {
     let module_span = TextRange::up_to(TextSize::try_from(ctx.text.len()).unwrap_or_default());
     let mut w = Walker {
         ctx,
         sink,
         frames: vec![Some(Frame::new(ctx.module_node_id, AnyNodeRef::from(ast)))],
-        lex: Lexical::new(ctx.module_node_id, module_span, builtins),
+        lex: Lexical::new(ctx.module_node_id, module_span, outside, stars),
         param_ids: HashMap::new(),
         path: Vec::new(),
         counters: vec![0],
@@ -160,31 +163,22 @@ pub(crate) fn walk_module(
     out
 }
 
-/// The absolute module an import names: `level` 0 is the name itself; otherwise the package of
-/// `module` (itself when it is a package) climbed `level - 1` times, then the name.
+/// The absolute module an import names, by Pyrefly's own rule (`new_maybe_relative`; C3 review
+/// F2, O8): `level` 0 is the name itself; otherwise the package of `module` climbed, then the
+/// name. None when the import climbs past the top package.
 pub(crate) fn absolute_module(
     module: &str,
     is_package: bool,
     level: i64,
     imported: Option<&str>,
 ) -> Option<String> {
-    if level == 0 {
-        return imported.map(str::to_owned);
-    }
-    let mut parts: Vec<&str> = module.split('.').collect();
-    if !is_package {
-        parts.pop();
-    }
-    for _ in 1..level {
-        parts.pop()?;
-    }
-    let base = parts.join(".");
-    let full = match (base.is_empty(), imported) {
-        (true, Some(m)) => m.to_owned(),
-        (false, Some(m)) => format!("{base}.{m}"),
-        (_, None) => base,
-    };
-    (!full.is_empty()).then_some(full)
+    let suffix = imported.map(Name::new);
+    let name = ModuleName::from_str(module).new_maybe_relative(
+        is_package,
+        u32::try_from(level).ok()?,
+        suffix.as_ref(),
+    )?;
+    (!name.as_str().is_empty()).then(|| name.to_string())
 }
 
 fn trailing_name(expr: &Expr) -> String {

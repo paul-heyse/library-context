@@ -208,10 +208,13 @@ async fn names_resolve_under_python_scoping() {
     for b in batches(
         &ctx,
         "SELECT f.path || ':' || CAST(r.start_byte AS VARCHAR) || ' ' || r.name AS reference, \
-                CAST(s.kind AS VARCHAR) AS scope, \
+                COALESCE(sd.qualified_name, \
+                         CAST(s.kind AS VARCHAR) || '@' || CAST(s.start_byte AS VARCHAR)) AS scope, \
                 CASE WHEN x.binding_id IS NOT NULL \
                      THEN 'binding ' || CAST(b.kind AS VARCHAR) || ' in scope ' \
-                          || CAST(bs.kind AS VARCHAR) || ' at ' || CAST(b.start_byte AS VARCHAR) \
+                          || COALESCE(bd.qualified_name, CAST(bs.kind AS VARCHAR) || '@' \
+                                      || CAST(bs.start_byte AS VARCHAR)) \
+                          || ' at ' || CAST(b.start_byte AS VARCHAR) \
                           || CASE WHEN b.static_branch IS NOT NULL \
                                   THEN ' [static ' || CAST(b.static_branch AS VARCHAR) || ' ' \
                                        || CAST(b.static_polarity AS VARCHAR) || ']' ELSE '' END \
@@ -222,8 +225,10 @@ async fn names_resolve_under_python_scoping() {
          JOIN source_files f ON f.module_node_id = r.module_node_id \
          JOIN scopes s ON s.node_id = r.scope_id \
          JOIN reference_resolutions x ON x.reference_id = r.node_id \
+         LEFT JOIN declarations sd ON sd.node_id = s.owner_node_id \
          LEFT JOIN bindings b ON b.node_id = x.binding_id \
          LEFT JOIN scopes bs ON bs.node_id = b.scope_id \
+         LEFT JOIN declarations bd ON bd.node_id = bs.owner_node_id \
          ORDER BY f.path, r.start_byte, resolves_to",
     )
     .await
@@ -242,12 +247,15 @@ async fn names_resolve_under_python_scoping() {
     for b in batches(
         &ctx,
         "SELECT f.path || ':' || CAST(b.start_byte AS VARCHAR) || ' ' || b.name || ' kind ' \
-                || CAST(b.kind AS VARCHAR) || ' in scope ' || CAST(s.kind AS VARCHAR) \
+                || CAST(b.kind AS VARCHAR) || ' in scope ' \
+                || COALESCE(d.qualified_name, \
+                            CAST(s.kind AS VARCHAR) || '@' || CAST(s.start_byte AS VARCHAR)) \
                 || ' #' || CAST(b.ordinal AS VARCHAR) \
                 || CASE WHEN b.static_branch IS NOT NULL \
                         THEN ' [static ' || CAST(b.static_branch AS VARCHAR) || ' ' \
                              || CAST(b.static_polarity AS VARCHAR) || ']' ELSE '' END AS line \
          FROM bindings b JOIN scopes s ON s.node_id = b.scope_id \
+         LEFT JOIN declarations d ON d.node_id = s.owner_node_id \
          JOIN source_files f ON f.module_node_id = b.module_node_id \
          ORDER BY f.path, b.start_byte, b.name",
     )

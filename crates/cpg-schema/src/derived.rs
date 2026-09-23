@@ -8,8 +8,9 @@
 
 use crate::codebook::{
     BindingKind, BoundaryReason, Codebook, DeclarationKind, DefinitionKind, ExportSyntaxKind,
-    LexicalScopeKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason,
-    ResolutionDomain, ResolutionStatus, SignatureForm, SymbolKind, SyntaxKind,
+    LexicalScopeKind, ModuleOrigin, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
+    PysaUnresolvedReason, ResolutionDomain, ResolutionStatus, SignatureForm, SymbolKind,
+    SyntaxKind,
 };
 use crate::id::Id;
 use crate::table::{Table, table};
@@ -210,7 +211,8 @@ impl Derived for Exports {
                       row_number() OVER (PARTITION BY module_name ORDER BY is_stub, path) AS pick \
                FROM source_files), \
              dependency_modules AS ( \
-               SELECT DISTINCT module_name, module_node_id FROM context_modules), \
+               SELECT DISTINCT module_name, module_node_id FROM context_modules \
+               WHERE origin <> {not_found}), \
              module_bindings AS ( \
                SELECT b.module_node_id, b.name, b.node_id, \
                       row_number() OVER (PARTITION BY b.module_node_id, b.name \
@@ -222,7 +224,8 @@ impl Derived for Exports {
                WHERE f.table_name = 'public_names'), \
              resolved AS ( \
                SELECT p.access_path, x.release_id, p.fact_id AS public_fact_id, p.origin_path, \
-                      p.origin_symbol_kind, r.node_id AS declaration_node_id, \
+                      p.origin_symbol_kind, p.origin_module_node_id, \
+                      r.node_id AS declaration_node_id, \
                       r.fact_id AS declaration_fact_id, \
                       COALESCE(r.node_id, \
                                CASE WHEN p.origin_module_node_id IS NULL \
@@ -253,7 +256,8 @@ impl Derived for Exports {
                     CAST(CASE WHEN target_node_id IS NOT NULL THEN NULL \
                               WHEN origin_path IS NULL OR origin_symbol_kind IS NULL \
                                 THEN {missing} \
-                              WHEN origin_symbol_kind IN ({variable_like}) THEN {variable} END \
+                              WHEN origin_symbol_kind IN ({variable_like}) \
+                               AND origin_module_node_id IS NULL THEN {variable} END \
                          AS SMALLINT) AS reason \
              FROM resolved",
             rank = seed_rank("d.module_node_id, d.qualified_name"),
@@ -271,6 +275,7 @@ impl Derived for Exports {
             .join(", "),
             missing = c(BoundaryReason::MissingEvidence),
             variable = c(BoundaryReason::VariableOrigin),
+            not_found = c(ModuleOrigin::NotFound),
         )
     }
 }
@@ -936,17 +941,21 @@ impl Derived for ImportTargets {
                       row_number() OVER (PARTITION BY module_name ORDER BY is_stub, path) AS pick \
                FROM source_files), \
              dependency_modules AS ( \
-               SELECT DISTINCT module_name, module_node_id FROM context_modules) \
+               SELECT DISTINCT module_name, module_node_id, origin FROM context_modules) \
              SELECT x.fact_id AS import_fact_id, x.module_node_id, \
-                    COALESCE(r.module_node_id, d.module_node_id) AS target_node_id, \
-                    CAST(CASE WHEN COALESCE(r.module_node_id, d.module_node_id) IS NULL \
-                              THEN {unresolved} END AS SMALLINT) AS reason \
+                    COALESCE(r.module_node_id, \
+                             CASE WHEN d.origin <> {not_found} THEN d.module_node_id END) \
+                      AS target_node_id, \
+                    CAST(CASE WHEN r.module_node_id IS NOT NULL THEN NULL \
+                              WHEN x.resolved_module IS NULL OR d.origin = {not_found} \
+                                THEN {unresolved} END AS SMALLINT) AS reason \
              FROM export_syntax x \
              LEFT JOIN release_modules r ON r.pick = 1 AND r.module_name = x.resolved_module \
              LEFT JOIN dependency_modules d \
                ON r.module_name IS NULL AND d.module_name = x.resolved_module \
              WHERE x.kind IN ({import}, {import_from})",
             unresolved = c(BoundaryReason::UnresolvedTarget),
+            not_found = c(ModuleOrigin::NotFound),
             import = c(ExportSyntaxKind::Import),
             import_from = c(ExportSyntaxKind::ImportFrom),
         )

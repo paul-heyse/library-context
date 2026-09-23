@@ -62,12 +62,10 @@ _Updated 2026-09-22 by the handoff skill._
   - C4: the `types` family (type terms with structure and binders, observations, record fields),
     on fork revision `6a93da34` (branch `lctx/1.3.1-r2`).
   - Pilot 2026-09-23: 241,373 nodes, 387,774 edges, every rule; 18.4 s at 3.8–4.1 GB peak.
-- **C3 compact review** (`design_review_cpg-c3-lexical_2026-09-23.md`): **Revise**. F1–F7 to fix
-  next: outside-the-module names from Pyrefly's sets (F1; `Transaction::get_wildcard` is already
-  in the fork), provider-backed import reasons (F2), module/class fallback candidates (F3), scope
-  parents (F4), `global`/`nonlocal` routing (F5), annotation scopes and repeated declarations
-  (F6), DESIGN drift (F7).
-- **C4 compact review:** due after the C3 fixes.
+  - C3 compact review (`design_review_cpg-c3-lexical_2026-09-23.md`): F1–F7 fixed with the
+    simpler alternative (outside names from Pyrefly); pilot 244,673 nodes, 391,193 edges,
+    19.0 s at 3.93 GB.
+- **C4 compact review:** due (`design-reviewer`, at the C4 commit `3f0f385` plus this fix).
 - **C5:** the source corpus (`docs`, examples, tests).
 - **C6:** pilot measurement (the ~4 GB peak decides the streaming trigger) and a deep review.
 

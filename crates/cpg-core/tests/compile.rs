@@ -387,7 +387,7 @@ async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
     type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
-    let cases: [(&str, Mutation); 19] = [
+    let cases: [(&str, Mutation); 23] = [
         ("key:declarations", |raw| {
             let b = table(raw, "declarations");
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &b.slice(0, 1)]).unwrap();
@@ -572,6 +572,61 @@ async fn every_rule_kind_rejects_its_violation() {
                 .map(|n| n.map(|n| format!("{n}_renamed")))
                 .collect();
             *b = replace(b, "name", Arc::new(names));
+        }),
+        // C3 review F7: a scope whose id is not its owner's recipe.
+        ("id:scopes", |raw| {
+            let b = table(raw, "scopes");
+            let module = b
+                .column(b.schema().index_of("module_node_id").unwrap())
+                .clone();
+            *b = replace(b, "owner_node_id", module);
+        }),
+        // C3 review F7: a reference whose id is not its name's recipe.
+        ("id:references", |raw| {
+            let b = table(raw, "references");
+            let names = b
+                .column(b.schema().index_of("name_node_id").unwrap())
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap()
+                .clone();
+            let first = FixedSizeBinaryArray::try_from_iter(std::iter::repeat_n(
+                names.value(0),
+                b.num_rows(),
+            ))
+            .unwrap();
+            *b = replace(b, "name_node_id", Arc::new(first));
+        }),
+        // C3 review F7: a Pysa identifier site with no reference at its span is our failure.
+        ("typed:identifier_targets", |raw| {
+            let b = table(raw, "references");
+            for column in ["start_byte", "end_byte"] {
+                let i = b.schema().index_of(column).unwrap();
+                let moved: Int64Array = b
+                    .column(i)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.map(|v| v + 1_000_000))
+                    .collect();
+                *b = replace(b, column, Arc::new(moved));
+            }
+        }),
+        // C3 review F2 (P10): an import our own naming got wrong is never read as the provider's
+        // "not found".
+        ("typed:import_targets", |raw| {
+            let b = table(raw, "export_syntax");
+            let i = b.schema().index_of("resolved_module").unwrap();
+            let moved: arrow_array::StringArray = b
+                .column(i)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap()
+                .iter()
+                .map(|m| m.map(|m| format!("{m}_misnamed")))
+                .collect();
+            *b = replace(b, "resolved_module", Arc::new(moved));
         }),
         // ADR-0014 lineage: a Pysa call record that matches no call site is not silently dropped.
         ("lineage:call_target", |raw| {

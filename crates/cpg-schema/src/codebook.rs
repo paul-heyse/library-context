@@ -325,6 +325,9 @@ codebook!(
         BundledTypeshed = 4 => "bundled_typeshed",
         BundledTypeshedThirdParty = 5 => "bundled_typeshed_third_party",
         BundledThirdParty = 6 => "bundled_third_party",
+        /// An import names it and Pyrefly's finder cannot find it (C3 review F2): no file and no
+        /// node, only the provider's answer.
+        NotFound = 7 => "not_found",
     }
 );
 
@@ -606,6 +609,9 @@ codebook!(
         Nonlocal = 17 => "nonlocal",
         TypeAlias = 18 => "type_alias",
         TypeParam = 19 => "type_param",
+        /// A name the runtime binds with no statement (C3 review F1): a module's implicit globals
+        /// (Pyrefly's `ImplicitGlobal` set), a method's `__class__` cell.
+        Implicit = 20 => "implicit",
     }
 );
 

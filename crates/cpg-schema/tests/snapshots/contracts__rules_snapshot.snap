@@ -263,7 +263,7 @@ codebook:facts.modality
 codebook:facts.fidelity
   SELECT fidelity FROM facts WHERE fidelity IS NOT NULL AND fidelity NOT IN (0, 1, 2, 3, 4)
 codebook:context_modules.origin
-  SELECT origin FROM context_modules WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4, 5, 6)
+  SELECT origin FROM context_modules WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:context_definitions.kind
   SELECT kind FROM context_definitions WHERE kind IS NOT NULL AND kind NOT IN (0, 1)
 codebook:declarations.kind
@@ -289,7 +289,7 @@ codebook:syntax_nodes.field
 codebook:scopes.kind
   SELECT kind FROM scopes WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4)
 codebook:bindings.kind
-  SELECT kind FROM bindings WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
+  SELECT kind FROM bindings WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:bindings.static_branch
   SELECT static_branch FROM bindings WHERE static_branch IS NOT NULL AND static_branch NOT IN (0, 1, 2)
 codebook:references.field

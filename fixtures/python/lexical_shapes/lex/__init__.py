@@ -55,7 +55,7 @@ def shadowed_builtin(values):
 
 
 def uses_star():
-    return helper_from_star()
+    return helper_from_star(), open("x")  # both from the star import's wildcard set
 
 
 def dropped():
