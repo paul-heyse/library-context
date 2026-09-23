@@ -13,7 +13,7 @@ key:producers
 key:releases
   SELECT snapshot_id, release_id, count(*) AS n FROM releases GROUP BY snapshot_id, release_id HAVING count(*) > 1
 key:distributions
-  SELECT snapshot_id, release_id, name, count(*) AS n FROM distributions GROUP BY snapshot_id, release_id, name HAVING count(*) > 1
+  SELECT snapshot_id, context_id, name, count(*) AS n FROM distributions GROUP BY snapshot_id, context_id, name HAVING count(*) > 1
 key:source_files
   SELECT snapshot_id, module_name, path, fact_id, count(*) AS n FROM source_files GROUP BY snapshot_id, module_name, path, fact_id HAVING count(*) > 1
 key:declarations
@@ -60,8 +60,8 @@ ref:runs.release_id->source_files
   SELECT f.release_id AS value FROM runs f LEFT ANTI JOIN (SELECT release_id AS k FROM source_files) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
 ref:releases.release_id->runs
   SELECT f.release_id AS value FROM releases f LEFT ANTI JOIN (SELECT release_id AS k FROM runs) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
-ref:distributions.release_id->releases
-  SELECT f.release_id AS value FROM distributions f LEFT ANTI JOIN (SELECT release_id AS k FROM releases) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
+ref:distributions.context_id->contexts
+  SELECT f.context_id AS value FROM distributions f LEFT ANTI JOIN (SELECT context_id AS k FROM contexts) r ON f.context_id = r.k WHERE f.context_id IS NOT NULL
 ref:source_files.release_id->runs
   SELECT f.release_id AS value FROM source_files f LEFT ANTI JOIN (SELECT release_id AS k FROM runs) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
 ref:runs.context_id->contexts

@@ -26,7 +26,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 4;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 5;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -199,84 +199,46 @@ fn relativize(value: &mut Value, input: &ExtractInput) {
     }
 }
 
-/// Digest of the dependency environment (review F2, ADR-0013). Per root: each installed
-/// distribution's dist-info name and the digest of its `RECORD`, which lists every file it owns
-/// with a sha256; then, for every top-level entry no `RECORD` owns (`.pth` files,
-/// `_virtualenv.py`, a bare source tree), its files' relative paths and content digests (a
-/// symlink's target text). Owned bytes are covered by their `RECORD`, never re-read, so a large
-/// environment stays cheap. Bytecode caches are skipped; the analyzer never reads them.
+/// Digest of the dependency environment (review F2; ADR-0013 review F1): the installed
+/// distributions (dist-info names, which carry their versions) and every analyzer-readable file
+/// (`.py`, `.pyi`, `py.typed`: what Pyrefly's module finder reads) with its root-relative path
+/// and content digest, in path order. Nothing outside the roots (console scripts carry the
+/// environment's absolute path) and nothing Pyrefly never reads (`.pth`, bytecode, data) enters
+/// it, so a moved environment keeps its identity and any analyzer-visible change moves it.
 fn environment_digest(roots: &[PathBuf]) -> std::io::Result<Digest> {
-    fn files(dir: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    fn walk(dir: &Path, infos: &mut Vec<String>, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
             .map(|e| e.map(|e| e.path()))
             .collect::<Result<_, _>>()?;
         entries.sort();
         for p in entries {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             if std::fs::symlink_metadata(&p)?.is_dir() {
-                if p.file_name() != Some("__pycache__".as_ref()) {
-                    files(&p, acc)?;
+                if name.ends_with(".dist-info") {
+                    infos.push(name);
+                } else if name != "__pycache__" {
+                    walk(&p, infos, files)?;
                 }
-            } else {
-                acc.push(p);
+            } else if crate::library::analyzer_readable(&name) {
+                files.push(p);
             }
         }
         Ok(())
     }
-    let name = |p: &Path| {
-        p.file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    };
     let mut h = IdHasher::new(kind::ENVIRONMENT);
     for root in roots {
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(root)?
-            .map(|e| e.map(|e| e.path()))
-            .collect::<Result<_, _>>()?;
-        entries.sort();
-        let mut owned = std::collections::BTreeSet::new();
-        let mut records = Vec::new();
-        for p in entries
-            .iter()
-            .filter(|p| name(p).ends_with(".dist-info") && p.is_dir())
-        {
-            let record = std::fs::read(p.join("RECORD")).unwrap_or_default();
-            for line in String::from_utf8_lossy(&record).lines() {
-                let path = line.split(',').next().unwrap_or_default();
-                if let Some(top) = path
-                    .split('/')
-                    .next()
-                    .filter(|t| !t.is_empty() && *t != "..")
-                {
-                    owned.insert(top.to_owned());
-                }
-            }
-            records.push((name(p), content_digest(&record)));
-        }
-        h.i64(records.len() as i64);
-        for (dist_info, record) in &records {
-            h.str(dist_info).digest_field(*record);
-        }
-        let mut loose = Vec::new();
-        for p in &entries {
-            let n = name(p);
-            if n.ends_with(".dist-info") || n == "__pycache__" || owned.contains(&n) {
-                continue;
-            }
-            if std::fs::symlink_metadata(p)?.is_dir() {
-                files(p, &mut loose)?;
-            } else {
-                loose.push(p.clone());
-            }
-        }
-        h.i64(loose.len() as i64);
-        for f in loose {
+        let (mut infos, mut files) = (Vec::new(), Vec::new());
+        walk(root, &mut infos, &mut files)?;
+        infos.sort();
+        h.strs(infos.iter().map(String::as_str));
+        h.i64(files.len() as i64);
+        for f in files {
             let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy();
-            let content = if std::fs::symlink_metadata(&f)?.is_symlink() {
-                content_digest(std::fs::read_link(&f)?.to_string_lossy().as_bytes())
-            } else {
-                content_digest(&std::fs::read(&f)?)
-            };
-            h.str(&rel).digest_field(content);
+            h.str(&rel)
+                .digest_field(content_digest(&std::fs::read(&f)?));
         }
     }
     Ok(h.finish_digest())

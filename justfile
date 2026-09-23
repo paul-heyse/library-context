@@ -12,7 +12,7 @@ check: fmt-check lint test py-check rules-scan rules-test lint-agents
     uv run python scripts/adr.py lint
 
 # Everything: check + fixtures + dependency policy
-test-all: check fixtures-check deps
+test-all: check fixtures-check deps gold
 
 # rustfmt + ruff format check (no changes)
 fmt-check:
@@ -44,6 +44,10 @@ deps:
     uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources licenses
     uv run python scripts/check_pyrefly_fork.py
+
+# The gold reference and the analyzed library name one FastMCP (ADR-0013). Separate from `deps`,
+# so a skill refresh in progress never reads as a dependency-family break (ADR-0002's trigger).
+gold:
     uv run python scripts/check_gold.py
 
 # Byte-compile Python fixtures (input data) so they cannot silently become syntax-error cases

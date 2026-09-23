@@ -30,6 +30,10 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error("not a table url: {0}")]
     Url(String),
+    #[error(
+        "{0}: the stored schema differs from the declared contract (a schema migration: use a new store or migrate the table)"
+    )]
+    SchemaDrift(&'static str),
     #[error("{0}: delta.appendOnly is not set")]
     NotAppendOnly(&'static str),
     #[error("{table}: CHECK constraints differ from the declaration: {detail}")]

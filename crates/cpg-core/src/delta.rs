@@ -84,9 +84,15 @@ fn expected_constraints<T: Table>() -> Result<BTreeMap<String, String>, CoreErro
         .collect()
 }
 
-/// Refuse a table whose `appendOnly` or CHECK set differs from the declaration, including one
-/// left without constraints by a crash between create and `add_constraint`. Never writes.
+/// Refuse a table whose schema, `appendOnly` or CHECK set differs from the declaration, including
+/// one left without constraints by a crash between create and `add_constraint`. Never writes.
 pub fn verify<T: Table>(table: &DeltaTable) -> Result<(), CoreError> {
+    // A changed contract is a migration (DESIGN §6.3): refuse the old table by name, rather than
+    // let the write fail on a cast.
+    let declared: StructType = T::schema().as_ref().try_into_kernel()?;
+    if table.snapshot()?.schema().as_ref() != &declared {
+        return Err(CoreError::SchemaDrift(T::NAME));
+    }
     let config = table.snapshot()?.metadata().configuration().clone();
     if config.get("delta.appendOnly").map(String::as_str) != Some("true") {
         return Err(CoreError::NotAppendOnly(T::NAME));

@@ -240,3 +240,22 @@ async fn insert_into_still_bypasses_checks_at_this_delta_rs_revision() {
     let reloaded = open_verified::<Declarations>(dir.path()).await.unwrap();
     assert!(reloaded.version() > t.version());
 }
+
+#[tokio::test]
+async fn open_refuses_a_table_whose_schema_drifted() {
+    // A changed contract is a migration (DESIGN §6.3): a table stored under an older schema is
+    // refused by name, before any write can fail on a cast.
+    let dir = tempfile::tempdir().unwrap();
+    let kernel: StructType = Boundaries::schema().as_ref().try_into_kernel().unwrap();
+    std::fs::create_dir_all(dir.path().join(Declarations::NAME)).unwrap();
+    DeltaTable::try_from_url(table_url(dir.path(), Declarations::NAME).unwrap())
+        .await
+        .unwrap()
+        .create()
+        .with_columns(kernel.fields().cloned())
+        .with_configuration_property(deltalake::TableProperty::AppendOnly, Some("true"))
+        .await
+        .unwrap();
+    let err = open_verified::<Declarations>(dir.path()).await.unwrap_err();
+    assert!(matches!(err, CoreError::SchemaDrift(_)), "{err}");
+}

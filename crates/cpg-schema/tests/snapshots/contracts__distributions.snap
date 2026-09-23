@@ -4,13 +4,12 @@ expression: text
 ---
 table distributions
 family provenance
-key snapshot_id, release_id, name
+key snapshot_id, context_id, name
 @lctx.family=provenance
 @lctx.table=distributions
 snapshot_id: FixedSizeBinary(16) NOT NULL
-release_id: FixedSizeBinary(16) NOT NULL
+context_id: FixedSizeBinary(16) NOT NULL
 name: Utf8 NOT NULL
 version: Utf8 NOT NULL
-in_release: Boolean NOT NULL
 artifact_sha256: List(non-null Utf8) NOT NULL
 record_digest: FixedSizeBinary(32) NOT NULL

@@ -1,13 +1,13 @@
 ---
 id: ADR-0013
 title: Libraries are pinned uv projects; Stage A reads the acquired environment; the pilot is FastMCP 4.0.5
-status: proposed
+status: accepted
 date: 2026-09-22
 supersedes: [ADR-0007]
 superseded-by: null
-design: [§1.2, §1.4, §3.2, §3.4.1, §4.0, §4.1, §12]
+design: [§1.2, §1.4, §3.2, §3.4.1, §4.0, §4.1, §11, §12]
 evidence: Tested
-revisit: A library cannot be expressed as one uv requirement with a first-party distribution list (e.g. it needs a non-PyPI build or a platform uv cannot lock), `uv sync --frozen` stops verifying artifact hashes, or a release's modules are not all listed in its distributions' RECORDs.
+revisit: The same inputs (the same verified analyzer-readable bytes, lock, interpreter and producer) give a different node_id or fact_id, or an analyzer answer changes without context_id changing (carried from ADR-0007); a library cannot be expressed as one hash-locked uv requirement with a first-party distribution list; `uv sync --frozen` stops verifying artifact hashes; or a release's modules are not all listed in its distributions' RECORDs.
 ---
 
 ## Context
@@ -63,33 +63,52 @@ changing, because the context did not see the dependency environment.
   - release `fastmcp`, `fastmcp-slim` and `fastmcp-tasks`;
   - Python 3.14.7.
 - **Acquisition** is `lctx acquire <name>`:
-  - It runs `uv sync --project libraries/<name> --frozen --no-install-project` into
-    `build/envs/<name>` (gitignored, rebuildable).
+  - It runs `uv sync --project libraries/<name> --frozen --no-install-project --no-config
+    --python <.python-version> --link-mode copy` into `build/envs/<name>` (gitignored,
+    rebuildable).
   - Every other `UV_*` variable and `VIRTUAL_ENV` is removed from uv's environment.
-- **Stage A** (`cpg_extract::library`) reads the definition, the lock, `pyvenv.cfg` and every
+  - `--no-config` ignores user and system uv configuration. `--python` enforces the pin.
+    `--link-mode copy` keeps the environment's files from sharing inodes with the uv cache and
+    other environments.
+  - `lctx acquire <name> --reinstall` is the remedy when Stage A finds a changed file.
+  - `lctx library init` locks without `--no-config`, because the library's own `[tool.uv]` applies
+    there, and the lock is reviewed anyway.
+- **One equivalence: the analyzer-readable bytes.** The analyzer-readable files are `.py`,
+  `.pyi` and `py.typed`, the files Pyrefly's module finder reads; `.pth` files are never read.
+  Stage A (`cpg_extract::library`) reads the definition, the lock, `pyvenv.cfg` and every
   `*.dist-info`, with no network and no interpreter. Its checks:
   - every installed distribution must be the version the lock names;
-  - every file of a release distribution must match its `RECORD` sha256.
+  - the interpreter must be `.python-version`'s;
+  - **every** distribution's analyzer-readable `RECORD` entries must match their sha256;
+  - a release distribution the lock records without artifact hashes (a git or local source) is
+    refused;
+  - a declared `[tool.lctx.source]` must pin a 40-hex `commit`, and its `tag` must name the
+    locked version.
 
   The release's modules are exactly the `.py`/`.pyi` entries of those `RECORD`s; nothing walks a
   directory.
 - **Identities.** ADR-0007's are carried forward: BLAKE3 `lctx-id/v1`, content-derived `node_id`
   and `fact_id`, a random per-attempt `snapshot_id`, snapshot-qualified keys, and `run_id` over
   release, context, producer and families. The changes:
-  - **`release_id`** hashes the release distributions' names and versions and the sorted sha256s
-    of every artifact the lock records for them. A source tree (fixtures, local checkouts) still
-    hashes its label.
+  - **`release_id`** hashes the release distributions' names and versions and the sorted
+    (path, sha256) of their verified analyzer-readable entries: what is analyzed, not the lock
+    entry. A re-listed artifact or a dependency-only upgrade leaves it unchanged. A source tree
+    (fixtures, local checkouts) still hashes its label.
   - **`context_id`** adds:
-    - the **environment digest**: each installed distribution's name, version and `RECORD`
-      digest, plus the content of every top-level entry no `RECORD` owns;
+    - the **environment digest**: the installed distributions' dist-info names and every
+      analyzer-readable file's site-relative path and content. `RECORD` lines outside
+      site-packages (console scripts, which carry the environment's absolute path) never enter
+      it, so a moved environment keeps its identity;
     - the **lock digest**.
   - **`content_digest`** takes the run ids, which carry both.
 - **Provenance.**
-  - `releases`: library, requirement, lock digest, or the tree's label.
-  - `distributions`: every installed distribution's version, artifact hashes, `RECORD` digest, and
-    whether it is in the release.
-
-  Both are registries the extractor run writes.
+  - `releases`: library, requirement, lock digest, the release distributions (`name==version`),
+    the installer from `pyvenv.cfg`, or the tree's label.
+  - `distributions`, keyed by `context_id`: the environment belongs to the context. Each row has
+    a version, artifact hashes and a `RECORD` digest, with a reference rule to `contexts`.
+  - `releases`, `distributions` and `source_files` are written **once per attempt, by the
+    extractor run**, which carries Stage A's output. Later producers reference `release_id` and
+    never append.
 - **One CLI, `lctx`,** is the production path:
   - `library init <name> --requirement REQ` writes the definition and locks it. It then acquires,
     and proposes `release` as the requested distribution plus those sharing its source
@@ -98,32 +117,52 @@ changing, because the context did not see the dependency environment.
   - `compile <name> --store DIR`: acquire, Stage A, extract, derive, validate, publish.
 
   Upgrading is: edit the pin, `uv lock --upgrade-package`, compile.
-- **Gold and analysis stay on one FastMCP.** `scripts/check_gold.py`, in `just deps`, fails when
+- **Gold and analysis stay on one FastMCP.** `scripts/check_gold.py` (`just gold`, run by `just test-all`, separate from `just deps`) fails when
   the skill's install line or its resolved release versions differ from `libraries/fastmcp`.
 
 ## Consequences
 
-- **Adding a library is data, not code.** `attrs` 25.3.0 was defined, locked, acquired and
-  published with every rule passing, in 0.8 s, through `lctx library init` and `lctx compile`
-  (2026-09-22). The same `library init` for FastMCP proposes exactly the three first-party
-  distributions, and its lock matches the committed one.
+- **Adding a library is data, not code.** On 2026-09-22 (observed, not a repo test), `attrs`
+  25.3.0 was defined, locked, acquired and published with every rule passing in 0.8 s, through
+  `lctx library init` and `lctx compile`. The same `library init` for FastMCP proposed exactly the
+  three first-party distributions, and its lock matched the committed one. The proposal rule is
+  **Tested** by `propose.rs`'s unit tests.
 - **The pilot runs end to end.**
-  - **Measured** (2026-09-22, `just pilot`, release build): FastMCP 4.0.5 (275 modules, 103
-    distributions) extracts in 7.1 s and publishes in 8.1 s wall time, at 1.66 GB peak RSS.
+  - **Measured** (2026-09-22, release build, warm environment and uv cache, acquisition a no-op,
+    this Linux host): FastMCP 4.0.5 (275 modules, 103 distributions) extracts in 7.1 s and
+    publishes in 7.9 s wall time, at 1.61 GB peak RSS.
   - Every validation rule passes.
   - Two runs give the same `release_id` and `content_digest`.
-- **Oracles** (`crates/cpg-extract/tests/library.rs`, **Tested**):
-  - a file that differs from its `RECORD` is refused;
-  - an environment not synced to the lock is refused;
-  - `release_id` follows the release distributions' locked artifacts only;
-  - the environment digest follows `RECORD`s and loose files, but not bytes a `RECORD` owns;
-  - the release compiles alone, and its imports resolve into the dependencies.
+- **Oracles** (**Tested**; carried from ADR-0007 where noted):
+  - in `crates/cpg-extract/tests/library.rs`:
+    - a changed analyzer-readable byte is refused, in the release or a dependency;
+    - a version drift and an interpreter drift are refused;
+    - a hash-less (git) release is refused;
+    - `release_id` is the release content (a re-listed artifact leaves it, changed content moves
+      it);
+    - the environment digest is location-independent and sees an unowned stub inside a package, a
+      loose file, and a lock-only change. This is ADR-0007's "changing any single context input
+      changes `run_id`";
+    - the docs source must be pinned and name the locked version;
+    - the release compiles alone, and its imports resolve into the dependencies.
+  - in `crates/lctx/tests/acquire.rs`: uv receives `--frozen --no-config --python <pin>
+    --link-mode copy`, and no `UV_*`/`VIRTUAL_ENV`.
+  - in `crates/lctx/src/propose.rs`: the FastMCP trio is grouped; a shared sponsor link is not a
+    shared source; a distribution without a repository is proposed alone.
+  - the proptests and known-answer vectors (ADR-0007): the same inputs give the same ids.
 - **What costs more.**
   - The first acquisition needs the network.
   - Every library has an environment on disk (FastMCP: 127 MB).
   - The skill must be re-pinned with the library, and the gold guard makes that visible.
-- **What we give up.** Tampering with a dependency's installed bytes is not detected unless its
-  `RECORD` changes. The release's own bytes are always verified.
+- **Review (standard, 2026-09-22).** It found the first recipes wrong.
+  - The environment digest hashed whole `RECORD`s, whose console-script lines carry the
+    environment's path. It also ignored files inside owned packages.
+  - `release_id` followed the lock entry.
+  - Acquisition was steerable by user uv configuration.
+
+  All three were corrected as above before acceptance. On the pilot, two environment paths now
+  give the same `release_id` and `content_digest`, and every installed file has a link count
+  of 1.
 - **Superseded.** ADR-0007's acquisition clause (manifest, `ACQUISITION.json`, the skill's
   pattern, the 4.0.3 three-distribution release) is superseded. Everything else it decided is
   carried forward here.

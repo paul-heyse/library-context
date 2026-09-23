@@ -109,25 +109,28 @@ table!(
         /// The pinned requirement the library's lock resolves.
         requirement: Option<String>,
         lock_digest: Option<Digest>,
+        /// The release distributions as `name==version`, sorted; empty for a source tree.
+        distributions: Vec<String>,
+        /// The installer that built the environment (`uv 0.12.18`, from `pyvenv.cfg`).
+        installer: Option<String>,
         /// The label a source tree was compiled under; null for an acquired library.
         label: Option<String>,
     }
 );
 
 table!(
-    /// Every distribution installed in an acquired release's environment (ADR-0013).
+    /// Every distribution installed in the analysis environment of a context (ADR-0013); the
+    /// release's own are listed in `releases.distributions`.
     Distributions, DistributionsRow = "distributions",
     family = Provenance,
-    key = [snapshot_id, release_id, name],
+    key = [snapshot_id, context_id, name],
     checks = [],
     {
         snapshot_id: Id,
-        release_id: Id,
+        context_id: Id,
         /// Normalized (PEP 503) name.
         name: String,
         version: String,
-        /// One of the library's first-party distributions, whose code is compiled.
-        in_release: bool,
         /// sha256 (hex) of every artifact `uv.lock` records for this version, sorted.
         artifact_sha256: Vec<String>,
         /// Digest of the installed `RECORD`.

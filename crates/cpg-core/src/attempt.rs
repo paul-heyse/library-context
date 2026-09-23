@@ -84,9 +84,9 @@ fn ids(batch: &RecordBatch, column: &'static str) -> Result<Vec<Id>, CoreError> 
         .collect()
 }
 
-/// §3.4.1 `content_digest` for what exists so far: the sorted run ids (each carrying its release)
-/// and the compiler digest. The acquisition-manifest, analytics-config and embedding inputs join
-/// it as their stages land.
+/// §3.4.1 `content_digest` for what exists so far: the sorted run ids (each carrying its release,
+/// and its context's lock and environment digests, ADR-0013) and the compiler digest. The
+/// analytics-config and embedding inputs join it as their stages land.
 pub fn content_digest(run_ids: &[Id]) -> Digest {
     let mut runs: Vec<String> = run_ids.iter().map(Id::hex).collect();
     runs.sort();

@@ -27,17 +27,22 @@ Review the proposal and the lock, then commit the three files.
 3. `lctx compile <name> --store build/store` (acquires, verifies, extracts, derives, validates,
    publishes).
 4. For `fastmcp`, move the `fastmcp` skill (the gold reference) to the same version through its own
-   `MAINTENANCE.md`; `just deps` fails until they agree (`scripts/check_gold.py`).
+   `MAINTENANCE.md`; `just gold` (run by `just test-all`) fails until they agree.
 
 ## Compile
 
 ```sh
-lctx acquire <name>                     # uv sync --frozen into build/envs/<name>
+lctx acquire <name> [--reinstall]       # uv sync --frozen into build/envs/<name>
 lctx compile <name> --store build/store # the snapshot id, per-table rows and versions
 just pilot                              # lctx compile fastmcp, release build
 ```
 
-`lctx` removes every `UV_*` variable and `VIRTUAL_ENV` from uv's environment, and passes an
-absolute environment path (uv resolves a relative `UV_PROJECT_ENVIRONMENT` against the project).
-Stage A then refuses an environment that is not the lock's, or a release file that differs from its
-`RECORD`.
+`lctx acquire` runs `uv sync --frozen --no-install-project --no-config --python <.python-version>
+--link-mode copy`: user and system uv configuration is ignored, the interpreter pin is enforced,
+and files are copied rather than hard-linked from the uv cache. It removes every `UV_*` variable
+and `VIRTUAL_ENV` from uv's environment, and passes an absolute environment path (uv resolves a
+relative `UV_PROJECT_ENVIRONMENT` against the project). Stage A then refuses an environment that is
+not the lock's or the pin's, a release locked without artifact hashes, and any analyzer-readable
+file (`.py`, `.pyi`, `py.typed`) that differs from its `RECORD`; `lctx acquire <name> --reinstall`
+repairs it. A declared `[tool.lctx.source]` must pin a 40-hex `commit` whose `tag` names the
+locked version.

@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! lctx library init <name> --requirement REQ [--python 3.14.7]   write, lock, acquire, propose release
-//! lctx acquire <name>                                            uv sync --frozen into build/envs/<name>
+//! lctx acquire <name> [--reinstall]                              uv sync --frozen into build/envs/<name>
 //! lctx compile <name> --store DIR                                acquire, Stage A, extract, derive,
 //!                                                                validate, publish
 //! ```
@@ -11,7 +11,8 @@
 //! Upgrading a library: edit its pin, `uv lock --project libraries/<name> --upgrade-package <dist>`,
 //! then `lctx compile <name>`.
 
-use std::collections::BTreeSet;
+mod propose;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
@@ -26,6 +27,7 @@ struct Options {
     store: Option<PathBuf>,
     requirement: Option<String>,
     python: String,
+    reinstall: bool,
 }
 
 fn absolute(p: &Path) -> Result<PathBuf, String> {
@@ -40,6 +42,7 @@ fn parse() -> Result<Options, String> {
         store: None,
         requirement: None,
         python: "3.14.7".to_owned(),
+        reinstall: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -50,6 +53,7 @@ fn parse() -> Result<Options, String> {
             "--store" => o.store = Some(PathBuf::from(value()?)),
             "--requirement" => o.requirement = Some(value()?),
             "--python" => o.python = value()?,
+            "--reinstall" => o.reinstall = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => o.command.push(arg),
         }
@@ -81,7 +85,11 @@ fn uv(args: &[&str], env_dir: &Path) -> Result<(), String> {
     }
 }
 
-fn acquire(library_dir: &Path, env_dir: &Path) -> Result<(), String> {
+/// `uv sync --frozen` into the library's environment, ignoring user and system uv configuration
+/// (`--no-config`), on the interpreter `.python-version` pins, and copying files rather than
+/// hard-linking them from the uv cache, which other environments share (ADR-0013 review F3).
+/// `reinstall` rebuilds every package: the remedy when Stage A finds a changed file.
+fn acquire(library_dir: &Path, env_dir: &Path, reinstall: bool) -> Result<(), String> {
     if !library_dir.join("uv.lock").exists() {
         return Err(format!(
             "{} has no uv.lock; run `lctx library init` or `uv lock --project {}`",
@@ -89,17 +97,25 @@ fn acquire(library_dir: &Path, env_dir: &Path) -> Result<(), String> {
             library_dir.display()
         ));
     }
+    let python = std::fs::read_to_string(library_dir.join(".python-version"))
+        .map_err(|e| format!("{}/.python-version: {e}", library_dir.display()))?;
     let project = library_dir.to_string_lossy();
-    uv(
-        &[
-            "sync",
-            "--project",
-            &project,
-            "--frozen",
-            "--no-install-project",
-        ],
-        env_dir,
-    )
+    let mut args = vec![
+        "sync",
+        "--project",
+        &project,
+        "--frozen",
+        "--no-install-project",
+        "--no-config",
+        "--python",
+        python.trim(),
+        "--link-mode",
+        "copy",
+    ];
+    if reinstall {
+        args.push("--reinstall");
+    }
+    uv(&args, env_dir)
 }
 
 fn random_id() -> Result<Id, String> {
@@ -110,7 +126,7 @@ fn random_id() -> Result<Id, String> {
 
 fn compile(library_dir: &Path, env_dir: &Path, store: &Path) -> Result<(), String> {
     let started = Instant::now();
-    acquire(library_dir, env_dir)?;
+    acquire(library_dir, env_dir, false)?;
     let snapshot = random_id()?;
     let input = library::acquired(library_dir, env_dir, snapshot).map_err(|e| e.to_string())?;
     println!(
@@ -140,27 +156,6 @@ fn compile(library_dir: &Path, env_dir: &Path, store: &Path) -> Result<(), Strin
     Ok(())
 }
 
-/// The URLs a distribution's METADATA names for its source (`Project-URL`, `Home-page`),
-/// normalized for comparison.
-fn source_urls(dist_info: &Path) -> BTreeSet<String> {
-    let text = std::fs::read_to_string(dist_info.join("METADATA")).unwrap_or_default();
-    text.lines()
-        .take_while(|l| !l.is_empty())
-        .filter_map(|l| {
-            l.strip_prefix("Project-URL:")
-                .and_then(|v| v.split_once(',').map(|(_, url)| url))
-                .or_else(|| l.strip_prefix("Home-page:"))
-        })
-        .map(|u| {
-            u.trim()
-                .trim_end_matches('/')
-                .trim_end_matches(".git")
-                .to_ascii_lowercase()
-        })
-        .filter(|u| u.contains("github.com/") || u.contains("gitlab.com/"))
-        .collect()
-}
-
 /// Write `libraries/<name>/`, lock it, acquire it, and propose `[tool.lctx] release` as the
 /// requested distribution plus every installed distribution sharing a source repository with it.
 fn init(name: &str, o: &Options) -> Result<(), String> {
@@ -168,12 +163,7 @@ fn init(name: &str, o: &Options) -> Result<(), String> {
         .requirement
         .as_deref()
         .ok_or("library init needs --requirement")?;
-    let dist = library::normalize(
-        requirement
-            .split(|c: char| "[<>=!~ ;(@".contains(c))
-            .next()
-            .unwrap_or_default(),
-    );
+    let dist = library::requirement_name(requirement);
     let (major, minor) = {
         let mut parts = o.python.split('.');
         (parts.next().unwrap_or("3"), parts.next().unwrap_or("14"))
@@ -213,13 +203,13 @@ fn init(name: &str, o: &Options) -> Result<(), String> {
         &["lock", "--project", &library_dir.to_string_lossy()],
         &env_dir,
     )?;
-    acquire(&library_dir, &env_dir)?;
+    acquire(&library_dir, &env_dir, false)?;
     let site = std::fs::read_dir(env_dir.join("lib"))
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok().map(|e| e.path().join("site-packages")))
         .find(|p| p.is_dir())
         .ok_or("the acquired environment has no site-packages")?;
-    let infos: Vec<(String, PathBuf)> = std::fs::read_dir(&site)
+    let installed: Vec<(String, String)> = std::fs::read_dir(&site)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter_map(|p| {
@@ -228,25 +218,21 @@ fn init(name: &str, o: &Options) -> Result<(), String> {
                 .to_str()?
                 .strip_suffix(".dist-info")?
                 .to_owned();
-            Some((library::normalize(stem.rsplit_once('-')?.0), p))
+            let metadata = std::fs::read_to_string(p.join("METADATA")).unwrap_or_default();
+            Some((library::normalize(stem.rsplit_once('-')?.0), metadata))
         })
         .collect();
-    let own = infos
-        .iter()
-        .find(|(n, _)| *n == dist)
-        .map(|(_, p)| source_urls(p))
-        .unwrap_or_default();
-    let mut release: Vec<String> = infos
-        .iter()
-        .filter(|(n, p)| *n == dist || (!own.is_empty() && !source_urls(p).is_disjoint(&own)))
-        .map(|(n, _)| n.clone())
-        .collect();
-    release.sort();
+    let (release, found) = propose::propose(&dist, &installed);
     write(&release)?;
     println!(
-        "{} written and locked; proposed release = {release:?}. Review it, then commit the \
+        "{} written and locked; proposed release = {release:?}{}. Review it, then commit the \
          directory (pyproject.toml, .python-version, uv.lock).",
-        library_dir.display()
+        library_dir.display(),
+        if found {
+            ""
+        } else {
+            " (the distribution names no source repository, so it is proposed alone)"
+        }
     );
     Ok(())
 }
@@ -256,7 +242,7 @@ fn run() -> Result<(), String> {
     let words: Vec<&str> = o.command.iter().map(String::as_str).collect();
     match words[..] {
         ["library", "init", name] => init(name, &o),
-        ["acquire", name] => acquire(&o.libraries.join(name), &o.envs.join(name)),
+        ["acquire", name] => acquire(&o.libraries.join(name), &o.envs.join(name), o.reinstall),
         ["compile", name] => {
             let store = absolute(o.store.as_deref().ok_or("compile needs --store DIR")?)?;
             compile(&o.libraries.join(name), &o.envs.join(name), &store)

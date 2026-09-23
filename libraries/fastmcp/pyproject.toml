@@ -18,6 +18,8 @@ package = false
 release = ["fastmcp", "fastmcp-slim", "fastmcp-tasks"]
 
 [tool.lctx.source]
-# Upstream docs, examples and tests for the docs family (increment 3); fetched then.
+# Upstream docs, examples and tests for the docs family (increment 3), fetched then. Pinned by
+# the full commit the tag names (a tag can move); Stage A checks the tag names the locked version.
 repository = "https://github.com/PrefectHQ/fastmcp"
 tag = "v4.0.5"
+commit = "004bf15a2ba99f077160993c00a404e1a9da83ea"

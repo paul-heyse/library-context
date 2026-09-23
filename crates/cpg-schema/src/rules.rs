@@ -47,7 +47,7 @@ pub const REFERENCES: &[Reference] = &[
     // A run's release has modules, so `coverage:complete` cannot pass vacuously.
     r("runs", "release_id", &[("source_files", "release_id")]),
     r("releases", "release_id", &[("runs", "release_id")]),
-    r("distributions", "release_id", &[("releases", "release_id")]),
+    r("distributions", "context_id", &[("contexts", "context_id")]),
     r("source_files", "release_id", &[("runs", "release_id")]),
     r("runs", "context_id", &[("contexts", "context_id")]),
     r("runs", "producer_id", &[("producers", "producer_id")]),

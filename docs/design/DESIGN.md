@@ -91,8 +91,8 @@ Each increment is a working vertical slice and ends with the review shown (ADR-0
   pinned artifacts, even when identical bytes exist in a skill's cache. Analytics parameters (§9)
   are pre-registered. The gold serves only as the development metric for keeping or removing
   techniques (§9.8), never for tuning parameters.
-- **One version.** The gold and the analysis name one FastMCP: `scripts/check_gold.py` (in
-  `just deps`) fails when the skill's install line or its resolved release versions differ from
+- **One version.** The gold and the analysis name one FastMCP: `scripts/check_gold.py`
+  (`just gold`, run by `just test-all`) fails when the skill's install line or its resolved release versions differ from
   `libraries/fastmcp`. The move from 4.0.3 is not cosmetic. The 4.0.3 → 4.0.5 source diff
   (2026-09-22) changes behaviour, not only logging: the no-context strictness helper returns
   `None` rather than `False`; `LocalProvider.get_tasks` applies transforms; client pagination
@@ -363,7 +363,10 @@ declaration, and an AST node is not an execution point.
   them. Projections (§5) are built directly from family joins.
 - **One producer per table.** A fact table is written by one producer: one extractor surface, or
   one Stage-C/D derivation (§4.1). `runs`, `contexts`, `producers` and `facts` are registries each
-  producer appends its own rows to; `source_files` is the extractor's until Stage A lands.
+  producer appends its own rows to. `releases`, `distributions` and `source_files` are written
+  **once per attempt by the extractor run**, which carries Stage A's output; later producers
+  reference `release_id` and never append (ADR-0013). `distributions` is keyed by `context_id`:
+  the environment belongs to the context.
 - **Merged tables are derivations.** Where two providers contribute to one logical record, each
   writes its own raw table. The merged table is a DataFusion derivation
   (`relational_derivation`) that carries keys, both `fact_id`s and what the join decides: a
@@ -452,9 +455,9 @@ migration (DM-51).
 
 | ID | Derived from | Scope |
 |---|---|---|
-| `release_id` | the release distributions' names and versions and the sorted sha256s of every artifact `uv.lock` records for them (a source tree: its label) | global |
+| `release_id` | the release distributions' names and versions and the sorted (path, sha256) of their `RECORD`-verified analyzer-readable files: what is analyzed, never the lock entry (a source tree: its label) | global |
 | `node_id` | `release_id`, path within the release, then the structural occurrence path (syntax nodes: ruff `NodeKind` names and child ordinals) or the qualified name and occurrence (declarations) | stable across snapshots and runs. Syntax ids are producer-scoped: a ruff bump may rename a node kind |
-| `context_id` | Python version, platform, ordered search and site-package paths (root-relative), config digest, environment digest (each installed distribution's `RECORD` digest, plus the content of top-level entries no `RECORD` owns), lock digest | global |
+| `context_id` | Python version, platform, ordered search and site-package paths (root-relative), config digest, environment digest (the installed distributions' dist-info names and every analyzer-readable file's site-relative path and content), lock digest | global |
 | `producer_id` | tool, tool revision, adapter build digest | global |
 | `run_id` | `release_id`, `context_id`, `producer_id`, sorted enabled families, the producer's own config digest | global |
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
@@ -582,8 +585,9 @@ migration (DM-51).
 ### §4.0 Library acquisition and the run contract
 
 **Implemented** in `libraries/`, `cpg_extract::library` and `crates/lctx`, and **Tested**
-(`crates/cpg-extract/tests/library.rs`, `just pilot`, 2026-09-22). Source: IP L1146–L1170
-(Stage A), L536 (run supporting tables).
+(`crates/cpg-extract/tests/library.rs`, `crates/lctx/tests/acquire.rs`, `crates/lctx/src/propose.rs`,
+`just pilot`, 2026-09-22), after a standard review corrected the first identity recipes and the
+acquisition flags. Source: IP L1146–L1170 (Stage A), L536 (run supporting tables).
 
 **A library is data.** Every analyzed library, the pilot included, is a committed uv project
 `libraries/<name>/`. This is the one production path for any Python library, and none of them
@@ -592,46 +596,64 @@ needs to be a dependency of this project.
   requirement and an exact `requires-python`.
 - `[tool.lctx] release`: the first-party distributions whose code is compiled. Everything else
   installed is dependency context, analyzed only as far as imports reach.
-- `[tool.lctx.source]`: the upstream repository and tag for docs, examples and tests. These are
-  fetched with their sha256 and a path map when the docs family lands (increment 3).
+- `[tool.lctx.source]`: the upstream repository, tag and the full 40-hex `commit` the tag names
+  (a tag can move), for docs, examples and tests. Stage A checks the tag names the locked
+  version. The tree is fetched, digested into the docs run's context and path-mapped when the docs
+  family lands (increment 3).
 - `.python-version`: the exact interpreter.
 - `uv.lock`: the acquisition lock. Every distribution of the closure with the sha256 of each of
   its artifacts, reviewed and committed.
 
 **Acquisition** is `lctx acquire <name>`: `uv sync --project libraries/<name> --frozen
---no-install-project` into `build/envs/<name>`.
+--no-install-project --no-config --python <.python-version> --link-mode copy` into
+`build/envs/<name>`.
 - `--frozen` never re-resolves, and uv verifies every artifact hash.
-- Every other `UV_*` variable and `VIRTUAL_ENV` is removed from uv's environment, so nothing
-  ambient steers it.
+- `--no-config` ignores user and system uv configuration, `--python` enforces the pin, and
+  `--link-mode copy` keeps the environment's files from sharing inodes with the uv cache and other
+  environments (each file's link count is 1 on the pilot).
+- Every other `UV_*` variable and `VIRTUAL_ENV` is removed from uv's environment.
+- **Tested** by a stub `uv` that records its arguments and environment.
+- `lctx acquire <name> --reinstall` rebuilds every package: the remedy when Stage A finds a changed
+  file.
 - The environment is gitignored and rebuildable; the lock is the record.
+- `lctx library init` locks without `--no-config`: a library's own `[tool.uv]` applies there, and
+  the lock is reviewed.
 
 **Stage A** (`cpg_extract::library::acquired`) reads the definition, the lock, `pyvenv.cfg` and
-every `*.dist-info`, with no network and no interpreter.
-- Every installed distribution must be the version the lock names, or the attempt stops (run
-  `lctx acquire`).
-- Every file of a release distribution must match its `RECORD` sha256.
-- The release's modules are exactly the `.py`/`.pyi` entries of those `RECORD`s. Nothing walks a
-  directory, and the root is site-packages.
-- `release_id` hashes the release distributions' names, versions and locked artifact hashes
-  (§3.4.1).
+every `*.dist-info`, with no network and no interpreter. It works under one equivalence: **the
+analyzer-readable bytes**, the files Pyrefly's module finder reads (`.py`, `.pyi`, `py.typed`;
+never `.pth`).
+- Every installed distribution must be the version the lock names, and the interpreter
+  `.python-version`'s; otherwise the attempt stops.
+- **Every** distribution's analyzer-readable `RECORD` entries must match their sha256, in the
+  release and in its dependencies (the remedy: `lctx acquire --reinstall`).
+- A release distribution the lock records without artifact hashes (a git or local source) is
+  refused.
+- The release's modules are exactly its distributions' `.py`/`.pyi` `RECORD` entries. Nothing
+  walks a directory, and the root is site-packages.
+- `release_id` hashes the release distributions' names, versions and verified content (§3.4.1). A
+  re-listed artifact or a dependency-only upgrade leaves it unchanged.
 - A source tree (a fixture or a local checkout) is the other input, `Release::from_tree`, whose
   `release_id` hashes its label: one label on two trees gives one id.
 
 **Adding and upgrading** (`libraries/README.md`):
 - `lctx library init <name> --requirement REQ` writes the definition, locks it and acquires it. It
   proposes `release` as the requested distribution plus every installed distribution that shares
-  its source repository. **Tested**: for FastMCP it proposes exactly the three distributions, and
-  `attrs` 25.3.0 went from nothing to a published snapshot in 0.8 s.
+  a repository root (`host/owner/repo` under a source label; sponsor and funding links never
+  count). **Tested** by unit tests over METADATA. Observed, not a repo test (2026-09-22): for
+  FastMCP it proposed exactly the three distributions, and `attrs` 25.3.0 went from nothing to a
+  published snapshot in 0.8 s.
 - Upgrading is: edit the pin, `uv lock --project libraries/<name> --upgrade-package <dist>`,
   review the lock diff, `lctx compile <name>`. For FastMCP the skill moves with it (§1.4).
 
 **Context.** The context records:
 - the Python version (from `pyvenv.cfg`) and platform;
 - the **ordered** search paths;
-- the **environment digest**: each installed distribution's dist-info name and `RECORD` digest,
-  plus the content of every top-level entry no `RECORD` owns (`.pth` files, `_virtualenv.py`, a
-  bare fixture tree). Owned bytes are covered by their `RECORD` and never re-read, so a large
-  environment stays cheap;
+- the **environment digest**: the installed distributions' dist-info names (which carry their
+  versions) and every analyzer-readable file's site-relative path and content digest. `RECORD`
+  lines outside site-packages (console scripts carry the environment's absolute path) and files
+  Pyrefly never reads stay out, so a moved environment keeps its identity and every
+  analyzer-visible change moves it. It costs well under a tenth of a second on the pilot;
 - the **lock digest**;
 - the digests of every configuration file an analyzer receives.
 
@@ -645,12 +667,13 @@ every `*.dist-info`, with no network and no interpreter.
   DataFusion turns on serde_json's `preserve_order`, and no digest may depend on the build
   graph), the search and site-package paths **relative to their roots** (release, environment),
   the sys info from its fields (not `Debug`), the environment digest and the lock digest. Where a
-  checkout or tempdir sits never changes an identity; what the dependencies contain always does
-  (**Tested**: two locations, two environments, a changed `RECORD`, a changed loose file). A
-  changed byte under a `RECORD`-owned path of a *dependency* is not seen; the release's own
-  bytes are always verified.
-- `releases` and `distributions` record the library, requirement, lock digest and every installed
-  distribution (§3.2).
+  checkout, tempdir or environment sits never changes an identity; what the dependencies contain
+  always does (**Tested**: two fixture locations, two acquired environment paths with
+  location-dependent `RECORD`s, two environments, an unowned stub inside a package, a loose file,
+  a lock-only change; on the pilot, two environment paths give one `content_digest`). A changed
+  analyzer-readable byte a `RECORD` owns is refused.
+- `releases` and `distributions` record the library, requirement, lock digest, release
+  distributions, installer and every installed distribution (§3.2).
 
 So nothing ambient can change an answer without changing `context_id` (G4). That covers `PATH`,
 `VIRTUAL_ENV`, `PYTHONPATH`, `CONDA_PREFIX`, the working directory and an upward
@@ -663,9 +686,10 @@ extractor: the fork revision and patch digest, which `just deps` checks against 
 the patch file, and the ruff line) and the adapter build digest (an output version bumped by hand
 when mapping output changes, which the variant and id snapshots show).
 
-**Measured** (`just pilot`, release build, 2026-09-22): FastMCP 4.0.5, 275 modules, 103
-distributions; acquire + extract 7.1 s, the whole compile 8.1 s wall time, 1.66 GB peak RSS. Two
-runs give the same `release_id` and `content_digest`.
+**Measured** (`just pilot`, release build, warm environment and uv cache so acquisition is a
+no-op, this Linux host, 2026-09-22): FastMCP 4.0.5, 275 modules, 103 distributions; acquire +
+extract 7.1 s, the whole compile 7.9 s wall time, 1.61 GB peak RSS. Two runs, and two environment
+paths, give the same `release_id` and `content_digest`.
 
 > Decision: ADR-0013 (superseding ADR-0007), ADR-0012
 
@@ -1560,3 +1584,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | Slice 2: Stage C/D derivations, generated validators, `snapshots` publication and the pinned reader; §3.2, §4.1, §4.3, §6, §8 amended (derived rows carry `fact_id`s, reasons in-row) | ADR-0008 |
 | 2026-09-22 | Slice-2 compact review F1–F5: reasons on `provider_node_map`/`call_targets`, binding choice follows Stage C, per-site resolution/boundary rule, stored `compiler_digest` with locked engines, `.py`/`.pyi` seed cardinality; §B6 scoped; ADR-0008 accepted | ADR-0008 |
 | 2026-09-22 | Pilot moved to FastMCP 4.0.5; libraries are pinned uv projects acquired with `uv sync --frozen`, Stage A reads the acquired environment (RECORD-verified release files, lock-derived `release_id`, environment and lock digests), `releases`/`distributions` added, `lctx` CLI; §1.2, §1.4, §3.2, §3.4.1, §4.0, §4.1, §11, §12 amended | ADR-0013 |
+| 2026-09-22 | ADR-0013 standard review F1–F9: one equivalence (verified analyzer-readable bytes) for `release_id` and the environment digest; hermetic acquisition (`--no-config --python --link-mode copy`, `--reinstall`); hash-less releases refused; docs source pinned by commit; `distributions` keyed by context; writer rule; schema drift refused at open; `just gold`; ADR-0013 accepted | ADR-0013 |

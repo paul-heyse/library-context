@@ -50,11 +50,11 @@ real consumer.
 | When | Run |
 |---|---|
 | Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules scan and rule tests, `adr lint`, `lint-agents` |
-| Before committing | `just test-all`: adds fixture parsing and `just deps` |
+| Before committing | `just test-all`: adds fixture parsing, `just deps` and `just gold` (the fastmcp skill and `libraries/fastmcp` name one FastMCP) |
 | The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`; report its outcome at every slice end |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt` |
-| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, the Pyrefly fork check (tag + patch, classified env reads), and the gold check (the fastmcp skill and `libraries/fastmcp` name one FastMCP) |
+| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Tools present? | `just doctor` |
 

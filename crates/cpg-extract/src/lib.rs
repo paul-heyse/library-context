@@ -528,7 +528,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         environment_digest: context.environment_digest,
         lock_digest: context.lock_digest,
     }];
-    let (releases, distributions) = release_rows(input, snapshot_id);
+    let (releases, distributions) = release_rows(input, snapshot_id, context.id);
     let producers = vec![ProducersRow {
         snapshot_id,
         producer_id: producer.id,
@@ -614,10 +614,12 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
 }
 
 /// The `releases` row and, for an acquired library, one `distributions` row per installed
-/// distribution (ADR-0013).
+/// distribution of the context's environment (ADR-0013). The extractor run writes both once per
+/// attempt, carrying Stage A's output; later producers reference `release_id`, never append.
 fn release_rows(
     input: &ExtractInput,
     snapshot_id: Id,
+    context_id: Id,
 ) -> (Vec<ReleasesRow>, Vec<DistributionsRow>) {
     let release_id = input.release.release_id;
     match &input.release.origin {
@@ -628,6 +630,8 @@ fn release_rows(
                 library: None,
                 requirement: None,
                 lock_digest: None,
+                distributions: Vec::new(),
+                installer: None,
                 label: Some(label.clone()),
             }],
             Vec::new(),
@@ -639,16 +643,17 @@ fn release_rows(
                 library: Some(lib.name.clone()),
                 requirement: Some(lib.requirement.clone()),
                 lock_digest: Some(lib.lock_digest),
+                distributions: lib.release.clone(),
+                installer: lib.installer.clone(),
                 label: None,
             }],
             lib.distributions
                 .iter()
                 .map(|d| DistributionsRow {
                     snapshot_id,
-                    release_id,
+                    context_id,
                     name: d.name.clone(),
                     version: d.version.clone(),
-                    in_release: d.in_release,
                     artifact_sha256: d.artifact_sha256.clone(),
                     record_digest: d.record_digest,
                 })

@@ -12,4 +12,6 @@ release_id: FixedSizeBinary(16) NOT NULL
 library: Utf8 NULL
 requirement: Utf8 NULL
 lock_digest: FixedSizeBinary(32) NULL
+distributions: List(non-null Utf8) NOT NULL
+installer: Utf8 NULL
 label: Utf8 NULL

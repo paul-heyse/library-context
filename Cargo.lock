@@ -3427,6 +3427,7 @@ dependencies = [
  "cpg-extract",
  "cpg-schema",
  "getrandom 0.3.4",
+ "tempfile",
  "tokio",
 ]
 

@@ -1,13 +1,18 @@
 //! Stage A (DESIGN §4.0, ADR-0013): read an acquired library.
 //!
-//! A library is a committed uv project, `libraries/<name>/`: a pinned requirement, `[tool.lctx]`
-//! naming its first-party distributions, and a `uv.lock` recording every distribution of the
-//! closure with its artifacts' sha256. `lctx acquire` materializes it with `uv sync --frozen`.
-//! This module reads that project and environment, with no network and no interpreter:
-//! - every installed distribution must be the version the lock names;
-//! - every file of a release distribution is checked against its `RECORD` sha256;
-//! - the release's modules are exactly the `.py`/`.pyi` entries of those `RECORD`s;
-//! - `release_id` hashes the release distributions' names, versions and locked artifact hashes.
+//! A library is a committed uv project, `libraries/<name>/`: one pinned requirement, `[tool.lctx]`
+//! naming its first-party distributions, `.python-version`, and a `uv.lock` recording every
+//! distribution of the closure with its artifacts' sha256. `lctx acquire` materializes it with
+//! `uv sync --frozen`. This module reads that project and environment, with no network and no
+//! interpreter, under one equivalence: **the analyzer-readable bytes** (`.py`, `.pyi`, `py.typed`,
+//! the files Pyrefly's module finder reads), each verified against its distribution's `RECORD`.
+//! - The environment must be the lock's: every installed version is the locked one, and the
+//!   interpreter is `.python-version`'s.
+//! - Every analyzer-readable file of every distribution matches its `RECORD` sha256.
+//! - The release's modules are exactly its distributions' `.py`/`.pyi` `RECORD` entries, and
+//!   `release_id` hashes their names, versions and verified content, never the lock entry.
+//! - A release distribution the lock records without artifact hashes (a git or local source) is
+//!   refused: nothing would have verified it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -26,8 +31,6 @@ pub struct Distribution {
     /// PEP 503 normalized.
     pub name: String,
     pub version: String,
-    /// One of the library's first-party distributions.
-    pub in_release: bool,
     /// sha256 (hex) of every artifact the lock records for this version, sorted.
     pub artifact_sha256: Vec<String>,
     pub record_digest: Digest,
@@ -40,6 +43,10 @@ pub struct AcquiredLibrary {
     pub name: String,
     pub requirement: String,
     pub lock_digest: Digest,
+    /// The release distributions as `name==version`, sorted.
+    pub release: Vec<String>,
+    /// The installer `pyvenv.cfg` names (`uv 0.12.18`).
+    pub installer: Option<String>,
     pub distributions: Vec<Distribution>,
 }
 
@@ -65,19 +72,37 @@ pub fn normalize(name: &str) -> String {
     out
 }
 
+/// The files Pyrefly's module finder reads (`py.typed` changes how a package resolves).
+pub fn analyzer_readable(path: &str) -> bool {
+    path.ends_with(".py") || path.ends_with(".pyi") || path.rsplit('/').next() == Some("py.typed")
+}
+
+/// The distribution name a requirement names: the text before any extras, specifier or marker.
+pub fn requirement_name(requirement: &str) -> String {
+    normalize(
+        requirement
+            .split(|c: char| "[<>=!~ ;(@".contains(c))
+            .next()
+            .unwrap_or_default(),
+    )
+}
+
 fn read(path: &Path) -> Result<String, ExtractError> {
     std::fs::read_to_string(path).map_err(|e| fail(format!("{}: {e}", path.display())))
 }
 
-fn table(path: &Path) -> Result<toml::Table, ExtractError> {
-    read(path)?
-        .parse::<toml::Table>()
-        .map_err(|e| fail(format!("{}: {e}", path.display())))
+/// The library definition: `[project].dependencies[0]`, `[tool.lctx]`.
+struct Definition {
+    requirement: String,
+    release: Vec<String>,
+    source: Option<toml::Table>,
 }
 
-/// `[project].dependencies[0]` and `[tool.lctx].release` of a library definition.
-fn definition(library_dir: &Path) -> Result<(String, Vec<String>), ExtractError> {
-    let t = table(&library_dir.join("pyproject.toml"))?;
+fn definition(library_dir: &Path) -> Result<Definition, ExtractError> {
+    let path = library_dir.join("pyproject.toml");
+    let t = read(&path)?
+        .parse::<toml::Table>()
+        .map_err(|e| fail(format!("{}: {e}", path.display())))?;
     let requirement = t
         .get("project")
         .and_then(|p| p.get("dependencies"))
@@ -87,9 +112,8 @@ fn definition(library_dir: &Path) -> Result<(String, Vec<String>), ExtractError>
             _ => None,
         })
         .ok_or_else(|| fail("pyproject.toml: [project] dependencies must be one requirement"))?;
-    let release = t
-        .get("tool")
-        .and_then(|t| t.get("lctx"))
+    let lctx = t.get("tool").and_then(|t| t.get("lctx"));
+    let release = lctx
         .and_then(|l| l.get("release"))
         .and_then(|r| r.as_array())
         .map(|r| {
@@ -99,7 +123,15 @@ fn definition(library_dir: &Path) -> Result<(String, Vec<String>), ExtractError>
         })
         .filter(|r| !r.is_empty())
         .ok_or_else(|| fail("pyproject.toml: [tool.lctx] release must name distributions"))?;
-    Ok((requirement, release))
+    let source = lctx
+        .and_then(|l| l.get("source"))
+        .and_then(|s| s.as_table())
+        .cloned();
+    Ok(Definition {
+        requirement,
+        release,
+        source,
+    })
 }
 
 /// Name → (version, sorted artifact sha256s) from `uv.lock`, skipping the virtual project.
@@ -139,31 +171,34 @@ fn lock(bytes: &str) -> Result<BTreeMap<String, (String, Vec<String>)>, ExtractE
     Ok(out)
 }
 
-/// `version_info` from the environment's `pyvenv.cfg`.
-fn python_version(env_dir: &Path) -> Result<(u32, u32, u32), ExtractError> {
-    let cfg = read(&env_dir.join("pyvenv.cfg"))?;
-    let v = cfg
+/// `key = value` lines of `pyvenv.cfg`.
+fn pyvenv(env_dir: &Path) -> Result<BTreeMap<String, String>, ExtractError> {
+    Ok(read(&env_dir.join("pyvenv.cfg"))?
         .lines()
-        .find_map(|l| {
+        .filter_map(|l| {
             let (k, v) = l.split_once('=')?;
-            (k.trim() == "version_info").then(|| v.trim().to_owned())
+            Some((k.trim().to_owned(), v.trim().to_owned()))
         })
-        .ok_or_else(|| fail("pyvenv.cfg has no version_info"))?;
+        .collect())
+}
+
+fn version_triple(v: &str) -> Result<(u32, u32, u32), ExtractError> {
     let parts: Vec<u32> = v.split('.').filter_map(|p| p.parse().ok()).collect();
     match parts[..] {
         [a, b, c, ..] => Ok((a, b, c)),
-        _ => Err(fail(format!("pyvenv.cfg version_info {v}"))),
+        _ => Err(fail(format!("python version {v}"))),
     }
 }
 
-/// One `RECORD` entry: a path relative to site-packages and its sha256, when recorded.
+/// One `RECORD` entry inside site-packages: its path and sha256, when recorded. Entries outside
+/// site-packages (`../../../bin/…`) carry the environment's location and are dropped.
 fn record_entries(record: &str) -> Vec<(String, Option<String>)> {
     record
         .lines()
         .filter_map(|line| {
             let mut fields = line.split(',');
             let path = fields.next()?.trim();
-            if path.is_empty() {
+            if path.is_empty() || path.starts_with("..") {
                 return None;
             }
             let hash = fields
@@ -197,6 +232,32 @@ fn installed(site_packages: &Path) -> Result<BTreeMap<String, (String, PathBuf)>
     Ok(out)
 }
 
+/// `[tool.lctx.source]`, when declared, pins the upstream tree by a full commit, and its tag names
+/// the locked version of the requested distribution (so docs never drift from code).
+fn check_source(
+    source: Option<&toml::Table>,
+    requested: &str,
+    locked: &BTreeMap<String, (String, Vec<String>)>,
+) -> Result<(), ExtractError> {
+    let Some(source) = source else {
+        return Ok(());
+    };
+    let commit = source.get("commit").and_then(|c| c.as_str()).unwrap_or("");
+    if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(fail(
+            "[tool.lctx.source] must pin `commit` as 40 hex digits",
+        ));
+    }
+    let tag = source.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+    let version = locked.get(requested).map(|(v, _)| v.as_str()).unwrap_or("");
+    if version.is_empty() || !tag.contains(version) {
+        return Err(fail(format!(
+            "[tool.lctx.source] tag {tag:?} does not name the locked {requested} {version}"
+        )));
+    }
+    Ok(())
+}
+
 /// Build the extraction input for an acquired library: `library_dir` holds the definition and
 /// lock, `env_dir` the environment `uv sync --frozen` built from them. Both absolute.
 pub fn acquired(
@@ -209,82 +270,119 @@ pub fn acquired(
         .and_then(|n| n.to_str())
         .ok_or_else(|| fail("library directory has no name"))?
         .to_owned();
-    let (requirement, release) = definition(library_dir)?;
+    let def = definition(library_dir)?;
     let lock_text = read(&library_dir.join("uv.lock"))?;
     let locked = lock(&lock_text)?;
-    let python = python_version(env_dir)?;
+    check_source(
+        def.source.as_ref(),
+        &requirement_name(&def.requirement),
+        &locked,
+    )?;
+    let remedy = format!("run `lctx acquire {name} --reinstall`");
+
+    let cfg = pyvenv(env_dir)?;
+    let installed_python = cfg
+        .get("version_info")
+        .ok_or_else(|| fail("pyvenv.cfg has no version_info"))?;
+    let pinned_python = read(&library_dir.join(".python-version"))?
+        .trim()
+        .to_owned();
+    if *installed_python != pinned_python {
+        return Err(fail(format!(
+            "the environment runs Python {installed_python}, .python-version pins {pinned_python}; {remedy}"
+        )));
+    }
+    let python = version_triple(installed_python)?;
     let site_packages = env_dir
         .join("lib")
         .join(format!("python{}.{}", python.0, python.1))
         .join("site-packages");
     let dists = installed(&site_packages)?;
 
-    for (dist, (version, _)) in &dists {
-        match locked.get(dist) {
-            Some((locked_version, _)) if locked_version == version => {}
-            Some((locked_version, _)) => {
-                return Err(fail(format!(
-                    "{dist} {version} is installed but uv.lock has {locked_version}; run `lctx acquire`"
-                )));
-            }
-            None => {
-                return Err(fail(format!(
-                    "{dist} {version} is installed but not in uv.lock"
-                )));
-            }
+    let mut release = def.release.clone();
+    release.sort();
+    for dist in &release {
+        let (_, artifacts) = locked
+            .get(dist)
+            .ok_or_else(|| fail(format!("release distribution {dist} is not in uv.lock")))?;
+        if artifacts.is_empty() {
+            return Err(fail(format!(
+                "release distribution {dist} is locked without artifact hashes (a git or local \
+                 source); ADR-0013 compiles only hash-verified releases"
+            )));
+        }
+        if !dists.contains_key(dist) {
+            return Err(fail(format!(
+                "release distribution {dist} is not installed; {remedy}"
+            )));
         }
     }
 
     let mut files = Vec::new();
-    let mut hasher = IdHasher::new(kind::RELEASE);
-    hasher.str("library").i64(release.len() as i64);
-    let mut sorted_release = release.clone();
-    sorted_release.sort();
-    for dist in &sorted_release {
-        let (version, dist_info) = dists
-            .get(dist)
-            .ok_or_else(|| fail(format!("release distribution {dist} is not installed")))?;
-        let (_, artifacts) = &locked[dist];
-        hasher
-            .str(dist)
-            .str(version)
-            .strs(artifacts.iter().map(String::as_str));
-        let record = read(&dist_info.join("RECORD"))?;
-        for (path, hash) in record_entries(&record) {
-            if path.starts_with("..") {
-                continue;
+    let mut release_content: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
+    let mut distributions = Vec::new();
+    for (dist, (version, dist_info)) in &dists {
+        match locked.get(dist) {
+            Some((locked_version, _)) if locked_version == version => {}
+            Some((locked_version, _)) => {
+                return Err(fail(format!(
+                    "{dist} {version} is installed but uv.lock has {locked_version}; {remedy}"
+                )));
             }
-            let file = site_packages.join(&path);
-            if let Some(expected) = hash {
-                let bytes =
-                    std::fs::read(&file).map_err(|e| fail(format!("{dist}: {path}: {e}")))?;
-                if URL_SAFE_NO_PAD.encode(Sha256::digest(&bytes)) != expected {
-                    return Err(fail(format!(
-                        "{dist}: {path} does not match its RECORD sha256; run `lctx acquire`"
-                    )));
-                }
-            }
-            if path.ends_with(".py") || path.ends_with(".pyi") {
-                files.push(file);
+            None => {
+                return Err(fail(format!(
+                    "{dist} {version} is installed but not in uv.lock; {remedy}"
+                )));
             }
         }
+        let record_bytes = std::fs::read(dist_info.join("RECORD"))
+            .map_err(|e| fail(format!("{}: {e}", dist_info.display())))?;
+        let in_release = release.contains(dist);
+        for (path, hash) in record_entries(&String::from_utf8_lossy(&record_bytes)) {
+            if !analyzer_readable(&path) {
+                continue;
+            }
+            let expected =
+                hash.ok_or_else(|| fail(format!("{dist}: {path} has no RECORD hash")))?;
+            let file = site_packages.join(&path);
+            let bytes =
+                std::fs::read(&file).map_err(|e| fail(format!("{dist}: {path}: {e}; {remedy}")))?;
+            if URL_SAFE_NO_PAD.encode(Sha256::digest(&bytes)) != expected {
+                return Err(fail(format!(
+                    "{dist}: {path} does not match its RECORD sha256; {remedy}"
+                )));
+            }
+            if in_release {
+                if path.ends_with(".py") || path.ends_with(".pyi") {
+                    files.push(file);
+                }
+                release_content
+                    .entry(dist.as_str())
+                    .or_default()
+                    .push((path, expected));
+            }
+        }
+        distributions.push(Distribution {
+            name: dist.clone(),
+            version: version.clone(),
+            artifact_sha256: locked.get(dist).map(|(_, a)| a.clone()).unwrap_or_default(),
+            record_digest: content_digest(&record_bytes),
+        });
     }
     files.sort();
 
-    let distributions = dists
-        .iter()
-        .map(|(dist, (version, dist_info))| {
-            let record = std::fs::read(dist_info.join("RECORD"))
-                .map_err(|e| fail(format!("{}: {e}", dist_info.display())))?;
-            Ok(Distribution {
-                name: dist.clone(),
-                version: version.clone(),
-                in_release: release.contains(dist),
-                artifact_sha256: locked.get(dist).map(|(_, a)| a.clone()).unwrap_or_default(),
-                record_digest: content_digest(&record),
-            })
-        })
-        .collect::<Result<Vec<_>, ExtractError>>()?;
+    // release_id: what is analyzed, so a re-listed artifact or a lock-only change leaves it.
+    let mut hasher = IdHasher::new(kind::RELEASE);
+    hasher.str("library").i64(release.len() as i64);
+    for dist in &release {
+        let version = &dists[dist].0;
+        let mut entries = release_content.remove(dist.as_str()).unwrap_or_default();
+        entries.sort();
+        hasher.str(dist).str(version).i64(entries.len() as i64);
+        for (path, sha) in &entries {
+            hasher.str(path).str(sha);
+        }
+    }
 
     Ok(ExtractInput {
         release: Release {
@@ -293,8 +391,13 @@ pub fn acquired(
             release_id: hasher.finish_id(),
             origin: ReleaseOrigin::Library(AcquiredLibrary {
                 name,
-                requirement,
+                requirement: def.requirement,
                 lock_digest: content_digest(lock_text.as_bytes()),
+                release: release
+                    .iter()
+                    .map(|d| format!("{d}=={}", dists[d].0))
+                    .collect(),
+                installer: cfg.get("uv").map(|v| format!("uv {v}")),
                 distributions,
             }),
         },
@@ -316,5 +419,16 @@ mod tests {
     fn names_normalize_as_pep_503() {
         assert_eq!(normalize("fastmcp_slim"), "fastmcp-slim");
         assert_eq!(normalize("Foo.Bar--baz"), "foo-bar-baz");
+        assert_eq!(requirement_name("fastmcp[tasks]==4.0.5"), "fastmcp");
+        assert_eq!(requirement_name("foo @ git+https://x"), "foo");
+    }
+
+    #[test]
+    fn analyzer_readable_files_are_what_pyrefly_reads() {
+        assert!(analyzer_readable("pkg/mod.py"));
+        assert!(analyzer_readable("pkg/mod.pyi"));
+        assert!(analyzer_readable("pkg/py.typed"));
+        assert!(!analyzer_readable("pkg/data.json"));
+        assert!(!analyzer_readable("_virtualenv.pth"));
     }
 }
