@@ -85,3 +85,14 @@ The operator chose:
   will read it. Review cadence: compact per slice, standard per ADR, deep at C6. This replaces
   "the CPG grows only as consumers need it" as a sequencing rule; the named-consumer requirement
   stays.
+- 2026-09-23: remaining-scope plan, Phase 0 (operator: plan approved, "run straight through").
+  - **Hybrid retrieval moves into increment 1.** BM25 over `lexical_text`, reciprocal-rank fusion,
+    exact-symbol promotion and the degraded lexical-only mode (§11.2) are built with the first
+    server (slice 1.8). The spike already had them, and the §9.8 keep rule (increment 3) must be
+    judged on the stack that is served. Increment 4 becomes the generation lifecycle (smoke query,
+    activation, byte-rebuild verify, manifest check at load) and serving reliability.
+  - **The analytics config** is `libraries/<name>/analytics.toml`, a file of its own so its
+    history is the pre-registration record. It is **frozen** (its commit recorded) before the
+    first gold scoring, and changes after that only by ADR.
+  - **Increment 2's "FCA within one community"** reads "FCA within one structural scope", as §9.6
+    and ADR-0011 require: a community's membership is statistical.

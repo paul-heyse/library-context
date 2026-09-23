@@ -26,7 +26,7 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a `
 | §B3 | DataFusion constructs and validates relations; one query per rule, shared by tests and publication | §2, §4, §8 | DM-07, DM-20, DM-22, DM-53 · G3 |
 | §B4 | Graph algorithms have named owners (petgraph traversal and SCCs, our own weighted PageRank, leiden-rs communities on a normalized input, own FCA/RCA; ADR-0011 as amended), each with a named consumer | §2, §5, §9 | DM-34, DM-38, DM-40, DM-46 · G6 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | §2, §9 | DM-13, DM-24, DM-40, DM-59 · G2, G7 |
-| §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained | §2, §3 | DM-08, DM-13, DM-23, DM-46, DM-47 · G1, G2 |
+| §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained. Analysis results (findings, assertions, briefs) carry that provenance in-row and cite facts, edges and nodes; operator review verdicts are facts (ADR-0019) | §2, §3 | DM-08, DM-13, DM-23, DM-46, DM-47 · G1, G2 |
 | §B7 | Delta canonical store, published by one `snapshots` append; readers pin versions and filter by `snapshot_id` | §2, §6 | DM-12, DM-14, DM-29, DM-30 · G5 |
 | §B8 | Pyrefly and Ruff link in-process from a pinned fork with a constructed, explicit config; one workspace, one process; the Pyrefly CLI is only a parity-test oracle | §2, §4.2 | DM-28, DM-31, DM-41, DM-42, DM-43, DM-48 · G2, G4, G6 |
 | §B9 | One pinned Rust dependency family (DataFusion 55.1 / Arrow 59.3 / delta-rs git) | §2, §7 | DM-31, DM-48 · G6 |

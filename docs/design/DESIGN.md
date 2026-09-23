@@ -48,10 +48,10 @@ Each increment is a working vertical slice and ends with the review shown (ADR-0
 
 | # | Deliverable | Review |
 |---|---|---|
-| 1 | **One complete path.** Real FastMCP 4.0.5 (`libraries/fastmcp`, §4.0), with one hand-registered seed, `fastmcp.FastMCP.tool` (analytics config, §1.4), plus 2–4 distractor briefs for other public entry points. Families provenance, exports, signatures, calls, coverage, findings, embedding_cache. Pass A → increment-1 assertion kinds (§10.2) → brief → bundle → embeddings → exact-cosine search → hydration → both MCP tools | deep |
-| 2 | **Analytics families on synthetic fixtures.** Passes B and C with the `syntax` and `lexical` families; single-layer community detection with seed-consensus stability; `page_rank`; FCA within one community | compact |
+| 1 | **One complete path.** Real FastMCP 4.0.5 (`libraries/fastmcp`, §4.0), with one hand-registered seed, `fastmcp.FastMCP.tool` (analytics config, §1.4), plus 2–4 distractor briefs for other public entry points. Families provenance, exports, signatures, calls, coverage, findings, embedding_cache. Pass A → increment-1 assertion kinds (§10.2) → brief → bundle → embeddings → hybrid search (BM25, exact cosine, RRF, exact-symbol promotion, degraded lexical-only mode; moved up from increment 4, ADR-0004 amendment) → hydration → both MCP tools | deep |
+| 2 | **Analytics families on synthetic fixtures.** Passes B and C with the `syntax` and `lexical` families; single-layer community detection with seed-consensus stability; `page_rank`; FCA within one structural scope (a community's membership is statistical, §9.6) | compact |
 | 3 | **Pilot corpus, ~15–25 reviewed briefs** (§10.4 manual review). Docs family; compile-time embeddings for doc links and labels; RCA and extra community layers, each kept only if the §9.8 ablation shows it changes published output; gold scoring (§12) | deep |
-| 4 | **Reliable serving.** Generations, lexical + RRF fusion, exact-symbol promotion, degraded lexical-only mode when the embedding service is down | compact |
+| 4 | **Reliable serving.** The generation lifecycle (smoke query, atomic activation, byte-rebuild verify, manifest check at load) and serving reliability (degraded mode under embedder failure, measured latency). Hybrid retrieval itself is built in increment 1 (ADR-0004 amendment, 2026-09-23) | compact |
 | 5 | **Agent evaluation.** Held-out tasks, raw-vs-compiled comparison, and the decision on the LLM trigger (§B11) | deep |
 
 **CPG first** (operator decision, 2026-09-22; ADR-0004 amendment, ADR-0014). Increment 1's
@@ -209,7 +209,7 @@ rule can prove is stated in §8 (its edit guards counted apart).
 |---|---|
 | petgraph 0.8.3 | Traversal and SCCs, over immutable, explicitly declared projections (§5) |
 | leiden-rs | Community detection (§9.4), fed a normalized, sorted edge list |
-| Our own code | Weighted PageRank with convergence diagnostics (§9.5; petgraph's `page_rank` takes no weights, miscounts parallel arcs and reports no convergence: the library-leverage review, D1); formal and relational concept analysis (§9.6); condensation from `tarjan_scc` membership (petgraph's merges parallel edges) |
+| Our own code | Weighted PageRank with convergence diagnostics (§9.5; petgraph's `page_rank` takes no weights, miscounts parallel arcs and reports no convergence: the library-leverage review, D1); formal and relational concept analysis (§9.6); condensation from `kosaraju_scc` membership (iterative; petgraph's `condensation` merges parallel edges) |
 
 - **Each algorithm has a named consumer in the brief** (§9).
 - **A relationship does not need a graph algorithm** just because it has two endpoints.
@@ -229,10 +229,15 @@ rule can prove is stated in §8 (its edit guards counted apart).
 **Implemented** and **Tested** (the `fact:`/`fact-payload:` cases; `provider_disagreement` rows in
 the derived snapshots; C6 review, 2026-09-23).
 
-- Every assertion is a `facts` row carrying its run, `origin`, `extraction_mode`, `modality`,
-  `fidelity` and model.
-- **Scope** (ADR-0008, carried by ADR-0014): `facts` rows are the extracted assertions, and later
-  the analytic ones (findings). A derived join row (Stage C/D, §4.1) is not a `facts` row: it is
+- Every extracted assertion is a `facts` row carrying its run, `origin`, `extraction_mode`,
+  `modality`, `fidelity` and model.
+- **Analysis results carry their provenance in-row** (ADR-0019): findings, assertions and briefs
+  hold their run (`lctx-compiler`), model, extraction mode, method invocation and
+  `evidence_status`, cite the `fact_id`s, `edge_id`s and node ids they rest on, and are
+  rebuildable from the snapshot, the analytics config and the `compiler_digest`. Operator review
+  verdicts (ADR-0020) are the one analysis-side input, so they are `facts` rows.
+- **Scope** (ADR-0008, carried by ADR-0014, amended by ADR-0019): `facts` rows are the extracted
+  assertions and operator review verdicts. A derived join row (Stage C/D, §4.1) is not a `facts` row: it is
   traced by the `fact_id`s it cites plus its snapshot's `compiler_digest` (§3.4.1, §6.1), and it
   is rebuildable from them. That includes the `nodes` and `edges` catalogs (§3.8). An edge is a
   first-class relationship through its persistent `edge_id` and its evidence `fact_id`s, not
@@ -240,7 +245,7 @@ the derived snapshots; C6 review, 2026-09-23).
 - Independent assertions are kept, including disagreement. They are never collapsed into mutable
   node properties.
 
-> Decision: ADR-0014
+> Decision: ADR-0014, ADR-0019
 
 ### §B7 Delta canonical store, published by a `snapshots` append
 
@@ -413,8 +418,12 @@ declaration, and an AST node is not an execution point.
   one Stage-C/D derivation (§4.1). `runs`, `contexts`, `producers` and `facts` are registries each
   producer appends its own rows to. `releases`, `distributions` and `source_files` are written
   **once per extractor run**, which carries Stage A's output; later producers reference
-  `release_id` and never append (ADR-0013, amended for C5). An attempt holds several runs only over
-  distinct releases (the library and its corpus), since the family keys carry no run. The corpus run
+  `release_id` and never append (ADR-0013, amended for C5). An attempt holds several **extractor** runs only over
+  distinct releases (the library and its corpus), since the family keys carry no run. The
+  `lctx-compiler` run (analytics and synthesis, ADR-0019) and the `manual-review` run are over
+  the library release too, but they declare no families and write no `releases`,
+  `distributions` or `source_files`; the extractor-only rules are scoped to runs that declare a
+  code family. The corpus run
   has its own context (its search path adds the tree ahead of site-packages) over the same
   environment, whose `distributions` it lists too. What both runs assert about one thing (a
   dependency module or definition, a type term and its structure) is one node and one edge,
@@ -455,18 +464,18 @@ declaration, and an AST node is not an execution point.
 | `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin and its file, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → the seed declaration in the origin's file: an implementation before an `@overload` stub, then the one Pysa describes, then the last in source order; one row per `public_names` row, so a `.py`/`.pyi` pair gives an access path two rows, one seeding each file, told apart by `source_files.is_stub`; Pass A seeds from the source row) | 1 |
 | `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO), C1 `pysa_classes` (one row per class, so a class without bases is keyed). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal); C1 `provider_class_map` (Stage C for classes), `synthetic_callables`, `ancestry_targets` and `override_targets` (bases, MRO entries and overridden methods resolved to nodes, a reason where an end does not resolve) | 1 |
 | `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). C1: `arguments.node_id`, `pysa_calls.payload_id`, `argument_resolutions` (higher-order arguments: status and unresolved remainder); `call_targets` typed (a declaration, a synthetic callable or a dependency definition, with the higher-order argument). Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) stay raw, as a declared pending class of the lineage rule, until C2 and C3 give them nodes | 1 |
-| `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
+| `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified: its read mode is `global` (§6.2); written by an insert-only MERGE (ADR-0017 amendment); the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `graph` | derived: `nodes`, `edges` (§3.8). Not a coverage unit | C1 |
 | `syntax` | **Implemented and Tested (C2; revised by its compact review).** Raw `syntax_nodes` (Ruff): every statement, the clause nodes (`elif`/`else`, `except`, `case`, `with` items) and **every expression outside annotations** (the IP 2.1 exhaustive-exporter contract; placement depends on the source alone, never on a provider). Each row has its parent (the nearest placed ancestor), owner, field (`syntax_field`: body, test, orelse, handler, exc, cause, default, argument, …), ordinal in that field (a statement's block index), span, `kind` (Ruff's `NodeKind`, the `syntax_kind` codebook, an exhaustive match) and detail (a name, attribute, operator, literal as written, or a handler's name). A `def`, a `class` and a call are placed under their declaration and call-site ids; nothing inside an annotation is placed. Derived: `site_targets` (each Pysa attribute, artificial and format-string record → the deepest syntax node at its span, a chained comparison's pairwise site → its comparison → its typed target; a span with no node is our own failure, never a reason). Consumers: Pass B guards, raises, handlers and defaults; Pass C straight-line regions; FCA raised types (their type is C4's) | C2 |
 | `lexical` | **Implemented and Tested (C3; revised by its compact review).** Raw, from our recognizer (surface `lctx-lexical`, `recognizer`, inside the Ruff walk): `scopes` (module, class, function, lambda, comprehension; owner, and parent = the scope the scope's position evaluates in, so a lambda in a default or decorator belongs to the enclosing scope), `bindings` (every binding event per scope, ordinals in source order: kind, site, span, the assigned value's span, and the innermost branch Pyrefly decides statically that it sits in: the deciding test's kind (`type_checking`, `version_info`, `platform`, `constant`, `combined`) and whether Pyrefly analyzes or prunes that branch, clause by clause exactly as `SysInfo::pruned_if_branches` decides, recursively: an `if` inside a pruned clause is never walked, so its bindings take the pruning clause's mark (H1 C1, H1 review F1: `SysInfo::evaluate_bool` per clause, the kind from the expression tree; `static_marks_agree_with_pyrefly_pruning` checks every fixture `if`, and `static_polarity_is_pyrefly_recursive_pruning` every assignment binding, against Pyrefly's own pruning, nested cases included); every event under `global`/`nonlocal` binds in the declared scope, a `nonlocal` target decided once every binding is known; a repeated name in one declaration is one event; the module's implicit globals and a method's `__class__` cell are `implicit` events), `references` (every name load outside annotations, and an augmented assignment's target, which reads before it binds; a role of its placed name, with its parent and field; nothing inside an annotation opens a scope or binds), `reference_resolutions` (Python's scoping rules as modelled: the scope's own bindings, else the nearest enclosing function scope with class scopes skipped, else the module, else the star imports whose wildcard set holds the name, else a builtin; comprehension first iterables and function defaults in the enclosing scope; walrus in the nearest non-comprehension scope; flow-insensitive candidates, except that a module or class body reading a name it binds only later also reads it from outside, as `LOAD_NAME` does; a builtin names itself, a builtin variable reads `variable_origin`, anything else `unresolved_target`). Every name set from outside the module's text is Pyrefly's: its `ImplicitGlobal` set, its `builtins` definitions that are real public names, each star import's `Transaction::get_wildcard` set (a star module Pyrefly cannot find stays a candidate for any otherwise unbound name). **Not modelled:** PEP 695 annotation scopes (class and alias type parameters), the implicit unbinding at the end of an `except … as` handler (C3 review O4, O5, deferred). `export_syntax.resolved_module` is each import's absolute module by Pyrefly's own `ModuleName::new_maybe_relative`. Derived: `identifier_targets` (Pysa's identifier sites → the reference at their span → typed target), `import_targets` (each import → the release or dependency module it names; `unresolved_target` only where Pyrefly's finder says not found, a `context_modules` row of origin `not_found`, or where the import climbs past the top package). Consumers: Pass B binding order (§4.2.4), Pass C bindings and values, the import graph, `if_called` targets, variable exports | C3 |
 | `types` | **Implemented and Tested (C4; revised by its compact review).** Raw, from Pyrefly's native types (surface `pyrefly-types`, `native_structural`). `type_terms`: one row per distinct term, its id a Merkle hash over Pyrefly's own structure and identities (kind, detail, class pair, children with their roles; §3.4.1); the display is a label, and only a display-only kind (`other`, `truncated`) hashes it. Two structures that share an id but differ in kind, detail or display fail `unique:type_terms` (several runs may observe one term; `nodes` keeps it once). A class is a (module ref, class key) pair, an enum member keeps its class, and a recursive alias is a reference to its name, so a term is finite; a depth cap (32) makes that a guarantee. A type variable's id is Pyrefly's own identity (`QuantifiedIdentity`), so one variable is one term wherever it is observed and two unrelated `T`s are two; its bound, constraints and default are its children (`type_arg_role` `bound`, `constraint`, `default`). `type_term_kind` maps every `Type` variant by an exhaustive match; solver-internal and experimental variants are `other` (`display_only`). `type_term_args`: each child at its role and ordinal; a callable parameter carries its name, kind and requiredness. `type_observations` (§3.5.1): each parameter's type, each `def`'s return (`Key::ReturnType`; an annotated one is the annotation, §3.5.1), each call's result, each argument's value and each `raise`'s exception (Pyrefly's expression trace at the exact span; calls in annotations excluded). A subject Pyrefly records no type for (a `TypeVar(...)` declaration, a call in a lambda body, a branch Pyrefly skips for the platform) is a `types` boundary (`missing_evidence`) and the module's coverage is `partial`; a bare `raise` has no exception to type. `record_fields`: the fields a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple` declares itself (an inherited field a subclass assigns in a method stays its base's), with the flags as the field states them (default, `init`, alias and `kw_only` through `ClassField::dataclass_flags_of`; `TypedDict` required and read-only); the constructor they imply is Pyrefly's synthesized `__init__`, a `synthetic_callable` with its `parameter_semantics`. Derived: `type_class_targets` (each term's class → a release class or dependency definition; a miss is our failure, never a reason) and `type_binders` (each source-anchored variable → the innermost release declaration, type-alias or assignment statement holding Pyrefly's scope anchor, a joined fact; `scope_boundary` for an anchor outside the release). Consumers: Pass C type compatibility, FCA parameter, return and raised types, controls from record fields | C4 |
 | `docs` | **Implemented and Tested (C5a, C5b).** A corpus run over the library's upstream tree at its pinned commit (§4.0), in the library's environment; its search path is the tree, then site-packages (the library run's search path), so a module both runs import is one file. Raw, parsed by markdown-rs 1.0 (MDX constructs and frontmatter; byte offsets, probe P5): `documents` (each selected file: path, digest, frontmatter title, whether it parsed; one that does not parse is `unavailable` with markdown-rs's message), `passages` (each top-level heading's section to the next, so a document's passages partition it, with level, heading and heading path; the text before the first heading is passage 0), `code_blocks` (fenced blocks at any depth, MDX components included: language, meta, code, digest; each in the passage its start falls in) and `doc_links` (URL, title, text). `mentions` (our recognizer, `lctx-docs`) against the library run's public names and declarations, two classes never merged: `exact` for inline code (or a dotted prose token) that is a public access path, an origin path or a public class's member (`FastMCP.tool`); `lexical` for inline code that is a bare public name of a class, function, method or module, or such a name in prose when it is distinctive (an underscore, or two capitals and a lower-case letter), one `candidate` per origin (re-exports collapse to the shortest access path). Embedding-based linking is §9.7's. Derived: `mention_targets` (→ the `export` node, or the member's release declaration by the seed rank). Consumers: exact doc links to APIs and extractive brief text, §9.4 co-mention. **The usage run (C5b)** is the same corpus run's code: the selected examples and tests, and every Python code block materialized as a module of its own (`_lctx_blocks/d_<document>/block_<n>.py`, named in `code_blocks.module_path`), with every code family but `exports`. The corpus names each installed file the release's distributions own by the library run's own site-relative `@path` (C5 review F2), so a usage call's target is the release's own declaration or synthetic callable (the same Pysa key, probe P4), a release class is one type term whichever run observes it, and an import of a library module targets the library's module node. A tree that holds its own copy of the package ahead of the installed one (a flat layout) would cut the usage code off the release, so it fails the compile, naming the module. Consumers: Pass C examples and tests, §10.3–§10.5 usage patterns, §9.4 co-use. Each usage module's text and role are in `source_files` (ADR-0015, closing C6 review F2), so a snippet and whether it is an example, a test or a doc block are read from Delta alone | C5 |
-| `findings` | `findings`, `witnesses`, `evidence` (evidence_id → one of: fact, span, passage, example, fixture run), `assertions`, `assertion_support` (assertion → finding / evidence), `briefs` (with `review_state`), `brief_members`, `usage_patterns` | 1 |
+| `findings` | ADR-0019 (contracts in `cpg_schema::findings`; provenance in-row, no `fact_id`; not a coverage unit; outside the `nodes`/`edges` catalogs): `analysis_invocations` (method, parameters as canonical JSON, projection digest, seed, diagnostics), `findings`, `finding_members`, `witnesses` (path steps keyed by node ids, `edge_id` as lineage), `evidence` (evidence_id → one of: fact, span, passage, example, fixture run, with resolved text), `assertions`, `assertion_support` (assertion → finding / evidence, role `support` or `scope`), `briefs` (with `review_state`, outside `brief_id`), `brief_assertions`, `brief_members`, `brief_documents`, `assertion_policy`; `usage_patterns` with Pass C | 1 |
 
 Deferred: CFG, dataflow and alias tables (§1.3, §13). Type structure and `record_fields` are built in C4 (ADR-0014).
 
-> Decision: ADR-0014, ADR-0012, ADR-0015
+> Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019
 
 ### §3.3 Physical profiles
 
@@ -533,11 +542,11 @@ migration (DM-51).
 | `producer_id` | tool, tool revision, adapter build digest | global |
 | `run_id` | `release_id`, `context_id`, `producer_id`, sorted enabled families, the producer's own config digest | global |
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
-| `finding_id`, `assertion_id`, `brief_id`, `evidence_id` | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. `capability_id` = `brief_id` | content |
+| `finding_id`, `assertion_id`, `brief_id`, `evidence_id`, `invocation_id` (ADR-0019) | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. A finding's payload names its witness steps by call-site and callee node ids, never by `edge_id` (producer-scoped, ADR-0014 O6). An assertion's includes its sorted supports; a brief's, its seed, applicable case and sorted (section, ordinal, assertion); `review_state` is outside it. An invocation's is its method, parameters digest, projection digest, subject and seed. `capability_id` = `brief_id` | content |
 | `edge_id` (C1, **Implemented** and **Tested**: `the_catalogs_hold_every_graph_shape`, `the_catalogs_are_the_same_across_runs_order_and_location`; byte-identical on a pilot rerun and relocation, C6 review 2026-09-23) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
 | Role and derived node ids (C1, C3, C4, C5 **Implemented**) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, kind, detail, class pair and type-variable identity, then each child's role, ordinal, id, parameter name, kind and requiredness; a variable's is its identity alone, a display-only kind's includes its display (Rust; a Merkle id with no SQL form, so no `id:` rule). It is producer-scoped like syntax and external-symbol ids: it hashes Pyrefly's detail text, Pysa class keys and anchor byte offsets, so a Pyrefly bump or an edit earlier in a module renames it. Field (C4): `field`, class node, name (Rust; `id:record_fields`). Document (C5): `document`, release, path. Passage and code block (C5): `passage` or `code_block`, document node, ordinal (Rust; `id:documents`, `id:passages`, `id:code_blocks`) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
-| `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context), compiler digest, analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first two (**Implemented**; equal across a pilot rerun and relocation, C6 review 2026-09-23) | compares reruns |
+| `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context; the `lctx-compiler` run carries the analytics-config digest), compiler digest, embedding spec hash, and a digest of the sorted `(spec_hash, input_hash)` keys the snapshot used. Never the shared `embedding_cache` version, which another library's compile can move (ADR-0017 amendment). Slice 2 has the first two (**Implemented**; equal across a pilot rerun and relocation, C6 review 2026-09-23) | compares reruns |
 | `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script), a hand-bumped compiler output version, every derivation query, table contract and validation rule. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
 
 - **Ids in SQL** (C1, **Implemented** in `cpg_core::udf`, **Tested** by its known-answer and
@@ -571,9 +580,11 @@ migration (DM-51).
 - **Producer scope.** `call_target` and `higher_order_target` edge ids take Pysa's payload,
   function keys included, so a Pyrefly bump may rename them, like syntax and external-symbol ids
   (review O6).
-- **The compiler has its own run** (Proposed, with analytics). Analytics, synthesis and
-  publication are a run of producer `lctx-compiler`, whose config digest is the analytics
-  config's. Until then its identity is the `compiler_digest` stored on `snapshots`.
+- **The compiler has its own run** (ADR-0019; built in increment 1 slice 1.4). Analytics and
+  synthesis are a run of producer `lctx-compiler` over the library release and its context, whose
+  config digest is the analytics config's and whose tool revision is the `compiler_digest`. Its
+  `runs` and `producers` rows are written with the raw tables (every input is known before
+  Stage B), so `content_digest` includes it. It declares no families.
 - **Overloads.** A public callable with `@overload` stubs is **one** declaration node (the
   implementation), with one `signatures` row per overload (`is_overload`) plus the implementation
   signature. Seeds and briefs attach to the declaration. **Implemented** (slice 2): a stub rolls
@@ -588,7 +599,7 @@ migration (DM-51).
   Pass A inherits. Calls inside an unbound `def` still read `missing_evidence` (Pysa has no record
   of them). **Tested** on `derive_cases` (2026-09-22).
 
-> Decision: ADR-0013 (superseding ADR-0007)
+> Decision: ADR-0013 (superseding ADR-0007), ADR-0019
 
 ### §3.5 Vocabularies and codebooks
 
@@ -1082,14 +1093,14 @@ paths, give the same `release_id` and `content_digest`.
 | B. Typed provider facts | Pyrefly and Ruff in-process (§4.2) + Arrow builders (§4.3) | raw family batches, written to Delta |
 | C. Provider-local identity | A DataFusion name-span join (`cpg_schema::derived`) | `provider_node_map`, its keys checked unique and injective before publication (after use by D, which is safe because nothing publishes on failure) |
 | D. Semantic relationships | DataFusion over the written raw tables, written back through Delta (§4.3) | derived family tables and views |
-| E. Projections and analytics | DataFusion → petgraph / leiden-rs / FCA → DataFusion (§5, §9) | `findings` family, with lineage |
-| F. Synthesis | Rust templates + extractive selection (§10) | assertions, briefs |
+| E. Projections and analytics | DataFusion (projection SQL on the attempt's session) → `lctx-analytics` (petgraph / leiden-rs / FCA; Arrow in, Arrow out) → the attempt's write path (§5, §9) | `findings` family, provenance in-row (ADR-0019), with lineage |
+| F. Synthesis | `cpg-core::synth`: evidence, kind policy and status propagation in DataFusion; Rust templates + extractive selection (§10); brief documents embedded through the cache | assertions, briefs |
 | G. Publication | Rust (§6) | `snapshots` row; serving bundle |
 
 Unmapped rows stay in the derived table with a null node and, where one applies, a reason
 column. No inner join drops them.
 
-> Decision: ADR-0012
+> Decision: ADR-0012, ADR-0019
 
 ### §4.2 Extraction
 
@@ -1417,12 +1428,24 @@ FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the
 The vertex universe is selected separately from the edges, so isolated public APIs survive.
 
 **The invocation projection (v1)**
-- It is built by joining call-site ownership with call targets in DataFusion.
-- It keeps `call_site_id`, `resolution_id`, `invocation_phase` and `has_unresolved_remainder` on
-  every arc.
+- It is built by joining call-site ownership with call targets in DataFusion: `encloses_call` ⋈
+  `call_target`, plus the non-potential `site_target` arcs of property getters and setters, whose
+  site's owner is read from `syntax_nodes`.
+- It keeps `call_site_id` (which is also the resolution's id: a `ResolutionSet` is keyed by its
+  call site, §3.6), `edge_id`, `invocation_phase`, the arc's modality and
+  `has_unresolved_remainder` on every arc.
 - **Parallel call sites are preserved.**
-- **Excluded:** `potential` targets and `synthetic_model` arcs.
+- **Excluded:** `potential` targets (so every `higher_order_target`) and `synthetic_model` arcs.
 - **Constructor phases stay tagged.**
+- **Candidate arcs** (Pysa `Overrides` dispatch) are kept with their modality, so a pass can
+  treat them as candidates (§3.6).
+- **Unknown targets.** A call site with no target, or with an unresolved remainder, gets no arc
+  to a placeholder. It is listed in the projection's `unresolved_sites` relation, which Pass A
+  turns into `incomplete_resolution` findings.
+- **Callers** are the enclosing function, or the module or class whose body holds the call, as
+  typed vertices.
+- The projection's rows are persisted where a result cites them: `witnesses` holds each path
+  step's call site, callee and `edge_id` (ADR-0019).
 
 **Three identities**
 
@@ -1458,7 +1481,7 @@ stay in Arrow).
   (target canonical id, arc key)** before choosing.
 - SCC members are sorted by canonical id.
 
-> Decision: ADR-0011
+> Decision: ADR-0011, ADR-0019
 
 ---
 
@@ -1491,9 +1514,12 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   unpublished attempts are invisible to readers.
 - **Adapter failure on a module** gives `coverage.status = failed` for that module and family. The
   snapshot can still publish, with that gap visible.
-- **Writes go through `DeltaTable::write` only** (§4.3). That path enforces the tables' CHECK
-  constraints and `delta.appendOnly`. DataFusion `INSERT INTO` does not, so it is never used
-  (**Tested**, spike S6).
+- **Writes go through `DeltaTable::write` only** (§4.3), except the global `embedding_cache`,
+  written by an insert-only `DeltaTable::merge` so that concurrent attempts cannot duplicate a
+  key (ADR-0017 amendment; probed in slice 1.6 before use). Both paths enforce the tables' CHECK
+  constraints and `delta.appendOnly` where the table features are present, and the open-time
+  verify asserts they are. DataFusion `INSERT INTO` does not, so it is never used (**Tested**,
+  spike S6).
 - **`SaveMode::Ignore` is never used.** It appends to existing tables (`delta.write.3`).
 - **No vacuum or optimize on fact tables** in stage 1. Vacuum defaults to `dry_run=false` and Lite
   mode.
@@ -1533,7 +1559,9 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
    another snapshot's commit is refused (`ForeignCommit`), never read as empty (H1 review F2).
    Then **filter `snapshot_id`** as the row predicate. **A global table that accumulates across
    attempts** (`embedding_cache`) is read at its recorded version over **all** its active files,
-   with no commit selection and no snapshot filter (H1 review F3).
+   with no commit selection and no snapshot filter (H1 review F3). Each table declares its read
+   mode (`snapshot` or `global`) in `cpg-schema`, and every reader honours it (ADR-0017
+   amendment).
 4. Project columns by name through the DataFusion provider. Never use `scan_table().with_columns`,
    which returned the wrong column for a partition-first schema (`delta.read.3`).
 5. Never scan the Parquet directory directly (`delta.read.2`).
@@ -1761,11 +1789,18 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
   A community is not a brief boundary: a brief is one outcome at one public operation
   (IP L1697).
 - **Library.** leiden-rs 0.8.1 (`default-features = false` and no features, so it runs
-  sequentially; not its `petgraph` adapter, which would need a second graph copy), with the **CPM**
-  quality function. It is built with `GraphDataBuilder` from §5's dense index.
+  sequentially; not its `petgraph` adapter, whose `from_petgraph` would read §5's `u32` arc-row
+  weight as the edge weight), with the **RBER** quality function: CPM with γ relative to the
+  graph's density, so γ is scale-free on unit-normalized layers (ADR-0011 amendment). γ comes
+  from our own fixed-seed grid in the analytics config; leiden-rs's `resolution_scan` and
+  `resolution_profile` change seeds between points. It is built with `GraphDataBuilder` from §5's
+  dense index. `run_multiplex` is never used: it ignores `layer_weights` after the first level,
+  so our weighted sum of layers is the objective.
 - **Input normal form** (the library-leverage review, D2; Tested by probe). The undirected builder
   does not normalize orientation, and shuffled input changed an LFR partition at μ=0.5. So
-  DataFusion aggregates each (min,max) pair under a named weight policy and sorts, and a fixture
+  DataFusion aggregates each (min,max) pair as **integer counts** under a named weight policy and
+  sorts (a multi-partition f64 `SUM` is not bit-stable); normalization, hub down-weighting and
+  layer weighting happen in Rust in canonical order; and a fixture
   asserts that shuffled and flipped edges give an identical partition. **Owed by the §9.4 slice**
   (H1 review F9): each aggregated pair keeps its contributing arcs, so a community can cite them
   (guidelines §4, §10).
@@ -1783,8 +1818,9 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
       ablation shows gain**.
   - Each layer is normalized to unit total weight.
   - Hubs (degree above the configured percentile) are down-weighted.
-- **Stability.** Consensus over N seeds (default 10), reported per community as a membership
-  agreement score.
+- **Stability.** Consensus over N seeds (default 10): pairwise `leiden_rs::metrics::{try_nmi,
+  try_ari}` over the partitions, and per community a membership agreement score (our own
+  max-Jaccard matching against the reference seed).
 - **Outputs.** `statistically_derived` findings.
 
 ### §9.5 Centrality
@@ -1796,7 +1832,8 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
   converged flag (guidelines §8). petgraph's `page_rank` is rejected (the library-leverage review,
   D1). **Owed by the §9.5 slice** (H1 review F9): the input projection (§5 declares only the
   invocation projection), and the damping, tolerance, iteration budget and dangling target,
-  recorded in the analytics-config digest.
+  recorded in the analytics-config digest. The dangling target is uniform, so
+  `leiden_rs::compute_flow` (weighted, directed, uniform teleport) is the reference oracle.
 - **Tests:**
   - a hand-computed 3-node fixture;
   - two parallel arcs counted with their weights;
@@ -1852,7 +1889,7 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
   check is the increment-5 held-out evaluation.
 - **Agent-based evaluation** is reserved for the raw-vs-compiled comparison (§12).
 
-> Decision: ADR-0011
+> Decision: ADR-0011, ADR-0019
 
 ---
 
@@ -1970,7 +2007,7 @@ Repository text is treated as untrusted data. It is never an instruction to the 
   executed fixture.
 - **Fixtures** run offline, with no network or credentials. A pass supports only the tested case.
 
-> Decision: ADR-0005
+> Decision: ADR-0005, ADR-0019
 
 ---
 
@@ -2020,8 +2057,10 @@ read, and bundles copy the vectors they need from it.
 
 **In-process, over the pinned generation.**
 
-1. **Lexical.** BM25 over `lexical_text`. That text is the brief's text plus split forms of
-   public names (`write_dataset` → `write dataset`).
+1. **Lexical.** BM25 over `lexical_text`, scored by `bm25s` 0.3.11 (numpy backend,
+   `get_scores`) over our own tokenization (ADR-0010 amendment). That text is the brief's text
+   plus split forms of public names (`write_dataset` → `write dataset`), computed in Rust when the
+   bundle is built.
 2. **Vector.** Exact cosine over the generation's vectors, using the instruction-prefixed query
    vector.
 3. **Fusion.** Reciprocal-rank fusion with K = 60, 1-based ranks, and ties broken by `brief_id`.
@@ -2062,7 +2101,10 @@ thousand briefs, or ANN / managed FTS needed.
 - **State.** A lifespan loads the active generation once and exposes it through
   `ctx.lifespan_context`. One generation per process.
 - **Errors.** `ToolError` for unknown ids or a snapshot mismatch; `mask_error_details=True`.
-- **Transport.** stdio. Nothing may write to stdout.
+- **Transport.** stdio, started with `mcp.run(transport="stdio", show_banner=False)` and
+  `FASTMCP_CHECK_FOR_UPDATES=off`: FastMCP 4.0.5's banner otherwise makes an HTTP GET to PyPI at
+  every start. Nothing may write to stdout, at import or in the lifespan either; a
+  `StdioTransport` subprocess test checks it (ADR-0010 amendment).
 - **Tests.** `fastmcp.Client(mcp)` in both the auto and legacy protocol modes, asserting
   `.structured_content`, plus generations with a mismatched schema or spec, which must fail at
   connect.
@@ -2121,7 +2163,7 @@ Each item returns by ADR when a consumer needs it.
 | Cross-references (Pyrefly's Glean collector, `report::glean::convert::glean(&Transaction, &Handle)`, reachable in-process today). Probe (2026-09-23): 42 xref targets on a fixture, including the typed attribute xref `self.helper()` → `pkg.mod.C.helper`, in `declarations.qualified_name` form. One target per use, flow-sensitive and pruned, so it complements `reference_resolutions` and never replaces it | IP L209–L231 | a consumer needs attribute cross-references (Pass C handoffs, §10 "see also") |
 | CinderX located types (narrowed, unnarrowed, contextual), TSP query surfaces | IP L290–L332, L410–L425 | narrowing or contextual types are needed |
 | Python CFG, dominance, dataflow, aliasing, summaries | IP L821–L884, L1505–L1563 | a pass needs path-sensitive facts |
-| SCC condensation, dominators on projections: condensation from `tarjan_scc` membership keeping every arc's evidence, never petgraph's `condensation` (it merges parallel edges; ADR-0011) | IP L1416–L1503 | a consumer beyond recursion labelling |
+| SCC condensation, dominators on projections: condensation from `kosaraju_scc` membership keeping every arc's evidence, never petgraph's `condensation` (it merges parallel edges; ADR-0011) | IP L1416–L1503 | a consumer beyond recursion labelling |
 | LanceDB, ANN indexes | IP L2766–L2965 | corpus size or managed FTS (§11.2) |
 | LLM interpretation | IP L1886–L1966, L2580–L2637 | §12 gap metric (§B11) |
 | Graph embeddings, neural reranking, composition planning | IP L2073–L2087 | an ADR after increment 5 |
@@ -2156,3 +2198,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | C6 deep review (Accept, claims narrowed): §8 states the 18 edit-guard rules (`EDIT_GUARDS`) and counts them apart (493 rules, 475 falsifiable), and a meta-test holds every other hand-written rule to an injected case; 14 new cases, `ref:documents.release_id`, unique tie-breaks; the C6 memory figures restated with their allocator conditions and range, the arena-limited peak, retargeted triggers, and the raw batches released once written; the usage run's §10 consumers narrowed, with the text-and-role decision open in §13; labels raised where verified (§B2, §B3, §B6, §B7, §3.3, §3.4.1, §3.5, §3.6, §4.0, §8) | ADR-0014 amendment |
 | 2026-09-23 | ADR-0015 (operator decision, closing C6 review F2): every analyzed module's text and role are stored in `source_files` (`source_role` appended); `[tool.lctx.source]` `examples` and `tests` replace `usage`; `semantic:source-text` and `semantic:source-role-by-run` (496 rules); the §13 open row removed (§3.2, §3.5, §4.0, §8, §13) | ADR-0015 |
 | 2026-09-23 | H1, the library-leverage hardening slice (operator: every review item adopted). Static branches are Pyrefly's own decisions (`constant`, `combined` appended); globset/walkdir selection that follows no link; typed library definitions; `RECORD` as CSV; clap CLI; hermetic `git init`; Pyrefly's own predicates; hash and sort known answers. jemalloc (ADR-0016); cached, concurrent validation with plan metrics; per-commit Delta reads; zstd; the UDF's literal kind; a log subscriber; fs-err/anyhow; `cargo shear`. The declared return annotation read from Pyrefly (fork `a07b7bae`); ADR-0011 amended (own PageRank, normalized Leiden input, own FCA with an oracle, condensation from SCCs, §5's adapter recipe). Pilot 45.0 s → 29.9 s, 7,587 → 3,646 MiB peak, 272 → 235 MiB store (§3.2, §3.3, §3.4.1, §3.5, §4.0, §4.3, §5, §6.2, §7, §8, §9.4–§9.6, §13) | ADR-0016; ADR-0011; ADR-0009, ADR-0012, ADR-0013, ADR-0002 amendments |
+| 2026-09-23 | Remaining-scope plan, Phase 0: analysis results are typed tables with in-row provenance, content ids and new crates `lctx-analytics`/`lctx-embed` (§B6, §3.2, §3.4.1, §4.1); global read mode and the `embedding_cache` MERGE, a key digest in `content_digest` (§3.2, §3.4.1, §6.1, §6.2); hybrid retrieval moves into increment 1 and increment 4 becomes the generation lifecycle (§1.2); FCA within a structural scope (§1.2); §5's resolution id, unknown-target policy, typed callers and property arcs; RBER, integer aggregation, the γ grid, `compute_flow` oracle, `kosaraju_scc` (§B4, §9.4, §9.5, §13); bm25s and the stdio start flags (§11.2, §11.3) | ADR-0019; ADR-0004, ADR-0010, ADR-0011, ADR-0017 amendments |

@@ -86,12 +86,18 @@ D1–D5, probes run 2026-09-23) changed four parts before acceptance:
   - filtered and reversed views are used, never copies;
   - nothing is ever removed;
   - SCC members are sorted.
-- **Condensation** (when §13 un-defers it): built from `tarjan_scc` membership, keeping every
-  arc's evidence; never petgraph's `condensation`.
+- **Condensation** (when §13 un-defers it): built from `kosaraju_scc` membership (iterative;
+  `tarjan_scc` recurses), keeping every arc's evidence; never petgraph's `condensation`.
 - **Communities** (§9.4):
-  - leiden-rs `=0.8.1`, `default-features = false` and **no features** (not `petgraph`), CPM;
+  - leiden-rs `=0.8.1`, `default-features = false` and **no features** (not `petgraph`), with
+    the **RBER** quality function: CPM with γ taken relative to the graph's density, so γ is
+    scale-free on unit-normalized layers (amended 2026-09-23, below);
   - built with `GraphDataBuilder` from the dense index: DataFusion aggregates each (min,max) pair
-    under a named weight policy, then sorts;
+    as **integer counts** under a named weight policy, then sorts; normalization, hub
+    down-weighting and layer weighting happen in Rust in canonical order;
+  - γ comes from our own fixed-seed grid, pre-registered in the analytics config;
+  - never `run_multiplex` (it ignores `layer_weights` after the first level) and never
+    `from_petgraph` (it would read the §5 graph's `u32` arc-row weight as the edge weight);
   - the seed is always set and recorded;
   - `track_quality_history` stands in for the missing converged flag;
   - `rand` is pinned, and crate versions go in the method parameters;
@@ -104,6 +110,9 @@ D1–D5, probes run 2026-09-23) changed four parts before acceptance:
   - It uses a named weight policy (the usage counts from examples and tests) and
     dangling-mass redistribution.
   - It records iterations, the final L1 residual and a converged flag (guidelines §8).
+  - Its reference oracle is `leiden_rs::compute_flow` (a weighted directed PageRank with uniform
+    teleport and dangling mass, already a dependency), valid while the dangling target is
+    uniform.
 - **FCA / RCA** (§9.6): our own NextClosure (Ganter, ICFCA 2010), which also yields the
   Duquenne–Guigues implication basis, over `fixedbitset`, with a support threshold. There is no
   stability index: it is #P-hard.
@@ -138,3 +147,29 @@ D1–D5, probes run 2026-09-23) changed four parts before acceptance:
   structural scope.
 - **Spike before acceptance:** leiden-rs determinism under shuffled input at our feature set.
   The probe settled it for normalized input, and it is re-run at acceptance with the fixture.
+
+## Amendments (in place; the record is still proposed)
+
+- 2026-09-23: remaining-scope plan, Phase 0, from the rust-graphs skill survey (source-read at
+  the pinned leiden-rs 0.8.1 and petgraph 0.8.3; probes B009–B011):
+  - **RBER, not raw CPM.** CPM's γ is in edge-weight units. With each layer normalized to unit
+    total weight, CPM's useful γ range moves with the node and layer counts. RBER is the same
+    objective with γ scaled by density (`quality.rs:239-309`).
+  - **γ from our own fixed-seed grid.** `resolution_scan` changes the seed at each point, and
+    `resolution_profile` runs an interval's ends with different seeds. Both hard-code the default
+    configuration.
+  - **Never `run_multiplex`**, which ignores `layer_weights` after the first local-moving level
+    (`multiplex.rs:183-230`). Our weighted sum of layers is the multiplex objective.
+  - **Never `from_petgraph` on the §5 graph** (a B009-class silent failure: its `E: Into<f64>`
+    bound accepts the arc-row `u32`).
+  - **Integer aggregation.** A multi-partition f64 `SUM` in DataFusion is not bit-stable, and a
+    last-bit difference can flip a Leiden move.
+  - **Stability** uses `leiden_rs::metrics::{try_nmi, try_ari}`. Per-community agreement is our
+    own max-Jaccard matching.
+  - **The traversal decision** (§5's adapter, a hand-written BFS) is confirmed. `visit::Bfs` is
+    node-only, and `all_simple_paths` and rustworkx-core's BFS walk newest-first and collapse
+    parallel arcs. Pass A implements it at increment 1 slice 1.4. The record is accepted at the
+    increment-2 spike, with the Leiden fixture.
+  - **SCCs, when a consumer appears,** use `kosaraju_scc` (iterative) rather than the recursive
+    `tarjan_scc`.
+

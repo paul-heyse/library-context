@@ -81,3 +81,31 @@ The reader contract becomes:
   derive, or a retried raw write) must record all of them, or this contract must change. That is
   the revisit trigger.
 - **ADR-0009's trigger is closed;** this record's trigger replaces it.
+
+## Amendments
+
+- 2026-09-23: **global tables** (remaining-scope plan, Phase 0; ADR-0019). A table declares a
+  **read mode**, `snapshot` or `global`, in `cpg-schema`, and `register`, `session`,
+  `attempt_versions` and the serving bundle honour it:
+  - **A `global` table** (`embedding_cache`, §3.2) has no `snapshot_id` column. It is read at its
+    recorded version over **all** active files, with no commit selection, no `lctx.snapshot_id`
+    check and no snapshot filter. Its recorded version may be another attempt's commit.
+  - **It may be committed more than once per attempt** (before Stage E and after Stage F, from
+    increment 3). The one-commit invariant above is for snapshot-qualified tables, and it is
+    unchanged.
+  - **`embedding_cache` is written by an insert-only MERGE** on `(spec_hash, input_hash)`
+    (`DeltaTable::merge(..).when_not_matched_insert(..)`), with a retry on a commit conflict,
+    beside `DeltaTable::write` as a second write path (§6.1, §4.3). delta-rs never marks a commit
+    a blind append, so two concurrent appends of one key would both commit. vLLM vectors differ
+    between requests (E2), so a duplicate key would make the bundle's vector choice, and its
+    byte-identical rebuild, unstable. The merge reads the target, so a racing merge conflicts and
+    re-runs. The source rows pass the local type, length, finiteness and norm checks first. The
+    behaviour is probed before use (slice 1.6). If two concurrent merges can leave two rows, the
+    fallback is an exclusive lock file in the store around an anti-join and append.
+  - **The snapshot's row** for a global table records the version read after the last write and
+    `row_count` = the rows **used** by the snapshot. `content_digest` takes a digest of the sorted
+    `(spec_hash, input_hash)` keys used, never the shared version, which another library's
+    compile can move (§3.4.1).
+  - **Uniqueness** of the key over the whole table is a validation rule. The table is
+    append-only and validators never repair, so a violation's declared recovery is a migration to
+    `embedding_cache_v2` keeping the earliest-version row per key.

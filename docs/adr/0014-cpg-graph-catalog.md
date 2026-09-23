@@ -244,3 +244,7 @@ New or changed:
   closed: its trigger fired (229 of 1,786 higher-order argument sites follow a keyword or starred
   argument on the pilot), and Pysa numbers arguments with the same `iter_source_order().enumerate()`
   as `arguments.ordinal` (Pyrefly `6a93da3`, read by the C6 review).
+- 2026-09-23: scope sentence, pointer only. ADR-0019 decides that analysis results (findings,
+  assertions, briefs) are not `facts` rows either: they carry their provenance in-row and stay
+  outside the `nodes`/`edges` catalogs, which Stage D derives before analysis runs. `facts` rows
+  are the extracted assertions and operator review verdicts.

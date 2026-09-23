@@ -99,3 +99,26 @@ all passed):
 - **The spikes before acceptance passed** (E1–E3 above). The 8B model fits the 5090 with room
   for KV cache. It still competes with other GPU work, which is one more reason vLLM runs as its
   own service.
+
+## Amendments
+
+- 2026-09-23: remaining-scope plan, Phase 0.
+  - **BM25 is `bm25s` 0.3.11** (numpy backend, `get_scores`) over our own tokenization, with ties
+    broken by `brief_id`, replacing the spike's hand-written scorer. The operator's uncommitted
+    `scipy` line (added for this) is dropped with the Python restructure, by their decision.
+  - **Layout.** The root `pyproject.toml` becomes a uv workspace of dev tools with members
+    `python/lctx_mcp` (the server) and `eval` (gold, scoring, agent evaluation). vLLM is served
+    from **a locked uv project** `services/vllm/` (`just embed-serve`), not `uvx`: `uvx` would
+    leave torch and CUDA unlocked, outside the spec.
+  - **The stdio start** is `mcp.run(transport="stdio", show_banner=False)` with
+    `FASTMCP_CHECK_FOR_UPDATES=off`. FastMCP 4.0.5's banner makes an HTTP GET to PyPI and writes a
+    cache file at every start (`utilities/version_check.py`), a network call the design never
+    allowed. Nothing may print at import or in the lifespan, and one `StdioTransport` subprocess
+    test guards it.
+  - **Errors.** One domain exception from the shared hydration code, mapped to `ToolError` in
+    tools and `ResourceError` in the resource. A `ToolError` raised inside a resource becomes an
+    internal error. Embedder failures are caught inside `search_capabilities`, which answers
+    lexical-only. Otherwise FastMCP turns a timeout into "please retry" even under masking.
+  - **Not adopted:** `ResponseCachingMiddleware` (it caches every call for an hour and would keep
+    serving a degraded result), `ResponseLimitingMiddleware` (it drops structured output),
+    `fastmcp install`/`fastmcp.json` (unpinned).
