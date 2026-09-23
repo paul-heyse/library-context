@@ -32,6 +32,8 @@ DataFusion) before it became a direct dependency, so none adds a version; `just 
 | clap | =4.6.7, `derive`: the `lctx` and `lctx-extract` command lines (no `env` reads) | 2026-09-23 | same; MIT OR Apache-2.0; the CLI parse tests and `compile_honours_reinstall` |
 | tikv-jemallocator | =0.7.0 (jemalloc 5.3.1): the binaries' global allocator, Linux/macOS (ADR-0016) | 2026-09-23 | same (Pyrefly's Linux/macOS dependency, already compiled; its CLI uses it); MIT/Apache-2.0, C source BSD-2-Clause; the allocator spike's 16 runs and H1's pilots |
 | tracing-subscriber | =0.3.23, `env-filter` (defaults `fmt`, `tracing-log` already on): the binaries' stderr log subscriber, `LCTX_LOG` (H1 O1) | 2026-09-23 | same; MIT; `LCTX_LOG=debug lctx query …` prints delta-kernel and DataFusion records |
+| fs-err | =3.3.1: filesystem calls whose errors name their path (`cpg-extract`, `cpg-core`, `lctx`; H1 O3) | 2026-09-23 | same; MIT OR Apache-2.0; `an_io_error_names_its_path` |
+| anyhow | =1.0.104: `lctx`'s error type, printed as the whole chain (H1 O4) | 2026-09-23 | same; MIT OR Apache-2.0 |
 
 ## Analyzers (ADR-0012, accepted)
 

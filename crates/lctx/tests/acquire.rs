@@ -197,3 +197,30 @@ fn a_declared_source_is_fetched_hermetically_at_its_commit() {
         assert!(env.lines().any(|l| l == set), "{set} is not set");
     }
 }
+
+/// An IO failure names its path (H1 O3: fs-err; O4: the anyhow chain is printed): here the
+/// libraries directory is a file, so creating `<it>/demo` fails.
+#[test]
+fn an_io_error_names_its_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let not_a_dir = dir.path().join("libraries");
+    std::fs::write(&not_a_dir, "a file").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_lctx"))
+        .args([
+            "library",
+            "init",
+            "demo",
+            "--requirement",
+            "demo==1.0",
+            "--libraries",
+        ])
+        .arg(&not_a_dir)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains(&not_a_dir.join("demo").display().to_string()),
+        "{err}"
+    );
+}

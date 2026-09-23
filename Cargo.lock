@@ -1132,6 +1132,7 @@ dependencies = [
  "cpg-schema",
  "datafusion",
  "deltalake",
+ "fs-err",
  "futures 0.3.34",
  "insta",
  "parquet",
@@ -1156,6 +1157,7 @@ dependencies = [
  "clap",
  "cpg-schema",
  "csv",
+ "fs-err",
  "globset",
  "insta",
  "markdown",
@@ -3436,10 +3438,12 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 name = "lctx"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "cpg-core",
  "cpg-extract",
  "cpg-schema",
+ "fs-err",
  "getrandom 0.3.4",
  "tempfile",
  "tikv-jemallocator",

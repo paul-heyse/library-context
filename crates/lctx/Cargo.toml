@@ -11,6 +11,8 @@ cpg-schema = { path = "../cpg-schema" }
 cpg-extract = { path = "../cpg-extract" }
 cpg-core = { path = "../cpg-core" }
 clap.workspace = true
+anyhow.workspace = true
+fs-err.workspace = true
 getrandom.workspace = true
 tracing-subscriber.workspace = true
 tokio.workspace = true

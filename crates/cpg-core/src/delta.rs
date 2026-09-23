@@ -59,7 +59,7 @@ pub fn table_url(root: &Path, name: &str) -> Result<Url, CoreError> {
 /// Create the table: its declared schema, `delta.appendOnly`, the retention properties, then its
 /// immutable CHECKs.
 pub async fn create<T: Table>(root: &Path) -> Result<DeltaTable, CoreError> {
-    std::fs::create_dir_all(root.join(T::NAME))?;
+    fs_err::create_dir_all(root.join(T::NAME))?;
     let kernel: StructType = T::schema().as_ref().try_into_kernel()?;
     let mut builder = DeltaTable::try_from_url(table_url(root, T::NAME)?)
         .await?

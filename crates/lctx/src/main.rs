@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
 
+use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use cpg_extract::{extract, library};
 use cpg_schema::id::Id;
@@ -111,13 +112,13 @@ fn parse_id(s: &str) -> Result<Id, String> {
     Id::from_hex(s).ok_or_else(|| format!("{s:?} is not 32 hex digits"))
 }
 
-fn absolute(p: &Path) -> Result<PathBuf, String> {
-    std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()))
+fn absolute(p: &Path) -> anyhow::Result<PathBuf> {
+    std::path::absolute(p).with_context(|| p.display().to_string())
 }
 
 /// Run uv for one library, with the environment pinned to `env_dir` and every other `UV_*`
 /// setting and `VIRTUAL_ENV` removed, so nothing ambient steers resolution or installation.
-fn uv(args: &[&str], env_dir: &Path) -> Result<(), String> {
+fn uv(args: &[&str], env_dir: &Path) -> anyhow::Result<()> {
     let mut command = Command::new("uv");
     command.args(args);
     for (key, _) in std::env::vars_os() {
@@ -127,13 +128,11 @@ fn uv(args: &[&str], env_dir: &Path) -> Result<(), String> {
         }
     }
     command.env("UV_PROJECT_ENVIRONMENT", env_dir);
-    let status = command
-        .status()
-        .map_err(|e| format!("blocked: `uv` could not run ({e})"))?;
+    let status = command.status().context("blocked: `uv` could not run")?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!("uv {} failed ({status})", args.join(" ")))
+        Err(anyhow::anyhow!("uv {} failed ({status})", args.join(" ")))
     }
 }
 
@@ -141,16 +140,16 @@ fn uv(args: &[&str], env_dir: &Path) -> Result<(), String> {
 /// (`--no-config`), on the interpreter `.python-version` pins, and copying files rather than
 /// hard-linking them from the uv cache, which other environments share (ADR-0013 review F3).
 /// `reinstall` rebuilds every package: the remedy when Stage A finds a changed file.
-fn acquire(library_dir: &Path, env_dir: &Path, reinstall: bool) -> Result<(), String> {
+fn acquire(library_dir: &Path, env_dir: &Path, reinstall: bool) -> anyhow::Result<()> {
     if !library_dir.join("uv.lock").exists() {
-        return Err(format!(
+        return Err(anyhow::anyhow!(
             "{} has no uv.lock; run `lctx library init` or `uv lock --project {}`",
             library_dir.display(),
             library_dir.display()
         ));
     }
-    let python = std::fs::read_to_string(library_dir.join(".python-version"))
-        .map_err(|e| format!("{}/.python-version: {e}", library_dir.display()))?;
+    let python = fs_err::read_to_string(library_dir.join(".python-version"))
+        .with_context(|| format!("{}/.python-version", library_dir.display()))?;
     let project = library_dir.to_string_lossy();
     let mut args = vec![
         "sync",
@@ -172,7 +171,7 @@ fn acquire(library_dir: &Path, env_dir: &Path, reinstall: bool) -> Result<(), St
 
 /// Run git hermetically: every `GIT_*` variable removed, no system or global configuration, no
 /// prompts, so nothing ambient steers what is fetched (C5, like `uv`).
-fn git(args: &[&str], dir: &Path) -> Result<String, String> {
+fn git(args: &[&str], dir: &Path) -> anyhow::Result<String> {
     let mut command = Command::new("git");
     command.args(args).current_dir(dir);
     for (key, _) in std::env::vars_os() {
@@ -187,13 +186,11 @@ fn git(args: &[&str], dir: &Path) -> Result<String, String> {
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_ATTR_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0");
-    let output = command
-        .output()
-        .map_err(|e| format!("blocked: `git` could not run ({e})"))?;
+    let output = command.output().context("blocked: `git` could not run")?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
     } else {
-        Err(format!(
+        Err(anyhow::anyhow!(
             "git {} failed ({}): {}",
             args.join(" "),
             output.status,
@@ -208,17 +205,17 @@ fn git(args: &[&str], dir: &Path) -> Result<String, String> {
 fn fetch_source(
     library_dir: &Path,
     sources: &Path,
-) -> Result<Option<(PathBuf, library::Source)>, String> {
-    let Some(source) = library::source(library_dir).map_err(|e| e.to_string())? else {
+) -> anyhow::Result<Option<(PathBuf, library::Source)>> {
+    let Some(source) = library::source(library_dir)? else {
         return Ok(None);
     };
     let tree = sources.join(&source.commit);
     if !tree.join(".git").is_dir() {
         let partial = sources.join(format!("{}.partial", source.commit));
         if partial.exists() {
-            std::fs::remove_dir_all(&partial).map_err(|e| e.to_string())?;
+            fs_err::remove_dir_all(&partial)?;
         }
-        std::fs::create_dir_all(&partial).map_err(|e| e.to_string())?;
+        fs_err::create_dir_all(&partial)?;
         // No template directory: the system one is the last ambient git input (a hook there would
         // run on checkout; H1 C6).
         git(&["init", "-q", "--template="], &partial)?;
@@ -247,11 +244,11 @@ fn fetch_source(
             ],
             &partial,
         )?;
-        std::fs::rename(&partial, &tree).map_err(|e| e.to_string())?;
+        fs_err::rename(&partial, &tree)?;
     }
     let head = git(&["rev-parse", "HEAD"], &tree)?;
     if head != source.commit {
-        return Err(format!(
+        return Err(anyhow::anyhow!(
             "{} is at {head}, not the pinned {}; delete it to refetch",
             tree.display(),
             source.commit
@@ -260,9 +257,9 @@ fn fetch_source(
     Ok(Some((tree, source)))
 }
 
-fn random_id() -> Result<Id, String> {
+fn random_id() -> anyhow::Result<Id> {
     let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| format!("randomness: {e}"))?;
+    getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("randomness: {e}"))?;
     Ok(Id(bytes))
 }
 
@@ -272,15 +269,15 @@ fn compile(
     sources: &Path,
     store: &Path,
     reinstall: bool,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let started = Instant::now();
     acquire(library_dir, env_dir, reinstall)?;
     let tree = fetch_source(library_dir, sources)?;
     let acquired = started.elapsed();
     let snapshot = random_id()?;
-    let mut input = library::acquired(library_dir, env_dir, snapshot).map_err(|e| e.to_string())?;
+    let mut input = library::acquired(library_dir, env_dir, snapshot)?;
     if let Some((tree, source)) = &tree {
-        input.corpus = Some(library::corpus(tree, source, &input).map_err(|e| e.to_string())?);
+        input.corpus = Some(library::corpus(tree, source, &input)?);
     }
     let staged = started.elapsed() - acquired;
     // Printed first, so an attempt validation rejects can be inspected (`query --unpublished`).
@@ -298,13 +295,11 @@ fn compile(
             c.release.files.len()
         );
     }
-    let mut output = extract(&input).map_err(|e| e.to_string())?;
+    let mut output = extract(&input)?;
     let extracted = started.elapsed();
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    let runtime = tokio::runtime::Runtime::new()?;
     let tables = std::mem::take(&mut output.tables);
-    let published = runtime
-        .block_on(cpg_core::attempt::compile_owned(store, snapshot, tables))
-        .map_err(|e| e.to_string())?;
+    let published = runtime.block_on(cpg_core::attempt::compile_owned(store, snapshot, tables))?;
     println!("snapshot {} published", published.snapshot_id.hex());
     println!("content  {}", published.content_digest.hex());
     for (name, rows) in &published.rows {
@@ -350,7 +345,7 @@ fn init(
     python: &str,
     libraries: &Path,
     envs: &Path,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let dist = library::requirement_name(requirement);
     let (major, minor) = {
         let mut parts = python.split('.');
@@ -358,16 +353,16 @@ fn init(
     };
     let library_dir = libraries.join(name);
     if library_dir.exists() {
-        return Err(format!("{} already exists", library_dir.display()));
+        return Err(anyhow::anyhow!("{} already exists", library_dir.display()));
     }
-    std::fs::create_dir_all(&library_dir).map_err(|e| e.to_string())?;
+    fs_err::create_dir_all(&library_dir)?;
     let write = |release: &[String]| {
         let release = release
             .iter()
             .map(|r| format!("\"{r}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        std::fs::write(
+        fs_err::write(
             library_dir.join("pyproject.toml"),
             format!(
                 "# {name} as an analyzed library (DESIGN §4.0, ADR-0013), written by `lctx library \
@@ -378,24 +373,20 @@ fn init(
                  compiling.\nrelease = [{release}]\n"
             ),
         )
-        .map_err(|e| e.to_string())
     };
     write(std::slice::from_ref(&dist))?;
-    std::fs::write(library_dir.join(".python-version"), format!("{python}\n"))
-        .map_err(|e| e.to_string())?;
+    fs_err::write(library_dir.join(".python-version"), format!("{python}\n"))?;
     let env_dir = envs.join(name);
     uv(
         &["lock", "--project", &library_dir.to_string_lossy()],
         &env_dir,
     )?;
     acquire(&library_dir, &env_dir, false)?;
-    let site = std::fs::read_dir(env_dir.join("lib"))
-        .map_err(|e| e.to_string())?
+    let site = fs_err::read_dir(env_dir.join("lib"))?
         .filter_map(|e| e.ok().map(|e| e.path().join("site-packages")))
         .find(|p| p.is_dir())
-        .ok_or("the acquired environment has no site-packages")?;
-    let installed: Vec<(String, String)> = std::fs::read_dir(&site)
-        .map_err(|e| e.to_string())?
+        .context("the acquired environment has no site-packages")?;
+    let installed: Vec<(String, String)> = fs_err::read_dir(&site)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter_map(|p| {
             let stem = p
@@ -403,7 +394,7 @@ fn init(
                 .to_str()?
                 .strip_suffix(".dist-info")?
                 .to_owned();
-            let metadata = std::fs::read_to_string(p.join("METADATA")).unwrap_or_default();
+            let metadata = fs_err::read_to_string(p.join("METADATA")).unwrap_or_default();
             Some((library::normalize(stem.rsplit_once('-')?.0), metadata))
         })
         .collect();
@@ -425,33 +416,26 @@ fn init(
 /// Read-only SQL over one published snapshot: every table registered under its own name, at its
 /// recorded version, filtered to the snapshot (DESIGN §6.2). With `unpublished`, the tables' latest
 /// versions instead: an attempt validation rejected, for inspection only.
-fn query(store: &Path, id: Id, sql: &str, unpublished: bool) -> Result<(), String> {
+fn query(store: &Path, id: Id, sql: &str, unpublished: bool) -> anyhow::Result<()> {
     let hex = id.hex();
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
         let ctx = if unpublished {
-            let versions = cpg_core::snapshot::latest(store)
-                .await
-                .map_err(|e| e.to_string())?;
-            cpg_core::snapshot::session(store, id, &versions)
-                .await
-                .map_err(|e| e.to_string())?
+            let versions = cpg_core::snapshot::latest(store).await?;
+            cpg_core::snapshot::session(store, id, &versions).await?
         } else {
             cpg_core::snapshot::published(store, id)
-                .await
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| format!("snapshot {hex} is not published in {}", store.display()))?
+                .await?
+                .with_context(|| format!("snapshot {hex} is not published in {}", store.display()))?
                 .1
         };
-        let text = cpg_core::sql::render(&ctx, sql)
-            .await
-            .map_err(|e| e.to_string())?;
+        let text = cpg_core::sql::render(&ctx, sql).await?;
         println!("{text}");
         Ok(())
     })
 }
 
-fn run() -> Result<(), String> {
+fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let libraries = absolute(&cli.libraries)?;
     let envs = absolute(&cli.envs)?;
@@ -507,7 +491,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("lctx: {e}");
+            eprintln!("lctx: {e:#}");
             ExitCode::from(1)
         }
     }

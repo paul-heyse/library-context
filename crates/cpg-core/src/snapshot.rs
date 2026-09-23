@@ -132,7 +132,7 @@ pub async fn session(
 /// there, though no `snapshots` row publishes it: for inspecting that attempt, never for a reader.
 pub async fn latest(root: &Path) -> Result<Versions, CoreError> {
     let mut versions = Versions::new();
-    let mut names: Vec<String> = std::fs::read_dir(root)?
+    let mut names: Vec<String> = fs_err::read_dir(root)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.join("_delta_log").is_dir())
         .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))

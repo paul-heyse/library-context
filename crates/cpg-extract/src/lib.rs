@@ -370,7 +370,7 @@ fn run_release(
             handle,
             path: rel,
             node_id,
-            bytes: std::fs::read(file)?,
+            bytes: fs_err::read(file)?,
         });
     }
     modules.sort_by(|a, b| (&a.name, &a.path).cmp(&(&b.name, &b.path)));
@@ -849,7 +849,7 @@ fn run_release(
                 .map_err(|_| ExtractError::RelativePath(path.clone()))?
                 .display()
                 .to_string();
-            let bytes = std::fs::read(path)?;
+            let bytes = fs_err::read(path)?;
             let c = docs::document(
                 &mut sink,
                 input.release.release_id,
@@ -1185,9 +1185,9 @@ fn release_rows(
 
 /// Write each table as an Arrow IPC file `<dir>/<table>.arrow`.
 pub fn write_ipc(dir: &Path, output: &ExtractOutput) -> Result<(), ExtractError> {
-    std::fs::create_dir_all(dir)?;
+    fs_err::create_dir_all(dir)?;
     for (name, batch) in &output.tables {
-        let file = std::fs::File::create(dir.join(format!("{name}.arrow")))?;
+        let file = fs_err::File::create(dir.join(format!("{name}.arrow")))?;
         let mut w = arrow_ipc::writer::FileWriter::try_new(file, &batch.schema())?;
         w.write(batch)?;
         w.finish()?;

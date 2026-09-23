@@ -124,14 +124,14 @@ impl Release {
         };
         let mut selected: Vec<(String, Digest, Option<i64>)> = Vec::new();
         for f in documents {
-            selected.push((relative(f)?, content_digest(&std::fs::read(f)?), None));
+            selected.push((relative(f)?, content_digest(&fs_err::read(f)?), None));
         }
         let mut roles = BTreeMap::new();
         for (f, role) in &usage {
             let rel = relative(f)?;
             selected.push((
                 rel.clone(),
-                content_digest(&std::fs::read(f)?),
+                content_digest(&fs_err::read(f)?),
                 Some(i64::from(role.code())),
             ));
             roles.insert(rel, *role);
@@ -336,8 +336,7 @@ fn environment_digest(roots: &[PathBuf]) -> std::io::Result<Digest> {
         h.i64(files.len() as i64);
         for f in files {
             let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy();
-            h.str(&rel)
-                .digest_field(content_digest(&std::fs::read(&f)?));
+            h.str(&rel).digest_field(content_digest(&fs_err::read(&f)?));
         }
     }
     Ok(h.finish_digest())

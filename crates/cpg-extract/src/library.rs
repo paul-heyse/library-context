@@ -94,7 +94,7 @@ pub fn requirement_name(requirement: &str) -> String {
 }
 
 fn read(path: &Path) -> Result<String, ExtractError> {
-    std::fs::read_to_string(path).map_err(|e| fail(format!("{}: {e}", path.display())))
+    fs_err::read_to_string(path).map_err(|e| fail(format!("{}: {e}", path.display())))
 }
 
 /// `pyproject.toml` as Stage A reads it (H1 C3). `[tool.lctx]` and its `source` table are ours and
@@ -254,7 +254,7 @@ fn record_entries(record: &[u8]) -> Result<Vec<(String, Option<String>)>, csv::E
 /// Installed distributions: normalized name → (version, dist-info directory).
 fn installed(site_packages: &Path) -> Result<BTreeMap<String, (String, PathBuf)>, ExtractError> {
     let mut out = BTreeMap::new();
-    let entries = std::fs::read_dir(site_packages)
+    let entries = fs_err::read_dir(site_packages)
         .map_err(|e| fail(format!("{}: {e}", site_packages.display())))?;
     for entry in entries {
         let path = entry.map_err(|e| fail(e.to_string()))?.path();
@@ -377,7 +377,7 @@ pub fn acquired(
                 )));
             }
         }
-        let record_bytes = std::fs::read(dist_info.join("RECORD"))
+        let record_bytes = fs_err::read(dist_info.join("RECORD"))
             .map_err(|e| fail(format!("{}: {e}", dist_info.display())))?;
         let in_release = release.contains(dist);
         let entries = record_entries(&record_bytes)
@@ -390,7 +390,7 @@ pub fn acquired(
                 hash.ok_or_else(|| fail(format!("{dist}: {path} has no RECORD hash")))?;
             let file = site_packages.join(&path);
             let bytes =
-                std::fs::read(&file).map_err(|e| fail(format!("{dist}: {path}: {e}; {remedy}")))?;
+                fs_err::read(&file).map_err(|e| fail(format!("{dist}: {path}: {e}; {remedy}")))?;
             if URL_SAFE_NO_PAD.encode(Sha256::digest(&bytes)) != expected {
                 return Err(fail(format!(
                     "{dist}: {path} does not match its RECORD sha256; {remedy}"
@@ -655,7 +655,7 @@ pub fn corpus(
     // O4).
     let blocks = tree.join("_lctx_blocks");
     if blocks.exists() {
-        std::fs::remove_dir_all(&blocks)?;
+        fs_err::remove_dir_all(&blocks)?;
     }
     let walked = walk_tree(tree)?;
     let documents = pick(
@@ -685,12 +685,12 @@ pub fn corpus(
             .map_err(|_| ExtractError::RelativePath(d.clone()))?
             .display()
             .to_string();
-        for (ordinal, code) in crate::docs::python_blocks(&std::fs::read(d)?) {
+        for (ordinal, code) in crate::docs::python_blocks(&fs_err::read(d)?) {
             let module = tree.join(crate::docs::block_module_path(&rel, ordinal));
             if let Some(dir) = module.parent() {
-                std::fs::create_dir_all(dir)?;
+                fs_err::create_dir_all(dir)?;
             }
-            std::fs::write(&module, code)?;
+            fs_err::write(&module, code)?;
             usage.push((module, SourceRole::DocBlock));
         }
     }
@@ -778,13 +778,13 @@ mod definition_tests {
     #[test]
     fn the_pilot_definition_and_lock_read_as_before() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../libraries/fastmcp");
-        let def = parse_definition(&std::fs::read_to_string(dir.join("pyproject.toml")).unwrap())
-            .unwrap();
+        let def =
+            parse_definition(&fs_err::read_to_string(dir.join("pyproject.toml")).unwrap()).unwrap();
         assert_eq!(def.release, ["fastmcp", "fastmcp-slim", "fastmcp-tasks"]);
         let source = def.source.unwrap();
         assert_eq!(source.tag, "v4.0.5");
         assert_eq!(source.tests, ["tests/**/*.py"]);
-        let locked = lock(&std::fs::read_to_string(dir.join("uv.lock")).unwrap()).unwrap();
+        let locked = lock(&fs_err::read_to_string(dir.join("uv.lock")).unwrap()).unwrap();
         assert_eq!(locked.len(), 108);
         assert!(locked.values().all(|(_, hashes)| !hashes.is_empty()));
     }
