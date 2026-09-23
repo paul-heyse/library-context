@@ -1257,12 +1257,32 @@ P1). A `snapshot_id` filter therefore costs one footer read per file, not a full
   derive per table, validate and publish (review O4).
 - They are returned with the published attempt and never stored in Delta: they are not content.
 
+**Measured, the whole CPG (C6, 2026-09-23;** `just pilot` at the C5b build plus per-rule
+validation costs; FastMCP 4.0.5 and its corpus; snapshot `063b8eb3…`; a 32-thread, 188 GB host**):**
+- 907,845 nodes and 1,452,970 edges; every one of the 503 rules passing; **50.0 s** in all.
+- **Extraction, 35.6 s.** The library run takes 13 s: the Pyrefly check 2.4 s, per-module
+  extraction 5.6 s (mostly the Pysa collectors), and the dependency check 4.1 s. The corpus run
+  takes 19 s: its check 3.8 s, per-module extraction 8.7 s, its dependency check 5.0 s, and the
+  documents 0.2 s.
+- **Raw writes, 0.8 s. Derivation, 2.6 s** (`edges` 1.2 s, `nodes` 0.6 s).
+- **Validation, 10.8 s:** 503 queries, the slowest 0.18 s (`unique:type_terms`), so the cost is
+  their number, each re-scanning its Delta views. `lctx compile` reports the three slowest rules and
+  the one that raised the peak most.
+- **Peak RSS 8.0 GB,** climbing stage by stage: 3.5 GB after extraction, 4.0 GB after the raw
+  writes, 5.8 GB after derivation, and 8.0 GB after validation (`unique:type_terms` raised it
+  most, by 0.5 GB).
+- **Decision:** streaming derive stays deferred, since its trigger (derive dominating) is not met.
+  Derivation is 5% of the wall time, and it adds 1.8 GB.
+
 **Deferred, with triggers.**
 - `datafusion-tracing` (compatible with 55.1 per its skill): until per-operator spans are needed.
 - **Streaming derive:** `WriteBuilder::with_input_plan(LogicalPlan)` streams per partition and
   still enforces CHECKs (read in the pinned source, `write/execution.rs:405-431`, 2026-09-22).
   - It would need its own schema and foreign-snapshot checks, and row counts from write metrics.
-  - Reopen when C6's per-stage RSS shows derive dominating.
+  - Reopen when derivation dominates the per-stage time or peak RSS. At C6 it did neither (above).
+- **Validation over cached tables, or concurrent rules:** register the hot tables as in-memory
+  batches for the rule run, or run rules concurrently. Reopen when validation outgrows
+  extraction's wall time, or the peak nears the host's memory.
 - **File skipping on `snapshot_id`:** the writer records no Delta-log statistics for Binary
   columns (`writer/stats.rs:214-238`), so the known limit above stands. Reopen when a published
   read's latency is measured to matter.
@@ -1963,3 +1983,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | CPG slice C5a: the source corpus fetched hermetically at its pinned commit, the corpus release and run (several runs per attempt over distinct releases), the `docs` family (`documents`, `passages`, `code_blocks`, `doc_links`, `mentions`; derived `mention_targets`; `document`, `passage`, `code_block` nodes; three edge kinds) with markdown-rs 1.0 (probe P5) (§3.1, §3.2, §3.4.1, §3.5, §3.8, §4.0, §4.1, §8) | ADR-0014, ADR-0013 amendment |
 | 2026-09-23 | C4 compact review F1–F7: no catch-all in `type_class_targets`; declared async returns are the annotation; term ids from Pyrefly's structure and identities alone (the display a label; one term per variable), binders derived in Stage D (`type_binders`); boundaries for untyped subjects; enum classes and type-variable bounds, constraints and defaults; inherited method-assigned fields skipped; three rules tested by injected violations (§B8, §3.2, §3.4.1, §3.5.1, §3.8, §4.2.6) | ADR-0014 |
 | 2026-09-23 | CPG slice C5b: the usage run (examples, tests and materialized Python code blocks, every code family but `exports`) in the corpus run, whose search path puts the tree ahead of site-packages; `usage_targets` and the `block_module` and `usage_link` edges (probe P4); release-scoped module-name joins; one node and edge for what two runs both assert; `unique:release-paths`, `unique:type_terms`; an augmented assignment's target is a reference; `lctx query --unpublished` (§3.2, §3.4, §3.8, §4.0, §8) | ADR-0014, ADR-0013 amendment |
+| 2026-09-23 | CPG slice C6: the whole-CPG measurement (§4.3): 50.0 s and 8.0 GB on the pilot and its corpus; streaming derive stays deferred (its trigger is not met), and validation's cost is recorded per rule, with a new deferred item and trigger | ADR-0014 |

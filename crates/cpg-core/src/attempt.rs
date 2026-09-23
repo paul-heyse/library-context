@@ -17,7 +17,7 @@ use crate::CoreError;
 use crate::delta::{append, open_or_create};
 use crate::derive::derive;
 use crate::snapshot::{Versions, register, resolve, session};
-use crate::validate::validate;
+use crate::validate::validate_costed;
 
 /// A published attempt.
 #[derive(Debug, Clone)]
@@ -214,8 +214,27 @@ pub async fn compile(
     }
     cpg_schema::for_each_derived_table!(derive_all);
 
-    let violations = validate(&ctx).await?;
+    let (violations, costs) = validate_costed(&ctx).await?;
     stages.mark("validate");
+    // What dominates validation (C6, §4.3): the slowest rules, and the one that raised the peak.
+    let mut slowest = costs.clone();
+    slowest.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
+    for c in slowest.iter().take(3) {
+        stages.push(
+            format!("validate:   slowest {}", c.rule),
+            std::time::Duration::from_secs_f64(c.seconds),
+        );
+    }
+    if let Some(c) = costs.iter().max_by_key(|c| c.raised_peak_bytes) {
+        stages.push(
+            format!(
+                "validate:   raised the peak most (+{} MiB) {}",
+                c.raised_peak_bytes >> 20,
+                c.rule
+            ),
+            std::time::Duration::from_secs_f64(c.seconds),
+        );
+    }
     if !violations.is_empty() {
         return Err(CoreError::Invalid(violations));
     }

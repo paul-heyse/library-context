@@ -15,11 +15,36 @@ pub struct Violation {
     pub sample: String,
 }
 
+/// One rule's cost: its wall time, and how far it raised the process's peak RSS (C6).
+#[derive(Debug, Clone)]
+pub struct RuleCost {
+    pub rule: String,
+    pub seconds: f64,
+    pub raised_peak_bytes: u64,
+}
+
 /// Run every rule; an empty result means the snapshot is valid.
 pub async fn validate(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    Ok(validate_costed(ctx).await?.0)
+}
+
+/// [`validate`], with each rule's cost, so a stage report can name what dominates.
+pub async fn validate_costed(
+    ctx: &SessionContext,
+) -> Result<(Vec<Violation>, Vec<RuleCost>), CoreError> {
     let mut violations = Vec::new();
+    let mut costs = Vec::new();
     for rule in rules() {
+        let before = cpg_schema::metrics::peak_rss_bytes().unwrap_or(0);
+        let started = std::time::Instant::now();
         let batches = sql::query(ctx, &rule.sql).await?.collect().await?;
+        costs.push(RuleCost {
+            rule: rule.name.clone(),
+            seconds: started.elapsed().as_secs_f64(),
+            raised_peak_bytes: cpg_schema::metrics::peak_rss_bytes()
+                .unwrap_or(0)
+                .saturating_sub(before),
+        });
         let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
         if rows > 0 {
             let first: Vec<_> = batches
@@ -35,5 +60,5 @@ pub async fn validate(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError>
             });
         }
     }
-    Ok(violations)
+    Ok((violations, costs))
 }
