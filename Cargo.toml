@@ -49,6 +49,10 @@ base64 = "=0.22.1"
 # (probe P5).
 markdown = "=1.0.0"
 getrandom = "=0.3.4"
+# H1 (the library-leverage review): utility crates already in the graph at exactly these versions
+# (Pyrefly, delta-rs, uv tooling), so none adds a version; `docs/pins.md` "Utility crates".
+globset = "=0.4.20"
+walkdir = "=2.5.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"
 thiserror = "2"

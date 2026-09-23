@@ -185,3 +185,9 @@ changing, because the context did not see the dependency environment.
   id differs. It runs in the same environment, and its context lists the same `distributions`.
   What the two runs both assert (a dependency module or definition, a type term) is one node,
   written once from its first fact.
+- 2026-09-23: H1 C2 (the library-leverage review). The corpus selection reads the fetched tree in one
+  walkdir pass that follows no link, and matches globs with globset (`*`, `?`, `**`, `[…]`,
+  `{a,b}`, `/` literal). A symlink a glob selects is refused, naming it, and so is a directory link
+  that could hold a selection unless an exclude covers it; a source tree refuses any link. The hand
+  matcher it replaces followed links (reading outside the tree, looping), read `?`, `[…]` and
+  `{…}` as literals and backtracked exponentially.

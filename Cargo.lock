@@ -1152,6 +1152,7 @@ dependencies = [
  "arrow-select",
  "base64 0.22.1",
  "cpg-schema",
+ "globset",
  "insta",
  "markdown",
  "pyrefly",
@@ -1168,6 +1169,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "toml",
+ "walkdir",
 ]
 
 [[package]]

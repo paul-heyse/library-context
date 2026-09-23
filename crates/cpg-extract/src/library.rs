@@ -21,6 +21,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cpg_schema::codebook::SourceRole;
 use cpg_schema::id::{Digest, IdHasher, content_digest, kind};
+use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use sha2::{Digest as _, Sha256};
 
 use crate::ExtractError;
@@ -508,72 +509,137 @@ pub fn source(library_dir: &Path) -> Result<Option<Source>, ExtractError> {
     }))
 }
 
-/// Whether `path` (`/`-separated, relative) matches `pattern`.
-pub fn glob_match(pattern: &str, path: &str) -> bool {
-    fn name(p: &[u8], s: &[u8]) -> bool {
-        match (p.first(), s.first()) {
-            (None, None) => true,
-            (Some(b'*'), _) => name(&p[1..], s) || (!s.is_empty() && name(p, &s[1..])),
-            (Some(a), Some(b)) if a == b => name(&p[1..], &s[1..]),
-            _ => false,
-        }
-    }
-    fn segments(p: &[&str], s: &[&str]) -> bool {
-        match (p.first(), s.first()) {
-            (None, None) => true,
-            (Some(&"**"), _) => segments(&p[1..], s) || (!s.is_empty() && segments(p, &s[1..])),
-            (Some(a), Some(b)) => name(a.as_bytes(), b.as_bytes()) && segments(&p[1..], &s[1..]),
-            _ => false,
-        }
-    }
-    let p: Vec<&str> = pattern.split('/').collect();
-    let s: Vec<&str> = path.split('/').collect();
-    segments(&p, &s)
+/// A tree walked once (H1 C2): every file outside dot-directories, relative (`/`-separated) and
+/// absolute, in path order, and every symlink met there. A symlink is never followed.
+struct Walked {
+    files: Vec<(String, PathBuf)>,
+    /// `(relative path, is a directory link)`.
+    symlinks: Vec<(String, bool)>,
 }
 
-/// The files under `root` some `include` pattern matches and no `exclude` pattern does, absolute
-/// and sorted. Dot-directories are skipped.
-pub fn select(
-    root: &Path,
+fn walk_tree(root: &Path) -> Result<Walked, ExtractError> {
+    let mut walked = Walked {
+        files: Vec::new(),
+        symlinks: Vec::new(),
+    };
+    let entries = walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .sort_by_file_name()
+        .min_depth(1)
+        .into_iter()
+        .filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'));
+    for entry in entries {
+        let entry = entry.map_err(|e| fail(format!("walking {}: {e}", root.display())))?;
+        let rel = entry
+            .path()
+            .strip_prefix(root)
+            .map_err(|_| ExtractError::RelativePath(entry.path().to_path_buf()))?
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let kind = entry.file_type();
+        if kind.is_symlink() {
+            walked.symlinks.push((rel, entry.path().is_dir()));
+        } else if kind.is_file() {
+            walked.files.push((rel, entry.into_path()));
+        }
+    }
+    Ok(walked)
+}
+
+/// A key's globs, compiled by globset: `*` and `?` stay within one name, `**` spans directories,
+/// `[…]` and `{a,b}` as globset reads them (`literal_separator`; DESIGN §4.0).
+fn glob_set(key: &str, patterns: &[String]) -> Result<(GlobSet, Vec<Glob>), ExtractError> {
+    let mut set = GlobSetBuilder::new();
+    let mut globs = Vec::new();
+    for p in patterns {
+        let glob = GlobBuilder::new(p)
+            .literal_separator(true)
+            .build()
+            .map_err(|e| fail(format!("[tool.lctx.source] `{key}` glob `{p}`: {e}")))?;
+        set.add(glob.clone());
+        globs.push(glob);
+    }
+    let set = set
+        .build()
+        .map_err(|e| fail(format!("[tool.lctx.source] `{key}`: {e}")))?;
+    Ok((set, globs))
+}
+
+/// The path before a glob's first metacharacter, as whole segments: `docs` for `docs/**/*.mdx`,
+/// empty for `**/*.py`.
+fn literal_prefix(glob: &str) -> String {
+    glob.split('/')
+        .take_while(|seg| !seg.contains(['*', '?', '[', '{']))
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Whether one of two relative paths lies at or under the other.
+fn nested(a: &str, b: &str) -> bool {
+    a.is_empty()
+        || b.is_empty()
+        || a == b
+        || a.starts_with(&format!("{b}/"))
+        || b.starts_with(&format!("{a}/"))
+}
+
+/// The files of `walked` some `include` glob matches and no `exclude` glob does, absolute and in
+/// path order. Fails closed (H1 C2):
+/// - each include glob must select a file, so an upstream move of `docs/` fails instead of
+///   publishing an empty selection (C5 review F5);
+/// - a symlink an include glob matches is refused, naming it: it would read outside the tree;
+/// - a directory link that could hold a selection (it and an include glob's literal prefix lie one
+///   under the other) is refused unless an exclude glob covers it (matches it, or a name directly
+///   inside it): following it could escape the tree or loop, and skipping it would drop files
+///   silently.
+fn pick(
+    tree: &Path,
+    walked: &Walked,
+    key: &str,
     include: &[String],
     exclude: &[String],
-) -> std::io::Result<Vec<PathBuf>> {
-    fn walk(root: &Path, dir: &Path, acc: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
-            .map(|e| e.map(|e| e.path()))
-            .collect::<Result<_, _>>()?;
-        entries.sort();
-        for p in entries {
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if name.starts_with('.') {
-                continue;
-            }
-            if p.is_dir() {
-                walk(root, &p, acc)?;
-            } else if let Ok(rel) = p.strip_prefix(root) {
-                let rel = rel
-                    .components()
-                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                    .collect::<Vec<_>>()
-                    .join("/");
-                acc.push((rel, p));
-            }
+) -> Result<Vec<PathBuf>, ExtractError> {
+    let (inc, inc_globs) = glob_set(key, include)?;
+    let (exc, _) = glob_set(&format!("{key}_exclude"), exclude)?;
+    for (rel, is_dir) in &walked.symlinks {
+        let covered = exc.is_match(rel) || exc.is_match(format!("{rel}/_"));
+        let refused = if *is_dir {
+            !covered
+                && inc_globs
+                    .iter()
+                    .any(|g| nested(rel, &literal_prefix(g.glob())))
+        } else {
+            inc.is_match(rel) && !exc.is_match(rel)
+        };
+        if refused {
+            return Err(fail(format!(
+                "[tool.lctx.source] `{key}` would read through the symlink {rel} in {}; a fetched \
+                 tree is read without following links",
+                tree.display()
+            )));
         }
-        Ok(())
     }
-    let mut all = Vec::new();
-    walk(root, root, &mut all)?;
-    Ok(all
-        .into_iter()
-        .filter(|(rel, _)| {
-            include.iter().any(|g| glob_match(g, rel))
-                && !exclude.iter().any(|g| glob_match(g, rel))
-        })
-        .map(|(_, p)| p)
-        .collect())
+    let mut hits = vec![0usize; include.len()];
+    let mut picked = Vec::new();
+    for (rel, path) in &walked.files {
+        let matched = inc.matches(rel);
+        for g in &matched {
+            hits[*g] += 1;
+        }
+        if !matched.is_empty() && !exc.is_match(rel) {
+            picked.push(path.clone());
+        }
+    }
+    if let Some(g) = hits.iter().position(|n| *n == 0) {
+        return Err(fail(format!(
+            "[tool.lctx.source] glob `{}` selects nothing in {}",
+            include[g],
+            tree.display()
+        )));
+    }
+    Ok(picked)
 }
 
 /// The corpus run's input (C5): the fetched `tree`'s selected documents, and its usage modules (the
@@ -592,24 +658,16 @@ pub fn corpus(
     if blocks.exists() {
         std::fs::remove_dir_all(&blocks)?;
     }
-    // Every include glob selects something: an upstream move of `docs/` must fail, not publish a
-    // corpus with no documents (C5 review F5).
-    for glob in source
-        .documents
-        .iter()
-        .chain(&source.examples)
-        .chain(&source.tests)
-    {
-        if select(tree, std::slice::from_ref(glob), &[])?.is_empty() {
-            return Err(fail(format!(
-                "[tool.lctx.source] glob `{glob}` selects nothing in {}",
-                tree.display()
-            )));
-        }
-    }
-    let documents = select(tree, &source.documents, &source.documents_exclude)?;
-    let examples = select(tree, &source.examples, &[])?;
-    let tests = select(tree, &source.tests, &[])?;
+    let walked = walk_tree(tree)?;
+    let documents = pick(
+        tree,
+        &walked,
+        "documents",
+        &source.documents,
+        &source.documents_exclude,
+    )?;
+    let examples = pick(tree, &walked, "examples", &source.examples, &[])?;
+    let tests = pick(tree, &walked, "tests", &source.tests, &[])?;
     // A module has one role (ADR-0015): a file both keys select is refused, not ranked.
     if let Some(both) = examples.iter().find(|f| tests.contains(f)) {
         return Err(fail(format!(
@@ -655,16 +713,54 @@ pub fn corpus(
 
 #[cfg(test)]
 mod glob_tests {
-    use super::glob_match;
+    use super::{glob_set, literal_prefix, nested};
+
+    fn matches(pattern: &str, path: &str) -> bool {
+        glob_set("t", &[pattern.to_owned()])
+            .unwrap()
+            .0
+            .is_match(path)
+    }
 
     #[test]
     fn globs_span_directories_only_with_double_star() {
-        assert!(glob_match("docs/**/*.mdx", "docs/a.mdx"));
-        assert!(glob_match("docs/**/*.mdx", "docs/servers/tools.mdx"));
-        assert!(!glob_match("docs/*.mdx", "docs/servers/tools.mdx"));
-        assert!(glob_match("docs/v2/**", "docs/v2/servers/tools.mdx"));
-        assert!(!glob_match("docs/v2/**", "docs/v20.mdx"));
-        assert!(glob_match("tests/**/*.py", "tests/test_a.py"));
-        assert!(!glob_match("tests/**/*.py", "tests/data/a.pyc"));
+        assert!(matches("docs/**/*.mdx", "docs/a.mdx"));
+        assert!(matches("docs/**/*.mdx", "docs/servers/tools.mdx"));
+        assert!(!matches("docs/*.mdx", "docs/servers/tools.mdx"));
+        assert!(matches("docs/v2/**", "docs/v2/servers/tools.mdx"));
+        assert!(!matches("docs/v2/**", "docs/v20.mdx"));
+        assert!(matches("tests/**/*.py", "tests/test_a.py"));
+        assert!(!matches("tests/**/*.py", "tests/data/a.pyc"));
+    }
+
+    /// globset's full syntax (H1 C2): the hand matcher read these as literals.
+    #[test]
+    fn braces_classes_and_single_characters_select() {
+        assert!(matches("docs/{guide,api}/*.mdx", "docs/api/a.mdx"));
+        assert!(!matches("docs/{guide,api}/*.mdx", "docs/old/a.mdx"));
+        assert!(matches("tests/test_?.py", "tests/test_a.py"));
+        assert!(!matches("tests/test_?.py", "tests/test_ab.py"));
+        assert!(matches("examples/[ab]*.py", "examples/bot.py"));
+        assert!(!matches("examples/[ab]*.py", "examples/cat.py"));
+    }
+
+    /// The hand matcher backtracked exponentially (14 stars ran for minutes); globset compiles to
+    /// a regex.
+    #[test]
+    fn many_stars_match_in_linear_time() {
+        let pattern = "*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b";
+        let started = std::time::Instant::now();
+        assert!(!matches(pattern, &"a".repeat(60)));
+        assert!(started.elapsed().as_secs() < 2);
+    }
+
+    #[test]
+    fn a_link_can_hold_a_selection_when_nested_with_a_prefix() {
+        assert_eq!(literal_prefix("docs/**/*.mdx"), "docs");
+        assert_eq!(literal_prefix("**/*.py"), "");
+        assert!(nested("docs/linked", "docs"));
+        assert!(nested("docs", "docs/api"));
+        assert!(!nested("examples/x", "docs"));
+        assert!(nested("anything", ""));
     }
 }

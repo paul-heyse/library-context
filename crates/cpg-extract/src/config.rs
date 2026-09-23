@@ -68,29 +68,33 @@ impl Release {
     /// Every `.py`/`.pyi` under `root` (dot-directories and `__pycache__` skipped); the id hashes
     /// `label`, so one label on two trees gives one id.
     pub fn from_tree(root: PathBuf, label: &str) -> std::io::Result<Release> {
-        fn walk(dir: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
-            let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
-                .map(|e| e.map(|e| e.path()))
-                .collect::<Result<_, _>>()?;
-            entries.sort();
-            for p in entries {
-                let name = p
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                if p.is_dir() {
-                    if !name.starts_with('.') && name != "__pycache__" {
-                        walk(&p, acc)?;
-                    }
-                } else if name.ends_with(".py") || name.ends_with(".pyi") {
-                    acc.push(p);
-                }
-            }
-            Ok(())
-        }
+        // One walkdir pass that follows no link (H1 C2): a link in a source tree is refused,
+        // naming it, as in a fetched corpus.
         let mut files = Vec::new();
         if root.is_dir() {
-            walk(&root, &mut files)?;
+            let entries = walkdir::WalkDir::new(&root)
+                .follow_links(false)
+                .sort_by_file_name()
+                .min_depth(1)
+                .into_iter()
+                .filter_entry(|e| {
+                    let name = e.file_name().to_string_lossy();
+                    !(e.file_type().is_dir() && (name.starts_with('.') || name == "__pycache__"))
+                });
+            for entry in entries {
+                let entry = entry.map_err(std::io::Error::other)?;
+                let name = entry.file_name().to_string_lossy();
+                if entry.file_type().is_symlink() {
+                    return Err(std::io::Error::other(format!(
+                        "{} is a symlink; a source tree is read without following links",
+                        entry.path().display()
+                    )));
+                }
+                if entry.file_type().is_file() && (name.ends_with(".py") || name.ends_with(".pyi"))
+                {
+                    files.push(entry.into_path());
+                }
+            }
         }
         Ok(Release {
             release_id: IdHasher::new(kind::RELEASE).str(label).finish_id(),
@@ -297,24 +301,28 @@ fn relativize(value: &mut Value, input: &ExtractInput) {
 /// environment's absolute path) and nothing Pyrefly never reads (`.pth`, bytecode, data) enters
 /// it, so a moved environment keeps its identity and any analyzer-visible change moves it.
 fn environment_digest(roots: &[PathBuf]) -> std::io::Result<Digest> {
-    fn walk(dir: &Path, infos: &mut Vec<String>, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
-            .map(|e| e.map(|e| e.path()))
-            .collect::<Result<_, _>>()?;
-        entries.sort();
-        for p in entries {
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if std::fs::symlink_metadata(&p)?.is_dir() {
+    /// A root's `.dist-info` directory names and analyzer-readable files, in path order: real
+    /// directories are walked (`__pycache__` skipped), `.dist-info` ones only named, and a link is
+    /// never followed as a directory; a linked file is read like any file (H1 C2: walkdir, the
+    /// same semantics as the hand walk it replaced).
+    fn walk(root: &Path, infos: &mut Vec<String>, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
+        let mut entries = walkdir::WalkDir::new(root)
+            .follow_links(false)
+            .sort_by_file_name()
+            .min_depth(1)
+            .into_iter();
+        while let Some(entry) = entries.next() {
+            let entry = entry.map_err(std::io::Error::other)?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.file_type().is_dir() {
                 if name.ends_with(".dist-info") {
                     infos.push(name);
-                } else if name != "__pycache__" {
-                    walk(&p, infos, files)?;
+                    entries.skip_current_dir();
+                } else if name == "__pycache__" {
+                    entries.skip_current_dir();
                 }
             } else if crate::library::analyzer_readable(&name) {
-                files.push(p);
+                files.push(entry.into_path());
             }
         }
         Ok(())

@@ -942,8 +942,14 @@ needs to be a dependency of this project.
 - `[tool.lctx.source]`: the upstream repository, tag and the full 40-hex `commit` the tag names
   (a tag can move), for docs, examples and tests. Stage A checks the tag names the locked
   version. `documents`, `documents_exclude`, `examples` and `tests` select the corpus by glob
-  from the tree's root (`**` spans directories, `*` stays within one name); a module's role is
-  the key that selected it, and a file both `examples` and `tests` select is refused (ADR-0015). `lctx acquire` fetches the tree
+  from the tree's root, in globset's syntax (`*` and `?` within one name, `**` across directories,
+  `[…]`, `{a,b}`; H1 C2); a module's role is the key that selected it, and a file both `examples`
+  and `tests` select is refused (ADR-0015). The tree is walked once (walkdir), dot-directories
+  skipped, **no link followed**: a symlink a glob selects is refused, naming it, and so is a
+  directory link that could hold a selection (it and a glob's literal prefix lie one under the
+  other) unless an exclude covers it (**Tested**: `symlinks_in_a_tree_are_refused_unless_excluded`;
+  a loop under an excluded path is harmless). A source tree (`Release::from_tree`) refuses any
+  link. `lctx acquire` fetches the tree
   hermetically (every `GIT_*` variable removed, no system or global git configuration, no
   prompts; `git init`, a shallow fetch of the one commit, checkout, then `rev-parse HEAD` checked
   every time; no ambient git attributes, `core.autocrlf` off) into

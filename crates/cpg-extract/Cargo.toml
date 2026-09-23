@@ -27,6 +27,8 @@ toml.workspace = true
 sha2.workspace = true
 base64.workspace = true
 markdown.workspace = true
+globset.workspace = true
+walkdir.workspace = true
 
 [dev-dependencies]
 arrow-cast.workspace = true

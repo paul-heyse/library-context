@@ -705,6 +705,38 @@ fn a_glob_that_selects_nothing_is_refused() {
     assert!(err.contains("selects nothing"), "{err}");
 }
 
+/// A fetched tree is read without following links (H1 C2): a symlink a glob selects is refused,
+/// naming it, and so is a directory link that could hold a selection; a link an exclude covers is
+/// neither followed nor refused, so a loop there is harmless. A source tree refuses any link.
+#[test]
+fn symlinks_in_a_tree_are_refused_unless_excluded() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let input = corpus_input(dir.path(), Id([7; 16]), &[]);
+    let tree = std::fs::canonicalize(dir.path().join("corpus")).unwrap();
+    let corpus = || {
+        cpg_extract::library::corpus(&tree, &source(), &input)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    };
+    let outside = dir.path().join("outside.mdx");
+    std::fs::write(&outside, "# Outside\n").unwrap();
+    symlink(&outside, tree.join("docs/linked.mdx")).unwrap();
+    let err = corpus().unwrap_err();
+    assert!(err.contains("symlink docs/linked.mdx"), "{err}");
+    std::fs::remove_file(tree.join("docs/linked.mdx")).unwrap();
+    symlink(dir.path(), tree.join("docs/more")).unwrap();
+    let err = corpus().unwrap_err();
+    assert!(err.contains("symlink docs/more"), "{err}");
+    std::fs::remove_file(tree.join("docs/more")).unwrap();
+    symlink(&tree, tree.join("docs/old/loop")).unwrap();
+    corpus().unwrap();
+    let err = cpg_extract::Release::from_tree(tree.clone(), "t")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("loop is a symlink"), "{err}");
+}
+
 /// A module has one role: a file `examples` and `tests` both select is refused (ADR-0015).
 #[test]
 fn a_file_with_two_roles_is_refused() {
