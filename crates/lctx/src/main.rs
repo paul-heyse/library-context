@@ -212,7 +212,9 @@ fn fetch_source(
             std::fs::remove_dir_all(&partial).map_err(|e| e.to_string())?;
         }
         std::fs::create_dir_all(&partial).map_err(|e| e.to_string())?;
-        git(&["init", "-q"], &partial)?;
+        // No template directory: the system one is the last ambient git input (a hook there would
+        // run on checkout; H1 C6).
+        git(&["init", "-q", "--template="], &partial)?;
         git(
             &[
                 "fetch",

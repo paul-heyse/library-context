@@ -25,6 +25,8 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
+use pyrefly_python::docstring::Docstring;
+
 use crate::lexical::{Lexical, LexicalOut, Outside, Stars};
 use crate::syntax;
 
@@ -37,6 +39,8 @@ pub(crate) struct ModuleCtx<'s> {
     pub text: &'s str,
     /// The module's Python version and platform (its handle's), for Pyrefly's static tests.
     pub sys_info: &'s pyrefly_python::sys_info::SysInfo,
+    /// Pyrefly's own package test (`ModulePath::is_init`, H1 C9).
+    pub is_package: bool,
 }
 
 #[derive(Default)]
@@ -198,14 +202,15 @@ fn trailing_name(expr: &Expr) -> String {
     }
 }
 
+/// The body's docstring and its statement's range, where Pyrefly finds one
+/// (`Docstring::range_from_stmts`, H1 C9).
 fn docstring(body: &[Stmt]) -> Option<(String, TextRange)> {
-    match body.first() {
-        Some(Stmt::Expr(e)) => e
-            .value
-            .as_string_literal_expr()
-            .map(|s| (s.value.to_str().to_owned(), e.range())),
-        _ => None,
-    }
+    let range = Docstring::range_from_stmts(body)?;
+    let Some(Stmt::Expr(e)) = body.first() else {
+        return None;
+    };
+    let text = e.value.as_string_literal_expr()?.value.to_str().to_owned();
+    Some((text, range))
 }
 
 fn is_str_seq(expr: &Expr) -> bool {
@@ -563,7 +568,7 @@ impl Walker<'_, '_> {
             ExportSyntaxKind::DunderAll => None,
             ExportSyntaxKind::Import | ExportSyntaxKind::ImportFrom => absolute_module(
                 self.ctx.module_name,
-                self.ctx.path.ends_with("__init__.py") || self.ctx.path.ends_with("__init__.pyi"),
+                self.ctx.is_package,
                 level,
                 imported_module.as_deref(),
             ),

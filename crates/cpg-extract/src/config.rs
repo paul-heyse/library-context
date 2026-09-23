@@ -357,7 +357,9 @@ pub(crate) struct Context {
 }
 
 pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Result<Context, ExtractError> {
-    let mut json = serde_json::to_value(cfg).unwrap_or(Value::Null);
+    // A configuration that cannot be serialized is refused, never hashed as `null` (H1 C7).
+    let mut json = serde_json::to_value(cfg)
+        .map_err(|e| ExtractError::Library(format!("the pyrefly configuration: {e}")))?;
     relativize(&mut json, input);
     // Key order must not depend on the build: DataFusion turns on serde_json's
     // `preserve_order` wherever it shares the dependency graph.

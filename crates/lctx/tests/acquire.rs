@@ -173,7 +173,7 @@ fn a_declared_source_is_fetched_hermetically_at_its_commit() {
     assert_eq!(
         calls,
         [
-            "init -q",
+            "init -q --template=",
             &format!("fetch -q --depth 1 https://example.invalid/demo {COMMIT}"),
             "-c advice.detachedHead=false -c core.attributesFile=/dev/null -c core.autocrlf=false \
              checkout -q FETCH_HEAD",

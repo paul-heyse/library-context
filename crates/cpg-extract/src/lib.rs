@@ -39,6 +39,7 @@ use cpg_schema::tables::{
     ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations,
     TypeTermArgs, TypeTerms,
 };
+use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
@@ -466,10 +467,10 @@ fn run_release(
                 .iter()
                 .filter_map(|(name, loc)| {
                     let n = name.as_str();
-                    let private = n.starts_with('_') && !(n.starts_with("__") && n.ends_with("__"));
+                    // Pyrefly's definition of public (§4.2.3; H1 C9), not a second one.
                     match loc {
                         ExportLocation::ThisModule(e)
-                            if !private && !implicit_globals.iter().any(|g| g == n) =>
+                            if is_public_name(n) && !implicit_globals.iter().any(|g| g == n) =>
                         {
                             Some((n.to_owned(), e.symbol_kind.map(public::symbol_kind)))
                         }
@@ -537,7 +538,8 @@ fn run_release(
                 release_id: input.release.release_id,
                 module_name: m.name.clone(),
                 path: m.path.clone(),
-                is_package: m.path.ends_with("__init__.py") || m.path.ends_with("__init__.pyi"),
+                // Pyrefly's own package test (H1 C9), not a path suffix.
+                is_package: m.handle.path().is_init(),
                 is_stub: m.path.ends_with(".pyi"),
                 content_digest: content_digest(&m.bytes),
                 byte_len: m.bytes.len() as i64,
@@ -595,6 +597,7 @@ fn run_release(
             module_node_id: m.node_id,
             text: &text,
             sys_info: m.handle.sys_info(),
+            is_package: m.handle.path().is_init(),
         };
         let clock = Instant::now();
 
@@ -1079,7 +1082,7 @@ fn star_imports(txn: &Transaction<'_>, m: &SourceModule, ast: &ModModule) -> lex
     }
     let mut found = Found(Vec::new());
     found.visit_body(&ast.body);
-    let is_package = m.path.ends_with("__init__.py") || m.path.ends_with("__init__.pyi");
+    let is_package = m.handle.path().is_init();
     let mut stars = lexical::Stars::new();
     for i in found.0 {
         let Some(star) = i.names.iter().find(|a| a.name.as_str() == "*") else {
