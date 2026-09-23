@@ -233,3 +233,36 @@ fn the_fake_embedder_is_a_committed_known_answer() {
         answers
     );
 }
+
+/// The live leg of E2 (`just embed-conformance`): with `LCTX_EMBED_URL` set, the Rust client
+/// embeds the conformance inputs through the running service into `$LCTX_CONFORMANCE_OUT`, which
+/// `scripts/embed_conformance.py` compares with the Python client's vectors. A no-op without it.
+#[tokio::test]
+async fn live_conformance_vectors() {
+    let (Some(url), Some(out)) = (
+        std::env::var_os("LCTX_EMBED_URL"),
+        std::env::var_os("LCTX_CONFORMANCE_OUT"),
+    ) else {
+        return;
+    };
+    let embedder = VllmEmbedder::new(&url.to_string_lossy(), qwen_spec());
+    let inputs: Vec<serde_json::Value> = serde_json::from_str(
+        &std::fs::read_to_string(specs().join("conformance_inputs.json")).unwrap(),
+    )
+    .unwrap();
+    let mut vectors = serde_json::Map::new();
+    for input in &inputs {
+        let text = input["text"].as_str().unwrap();
+        let request = if input["kind"] == "query" {
+            embedder.spec().query_text(text)
+        } else {
+            embedder.spec().document_text(text)
+        };
+        let v = embedder.embed(&[request]).await.unwrap();
+        vectors.insert(
+            input["id"].as_str().unwrap().to_owned(),
+            serde_json::json!(v[0]),
+        );
+    }
+    std::fs::write(out, serde_json::to_string(&vectors).unwrap()).unwrap();
+}

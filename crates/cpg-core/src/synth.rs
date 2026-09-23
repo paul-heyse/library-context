@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
-    ArcKind, AssertionKind, Codebook, DeclarationKind, EvidenceKind, EvidenceStatus,
+    ArcKind, AssertionKind, BriefSection, Codebook, DeclarationKind, EvidenceKind, EvidenceStatus,
     ExtractionMode, FindingKind, InvocationPhase, MentionClass, Modality, ParameterKind,
     ReviewState, StopReason, SupportRole,
 };
@@ -37,8 +37,9 @@ use crate::{CoreError, sql};
 /// digest through the synthesis tables' contracts and this constant. 2: definition steps and
 /// "or more" call sites (slice 1.4 review F1, F3). 3: the slice 1.5 review: sentences on a
 /// soft-break view, the mention-sentence leg, the call form, hops said as witnessed, limits by
-/// depth, requiredness cited, traversal stops cited.
-pub const TEMPLATE_VERSION: i64 = 3;
+/// depth, requiredness cited, traversal stops cited. 4: the brief document leaves out the
+/// analysis's own boundaries (slice 1.9).
+pub const TEMPLATE_VERSION: i64 = 4;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -1192,11 +1193,23 @@ pub async fn run(
                     .join(", ")
             })
             .unwrap_or_default();
-        let limits = texts(AssertionKind::AnalysisBoundary).join(" ");
-        let document = format!(
-            "Outcome: {outcome}\nPublic APIs: {apis}\nBuilt-in controls: {controls}\n\
-             Conditions and limitations: {limits}"
-        );
+        // The capability's own limits, never the analysis's scope: an `analysis_boundary`
+        // (what the analysis did not follow) stays in the brief and out of the document
+        // (slice 1.5 review O7, measured in slice 1.9; deviation log D14).
+        let limits: Vec<String> = assertion_ids
+            .iter()
+            .filter_map(assertion)
+            .filter(|a| {
+                section_of(a.assertion_kind) == BriefSection::Limits
+                    && a.assertion_kind != AssertionKind::AnalysisBoundary
+            })
+            .filter_map(|a| a.text.clone())
+            .collect();
+        let mut document =
+            format!("Outcome: {outcome}\nPublic APIs: {apis}\nBuilt-in controls: {controls}");
+        if !limits.is_empty() {
+            document += &format!("\nConditions and limitations: {}", limits.join(" "));
+        }
         if document.len() > DOCUMENT_BYTE_CAP {
             return Err(CoreError::Analysis(format!(
                 "the brief for {access_path} is {} bytes, over the {DOCUMENT_BYTE_CAP}-byte cap \

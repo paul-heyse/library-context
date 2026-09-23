@@ -135,6 +135,16 @@ handoff) each have an end-to-end example. Each example must show:
 - a published brief;
 - successful retrieval by task wording. The target brief must rank first against the distractor
   briefs for the gold family's `task_aliases`.
+  - **Measured (slice 1.9, 2026-09-23; `scripts/ranking_check.py`; live Qwen3-Embedding-8B
+    vectors, pilot generation `9470c532be0a9e8d`): failed.** `fastmcp.FastMCP.tool` ranks first
+    for 1 of the 2 `fm.register` aliases against 3 distractors.
+    - "decorate callable imperative add tool registry original function": rank 1.
+    - "Register functions and expose component metadata": rank 2, behind `FastMCP.prompt`. The
+      vector leg ranks the seed first. The lexical leg ranks it by document length, on the one
+      shared word "register".
+    - Lexical-only gives the same count. The four increment-1 briefs are thin: every Outcome
+      is "Decorator to register a …". Parameter docs, usage patterns and applicable cases arrive
+      in increment 2.
 
 In addition:
 - the §12 evaluation must have run;
@@ -2180,6 +2190,10 @@ template, dimensions, output dtype and normalization.
 - **Document text** is the deterministic brief projection (IP L2666–L2689): outcome, applicable
   case, public APIs, controls, usage description and limits, capped at 2,048 tokens. An over-long
   brief is split by applicable case, never truncated.
+  - The limits are the capability's own: Limits-section kinds other than `analysis_boundary`.
+  - What the analysis did not follow (dependency and synthetic boundaries, unresolved sites, the
+    depth bound) stays in the served brief, out of retrieval. Slice 1.9 measured this with live
+    vectors (deviation log D14).
 - **Rejected responses:** wrong count, wrong index mapping, wrong length, non-finite values,
   norm ≠ 1 ± ε, model mismatch.
 
