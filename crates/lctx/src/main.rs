@@ -144,9 +144,11 @@ fn git(args: &[&str], dir: &Path) -> Result<String, String> {
             command.env_remove(key);
         }
     }
+    // Nor attributes: an ambient `eol` rule would rewrite the checked-out bytes (C5 review F4).
     command
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_ATTR_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0");
     let output = command
         .output()
@@ -196,6 +198,10 @@ fn fetch_source(
             &[
                 "-c",
                 "advice.detachedHead=false",
+                "-c",
+                "core.attributesFile=/dev/null",
+                "-c",
+                "core.autocrlf=false",
                 "checkout",
                 "-q",
                 "FETCH_HEAD",

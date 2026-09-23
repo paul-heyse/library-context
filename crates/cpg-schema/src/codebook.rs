@@ -421,6 +421,9 @@ codebook!(
         ContainsBlock = 32 => "contains_block",
         Mentions = 33 => "mentions",
         BlockModule = 34 => "block_module",
+        /// Retired by the C5 compact review before any snapshot relied on it: the corpus names
+        /// the release's installed files by their `@path`, so a usage call's target is the
+        /// release's own node and no link is needed.
         UsageLink = 35 => "usage_link",
     }
 );

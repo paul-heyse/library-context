@@ -1086,36 +1086,6 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                 explained: None,
             }),
         },
-        EdgeSource {
-            kind: EdgeKind::UsageLink,
-            src: &[N::ExternalSymbol],
-            dst: &[N::Function, N::Class, N::SyntheticCallable],
-            direction: "the definition a usage run reaches through the installed library is the \
-                        release's own",
-            parallel: false,
-            derivation: DerivationClass::Joined,
-            evidence_table: "context_definitions",
-            sql: format!(
-                "SELECT {} FROM usage_targets u WHERE u.target_node_id IS NOT NULL",
-                row(
-                    "u.symbol_node_id",
-                    "u.target_node_id",
-                    None,
-                    "u.definition_fact_id",
-                    None,
-                    None
-                )
-            ),
-            one_per_evidence: true,
-            lineage: Some(Lineage {
-                expected: "SELECT definition_fact_id AS fact_id FROM usage_targets".to_owned(),
-                explained: Some(
-                    "SELECT definition_fact_id AS fact_id FROM usage_targets \
-                     WHERE reason IS NOT NULL"
-                        .to_owned(),
-                ),
-            }),
-        },
     ]
 }
 
@@ -1624,12 +1594,6 @@ pub fn node_columns() -> Vec<NodeColumn> {
             "target_node_id",
             &[N::Export, N::Class, N::Function],
         ),
-        nc("usage_targets", "symbol_node_id", &[N::ExternalSymbol]),
-        nc(
-            "usage_targets",
-            "target_node_id",
-            &[N::Function, N::Class, N::SyntheticCallable],
-        ),
     ]
 }
 
@@ -1879,7 +1843,6 @@ pub fn rules() -> Vec<Rule> {
         ("type_class_targets", "class_node_id IS NULL"),
         ("type_binders", "binder_node_id IS NULL"),
         ("mention_targets", "target_node_id IS NULL"),
-        ("usage_targets", "target_node_id IS NULL"),
     ] {
         out.push(rule(
             format!("typed:{table}"),

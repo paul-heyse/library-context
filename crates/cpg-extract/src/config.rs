@@ -26,7 +26,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 14;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 15;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -52,7 +52,7 @@ pub enum ReleaseOrigin {
     /// A library acquired from its committed uv project (Stage A, ADR-0013).
     Library(crate::library::AcquiredLibrary),
     /// A library's upstream tree at its pinned commit (C5): its documents, examples and tests,
-    /// analyzed in the library's environment (so the context is the library's).
+    /// analyzed in the library's environment (its context adds the tree to the search path).
     Corpus {
         /// `<repository>@<commit>`.
         label: String,
@@ -107,6 +107,7 @@ impl Release {
         documents: &[PathBuf],
         usage: Vec<PathBuf>,
         library: Option<crate::library::AcquiredLibrary>,
+        library_release: Id,
     ) -> std::io::Result<Release> {
         let mut selected: Vec<(String, Digest)> = Vec::new();
         for f in documents.iter().chain(&usage) {
@@ -120,7 +121,12 @@ impl Release {
         }
         selected.sort();
         let mut h = IdHasher::new(kind::RELEASE);
-        h.str("corpus").str(label).i64(selected.len() as i64);
+        // The library release is an input: its public names are the documents' vocabulary, and
+        // its files are what the usage code reaches (C5 review F1).
+        h.str("corpus")
+            .str(label)
+            .id(library_release)
+            .i64(selected.len() as i64);
         for (path, digest) in &selected {
             h.str(path).digest_field(*digest);
         }
@@ -334,9 +340,17 @@ pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Result<Context,
     // Key order must not depend on the build: DataFusion turns on serde_json's
     // `preserve_order` wherever it shares the dependency graph.
     json.sort_all_objects();
+    // Each entry relative to its root: the release, or the environment (a corpus also searches
+    // site-packages, C5 review F1).
     let search_path: Vec<String> = cfg
         .search_path()
-        .map(|p| relative(p, &input.release.root, "release"))
+        .map(|p| {
+            if p.starts_with(&input.release.root) {
+                relative(p, &input.release.root, "release")
+            } else {
+                relative(p, &input.venv_root, "venv")
+            }
+        })
         .collect();
     let site_package_path: Vec<String> = cfg
         .site_package_path()

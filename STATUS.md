@@ -70,11 +70,13 @@ _Updated 2026-09-22 by the handoff skill._
   - C4 compact review (`design_review_cpg-c4-types_2026-09-23.md`): F1–F7 fixed with the
     simpler alternative (term ids from Pyrefly alone, binders derived). The pilot store was
     rebuilt (the old one is `build/store.pre-c4fix`).
-  - C5b: the usage run (1,512 examples, tests and code blocks), `usage_targets` (P4: all 1,464
-    link), release-scoped joins, one node per shared fact. Pilot 907,845 nodes, 1,452,970
-    edges, 46.3 s at 6.7–7.7 GB peak (in validation).
-- **C5 compact review:** due (C5a `3e223f9` and C5b).
-- **C6:** the whole-CPG measurement decides the streaming trigger: validation now peaks at
-  6.7–7.7 GB. Then the deep review.
+  - C5b: the usage run (1,512 examples, tests and code blocks), release-scoped joins, one node
+    per shared fact.
+  - C6 measurement (`e313148`): validation costed per rule; streaming derive stays deferred.
+  - C5 compact review (`design_review_cpg-c5-corpus_2026-09-23.md`): F1–F8 fixed with the
+    simpler alternative (the corpus names the release's installed files by `@path`, so usage
+    reaches the release directly; `usage_targets`/`usage_link` retired). Pilot 905,648 nodes,
+    1,449,162 edges, 494 rules, 44.6 s at 7.4 GB peak (snapshot `ab6d98a3…`).
+- **C6:** the deep review (DESIGN, charter, guidelines), its fixes, the DESIGN labels, handoff.
 
 Then increment 1, slice 4: the analytics config, the invocation projection and Pass A.

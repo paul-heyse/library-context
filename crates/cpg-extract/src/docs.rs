@@ -216,7 +216,11 @@ fn recognize(
     if text.contains('.') {
         let segs: Vec<&str> = text.split('.').collect();
         let tail = segs[segs.len() - 2..].join(".");
-        if let Some(members) = v.members.get(&tail) {
+        // `C.m`, or `p.C.m` where `p.C` is this library's class: another library's `C.m` (a
+        // migration guide's `httpx.Client.get`) is no mention of ours (C5 review F6).
+        let prefix = &segs[..segs.len() - 1];
+        let ours = prefix.len() == 1 || v.paths.contains_key(&prefix.join("."));
+        if ours && let Some(members) = v.members.get(&tail) {
             for q in members {
                 exact(out, None, Some(q.clone()));
             }
@@ -359,7 +363,9 @@ pub(crate) fn block_module_path(document: &str, ordinal: i64) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
-    format!("_lctx_blocks/d_{name}/block_{ordinal}.py")
+    // The digest keeps the name injective: `a-b.mdx` and `a_b.mdx` read alike (C5 review F7).
+    let digest = content_digest(document.as_bytes()).hex();
+    format!("_lctx_blocks/d_{name}_{}/block_{ordinal}.py", &digest[..8])
 }
 
 /// A document's Python code blocks, with the ordinals `document` gives them: what the usage run

@@ -431,24 +431,18 @@ async fn types_keep_structure_binders_and_record_fields() {
     assert_eq!(enums, "2\n");
 }
 
-/// C5 (DESIGN §3.2 `docs`): a corpus run beside the library run. The documents the selection
-/// keeps, their passages, code blocks and links, the mentions of the library's API by class, and
-/// each document's coverage.
-#[tokio::test]
-async fn a_corpus_documents_its_library() {
-    let dir = tempfile::tempdir().unwrap();
+/// The `docs_shapes` library installed as an acquired one is (its files in site-packages, owned by
+/// its distribution's `RECORD`), with its corpus from `corpus/` under `dir`, and each of `extra`
+/// (source, destination under the tree) copied into the tree too.
+fn corpus_input(dir: &Path, s: Id, extra: &[(&str, &str)]) -> ExtractInput {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let fixture = repo.join("fixtures/python/docs_shapes");
-    // The library installed as an acquired one is: its files in site-packages, owned by its
-    // distribution's `RECORD`, so the usage run reaches it as a dependency (C5b).
-    copy(
-        &fixture.join("release"),
-        &dir.path().join("venv/site-packages"),
-    );
-    copy(&fixture.join("corpus"), &dir.path().join("corpus"));
-    let site = std::fs::canonicalize(dir.path().join("venv/site-packages")).unwrap();
-    let s = Id([7; 16]);
-    let files = vec![site.join("pkg/__init__.py"), site.join("pkg/core.py")];
+    copy(&fixture.join("release"), &dir.join("venv/site-packages"));
+    copy(&fixture.join("corpus"), &dir.join("corpus"));
+    for (from, to) in extra {
+        copy(&fixture.join(from), &dir.join("corpus").join(to));
+    }
+    let site = std::fs::canonicalize(dir.join("venv/site-packages")).unwrap();
     let library = cpg_extract::library::AcquiredLibrary {
         name: "pkg".to_owned(),
         requirement: "pkg==1.0".to_owned(),
@@ -469,12 +463,12 @@ async fn a_corpus_documents_its_library() {
     let mut input = ExtractInput {
         release: cpg_extract::Release {
             root: site.clone(),
-            files,
+            files: vec![site.join("pkg/__init__.py"), site.join("pkg/core.py")],
             release_id: Id([8; 16]),
             origin: cpg_extract::ReleaseOrigin::Library(library),
         },
-        venv_root: std::fs::canonicalize(dir.path().join("venv")).unwrap(),
-        site_packages: vec![std::fs::canonicalize(dir.path().join("venv/site-packages")).unwrap()],
+        venv_root: std::fs::canonicalize(dir.join("venv")).unwrap(),
+        site_packages: vec![site],
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
         snapshot_id: s,
@@ -482,16 +476,30 @@ async fn a_corpus_documents_its_library() {
         keep_pysa_json: false,
         test_hooks: Default::default(),
     };
-    let source = cpg_extract::library::Source {
+    let tree = std::fs::canonicalize(dir.join("corpus")).unwrap();
+    input.corpus = Some(cpg_extract::library::corpus(&tree, &source(), &input).unwrap());
+    input
+}
+
+fn source() -> cpg_extract::library::Source {
+    cpg_extract::library::Source {
         repository: "https://example.invalid/pkg".to_owned(),
         tag: "v1".to_owned(),
         commit: "0".repeat(40),
         documents: vec!["docs/**/*.mdx".to_owned()],
         documents_exclude: vec!["docs/old/**".to_owned()],
         usage: vec!["tests/**/*.py".to_owned()],
-    };
-    let tree = std::fs::canonicalize(dir.path().join("corpus")).unwrap();
-    input.corpus = Some(cpg_extract::library::corpus(&tree, &source, &input).unwrap());
+    }
+}
+
+/// C5 (DESIGN §3.2 `docs`): a corpus run beside the library run. The documents the selection
+/// keeps, their passages, code blocks and links, the mentions of the library's API by class, and
+/// each document's coverage.
+#[tokio::test]
+async fn a_corpus_documents_its_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Id([7; 16]);
+    let input = corpus_input(dir.path(), s, &[]);
     let out = extract(&input).unwrap();
     let store = dir.path().join("store");
     compile(&store, s, &out.tables).await.unwrap();
@@ -568,14 +576,18 @@ async fn a_corpus_documents_its_library() {
         ),
     )
     .await;
-    text += "## usage targets: dependency definition | release declaration | reason\n";
+    text += "## usage calls reaching the release: call site | release callable\n";
     text += &lines(
         &ctx,
-        "SELECT m.module_name || ':' || x.qualified_name, d.qualified_name, \
-                CAST(u.reason AS VARCHAR) \
-         FROM usage_targets u JOIN context_definitions x ON x.symbol_node_id = u.symbol_node_id \
-         JOIN context_modules m ON m.module_node_id = x.module_node_id \
-         LEFT JOIN declarations d ON d.node_id = u.target_node_id ORDER BY 1",
+        &format!(
+            "SELECT f.path || ':' || CAST(c.start_byte AS VARCHAR) AS site, d.qualified_name \
+             FROM edges e JOIN call_syntax c ON c.node_id = e.src_node_id \
+             JOIN source_files f ON f.module_node_id = c.module_node_id \
+             JOIN declarations d ON d.node_id = e.dst_node_id \
+             JOIN releases r ON r.release_id = f.release_id \
+             WHERE e.edge_kind = {} AND r.label IS NOT NULL ORDER BY 1, 2",
+            EdgeKind::CallTarget.code()
+        ),
     )
     .await;
     text += "## coverage: path | status | reason\n";
@@ -586,4 +598,179 @@ async fn a_corpus_documents_its_library() {
     )
     .await;
     insta::assert_snapshot!(text);
+    // The library's own class is one term whichever run observes it (C5 review F2).
+    let server = lines(
+        &ctx,
+        "SELECT count(DISTINCT node_id) FROM type_terms WHERE display = 'Server' AND kind = 0",
+    )
+    .await;
+    assert_eq!(server, "1\n");
+}
+
+/// The corpus's identity is a function of its inputs, not of where they sit (C5 review F1): the
+/// same corpus compiled in two places is one context and one run, and it names the library release.
+#[test]
+fn a_corpus_run_does_not_depend_on_its_location() {
+    let run = |dir: &Path| {
+        let out = extract(&corpus_input(dir, Id([7; 16]), &[])).unwrap();
+        let runs = out
+            .tables
+            .iter()
+            .find(|(n, _)| *n == "runs")
+            .map(|(_, b)| b.clone())
+            .unwrap();
+        ids(&runs, runs.schema().index_of("run_id").unwrap())
+            .into_iter()
+            .chain(ids(&runs, runs.schema().index_of("context_id").unwrap()))
+            .collect::<Vec<_>>()
+    };
+    let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    assert_eq!(run(a.path()), run(b.path()));
+    // Another library release is another corpus: its vocabulary and the files it reaches differ.
+    let input = corpus_input(a.path(), Id([7; 16]), &[]);
+    let mut other = input.clone();
+    other.release.release_id = Id([9; 16]);
+    let tree = std::fs::canonicalize(a.path().join("corpus")).unwrap();
+    other.corpus = Some(cpg_extract::library::corpus(&tree, &source(), &other).unwrap());
+    let corpus_id = |i: &ExtractInput| i.corpus.as_ref().unwrap().release.release_id;
+    assert_ne!(corpus_id(&input), corpus_id(&other));
+}
+
+/// A tree holding its own copy of the package (a flat layout) would cut the usage code off the
+/// release: the compile fails and names it (C5 review F3).
+#[test]
+fn a_tree_that_shadows_the_release_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = corpus_input(dir.path(), Id([7; 16]), &[("release/pkg", "pkg")]);
+    let err = extract(&input).unwrap_err().to_string();
+    assert!(err.contains("shadows the release"), "{err}");
+}
+
+/// A glob that selects nothing is refused at Stage A, not published as an empty corpus (C5
+/// review F5).
+#[test]
+fn a_glob_that_selects_nothing_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = corpus_input(dir.path(), Id([7; 16]), &[]);
+    let tree = std::fs::canonicalize(dir.path().join("corpus")).unwrap();
+    let mut moved = source();
+    moved.documents = vec!["documentation/**/*.mdx".to_owned()];
+    let err = cpg_extract::library::corpus(&tree, &moved, &input)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("selects nothing"), "{err}");
+}
+
+/// Each C5 rule rejects an injected violation on the `docs_shapes` corpus, and nothing is
+/// published (C5 review F7).
+#[tokio::test]
+async fn the_corpus_rules_reject_their_violations() {
+    type Raw = Vec<(&'static str, RecordBatch)>;
+    fn batch<'a>(raw: &'a mut Raw, name: &str) -> &'a mut RecordBatch {
+        &mut raw.iter_mut().find(|(n, _)| *n == name).unwrap().1
+    }
+    fn set(b: &mut RecordBatch, column: &str, array: std::sync::Arc<dyn Array>) {
+        let i = b.schema().index_of(column).unwrap();
+        let mut columns = b.columns().to_vec();
+        columns[i] = array;
+        *b = RecordBatch::try_new(b.schema(), columns).unwrap();
+    }
+    fn shift(b: &mut RecordBatch, column: &str) {
+        let moved: Int64Array = b
+            .column(b.schema().index_of(column).unwrap())
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .iter()
+            .map(|v| v.map(|v| v + 100))
+            .collect();
+        set(b, column, std::sync::Arc::new(moved));
+    }
+    fn texts(b: &RecordBatch, column: &str, f: impl Fn(&str) -> String) -> StringArray {
+        let a = arrow_cast::cast(
+            b.column(b.schema().index_of(column).unwrap()),
+            &arrow_schema::DataType::Utf8,
+        )
+        .unwrap();
+        a.as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .iter()
+            .map(|v| v.map(&f))
+            .collect()
+    }
+    fn keep(b: &mut RecordBatch, column: &str, keep: impl Fn(&str) -> bool) {
+        let values = texts(b, column, str::to_owned);
+        let mask: arrow_array::BooleanArray =
+            values.iter().map(|v| Some(v.is_none_or(&keep))).collect();
+        *b = arrow_select::filter::filter_record_batch(b, &mask).unwrap();
+    }
+    type Mutation = fn(&mut Raw);
+    let cases: [(&str, Mutation); 9] = [
+        ("id:documents", |raw| {
+            let b = batch(raw, "documents");
+            let paths = texts(b, "path", |p| format!("{p}.moved"));
+            set(b, "path", std::sync::Arc::new(paths));
+        }),
+        ("id:passages", |raw| {
+            shift(batch(raw, "passages"), "ordinal")
+        }),
+        ("id:code_blocks", |raw| {
+            shift(batch(raw, "code_blocks"), "ordinal")
+        }),
+        ("typed:mention_targets", |raw| {
+            let b = batch(raw, "mentions");
+            let paths = texts(b, "access_path", |_| "nowhere.at.all".to_owned());
+            set(b, "access_path", std::sync::Arc::new(paths));
+        }),
+        // One id, two displays: a collision is rejected, never merged.
+        ("unique:type_terms", |raw| {
+            let b = batch(raw, "type_terms");
+            let twin = b.slice(0, 1);
+            let mut twin = twin;
+            let display = texts(&twin, "display", |d| format!("{d} (twin)"));
+            set(&mut twin, "display", std::sync::Arc::new(display));
+            *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &twin]).unwrap();
+        }),
+        // Two releases of one attempt claiming one path.
+        ("unique:release-paths", |raw| {
+            let b = batch(raw, "source_files");
+            let paths = texts(b, "path", |p| {
+                if p.starts_with("tests/") {
+                    "pkg/core.py".to_owned()
+                } else {
+                    p.to_owned()
+                }
+            });
+            set(b, "path", std::sync::Arc::new(paths));
+        }),
+        ("coverage:complete", |raw| {
+            keep(batch(raw, "coverage"), "fact_family", |f| f != "10");
+        }),
+        ("coverage:family-has-scope", |raw| {
+            keep(batch(raw, "documents"), "path", |_| false);
+            keep(batch(raw, "coverage"), "fact_family", |f| f != "10");
+        }),
+        ("lineage:block_module", |raw| {
+            let b = batch(raw, "code_blocks");
+            let paths = texts(b, "module_path", |_| "_lctx_blocks/nowhere.py".to_owned());
+            set(b, "module_path", std::sync::Arc::new(paths));
+        }),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let s = Id([7; 16]);
+    let base = extract(&corpus_input(dir.path(), s, &[])).unwrap().tables;
+    for (rule, mutate) in cases {
+        let root = tempfile::tempdir().unwrap();
+        let mut raw = base.clone();
+        mutate(&mut raw);
+        match compile(root.path(), s, &raw).await {
+            Err(cpg_core::CoreError::Invalid(violations)) => assert!(
+                violations.iter().any(|v| v.rule.starts_with(rule)),
+                "{rule}: {:?}",
+                violations.iter().map(|v| &v.rule).collect::<Vec<_>>()
+            ),
+            other => panic!("{rule}: expected a validation failure, got {other:?}"),
+        }
+    }
 }

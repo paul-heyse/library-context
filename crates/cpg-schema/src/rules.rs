@@ -288,6 +288,31 @@ pub fn rules() -> Vec<Rule> {
               AND v.fact_family = e.code"
         ),
     });
+    // A run that declares a family has something the family covers: a document for `docs`, a
+    // module for a code family (C5 review F5), so coverage cannot be complete over nothing.
+    let code = [
+        FactFamily::Exports,
+        FactFamily::Signatures,
+        FactFamily::Calls,
+        FactFamily::Syntax,
+        FactFamily::Lexical,
+        FactFamily::Types,
+    ];
+    out.push(Rule {
+        name: "coverage:family-has-scope".to_owned(),
+        sql: format!(
+            "WITH declared AS (SELECT run_id, release_id, unnest(families) AS family FROM runs), \
+             docs_runs AS (SELECT DISTINCT run_id, release_id FROM declared WHERE family = 'docs'), \
+             code_runs AS (SELECT DISTINCT run_id, release_id FROM declared \
+                           WHERE family IN ({})) \
+             SELECT r.run_id, 'docs' AS family FROM docs_runs r \
+             LEFT ANTI JOIN documents x ON x.release_id = r.release_id \
+             UNION ALL \
+             SELECT r.run_id, 'code' AS family FROM code_runs r \
+             LEFT ANTI JOIN source_files s ON s.release_id = r.release_id",
+            quoted(code.iter().map(|f| f.text()))
+        ),
+    });
     out.extend(semantic());
     out.extend(crate::graph::rules());
     out

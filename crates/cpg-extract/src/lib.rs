@@ -377,13 +377,50 @@ fn run_release(
         modules.reverse();
     }
     let handles: Vec<Handle> = modules.iter().map(|m| m.handle.clone()).collect();
+    // A corpus reaches the library through its installed files: those the release's
+    // distributions' `RECORD`s own. They are the library run's own modules, so the corpus names
+    // them as the library run does, by their site-relative `@path` (C5 review F2): one release
+    // class is one type term, and a usage call's target is the release's own node.
+    let library_files: Vec<(Handle, String)> = match &input.release.origin {
+        ReleaseOrigin::Corpus {
+            library: Some(l), ..
+        } => {
+            let release: std::collections::BTreeSet<String> = l
+                .release
+                .iter()
+                .map(|r| library::normalize(r.split("==").next().unwrap_or(r)))
+                .collect();
+            l.owners
+                .iter()
+                .filter(|(p, d)| {
+                    release.contains(d.as_str()) && (p.ends_with(".py") || p.ends_with(".pyi"))
+                })
+                .filter_map(|(p, _)| {
+                    let file = input
+                        .site_packages
+                        .iter()
+                        .map(|s| s.join(p))
+                        .find(|f| f.is_file())?;
+                    Some((
+                        cfg.handle_from_module_path(ModulePath::filesystem(file)),
+                        p.clone(),
+                    ))
+                })
+                .collect()
+        }
+        ReleaseOrigin::Corpus { library: None, .. }
+        | ReleaseOrigin::Tree { .. }
+        | ReleaseOrigin::Library(_) => Vec::new(),
+    };
+    let mut id_handles = handles.clone();
+    id_handles.extend(library_files.iter().map(|(h, _)| h.clone()));
 
     // One check at `Everything`, single-threaded, with the no-write Pysa reporter installed.
     let finder = ConfigFinder::new_constant(ArcId::new(cfg));
     let state = State::new(finder, ThreadCount::Inline);
     let mut txn = state.new_transaction(Require::Exports, None);
     txn.set_pysa_reporter(Some(Box::new(PysaReporter {
-        module_ids: ModuleIds::new(&handles),
+        module_ids: ModuleIds::new(&id_handles),
         pysa_directory: PathBuf::new(),
         definitions_directory: PathBuf::new(),
         type_of_expressions_directory: PathBuf::new(),
@@ -393,6 +430,25 @@ fn run_release(
     })));
     txn.run(&handles, Require::Everything, None);
     stages.mark("extract: pyrefly check (release)");
+    // The corpus must reach those files and not a copy of the package in the tree, which its
+    // search path puts first (a flat layout): that would silently cut every usage off the release
+    // (C5 review F3), so it fails the compile.
+    if let Some(anchor) = handles.first() {
+        let installed: std::collections::HashSet<&Handle> =
+            library_files.iter().map(|(h, _)| h).collect();
+        for (h, _) in &library_files {
+            if let Some(found) = txn.import_handle(anchor, h.module(), None).finding()
+                && !installed.contains(&found)
+            {
+                return Err(ExtractError::Context(format!(
+                    "the corpus tree shadows the release: `{}` resolves to {}, not the installed {}",
+                    h.module(),
+                    found.path(),
+                    h.path()
+                )));
+            }
+        }
+    }
     // The names from outside a module's text, as Pyrefly defines them (C3; review F1): a
     // module's implicit globals, and the builtins, which are the real, public definitions of
     // `builtins` (not the stub's implicit globals, private helpers or imports), with their kinds.
@@ -443,6 +499,11 @@ fn run_release(
         modules
             .iter()
             .map(|m| (module_ids.get_from_handle(&m.handle), m.path.clone()))
+            .chain(
+                library_files
+                    .iter()
+                    .map(|(h, p)| (module_ids.get_from_handle(h), p.clone())),
+            )
             .collect(),
     );
 
@@ -736,11 +797,16 @@ fn run_release(
     // Every module an import names that is not the release's (C3's `imports_module`).
     let release_modules: std::collections::BTreeSet<&str> =
         modules.iter().map(|m| m.name.as_str()).collect();
+    // The library's modules a corpus imports are the library run's release modules, not context.
+    let library_modules: std::collections::BTreeSet<String> = library_files
+        .iter()
+        .map(|(h, _)| h.module().to_string())
+        .collect();
     let imported: std::collections::BTreeSet<String> = walked
         .export_syntax
         .iter()
         .filter_map(|r| r.resolved_module.clone())
-        .filter(|m| !release_modules.contains(m.as_str()))
+        .filter(|m| !release_modules.contains(m.as_str()) && !library_modules.contains(m))
         .collect();
     // The builtin functions and classes names resolve to are described like re-exports (C3).
     if let Some(h) = &builtins_handle {

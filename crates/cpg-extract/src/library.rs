@@ -465,23 +465,40 @@ pub fn source(library_dir: &Path) -> Result<Option<Source>, ExtractError> {
             .map(str::to_owned)
             .ok_or_else(|| fail(format!("[tool.lctx.source] needs `{key}`")))
     };
-    let list = |key: &str| -> Vec<String> {
-        t.get(key)
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect()
+    // A misspelled key or a string where a list belongs would select nothing silently (C5
+    // review F5), so both are refused.
+    const KEYS: &[&str] = &[
+        "repository",
+        "tag",
+        "commit",
+        "documents",
+        "documents_exclude",
+        "usage",
+    ];
+    if let Some(unknown) = t.keys().find(|k| !KEYS.contains(&k.as_str())) {
+        return Err(fail(format!(
+            "[tool.lctx.source] has an unknown key `{unknown}`"
+        )));
+    }
+    let list = |key: &str| -> Result<Vec<String>, ExtractError> {
+        let Some(v) = t.get(key) else {
+            return Ok(Vec::new());
+        };
+        v.as_array()
+            .and_then(|a| a.iter().map(|x| x.as_str().map(str::to_owned)).collect())
+            .ok_or_else(|| {
+                fail(format!(
+                    "[tool.lctx.source] `{key}` must be a list of globs"
+                ))
             })
-            .unwrap_or_default()
     };
     Ok(Some(Source {
         repository: text("repository")?,
         tag: text("tag")?,
         commit: text("commit")?,
-        documents: list("documents"),
-        documents_exclude: list("documents_exclude"),
-        usage: list("usage"),
+        documents: list("documents")?,
+        documents_exclude: list("documents_exclude")?,
+        usage: list("usage")?,
     }))
 }
 
@@ -563,6 +580,16 @@ pub fn corpus(
     source: &Source,
     library: &ExtractInput,
 ) -> Result<crate::config::CorpusInput, ExtractError> {
+    // Every include glob selects something: an upstream move of `docs/` must fail, not publish a
+    // corpus with no documents (C5 review F5).
+    for glob in source.documents.iter().chain(&source.usage) {
+        if select(tree, std::slice::from_ref(glob), &[])?.is_empty() {
+            return Err(fail(format!(
+                "[tool.lctx.source] glob `{glob}` selects nothing in {}",
+                tree.display()
+            )));
+        }
+    }
     let documents = select(tree, &source.documents, &source.documents_exclude)?;
     let mut usage = select(tree, &source.usage, &[])?;
     let blocks = tree.join("_lctx_blocks");
@@ -589,7 +616,14 @@ pub fn corpus(
         ReleaseOrigin::Library(l) => Some(l.clone()),
         ReleaseOrigin::Tree { .. } | ReleaseOrigin::Corpus { .. } => None,
     };
-    let release = Release::corpus(tree.to_path_buf(), &label, &documents, usage, environment)?;
+    let release = Release::corpus(
+        tree.to_path_buf(),
+        &label,
+        &documents,
+        usage,
+        environment,
+        library.release.release_id,
+    )?;
     Ok(crate::config::CorpusInput { release, documents })
 }
 

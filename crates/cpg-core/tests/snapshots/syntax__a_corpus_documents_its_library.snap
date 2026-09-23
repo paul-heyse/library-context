@@ -7,9 +7,9 @@ docs/broken.mdx | - | false
 docs/quickstart.mdx | Quickstart | true
 ## passages: ordinal | level | heading | path | span
 0 | 0 | - |  | 27-95
-1 | 2 | Install |  | 95-275
-2 | 3 | Details | Install | 275-489
-3 | 1 | Next |  | 489-511
+1 | 2 | Install |  | 95-358
+2 | 3 | Details | Install | 358-572
+3 | 1 | Next |  | 572-594
 ## code blocks: passage | language | code
 Install | python | from pkg import Server /  / server = Server()
 ## links: passage | url | text
@@ -19,17 +19,17 @@ Details | /reference/pkg-core#server | the reference
 (preamble) | lexical | code | `Server` | pkg.Server | 1 | pkg.Server
 Install | lexical | code | `make_server()` | pkg.make_server | 1 | pkg.make_server
 Install | exact | code | `Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Server.tool
+Install | exact | code | `pkg.Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Server.tool
 Details | exact | code | `pkg.core.Server` | pkg.core.Server | 0 | pkg.core.Server
 Details | lexical | prose | make_server | pkg.make_server | 1 | pkg.make_server
 ## corpus modules: path | coverage (family: status)
-_lctx_blocks/d_docs_quickstart_mdx/block_0.py | 2:0 3:0 7:0 8:0 9:0
+_lctx_blocks/d_docs_quickstart_mdx_45e57600/block_0.py | 2:0 3:0 7:0 8:0 9:0
 tests/test_pkg.py | 2:0 3:0 7:0 8:0 9:0
 ## code block → module
-_lctx_blocks/d_docs_quickstart_mdx/block_0.py | _lctx_blocks.d_docs_quickstart_mdx.block_0
-## usage targets: dependency definition | release declaration | reason
-pkg.core:Server | pkg.core.Server | -
-pkg.core:Server.tool | pkg.core.Server.tool | -
-pkg.core:make_server | pkg.core.make_server | -
+_lctx_blocks/d_docs_quickstart_mdx_45e57600/block_0.py | _lctx_blocks.d_docs_quickstart_mdx_45e57600.block_0
+## usage calls reaching the release: call site | release callable
+tests/test_pkg.py:172 | pkg.core.make_server
+tests/test_pkg.py:193 | pkg.core.Server.tool
 ## coverage: path | status | reason
 docs/broken.mdx | 3 | 10
 docs/quickstart.mdx | 0 | -

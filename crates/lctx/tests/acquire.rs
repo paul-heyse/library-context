@@ -149,7 +149,8 @@ fn a_declared_source_is_fetched_hermetically_at_its_commit() {
         [
             "init -q",
             &format!("fetch -q --depth 1 https://example.invalid/demo {COMMIT}"),
-            "-c advice.detachedHead=false checkout -q FETCH_HEAD",
+            "-c advice.detachedHead=false -c core.attributesFile=/dev/null -c core.autocrlf=false \
+             checkout -q FETCH_HEAD",
             "rev-parse HEAD",
         ]
     );
@@ -164,6 +165,7 @@ fn a_declared_source_is_fetched_hermetically_at_its_commit() {
     for set in [
         "GIT_CONFIG_NOSYSTEM=1",
         "GIT_CONFIG_GLOBAL=/dev/null",
+        "GIT_ATTR_NOSYSTEM=1",
         "GIT_TERMINAL_PROMPT=0",
     ] {
         assert!(env.lines().any(|l| l == set), "{set} is not set");
