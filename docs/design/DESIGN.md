@@ -1789,9 +1789,12 @@ embeddings.
   (ADR-0019);
 - its effect must be measurable by ablation (§9.8).
 
-**Parameters.** Analysis parameters and the subsystem declaration (§1.4) live in one versioned,
-pre-registered analytics config. Its digest is the `lctx-compiler` run's config digest and part of
-`content_digest`. Defaults below are starting budgets, not measured optima.
+**Parameters.** The subsystem declaration (§1.4), the seeds and the pass budgets live in one
+versioned, pre-registered analytics config. Its digest is the `lctx-compiler` run's config digest
+and part of `content_digest`. The community and PageRank parameters, added after that config was
+frozen (D21), are pre-registered code (`communities::Params`, `ranking::Params`; D28, D29): each
+invocation records them, the compiler digest includes them, and the gold freeze pins their digest
+beside the config's (ADR-0011 review F4). Defaults below are starting budgets, not measured optima.
 
 ### §9.1 Pass A — public entry point and delegation
 
@@ -1983,7 +1986,8 @@ log D24, D25, D30):
 
 ### §9.4 Community detection
 
-- **Label.** Implemented and Tested (slice 2.3); ADR-0011 accepted at its spike.
+- **Label.** Implemented and Tested (slice 2.3, revised by the ADR-0011 standard review;
+  ADR-0011 accepted with it).
 - **Consumers:**
   - **seed selection**, which decides which entry points get briefs within the brief budget;
   - the brief's **Related** field (§10.3).
@@ -1993,80 +1997,68 @@ log D24, D25, D30):
 - **Library.** leiden-rs 0.8.1 (`default-features = false` and no features, so it runs
   sequentially; not its `petgraph` adapter, whose `from_petgraph` would read §5's `u32` arc-row
   weight as the edge weight), with the **RBER** quality function: CPM with γ relative to the
-  graph's density, so γ is scale-free on unit-normalized layers (ADR-0011 amendment). γ comes
-  from our own fixed-seed grid in the analytics config; leiden-rs's `resolution_scan` and
-  `resolution_profile` change seeds between points. It is built with `GraphDataBuilder` from §5's
-  dense index. `run_multiplex` is never used: it ignores `layer_weights` after the first level,
-  so our weighted sum of layers is the objective.
-- **Input normal form** (the library-leverage review, D2; Tested by probe). The undirected builder
-  does not normalize orientation, and shuffled input changed an LFR partition at μ=0.5. So
-  DataFusion aggregates each (min,max) pair as **integer counts** under a named weight policy and
-  sorts (a multi-partition f64 `SUM` is not bit-stable); normalization, hub down-weighting and
-  layer weighting happen in Rust in canonical order; and a fixture
-  asserts that shuffled and flipped edges give an identical partition. **Owed by the §9.4 slice**
-  (H1 review F9): each aggregated pair keeps its contributing arcs, so a community can cite them
-  (guidelines §4, §10).
-- **Determinism.**
-  - The seed is always set (`None` draws OS entropy) and recorded; `track_quality_history` stands
-    in for the missing converged flag.
-  - `rand` is pinned, because rand does not promise reproducible sequences across versions.
-  - Crate versions are recorded in the method parameters.
-- **Graph.**
-  - The vertex universe is public and private callables in the subsystem, with results projected
-    onto public APIs.
-  - Layers:
-    - increment 2 uses calls and co-use in examples and tests;
-    - increment 3 adds shared parameter types, doc co-mention and embedding kNN, but **only if the
-      ablation shows gain**.
-  - Each layer is normalized to unit total weight.
-  - Hubs (degree above the configured percentile) are down-weighted.
-- **Stability.** Consensus over N seeds (default 10): pairwise `leiden_rs::metrics::{try_nmi,
-  try_ari}` over the partitions, and per community a membership agreement score (our own
-  max-Jaccard matching against the reference seed).
-- **Outputs.** `statistically_derived` findings.
+  graph's density, so γ is scale-free on unit-normalized layers (ADR-0011). leiden-rs's
+  `resolution_scan` and `resolution_profile` are not used: they change seeds between points.
+  `run_multiplex` is never used: it ignores `layer_weights` after the first level, so our weighted
+  sum of layers is the objective. The graph is built with `GraphDataBuilder` from the kernel's own
+  dense index.
+- **Input normal form** (the library-leverage review, D2; Tested). The undirected builder does not
+  normalize orientation, and shuffled input changed an LFR partition at μ=0.5. So each layer is
+  **integer counts** per `(min, max)` pair (counted in Rust over the declared relations' rows,
+  which is as bit-stable as an integer aggregate), in a `BTreeMap`; normalization, hub
+  down-weighting and layer weighting follow in canonical order. Each pair keeps its least
+  contributing site as lineage (H1 F9), and a community cites the sites behind its strongest pairs.
+- **Determinism.** The seed is always set and recorded; `track_quality_history` stands in for the
+  missing converged flag; rand is pinned on its 0.9 line; crate versions are in each invocation's
+  `library_versions`.
 
-**Implemented** and **Tested** in slice 2.3 (2026-09-23; deviation log D28):
-- **Relations** (`cpg_schema::communities`, digested into the compiler digest). The co-use
-  occurrences (each usage-code call to a function with its enclosing scope, over the flows' call
-  targets) and the public callables (functions exported under a public root by a path with no
-  private segment, and each public method, `__init__` or `__call__` an exported class declares or
-  inherits along its MRO, the nearest definition winning). The invocation layer reads the
-  invocation projection's arcs between two subsystem functions.
-- **Kernel** (`lctx_analytics::communities`).
-  - Each layer is `u64` counts per `(min, max)` pair in a `BTreeMap`; a pair keeps its least
-    contributing site (a call site, or a usage scope) as lineage (H1 F9).
-  - Hubs: an end whose strength exceeds the layer's 95th-percentile strength scales the count by
-    threshold / strength. Each layer is normalized to unit total; the layers are summed with
-    weight 0.5 each, in canonical pair order.
-  - The vertices are the subsystem functions some pair touches (an isolated one is in no
-    community).
-  - leiden-rs 0.8.1 `Leiden::run` with `QualityType::RBER`, γ ∈ {0.5, 1, 2, 4} and seeds 0–9
-    (40 runs), `track_quality_history`; `converged` is "stopped before the iteration budget".
-    Labels are made canonical by first appearance along the dense index.
-  - A γ is degenerate when its seed-0 partition puts more than half the vertices in one
-    community or has no community of three; among the rest the highest mean pairwise ARI wins,
-    ties going to the γ nearest 1. A community of the chosen seed-0 partition is reported with at
-    least two public members and a mean best-Jaccard agreement of at least 0.5.
-  - The parameters are pre-registered code (`Params::preregistered`, D28), not the frozen
-    config, and recorded in every invocation.
-- **Records.** One `leiden` invocation per run (its γ and seed, iterations, convergence, quality
-  history) and one `community_consensus` invocation. The consensus's new `diagnostics` column (a
-  declared migration) holds, per γ, mean ARI and NMI, min NMI, community count, largest community
-  and degeneracy, plus the choice and what was reported. Each `community` finding lists its
-  public APIs (`community_member`, with access path and strength), cites the sites behind its
-  three strongest pairs (`supporting_site`), and has its agreement as score.
-- **Tests.** `communities::tests`: LFR planted partitions (n = 250, μ = 0.1 and 0.3) recovered
-  with NMI ≥ 0.9; shuffled and flipped edges give the identical consensus; hub down-weighting; a
-  trivially small graph is degenerate. `communities_are_stable_and_projected_onto_public_apis`
-  on `analysis_shapes`; the co-use layer on `docs_shapes`; the module-order and location test
-  covers the new rows.
-- **Pilot (Measured, 2026-09-23, snapshot `115a9bec`).** 516 vertices and 1,298 combined pairs
-  (712 invocation, 598 co-use). All 40 runs converged, the longest in 5 iterations. Mean pairwise
-  ARI per γ is 0.700 (0.5), 0.749 (1), 0.793 (2) and 0.739 (4), with min NMI ≥ 0.796 throughout;
-  none is degenerate, and γ = 2 is chosen: 59 communities, the largest of 78. 32 are reported
-  (2–64 public members; agreement 0.616–1.0, mean 0.886); 7 fall below the agreement threshold
-  and 20 have fewer than two public members. All five seeds share one community, the `FastMCP`
-  server surface (agreement 0.777). Stage E's analysis time is unchanged within noise (2.2 s).
+**Implemented** and **Tested** (slice 2.3 and the ADR-0011 review, 2026-09-23; deviation log D28):
+- **Relations** (`cpg_schema::communities`, digested with the invocation projection's digest into
+  every community invocation's `projection_digest`). The co-use occurrences (each usage-code call
+  to a function with its enclosing scope, over the flows' call targets) and the public callables
+  (functions exported under a public root by a path with no private segment, and each public
+  method, `__init__` or `__call__` an exported class declares or inherits along its MRO, the
+  nearest definition winning; no `@overload` stub).
+- **Layers**, each a named policy in `Params` (review F3). *Invocation:* every
+  invocation-projection arc between two distinct subsystem functions (calls, property accesses and
+  definitions; definite and candidate), 1 per arc. On the pilot, 370 of its 712 pairs come from
+  candidate arcs, whose sites nearly always have that one target, and 33 from definitions.
+  *Co-use:* every official-usage scope calling two distinct subsystem functions, 1 per scope.
+- **Weights.** Hubs: an end whose strength (its summed counts) exceeds the layer's 95th-percentile
+  strength scales the count by threshold / strength. Each layer is normalized to unit total, and
+  the layers are summed with weight 0.5 each. The vertices are the subsystem functions some pair
+  touches; an isolated function is in no community, and is not in RBER's density term.
+- **Resolution.** RBER at **γ = 1**, its own density scale, over seeds 0–9 (review F2: choosing
+  the γ with the highest mean ARI from a grid depended on the seed block, not the data). The
+  profile γ ∈ {0.5, 1, 2, 4} runs too, and its stability is recorded (mean and SD of pairwise ARI,
+  mean and min NMI, community count, largest community), never chosen from. γ = 1 is degenerate
+  when its seed-0 partition puts more than half the vertices in one community or has no community
+  of three: then nothing is reported and the diagnostics say so.
+- **Reported.** Each community of the seed-0 partition with at least two public members whose
+  **co-assignment** (the mean, over seeds 1–9, of the share of its public-member pairs sharing a
+  community) is at least 0.5 (review F5: the score measures the published grouping). A
+  `community` finding lists its public APIs (`community_member`, with access path and strength),
+  cites up to three supporting sites (`supporting_site`), and has the co-assignment as score.
+- **Records.** One `leiden` invocation per run (γ, seed, iterations, convergence, quality
+  history) and one `community_consensus` invocation, whose `diagnostics` (a declared migration)
+  hold the profile, the choice and what was reported.
+- **Tests.** `communities::tests`: LFR planted partitions (n = 250, μ = 0.1 and 0.3) recovered at
+  γ = 1 with NMI ≥ 0.9; shuffled and flipped edges give the identical consensus; hub
+  down-weighting; a trivially small graph is degenerate; the co-assignment score; the parameters
+  against their gold freeze. `the_digest_follows_the_invocation_projection` (cpg-schema).
+  `communities_are_stable_and_projected_onto_public_apis` on `analysis_shapes`; the co-use layer
+  on `docs_shapes`; the module-order and location tests cover the rows.
+- **Pilot (Measured, 2026-09-23, snapshot `48bf9454`).** 516 vertices and 1,298 combined pairs
+  (712 invocation, 598 co-use). All runs converged. At γ = 1: mean pairwise ARI 0.749 (SD 0.082),
+  mean NMI 0.909, min NMI 0.866; 45 communities, the largest of 101. 29 are reported (2–78 public
+  members; co-assignment 0.681–1.0, mean 0.954); 1 falls below 0.5, and 15 have fewer than two
+  public members. Four seeds (`FastMCP.tool`, `mount`, `resource`, `prompt`) share the 78-member
+  server surface (co-assignment 0.831); `custom_route` (declared on `TransportMixin`) is in no
+  reported community. The profile's mean ARI is 0.700, 0.749, 0.793 and 0.739 at γ = 0.5, 1, 2
+  and 4.
+- **Deferred** (the review's F6, before a second library): the public-callables relation's MRO
+  walk skips unresolved or outside ancestors and class-level rebindings, where §9.1's `member()`
+  refuses. No pilot instance.
 
 ### §9.5 Centrality
 
@@ -2625,3 +2617,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 2.3: communities (`cpg_schema::communities`, `lctx_analytics::communities`; leiden-rs RBER consensus), `analysis_invocations.diagnostics` (§3.2, §9.4) | ADR-0011 (amended); deviation log D28 |
 | 2026-09-23 | Slice 2.4: centrality (`lctx_analytics::ranking`, weighted PageRank over the usage projection) (§9.5) | ADR-0011; deviation log D29 |
 | 2026-09-23 | Slice 2.2 compact review fixes: release handoff endpoints, one-target producers, the narrowed receiver rule, doc blocks by document, self-contained usage patterns (block and free-name checks), citations of shown handoffs only; two rules; §10.2 rows for `usage_pattern` and `handoff`; §3.2, §9.3, §10.4, §10.5 (§3.2, §9.3, §10.2, §10.4, §10.5) | ADR-0019 (dated amendment); deviation log D30 |
+| 2026-09-23 | ADR-0011 standard review fixes and ADR-0011 accepted: γ = 1 fixed with a recorded profile, named layer policies, the invocation projection in the community digest, the public co-assignment score, the parameters in the gold freeze (§9, §9.4) | ADR-0011 (accepted); ADR-0004 (amended); deviation log D31 |

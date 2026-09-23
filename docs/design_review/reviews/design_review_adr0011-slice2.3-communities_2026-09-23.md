@@ -366,3 +366,21 @@ seeds are all Tested, and the revisit trigger has not fired.
 - **Scope against guarantees.** Matched for determinism. For the selection rule and the projection's
   score, the guarantee is weaker than the prose implies (F2, F5).
 - **The extension path.** Clear for the increment-3 layers once the weight policy is named (F3).
+
+## Disposition (2026-09-23, commit after the slice 2.2 review fixes)
+
+| Item | Disposition | Where |
+|---|---|---|
+| F1 | Fixed. §9.4 is rewritten: its label and pilot sentences are corrected (four seeds share the server community; `custom_route` is in none reported), and the stale bullets are replaced. The §9 intro's parameters sentence is corrected. `adr lint` now checks that a DESIGN sentence naming an ADR's status matches the record, revision rows excepted | DESIGN §9, §9.4; `scripts/adr.py`; `test_a_status_claim_must_match_the_record` |
+| F2 | Fixed (D31): γ = 1 fixed; the grid is a recorded profile with mean and SD of the pairwise ARI | `communities.rs` `consensus`; `lfr_planted_partitions_are_recovered` asserts γ = 1 |
+| F3 | Fixed (D31): `Params::invocation_policy` and `co_use_policy` name what each layer counts (all arc kinds kept, 1 per arc); `communities::digest()` includes the invocation projection's digest | `communities.rs` (both crates); `the_digest_follows_the_invocation_projection` |
+| F4 | Fixed (D31): the community and PageRank parameter digests are in `eval/gold/analytics-freeze.json`; an edit fails `the_parameters_match_their_gold_freeze`; ADR-0004 amended | `analytics-freeze.json`; ADR-0004 |
+| F5 | Fixed: the score and the threshold are the public members' co-assignment across seeds 1–9 | `co_assignment`; `the_score_is_the_public_members_co_assignment` |
+| F6 | Deferred to a second library (the review's own deadline), recorded in §9.4 | DESIGN §9.4 |
+| F7 | Fixed: the Decision is consolidated with per-part labels; the header stays `Interface-checked`; the history is recorded; a fresh trailing `## Amendments`; status `accepted` | ADR-0011 |
+| O2, O3 | O3 fixed: a degenerate γ = 1 is `complete_under_stated_model` with `chosen_gamma: null`. O1 and O2 stand | `communities.rs` |
+| Deferred rows | As the review's table says | — |
+
+Pilot after the fixes (Measured, 2026-09-23, `lctx compile fastmcp --store build/store-next` and
+`lctx_mcp.smoke`): snapshot `48bf9454`, generation `b411cfdd262da2fc`, stdio smoke passed,
+32.6 s, peak 4,273 MiB.

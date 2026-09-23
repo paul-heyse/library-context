@@ -1,7 +1,7 @@
 ---
 id: ADR-0011
 title: petgraph traversal and SCCs, our own weighted PageRank, leiden-rs communities, own FCA then RCA
-status: proposed
+status: accepted
 date: 2026-09-22
 supersedes: []
 superseded-by: null
@@ -78,44 +78,58 @@ D1–D5, probes run 2026-09-23) changed four parts before acceptance:
 
 ## Decision
 
-- **Traversal** (DESIGN §5, §9.1): explicit BFS with parent pointers over an immutable
-  `Graph<(), u32, Directed, u32>` whose edge weight is the arc's row index. Construction follows
-  §5's adapter recipe:
+The record was consolidated at acceptance (2026-09-23, the ADR-0011 standard review's F7): the
+amendments made while it was proposed are folded in below, and each part carries its own label.
+The header's `evidence: Interface-checked` is the record's floor: FCA is still only that.
+
+- **Traversal** (DESIGN §5, §9.1; **Tested**, slice 1.4): explicit BFS with parent pointers over
+  an immutable `Graph<(), u32, Directed, u32>` whose edge weight is the arc's row index.
+  Construction follows §5's adapter recipe:
   - the sorted domain ids are the dense index;
   - edges are added in canonical arc order;
   - filtered and reversed views are used, never copies;
   - nothing is ever removed;
   - SCC members are sorted.
-- **Condensation** (when §13 un-defers it): built from `kosaraju_scc` membership (iterative;
-  `tarjan_scc` recurses), keeping every arc's evidence; never petgraph's `condensation`.
-- **Communities** (§9.4):
-  - leiden-rs `=0.8.1`, `default-features = false` and **no features** (not `petgraph`), with
-    the **RBER** quality function: CPM with γ taken relative to the graph's density, so γ is
-    scale-free on unit-normalized layers (amended 2026-09-23, below);
-  - built with `GraphDataBuilder` from the dense index: DataFusion aggregates each (min,max) pair
-    as **integer counts** under a named weight policy, then sorts; normalization, hub
-    down-weighting and layer weighting happen in Rust in canonical order;
-  - γ comes from our own fixed-seed grid, pre-registered in the analytics config;
-  - never `run_multiplex` (it ignores `layer_weights` after the first level) and never
+
+  `visit::Bfs` is node-only, and `all_simple_paths` and rustworkx-core's BFS walk newest-first and
+  collapse parallel arcs, so neither is used.
+- **Condensation** (when §13 un-defers it; **Proposed**): built from `kosaraju_scc` membership
+  (iterative; `tarjan_scc` recurses), keeping every arc's evidence; never petgraph's
+  `condensation`.
+- **Communities** (§9.4; **Tested**, slice 2.3 and this review; deviation log D28):
+  - leiden-rs `=0.8.1`, `default-features = false` and **no features** (not `petgraph`, not
+    rayon), with the **RBER** quality function: CPM with γ relative to the graph's density, so γ is
+    scale-free on unit-normalized layers (raw CPM's γ is in edge-weight units);
+  - each layer is **integer counts** per `(min, max)` pair, counted in Rust in a `BTreeMap` over
+    the declared relations' rows, each pair keeping its least contributing site; what each layer
+    counts is a named policy in `communities::Params`; normalization (unit total), hub
+    down-weighting (95th-percentile strength) and layer weighting (0.5 each) follow in canonical
+    order;
+  - **γ = 1**, RBER's own scale, over seeds 0–9; the profile γ ∈ {0.5, 1, 2, 4} runs and its
+    stability is recorded, never chosen from (a grid choice was decided by the seed block, not the
+    data); a degenerate γ = 1 reports no communities, with the reason in the diagnostics;
+  - the parameters are pre-registered code, recorded in every invocation, in the compiler digest
+    and in the gold freeze, because `analytics.toml` is frozen (D21);
+  - never `run_multiplex` (it ignores `layer_weights` after the first level), never
+    `resolution_scan` or `resolution_profile` (they change seeds between points), never
     `from_petgraph` (it would read the §5 graph's `u32` arc-row weight as the edge weight);
-  - the seed is always set and recorded;
-  - `track_quality_history` stands in for the missing converged flag;
-  - `rand` is pinned, and crate versions go in the method parameters;
-  - layers are normalized and hubs down-weighted;
-  - seed-consensus stability.
+  - the seed is always set and recorded; `track_quality_history` stands in for the missing
+    converged flag; rand is pinned on its 0.9 line, and crate versions go in each invocation;
+  - stability by `leiden_rs::metrics::{try_nmi, try_ari}`; a reported community's score is its
+    public members' co-assignment across the other seeds, the grouping the finding publishes.
   - Communities select seeds within the brief budget and fill the brief's **Related** field.
     **They do not define brief boundaries or FCA scopes.**
-- **Centrality** (§9.5): **our own weighted power iteration**, about 40 lines, over the usage
-  projection in canonical order.
-  - It uses a named weight policy (the usage counts from examples and tests) and
-    dangling-mass redistribution.
+- **Centrality** (§9.5; the rejection of petgraph's `page_rank` **Tested** by probe; our own
+  PageRank **Tested**, slice 2.4): **our own weighted power iteration** over the usage projection
+  (the invocation projection restricted and weighted by a named policy) in canonical order.
+  - Dangling mass and teleport are uniform.
   - It records iterations, the final L1 residual and a converged flag (guidelines §8).
   - Its reference oracle is `leiden_rs::compute_flow` (a weighted directed PageRank with uniform
     teleport and dangling mass, already a dependency), valid while the dangling target is
     uniform.
-- **FCA / RCA** (§9.6): our own NextClosure (Ganter, ICFCA 2010), which also yields the
-  Duquenne–Guigues implication basis, over `fixedbitset`, with a support threshold. There is no
-  stability index: it is #P-hard.
+- **FCA / RCA** (§9.6; **Interface-checked**): our own NextClosure (Ganter, ICFCA 2010), which
+  also yields the Duquenne–Guigues implication basis, over `fixedbitset`, with a support threshold.
+  There is no stability index: it is #P-hard.
   - FCbO (Outrata & Vychodil 2012) replaces it only if the concept count exceeds the budget.
   - `fcars =0.2.2` is a **dev-dependency oracle** for concept sets, and Python `concepts` 0.9.2
     for the cover relation.
@@ -148,41 +162,17 @@ D1–D5, probes run 2026-09-23) changed four parts before acceptance:
 - **Spike before acceptance:** leiden-rs determinism under shuffled input at our feature set.
   The probe settled it for normalized input, and it is re-run at acceptance with the fixture.
 
-## Amendments (in place; the record is still proposed)
+## History while proposed
 
-- 2026-09-23: remaining-scope plan, Phase 0, from the rust-graphs skill survey (source-read at
-  the pinned leiden-rs 0.8.1 and petgraph 0.8.3; probes B009–B011):
-  - **RBER, not raw CPM.** CPM's γ is in edge-weight units. With each layer normalized to unit
-    total weight, CPM's useful γ range moves with the node and layer counts. RBER is the same
-    objective with γ scaled by density (`quality.rs:239-309`).
-  - **γ from our own fixed-seed grid.** `resolution_scan` changes the seed at each point, and
-    `resolution_profile` runs an interval's ends with different seeds. Both hard-code the default
-    configuration.
-  - **Never `run_multiplex`**, which ignores `layer_weights` after the first local-moving level
-    (`multiplex.rs:183-230`). Our weighted sum of layers is the multiplex objective.
-  - **Never `from_petgraph` on the §5 graph** (a B009-class silent failure: its `E: Into<f64>`
-    bound accepts the arc-row `u32`).
-  - **Integer aggregation.** A multi-partition f64 `SUM` in DataFusion is not bit-stable, and a
-    last-bit difference can flip a Leiden move.
-  - **Stability** uses `leiden_rs::metrics::{try_nmi, try_ari}`. Per-community agreement is our
-    own max-Jaccard matching.
-  - **The traversal decision** (§5's adapter, a hand-written BFS) is confirmed. `visit::Bfs` is
-    node-only, and `all_simple_paths` and rustworkx-core's BFS walk newest-first and collapse
-    parallel arcs. Pass A implements it at increment 1 slice 1.4. The record is accepted at the
-    increment-2 spike, with the Leiden fixture.
-  - **SCCs, when a consumer appears,** use `kosaraju_scc` (iterative) rather than the recursive
-    `tarjan_scc`.
-- 2026-09-23: slice 2.3, the acceptance spike (DESIGN §9.4; deviation log D28):
-  - **Implemented** in `lctx_analytics::communities`: integer `(min, max)` pair counts per layer
-    in a `BTreeMap` (the counting is in Rust over the projection's and the co-use relation's
-    rows, which is as bit-stable as a DataFusion integer aggregate and keeps each pair's lineage
-    site); 95th-percentile hub down-weighting; unit-total layers summed 0.5/0.5; RBER at
-    γ ∈ {0.5, 1, 2, 4} × seeds 0–9; the non-degenerate γ with the highest mean pairwise ARI.
-  - **Where the parameters live:** pre-registered code, recorded in every invocation and in the
-    compiler digest, because `analytics.toml` is frozen (D21, D28). The "pre-registered in the
-    analytics config" wording above is superseded by this.
-  - **The spike, re-run (Tested, 2026-09-23):** LFR planted partitions (n = 250, μ = 0.1 and
-    0.3) are recovered with NMI ≥ 0.9; shuffled and flipped edges give an identical consensus
-    (runs, stability and partition); on the pilot, min pairwise NMI across seeds is ≥ 0.796 at
-    every γ, and all 40 runs converge. The revisit trigger's first two conditions did not fire.
+- 2026-09-23, remaining-scope plan Phase 0 (the rust-graphs skill survey; probes B009–B011): RBER
+  instead of raw CPM; our own seeded γ grid instead of `resolution_scan`; never `run_multiplex`
+  or `from_petgraph`; integer aggregation; `try_nmi`/`try_ari` stability; the traversal decision
+  confirmed; `kosaraju_scc` for SCCs.
+- 2026-09-23, slice 2.3, the acceptance spike (D28): the kernel implemented; LFR recovery and
+  identical output under shuffled and flipped input Tested; the parameters in code.
+- 2026-09-23, the standard review (`design_review_adr0011-slice2.3-communities_2026-09-23.md`,
+  Revise small): γ fixed at 1 (F2), named layer policies and the invocation projection in the
+  community digest (F3), the parameters in the gold freeze (F4), the public co-assignment score
+  (F5), this consolidation (F7). Accepted with those fixes.
 
+## Amendments

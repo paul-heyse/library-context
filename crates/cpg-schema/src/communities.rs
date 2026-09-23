@@ -87,11 +87,19 @@ pub fn public_callables_sql(public_roots: &[String]) -> String {
     )
 }
 
-/// The relations' identity (the public-callables query with no roots stands for its form).
+/// The relations' identity: theirs and the invocation projection's, whose arcs the invocation
+/// layer counts (ADR-0011 review F3). The public-callables query with no roots stands for its
+/// form.
 pub fn digest() -> Digest {
+    digest_with(crate::projection::invocation().digest())
+}
+
+/// [`digest`] over a given invocation projection's digest.
+pub fn digest_with(invocation: Digest) -> Digest {
     IdHasher::new("community-relations")
         .str(&co_use_sql())
         .str(&public_callables_sql(&[]))
+        .str(&invocation.hex())
         .finish_digest()
 }
 
@@ -118,5 +126,21 @@ pub mod schemas {
             id("node_id"),
             Field::new("access_path", DataType::Utf8, false),
         ]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::digest_with;
+    use crate::id::content_digest;
+
+    /// A change to the invocation projection moves the community relations' digest, and so each
+    /// community invocation's `projection_digest`.
+    #[test]
+    fn the_digest_follows_the_invocation_projection() {
+        assert_ne!(
+            digest_with(content_digest(b"one projection")),
+            digest_with(content_digest(b"another"))
+        );
     }
 }

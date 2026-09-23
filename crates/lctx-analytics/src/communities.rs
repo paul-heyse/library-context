@@ -1,23 +1,25 @@
 //! Communities (DESIGN §9.4; ADR-0011): Leiden (leiden-rs, RBER) over the invocation and co-use
-//! layers of the subsystem's functions, at a pre-registered resolution grid and seed set, with
+//! layers of the subsystem's functions, at one pre-registered resolution and seed set, with
 //! seed-consensus stability; the stable communities are projected onto public APIs.
 //!
 //! **Input normal form.** Each layer is integer counts per unordered pair `(min, max)` over the
 //! dense index (the sorted ids of the subsystem functions some pair touches), kept in a
 //! `BTreeMap`, so shuffled or flipped input gives identical counts. Each pair keeps its least
-//! contributing site (a call site, or a usage scope) as lineage (H1 review F9).
+//! contributing site (a call site, or a usage scope) as lineage (H1 review F9). What each layer
+//! counts is a named policy in [`Params`] (ADR-0011 review F3).
 //!
 //! **Weights,** in canonical pair order: a hub's pairs are down-weighted (each end whose strength
 //! exceeds the layer's strength percentile scales the count by threshold / strength); each layer
 //! is normalized to unit total weight; the layers are summed with their pre-registered weights.
 //!
-//! **Consensus.** Every resolution γ of the grid runs every seed. A resolution is degenerate when
-//! its seed-0 partition puts more than half the vertices in one community, or has no community of
-//! three. Among the others, the one with the highest mean pairwise ARI is chosen, ties going to
-//! the γ nearest 1 (RBER's own scale), then the smaller. Each community of the chosen seed-0
-//! partition has an agreement: its best Jaccard match in each other seed's partition, averaged.
-//! A community with enough public members and agreement is a `community` finding
-//! (`statistically_derived`); everything measured is in the consensus's diagnostics.
+//! **Consensus.** RBER at γ = 1, its own density scale, runs every seed (ADR-0011 review F2: a
+//! grid choice was decided by the seed block, not the data). The other profile resolutions run
+//! too, and their stability is recorded, never chosen from. γ = 1 is degenerate when its seed-0
+//! partition puts more than half the vertices in one community or has no community of three:
+//! then no community is reported, and the diagnostics say so. A community of the seed-0 partition
+//! is reported when it has enough public members and they stay together across the other seeds:
+//! its score is the mean, over those seeds, of the share of its public-member pairs that share a
+//! community there (review F5: the score measures the published claim).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -34,21 +36,28 @@ use serde::Serialize;
 use crate::AnalyticsError;
 use crate::graph::Projection;
 
-/// The pre-registered parameters (slice 2.3; deviation log D28): code, not the frozen analytics
-/// config, recorded in every invocation's parameters and in the compiler digest.
+/// The pre-registered parameters (slice 2.3, revised by the ADR-0011 review; deviation log D28):
+/// code, not the frozen analytics config, recorded in every invocation, in the compiler digest
+/// and in the gold freeze (`eval/gold/analytics-freeze.json`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Params {
-    /// The RBER resolutions tried.
-    pub gammas: Vec<f64>,
+    /// The RBER resolution the reported partition uses.
+    pub gamma: f64,
+    /// Resolutions whose stability is recorded as a profile (the chosen one among them).
+    pub profile_gammas: Vec<f64>,
     /// Seeds `0..seeds` at every resolution.
     pub seeds: u64,
+    /// What the invocation layer counts.
+    pub invocation_policy: &'static str,
+    /// What the co-use layer counts.
+    pub co_use_policy: &'static str,
     pub invocation_weight: f64,
     pub co_use_weight: f64,
     /// A pair end whose strength exceeds this percentile of its layer's strengths is a hub.
     pub hub_percentile: f64,
     pub max_iterations: usize,
     pub epsilon: f64,
-    /// A community's least agreement to be reported.
+    /// A community's least public co-assignment to be reported.
     pub min_agreement: f64,
     /// A community's least public members to be reported.
     pub min_public_members: usize,
@@ -57,11 +66,18 @@ pub struct Params {
 }
 
 impl Params {
-    /// The parameters committed before any community output existed.
+    /// The parameters frozen from the ADR-0011 review's fixes (their digest is in the gold
+    /// freeze).
     pub fn preregistered() -> Self {
         Params {
-            gammas: vec![0.5, 1.0, 2.0, 4.0],
+            gamma: 1.0,
+            profile_gammas: vec![0.5, 1.0, 2.0, 4.0],
             seeds: 10,
+            invocation_policy: "every invocation-projection arc between two distinct subsystem \
+                                functions (calls, property accesses and definitions; definite and \
+                                candidate), 1 per arc",
+            co_use_policy: "every official-usage scope (function or module) calling two distinct \
+                            subsystem functions, 1 per scope",
             invocation_weight: 0.5,
             co_use_weight: 0.5,
             hub_percentile: 0.95,
@@ -82,7 +98,6 @@ impl Params {
         content_digest(self.json().as_bytes())
     }
 }
-
 /// One layer: integer counts per unordered pair of dense indices, each with its least site.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Layer {
@@ -262,11 +277,13 @@ struct RunParameters<'a> {
     epsilon: f64,
 }
 
-/// One resolution's stability.
+/// One resolution's stability across the seeds.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Stability {
     pub gamma: f64,
     pub mean_ari: f64,
+    /// The standard deviation of the pairwise ARIs (the review's F2: a margin needs its spread).
+    pub sd_ari: f64,
     pub mean_nmi: f64,
     pub min_nmi: f64,
     /// The seed-0 partition's community count and largest community.
@@ -279,12 +296,12 @@ pub struct Stability {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Consensus {
     pub runs: Vec<Run>,
-    pub grid: Vec<Stability>,
+    pub profile: Vec<Stability>,
+    /// `Params::gamma`, unless it is degenerate.
     pub chosen: Option<f64>,
-    /// The chosen resolution's seed-0 membership (canonical labels) and each community's
-    /// agreement, by label.
-    pub reference: Vec<usize>,
-    pub agreement: Vec<f64>,
+    /// Every seed's membership at the chosen resolution (canonical labels), seed 0 first: the
+    /// reported partition is seed 0's.
+    pub memberships: Vec<Vec<usize>>,
 }
 
 /// Labels in order of first appearance along the dense index.
@@ -311,8 +328,8 @@ fn graph_error(e: impl std::fmt::Display) -> AnalyticsError {
     AnalyticsError::Graph(format!("leiden: {e}"))
 }
 
-/// Run every resolution and seed over `n` vertices and the combined weights, and form the
-/// consensus.
+/// Run every profile resolution and seed over `n` vertices and the combined weights, and form
+/// the consensus at `params.gamma`.
 pub fn consensus(
     n: usize,
     combined: &BTreeMap<(u32, u32), f64>,
@@ -320,10 +337,9 @@ pub fn consensus(
 ) -> Result<Consensus, AnalyticsError> {
     let mut out = Consensus {
         runs: Vec::new(),
-        grid: Vec::new(),
+        profile: Vec::new(),
         chosen: None,
-        reference: Vec::new(),
-        agreement: Vec::new(),
+        memberships: Vec::new(),
     };
     if n < 2 || combined.is_empty() {
         return Ok(out);
@@ -335,8 +351,7 @@ pub fn consensus(
             .map_err(graph_error)?;
     }
     let graph = builder.build().map_err(graph_error)?;
-    let mut memberships: Vec<Vec<Vec<usize>>> = Vec::new();
-    for &gamma in &params.gammas {
+    for &gamma in &params.profile_gammas {
         let mut per_seed = Vec::new();
         for seed in 0..params.seeds {
             let config = LeidenConfig {
@@ -369,79 +384,64 @@ pub fn consensus(
             });
             per_seed.push(labels);
         }
-        let (mut ari, mut nmi, mut min_nmi, mut pairs) = (0.0, 0.0, f64::INFINITY, 0usize);
+        let mut aris = Vec::new();
+        let (mut nmi, mut min_nmi) = (0.0, f64::INFINITY);
         for s in 0..per_seed.len() {
             for t in s + 1..per_seed.len() {
-                let a =
-                    leiden_rs::metrics::try_ari(&per_seed[s], &per_seed[t]).map_err(graph_error)?;
+                aris.push(
+                    leiden_rs::metrics::try_ari(&per_seed[s], &per_seed[t]).map_err(graph_error)?,
+                );
                 let m =
                     leiden_rs::metrics::try_nmi(&per_seed[s], &per_seed[t]).map_err(graph_error)?;
-                ari += a;
                 nmi += m;
                 min_nmi = f64::min(min_nmi, m);
-                pairs += 1;
             }
         }
-        let (mean_ari, mean_nmi, min_nmi) = if pairs == 0 {
-            (1.0, 1.0, 1.0)
+        let (mean_ari, sd_ari, mean_nmi, min_nmi) = if aris.is_empty() {
+            (1.0, 0.0, 1.0, 1.0)
         } else {
-            (ari / pairs as f64, nmi / pairs as f64, min_nmi)
+            let k = aris.len() as f64;
+            let mean: f64 = aris.iter().sum::<f64>() / k;
+            let var: f64 = aris.iter().map(|a| (a - mean) * (a - mean)).sum::<f64>() / k;
+            (mean, var.sqrt(), nmi / k, min_nmi)
         };
         let reference = sizes(&per_seed[0]);
         let largest = reference.iter().copied().max().unwrap_or(0);
-        out.grid.push(Stability {
+        let degenerate = 2 * largest > n || largest < 3;
+        out.profile.push(Stability {
             gamma,
             mean_ari,
+            sd_ari,
             mean_nmi,
             min_nmi,
             communities: reference.len(),
             largest,
-            degenerate: 2 * largest > n || largest < 3,
+            degenerate,
         });
-        memberships.push(per_seed);
-    }
-    let chosen = out
-        .grid
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| !s.degenerate)
-        .min_by(|(_, a), (_, b)| {
-            b.mean_ari
-                .total_cmp(&a.mean_ari)
-                .then(a.gamma.log2().abs().total_cmp(&b.gamma.log2().abs()))
-                .then(a.gamma.total_cmp(&b.gamma))
-        })
-        .map(|(k, _)| k);
-    let Some(k) = chosen else {
-        return Ok(out);
-    };
-    out.chosen = Some(params.gammas[k]);
-    let seeds = &memberships[k];
-    out.reference = seeds[0].clone();
-    let groups = sizes(&out.reference);
-    for (label, &size) in groups.iter().enumerate() {
-        let mut total = 0.0;
-        for other in &seeds[1..] {
-            let mut inter: BTreeMap<usize, usize> = BTreeMap::new();
-            for (v, &l) in out.reference.iter().enumerate() {
-                if l == label {
-                    *inter.entry(other[v]).or_insert(0) += 1;
-                }
-            }
-            let other_sizes = sizes(other);
-            let best = inter
-                .iter()
-                .map(|(&d, &i)| i as f64 / (size + other_sizes[d] - i) as f64)
-                .fold(0.0, f64::max);
-            total += best;
+        if gamma == params.gamma && !degenerate {
+            out.chosen = Some(gamma);
+            out.memberships = per_seed;
         }
-        out.agreement.push(if seeds.len() > 1 {
-            total / (seeds.len() - 1) as f64
-        } else {
-            1.0
-        });
     }
     Ok(out)
+}
+
+/// The mean, over the other seeds, of the share of the public members' pairs that share a
+/// community there: how often the published grouping holds (ADR-0011 review F5). One member, or
+/// one seed, scores 1.
+pub fn co_assignment(members: &[usize], others: &[Vec<usize>]) -> f64 {
+    let pairs: Vec<(usize, usize)> = members
+        .iter()
+        .enumerate()
+        .flat_map(|(k, &a)| members[k + 1..].iter().map(move |&b| (a, b)))
+        .collect();
+    if pairs.is_empty() || others.is_empty() {
+        return 1.0;
+    }
+    let together = |m: &Vec<usize>| {
+        pairs.iter().filter(|(a, b)| m[*a] == m[*b]).count() as f64 / pairs.len() as f64
+    };
+    others.iter().map(together).sum::<f64>() / others.len() as f64
 }
 
 /// What the consensus measured (its invocation's diagnostics).
@@ -453,7 +453,7 @@ struct Diagnostics<'a> {
     combined_pairs: usize,
     invocation_hub_threshold: f64,
     co_use_hub_threshold: f64,
-    grid: &'a [Stability],
+    profile: &'a [Stability],
     chosen_gamma: Option<f64>,
     communities: usize,
     reported: usize,
@@ -491,10 +491,11 @@ pub fn run(
     let mut findings = Vec::new();
     let mut members = Vec::new();
     let (mut below, mut few) = (0usize, 0usize);
-    let groups = sizes(&consensus.reference);
-    for (label, &agreement) in consensus.agreement.iter().enumerate() {
-        let inside: Vec<u32> = consensus
-            .reference
+    let reference: &[usize] = consensus.memberships.first().map_or(&[], Vec::as_slice);
+    let others: &[Vec<usize>] = consensus.memberships.get(1..).unwrap_or_default();
+    let groups = sizes(reference);
+    for label in 0..groups.len() {
+        let inside: Vec<u32> = reference
             .iter()
             .enumerate()
             .filter(|(_, l)| **l == label)
@@ -506,40 +507,43 @@ pub fn run(
                 .filter_map(|&u| combined.get(&(v.min(u), v.max(u))))
                 .sum()
         };
-        let public: Vec<(Id, &String, f64)> = inside
+        let public: Vec<(u32, Id, &String, f64)> = inside
             .iter()
             .filter_map(|&v| {
                 let id = input.vertices[v as usize];
-                input.public.get(&id).map(|p| (id, p, strength(v)))
+                input.public.get(&id).map(|p| (v, id, p, strength(v)))
             })
             .collect();
         if public.len() < params.min_public_members {
             few += 1;
             continue;
         }
+        let dense: Vec<usize> = public.iter().map(|p| p.0 as usize).collect();
+        let agreement = co_assignment(&dense, others);
         if agreement < params.min_agreement {
             below += 1;
             continue;
         }
         let subject = public
             .iter()
-            .min_by(|a, b| b.2.total_cmp(&a.2).then(a.0.cmp(&b.0)))
-            .map(|p| p.0)
+            .min_by(|a, b| b.3.total_cmp(&a.3).then(a.1.cmp(&b.1)))
+            .map(|p| p.1)
             .expect("at least one public member");
         // The strongest pairs inside, each with the site of every layer it comes from.
         let mut pairs: Vec<((u32, u32), f64)> = combined
             .iter()
             .filter(|((a, b), _)| {
-                consensus.reference[*a as usize] == label
-                    && consensus.reference[*b as usize] == label
+                reference[*a as usize] == label && reference[*b as usize] == label
             })
             .map(|(p, w)| (*p, *w))
             .collect();
         pairs.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         let omitted = pairs.len() > params.max_supporting;
-        let mut rows: Vec<(MemberRole, Id, String, Option<f64>)> = public
+        let mut ordered = public.clone();
+        ordered.sort_by_key(|p| p.1);
+        let mut rows: Vec<(MemberRole, Id, String, Option<f64>)> = ordered
             .iter()
-            .map(|(id, path, s)| (MemberRole::CommunityMember, *id, (*path).clone(), Some(*s)))
+            .map(|(_, id, path, s)| (MemberRole::CommunityMember, *id, (*path).clone(), Some(*s)))
             .collect();
         for (pair, _) in pairs.iter().take(params.max_supporting) {
             for (layer, name) in [(&input.invocation, "invocation"), (&input.co_use, "co_use")] {
@@ -606,7 +610,7 @@ pub fn run(
         combined_pairs: combined.len(),
         invocation_hub_threshold: thresholds[0],
         co_use_hub_threshold: thresholds[1],
-        grid: &consensus.grid,
+        profile: &consensus.profile,
         chosen_gamma: consensus.chosen,
         communities: groups.len(),
         reported: findings.len(),
@@ -614,22 +618,17 @@ pub fn run(
         too_few_public: few,
     })
     .expect("diagnostics serialize");
-    let completion = if consensus.chosen.is_some() || combined.is_empty() {
-        CoverageStatus::CompleteUnderStatedModel
-    } else {
-        CoverageStatus::Partial
-    };
     Ok(Outcome {
         vertices: n,
         pairs: combined.len(),
         runs: consensus.runs,
-        completion,
+        // A degenerate resolution is a stated outcome, not a cut-short run (review O3).
+        completion: CoverageStatus::CompleteUnderStatedModel,
         diagnostics,
         findings,
         members,
     })
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -687,14 +686,10 @@ mod tests {
         for mu in [0.1, 0.3] {
             let (n, edges, truth) = lfr(mu);
             let c = partition(n, &edges);
-            let nmi = leiden_rs::metrics::try_nmi(&c.reference, &truth).unwrap();
-            assert!(
-                nmi >= 0.9,
-                "mu {mu}: NMI {nmi} at {:?}: {:?}",
-                c.chosen,
-                c.grid
-            );
-            assert!(c.grid.iter().all(|s| s.min_nmi > 0.0), "{:?}", c.grid);
+            assert_eq!(c.chosen, Some(1.0), "{:?}", c.profile);
+            let nmi = leiden_rs::metrics::try_nmi(&c.memberships[0], &truth).unwrap();
+            assert!(nmi >= 0.9, "mu {mu}: NMI {nmi}: {:?}", c.profile);
+            assert!(c.profile.iter().all(|s| s.min_nmi > 0.0), "{:?}", c.profile);
         }
     }
 
@@ -742,7 +737,44 @@ mod tests {
     fn a_trivial_partition_is_degenerate_and_nothing_is_chosen() {
         // Two vertices joined: every partition is one community or two singletons.
         let c = partition(2, &[(0, 1)]);
-        assert_eq!(c.chosen, None, "{:?}", c.grid);
-        assert!(c.grid.iter().all(|s| s.degenerate));
+        assert_eq!(c.chosen, None, "{:?}", c.profile);
+        assert!(c.profile.iter().all(|s| s.degenerate) && c.memberships.is_empty());
+    }
+
+    /// ADR-0011 review F5: the score is how often the public members stay together, not how
+    /// their whole community does.
+    #[test]
+    fn the_score_is_the_public_members_co_assignment() {
+        // Public members 0 and 1: together in one of two other seeds.
+        let others = vec![vec![0, 0, 1, 1], vec![0, 1, 1, 1]];
+        assert!((co_assignment(&[0, 1], &others) - 0.5).abs() < 1e-12);
+        // Three members: pairs (0,1), (0,2), (1,2); together in 3 of 3, then 1 of 3.
+        let others = vec![vec![0, 0, 0], vec![0, 0, 1]];
+        assert!((co_assignment(&[0, 1, 2], &others) - (1.0 + 1.0 / 3.0) / 2.0).abs() < 1e-12);
+        assert_eq!(co_assignment(&[2], &others), 1.0);
+        assert_eq!(co_assignment(&[0, 1], &[]), 1.0);
+    }
+
+    /// ADR-0011 review F4: the parameters are frozen with the analytics config; an edit is an
+    /// ADR-0004 amendment and a new recorded digest.
+    #[test]
+    fn the_parameters_match_their_gold_freeze() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../eval/gold/analytics-freeze.json");
+        let freeze: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            freeze["community_parameters"].as_str(),
+            Some(Params::preregistered().digest().hex().as_str())
+        );
+        assert_eq!(
+            freeze["pagerank_parameters"].as_str(),
+            Some(
+                crate::ranking::Params::preregistered()
+                    .digest()
+                    .hex()
+                    .as_str()
+            )
+        );
     }
 }

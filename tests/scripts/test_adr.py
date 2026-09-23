@@ -167,3 +167,16 @@ def test_a_cited_record_must_exist_unless_to_be_written(root: Path) -> None:
     design.write_text(design.read_text() + "Verdicts (ADR-0042, to be written) and ADR-0043.\n")
     problems = adr.lint(root, check_git=False)
     assert problems == ["DESIGN.md cites ADR-0043, which does not exist"]
+
+
+def test_a_status_claim_must_match_the_record(root: Path) -> None:
+    new(root, "open")
+    run(root, "index")
+    design = root / "docs" / "design" / "DESIGN.md"
+    design.write_text(
+        design.read_text()
+        + "The spike passed and ADR-0001 accepted with it.\n"
+        + "| 2026-09-22 | ADR-0001 accepted then |\n"
+    )
+    problems = adr.lint(root, check_git=False)
+    assert len(problems) == 1 and "says ADR-0001 is accepted, but it is proposed" in problems[0]

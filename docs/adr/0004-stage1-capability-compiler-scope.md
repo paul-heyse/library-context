@@ -111,3 +111,9 @@ The operator chose:
   - The config is frozen again at `eval/gold/analytics-freeze.json`. `just gold` fails when
     `libraries/fastmcp/analytics.toml` differs from it. Any later edit is an amendment naming the
     gold its author has seen.
+- 2026-09-23, the ADR-0011 standard review (F4): the freeze extends to the analytics parameters
+  that live in code (the community and PageRank `Params`, deviation log D28, D29). Their digests
+  are in `eval/gold/analytics-freeze.json` from the review's fixes, before any gold scoring of
+  their output. `the_parameters_match_their_gold_freeze` fails on an edit, which is then an
+  amendment here, like a config edit. The author of these parameters has seen the gold families
+  (D3, D21); the parameters are generic graph settings, not tuned to them.

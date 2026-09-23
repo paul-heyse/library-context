@@ -41,8 +41,9 @@ pub struct Published {
 /// unfollowed arguments, supported predicates, receivers by kind, header-anchored descriptions.
 /// 8: communities and their invocations' diagnostics (slice 2.3). 9: centrality (slice 2.4).
 /// 10: the slice 2.2 review: release handoff endpoints, one-target producers, the narrowed
-/// receiver exclusion, doc blocks by document, self-contained usage patterns.
-pub const COMPILER_OUTPUT_VERSION: u32 = 10;
+/// receiver exclusion, doc blocks by document, self-contained usage patterns. 11: the ADR-0011
+/// review: γ = 1 fixed, the public co-assignment score, named layer policies.
+pub const COMPILER_OUTPUT_VERSION: u32 = 11;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

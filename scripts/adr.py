@@ -248,6 +248,8 @@ def lint(root: Path, *, check_git: bool = True) -> list[str]:
 
 SECTION_RE = re.compile(r"^(#+)\s+§([A-Z]?\d+(?:\.\d+)*)\b")
 CITED_RE = re.compile(r"ADR-(\d{4})")
+CLAIM_RE = re.compile(r"ADR-(\d{4}),? (?:is |stays )?(accepted|proposed)\b")
+REVISION_RE = re.compile(r"^\| \d{4}-\d{2}-\d{2} \|")
 
 
 def design_decisions(root: Path, adrs: list[Adr]) -> list[str]:
@@ -256,6 +258,7 @@ def design_decisions(root: Path, adrs: list[Adr]) -> list[str]:
     - Every section an active record lists in `design:` ends, itself or through an enclosing
       section, with a `> Decision:` line naming the record.
     - Every `ADR-NNNN` DESIGN.md cites exists, unless the citation says it is "to be written".
+    - A sentence outside the revision rows saying "ADR-NNNN accepted" or "proposed" matches it.
     """
     design = root / "docs" / "design" / "DESIGN.md"
     if not design.exists():
@@ -296,6 +299,18 @@ def design_decisions(root: Path, adrs: list[Adr]) -> list[str]:
             ):
                 problems.append(
                     f"DESIGN.md {ref}: no `> Decision:` line names {a.id}, which lists it"
+                )
+    # A current sentence naming a record's status says the record's status (ADR-0011 review F1);
+    # the dated revision rows are history.
+    status = {a.id: a.status for a in adrs}
+    for n, line in enumerate(lines, 1):
+        if REVISION_RE.match(line):
+            continue
+        for m in CLAIM_RE.finditer(line):
+            cited = f"ADR-{m.group(1)}"
+            if cited in status and status[cited] != m.group(2):
+                problems.append(
+                    f"DESIGN.md:{n} says {cited} is {m.group(2)}, but it is {status[cited]}"
                 )
     known = {a.id for a in adrs}
     text = "\n".join(lines)
