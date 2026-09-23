@@ -63,7 +63,8 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
-| leiden-rs | `=0.8.1`, `default-features = false, features = ["petgraph"]` | 2026-09-22 (source read) | crates.io source: seed option, CPM, multiplex, rayon optional, petgraph `^0.8` |
+| leiden-rs | `=0.8.1`, `default-features = false` and no features (ADR-0011 as amended: built from the dense index, not the `petgraph` adapter) | 2026-09-23 (probe) | crates.io source: seed option, CPM, multiplex, rayon optional; the library-leverage probe: identical partitions for a normalized sorted input, NMI ≥ 0.9785 across 10 seeds |
+| fcars | `=0.2.2`, dev-dependency only: an oracle for our FCA's concept sets (ADR-0011) | 2026-09-23 (probe) | MIT; found the 6 concepts of a hand-counted context; rayon not optional; concept order unspecified (sort) |
 | rand | pin whatever leiden-rs 0.8.1 resolves (0.9.x) exactly | — | increment 2 |
 
 ## Serving and embeddings (ADR-0010, accepted)

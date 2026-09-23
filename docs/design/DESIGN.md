@@ -207,9 +207,9 @@ rule can prove is stated in §8 (its edit guards counted apart).
 
 | Owner | Algorithms |
 |---|---|
-| petgraph 0.8.3 | Traversal, SCCs, `page_rank`, over immutable, explicitly declared projections (§5) |
-| leiden-rs | Community detection (§9.4) |
-| Our own code | Formal and relational concept analysis (§9.6) |
+| petgraph 0.8.3 | Traversal and SCCs, over immutable, explicitly declared projections (§5) |
+| leiden-rs | Community detection (§9.4), fed a normalized, sorted edge list |
+| Our own code | Weighted PageRank with convergence diagnostics (§9.5; petgraph's `page_rank` takes no weights, miscounts parallel arcs and reports no convergence: the library-leverage review, D1); formal and relational concept analysis (§9.6); condensation from `tarjan_scc` membership (petgraph's merges parallel edges) |
 
 - **Each algorithm has a named consumer in the brief** (§9).
 - **A relationship does not need a graph algorithm** just because it has two endpoints.
@@ -1397,15 +1397,28 @@ The vertex universe is selected separately from the edges, so isolated public AP
 | Projection row | links an arc to its evidence rows | yes |
 | petgraph `NodeIndex` / `EdgeIndex` | temporary coordinates | **never** |
 
-**Container.** `petgraph::Graph<(), ArcRow, Directed, u32>`.
-- It is immutable once built and allows parallel edges.
-- Nodes are added in canonical-ID order. Nothing is ever removed, because removal silently
-  re-points held indices.
-- `try_add_*` is used at the u32 limit.
+**Container and adapter** (the library-leverage review, D4; the recipe slice 4 builds).
+`petgraph::Graph<(), u32, Directed, u32>`, whose edge weight is the arc's row index (the arc columns
+stay in Arrow).
+- **Two queries on the pinned snapshot:** the vertex universe (`ORDER BY node_id`, isolates
+  included) and the arcs with the columns above (`ORDER BY src, dst, call_site_id`).
+- **The dense index is the sorted domain ids:** read the `FixedSizeBinaryArray` directly (no hex
+  strings); domain → dense is a `binary_search`.
+- `Graph::with_capacity(n, m)`, then `try_add_node` in order so `NodeIndex(i) == i`, and
+  `try_add_edge` in canonical arc order so `EdgeIndex(k)` is arc row k (`graph_impl/mod.rs:656-681`).
+- Immutable once built, parallel edges kept, nothing ever removed (removal silently re-points held
+  indices).
+- **Scopes and callers without copies:** `EdgeFiltered`/`NodeFiltered`, and `Reversed` (which keeps
+  the original edge ids). Filtered views keep the base graph's `node_bound`.
+- **Not** `Csr` or `GraphMap` (they drop parallel edges), nor `StableGraph` (unneeded, and it blocks
+  9 algorithms); no `rayon` or `serde-1` features.
+- **Test:** shuffled arc rows give an identical adjacency order.
 
 **Determinism rules**
-- `edges_directed` returns the newest edge first, and petgraph's `Bfs` and `Dfs` visit sibling
-  nodes in opposite orders.
+- `edges_directed` returns the newest edge first (`graph_impl/mod.rs:919, 982`). So `Bfs` visits
+  siblings newest-first (`visit/traversal.rs:294-306`), while `Dfs` pushes every successor and
+  pops the last, taking the oldest first (`:108-121`). Probe (2026-09-23): with arcs r→1, r→2, r→3,
+  Bfs = [0,3,2,1,4] and Dfs = [0,1,4,2,3].
 - So traversals never rely on walker order. They collect a node's edges and **sort by
   (target canonical id, arc key)** before choosing.
 - SCC members are sorted by canonical id.
@@ -1708,10 +1721,16 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
 
   A community is not a brief boundary: a brief is one outcome at one public operation
   (IP L1697).
-- **Library.** leiden-rs 0.8.1 (`default-features = false, features = ["petgraph"]`, so it runs
-  sequentially), with the **CPM** quality function.
+- **Library.** leiden-rs 0.8.1 (`default-features = false` and no features, so it runs
+  sequentially; not its `petgraph` adapter, which would need a second graph copy), with the **CPM**
+  quality function. It is built with `GraphDataBuilder` from §5's dense index.
+- **Input normal form** (the library-leverage review, D2; Tested by probe). The undirected builder
+  does not normalize orientation, and shuffled input changed an LFR partition at μ=0.5. So
+  DataFusion aggregates each (min,max) pair under a named weight policy and sorts, and a fixture
+  asserts that shuffled and flipped edges give an identical partition.
 - **Determinism.**
-  - The seed is recorded.
+  - The seed is always set (`None` draws OS entropy) and recorded; `track_quality_history` stands
+    in for the missing converged flag.
   - `rand` is pinned, because rand does not promise reproducible sequences across versions.
   - Crate versions are recorded in the method parameters.
 - **Graph.**
@@ -1730,8 +1749,16 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
 ### §9.5 Centrality
 
 - **Consumer.** The primary entry point within a community, which orders seeds for briefs.
-- **Method.** petgraph `page_rank` over the usage graph, combined with usage counts from examples
-  and tests.
+- **Method.** Our own weighted power iteration (about 40 lines) over the usage projection in
+  canonical order. The edge weights are the usage counts from examples and tests (a named weight
+  policy), with dangling-mass redistribution. It records iterations, the final L1 residual and a
+  converged flag (guidelines §8). petgraph's `page_rank` is rejected (the library-leverage review,
+  D1).
+- **Tests:**
+  - a hand-computed 3-node fixture;
+  - two parallel arcs counted with their weights;
+  - a budget too small to converge, reported as not converged;
+  - shuffled rows giving identical scores.
 - **Output.** A `statistically_derived` ranking finding.
 
 ### §9.6 Formal and relational concept analysis
@@ -1739,13 +1766,18 @@ pre-registered analytics config. Its digest is the `lctx-compiler` run's config 
 - **Consumer.** Applicable cases and modes, shared controls, and implication-style assertions
   (e.g. "every writer accepting `filesystem` also accepts `format`").
 - **FCA (increment 2).**
-  - Our own NextClosure implementation; no maintained crate exists.
+  - Our own NextClosure (Ganter, ICFCA 2010) over `fixedbitset`, which also yields the
+    Duquenne–Guigues implication basis; FCbO (Outrata & Vychodil 2012) only if the concept count
+    exceeds the budget. No usable crate exists: odis is AGPL, fcars enumerates concepts only. So
+    `fcars =0.2.2` is a dev-dependency **oracle** for concept sets, and Python `concepts` 0.9.2 for
+    the cover relation.
   - Objects: the public APIs of one **structurally defined scope**: the subsystem, one module, or
     one class hierarchy. Communities are never an FCA scope, because their membership is
     statistical.
   - Attributes: parameter names, parameter and return types, raised exception types, decorators.
   - A support threshold is applied. There is no stability index: it is #P-hard.
-- **RCA (increment 3).** Adds one relational-scaling step (∃-scaling over calls and handoffs).
+- **RCA (increment 3).** Adds one relational-scaling step (∃-scaling over calls and handoffs), a
+  DataFusion join that adds attribute columns to the same FCA.
   It is kept only if the ablation shows it changes published output.
 - **Output.**
   - Concepts become `applicable_case` findings.
@@ -2043,10 +2075,10 @@ Each item returns by ADR when a consumer needs it.
 |---|---|---|
 | Full ontology tables beyond the CPG families (the native type graph and `record_fields` are built in C4, §3.2) | IP L469–L717, L334–L409 | an analytic or brief needs the detail |
 | Ruff semantic-model port | IP L99–L166 | binding kinds or typing-only context are needed |
-| Cross-references (Pyrefly's Glean collector, now in-process under `report::glean`) | IP L209–L231 | a consumer needs cross-references |
+| Cross-references (Pyrefly's Glean collector, `report::glean::convert::glean(&Transaction, &Handle)`, reachable in-process today). Probe (2026-09-23): 42 xref targets on a fixture, including the typed attribute xref `self.helper()` → `pkg.mod.C.helper`, in `declarations.qualified_name` form. One target per use, flow-sensitive and pruned, so it complements `reference_resolutions` and never replaces it | IP L209–L231 | a consumer needs attribute cross-references (Pass C handoffs, §10 "see also") |
 | CinderX located types (narrowed, unnarrowed, contextual), TSP query surfaces | IP L290–L332, L410–L425 | narrowing or contextual types are needed |
 | Python CFG, dominance, dataflow, aliasing, summaries | IP L821–L884, L1505–L1563 | a pass needs path-sensitive facts |
-| SCC condensation, dominators on projections | IP L1416–L1503 | a consumer beyond recursion labelling |
+| SCC condensation, dominators on projections: condensation from `tarjan_scc` membership keeping every arc's evidence, never petgraph's `condensation` (it merges parallel edges; ADR-0011) | IP L1416–L1503 | a consumer beyond recursion labelling |
 | LanceDB, ANN indexes | IP L2766–L2965 | corpus size or managed FTS (§11.2) |
 | LLM interpretation | IP L1886–L1966, L2580–L2637 | §12 gap metric (§B11) |
 | Graph embeddings, neural reranking, composition planning | IP L2073–L2087 | an ADR after increment 5 |
