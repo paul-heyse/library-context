@@ -172,4 +172,17 @@ D1–D5, probes run 2026-09-23) changed four parts before acceptance:
     increment-2 spike, with the Leiden fixture.
   - **SCCs, when a consumer appears,** use `kosaraju_scc` (iterative) rather than the recursive
     `tarjan_scc`.
+- 2026-09-23: slice 2.3, the acceptance spike (DESIGN §9.4; deviation log D28):
+  - **Implemented** in `lctx_analytics::communities`: integer `(min, max)` pair counts per layer
+    in a `BTreeMap` (the counting is in Rust over the projection's and the co-use relation's
+    rows, which is as bit-stable as a DataFusion integer aggregate and keeps each pair's lineage
+    site); 95th-percentile hub down-weighting; unit-total layers summed 0.5/0.5; RBER at
+    γ ∈ {0.5, 1, 2, 4} × seeds 0–9; the non-degenerate γ with the highest mean pairwise ARI.
+  - **Where the parameters live:** pre-registered code, recorded in every invocation and in the
+    compiler digest, because `analytics.toml` is frozen (D21, D28). The "pre-registered in the
+    analytics config" wording above is superseded by this.
+  - **The spike, re-run (Tested, 2026-09-23):** LFR planted partitions (n = 250, μ = 0.1 and
+    0.3) are recovered with NMI ≥ 0.9; shuffled and flipped edges give an identical consensus
+    (runs, stability and partition); on the pilot, min pairwise NMI across seeds is ≥ 0.796 at
+    every γ, and all 40 runs converge. The revisit trigger's first two conditions did not fire.
 

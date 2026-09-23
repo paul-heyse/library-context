@@ -6,6 +6,7 @@
 pub mod bundle;
 pub mod codebook;
 pub mod column;
+pub mod communities;
 pub mod derived;
 pub mod embedding;
 pub mod findings;

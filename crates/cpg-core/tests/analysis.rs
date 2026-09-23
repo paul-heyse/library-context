@@ -285,7 +285,8 @@ async fn pass_a_finds_the_known_answers_on_analysis_shapes() {
             &format!(
                 "SELECT {LABEL} AS seed, i.method, i.parameters, i.library_versions, \
                         i.completion, i.stop_reason, i.vertices_examined, i.arcs_examined \
-                 FROM analysis_invocations i {} ORDER BY seed, i.method",
+                 FROM analysis_invocations i {} WHERE i.method <= 2 \
+                 ORDER BY seed, i.method",
                 labelled("i.subject_node_id")
             )
         )
@@ -296,7 +297,9 @@ async fn pass_a_finds_the_known_answers_on_analysis_shapes() {
         "pass_a_aliases",
         text(
             &ctx,
-            "SELECT m.label FROM finding_members m ORDER BY m.label"
+            "SELECT m.label FROM finding_members m \
+             JOIN findings f ON f.finding_id = m.finding_id \
+             WHERE f.finding_kind <> 11 ORDER BY m.label"
         )
         .await
     );
@@ -450,7 +453,7 @@ async fn pass_b_finds_the_known_answers_on_analysis_shapes() {
          LEFT JOIN parameter_syntax ps ON ps.node_id = COALESCE(fm.node_id, f.related_node_id) \
          LEFT JOIN declarations d ON d.node_id = COALESCE(ps.function_node_id, \
            CASE WHEN f.finding_kind = 10 THEN f.related_node_id END) \
-         WHERE s.qualified_name = 'pkg.controls.configure' AND f.finding_kind >= 6 \
+         WHERE s.qualified_name = 'pkg.controls.configure' AND f.finding_kind IN (6, 7, 8, 10) \
          ORDER BY kind, source, callee, formal, value",
     )
     .await;
@@ -498,6 +501,47 @@ async fn pass_b_finds_the_known_answers_on_analysis_shapes() {
     assert!(stop.contains("| 0 "), "{stop}");
 }
 
+/// Communities (DESIGN §9.4; ADR-0011) on `analysis_shapes`: every pre-registered resolution
+/// runs every seed, each recorded with its seed, iterations and quality history; the consensus
+/// records its stability per resolution and its choice; each reported community lists its public
+/// APIs, its agreement as score, and the sites behind its strongest pairs.
+#[tokio::test(flavor = "multi_thread")]
+async fn communities_are_stable_and_projected_onto_public_apis() {
+    let (ctx, _dir) = analyzed("one", false).await;
+    let runs = text(
+        &ctx,
+        "SELECT count(*) AS runs, count(DISTINCT seed) AS seeds, \
+                count(DISTINCT parameters) AS parameter_sets, \
+                sum(CASE WHEN converged THEN 1 ELSE 0 END) AS converged, \
+                min(cardinality(quality_history)) AS least_history \
+         FROM analysis_invocations WHERE method = 3",
+    )
+    .await;
+    insta::assert_snapshot!("community_runs", runs);
+    insta::assert_snapshot!(
+        "community_consensus",
+        text(
+            &ctx,
+            "SELECT completion, candidate_set_size, arcs_examined, diagnostics \
+             FROM analysis_invocations WHERE method = 4",
+        )
+        .await
+    );
+    insta::assert_snapshot!(
+        "communities",
+        text(
+            &ctx,
+            "SELECT s.label AS subject, f.score, f.evidence_status, f.witnesses_omitted, \
+                    m.ordinal, m.role, m.label \
+             FROM findings f JOIN finding_members m ON m.finding_id = f.finding_id \
+             JOIN finding_members s ON s.finding_id = f.finding_id AND s.role = 9 \
+               AND s.node_id = f.subject_node_id \
+             WHERE f.finding_kind = 11 ORDER BY subject, m.ordinal",
+        )
+        .await
+    );
+}
+
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
 /// `partial` with its stop reason, and Stage F states it as a limit of the brief.
 #[tokio::test(flavor = "multi_thread")]
@@ -519,7 +563,8 @@ async fn a_vertex_budget_is_partial_and_a_stated_limit() {
             &ctx,
             &format!(
                 "SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \
-                 FROM analysis_invocations i {} ORDER BY seed, i.method",
+                 FROM analysis_invocations i {} WHERE i.method <= 2 \
+                 ORDER BY seed, i.method",
                 labelled("i.subject_node_id")
             )
         )
@@ -736,6 +781,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
         ),
         (
             7,
+            8,
+            "a1059c90f44d1e3d9fcac8d70043dfbea917a6facf056fb890e833cad70d610c",
+        ),
+        (
+            8,
             8,
             "a1059c90f44d1e3d9fcac8d70043dfbea917a6facf056fb890e833cad70d610c",
         ),

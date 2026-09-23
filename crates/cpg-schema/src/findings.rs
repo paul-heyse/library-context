@@ -61,6 +61,9 @@ table!(
         /// Whether the method ran to completion under its stated model, or stopped early.
         completion: CoverageStatus,
         stop_reason: Option<StopReason>,
+        /// What the method measured about its own result, as canonical JSON: a consensus's
+        /// per-resolution stability and its choice (slice 2.3). Never an input.
+        diagnostics: Option<String>,
     }
 );
 
@@ -506,6 +509,7 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
         FindingKind::UnfollowedArgument,
         EvidenceStatus::StructurallyObserved,
     ),
+    (FindingKind::Community, EvidenceStatus::StatisticallyDerived),
 ];
 
 /// The status each evidence kind supports (slice 1.5 review F1): an extracted fact is observed

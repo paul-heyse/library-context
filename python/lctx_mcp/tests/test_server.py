@@ -57,7 +57,8 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert result is not None
         assert result["mode"] == "hybrid" and result["degraded_reason"] is None
         assert result["library"] == LIBRARY and len(result["generation"]) == 16
-        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 15}
+        # Passes A, B and C for each of 5 seeds, 40 Leiden runs and their consensus (slice 2.3).
+        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 56}
         assert 1 <= len(result["hits"]) <= 5
         tool = next(h for h in result["hits"] if h["title"] == "pkg.Server.tool")
         brief = await client.call_tool(

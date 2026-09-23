@@ -1,0 +1,47 @@
+---
+source: crates/cpg-core/tests/analysis.rs
+expression: "text(&ctx,\n\"SELECT s.label AS subject, f.score, f.evidence_status, f.witnesses_omitted, \\\n                    m.ordinal, m.role, m.label \\\n             FROM findings f JOIN finding_members m ON m.finding_id = f.finding_id \\\n             JOIN finding_members s ON s.finding_id = f.finding_id AND s.role = 9 \\\n               AND s.node_id = f.subject_node_id \\\n             WHERE f.finding_kind = 11 ORDER BY subject, m.ordinal\",).await"
+---
++--------------------------------+--------------------+-----------------+-------------------+---------+------+--------------------------------+
+| subject                        | score              | evidence_status | witnesses_omitted | ordinal | role | label                          |
++--------------------------------+--------------------+-----------------+-------------------+---------+------+--------------------------------+
+| pkg.Server.tool                | 1.0                | 2               | true              | 0       | 9    | pkg.helpers.deep_two           |
+| pkg.Server.tool                | 1.0                | 2               | true              | 1       | 9    | pkg.Server.dispatch            |
+| pkg.Server.tool                | 1.0                | 2               | true              | 2       | 9    | pkg.Aliased.run                |
+| pkg.Server.tool                | 1.0                | 2               | true              | 3       | 9    | pkg.helper                     |
+| pkg.Server.tool                | 1.0                | 2               | true              | 4       | 9    | pkg.handlers.Handler.handle    |
+| pkg.Server.tool                | 1.0                | 2               | true              | 5       | 9    | pkg.helpers.deep_one           |
+| pkg.Server.tool                | 1.0                | 2               | true              | 6       | 9    | pkg.helpers.deep_three         |
+| pkg.Server.tool                | 1.0                | 2               | true              | 7       | 9    | pkg.handlers.run               |
+| pkg.Server.tool                | 1.0                | 2               | true              | 8       | 9    | pkg.Server.route               |
+| pkg.Server.tool                | 1.0                | 2               | true              | 9       | 9    | pkg.Server.label               |
+| pkg.Server.tool                | 1.0                | 2               | true              | 10      | 9    | pkg.Server.tool                |
+| pkg.Server.tool                | 1.0                | 2               | true              | 11      | 9    | pkg.helpers.prepare            |
+| pkg.Server.tool                | 1.0                | 2               | true              | 12      | 9    | pkg.helpers.finish             |
+| pkg.Server.tool                | 1.0                | 2               | true              | 13      | 10   | invocation                     |
+| pkg.Server.tool                | 1.0                | 2               | true              | 14      | 10   | invocation                     |
+| pkg.Server.tool                | 1.0                | 2               | true              | 15      | 10   | invocation                     |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 0       | 9    | pkg.controls.slow              |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 1       | 9    | pkg.controls.validate          |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 2       | 9    | pkg.controls.rebinding         |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 3       | 9    | pkg.controls.passthrough       |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 4       | 9    | pkg.configure                  |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 5       | 9    | pkg.controls.checked           |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 6       | 9    | pkg.controls.probe_attr        |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 7       | 9    | pkg.controls.muted             |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 8       | 9    | pkg.controls.annotate          |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 9       | 9    | pkg.controls.Registry.add      |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 10      | 9    | pkg.controls.Widget.__init__   |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 11      | 9    | pkg.controls.swap              |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 12      | 10   | invocation                     |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 13      | 10   | invocation                     |
+| pkg.configure                  | 0.8730158730158728 | 2               | true              | 14      | 10   | invocation                     |
+| pkg.controls.Registry.__init__ | 1.0                | 2               | false             | 0       | 9    | pkg.controls.Registry.__init__ |
+| pkg.controls.Registry.__init__ | 1.0                | 2               | false             | 1       | 9    | pkg.controls.Registry.create   |
+| pkg.controls.Registry.__init__ | 1.0                | 2               | false             | 2       | 10   | invocation                     |
+| pkg.controls.finish            | 1.0                | 2               | false             | 0       | 9    | pkg.controls.build             |
+| pkg.controls.finish            | 1.0                | 2               | false             | 1       | 9    | pkg.controls.finish            |
+| pkg.controls.finish            | 1.0                | 2               | false             | 2       | 9    | pkg.controls.record            |
+| pkg.controls.finish            | 1.0                | 2               | false             | 3       | 10   | invocation                     |
+| pkg.controls.finish            | 1.0                | 2               | false             | 4       | 10   | invocation                     |
++--------------------------------+--------------------+-----------------+-------------------+---------+------+--------------------------------+

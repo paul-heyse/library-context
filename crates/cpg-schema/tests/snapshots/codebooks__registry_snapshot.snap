@@ -469,6 +469,8 @@ analytic_method
   0 pass_a_bfs
   1 pass_b_flows
   2 pass_c_handoffs
+  3 leiden
+  4 community_consensus
 finding_kind
   0 public_alias
   1 direct_delegation
@@ -481,6 +483,7 @@ finding_kind
   8 conditional_raise
   9 handoff
   10 unfollowed_argument
+  11 community
 stop_reason
   0 depth_limit
   1 vertex_budget
@@ -500,6 +503,8 @@ member_role
   6 consumer_site
   7 conditional_call
   8 reason
+  9 community_member
+  10 supporting_site
 assertion_kind
   0 outcome
   1 public_access

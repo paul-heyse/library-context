@@ -9,7 +9,9 @@ use std::collections::BTreeMap;
 
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use cpg_schema::codebook::{AnalyticMethod, Codebook, ExtractionMode, NodeKind, SourceRole};
+use cpg_schema::codebook::{
+    AnalyticMethod, Codebook, CoverageStatus, ExtractionMode, NodeKind, SourceRole,
+};
 use cpg_schema::findings::{
     AnalysisInvocationsRow, FindingMembersRow, FindingsRow, WitnessesRow, recipe as findings,
 };
@@ -17,6 +19,7 @@ use cpg_schema::id::{Digest, Id, content_digest, recipe};
 use cpg_schema::projection::{self, ProjectionSpec, schemas};
 use cpg_schema::tables::{ProducersRow, RunsRow};
 use datafusion::prelude::SessionContext;
+use lctx_analytics::communities;
 use lctx_analytics::config::AnalyticsConfig;
 use lctx_analytics::graph::Projection;
 use lctx_analytics::pass_a::{self, Budgets, Seed};
@@ -416,6 +419,13 @@ struct PassCParameters<'a> {
 }
 
 #[derive(Serialize)]
+struct CommunityParameters<'a> {
+    communities: &'a communities::Params,
+    module_prefixes: &'a [String],
+    public_roots: &'a [String],
+}
+
+#[derive(Serialize)]
 struct PassBParameters<'a> {
     seed: &'a str,
     max_depth: u32,
@@ -552,6 +562,7 @@ pub async fn run(
             arcs_examined: Some(result.arcs_examined),
             completion: result.completion,
             stop_reason: result.stop_reason,
+            diagnostics: None,
         });
         rows.seeds.push((name.clone(), seed.node));
         rows.findings.extend(result.findings);
@@ -634,6 +645,7 @@ pub async fn run(
             arcs_examined: Some(result.flows_examined),
             completion: result.completion,
             stop_reason: result.stop_reason,
+            diagnostics: None,
         });
         rows.findings.extend(result.findings);
         rows.members.extend(result.members);
@@ -693,10 +705,116 @@ pub async fn run(
             arcs_examined: None,
             completion: result.completion,
             stop_reason: None,
+            diagnostics: None,
         });
         rows.findings.extend(result.findings);
         rows.members.extend(result.members);
     }
+    // Communities (§9.4): Leiden over the subsystem's invocation and co-use layers, at the
+    // pre-registered resolutions and seeds; the consensus's communities cite it.
+    let community_digest = cpg_schema::communities::digest();
+    let input = communities::Input::build(
+        &p,
+        &subsystem,
+        &collect(
+            ctx,
+            &cpg_schema::communities::co_use_sql(),
+            &cpg_schema::communities::schemas::co_use(),
+        )
+        .await?,
+        &collect(
+            ctx,
+            &cpg_schema::communities::public_callables_sql(&config.subsystem.public_roots),
+            &cpg_schema::communities::schemas::public_callables(),
+        )
+        .await?,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let params = communities::Params::preregistered();
+    let parameters = serde_json::to_string(&CommunityParameters {
+        communities: &params,
+        module_prefixes: &config.subsystem.module_prefixes,
+        public_roots: &config.subsystem.public_roots,
+    })
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let parameters_digest = content_digest(parameters.as_bytes());
+    let consensus_id = findings::invocation(
+        AnalyticMethod::CommunityConsensus.code(),
+        parameters_digest,
+        Some(community_digest),
+        None,
+        None,
+    );
+    let outcome = communities::run(&input, &params, snapshot_id, consensus_id)
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    for run in &outcome.runs {
+        let parameters = format!(
+            "{{\"consensus\":\"{}\",\"run\":{}}}",
+            parameters_digest.hex(),
+            run.parameters
+        );
+        let run_digest = content_digest(parameters.as_bytes());
+        rows.invocations.push(AnalysisInvocationsRow {
+            snapshot_id,
+            invocation_id: findings::invocation(
+                AnalyticMethod::Leiden.code(),
+                run_digest,
+                Some(community_digest),
+                None,
+                Some(run.seed as i64),
+            ),
+            run_id: compiler.run_id,
+            model_id: compiler.model("leiden"),
+            extraction_mode: ExtractionMode::GraphAnalysis,
+            method: AnalyticMethod::Leiden,
+            parameters,
+            parameters_digest: run_digest,
+            projection_digest: Some(community_digest),
+            library_versions: lctx_analytics::libraries(),
+            subject_node_id: None,
+            seed: Some(run.seed as i64),
+            iterations: Some(run.iterations),
+            residual: None,
+            converged: Some(run.converged),
+            quality_history: run.quality_history.clone(),
+            candidate_set_size: Some(outcome.vertices as i64),
+            vertices_examined: Some(outcome.vertices as i64),
+            arcs_examined: Some(outcome.pairs as i64),
+            completion: if run.converged {
+                CoverageStatus::CompleteUnderStatedModel
+            } else {
+                CoverageStatus::Partial
+            },
+            stop_reason: None,
+            diagnostics: None,
+        });
+    }
+    rows.invocations.push(AnalysisInvocationsRow {
+        snapshot_id,
+        invocation_id: consensus_id,
+        run_id: compiler.run_id,
+        model_id: compiler.model("community-consensus"),
+        extraction_mode: ExtractionMode::GraphAnalysis,
+        method: AnalyticMethod::CommunityConsensus,
+        parameters,
+        parameters_digest,
+        projection_digest: Some(community_digest),
+        library_versions: lctx_analytics::libraries(),
+        subject_node_id: None,
+        seed: None,
+        iterations: None,
+        residual: None,
+        converged: None,
+        quality_history: Vec::new(),
+        candidate_set_size: Some(outcome.vertices as i64),
+        vertices_examined: Some(outcome.vertices as i64),
+        arcs_examined: Some(outcome.pairs as i64),
+        completion: outcome.completion,
+        stop_reason: None,
+        diagnostics: Some(outcome.diagnostics),
+    });
+    rows.findings.extend(outcome.findings);
+    rows.members.extend(outcome.members);
     // Two seeds may reach the same finding only with different subjects, so ids are unique; the
     // key rules check it.
     Ok(rows)

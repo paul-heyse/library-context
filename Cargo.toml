@@ -26,6 +26,9 @@ petgraph = "=0.8.3"
 # The analytics adapter's subsystem masks and FCA contexts (DESIGN §5, §9.6): petgraph's own
 # `fixedbitset`, already in the graph at this version.
 fixedbitset = "=0.5.7"
+# Communities (DESIGN §9.4; ADR-0011): sequential Leiden, no features (not its petgraph adapter,
+# not rayon); its RNG is rand 0.9, already in the graph.
+leiden-rs = { version = "=0.8.1", default-features = false }
 # Stage F's lead sentences (DESIGN §10.3): UAX #29 sentence boundaries with byte offsets, already
 # in the graph at this version (arrow-cast -> comfy-table).
 unicode-segmentation = "=1.13.3"

@@ -809,6 +809,12 @@ codebook!(
         PassBFlows = 1 => "pass_b_flows",
         /// Pass C: producer → consumer handoffs in the official usage code (§9.3).
         PassCHandoffs = 2 => "pass_c_handoffs",
+        /// One Leiden run (leiden-rs, RBER) at one resolution and seed over the community layers
+        /// (§9.4).
+        Leiden = 3 => "leiden",
+        /// The consensus over the Leiden runs: the pre-registered resolution choice, seed
+        /// stability and per-community agreement (§9.4). Its communities cite it.
+        CommunityConsensus = 4 => "community_consensus",
     }
 );
 
@@ -847,6 +853,10 @@ codebook!(
         /// name is rebound, inside an expression, or unpacked or taken by no single formal (slice
         /// 2.1 review F4). The related node is the callee; a `reason` member says which.
         UnfollowedArgument = 10 => "unfollowed_argument",
+        /// Subsystem callables Leiden places together, stably across seeds (§9.4). The members
+        /// are its public APIs; the subject its strongest public member; the score its seed
+        /// agreement. Statistical: it never states a control or a limit.
+        Community = 11 => "community",
     }
 );
 
@@ -894,6 +904,12 @@ codebook!(
         ConditionalCall = 7 => "conditional_call",
         /// Why Pass B does not follow a value (`rebound`, `computed`, `unmapped`).
         Reason = 8 => "reason",
+        /// A public API in a community (its access path as label, its strength in the community
+        /// as weight).
+        CommunityMember = 9 => "community_member",
+        /// A call site or usage scope behind one of a community's strongest pairs: the lineage an
+        /// aggregated pair keeps (H1 review F9). The label names the layer.
+        SupportingSite = 10 => "supporting_site",
     }
 );
 

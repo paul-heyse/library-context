@@ -39,7 +39,8 @@ pub struct Published {
 /// documents' spec hash and `embedding_specs` (slice 1.7). 5: Pass B and parameter docs (slice
 /// 2.1). 6: Pass C (slice 2.2). 7: the slice 2.1 review: handler, conditional and tested calls,
 /// unfollowed arguments, supported predicates, receivers by kind, header-anchored descriptions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 7;
+/// 8: communities and their invocations' diagnostics (slice 2.3).
+pub const COMPILER_OUTPUT_VERSION: u32 = 8;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -72,7 +73,8 @@ pub fn compiler_digest_of(
 /// The identity of the code that derives, analyzes, validates and publishes: the locked engines
 /// and analysis libraries, the output version, the synthesis template version (which stands for
 /// Stage F's queries and templates: the analysis ledger fails any output change without a bump;
-/// increment-1 deep review F1), every derivation query, declared projection and Pass B relation,
+/// increment-1 deep review F1), every derivation query, declared projection, Pass B and community
+/// relation, the pre-registered community parameters (slice 2.3),
 /// every table contract and every validation rule. Stored on each `snapshots` row and folded into
 /// `content_digest`.
 pub fn compiler_digest() -> Digest {
@@ -82,6 +84,16 @@ pub fn compiler_digest() -> Digest {
         queries.push((spec.name, spec.digest().hex()));
     }
     queries.push(("pass_b_relations", cpg_schema::flows::digest().hex()));
+    queries.push((
+        "community_relations",
+        cpg_schema::communities::digest().hex(),
+    ));
+    queries.push((
+        "community_parameters",
+        lctx_analytics::communities::Params::preregistered()
+            .digest()
+            .hex(),
+    ));
     compiler_digest_of(
         &format!("{ENGINES}; {}", lctx_analytics::LIBRARIES),
         COMPILER_OUTPUT_VERSION,

@@ -60,7 +60,7 @@ fn list(xs: &[i16]) -> String {
     xs.iter().map(i16::to_string).collect::<Vec<_>>().join(", ")
 }
 
-fn codes<C: Codebook>(xs: &[C]) -> String {
+pub(crate) fn codes<C: Codebook>(xs: &[C]) -> String {
     list(&xs.iter().map(|c| c.code()).collect::<Vec<_>>())
 }
 
@@ -77,7 +77,7 @@ fn accepted() -> String {
 
 /// The call targets the relations read, one row per (call site, target, edge): the evidence's
 /// modality, the phase and whether the target binds an implicit receiver.
-fn call_targets() -> String {
+pub(crate) fn call_targets() -> String {
     format!(
         "SELECT ct.src_node_id AS call_site_node_id, ct.dst_node_id AS target_node_id, \
                 ct.edge_id, f.modality, p.phase, \

@@ -1,8 +1,17 @@
-//! The locked versions of the libraries the analyses run (petgraph, fixedbitset; later
-//! leiden-rs and its RNG), read from the workspace `Cargo.lock`, so each invocation's record and
-//! the compiler digest follow what is built rather than a hand-kept string (guidelines §8).
+//! The locked versions of the libraries the analyses run (petgraph, fixedbitset, leiden-rs and
+//! its RNG), read from the workspace `Cargo.lock`, so each invocation's record and the compiler
+//! digest follow what is built rather than a hand-kept string (guidelines §8).
 
-const LIBRARIES: &[&str] = &["fixedbitset", "petgraph"];
+/// Each library by name and version prefix: the lock holds several `rand` majors, and leiden-rs
+/// draws from the 0.9 line (rand does not promise sequences across versions; ADR-0011).
+const LIBRARIES: &[(&str, &str)] = &[
+    ("fixedbitset", ""),
+    ("leiden-rs", ""),
+    ("petgraph", ""),
+    ("rand", "0.9."),
+    ("rand_chacha", "0.9."),
+    ("rand_core", "0.9."),
+];
 
 fn main() {
     let dir = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
@@ -20,9 +29,11 @@ fn main() {
                 })
             };
             let name = field("name")?;
+            let version = field("version").unwrap_or_default();
             LIBRARIES
-                .contains(&name.as_str())
-                .then(|| format!("{name} {}", field("version").unwrap_or_default()))
+                .iter()
+                .any(|(n, prefix)| *n == name && version.starts_with(prefix))
+                .then(|| format!("{name} {version}"))
         })
         .collect();
     found.sort();

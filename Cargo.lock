@@ -3466,6 +3466,7 @@ dependencies = [
  "arrow-array",
  "cpg-schema",
  "fixedbitset",
+ "leiden-rs",
  "petgraph",
  "serde",
  "serde_json",
@@ -3482,6 +3483,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "leiden-rs"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7bbf4703fdbd25078c1842083c8f4e5551ed118a9d00342e309fee0bea46d42"
+dependencies = [
+ "rand 0.9.5",
+ "rustc-hash",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

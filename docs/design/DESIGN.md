@@ -1969,7 +1969,7 @@ deviation log D17, D18, D26):
 
 ### §9.4 Community detection
 
-- **Label.** Pending the ADR-0011 spike.
+- **Label.** Implemented and Tested (slice 2.3); ADR-0011 accepted at its spike.
 - **Consumers:**
   - **seed selection**, which decides which entry points get briefs within the brief budget;
   - the brief's **Related** field (§10.3).
@@ -2010,6 +2010,49 @@ deviation log D17, D18, D26):
   try_ari}` over the partitions, and per community a membership agreement score (our own
   max-Jaccard matching against the reference seed).
 - **Outputs.** `statistically_derived` findings.
+
+**Implemented** and **Tested** in slice 2.3 (2026-09-23; deviation log D28):
+- **Relations** (`cpg_schema::communities`, digested into the compiler digest). The co-use
+  occurrences (each usage-code call to a function with its enclosing scope, over the flows' call
+  targets) and the public callables (functions exported under a public root by a path with no
+  private segment, and each public method, `__init__` or `__call__` an exported class declares or
+  inherits along its MRO, the nearest definition winning). The invocation layer reads the
+  invocation projection's arcs between two subsystem functions.
+- **Kernel** (`lctx_analytics::communities`).
+  - Each layer is `u64` counts per `(min, max)` pair in a `BTreeMap`; a pair keeps its least
+    contributing site (a call site, or a usage scope) as lineage (H1 F9).
+  - Hubs: an end whose strength exceeds the layer's 95th-percentile strength scales the count by
+    threshold / strength. Each layer is normalized to unit total; the layers are summed with
+    weight 0.5 each, in canonical pair order.
+  - The vertices are the subsystem functions some pair touches (an isolated one is in no
+    community).
+  - leiden-rs 0.8.1 `Leiden::run` with `QualityType::RBER`, γ ∈ {0.5, 1, 2, 4} and seeds 0–9
+    (40 runs), `track_quality_history`; `converged` is "stopped before the iteration budget".
+    Labels are made canonical by first appearance along the dense index.
+  - A γ is degenerate when its seed-0 partition puts more than half the vertices in one
+    community or has no community of three; among the rest the highest mean pairwise ARI wins,
+    ties going to the γ nearest 1. A community of the chosen seed-0 partition is reported with at
+    least two public members and a mean best-Jaccard agreement of at least 0.5.
+  - The parameters are pre-registered code (`Params::preregistered`, D28), not the frozen
+    config, and recorded in every invocation.
+- **Records.** One `leiden` invocation per run (its γ and seed, iterations, convergence, quality
+  history) and one `community_consensus` invocation. The consensus's new `diagnostics` column (a
+  declared migration) holds, per γ, mean ARI and NMI, min NMI, community count, largest community
+  and degeneracy, plus the choice and what was reported. Each `community` finding lists its
+  public APIs (`community_member`, with access path and strength), cites the sites behind its
+  three strongest pairs (`supporting_site`), and has its agreement as score.
+- **Tests.** `communities::tests`: LFR planted partitions (n = 250, μ = 0.1 and 0.3) recovered
+  with NMI ≥ 0.9; shuffled and flipped edges give the identical consensus; hub down-weighting; a
+  trivially small graph is degenerate. `communities_are_stable_and_projected_onto_public_apis`
+  on `analysis_shapes`; the co-use layer on `docs_shapes`; the module-order and location test
+  covers the new rows.
+- **Pilot (Measured, 2026-09-23, snapshot `115a9bec`).** 516 vertices and 1,298 combined pairs
+  (712 invocation, 598 co-use). All 40 runs converged, the longest in 5 iterations. Mean pairwise
+  ARI per γ is 0.700 (0.5), 0.749 (1), 0.793 (2) and 0.739 (4), with min NMI ≥ 0.796 throughout;
+  none is degenerate, and γ = 2 is chosen: 59 communities, the largest of 78. 32 are reported
+  (2–64 public members; agreement 0.616–1.0, mean 0.886); 7 fall below the agreement threshold
+  and 20 have fewer than two public members. All five seeds share one community, the `FastMCP`
+  server surface (agreement 0.777). Stage E's analysis time is unchanged within noise (2.2 s).
 
 ### §9.5 Centrality
 

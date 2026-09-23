@@ -32,3 +32,4 @@ vertices_examined: Int64 NULL
 arcs_examined: Int64 NULL
 completion: Int16 NOT NULL [lctx.codebook=coverage_status]
 stop_reason: Int16 NULL [lctx.codebook=stop_reason]
+diagnostics: Utf8 NULL

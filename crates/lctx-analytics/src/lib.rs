@@ -4,6 +4,7 @@
 //! projection queries on the attempt's session, hands the batches over, and writes the rows back
 //! through the attempt's write path. So every kernel is tested on small fixtures without a store.
 
+pub mod communities;
 pub mod config;
 pub mod graph;
 pub mod pass_a;

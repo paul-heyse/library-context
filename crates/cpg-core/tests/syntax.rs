@@ -1060,5 +1060,15 @@ budget = 2
         ),
         "{patterns}"
     );
+    // The community layers (§9.4): the usage code co-uses three subsystem callables, so the
+    // co-use layer has their three pairs; three vertices give only degenerate partitions, so
+    // nothing is chosen or reported.
+    let consensus = lines(
+        &ctx,
+        "SELECT diagnostics FROM analysis_invocations WHERE method = 4",
+    )
+    .await;
+    assert!(consensus.contains("\"co_use_pairs\":3,"), "{consensus}");
+    assert!(consensus.contains("\"chosen_gamma\":null,"), "{consensus}");
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
