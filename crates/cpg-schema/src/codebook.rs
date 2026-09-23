@@ -856,6 +856,75 @@ codebook!(
     }
 );
 
+codebook!(
+    /// What an assertion states (DESIGN §10.2): each kind has one brief section and a set of
+    /// permitted statuses (`findings::ASSERTION_POLICY`). Increment-1 kinds first.
+    AssertionKind = "assertion_kind" {
+        /// What the caller can accomplish: a docstring summary or an explicit doc mention.
+        Outcome = 0 => "outcome",
+        /// The public access paths of the operation.
+        PublicAccess = 1 => "public_access",
+        /// What the operation already coordinates (Pass A's delegations).
+        Coordinates = 2 => "coordinates",
+        /// One parameter: name, kind, default, requiredness, annotation.
+        Parameter = 3 => "parameter",
+        /// Where the analysis stopped, and why.
+        AnalysisBoundary = 4 => "analysis_boundary",
+        /// Other briefs in the same community (increment 2).
+        Related = 5 => "related",
+    }
+);
+
+codebook!(
+    /// A brief's sections, in their presentation order (DESIGN §10.3).
+    BriefSection = "brief_section" {
+        Outcome = 0 => "outcome",
+        PublicAccess = 1 => "public_access",
+        ApplicableCase = 2 => "applicable_case",
+        Controls = 3 => "controls",
+        UsagePattern = 4 => "usage_pattern",
+        Limits = 5 => "limits",
+        Evidence = 6 => "evidence",
+        Related = 7 => "related",
+    }
+);
+
+codebook!(
+    /// How a finding or evidence row supports an assertion (DESIGN §10.2).
+    SupportRole = "support_role" {
+        /// It supports the claim.
+        Support = 0 => "support",
+        /// It defined the claim's scope (a statistical scope makes the claim statistical).
+        Scope = 1 => "scope",
+    }
+);
+
+codebook!(
+    /// What an evidence row cites (DESIGN §3.2).
+    EvidenceKind = "evidence_kind" {
+        /// An extracted fact and its source span.
+        Fact = 0 => "fact",
+        /// A byte span of a source file.
+        Span = 1 => "span",
+        /// A byte span of a document passage.
+        Passage = 2 => "passage",
+        /// An official example module.
+        Example = 3 => "example",
+        /// An executed fixture run.
+        FixtureRun = 4 => "fixture_run",
+    }
+);
+
+codebook!(
+    /// A brief's manual review (DESIGN §10.4; ADR-0020, slice 3.5). Outside `brief_id`.
+    ReviewState = "review_state" {
+        Unreviewed = 0 => "unreviewed",
+        Accepted = 1 => "accepted",
+        Rejected = 2 => "rejected",
+        NeedsChanges = 3 => "needs_changes",
+    }
+);
+
 impl FactFamily {
     /// Whether a run may declare the family and so owe a coverage row per module or document:
     /// the extraction families. Publication, the catalogs, analysis results and the embedding
@@ -919,6 +988,11 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<FindingKind>(),
         CodebookEntry::of::<StopReason>(),
         CodebookEntry::of::<MemberRole>(),
+        CodebookEntry::of::<AssertionKind>(),
+        CodebookEntry::of::<BriefSection>(),
+        CodebookEntry::of::<SupportRole>(),
+        CodebookEntry::of::<EvidenceKind>(),
+        CodebookEntry::of::<ReviewState>(),
     ]
 }
 

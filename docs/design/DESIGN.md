@@ -1914,7 +1914,11 @@ Seeds resolve through `exports`, then each remaining name as a member of its own
 ## §10 Synthesis and briefs
 
 **Proposed.** Source: IP L1695–L1731, L1886–L1966, L2580–L2637. Changed by ADR-0005: there is no
-LLM interpreter.
+LLM interpreter. The increment-1 kinds, the kind policy, status propagation, the Outcome order and
+the grounding rules below are **Implemented** and **Tested** (slice 1.5, 2026-09-23:
+`cpg-core::synth`; `briefs_are_synthesized_from_findings_and_verbatim_evidence` snapshots each
+brief of `analysis_shapes` and checks every evidence text byte-for-byte against its source past a
+non-ASCII byte; each rule rejects an injected violation in `the_analysis_rules_reject_their_violations`).
 
 ### §10.1 Findings
 
@@ -1998,7 +2002,34 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 The nearest doc passage by embedding is never an Outcome. It is published as a doc link
 (`statistically_derived`), which keeps the gap metric honest.
 
-**The count of `unresolved` slots, by section, is the §B11 gap metric.**
+**The count of `unresolved` slots, by section, is the §B11 gap metric.** Read from a published
+snapshot with `lctx query`:
+`SELECT p.brief_section, count(*) FROM assertions a JOIN assertion_policy p ON
+p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status WHERE
+a.evidence_status = 4 GROUP BY p.brief_section ORDER BY 1`.
+
+**How increment 1 fills the sections** (slice 1.5, `cpg-core::synth`):
+- **Outcome:** the seed's docstring summary line, located in the literal's own source bytes (the
+  first non-blank line; Pyrefly's `Docstring::clean` renders Markdown and loses spans), else the
+  first UAX #29 sentence (`unicode-segmentation`) of the first prose paragraph of the first passage,
+  by document path and ordinal, holding an **exact** mention of the seed or of an export naming it;
+  else `unresolved`. Either is verbatim, and its evidence is the byte span.
+- **Public access:** the seed's configured access path and every other public access path naming
+  it (Pass A's `public_alias`).
+- **Already coordinates:** one assertion per delegation finding: a direct call with its number of
+  call sites, or a bounded path with its first intermediate; a path through an override-open call
+  says so.
+- **Important controls:** one `parameter` assertion per parameter of the seed's own signature (the
+  receiver aside): kind, default, requiredness and annotation, with the parameter's fact and span as
+  evidence. Parameter docs join with Pass B (increment 2).
+- **Limits:** one `analysis_boundary` assertion per stop reason (dependencies, synthesized
+  callables, release code outside the subsystem, unresolved sites), plus the depth bound or a
+  budget truncation of the seed's invocation.
+- **The brief document** (§11.1): outcome, public APIs, control names and limits. Over
+  2,048 tokens (a declared proxy of 4 bytes per token until the embedder counts, slice 1.6) it
+  fails the compile in increment 1; applicable cases split it from increment 2.
+- A template or extractive-rule change bumps `synth::TEMPLATE_VERSION`; the analysis output is
+  pinned to the versions in a test ledger (ADR-0019 review O4).
 
 ### §10.4 Grounding checks
 
@@ -2222,3 +2253,4 @@ Each item returns by ADR when a consumer needs it.
 > Decision: ADR-0012
 | 2026-09-23 | Slice 1.4: table groups for analysis results, the `lctx-compiler` run, the declared invocation projection (§5) and its petgraph adapter, Pass A (§9.1) with `analysis_invocations`/`findings`/`finding_members`/`witnesses`; `libraries/fastmcp/analytics.toml` (docs-only authored); the ADR-0019 standard review's P1 items (identity and lineage per contract, completion mapping, status policy, `adr lint` checks for Decision lines and cited records) (§B6, §5, §6.4, §9, §9.1, §10.1) | ADR-0019 (amended), ADR-0004 |
 
+| 2026-09-23 | Slice 1.5: Stage F synthesis (`cpg-core::synth`): the increment-1 assertion kinds, the kind policy published as `assertion_policy`, derived statuses, verbatim evidence by byte span, briefs, brief members and the brief document; eight tables and eight rules (policy, propagation, text, supports, evidence bytes, exported members, briefs cite analysis); `unicode-segmentation` pinned; the analysis-output ledger (§10, §10.2, §10.3) | ADR-0019 |

@@ -10,7 +10,7 @@
 //!
 //! The queries read tables registered under their own names and filtered to one snapshot.
 
-use crate::codebook::{Codebook, FactFamily, SourceRole, registry};
+use crate::codebook::{Codebook, EvidenceStatus, FactFamily, SourceRole, registry};
 use crate::column::CODEBOOK_KEY;
 use crate::table::Table;
 
@@ -81,6 +81,38 @@ pub const REFERENCES: &[Reference] = &[
     r("witnesses", "call_site_node_id", NODE),
     r("witnesses", "callee_node_id", NODE),
     r("witnesses", "edge_id", &[("edges", "edge_id")]),
+    r("evidence", "cited_fact_id", FACT),
+    r("evidence", "node_id", NODE),
+    r("evidence", "module_node_id", NODE),
+    r("assertions", "run_id", &[("runs", "run_id")]),
+    r("assertions", "subject_node_id", NODE),
+    r(
+        "assertion_support",
+        "assertion_id",
+        &[("assertions", "assertion_id")],
+    ),
+    r(
+        "assertion_support",
+        "finding_id",
+        &[("findings", "finding_id")],
+    ),
+    r(
+        "assertion_support",
+        "evidence_id",
+        &[("evidence", "evidence_id")],
+    ),
+    r("briefs", "run_id", &[("runs", "run_id")]),
+    r("briefs", "seed_node_id", NODE),
+    r("brief_assertions", "brief_id", &[("briefs", "brief_id")]),
+    r(
+        "brief_assertions",
+        "assertion_id",
+        &[("assertions", "assertion_id")],
+    ),
+    r("brief_members", "brief_id", &[("briefs", "brief_id")]),
+    r("brief_members", "export_node_id", NODE),
+    r("brief_members", "declaration_node_id", NODE),
+    r("brief_documents", "brief_id", &[("briefs", "brief_id")]),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
     r("provider_class_map", "pysa_fact_id", FACT),
@@ -210,6 +242,97 @@ fn semantic() -> Vec<Rule> {
              JOIN runs r ON r.run_id = i.run_id \
              JOIN producers p ON p.producer_id = r.producer_id \
              WHERE p.tool <> 'lctx-compiler'"
+                .to_owned(),
+        ),
+        (
+            // §10.2: an assertion's status is one its kind permits, in the published policy.
+            "semantic:assertion-policy",
+            "SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN assertion_policy p \
+               ON p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status"
+                .to_owned(),
+        ),
+        (
+            // The published policy is the code's, both ways.
+            "semantic:assertion-policy-published",
+            {
+                let values = crate::findings::ASSERTION_POLICY
+                    .iter()
+                    .flat_map(|(k, s, statuses)| {
+                        statuses
+                            .iter()
+                            .map(move |st| format!("({}, {}, {})", k.code(), s.code(), st.code()))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "WITH v AS (SELECT * FROM (VALUES {values}) AS v(k, s, st)) \
+                     SELECT p.assertion_kind FROM assertion_policy p LEFT ANTI JOIN v \
+                       ON v.k = p.assertion_kind AND v.s = p.brief_section \
+                      AND v.st = p.evidence_status \
+                     UNION ALL \
+                     SELECT v.k FROM v LEFT ANTI JOIN assertion_policy p \
+                       ON v.k = p.assertion_kind AND v.s = p.brief_section \
+                      AND v.st = p.evidence_status"
+                )
+            },
+        ),
+        (
+            // §10.2 propagation: a statistical supporting or scope-defining finding makes the
+            // assertion statistical (or unresolved); an unresolved one makes it unresolved.
+            "semantic:assertion-status-propagation",
+            format!(
+                "SELECT a.assertion_id FROM assertions a \
+                 JOIN assertion_support s ON s.assertion_id = a.assertion_id \
+                 JOIN findings f ON f.finding_id = s.finding_id \
+                 WHERE (f.evidence_status = {stat} AND a.evidence_status NOT IN ({stat}, {unres})) \
+                    OR (f.evidence_status = {unres} AND a.evidence_status <> {unres})",
+                stat = EvidenceStatus::StatisticallyDerived.code(),
+                unres = EvidenceStatus::Unresolved.code()
+            ),
+        ),
+        (
+            // §10.2: an unresolved slot has no text, and only an unresolved slot has none.
+            "semantic:assertion-text-iff-resolved",
+            format!(
+                "SELECT assertion_id FROM assertions \
+                 WHERE (text IS NULL) <> (evidence_status = {})",
+                EvidenceStatus::Unresolved.code()
+            ),
+        ),
+        (
+            // A support row cites exactly one finding or one evidence row.
+            "semantic:support-cites-one",
+            "SELECT assertion_id FROM assertion_support \
+             WHERE (finding_id IS NULL) = (evidence_id IS NULL)"
+                .to_owned(),
+        ),
+        (
+            // ADR-0019 review F8: resolved text is exactly its span's bytes.
+            "semantic:evidence-text-bytes",
+            "SELECT evidence_id FROM evidence \
+             WHERE text IS NOT NULL AND start_byte IS NOT NULL AND end_byte IS NOT NULL \
+               AND octet_length(text) <> end_byte - start_byte"
+                .to_owned(),
+        ),
+        (
+            // §10.4: every public symbol a brief names is an export's access path, or extends one
+            // with a member name.
+            "semantic:brief-member-exported",
+            "SELECT m.brief_id, m.access_path FROM brief_members m \
+             LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id \
+               AND (m.access_path = e.access_path \
+                    OR starts_with(m.access_path, e.access_path || '.'))"
+                .to_owned(),
+        ),
+        (
+            // §1.5: no brief reaches publication by bypassing the analytics; one that doesn't
+            // cite a finding says it is documentation alone.
+            "semantic:brief-cites-analysis",
+            "SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( \
+               SELECT DISTINCT ba.brief_id FROM brief_assertions ba \
+               JOIN assertion_support s ON s.assertion_id = ba.assertion_id \
+               WHERE s.finding_id IS NOT NULL) x ON x.brief_id = b.brief_id \
+             WHERE NOT b.documentation_only"
                 .to_owned(),
         ),
         (

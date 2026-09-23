@@ -1,0 +1,15 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table brief_documents
+family findings
+key snapshot_id, brief_id, chunk
+check chunk_nonnegative: chunk >= 0
+@lctx.family=findings
+@lctx.table=brief_documents
+snapshot_id: FixedSizeBinary(16) NOT NULL
+brief_id: FixedSizeBinary(16) NOT NULL
+chunk: Int64 NOT NULL
+text: Utf8 NOT NULL
+input_hash: FixedSizeBinary(32) NULL

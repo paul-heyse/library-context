@@ -124,6 +124,22 @@ key:finding_members
   SELECT snapshot_id, finding_id, role, ordinal, count(*) AS n FROM finding_members GROUP BY snapshot_id, finding_id, role, ordinal HAVING count(*) > 1
 key:witnesses
   SELECT snapshot_id, finding_id, path, step, count(*) AS n FROM witnesses GROUP BY snapshot_id, finding_id, path, step HAVING count(*) > 1
+key:evidence
+  SELECT snapshot_id, evidence_id, count(*) AS n FROM evidence GROUP BY snapshot_id, evidence_id HAVING count(*) > 1
+key:assertions
+  SELECT snapshot_id, assertion_id, count(*) AS n FROM assertions GROUP BY snapshot_id, assertion_id HAVING count(*) > 1
+key:assertion_support
+  SELECT snapshot_id, assertion_id, role, ordinal, count(*) AS n FROM assertion_support GROUP BY snapshot_id, assertion_id, role, ordinal HAVING count(*) > 1
+key:briefs
+  SELECT snapshot_id, brief_id, count(*) AS n FROM briefs GROUP BY snapshot_id, brief_id HAVING count(*) > 1
+key:brief_assertions
+  SELECT snapshot_id, brief_id, ordinal, count(*) AS n FROM brief_assertions GROUP BY snapshot_id, brief_id, ordinal HAVING count(*) > 1
+key:brief_members
+  SELECT snapshot_id, brief_id, access_path, count(*) AS n FROM brief_members GROUP BY snapshot_id, brief_id, access_path HAVING count(*) > 1
+key:brief_documents
+  SELECT snapshot_id, brief_id, chunk, count(*) AS n FROM brief_documents GROUP BY snapshot_id, brief_id, chunk HAVING count(*) > 1
+key:assertion_policy
+  SELECT snapshot_id, assertion_kind, evidence_status, count(*) AS n FROM assertion_policy GROUP BY snapshot_id, assertion_kind, evidence_status HAVING count(*) > 1
 ref:facts.run_id->runs
   SELECT f.run_id AS value FROM facts f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:runs.release_id->releases
@@ -172,6 +188,38 @@ ref:witnesses.callee_node_id->nodes
   SELECT f.callee_node_id AS value FROM witnesses f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.callee_node_id = r.k WHERE f.callee_node_id IS NOT NULL
 ref:witnesses.edge_id->edges
   SELECT f.edge_id AS value FROM witnesses f LEFT ANTI JOIN (SELECT edge_id AS k FROM edges) r ON f.edge_id = r.k WHERE f.edge_id IS NOT NULL
+ref:evidence.cited_fact_id->facts
+  SELECT f.cited_fact_id AS value FROM evidence f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.cited_fact_id = r.k WHERE f.cited_fact_id IS NOT NULL
+ref:evidence.node_id->nodes
+  SELECT f.node_id AS value FROM evidence f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.node_id = r.k WHERE f.node_id IS NOT NULL
+ref:evidence.module_node_id->nodes
+  SELECT f.module_node_id AS value FROM evidence f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
+ref:assertions.run_id->runs
+  SELECT f.run_id AS value FROM assertions f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
+ref:assertions.subject_node_id->nodes
+  SELECT f.subject_node_id AS value FROM assertions f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.subject_node_id = r.k WHERE f.subject_node_id IS NOT NULL
+ref:assertion_support.assertion_id->assertions
+  SELECT f.assertion_id AS value FROM assertion_support f LEFT ANTI JOIN (SELECT assertion_id AS k FROM assertions) r ON f.assertion_id = r.k WHERE f.assertion_id IS NOT NULL
+ref:assertion_support.finding_id->findings
+  SELECT f.finding_id AS value FROM assertion_support f LEFT ANTI JOIN (SELECT finding_id AS k FROM findings) r ON f.finding_id = r.k WHERE f.finding_id IS NOT NULL
+ref:assertion_support.evidence_id->evidence
+  SELECT f.evidence_id AS value FROM assertion_support f LEFT ANTI JOIN (SELECT evidence_id AS k FROM evidence) r ON f.evidence_id = r.k WHERE f.evidence_id IS NOT NULL
+ref:briefs.run_id->runs
+  SELECT f.run_id AS value FROM briefs f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
+ref:briefs.seed_node_id->nodes
+  SELECT f.seed_node_id AS value FROM briefs f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.seed_node_id = r.k WHERE f.seed_node_id IS NOT NULL
+ref:brief_assertions.brief_id->briefs
+  SELECT f.brief_id AS value FROM brief_assertions f LEFT ANTI JOIN (SELECT brief_id AS k FROM briefs) r ON f.brief_id = r.k WHERE f.brief_id IS NOT NULL
+ref:brief_assertions.assertion_id->assertions
+  SELECT f.assertion_id AS value FROM brief_assertions f LEFT ANTI JOIN (SELECT assertion_id AS k FROM assertions) r ON f.assertion_id = r.k WHERE f.assertion_id IS NOT NULL
+ref:brief_members.brief_id->briefs
+  SELECT f.brief_id AS value FROM brief_members f LEFT ANTI JOIN (SELECT brief_id AS k FROM briefs) r ON f.brief_id = r.k WHERE f.brief_id IS NOT NULL
+ref:brief_members.export_node_id->nodes
+  SELECT f.export_node_id AS value FROM brief_members f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.export_node_id = r.k WHERE f.export_node_id IS NOT NULL
+ref:brief_members.declaration_node_id->nodes
+  SELECT f.declaration_node_id AS value FROM brief_members f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.declaration_node_id = r.k WHERE f.declaration_node_id IS NOT NULL
+ref:brief_documents.brief_id->briefs
+  SELECT f.brief_id AS value FROM brief_documents f LEFT ANTI JOIN (SELECT brief_id AS k FROM briefs) r ON f.brief_id = r.k WHERE f.brief_id IS NOT NULL
 ref:provider_node_map.pysa_fact_id->facts
   SELECT f.pysa_fact_id AS value FROM provider_node_map f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
 ref:provider_node_map.declaration_fact_id->facts
@@ -484,6 +532,24 @@ codebook:witnesses.modality
   SELECT modality FROM witnesses WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:witnesses.phase
   SELECT phase FROM witnesses WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
+codebook:evidence.evidence_kind
+  SELECT evidence_kind FROM evidence WHERE evidence_kind IS NOT NULL AND evidence_kind NOT IN (0, 1, 2, 3, 4)
+codebook:assertions.extraction_mode
+  SELECT extraction_mode FROM assertions WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
+codebook:assertions.assertion_kind
+  SELECT assertion_kind FROM assertions WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5)
+codebook:assertions.evidence_status
+  SELECT evidence_status FROM assertions WHERE evidence_status IS NOT NULL AND evidence_status NOT IN (0, 1, 2, 3, 4)
+codebook:assertion_support.role
+  SELECT role FROM assertion_support WHERE role IS NOT NULL AND role NOT IN (0, 1)
+codebook:briefs.review_state
+  SELECT review_state FROM briefs WHERE review_state IS NOT NULL AND review_state NOT IN (0, 1, 2, 3)
+codebook:assertion_policy.assertion_kind
+  SELECT assertion_kind FROM assertion_policy WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5)
+codebook:assertion_policy.brief_section
+  SELECT brief_section FROM assertion_policy WHERE brief_section IS NOT NULL AND brief_section NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
+codebook:assertion_policy.evidence_status
+  SELECT evidence_status FROM assertion_policy WHERE evidence_status IS NOT NULL AND evidence_status NOT IN (0, 1, 2, 3, 4)
 finite:analysis_invocations.residual
   SELECT v FROM (SELECT residual AS v FROM analysis_invocations) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
 finite:analysis_invocations.quality_history
@@ -516,6 +582,22 @@ semantic:finding-status-policy
   SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
 semantic:invocation-run-is-compiler
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id JOIN producers p ON p.producer_id = r.producer_id WHERE p.tool <> 'lctx-compiler'
+semantic:assertion-policy
+  SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN assertion_policy p ON p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status
+semantic:assertion-policy-published
+  WITH v AS (SELECT * FROM (VALUES (0, 0, 1), (0, 0, 4), (1, 1, 0), (2, 1, 0), (3, 3, 0), (3, 3, 1), (4, 5, 0), (5, 7, 2)) AS v(k, s, st)) SELECT p.assertion_kind FROM assertion_policy p LEFT ANTI JOIN v ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status UNION ALL SELECT v.k FROM v LEFT ANTI JOIN assertion_policy p ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status
+semantic:assertion-status-propagation
+  SELECT a.assertion_id FROM assertions a JOIN assertion_support s ON s.assertion_id = a.assertion_id JOIN findings f ON f.finding_id = s.finding_id WHERE (f.evidence_status = 2 AND a.evidence_status NOT IN (2, 4)) OR (f.evidence_status = 4 AND a.evidence_status <> 4)
+semantic:assertion-text-iff-resolved
+  SELECT assertion_id FROM assertions WHERE (text IS NULL) <> (evidence_status = 4)
+semantic:support-cites-one
+  SELECT assertion_id FROM assertion_support WHERE (finding_id IS NULL) = (evidence_id IS NULL)
+semantic:evidence-text-bytes
+  SELECT evidence_id FROM evidence WHERE text IS NOT NULL AND start_byte IS NOT NULL AND end_byte IS NOT NULL AND octet_length(text) <> end_byte - start_byte
+semantic:brief-member-exported
+  SELECT m.brief_id, m.access_path FROM brief_members m LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id AND (m.access_path = e.access_path OR starts_with(m.access_path, e.access_path || '.'))
+semantic:brief-cites-analysis
+  SELECT b.brief_id FROM briefs b LEFT ANTI JOIN ( SELECT DISTINCT ba.brief_id FROM brief_assertions ba JOIN assertion_support s ON s.assertion_id = ba.assertion_id WHERE s.finding_id IS NOT NULL) x ON x.brief_id = b.brief_id WHERE NOT b.documentation_only
 semantic:witness-chain
   SELECT w.finding_id, w.path, w.step FROM witnesses w JOIN findings f ON f.finding_id = w.finding_id LEFT JOIN witnesses p ON p.finding_id = w.finding_id AND p.path = w.path AND p.step = w.step - 1 WHERE (w.step = 0 AND w.caller_node_id <> f.subject_node_id) OR (w.step > 0 AND (p.callee_node_id IS NULL OR p.callee_node_id <> w.caller_node_id))
 semantic:source-text

@@ -12,8 +12,9 @@
 //! unchanged result keeps its id when a parameter changes and an ablation diff is a join.
 
 use crate::codebook::{
-    AnalyticMethod, CoverageStatus, EvidenceStatus, ExtractionMode, FindingKind, InvocationPhase,
-    MemberRole, Modality, StopReason,
+    AnalyticMethod, AssertionKind, BriefSection, CoverageStatus, EvidenceKind, EvidenceStatus,
+    ExtractionMode, FindingKind, InvocationPhase, MemberRole, Modality, ReviewState, StopReason,
+    SupportRole,
 };
 use crate::id::{Digest, Id, IdHasher, kind};
 use crate::table::table;
@@ -141,6 +142,212 @@ table!(
     }
 );
 
+table!(
+    /// One cited thing (DESIGN §3.2; ADR-0019): a fact with its source span, a source span, a
+    /// passage span, an example or a fixture run, with the **resolved text** the serving bundle
+    /// carries. The text is the exact bytes of its span (review F8).
+    ///
+    /// **Identity:** kind, node, module, span and the digest of the resolved text. **Lineage:**
+    /// the cited `fact_id`, which is run-scoped (review F7).
+    Evidence, EvidenceRow = "evidence",
+    family = Findings,
+    key = [snapshot_id, evidence_id],
+    checks = [
+        ("span_order", "start_byte IS NULL OR end_byte IS NULL OR start_byte <= end_byte"),
+        ("start_nonnegative", "start_byte IS NULL OR start_byte >= 0"),
+    ],
+    {
+        snapshot_id: Id,
+        evidence_id: Id,
+        evidence_kind: EvidenceKind,
+        cited_fact_id: Option<Id>,
+        /// The cited node: a declaration, a parameter, a passage, a module.
+        node_id: Option<Id>,
+        /// The module or document whose bytes the span indexes.
+        module_node_id: Option<Id>,
+        start_byte: Option<i64>,
+        end_byte: Option<i64>,
+        text: Option<String>,
+    }
+);
+
+table!(
+    /// An atomic assertion (DESIGN §10.2), filled by its kind's template from findings and
+    /// evidence. Its status is derived from its supports, never chosen; an `unresolved`
+    /// assertion has no text. Its section is its kind's (`ASSERTION_POLICY`).
+    ///
+    /// **Identity:** kind, subject, applicable case, status, text, conditions, limitations and
+    /// its supports. **Lineage:** run, model, extraction mode, template version.
+    Assertions, AssertionsRow = "assertions",
+    family = Findings,
+    key = [snapshot_id, assertion_id],
+    checks = [("template_version_positive", "template_version > 0")],
+    {
+        snapshot_id: Id,
+        assertion_id: Id,
+        run_id: Id,
+        model_id: String,
+        extraction_mode: ExtractionMode,
+        assertion_kind: AssertionKind,
+        subject_node_id: Id,
+        applicable_case: Option<String>,
+        evidence_status: EvidenceStatus,
+        text: Option<String>,
+        conditions: Option<String>,
+        limitations: Option<String>,
+        template_version: i64,
+    }
+);
+
+table!(
+    /// An assertion's supporting findings and evidence, each with its role (DESIGN §10.2).
+    AssertionSupport, AssertionSupportRow = "assertion_support",
+    family = Findings,
+    key = [snapshot_id, assertion_id, role, ordinal],
+    checks = [("ordinal_nonnegative", "ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        assertion_id: Id,
+        role: SupportRole,
+        ordinal: i64,
+        finding_id: Option<Id>,
+        evidence_id: Option<Id>,
+    }
+);
+
+table!(
+    /// One brief: one outcome anchored to one public operation (DESIGN §10.3). `capability_id` is
+    /// `brief_id`. `review_state` is outside the id (ADR-0020).
+    Briefs, BriefsRow = "briefs",
+    family = Findings,
+    key = [snapshot_id, brief_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        brief_id: Id,
+        run_id: Id,
+        model_id: String,
+        /// The public operation's declaration.
+        seed_node_id: Id,
+        /// The configured access path of the seed.
+        access_path: String,
+        title: String,
+        applicable_case: Option<String>,
+        /// No analytic finding supports it: it is honestly documentation alone (§1.5).
+        documentation_only: bool,
+        review_state: ReviewState,
+    }
+);
+
+table!(
+    /// A brief's assertions in presentation order (sections in `brief_section` order).
+    BriefAssertions, BriefAssertionsRow = "brief_assertions",
+    family = Findings,
+    key = [snapshot_id, brief_id, ordinal],
+    checks = [("ordinal_nonnegative", "ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        brief_id: Id,
+        ordinal: i64,
+        assertion_id: Id,
+    }
+);
+
+table!(
+    /// The public access paths a brief is about: `symbol_map` (§6.4) is built from them.
+    BriefMembers, BriefMembersRow = "brief_members",
+    family = Findings,
+    key = [snapshot_id, brief_id, access_path],
+    checks = [],
+    {
+        snapshot_id: Id,
+        brief_id: Id,
+        access_path: String,
+        /// The export node whose access path the member's path extends.
+        export_node_id: Id,
+        declaration_node_id: Id,
+    }
+);
+
+table!(
+    /// A brief's embedding projection (DESIGN §11.1), chunked: the text the embedder receives,
+    /// and its cache key once embedded (slice 1.6).
+    BriefDocuments, BriefDocumentsRow = "brief_documents",
+    family = Findings,
+    key = [snapshot_id, brief_id, chunk],
+    checks = [("chunk_nonnegative", "chunk >= 0")],
+    {
+        snapshot_id: Id,
+        brief_id: Id,
+        chunk: i64,
+        text: String,
+        input_hash: Option<Digest>,
+    }
+);
+
+table!(
+    /// The kind policy (DESIGN §10.2): each assertion kind's section and permitted statuses,
+    /// published per snapshot from `ASSERTION_POLICY`.
+    AssertionPolicy, AssertionPolicyRow = "assertion_policy",
+    family = Findings,
+    key = [snapshot_id, assertion_kind, evidence_status],
+    checks = [],
+    {
+        snapshot_id: Id,
+        assertion_kind: AssertionKind,
+        brief_section: BriefSection,
+        evidence_status: EvidenceStatus,
+    }
+);
+
+/// Each assertion kind's brief section and permitted statuses (DESIGN §10.2; ADR-0005).
+/// Statistical output may set titles, grouping, seeds, ordering, Related entries and doc links,
+/// never a control, a limit or a behavioural claim.
+pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] = &[
+    (
+        AssertionKind::Outcome,
+        BriefSection::Outcome,
+        &[EvidenceStatus::Documented, EvidenceStatus::Unresolved],
+    ),
+    (
+        AssertionKind::PublicAccess,
+        BriefSection::PublicAccess,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    (
+        AssertionKind::Coordinates,
+        BriefSection::PublicAccess,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    (
+        AssertionKind::Parameter,
+        BriefSection::Controls,
+        &[
+            EvidenceStatus::StructurallyObserved,
+            EvidenceStatus::Documented,
+        ],
+    ),
+    (
+        AssertionKind::AnalysisBoundary,
+        BriefSection::Limits,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    (
+        AssertionKind::Related,
+        BriefSection::Related,
+        &[EvidenceStatus::StatisticallyDerived],
+    ),
+];
+
+/// An assertion kind's section.
+pub fn section_of(kind: AssertionKind) -> BriefSection {
+    ASSERTION_POLICY
+        .iter()
+        .find(|(k, _, _)| *k == kind)
+        .map(|(_, s, _)| *s)
+        .expect("every assertion kind has a policy row")
+}
+
 /// Invoke `$mac!(Table, …)` with every analysis table, in declaration order (ADR-0019).
 #[macro_export]
 macro_rules! for_each_analysis_table {
@@ -149,7 +356,15 @@ macro_rules! for_each_analysis_table {
             $crate::findings::AnalysisInvocations,
             $crate::findings::Findings,
             $crate::findings::FindingMembers,
-            $crate::findings::Witnesses
+            $crate::findings::Witnesses,
+            $crate::findings::Evidence,
+            $crate::findings::Assertions,
+            $crate::findings::AssertionSupport,
+            $crate::findings::Briefs,
+            $crate::findings::BriefAssertions,
+            $crate::findings::BriefMembers,
+            $crate::findings::BriefDocuments,
+            $crate::findings::AssertionPolicy
         )
     };
 }
@@ -276,5 +491,67 @@ pub mod recipe {
             }
             h.finish_id()
         }
+    }
+
+    /// An evidence row's identity: kind, node, module, span and the digest of its resolved text.
+    /// The cited fact is lineage (review F7).
+    pub fn evidence(
+        kind_code: i16,
+        node: Option<Id>,
+        module: Option<Id>,
+        span: Option<(i64, i64)>,
+        text: Option<&str>,
+    ) -> Id {
+        IdHasher::new(kind::EVIDENCE)
+            .i64(i64::from(kind_code))
+            .opt_id(node)
+            .opt_id(module)
+            .opt_i64(span.map(|s| s.0))
+            .opt_i64(span.map(|s| s.1))
+            .opt_digest(text.map(|t| crate::id::content_digest(t.as_bytes())))
+            .finish_id()
+    }
+
+    /// An assertion's identity: its content and its supports `(role, finding, evidence)` in order.
+    pub struct AssertionKey<'a> {
+        pub kind: i16,
+        pub subject: Id,
+        pub applicable_case: Option<&'a str>,
+        pub status: i16,
+        pub text: Option<&'a str>,
+        pub conditions: Option<&'a str>,
+        pub limitations: Option<&'a str>,
+        pub supports: &'a [(i16, Option<Id>, Option<Id>)],
+    }
+
+    impl AssertionKey<'_> {
+        pub fn id(&self) -> Id {
+            let mut h = IdHasher::new(kind::ASSERTION);
+            h.i64(i64::from(self.kind))
+                .id(self.subject)
+                .opt_str(self.applicable_case)
+                .i64(i64::from(self.status))
+                .opt_str(self.text)
+                .opt_str(self.conditions)
+                .opt_str(self.limitations)
+                .i64(self.supports.len() as i64);
+            for (role, finding, evidence) in self.supports {
+                h.i64(i64::from(*role)).opt_id(*finding).opt_id(*evidence);
+            }
+            h.finish_id()
+        }
+    }
+
+    /// A brief's identity: its seed, applicable case and its assertions in presentation order.
+    /// A changed brief is a new brief (ADR-0020).
+    pub fn brief(seed: Id, applicable_case: Option<&str>, assertions: &[Id]) -> Id {
+        let mut h = IdHasher::new(kind::BRIEF);
+        h.id(seed)
+            .opt_str(applicable_case)
+            .i64(assertions.len() as i64);
+        for a in assertions {
+            h.id(*a);
+        }
+        h.finish_id()
     }
 }

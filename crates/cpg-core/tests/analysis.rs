@@ -287,11 +287,119 @@ async fn pass_a_is_identical_across_module_order_and_location() {
     }
 }
 
+/// Stage F on the fixture (DESIGN §10): each seed's brief, its assertions in order with their
+/// kind, status and text, and every evidence text equal to the exact bytes of its span.
+#[tokio::test(flavor = "multi_thread")]
+async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
+    let (ctx, _dir) = analyzed("one", false).await;
+    insta::assert_snapshot!(
+        "briefs",
+        text(
+            &ctx,
+            "SELECT b.title, ba.ordinal, a.assertion_kind AS kind, a.evidence_status AS status, \
+                    a.text \
+             FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+             JOIN assertions a ON a.assertion_id = ba.assertion_id \
+             ORDER BY b.title, ba.ordinal"
+        )
+        .await
+    );
+    insta::assert_snapshot!(
+        "brief_documents",
+        text(
+            &ctx,
+            "SELECT b.title, d.chunk, d.text FROM brief_documents d \
+             JOIN briefs b ON b.brief_id = d.brief_id ORDER BY b.title, d.chunk"
+        )
+        .await
+    );
+    // Every span evidence is its source's exact bytes, past a non-ASCII byte (review F8).
+    let rows = batches(
+        &ctx,
+        "SELECT e.start_byte, e.end_byte, e.text, s.text AS source FROM evidence e \
+         JOIN source_files s ON s.module_node_id = e.module_node_id",
+    )
+    .await;
+    let mut checked = 0;
+    for b in &rows {
+        let col = |n: &str| b.column_by_name(n).unwrap().clone();
+        let start = arrow_array::cast::AsArray::as_primitive::<arrow_array::types::Int64Type>(
+            &col("start_byte"),
+        )
+        .clone();
+        let end = arrow_array::cast::AsArray::as_primitive::<arrow_array::types::Int64Type>(&col(
+            "end_byte",
+        ))
+        .clone();
+        let texts = arrow_cast::cast(&col("text"), &arrow_schema::DataType::Utf8).unwrap();
+        let sources = arrow_cast::cast(&col("source"), &arrow_schema::DataType::Utf8).unwrap();
+        let texts = arrow_array::cast::AsArray::as_string::<i32>(&texts);
+        let sources = arrow_array::cast::AsArray::as_string::<i32>(&sources);
+        for i in 0..b.num_rows() {
+            let (s, e) = (start.value(i) as usize, end.value(i) as usize);
+            assert_eq!(
+                &sources.value(i).as_bytes()[s..e],
+                texts.value(i).as_bytes()
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 3, "the docstring and parameter evidence");
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    // ADR-0019 review O4: the analysis output is pinned to the versions that name it, so an
+    // output change without a version bump fails here (the compiler digest would not move).
+    // To change the output: bump COMPILER_OUTPUT_VERSION or TEMPLATE_VERSION and append a row.
+    const LEDGER: &[(u32, i64, &str)] = &[(
+        2,
+        1,
+        "d07a8be1d8d04d7ac762799bfc9f93546e9aaf08dce497cebfc6e0283e70b4d6",
+    )];
+    let output = format!(
+        "{}\n{}",
+        text(&ctx, &findings_query("pkg.server.Server.tool")).await,
+        text(
+            &ctx,
+            "SELECT b.title, ba.ordinal, a.text FROM briefs b \
+             JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+             JOIN assertions a ON a.assertion_id = ba.assertion_id ORDER BY b.title, ba.ordinal"
+        )
+        .await
+    );
+    let digest = cpg_schema::id::content_digest(output.as_bytes()).hex();
+    let now = (
+        cpg_core::attempt::COMPILER_OUTPUT_VERSION,
+        cpg_core::synth::TEMPLATE_VERSION,
+        digest.as_str(),
+    );
+    assert_eq!(
+        LEDGER.last(),
+        Some(&now),
+        "append {now:?} with bumped versions"
+    );
+    for (a, b) in LEDGER.iter().zip(LEDGER.iter().skip(1)) {
+        assert!(
+            (a.0, a.1) < (b.0, b.1),
+            "a ledger row reuses the versions of the one before"
+        );
+    }
+}
+
 /// Each rule the analysis tables add rejects an injected violation (C6 review F1's meta-test).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_analysis_rules_reject_their_violations() {
     let (ctx, _dir) = analyzed("one", false).await;
-    for table in ["analysis_invocations", "findings", "witnesses"] {
+    for table in [
+        "analysis_invocations",
+        "findings",
+        "witnesses",
+        "assertions",
+        "assertion_policy",
+        "assertion_support",
+        "evidence",
+        "briefs",
+        "brief_members",
+    ] {
         let published = ctx.table(table).await.unwrap();
         ctx.register_table(format!("{table}_published").as_str(), published.into_view())
             .unwrap();
@@ -341,6 +449,64 @@ async fn the_analysis_rules_reject_their_violations() {
                     residual, converged, quality_history, candidate_set_size, vertices_examined, \
                     arcs_examined, completion, stop_reason \
              FROM analysis_invocations_published",
+        ),
+        (
+            "semantic:assertion-policy",
+            "assertions",
+            "SELECT snapshot_id, assertion_id, run_id, model_id, extraction_mode, assertion_kind, \
+                    subject_node_id, applicable_case, \
+                    CASE WHEN assertion_kind = 1 THEN CAST(1 AS SMALLINT) ELSE evidence_status END \
+                      AS evidence_status, \
+                    text, conditions, limitations, template_version \
+             FROM assertions_published",
+        ),
+        (
+            "semantic:assertion-policy-published",
+            "assertion_policy",
+            "SELECT * FROM assertion_policy_published WHERE assertion_kind <> 5",
+        ),
+        (
+            "semantic:assertion-status-propagation",
+            "findings",
+            "SELECT snapshot_id, finding_id, invocation_id, finding_kind, subject_node_id, \
+                    related_node_id, CAST(2 AS SMALLINT) AS evidence_status, depth, stop_reason, \
+                    witnesses_omitted, score, condition_node_id \
+             FROM findings_published",
+        ),
+        (
+            "semantic:assertion-text-iff-resolved",
+            "assertions",
+            "SELECT snapshot_id, assertion_id, run_id, model_id, extraction_mode, assertion_kind, \
+                    subject_node_id, applicable_case, evidence_status, \
+                    CAST(NULL AS VARCHAR) AS text, conditions, limitations, template_version \
+             FROM assertions_published",
+        ),
+        (
+            "semantic:support-cites-one",
+            "assertion_support",
+            "SELECT snapshot_id, assertion_id, role, ordinal, finding_id, \
+                    CAST(NULL AS BYTEA) AS evidence_id \
+             FROM assertion_support_published WHERE finding_id IS NULL \
+             UNION ALL SELECT * FROM assertion_support_published WHERE finding_id IS NOT NULL",
+        ),
+        (
+            "semantic:evidence-text-bytes",
+            "evidence",
+            "SELECT snapshot_id, evidence_id, evidence_kind, cited_fact_id, node_id, \
+                    module_node_id, start_byte, end_byte + 1 AS end_byte, text \
+             FROM evidence_published",
+        ),
+        (
+            "semantic:brief-member-exported",
+            "brief_members",
+            "SELECT snapshot_id, brief_id, 'elsewhere.' || access_path AS access_path, \
+                    export_node_id, declaration_node_id \
+             FROM brief_members_published",
+        ),
+        (
+            "semantic:brief-cites-analysis",
+            "assertion_support",
+            "SELECT * FROM assertion_support_published WHERE finding_id IS NULL",
         ),
         (
             "ref:witnesses.edge_id->edges",

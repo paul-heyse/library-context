@@ -1,0 +1,23 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table assertions
+family findings
+key snapshot_id, assertion_id
+check template_version_positive: template_version > 0
+@lctx.family=findings
+@lctx.table=assertions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+assertion_id: FixedSizeBinary(16) NOT NULL
+run_id: FixedSizeBinary(16) NOT NULL
+model_id: Utf8 NOT NULL
+extraction_mode: Int16 NOT NULL [lctx.codebook=extraction_mode]
+assertion_kind: Int16 NOT NULL [lctx.codebook=assertion_kind]
+subject_node_id: FixedSizeBinary(16) NOT NULL
+applicable_case: Utf8 NULL
+evidence_status: Int16 NOT NULL [lctx.codebook=evidence_status]
+text: Utf8 NULL
+conditions: Utf8 NULL
+limitations: Utf8 NULL
+template_version: Int64 NOT NULL

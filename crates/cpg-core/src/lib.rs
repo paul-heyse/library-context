@@ -7,6 +7,7 @@ pub mod delta;
 pub mod derive;
 pub mod snapshot;
 pub mod sql;
+pub mod synth;
 pub mod udf;
 pub mod validate;
 

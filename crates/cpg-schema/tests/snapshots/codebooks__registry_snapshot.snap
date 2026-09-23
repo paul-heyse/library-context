@@ -484,3 +484,33 @@ stop_reason
   7 unresolved_site
 member_role
   0 access_path
+assertion_kind
+  0 outcome
+  1 public_access
+  2 coordinates
+  3 parameter
+  4 analysis_boundary
+  5 related
+brief_section
+  0 outcome
+  1 public_access
+  2 applicable_case
+  3 controls
+  4 usage_pattern
+  5 limits
+  6 evidence
+  7 related
+support_role
+  0 support
+  1 scope
+evidence_kind
+  0 fact
+  1 span
+  2 passage
+  3 example
+  4 fixture_run
+review_state
+  0 unreviewed
+  1 accepted
+  2 rejected
+  3 needs_changes

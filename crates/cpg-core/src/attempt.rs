@@ -262,7 +262,7 @@ async fn write_analysis<T: Table>(
     register(ctx, root, T::NAME, version, snapshot_id).await?;
     w.versions.insert(T::NAME.to_owned(), version);
     w.rows.push((T::NAME, batch.num_rows() as i64));
-    w.stages.mark(format!("analyze {}", T::NAME));
+    w.stages.mark(format!("write {}", T::NAME));
     Ok(())
 }
 
@@ -395,6 +395,38 @@ async fn finish(
     write_analysis::<Findings>(&ctx, root, snapshot_id, &found.findings, &mut written).await?;
     write_analysis::<FindingMembers>(&ctx, root, snapshot_id, &found.members, &mut written).await?;
     write_analysis::<Witnesses>(&ctx, root, snapshot_id, &found.witnesses, &mut written).await?;
+
+    // Stage F (DESIGN §10): assertions and briefs from the findings, written the same way.
+    let made = match analysis {
+        Some((_, compiler)) => crate::synth::run(&ctx, snapshot_id, compiler, &found).await?,
+        None => crate::synth::SynthRows {
+            policy: crate::synth::policy_rows(snapshot_id),
+            ..Default::default()
+        },
+    };
+    written.stages.mark("synthesize");
+    use cpg_schema::findings::{
+        AssertionPolicy, AssertionSupport, Assertions, BriefAssertions, BriefDocuments,
+        BriefMembers, Briefs, Evidence,
+    };
+    write_analysis::<Evidence>(&ctx, root, snapshot_id, &made.evidence, &mut written).await?;
+    write_analysis::<Assertions>(&ctx, root, snapshot_id, &made.assertions, &mut written).await?;
+    write_analysis::<AssertionSupport>(&ctx, root, snapshot_id, &made.supports, &mut written)
+        .await?;
+    write_analysis::<Briefs>(&ctx, root, snapshot_id, &made.briefs, &mut written).await?;
+    write_analysis::<BriefAssertions>(
+        &ctx,
+        root,
+        snapshot_id,
+        &made.brief_assertions,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<BriefMembers>(&ctx, root, snapshot_id, &made.brief_members, &mut written)
+        .await?;
+    write_analysis::<BriefDocuments>(&ctx, root, snapshot_id, &made.brief_documents, &mut written)
+        .await?;
+    write_analysis::<AssertionPolicy>(&ctx, root, snapshot_id, &made.policy, &mut written).await?;
     let Written {
         mut stages,
         versions,

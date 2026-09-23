@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table brief_members
+family findings
+key snapshot_id, brief_id, access_path
+@lctx.family=findings
+@lctx.table=brief_members
+snapshot_id: FixedSizeBinary(16) NOT NULL
+brief_id: FixedSizeBinary(16) NOT NULL
+access_path: Utf8 NOT NULL
+export_node_id: FixedSizeBinary(16) NOT NULL
+declaration_node_id: FixedSizeBinary(16) NOT NULL

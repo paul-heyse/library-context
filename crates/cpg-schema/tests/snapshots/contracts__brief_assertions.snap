@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table brief_assertions
+family findings
+key snapshot_id, brief_id, ordinal
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=findings
+@lctx.table=brief_assertions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+brief_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+assertion_id: FixedSizeBinary(16) NOT NULL

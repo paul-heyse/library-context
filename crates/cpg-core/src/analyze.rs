@@ -44,7 +44,7 @@ pub struct CompilerRun {
 }
 
 impl CompilerRun {
-    fn model(&self, surface: &str) -> String {
+    pub(crate) fn model(&self, surface: &str) -> String {
         format!("{}/{surface}", self.producer_id.hex())
     }
 }
@@ -85,9 +85,11 @@ pub fn compiler_rows(
     )
 }
 
-/// The rows Stage E produces, per analysis table.
+/// The rows Stage E produces, per analysis table, and the seeds it resolved (access path and
+/// declaration, in config order) for Stage F.
 #[derive(Debug, Default)]
 pub struct AnalysisRows {
+    pub seeds: Vec<(String, Id)>,
     pub invocations: Vec<AnalysisInvocationsRow>,
     pub findings: Vec<FindingsRow>,
     pub members: Vec<FindingMembersRow>,
@@ -416,6 +418,7 @@ pub async fn run(
             completion: result.completion,
             stop_reason: result.stop_reason,
         });
+        rows.seeds.push((name.clone(), seed.node));
         rows.findings.extend(result.findings);
         rows.members.extend(result.members);
         rows.witnesses.extend(result.witnesses);

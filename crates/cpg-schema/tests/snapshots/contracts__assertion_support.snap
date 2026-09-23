@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table assertion_support
+family findings
+key snapshot_id, assertion_id, role, ordinal
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=findings
+@lctx.table=assertion_support
+snapshot_id: FixedSizeBinary(16) NOT NULL
+assertion_id: FixedSizeBinary(16) NOT NULL
+role: Int16 NOT NULL [lctx.codebook=support_role]
+ordinal: Int64 NOT NULL
+finding_id: FixedSizeBinary(16) NULL
+evidence_id: FixedSizeBinary(16) NULL

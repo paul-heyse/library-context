@@ -1,9 +1,11 @@
+# Café: a non-ASCII byte before the docstrings, so evidence offsets are bytes (review F8).
+
 def finish(fn):
     return fn
 
 
 def helper(fn, n=1):
-    """Run `fn` through the finishing step."""
+    """Run `fn` through the finishing step — once."""
     return finish(fn)
 
 

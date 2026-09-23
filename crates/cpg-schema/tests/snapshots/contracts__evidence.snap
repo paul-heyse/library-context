@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table evidence
+family findings
+key snapshot_id, evidence_id
+check span_order: start_byte IS NULL OR end_byte IS NULL OR start_byte <= end_byte
+check start_nonnegative: start_byte IS NULL OR start_byte >= 0
+@lctx.family=findings
+@lctx.table=evidence
+snapshot_id: FixedSizeBinary(16) NOT NULL
+evidence_id: FixedSizeBinary(16) NOT NULL
+evidence_kind: Int16 NOT NULL [lctx.codebook=evidence_kind]
+cited_fact_id: FixedSizeBinary(16) NULL
+node_id: FixedSizeBinary(16) NULL
+module_node_id: FixedSizeBinary(16) NULL
+start_byte: Int64 NULL
+end_byte: Int64 NULL
+text: Utf8 NULL

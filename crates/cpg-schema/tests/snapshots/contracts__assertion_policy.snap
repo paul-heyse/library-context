@@ -1,0 +1,13 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table assertion_policy
+family findings
+key snapshot_id, assertion_kind, evidence_status
+@lctx.family=findings
+@lctx.table=assertion_policy
+snapshot_id: FixedSizeBinary(16) NOT NULL
+assertion_kind: Int16 NOT NULL [lctx.codebook=assertion_kind]
+brief_section: Int16 NOT NULL [lctx.codebook=brief_section]
+evidence_status: Int16 NOT NULL [lctx.codebook=evidence_status]
