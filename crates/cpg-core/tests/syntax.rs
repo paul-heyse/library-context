@@ -924,7 +924,6 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 2
-serve_unreviewed = true
 "#,
         )
         .unwrap(),

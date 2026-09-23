@@ -107,6 +107,9 @@ class Capability(BaseModel):
     outcome_status: str
     assertions: list[Assertion]
     evidence: list[Evidence]
+    # Slot sections this brief has no statement in: absent, not unresolved and not empty by
+    # evidence (increment-1 deep review F4).
+    sections_absent: list[str]
 
 
 @dataclass
@@ -247,6 +250,8 @@ def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Capability:
         )
         for e in (served.evidence[i] for i in cited if i in served.evidence)
     ]
+    present = {a.section for a in assertions}
+    absent = [s for s in gen.manifest["summary"]["slot_sections"] if s not in present]
     return Capability(
         library=gen.library,
         snapshot_id=gen.snapshot_id,
@@ -261,6 +266,7 @@ def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Capability:
         outcome_status=brief["outcome_status"],
         assertions=assertions,
         evidence=evidence,
+        sections_absent=absent,
     )
 
 
@@ -280,6 +286,9 @@ def markdown(c: Capability) -> str:
             section = a.section
             lines += ["", f"## {section.replace('_', ' ').capitalize()}", ""]
         lines.append(f"- {a.text if a.text is not None else '(unresolved)'} [{a.status}]")
+    if c.sections_absent:
+        absent = ", ".join(s.replace("_", " ") for s in c.sections_absent)
+        lines += ["", f"No statement yet in: {absent}."]
     if c.evidence:
         lines += ["", "## Evidence", ""]
         for e in c.evidence:

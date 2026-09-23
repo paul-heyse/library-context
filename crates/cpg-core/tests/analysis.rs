@@ -35,8 +35,7 @@ max_vertices = 128
 max_edges = 512
 max_witnesses = 3
 [briefs]
-budget = 2
-serve_unreviewed = true
+budget = 6
 "#;
 
 fn copy(src: &Path, dst: &Path) {
@@ -569,6 +568,23 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
         )
         .await
     );
+    // Increment-1 deep review F5: a definition is no call site; a boundary reached over an
+    // override-open arc is one the code may call; a nested definition claims nothing more.
+    let configure = text(
+        &ctx,
+        "SELECT a.text FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         WHERE b.title IN ('pkg.configure', 'pkg.Server.route') ORDER BY b.title, ba.ordinal",
+    )
+    .await;
+    for expected in [
+        "`pkg.configure` already calls `pkg.controls.configure.audit` (1 call site).",
+        "Callables `pkg.configure` reaches may call into code outside the analyzed release, \
+         which is not analyzed further: `builtins.list.append`.",
+        "`pkg.Server.route` defines the nested callable `pkg.server.Server.route.decorator`.",
+    ] {
+        assert!(configure.contains(expected), "{expected}\n{configure}");
+    }
     // Every span evidence is its source's exact bytes, past a non-ASCII byte (review F8).
     let rows = batches(
         &ctx,
@@ -641,6 +657,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             5,
             5,
             "b9370ca547aa34bdc91d68b9f24a8ad05f1b911d8dc478ee9495777c7fc95d7f",
+        ),
+        (
+            5,
+            6,
+            "9a7d3a54b54907211f83642e6e76fd006ffbb714e873d810fe0651a1087f8c85",
         ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
@@ -891,6 +912,14 @@ async fn the_analysis_rules_reject_their_violations() {
                     CAST(X'00000000000000000000000000000000000000000000000000000000000000ff' \
                          AS BYTEA) AS input_hash \
              FROM brief_documents_published",
+        ),
+        // A documented parameter whose span is not its own description.
+        (
+            "semantic:documented-parameter-cites-its-doc",
+            "evidence",
+            "SELECT snapshot_id, evidence_id, evidence_kind, cited_fact_id, node_id, \
+                    module_node_id, start_byte + 1 AS start_byte, end_byte + 1 AS end_byte, text \
+             FROM evidence_published",
         ),
         // Two specs in one snapshot.
         (

@@ -10,6 +10,7 @@ absent (it is local, not in the repo).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tomllib
@@ -56,6 +57,15 @@ def main() -> int:
         print("gold: not_run (the fastmcp skill is not installed)")
         return 0
     found = problems(LIBRARY, SKILL)
+    # The analytics config is frozen since the first use of gold against compiled output
+    # (ADR-0004 amendment, increment-1 deep review O1): an edit is an ADR amendment, then a new
+    # recorded digest.
+    freeze = json.loads((ROOT / "eval" / "gold" / "analytics-freeze.json").read_text())
+    for path, digest in freeze.items():
+        if path.endswith(".toml"):
+            actual = hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+            if actual != digest:
+                found.append(f"{path} changed since its freeze ({freeze['adr']}): amend the ADR")
     # The committed extract the evaluation scores against is the skill's (DESIGN §12).
     import gold_extract
 

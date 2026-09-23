@@ -3,8 +3,9 @@ brief rank first against the distractor briefs? (DESIGN §1.5, §12; evaluation 
 
 Usage: ranking_check.py GENERATION [--embedder vllm|fake|none] [--embed-url URL] [--family ID]
 
-Prints each alias with the seed brief's rank and the mode (hybrid or lexical-only), then a summary.
-A fake-vector run is labelled as such; only real vectors make a hybrid result evidence.
+Prints each alias with the seed brief's rank and the mode (hybrid or lexical-only), then a summary,
+and exits 1 unless the seed ranks first for every alias (increment-1 deep review F2). A fake-vector
+run is labelled as such; only real vectors make a hybrid result evidence.
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ async def check(generation: Path, embedder_name: str, url: str, family_id: str) 
         f"ranking: {target} first for {first} of {len(family['task_aliases'])} "
         f"{family_id} aliases against {len(gen.briefs) - 1} distractors{label}"
     )
-    return 0
+    return 0 if first == len(family["task_aliases"]) else 1
 
 
 def main() -> None:

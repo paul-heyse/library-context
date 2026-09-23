@@ -58,10 +58,9 @@ pub struct PassA {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Briefs {
+    /// How many briefs a compile may publish: the seeds, until seed selection (2.6) chooses
+    /// among candidates within it. More seeds than the budget are refused.
     pub budget: u32,
-    /// Whether a bundle may serve a brief no operator has reviewed yet (§10.4 from increment 3;
-    /// the deviation log records why this is on).
-    pub serve_unreviewed: bool,
 }
 
 impl AnalyticsConfig {
@@ -126,6 +125,13 @@ impl AnalyticsConfig {
                 return bad(format!("seed {seed} is under no public root"));
             }
         }
+        if seeds.len() > self.briefs.budget as usize {
+            return bad(format!(
+                "{} seeds exceed the brief budget of {}",
+                seeds.len(),
+                self.briefs.budget
+            ));
+        }
         if self.pass_a.max_witnesses == 0 || self.pass_a.max_depth == 0 {
             return bad("pass_a needs a depth and a witness budget of at least 1".to_owned());
         }
@@ -180,7 +186,6 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 4
-serve_unreviewed = true
 "#;
 
     #[test]
@@ -215,5 +220,14 @@ serve_unreviewed = true
         assert!(AnalyticsConfig::parse(&quoted).is_err());
         let v2 = SAMPLE.replace("version = 1", "version = 2");
         assert!(AnalyticsConfig::parse(&v2).is_err());
+        // Increment-1 deep review F3: the budget binds; more seeds than it are refused.
+        let tight = SAMPLE.replace("budget = 4", "budget = 1");
+        let err = AnalyticsConfig::parse(&tight).unwrap_err().to_string();
+        assert!(err.contains("exceed the brief budget"), "{err}");
+        let gone = SAMPLE.replace("budget = 4", "budget = 4\nserve_unreviewed = true");
+        assert!(
+            AnalyticsConfig::parse(&gone).is_err(),
+            "a removed key is unknown"
+        );
     }
 }

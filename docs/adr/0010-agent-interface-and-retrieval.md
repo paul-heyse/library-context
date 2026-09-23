@@ -132,3 +132,25 @@ all passed):
   - The server takes its query spec from package data. That data equals the committed specs, as
     a test checks. The fake twin is held to `specs/embedding/fake_vectors.json`.
   - `just py-fixture` builds the generation the tests serve from `analysis_shapes`.
+- 2026-09-23, increment-1 deep review F2 (deviation log D19), pre-registered before any further
+  gold-informed retrieval measurement:
+  - **Fusion: a leg votes only where it discriminates.** The lexical leg scores only query words
+    that occur in some briefs but not all, and abstains when there are none. A word every brief
+    contains cannot tell them apart, and a ranking by it alone is BM25's length normalization.
+    The vector leg always votes.
+    - The rationale is independent of the gold, and a constructed generation tests it
+      (`test_a_word_every_brief_contains_does_not_vote`).
+    - One lexical-only run followed the policy, to test the check's exit code. It ranked the seed
+      3rd and 1st, and nothing changed because of it.
+  - **The retrieval evaluation (3.3, §12(b)):**
+    - Each task alias of every gold family whose operations include a published brief's public
+      path is searched with `limit = 5`.
+    - Hit@1 and hit@5 are reported per family and overall, over the full brief set, with live
+      vectors (`blocked` without the service). Lexical-only results are reported apart and
+      labelled.
+    - No retrieval parameter, fusion rule or brief-document template changes on the strength of
+      these scores, except by an amendment giving a rationale independent of the gold.
+  - **§1.5 for 15–25 briefs:** the primary seed's brief ranks first for every alias of its gold
+    family. `just ranking-check <generation> vllm` exits 0 then, and 1 on any miss.
+  - **D14 recorded:** the §11.1 brief document leaves out `analysis_boundary` text (slice 1.9,
+    measured with live vectors on one query).

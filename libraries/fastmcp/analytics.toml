@@ -134,4 +134,3 @@ max_witnesses = 3
 
 [briefs]
 budget = 5
-serve_unreviewed = true

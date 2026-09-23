@@ -275,6 +275,23 @@ fn semantic() -> Vec<Rule> {
             "SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1".to_owned(),
         ),
         (
+            // Increment-1 deep review O7 (fired by 2.1): a `documented` parameter cites its own
+            // parameter's description, not any documentation of its operation.
+            "semantic:documented-parameter-cites-its-doc",
+            format!(
+                "SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( \
+                   SELECT s.assertion_id FROM assertion_support s \
+                   JOIN evidence e ON e.evidence_id = s.evidence_id \
+                   JOIN parameter_docs d ON d.module_node_id = e.module_node_id \
+                     AND d.start_byte = e.start_byte AND d.end_byte = e.end_byte \
+                   WHERE e.evidence_kind = {span}) own ON own.assertion_id = a.assertion_id \
+                 WHERE a.assertion_kind = {parameter} AND a.evidence_status = {documented}",
+                span = crate::codebook::EvidenceKind::Span.code(),
+                parameter = AssertionKind::Parameter.code(),
+                documented = EvidenceStatus::Documented.code()
+            ),
+        ),
+        (
             // §11.1: one spec gives one vector length (its declared dimensions).
             "semantic:embedding-dimensions",
             "SELECT spec_hash FROM embedding_cache GROUP BY spec_hash \

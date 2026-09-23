@@ -1,0 +1,6 @@
+{
+ "adr": "ADR-0004",
+ "frozen": "2026-09-23",
+ "libraries/fastmcp/analytics.toml": "bc5426192547734c533f0c36d4b9bab79ff839f485cc6257612629e0e1d450a2",
+ "note": "The analytics config as frozen after the increment-1 deep review (O1): the first use of gold against compiled output was slice 1.9 (config sha256 306416feb2be9738f6112a149ec68f0ba048a385ab62e9fce6a0db66393c7357 at 6c86f53). Two recorded edits followed: the slice 2.0 seed fastmcp.FastMCP.mount, and the removal of [briefs] serve_unreviewed. Any later edit is an ADR-0004 amendment naming the gold its author has seen."
+}

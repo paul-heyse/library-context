@@ -135,16 +135,19 @@ handoff) each have an end-to-end example. Each example must show:
 - a published brief;
 - successful retrieval by task wording. The target brief must rank first against the distractor
   briefs for the gold family's `task_aliases`.
-  - **Measured (slice 1.9, 2026-09-23; `scripts/ranking_check.py`; live Qwen3-Embedding-8B
-    vectors, pilot generation `9470c532be0a9e8d`): failed.** `fastmcp.FastMCP.tool` ranks first
-    for 1 of the 2 `fm.register` aliases against 3 distractors.
-    - "decorate callable imperative add tool registry original function": rank 1.
-    - "Register functions and expose component metadata": rank 2, behind `FastMCP.prompt`. The
-      vector leg ranks the seed first. The lexical leg ranks it by document length, on the one
-      shared word "register".
-    - Lexical-only gives the same count. The four increment-1 briefs are thin: every Outcome
-      is "Decorator to register a …". Parameter docs, usage patterns and applicable cases arrive
-      in increment 2.
+  - **Measured** (slice 1.9, 2026-09-23): live Qwen3-Embedding-8B vectors, pilot generation
+    `9470c532be0a9e8d`, 4 briefs.
+    - For "decorate callable imperative add tool registry original function",
+      `fastmcp.FastMCP.tool` ranks 1st.
+    - For "Register functions and expose component metadata", it ranks 2nd, behind
+      `FastMCP.prompt`. The vector leg ranks it 1st; the lexical leg ranked the briefs by length,
+      on the one shared word "register".
+  - **Outcome: `failed`** (`scripts/ranking_check.py`, 2026-09-23): first for 1 of the 2
+    `fm.register` aliases.
+  - The fusion policy has since changed to a gold-independent rule: a leg votes only where it
+    discriminates (ADR-0010 amendment, deviation log D19). The check is restated for increment 3's
+    15–25 briefs: the primary seed's brief first for every alias of its family, with
+    `just ranking-check <generation> vllm` exiting 0. It is re-run with live vectors at 3.3.
 
 In addition:
 - the §12 evaluation must have run;
@@ -2405,6 +2408,8 @@ Each item returns by ADR when a consumer needs it.
 | LLM interpretation | IP L1886–L1966, L2580–L2637 | §12 gap metric (§B11) |
 | Graph embeddings, neural reranking, composition planning | IP L2073–L2087 | an ADR after increment 5 |
 
+> Decision: ADR-0012
+
 ---
 
 ## Revision history
@@ -2436,10 +2441,12 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | ADR-0015 (operator decision, closing C6 review F2): every analyzed module's text and role are stored in `source_files` (`source_role` appended); `[tool.lctx.source]` `examples` and `tests` replace `usage`; `semantic:source-text` and `semantic:source-role-by-run` (496 rules); the §13 open row removed (§3.2, §3.5, §4.0, §8, §13) | ADR-0015 |
 | 2026-09-23 | H1, the library-leverage hardening slice (operator: every review item adopted). Static branches are Pyrefly's own decisions (`constant`, `combined` appended); globset/walkdir selection that follows no link; typed library definitions; `RECORD` as CSV; clap CLI; hermetic `git init`; Pyrefly's own predicates; hash and sort known answers. jemalloc (ADR-0016); cached, concurrent validation with plan metrics; per-commit Delta reads; zstd; the UDF's literal kind; a log subscriber; fs-err/anyhow; `cargo shear`. The declared return annotation read from Pyrefly (fork `a07b7bae`); ADR-0011 amended (own PageRank, normalized Leiden input, own FCA with an oracle, condensation from SCCs, §5's adapter recipe). Pilot 45.0 s → 29.9 s, 7,587 → 3,646 MiB peak, 272 → 235 MiB store (§3.2, §3.3, §3.4.1, §3.5, §4.0, §4.3, §5, §6.2, §7, §8, §9.4–§9.6, §13) | ADR-0016; ADR-0011; ADR-0009, ADR-0012, ADR-0013, ADR-0002 amendments |
 | 2026-09-23 | Remaining-scope plan, Phase 0: analysis results are typed tables with in-row provenance, content ids and new crates `lctx-analytics`/`lctx-embed` (§B6, §3.2, §3.4.1, §4.1); global read mode and the `embedding_cache` MERGE, a key digest in `content_digest` (§3.2, §3.4.1, §6.1, §6.2); hybrid retrieval moves into increment 1 and increment 4 becomes the generation lifecycle (§1.2); FCA within a structural scope (§1.2); §5's resolution id, unknown-target policy, typed callers and property arcs; RBER, integer aggregation, the γ grid, `compute_flow` oracle, `kosaraju_scc` (§B4, §9.4, §9.5, §13); bm25s and the stdio start flags (§11.2, §11.3) | ADR-0019; ADR-0004, ADR-0010, ADR-0011, ADR-0017 amendments |
-
-> Decision: ADR-0012
 | 2026-09-23 | Slice 1.4: table groups for analysis results, the `lctx-compiler` run, the declared invocation projection (§5) and its petgraph adapter, Pass A (§9.1) with `analysis_invocations`/`findings`/`finding_members`/`witnesses`; `libraries/fastmcp/analytics.toml` (docs-only authored); the ADR-0019 standard review's P1 items (identity and lineage per contract, completion mapping, status policy, `adr lint` checks for Decision lines and cited records) (§B6, §5, §6.4, §9, §9.1, §10.1) | ADR-0019 (amended), ADR-0004 |
-
 | 2026-09-23 | Slice 1.5: Stage F synthesis (`cpg-core::synth`): the increment-1 assertion kinds, the kind policy published as `assertion_policy`, derived statuses, verbatim evidence by byte span, briefs, brief members and the brief document; eight tables and eight rules (policy, propagation, text, supports, evidence bytes, exported members, briefs cite analysis); `unicode-segmentation` pinned; the analysis-output ledger (§10, §10.2, §10.3) | ADR-0019 |
 | 2026-09-23 | Slice 1.6: the embedding spec, the `Embedder` trait with a fake and the vLLM client (`lctx-embed`), request-body conformance, the global `embedding_cache` (read mode, insert-only MERGE probed at the pin, empty when unused), the keys digest in `content_digest`, `services/vllm` and `just embed-serve`/`pilot-live` (§3.2, §6.1, §6.2, §11.1) | ADR-0017 amendment, ADR-0010 amendment |
-
+| 2026-09-23 | Slice 1.7: `lctx bundle`, byte-identical serving generations: nine served files declared in `cpg_schema::bundle`, the language-neutral serving schema digest with shared Rust/Python known answers, normalization by builders, the manifest and generation key; `brief_documents.spec_hash` and `embedding_specs` (§6.4, §11.1) | ADR-0019 |
+| 2026-09-23 | Slice 1.8: `python/lctx_mcp` (FastMCP server, hybrid retrieval, the query embedder and its fake twin, conformance), the uv workspace, the gold extract (§11, §12) | ADR-0010 |
+| 2026-09-23 | Slice 1.9: increment 1 end to end: the pilot's stdio smoke, the rerun oracle, the §1.5 ranking check measured with live vectors (failed on one alias), `just embed-conformance` (§1.5, §11.1) | ADR-0010 |
+| 2026-09-23 | Slice 2.0: the seed audit and the pre-registered seed `fastmcp.FastMCP.mount` (§1.4) | ADR-0004 |
+| 2026-09-23 | Slice 2.1: Pass B (`cpg_schema::flows`, `lctx_analytics::pass_b`), `parameter_docs`, the control/transformed-control/restriction kinds (§3.2, §9.2, §10.2) | ADR-0019 |
+| 2026-09-23 | Increment-1 deep review fixes: the template version in `compiler_digest` (§3.4.1); the fusion policy and pre-registered retrieval evaluation (§11.2); absent slot sections served (§10.3); the budget enforced and `serve_unreviewed` removed; truthful call-site, may-call and definition templates; a raw-pipe stdio test; the gold freeze at 1.9 | ADR-0004, ADR-0010, ADR-0019 |

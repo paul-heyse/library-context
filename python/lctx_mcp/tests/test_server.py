@@ -6,6 +6,7 @@ import json
 import shutil
 from pathlib import Path
 
+import httpx
 import numpy as np
 import pytest
 from fastmcp import Client
@@ -68,6 +69,9 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert c["review_state"] == "unreviewed" and not c["documentation_only"]
         sections = [a["section"] for a in c["assertions"]]
         assert sections[0] == "outcome" and "limits" in sections
+        # Increment-1 deep review F4: the slots the brief does not fill are named.
+        assert c["sections_absent"] == ["applicable_case", "usage_pattern"]
+        assert result["coverage"]["absent_slots"]["usage_pattern"] == 5
         outcome = c["assertions"][0]
         cited = {e["evidence_id"]: e for e in c["evidence"]}
         span = cited[outcome["supports"][0]["evidence_id"]]
@@ -172,3 +176,30 @@ async def test_a_mismatched_generation_fails_at_connect(generation: Path, tmp_pa
     (moved / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
     with pytest.raises(GenerationError, match="generation key"):
         load(moved, None)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"[]",
+        b'{"model": "lctx-fake-embedder"}',
+        b'{"model": "lctx-fake-embedder", "data": [{"index": 0}]}',
+        b'{"model": "lctx-fake-embedder", "data": [{"index": 0, "embedding": "x"}]}',
+    ],
+)
+async def test_a_malformed_embedder_answer_degrades(generation: Path, body: bytes) -> None:
+    """Increment-1 deep review F7: an answer of another shape is a rejection, so lexical-only."""
+
+    def answer(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body)
+
+    odd = HttpEmbedder(
+        "http://embed.invalid", spec=FakeEmbedder().spec, transport=httpx.MockTransport(answer)
+    )
+    async with Client(build_server(generation, odd)) as client:
+        found = await client.call_tool(
+            "search_capabilities", {"library": LIBRARY, "query": "register fn as a tool"}
+        )
+        result = structured(found)
+        assert result["mode"] == "lexical-only", result
+        assert "embedding service failed" in result["degraded_reason"]

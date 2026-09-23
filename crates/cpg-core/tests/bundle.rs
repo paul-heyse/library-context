@@ -27,8 +27,7 @@ max_vertices = 128
 max_edges = 512
 max_witnesses = 3
 [briefs]
-budget = 2
-serve_unreviewed = true
+budget = 6
 "#;
 
 const SNAPSHOT: Id = Id([7; 16]);

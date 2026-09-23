@@ -36,8 +36,26 @@ def test_bm25_scores_are_the_lucene_formula() -> None:
 
     lexical = Lexical(texts)
     for query in ("tool", "a tool", "prompt resource", "unknown words only", "Tool"):
+        # `a` is in two of three briefs, so it still discriminates.
         got = lexical.scores(query).tolist()
         assert got == pytest.approx(expected(tokenize(query)), rel=1e-6), query
+
+
+def test_a_word_every_brief_contains_does_not_vote() -> None:
+    """Increment-1 deep review F2: with only a shared word, the lexical leg abstains, so the
+    fused order is the vector leg's, not the briefs' lengths."""
+    texts = ["register a tool", "register a resource with a long list of controls and words"]
+    lexical = Lexical(texts)
+    assert lexical.discriminating("register") == []
+    assert lexical.scores("register").tolist() == [0.0, 0.0]
+    assert lexical.discriminating("register tool") == ["tool"]
+    a, b = b"\x01" * 16, b"\x02" * 16
+    ids = [a, b]
+    lexical_ranks = ranks(dict(zip(ids, lexical.scores("register").tolist(), strict=True)), True)
+    vector_ranks = ranks({a: 0.2, b: 0.9}, positive_only=False)
+    fused = fuse(lexical_ranks, vector_ranks, promoted=set(), limit=2)
+    assert [r.brief_id for r in fused] == [b, a]
+    assert {r.rank_source for r in fused} == {"vector"}
 
 
 def test_fusion_ranks_ties_by_id_and_promotes_exact_symbols() -> None:

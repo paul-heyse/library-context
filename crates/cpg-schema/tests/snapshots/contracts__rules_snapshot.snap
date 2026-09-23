@@ -604,6 +604,8 @@ semantic:document-vector-cached
   SELECT d.brief_id, d.chunk FROM brief_documents d LEFT ANTI JOIN embedding_cache c ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash WHERE d.input_hash IS NOT NULL
 semantic:one-embedding-spec
   SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1
+semantic:documented-parameter-cites-its-doc
+  SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( SELECT s.assertion_id FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id JOIN parameter_docs d ON d.module_node_id = e.module_node_id AND d.start_byte = e.start_byte AND d.end_byte = e.end_byte WHERE e.evidence_kind = 1) own ON own.assertion_id = a.assertion_id WHERE a.assertion_kind = 3 AND a.evidence_status = 1
 semantic:embedding-dimensions
   SELECT spec_hash FROM embedding_cache GROUP BY spec_hash HAVING count(DISTINCT cardinality(vector)) > 1
 semantic:assertion-policy

@@ -86,6 +86,11 @@ embed-conformance url="http://127.0.0.1:8000":
     LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
     uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
 
+# The §1.5 retrieval check over a generation (ADR-0010 amendment): exits 1 on a miss. Only
+# `--embedder vllm` (with `just embed-serve` running) makes a hybrid result evidence
+ranking-check generation embedder="none":
+    uv run python scripts/ranking_check.py {{generation}} --embedder {{embedder}}
+
 # ast-grep scan over the tree (rules/ grows from design-review findings)
 rules-scan:
     @if ls rules/*.yml >/dev/null 2>&1; then ast-grep scan; else echo "rules-scan: not_run (no rules yet)"; fi

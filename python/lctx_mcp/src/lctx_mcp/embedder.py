@@ -90,25 +90,39 @@ def check_vector(v: list[float], dimensions: int) -> None:
 
 
 def parse_embeddings(spec: Spec, n: int, body: bytes) -> np.ndarray:
-    """Parse and check an embeddings response for `n` inputs (§11.1's rejections)."""
+    """Parse and check an embeddings response for `n` inputs (§11.1's rejections). Any answer of
+    another shape is a rejection too, as Rust's typed parse makes it (increment-1 deep review F7).
+    """
+    try:
+        return _parse(spec, n, body)
+    except EmbedderError:
+        raise
+    except (KeyError, TypeError, AttributeError, ValueError, IndexError) as e:
+        raise EmbedderError(f"a malformed response: {e!r}") from e
+
+
+def _parse(spec: Spec, n: int, body: bytes) -> np.ndarray:
     try:
         parsed = json.loads(body)
     except ValueError as e:
         raise EmbedderError(f"unreadable response: {e}") from e
     if parsed.get("model") != spec.model:
         raise EmbedderError(f"the service answered with model {parsed.get('model')}")
-    data = parsed.get("data", [])
+    data = parsed["data"]
     if len(data) != n:
         raise EmbedderError(f"{len(data)} vectors for {n} inputs")
     out: list[list[float] | None] = [None] * n
     for d in data:
-        i = d.get("index")
+        i = d["index"]
         if not isinstance(i, int) or not 0 <= i < n:
             raise EmbedderError(f"index {i} out of range")
         if out[i] is not None:
             raise EmbedderError(f"index {i} answered twice")
-        check_vector(d["embedding"], spec.dimensions)
-        out[i] = d["embedding"]
+        vector = d["embedding"]
+        if not isinstance(vector, list) or not all(isinstance(x, (int, float)) for x in vector):
+            raise EmbedderError("an embedding that is not a list of numbers")
+        check_vector(vector, spec.dimensions)
+        out[i] = vector
     return np.asarray(out, dtype=np.float32)
 
 

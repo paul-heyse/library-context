@@ -96,3 +96,18 @@ The operator chose:
     first gold scoring, and changes after that only by ADR.
   - **Increment 2's "FCA within one community"** reads "FCA within one structural scope", as §9.6
     and ADR-0011 require: a community's membership is statistical.
+
+- 2026-09-23, increment-1 deep review O1 (deviation log D21):
+  - **The analytics config's freeze** is the first use of gold against compiled output: slice
+    1.9's §1.5 check (6c86f53, config SHA-256 `306416fe…`), not the 3.3 scoring.
+  - Two edits followed. This amendment is their record:
+    - Slice 2.0 added the seed `fastmcp.FastMCP.mount` by the mechanical audit written in the file.
+      Its author had read the gold catalog, where that method is an operation of `fm.mount_proxy`.
+      The seed is kept: its selection rules are gold-free and reproducible. The overlap is
+      disclosed here.
+    - The review's F3 removed `[briefs] serve_unreviewed`, which nothing read. §10.4's review gate
+      arrives with its consumer, the 3.5 workflow. `budget` now binds: more seeds than it are
+      refused.
+  - The config is frozen again at `eval/gold/analytics-freeze.json`. `just gold` fails when
+    `libraries/fastmcp/analytics.toml` differs from it. Any later edit is an amendment naming the
+    gold its author has seen.

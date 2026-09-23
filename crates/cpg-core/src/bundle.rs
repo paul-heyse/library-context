@@ -37,7 +37,7 @@ use cpg_schema::codebook::{
     AssertionKind, BoundaryReason, Codebook, CoverageStatus, EvidenceKind, EvidenceStatus,
     FactFamily, FindingKind, ReviewState, ScopeKind, SupportRole,
 };
-use cpg_schema::findings::ASSERTION_POLICY;
+use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
 use datafusion::prelude::SessionContext;
 use serde_json::{Map, Value, json};
@@ -478,6 +478,21 @@ async fn coverage(ctx: &SessionContext) -> Result<Value, CoreError> {
              GROUP BY 1 ORDER BY 1",
             section_of("assertion_kind"),
         )).await?),
+        // Slot sections a brief has no assertion in (increment-1 deep review F4).
+        "absent_slots": nest(counted(ctx, &format!(
+            "SELECT s.section, count(*) FROM briefs b CROSS JOIN (VALUES {slots}) AS s(section) \
+             LEFT ANTI JOIN (SELECT ba.brief_id, {section} AS section FROM brief_assertions ba \
+                             JOIN assertions a ON a.assertion_id = ba.assertion_id) p \
+               ON p.brief_id = b.brief_id AND p.section = s.section \
+             GROUP BY 1 ORDER BY 1",
+            slots = SLOT_SECTIONS
+                .iter()
+                .map(|s| format!("('{}')", s.text()))
+                .collect::<Vec<_>>()
+                .join(", "),
+            section = section_of("a.assertion_kind"),
+        )).await?),
+        "slot_sections": SLOT_SECTIONS.iter().map(|s| s.text()).collect::<Vec<_>>(),
     }))
 }
 

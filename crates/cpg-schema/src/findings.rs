@@ -382,6 +382,19 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
     ),
 ];
 
+/// The brief sections every brief is expected to fill (DESIGN §10.3; increment-1 deep review F4,
+/// the 1.5 review's O6 decided): a brief with no assertion in one of them has an **absent slot**,
+/// which the served summary counts beside explicit `unresolved` assertions (the §B11 gap
+/// metric). Evidence is implied by the others, and Related is optional.
+pub const SLOT_SECTIONS: &[BriefSection] = &[
+    BriefSection::Outcome,
+    BriefSection::PublicAccess,
+    BriefSection::ApplicableCase,
+    BriefSection::Controls,
+    BriefSection::UsagePattern,
+    BriefSection::Limits,
+];
+
 /// An assertion kind's section.
 pub fn section_of(kind: AssertionKind) -> BriefSection {
     ASSERTION_POLICY

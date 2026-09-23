@@ -1,12 +1,12 @@
 ---
 id: ADR-0019
 title: Analysis results are typed tables with in-row provenance and content ids, outside the CPG catalogs; new crates lctx-analytics and lctx-embed
-status: proposed
+status: accepted
 date: 2026-09-23
 supersedes: []
 superseded-by: null
 design: [§B6, §3.2, §3.4.1, §4.1, §5, §6.4, §9, §10]
-evidence: Proposed
+evidence: Tested
 revisit: A consumer needs a finding, assertion or brief as a node or edge of the CPG catalogs (a query-time traversal through analysis results); an analysis result cannot be rebuilt from its snapshot, analytics config and compiler digest (it would then be an input, so a `facts` row); or the language-neutral serving schema form and the store's `canonical_schema` diverge in a way a reader notices.
 ---
 
@@ -235,3 +235,11 @@ Stage D derives before analysis runs. They reference catalog nodes and edges by 
     `transformed_argument` and `conditional_raise`; `member_role` `source_parameter`, `value`,
     `alias` and `formal`; `assertion_kind` `control`, `transformed_control` and `restriction`.
   - A Pass B invocation records the flows relations' digest as its projection digest.
+- 2026-09-23, increment-1 deep review (U2 and F4, deviation log D20; the 1.5 review's O6
+  decided):
+  - The brief's **slot sections** are Outcome, Public access, Applicable case, Controls, Usage
+    pattern and Limits (`findings::SLOT_SECTIONS`).
+  - A slot section without an assertion is an **absent slot**. The manifest counts absent slots
+    by section beside the explicit `unresolved` assertions (`absent_slots`, `slot_sections`), and
+    `get_capability` names each brief's.
+  - The §B11 gap metric counts both.

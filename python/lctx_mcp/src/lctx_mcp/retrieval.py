@@ -1,6 +1,9 @@
 """Hybrid retrieval over one generation (DESIGN §11.2).
 
-1. Lexical: BM25 (bm25s, numpy backend, `get_scores`) over `lexical_text`, with our tokenizer.
+1. Lexical: BM25 (bm25s, numpy backend, `get_scores`) over `lexical_text`, with our tokenizer,
+   over the query's **discriminating** words only: a word every brief contains cannot tell them
+   apart, and a ranking by it alone is BM25's length normalization. With none, the lexical leg
+   abstains (ADR-0010 amendment, increment-1 deep review F2).
 2. Vector: exact cosine against the instruction-prefixed query vector; a brief's score is its best
    chunk's.
 3. Fusion: reciprocal-rank fusion, K = 60, 1-based ranks, ties by brief id.
@@ -32,14 +35,22 @@ class Lexical:
 
     def __init__(self, texts: list[str]) -> None:
         self.retriever = bm25s.BM25(k1=1.5, b=0.75, method="lucene", backend="numpy")
-        self.retriever.index([tokenize(t) for t in texts], show_progress=False)
+        tokens = [tokenize(t) for t in texts]
+        self.retriever.index(tokens, show_progress=False)
         self.size = len(texts)
+        self.df: dict[str, int] = {}
+        for doc in tokens:
+            for t in set(doc):
+                self.df[t] = self.df.get(t, 0) + 1
+
+    def discriminating(self, query: str) -> list[str]:
+        """The query's words some briefs contain and others do not, in query order."""
+        return [t for t in tokenize(query) if 0 < self.df.get(t, 0) < self.size]
 
     def scores(self, query: str) -> np.ndarray:
-        """One score per brief; unknown words count for nothing."""
-        vocab = self.retriever.vocab_dict
-        tokens = [t for t in tokenize(query) if t in vocab]
-        if not tokens or self.size == 0:
+        """One score per brief over the discriminating words; all zero when there are none."""
+        tokens = self.discriminating(query)
+        if not tokens:
             return np.zeros(self.size, dtype=np.float32)
         return np.asarray(self.retriever.get_scores(tokens), dtype=np.float32)
 

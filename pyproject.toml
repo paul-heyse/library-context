@@ -42,4 +42,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 python-version = "3.14"
 project-includes = ["scripts", "tests", "python/lctx_mcp/src", "python/lctx_mcp/tests"]
 project-excludes = ["fixtures/**", ".claude/**", "**/target/**"]
-search-path = ["scripts"]
+# The server's source is a project file, not a site package: its editable install puts it on the
+# interpreter's site path, which pyrefly excludes (increment-1 deep review F6).
+search-path = ["scripts", "python/lctx_mcp/src"]
+site-package-path = [".venv/lib/python3.14/site-packages"]

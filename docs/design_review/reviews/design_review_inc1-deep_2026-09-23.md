@@ -512,3 +512,20 @@ None of this reopens a §B decision. Increment 2 may proceed, with F1 landed bef
   controls (F3).
 - Later extensions have a clear, validated path once F1 makes synthesis revisions visible and
   F2 fixes how retrieval changes are decided.
+
+## Disposition (2026-09-23, commit after slice 2.1)
+
+| Item | Disposition | Where |
+|---|---|---|
+| F1 | Fixed with 2.1, as required, before its template bump took effect: `compiler_digest_of` takes the template version; DESIGN §3.4.1 is restated; the unit test covers the new input and the contracts | `attempt.rs`; commit 36d1259 |
+| F2 / U1 | Decided (D19). The fusion policy: a leg votes only where it discriminates. The pre-registered 3.3 evaluation and §1.5 for 15–25 briefs are in an ADR-0010 amendment. `ranking_check.py` exits 1 on a miss, run by `just ranking-check` | `retrieval.py`; `test_a_word_every_brief_contains_does_not_vote`; ADR-0010 |
+| F3 | Fixed. `serve_unreviewed` is removed (D23); the budget refuses extra seeds | `config.rs`; ADR-0004 amendment |
+| F4 / U2 | Fixed (D20). `SLOT_SECTIONS`; the manifest's `absent_slots` and `slot_sections`; `Capability.sections_absent` and its Markdown line | `findings.rs`, `bundle.rs`, `server.py`; ADR-0019 |
+| F5 | Fixed. Call sites count only witness paths that end in a call. A boundary over an override-open final arc reads "may call". A definition claims nothing more. `TEMPLATE_VERSION` is 6, which moves the compiler digest (F1) | `synth.rs`; fixture `controls.py` (`audit`, `Registry.items.append`); assertions in `briefs_are_synthesized_from_findings_and_verbatim_evidence` |
+| F6 | Fixed. (i) A raw-pipe stdio test, whose flushed-`print` control fails it. (ii) pyrefly's `site-package-path` and `search-path` make the server source a project file, and a test checks `dump-config`. (iii) The ranking check's exit code | `test_stdio.py`; `pyproject.toml`; `test_pyrefly_covers_the_server.py` |
+| F7 | Fixed. Every malformed answer is an `EmbedderError`; four shapes each degrade | `embedder.py`; `test_a_malformed_embedder_answer_degrades` |
+| F8 | Fixed. DESIGN revision rows through 2.1; the §13 Decision line back in §13; ADR-0019 accepted (D22); ADR-0010 records D14; the skipped reviews logged (D22); `handoff` runs with this commit | DESIGN; ADRs; STATUS.md |
+| O1 / U3 | Decided (D21). The freeze is at 1.9, recorded by digest and checked by `just gold`. D16 is disclosed in ADR-0004 | `eval/gold/analytics-freeze.json`; `check_gold.py` |
+| O7 | Fired with 2.1 and fixed. `semantic:documented-parameter-cites-its-doc`, with an injected case | `rules.rs`; `analysis.rs` |
+| O8 | Fixed in the D19 rewrite of §1.5's record: the ranks are Measured with their conditions, and the outcome is stated apart | DESIGN §1.5 |
+| O2, O3, O4, O5, O6, O9 | Deferred with the review's triggers. O2's trigger ("the first template citing code bytes as `span`") has not fired: Pass B cites code as `fact` | — |

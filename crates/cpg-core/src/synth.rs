@@ -39,8 +39,9 @@ use crate::{CoreError, sql};
 /// soft-break view, the mention-sentence leg, the call form, hops said as witnessed, limits by
 /// depth, requiredness cited, traversal stops cited. 4: the brief document leaves out the
 /// analysis's own boundaries (slice 1.9). 5: documented parameters, controls, transformed
-/// controls and restrictions (slice 2.1).
-pub const TEMPLATE_VERSION: i64 = 5;
+/// controls and restrictions (slice 2.1). 6: call sites count call arcs only, "may call" over an
+/// override-open final arc, a definition claims nothing more (increment-1 deep review F5).
+pub const TEMPLATE_VERSION: i64 = 6;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -922,7 +923,20 @@ pub async fn run(
                 .iter()
                 .filter(|w| w.finding_id == f.finding_id)
                 .collect();
-            let paths = steps.iter().map(|w| w.path).collect::<BTreeSet<_>>().len();
+            // Call sites are the witness paths whose final arc is a call; a definition is none
+            // (increment-1 deep review F5).
+            let finals: BTreeMap<i64, &&WitnessesRow> =
+                steps.iter().fold(BTreeMap::new(), |mut m, w| {
+                    let e = m.entry(w.path).or_insert(w);
+                    if w.step > e.step {
+                        *e = w;
+                    }
+                    m
+                });
+            let paths = finals
+                .values()
+                .filter(|w| w.arc_kind == ArcKind::Call)
+                .count();
             let mut first: Vec<_> = steps.iter().copied().filter(|w| w.path == 0).collect();
             first.sort_by_key(|w| w.step);
             let t = label(target);
@@ -938,9 +952,9 @@ pub async fn run(
             let direct = f.finding_kind == FindingKind::DirectDelegation;
             let text = match first.as_slice() {
                 [only] => match (only.arc_kind, only.phase) {
-                    (ArcKind::Definition, _) => format!(
-                        "`{seed_label}` defines `{t}`, a nested callable it returns or registers."
-                    ),
+                    (ArcKind::Definition, _) => {
+                        format!("`{seed_label}` defines the nested callable `{t}`.")
+                    }
                     (
                         _,
                         Some(phase @ (InvocationPhase::PropertyGet | InvocationPhase::PropertySet)),
@@ -1267,7 +1281,17 @@ pub async fn run(
 
         // Limits: where the analysis stopped, one entry per reason, and apart for what the seed
         // calls itself and what the callables it reaches call (slice 1.5 review F3).
-        let mut by_reason: BTreeMap<(StopReason, bool), Vec<&&FindingsRow>> = BTreeMap::new();
+        // A boundary whose final arc is override-open is one the code may call (increment-1 deep
+        // review F5).
+        let may = |f: &FindingsRow| {
+            found
+                .witnesses
+                .iter()
+                .filter(|w| w.finding_id == f.finding_id && w.path == 0)
+                .max_by_key(|w| w.step)
+                .is_some_and(|w| w.modality == Modality::Candidate)
+        };
+        let mut by_reason: BTreeMap<(StopReason, bool, bool), Vec<&&FindingsRow>> = BTreeMap::new();
         for f in &findings {
             if matches!(
                 f.finding_kind,
@@ -1275,10 +1299,11 @@ pub async fn run(
             ) && let Some(r) = f.stop_reason
             {
                 let deep = r != StopReason::UnresolvedSite && f.depth.is_some_and(|d| d > 1);
-                by_reason.entry((r, deep)).or_default().push(f);
+                let may = r != StopReason::UnresolvedSite && may(f);
+                by_reason.entry((r, deep, may)).or_default().push(f);
             }
         }
-        for ((reason, deep), group) in &by_reason {
+        for ((reason, deep, may), group) in &by_reason {
             let names: BTreeSet<String> = group
                 .iter()
                 .filter_map(|f| f.related_node_id)
@@ -1289,10 +1314,14 @@ pub async fn run(
                 .map(|n| format!("`{n}`"))
                 .collect::<Vec<_>>()
                 .join(", ");
+            let verb = if *may { "may call" } else { "calls" };
             let who = if *deep {
-                format!("Callables `{seed_label}` reaches call")
+                format!(
+                    "Callables `{seed_label}` reaches {}",
+                    if *may { "may call" } else { "call" }
+                )
             } else {
-                format!("`{seed_label}` calls")
+                format!("`{seed_label}` {verb}")
             };
             let text = match reason {
                 StopReason::ExternalBoundary => format!(
