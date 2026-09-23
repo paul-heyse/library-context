@@ -52,5 +52,7 @@ _Updated 2026-09-23 by the handoff skill._
 
 ## Next
 
-Increment 1, slice 4: the analytics config, the invocation projection (§5
-`GraphProjectionSpec` over the published catalogs) and Pass A.
+**H1, the library-leverage hardening slice** (operator, 2026-09-23), before slice 4: every item of
+`docs/design_review/reviews/design_review_library-leverage_2026-09-23.md`, in the order of
+`~/.claude/plans/h1-library-leverage-hardening.md` (correctness, runtime, design and fork, close).
+Then increment 1, slice 4: the analytics config, the invocation projection and Pass A.
