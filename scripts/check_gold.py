@@ -56,6 +56,13 @@ def main() -> int:
         print("gold: not_run (the fastmcp skill is not installed)")
         return 0
     found = problems(LIBRARY, SKILL)
+    # The committed extract the evaluation scores against is the skill's (DESIGN §12).
+    import gold_extract
+
+    catalog = json.loads(gold_extract.CATALOG.read_text(encoding="utf-8"))
+    text = gold_extract.render(gold_extract.extract(catalog))
+    if not gold_extract.EXTRACT.exists() or gold_extract.EXTRACT.read_text("utf-8") != text:
+        found.append(f"{gold_extract.EXTRACT.relative_to(ROOT)} is stale: run gold_extract.py")
     for p in found:
         print(f"gold: {p}")
     if not found:

@@ -1,0 +1,1516 @@
+{
+ "families": [
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.apps",
+   "operations": [
+    "fastmcp.Context.input_responses",
+    "fastmcp.apps.FastMCPApp",
+    "fastmcp.apps.FastMCPApp.tool",
+    "fastmcp.apps.FastMCPApp.ui",
+    "fastmcp.apps.approval.Approval",
+    "fastmcp.apps.form.FormInput",
+    "fastmcp.tools.base.InputRequiredToolResult"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "19e46558558f8834de29e86f2590227393c40eb420ad9801c34b9ef8d9d7ed5a",
+     "line_end": 168,
+     "line_start": 149,
+     "path": "fastmcp/apps/app.py",
+     "source_sha256": "aa62b0733f29c826d29642bfcffaa5e90d3e5a3da1e02a2de8aae44322eabc63"
+    },
+    {
+     "excerpt_sha256": "8453e6657f841b357ce6c4324a464e90ada3d430f2d15168280ff8880b804594",
+     "line_end": 221,
+     "line_start": 196,
+     "path": "fastmcp/apps/app.py",
+     "source_sha256": "aa62b0733f29c826d29642bfcffaa5e90d3e5a3da1e02a2de8aae44322eabc63"
+    },
+    {
+     "excerpt_sha256": "285e130ce553016e666f988036f76cab8fc30a03d25c2dd71eae1f472101933d",
+     "line_end": 345,
+     "line_start": 295,
+     "path": "fastmcp/apps/app.py",
+     "source_sha256": "aa62b0733f29c826d29642bfcffaa5e90d3e5a3da1e02a2de8aae44322eabc63"
+    },
+    {
+     "excerpt_sha256": "fa1d58615332f7ba9d1afa5b239f140bc8e993f2f916dd0c1d14f8ec1ff3a045",
+     "line_end": 409,
+     "line_start": 370,
+     "path": "fastmcp/apps/app.py",
+     "source_sha256": "aa62b0733f29c826d29642bfcffaa5e90d3e5a3da1e02a2de8aae44322eabc63"
+    },
+    {
+     "excerpt_sha256": "a81b6ba69e4517ad4cf5d4ce5a3918e4ca7b17dec35908f601d6145e1e27caf7",
+     "line_end": 16,
+     "line_start": 1,
+     "path": "fastmcp/apps/approval.py",
+     "source_sha256": "d953c6613acae53a2e43dd8c58cea57e655ca5c7ab735a65db7d6773cf9582cd"
+    },
+    {
+     "excerpt_sha256": "4ddc2919a9d3411f29b54c2eaf3e19fd37ae783347d0870dab4f27d11d8be12a",
+     "line_end": 25,
+     "line_start": 1,
+     "path": "fastmcp/apps/form.py",
+     "source_sha256": "ab2f2a1244abca4384e44f046b2ed7a2473b07167ff2a6b5c2028a89aac75b50"
+    },
+    {
+     "excerpt_sha256": "0faea402b26cb4284e7387898ed65522a390527bd25bd817a87d69fa537e46af",
+     "line_end": 211,
+     "line_start": 187,
+     "path": "fastmcp/server/providers/base.py",
+     "source_sha256": "8f093998fc564a216664a7761b44dd5edcdf67cf4a7b698d8056fc04507a7565"
+    },
+    {
+     "excerpt_sha256": "b6eca9de42c726df6fe442e50e9950d2e457bf49624b0fabae90c0ea8bac2e42",
+     "line_end": 225,
+     "line_start": 193,
+     "path": "fastmcp/tools/base.py",
+     "source_sha256": "d0b38a083950e46231b46e80cc337aa0b14eb9d9dfa5d3d7308a174f06f0676a"
+    }
+   ],
+   "task_aliases": [
+    "Expose interactive application resources and callbacks",
+    "MCP Apps UI prefab interactive callback input required"
+   ],
+   "title": "Expose interactive application resources and callbacks"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.auth",
+   "operations": [
+    "fastmcp.server.auth.AuthContext",
+    "fastmcp.server.auth.TokenVerifier",
+    "fastmcp.server.auth.oauth_proxy.OAuthProxy",
+    "fastmcp.server.auth.providers.jwt.JWTVerifier",
+    "fastmcp.server.auth.providers.jwt.StaticTokenVerifier",
+    "fastmcp.server.auth.require_roles",
+    "fastmcp.server.auth.require_scopes",
+    "fastmcp.server.dependencies.get_access_token"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "b65460b982c4c8728c44c640e632367b7166f78bf040a45bdefad8bcd2ef7b5a",
+     "line_end": 18,
+     "line_start": 11,
+     "path": "fastmcp/server/auth/__init__.py",
+     "source_sha256": "c7c7a793b1335d53ed982e67c9d577b65a3047494d4b5e76dc10b0ecf0de808c"
+    },
+    {
+     "excerpt_sha256": "8308104050ca187606c041355581222614f7fd04dd1c622281ae63e0ccebfebc",
+     "line_end": 566,
+     "line_start": 550,
+     "path": "fastmcp/server/auth/providers/jwt.py",
+     "source_sha256": "c443f1926c26af0fa0f985654250c72ac2bae18847b601fd9ff5690a60512bac"
+    },
+    {
+     "excerpt_sha256": "ce96d8ad783eb070ff418761b0f753742f137b3905b3bd5b1d86fb1714710b59",
+     "line_end": 209,
+     "line_start": 198,
+     "path": "fastmcp/server/middleware/authorization.py",
+     "source_sha256": "8261513baee6ccb01b8c38ee1f497cd58be2d32b7c791a86a97e0a7af1b9063a"
+    },
+    {
+     "excerpt_sha256": "12d1c21f6cf8d882511435e239d6184b2f042438d57be30b97518813897f186e",
+     "line_end": 245,
+     "line_start": 227,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "1762baf0efef0b8a633d068685ea6459981d2049e23c33c1b9a4b2cfad7d0484",
+     "line_end": 942,
+     "line_start": 915,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "5b8bffa21ae48df413ec669322fc82f12aa1ad9e7bd22f336459d90baaad2d64",
+     "line_end": 315,
+     "line_start": 304,
+     "path": "fastmcp/utilities/authorization.py",
+     "source_sha256": "69b91e8fbf7b15bd43791bce93309c3c6c86273f474c795d5a59e5ebf9e53591"
+    }
+   ],
+   "task_aliases": [
+    "Authenticate identities and authorize operations",
+    "auth JWT OAuth scopes principal AccessToken subject credentials authorization"
+   ],
+   "title": "Authenticate identities and authorize operations"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.client_transports",
+   "operations": [
+    "fastmcp.Client",
+    "fastmcp.Client.call_tool",
+    "fastmcp.client.transports.StdioTransport",
+    "fastmcp.client.transports.StreamableHttpTransport"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "32408d0fcfe0e7c9c7ce1fdddb219341f4cd732e0cf67c6b29c1142c4655a7b6",
+     "line_end": 56,
+     "line_start": 28,
+     "path": "fastmcp/client/transports/http.py",
+     "source_sha256": "3317e49f833eda9de286faeac80f185db1234311d2d7adaf312b10483dcbb04a"
+    },
+    {
+     "excerpt_sha256": "a17766162b728f9cc81dfc21cc3a22c6f31bbc3ff3c2a6a0dbc43f0672c20c16",
+     "line_end": 81,
+     "line_start": 71,
+     "path": "fastmcp/client/transports/http.py",
+     "source_sha256": "3317e49f833eda9de286faeac80f185db1234311d2d7adaf312b10483dcbb04a"
+    },
+    {
+     "excerpt_sha256": "25b64005432ad6295a461aa460639514f275284c55f81fc739003f229de50119",
+     "line_end": 190,
+     "line_start": 164,
+     "path": "fastmcp/client/transports/http.py",
+     "source_sha256": "3317e49f833eda9de286faeac80f185db1234311d2d7adaf312b10483dcbb04a"
+    },
+    {
+     "excerpt_sha256": "3a3a27a94e22e935eae87a7fc3a2b5e6f5ab540a4020824461bb58b4f13159c4",
+     "line_end": 66,
+     "line_start": 33,
+     "path": "fastmcp/client/transports/stdio.py",
+     "source_sha256": "0699d42703ec077e610e8e1cdfce7eaf3be8e0116b7bd725462b7d64ebd34faf"
+    },
+    {
+     "excerpt_sha256": "65d75348be244232d6e288547e4297789af44e0499c22cb0fca374ece5dfaa86",
+     "line_end": 120,
+     "line_start": 77,
+     "path": "fastmcp/client/transports/stdio.py",
+     "source_sha256": "0699d42703ec077e610e8e1cdfce7eaf3be8e0116b7bd725462b7d64ebd34faf"
+    },
+    {
+     "excerpt_sha256": "601d84d7a79fd4123aaaf8000560380481a3959eb524f49b9b04554be50278a4",
+     "line_end": 219,
+     "line_start": 218,
+     "path": "fastmcp/client/transports/stdio.py",
+     "source_sha256": "0699d42703ec077e610e8e1cdfce7eaf3be8e0116b7bd725462b7d64ebd34faf"
+    }
+   ],
+   "task_aliases": [
+    "Connect clients with explicit transport and ownership",
+    "client HTTP stdio subprocess transport session keep alive connection"
+   ],
+   "title": "Connect clients with explicit transport and ownership"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.context_state",
+   "operations": [
+    "fastmcp.Context",
+    "fastmcp.Context.get_state",
+    "fastmcp.Context.set_state",
+    "fastmcp.server.dependencies.get_session",
+    "fastmcp.server.sessions.Session",
+    "fastmcp.server.sessions.Session.clear",
+    "fastmcp.server.sessions.Session.end",
+    "fastmcp.server.sessions.SessionId",
+    "fastmcp.server.sessions.SessionProvider",
+    "fastmcp.server.sessions.UserSession"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "86d96e454378149308a028552eadcbf83c2acf746b50984bf5fcad2cf37e9d9b",
+     "line_end": 196,
+     "line_start": 191,
+     "path": "fastmcp/server/context.py",
+     "source_sha256": "9a2b41e617561baf383b7f82f5eeaaf4823793705d6d50aea76b7e556185a8fc"
+    },
+    {
+     "excerpt_sha256": "ce7328fb8000c77b0590296035d7181f3d6f058865a3e62187fcc631cd80c961",
+     "line_end": 1138,
+     "line_start": 1106,
+     "path": "fastmcp/server/context.py",
+     "source_sha256": "9a2b41e617561baf383b7f82f5eeaaf4823793705d6d50aea76b7e556185a8fc"
+    },
+    {
+     "excerpt_sha256": "1735a5946e113024a6d1ad24882152c5f30d4c1f934f0015744989540d85f3b5",
+     "line_end": 516,
+     "line_start": 485,
+     "path": "fastmcp/server/dependencies.py",
+     "source_sha256": "36542766fd2d8a078c664b9843d2082ed5414d2c7a1abf49207df1806b742b32"
+    },
+    {
+     "excerpt_sha256": "ed9efd5654ec42c30913f78225e0f14a0d868b087f061ab6fd04458f1010859f",
+     "line_end": 172,
+     "line_start": 139,
+     "path": "fastmcp/server/sessions.py",
+     "source_sha256": "e15ace2741bb9b972c4e25e8426cfd29375930af5895b5b78c4dbeb5ad9a9b97"
+    },
+    {
+     "excerpt_sha256": "f7e83cef0b1cd89674a2d452476ababe59516058b49e32ae396f6b452aa7a757",
+     "line_end": 228,
+     "line_start": 223,
+     "path": "fastmcp/server/sessions.py",
+     "source_sha256": "e15ace2741bb9b972c4e25e8426cfd29375930af5895b5b78c4dbeb5ad9a9b97"
+    },
+    {
+     "excerpt_sha256": "31f34d1b9211448873b43c1a6e68620086fe5a002fd88fef972a59d624d70c01",
+     "line_end": 300,
+     "line_start": 281,
+     "path": "fastmcp/server/sessions.py",
+     "source_sha256": "e15ace2741bb9b972c4e25e8426cfd29375930af5895b5b78c4dbeb5ad9a9b97"
+    },
+    {
+     "excerpt_sha256": "e31884af7784ce8a9ec2f16d73ed1bdf5f6ff1f8dff05023cd270830cb72b387",
+     "line_end": 438,
+     "line_start": 428,
+     "path": "fastmcp/server/sessions.py",
+     "source_sha256": "e15ace2741bb9b972c4e25e8426cfd29375930af5895b5b78c4dbeb5ad9a9b97"
+    },
+    {
+     "excerpt_sha256": "6295214bc1fd82ce6cf7d3e610a15699474363c871e3c17db9841a39d18b0557",
+     "line_end": 522,
+     "line_start": 501,
+     "path": "fastmcp/server/sessions.py",
+     "source_sha256": "e15ace2741bb9b972c4e25e8426cfd29375930af5895b5b78c4dbeb5ad9a9b97"
+    },
+    {
+     "excerpt_sha256": "7c2cfb36d92a7e6eeaed5c801a032a168bc7e3dc7eddd84bf66ffec4196f5edf",
+     "line_end": 71,
+     "line_start": 53,
+     "path": "mcp/server/auth/provider.py",
+     "source_sha256": "92555c74a320a8ca4165c79841208c4cc19f4d6e1ec1c2c4fa8a9e4f90bccd02"
+    }
+   ],
+   "task_aliases": [
+    "Separate request context, sessions and domain state",
+    "session state principal user storage TTL concurrent update persistence"
+   ],
+   "title": "Separate request context, sessions and domain state"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.dependencies",
+   "operations": [
+    "fastmcp.Context",
+    "fastmcp.dependencies.Depends",
+    "fastmcp.dependencies.Shared",
+    "fastmcp.server.dependencies.get_context",
+    "uncalled_for.shared.Shared"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "c8ccfa7d6c29ba348d82c6f90d57acaa07c7d64e366c3ded71407392cf2eaec8",
+     "line_end": 34,
+     "line_start": 12,
+     "path": "fastmcp/dependencies.py",
+     "source_sha256": "4034cc7f47883e7474076280a977e37c2fcf80c96a592244a99a0114c5380a92"
+    },
+    {
+     "excerpt_sha256": "185c8acf43c21bae70dfcee229a14874ac6c3f1ff36088a9e4cd924b561e8394",
+     "line_end": 84,
+     "line_start": 55,
+     "path": "fastmcp/server/mixins/lifespan.py",
+     "source_sha256": "88a99a3a5c6c29aeac54033b5673d28114ac3ebbd6b3cbf2ce063984d048b5ea"
+    },
+    {
+     "excerpt_sha256": "61606f92cf77419bfdcf1e9351ab430239b6289ee6d012a21a41728c3eb78d41",
+     "line_end": 57,
+     "line_start": 30,
+     "path": "uncalled_for/functional.py",
+     "source_sha256": "7b84f6cffde590583deeb6907b960af235b335bbe50dae8b4d7b07b29504ad91"
+    },
+    {
+     "excerpt_sha256": "7a166b28208306ea07d2d7454e1e2c6acfa626f67844d8c364a53384b9804370",
+     "line_end": 52,
+     "line_start": 26,
+     "path": "uncalled_for/shared.py",
+     "source_sha256": "a70303d687a99e21e8a8d9a881952fb825042b39789691cc8f66718e2b8b9673"
+    },
+    {
+     "excerpt_sha256": "660fc90b138ec6392ebf95357196ce581d9a4dafa23eecaef04ea477dcabef73",
+     "line_end": 137,
+     "line_start": 122,
+     "path": "uncalled_for/shared.py",
+     "source_sha256": "a70303d687a99e21e8a8d9a881952fb825042b39789691cc8f66718e2b8b9673"
+    }
+   ],
+   "task_aliases": [
+    "Inject dependencies and choose reuse scope",
+    "dependency injection Depends Shared cache per call resources bindings"
+   ],
+   "title": "Inject dependencies and choose reuse scope"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.discovery",
+   "operations": [
+    "fastmcp.server.transforms.Visibility",
+    "fastmcp.server.transforms.search.BM25SearchTransform",
+    "fastmcp.server.transforms.search.RegexSearchTransform"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "d34d4394e57aa11696c1ff7d962e3dc6219c182fd295cd8fa1da680b994e83c1",
+     "line_end": 58,
+     "line_start": 42,
+     "path": "fastmcp/server/transforms/search/base.py",
+     "source_sha256": "a977fa0aa64840becf80db847e972ed70b8849e75319e7cf92b85241409b8398"
+    },
+    {
+     "excerpt_sha256": "4fdcccd0ff48e85933657db1e094a9420672d45b31585136a6739eb52f9dc34e",
+     "line_end": 65,
+     "line_start": 42,
+     "path": "fastmcp/server/transforms/search/base.py",
+     "source_sha256": "a977fa0aa64840becf80db847e972ed70b8849e75319e7cf92b85241409b8398"
+    },
+    {
+     "excerpt_sha256": "a5a6d79c46ebca172e529958091c3371a77aada081cb3ea9fbf791bbb27a61ed",
+     "line_end": 153,
+     "line_start": 140,
+     "path": "fastmcp/server/transforms/search/base.py",
+     "source_sha256": "a977fa0aa64840becf80db847e972ed70b8849e75319e7cf92b85241409b8398"
+    },
+    {
+     "excerpt_sha256": "4d13a34f5805710adf6985b69971ad58f677bb7b89dc8a2f0d67c2fd4a4ce58e",
+     "line_end": 204,
+     "line_start": 179,
+     "path": "fastmcp/server/transforms/search/base.py",
+     "source_sha256": "a977fa0aa64840becf80db847e972ed70b8849e75319e7cf92b85241409b8398"
+    },
+    {
+     "excerpt_sha256": "76b44d087eaa3680a52df9017d13376b69f65a0b9c461eaba80ea7be9b59a2fe",
+     "line_end": 251,
+     "line_start": 229,
+     "path": "fastmcp/server/transforms/search/base.py",
+     "source_sha256": "a977fa0aa64840becf80db847e972ed70b8849e75319e7cf92b85241409b8398"
+    },
+    {
+     "excerpt_sha256": "e3d406633a50149c4a7342213fb76aa20acf99e609dbe66846a94afb5fc77628",
+     "line_end": 269,
+     "line_start": 266,
+     "path": "fastmcp/server/transforms/search/base.py",
+     "source_sha256": "a977fa0aa64840becf80db847e972ed70b8849e75319e7cf92b85241409b8398"
+    },
+    {
+     "excerpt_sha256": "aa32caa08e2c744aab5d401148be59980cf2c19784a5e80c4fdac77d97ec17b7",
+     "line_end": 85,
+     "line_start": 82,
+     "path": "fastmcp/server/transforms/search/bm25.py",
+     "source_sha256": "8671d4a5cedb68579b0c381e8690942d31c7284c1aa50cda34a578d711645f2e"
+    },
+    {
+     "excerpt_sha256": "4465964744412c8d7d1fac545ef29d4933b8cadf4f40add2c036628c462f8f3b",
+     "line_end": 129,
+     "line_start": 115,
+     "path": "fastmcp/server/transforms/search/bm25.py",
+     "source_sha256": "8671d4a5cedb68579b0c381e8690942d31c7284c1aa50cda34a578d711645f2e"
+    },
+    {
+     "excerpt_sha256": "b9bbadaa3cc5d8aa4f2bded8fd010e734a63fcd66596b5d926f23d35c5ade205",
+     "line_end": 146,
+     "line_start": 133,
+     "path": "fastmcp/server/transforms/search/bm25.py",
+     "source_sha256": "8671d4a5cedb68579b0c381e8690942d31c7284c1aa50cda34a578d711645f2e"
+    },
+    {
+     "excerpt_sha256": "6847884400d08cfe480d458d8570ff327b183f275873f7662248f6655bece39a",
+     "line_end": 38,
+     "line_start": 25,
+     "path": "fastmcp/server/transforms/search/regex.py",
+     "source_sha256": "d95cb3270657e7f11878e2484a43dad92df5bac169eeb78007634250c4f7b1ce"
+    }
+   ],
+   "task_aliases": [
+    "Search a catalog with built-in or domain-specific semantics",
+    "tool search catalog BM25 regex relevance discover ranking"
+   ],
+   "title": "Search a catalog with built-in or domain-specific semantics"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.errors",
+   "operations": [
+    "fastmcp.Client.call_tool",
+    "fastmcp.FastMCP.__init__",
+    "fastmcp.exceptions.ToolError",
+    "fastmcp.tools.ToolResult"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "c712c7bc83d8074b35f4215857b46934b7ce8e20c8d2ad8d0e04b38bfbb4f2ee",
+     "line_end": 302,
+     "line_start": 281,
+     "path": "fastmcp/client/mixins/tools.py",
+     "source_sha256": "31692869c14a5332290a7e5d77767068e19ba4ec9f2d7dfaf0ddfb8c84f400cc"
+    },
+    {
+     "excerpt_sha256": "870915c0e78ef2907bb736f16556e87113bba9fc69f62dcda053f36421d78776",
+     "line_end": 375,
+     "line_start": 367,
+     "path": "fastmcp/client/mixins/tools.py",
+     "source_sha256": "31692869c14a5332290a7e5d77767068e19ba4ec9f2d7dfaf0ddfb8c84f400cc"
+    },
+    {
+     "excerpt_sha256": "63f43efa7ee30894c246e7d1a35f4581131cb299428b532a1fb3e62440fc6b49",
+     "line_end": 1578,
+     "line_start": 1532,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "29e8d35bed78d7c19c2a221071ca77157b78298c3c49dd9af07b59b56e937d9c",
+     "line_end": 2383,
+     "line_start": 2376,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "2d84dd52abde658d4df0cf463286035e9a94dafef56534d45c8eaa098dbac819",
+     "line_end": 218,
+     "line_start": 205,
+     "path": "fastmcp/settings.py",
+     "source_sha256": "e3ebcdd09d4f1f365b13f69e7282cfb7bc02cfc4d7c2e5438ed20ca07879379a"
+    },
+    {
+     "excerpt_sha256": "35661dc2a4e835ff71c341f0d99795360fec7a28c4d4469ea37c068d2027296a",
+     "line_end": 119,
+     "line_start": 107,
+     "path": "fastmcp/tools/base.py",
+     "source_sha256": "d0b38a083950e46231b46e80cc337aa0b14eb9d9dfa5d3d7308a174f06f0676a"
+    }
+   ],
+   "task_aliases": [
+    "Represent failures and choose client error policy",
+    "masked error ToolError is_error raise_on_error retry failure phase"
+   ],
+   "title": "Represent failures and choose client error policy"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.http_asgi",
+   "operations": [
+    "fastmcp.FastMCP.http_app",
+    "fastmcp.server.http.create_streamable_http_app",
+    "starlette.applications.Starlette"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "0965c18de247158f2e0580ce5d2e39263efa503eabae8b144af3f0206e8789a6",
+     "line_end": 106,
+     "line_start": 83,
+     "path": "fastmcp/server/http.py",
+     "source_sha256": "fef91a95adf0fa066c2d0e143c9a162a8e9ca351fa74d2d13bde344e4f81793e"
+    },
+    {
+     "excerpt_sha256": "9a76c22988212dbc938e521ab6f0456718305f90672fa957bcd9b61656a6c82a",
+     "line_end": 351,
+     "line_start": 346,
+     "path": "fastmcp/server/http.py",
+     "source_sha256": "fef91a95adf0fa066c2d0e143c9a162a8e9ca351fa74d2d13bde344e4f81793e"
+    },
+    {
+     "excerpt_sha256": "2395cec88b5d7bef5b0fac4a16d0c8f47b74efc3dba3a2194b01464c9774e16e",
+     "line_end": 687,
+     "line_start": 665,
+     "path": "fastmcp/server/http.py",
+     "source_sha256": "fef91a95adf0fa066c2d0e143c9a162a8e9ca351fa74d2d13bde344e4f81793e"
+    },
+    {
+     "excerpt_sha256": "631e34b887cefe8a8aa13b6ad15ae112a488e45dfb82b9de9d9d77e925aaa7b6",
+     "line_end": 412,
+     "line_start": 372,
+     "path": "fastmcp/server/mixins/transport.py",
+     "source_sha256": "381fec69007bbd6855aa28308a39bf524b6481db96923fc9ad73746d131a954b"
+    },
+    {
+     "excerpt_sha256": "e0f142a208bd1089e9b158b67e098a864ff58f09c188398825f4ba3ec86b116c",
+     "line_end": 192,
+     "line_start": 190,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "7ab7683a9b2e1ffa600a1b8d9f50efe9f9f86b3e845a7c2b09035c7f6821ee77",
+     "line_end": 201,
+     "line_start": 201,
+     "path": "fastmcp/settings.py",
+     "source_sha256": "e3ebcdd09d4f1f365b13f69e7282cfb7bc02cfc4d7c2e5438ed20ca07879379a"
+    }
+   ],
+   "task_aliases": [
+    "Host or mount the HTTP application with its lifecycle",
+    "ASGI HTTP mount lifespan Starlette FastAPI routes session manager"
+   ],
+   "title": "Host or mount the HTTP application with its lifecycle"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.inputs",
+   "operations": [
+    "fastmcp.FastMCP.__init__",
+    "fastmcp.FastMCP.call_tool",
+    "fastmcp.tools.Tool.run",
+    "pydantic.type_adapter.TypeAdapter"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "4960357588423f4a8ff5f1dbb368f15c74c20f9af129091b507a19506277b64c",
+     "line_end": 470,
+     "line_start": 466,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "de8741d279aa86e443a0d9b0341cb8a94d17582463305dc345cb39cccf514f28",
+     "line_end": 1528,
+     "line_start": 1515,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "357d884edcb60f084f01cdb4eab70c1be2a9a629acd26129890765f6818b9521",
+     "line_end": 365,
+     "line_start": 349,
+     "path": "fastmcp/tools/base.py",
+     "source_sha256": "d0b38a083950e46231b46e80cc337aa0b14eb9d9dfa5d3d7308a174f06f0676a"
+    },
+    {
+     "excerpt_sha256": "9977f6ed2c068ec82a1f8d795f0a36b516ce9f9bb32db39fea4ad15e97f334fd",
+     "line_end": 138,
+     "line_start": 124,
+     "path": "fastmcp/tools/function_tool.py",
+     "source_sha256": "829b1d227606a1eab2475723efa8d33aaa2c820b5efd2c1a019e5e5457d0133c"
+    },
+    {
+     "excerpt_sha256": "8f89b428cae06693019de4dea80f9a9650563daf60b6c49e32e81011ae1fbdaf",
+     "line_end": 393,
+     "line_start": 386,
+     "path": "fastmcp/tools/function_tool.py",
+     "source_sha256": "829b1d227606a1eab2475723efa8d33aaa2c820b5efd2c1a019e5e5457d0133c"
+    },
+    {
+     "excerpt_sha256": "6d99773d6167b1e430cfc75f8a80be38b940052d18673c49667b9dcdb343a21b",
+     "line_end": 485,
+     "line_start": 450,
+     "path": "fastmcp/tools/function_tool.py",
+     "source_sha256": "829b1d227606a1eab2475723efa8d33aaa2c820b5efd2c1a019e5e5457d0133c"
+    }
+   ],
+   "task_aliases": [
+    "Validate and coerce tool inputs at the intended boundary",
+    "strict coercion integer numeric string input arguments schema null defaults"
+   ],
+   "title": "Validate and coerce tool inputs at the intended boundary"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.lifespan",
+   "operations": [
+    "fastmcp.Client.__aenter__",
+    "fastmcp.Client.__aexit__",
+    "fastmcp.FastMCP.__init__",
+    "fastmcp.server.http.create_streamable_http_app",
+    "fastmcp.server.lifespan.ContextManagerLifespan",
+    "fastmcp.server.lifespan.lifespan"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "879756f076685de8cbfb4d3635dcded78dc4bc7b631535a6fa2607835aa0e580",
+     "line_end": 111,
+     "line_start": 94,
+     "path": "fastmcp/server/lifespan.py",
+     "source_sha256": "88e5d5652b5612fb4ea37ac997607be3ce64adfe26af1d9319d3a430d4581263"
+    },
+    {
+     "excerpt_sha256": "8f651525f7cc194c64d4b3fa115acea2be0721abeeeb15a14e9de9482ca680c8",
+     "line_end": 138,
+     "line_start": 114,
+     "path": "fastmcp/server/lifespan.py",
+     "source_sha256": "88e5d5652b5612fb4ea37ac997607be3ce64adfe26af1d9319d3a430d4581263"
+    },
+    {
+     "excerpt_sha256": "ce1034bbd9c27a27ab13834068b59fe2a81c5a9a27fd84fe99f52e4e025723e3",
+     "line_end": 173,
+     "line_start": 141,
+     "path": "fastmcp/server/lifespan.py",
+     "source_sha256": "88e5d5652b5612fb4ea37ac997607be3ce64adfe26af1d9319d3a430d4581263"
+    },
+    {
+     "excerpt_sha256": "e83c01bfbf29a1b8fbfee9b76e42fcde7b847a3dfbdcca5e906a616569537135",
+     "line_end": 205,
+     "line_start": 169,
+     "path": "fastmcp/server/mixins/lifespan.py",
+     "source_sha256": "88a99a3a5c6c29aeac54033b5673d28114ac3ebbd6b3cbf2ce063984d048b5ea"
+    }
+   ],
+   "task_aliases": [
+    "Assign acquisition and teardown to the right owner",
+    "lifespan startup shutdown cleanup context manager resource ownership"
+   ],
+   "title": "Assign acquisition and teardown to the right owner"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.middleware",
+   "operations": [
+    "fastmcp.server.middleware.Middleware",
+    "fastmcp.server.middleware.caching.ResponseCachingMiddleware",
+    "fastmcp.server.middleware.rate_limiting.RateLimitingMiddleware",
+    "fastmcp.server.middleware.response_limiting.ResponseLimitingMiddleware"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "a5a015fb00e5088d0941909204d8b2aff944798053cfe95062d16fed373efcec",
+     "line_end": 285,
+     "line_start": 237,
+     "path": "fastmcp/server/middleware/caching.py",
+     "source_sha256": "ab136597e84a741691a3795923efdf0663f52be227899c0607d2cbf2e9b25559"
+    },
+    {
+     "excerpt_sha256": "fd6a85d9d7ac63090dcb9877f71c2cc2d3c868f33dc3859d2cb3b90c7484788c",
+     "line_end": 345,
+     "line_start": 307,
+     "path": "fastmcp/server/middleware/caching.py",
+     "source_sha256": "ab136597e84a741691a3795923efdf0663f52be227899c0607d2cbf2e9b25559"
+    },
+    {
+     "excerpt_sha256": "f7e9d8cee8a661e380c09daf32047564c9acdbea0424f1bd83a41354ca6b84a9",
+     "line_end": 506,
+     "line_start": 445,
+     "path": "fastmcp/server/middleware/caching.py",
+     "source_sha256": "ab136597e84a741691a3795923efdf0663f52be227899c0607d2cbf2e9b25559"
+    },
+    {
+     "excerpt_sha256": "7519c17dc0b1078032919ce5fba191435e8251459f1a041abb2e90461fd0f440",
+     "line_end": 600,
+     "line_start": 589,
+     "path": "fastmcp/server/middleware/caching.py",
+     "source_sha256": "ab136597e84a741691a3795923efdf0663f52be227899c0607d2cbf2e9b25559"
+    },
+    {
+     "excerpt_sha256": "7d30cb1999f5bcd98d93cedde334b7c1cdeeedcb5727c87d6c9b36d4544c2f4b",
+     "line_end": 681,
+     "line_start": 639,
+     "path": "fastmcp/server/middleware/caching.py",
+     "source_sha256": "ab136597e84a741691a3795923efdf0663f52be227899c0607d2cbf2e9b25559"
+    },
+    {
+     "excerpt_sha256": "569fe24b1fdc524530ead44ac5e1ab97f45d0c742bd1833313e3e81efe794b2d",
+     "line_end": 172,
+     "line_start": 113,
+     "path": "fastmcp/server/middleware/rate_limiting.py",
+     "source_sha256": "cf1074d8ebfa73536020cb5e9b21389b580718246cda556279f808694caf1fdd"
+    }
+   ],
+   "task_aliases": [
+    "Intercept requests and understand altered response contracts",
+    "middleware hooks limiter cache rate limit structured truncation order"
+   ],
+   "title": "Intercept requests and understand altered response contracts"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.mount_proxy",
+   "operations": [
+    "fastmcp.FastMCP.add_provider",
+    "fastmcp.FastMCP.mount",
+    "fastmcp.server.providers.proxy.ProxyProvider",
+    "fastmcp.server.server.create_proxy"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "ada92e326df78573fc81f72f601525dd2eb860c032637050599435b325354345",
+     "line_end": 17,
+     "line_start": 1,
+     "path": "fastmcp/client/dependencies.py",
+     "source_sha256": "9c6370da9e9d29daad261057150872b4f6a66fdb940c04aeadec078102ad67a9"
+    },
+    {
+     "excerpt_sha256": "1ad304b0201943fc6303d6ca0826915aa7151c055c3eafbf3c395b7b645e39a5",
+     "line_end": 174,
+     "line_start": 160,
+     "path": "fastmcp/client/transports/http.py",
+     "source_sha256": "3317e49f833eda9de286faeac80f185db1234311d2d7adaf312b10483dcbb04a"
+    },
+    {
+     "excerpt_sha256": "085f2e0137e90a566c4ae405c0457896bc1a23cc28258e7986acfb2bdbc0bc9a",
+     "line_end": 586,
+     "line_start": 542,
+     "path": "fastmcp/server/dependencies.py",
+     "source_sha256": "36542766fd2d8a078c664b9843d2082ed5414d2c7a1abf49207df1806b742b32"
+    },
+    {
+     "excerpt_sha256": "0279016ed4547465eedf663c38708fa69462e9610511d99186b5d2f7505b431b",
+     "line_end": 104,
+     "line_start": 99,
+     "path": "fastmcp/server/providers/proxy.py",
+     "source_sha256": "7ee214384d5cf72bf3cda087c6d1984c179ff13a80c724037b99a745286c405e"
+    },
+    {
+     "excerpt_sha256": "bfdccd7d981de43063fef09280abe6e109776f1207991979851cb5d2660ba19a",
+     "line_end": 900,
+     "line_start": 852,
+     "path": "fastmcp/server/providers/proxy.py",
+     "source_sha256": "7ee214384d5cf72bf3cda087c6d1984c179ff13a80c724037b99a745286c405e"
+    },
+    {
+     "excerpt_sha256": "b425577f8175571236244c11360d8afb6b73f65923d05a3c7f9e54afe39a96c2",
+     "line_end": 953,
+     "line_start": 921,
+     "path": "fastmcp/server/providers/proxy.py",
+     "source_sha256": "7ee214384d5cf72bf3cda087c6d1984c179ff13a80c724037b99a745286c405e"
+    },
+    {
+     "excerpt_sha256": "09b0c20db8fba3d1bce59c29c7931371352064ff1119ff074f3862b743e7948f",
+     "line_end": 1403,
+     "line_start": 1344,
+     "path": "fastmcp/server/providers/proxy.py",
+     "source_sha256": "7ee214384d5cf72bf3cda087c6d1984c179ff13a80c724037b99a745286c405e"
+    },
+    {
+     "excerpt_sha256": "c0409e16a2a7b105fe6f76efb587e9bda8106471053be850852ff68670e26f14",
+     "line_end": 2369,
+     "line_start": 2356,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "3dd6a2ffdb74d8d1d9b7c7e44d69f00fc37ab7bd6bf1094aed1161be33b2d08b",
+     "line_end": 2398,
+     "line_start": 2385,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    }
+   ],
+   "task_aliases": [
+    "Compose live servers, remote services and catalogs",
+    "mount proxy compose namespace child live registry remote client upstream"
+   ],
+   "title": "Compose live servers, remote services and catalogs"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.openapi",
+   "operations": [
+    "fastmcp.FastMCP.from_fastapi",
+    "fastmcp.FastMCP.from_openapi",
+    "fastmcp.server.providers.openapi.MCPType",
+    "fastmcp.server.providers.openapi.OpenAPIProvider",
+    "fastmcp.server.providers.openapi.RouteMap"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "fb1b2854082ea8f73e8f2aaa7b0d8246b23183d20a332ec6737c761aa78309d3",
+     "line_end": 117,
+     "line_start": 97,
+     "path": "fastmcp/server/providers/openapi/provider.py",
+     "source_sha256": "b355936e07dff623d961b794e6b0aa9f1991e25ee45cba1c008dd132e5caf190"
+    },
+    {
+     "excerpt_sha256": "6c013881d3da8e2e2ab72ff2d4ae7037cd6eb5343f7095bb5c964ddd85fb0c67",
+     "line_end": 184,
+     "line_start": 153,
+     "path": "fastmcp/server/providers/openapi/provider.py",
+     "source_sha256": "b355936e07dff623d961b794e6b0aa9f1991e25ee45cba1c008dd132e5caf190"
+    },
+    {
+     "excerpt_sha256": "17881bc2d57507e6fec3c5c9df3fa46debef23460178f671a360634332d5fea0",
+     "line_end": 210,
+     "line_start": 189,
+     "path": "fastmcp/server/providers/openapi/provider.py",
+     "source_sha256": "b355936e07dff623d961b794e6b0aa9f1991e25ee45cba1c008dd132e5caf190"
+    },
+    {
+     "excerpt_sha256": "6bae0dbc002728e0546c7f33d6aed2aa1dca6eb0178955f6d2c6ef2c9e3a2199",
+     "line_end": 299,
+     "line_start": 263,
+     "path": "fastmcp/server/providers/openapi/provider.py",
+     "source_sha256": "b355936e07dff623d961b794e6b0aa9f1991e25ee45cba1c008dd132e5caf190"
+    },
+    {
+     "excerpt_sha256": "0e9fdf5216eb5749a9922854ec1388d4fd2f3593e8144ba9eeb149636e60d4f9",
+     "line_end": 82,
+     "line_start": 42,
+     "path": "fastmcp/server/providers/openapi/routing.py",
+     "source_sha256": "c5fc5c24086948a130656af67e2ef18ffb93365e0fdc7bb2ab4aaff6bd9d167b"
+    },
+    {
+     "excerpt_sha256": "f9505b01ec6dcbe8bed56ce8da3adff2372ac047d0e3fd966622d366e9150375",
+     "line_end": 109,
+     "line_start": 86,
+     "path": "fastmcp/server/providers/openapi/routing.py",
+     "source_sha256": "c5fc5c24086948a130656af67e2ef18ffb93365e0fdc7bb2ab4aaff6bd9d167b"
+    },
+    {
+     "excerpt_sha256": "70bf3ff3e8e5b421fab2a7971e48f358db4ac073e4abdc00c11e2b19404805ce",
+     "line_end": 2433,
+     "line_start": 2425,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "948cf427db96e52b493861998ad45cf98ba071bb7fc7aa6f3784be720fe17b2c",
+     "line_end": 2506,
+     "line_start": 2484,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    }
+   ],
+   "task_aliases": [
+    "Adapt an existing HTTP API or curate a domain interface",
+    "OpenAPI FastAPI conversion routes HTTP schema operation adapter"
+   ],
+   "title": "Adapt an existing HTTP API or curate a domain interface"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.outputs",
+   "operations": [
+    "fastmcp.Client.call_tool",
+    "fastmcp.tools.ToolResult",
+    "fastmcp.tools.function_tool.FunctionTool",
+    "pydantic.type_adapter.TypeAdapter.json_schema"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "96afc73954d35c04c330ec60e91d6fc1cd7239f3d2f1dcda6ba5f470356db444",
+     "line_end": 423,
+     "line_start": 367,
+     "path": "fastmcp/client/mixins/tools.py",
+     "source_sha256": "31692869c14a5332290a7e5d77767068e19ba4ec9f2d7dfaf0ddfb8c84f400cc"
+    },
+    {
+     "excerpt_sha256": "7c988304c5ed4d5e63dbb19a7041bf70d8284a74cab5d31385b86788ab3b8948",
+     "line_end": 123,
+     "line_start": 76,
+     "path": "fastmcp/server/middleware/response_limiting.py",
+     "source_sha256": "794b732e69b16a560790dc099a186cf9f9057bd67d0009115d8f7f9a92a23893"
+    },
+    {
+     "excerpt_sha256": "68ed0a2d020f9d6fdb7d721eaef9aca6ce0a5783125e58d7829758c1948667f7",
+     "line_end": 165,
+     "line_start": 139,
+     "path": "fastmcp/server/middleware/response_limiting.py",
+     "source_sha256": "794b732e69b16a560790dc099a186cf9f9057bd67d0009115d8f7f9a92a23893"
+    },
+    {
+     "excerpt_sha256": "293348f73b8d5002d859809bfeaa14a31801f1a6888e71c5238d0c717b74aa6a",
+     "line_end": 92,
+     "line_start": 76,
+     "path": "fastmcp/tools/base.py",
+     "source_sha256": "d0b38a083950e46231b46e80cc337aa0b14eb9d9dfa5d3d7308a174f06f0676a"
+    },
+    {
+     "excerpt_sha256": "0873e5ebfda97e56bf724fcb4151c8b8699d2209bc28d4178f8df516ca2c522e",
+     "line_end": 150,
+     "line_start": 114,
+     "path": "fastmcp/tools/base.py",
+     "source_sha256": "d0b38a083950e46231b46e80cc337aa0b14eb9d9dfa5d3d7308a174f06f0676a"
+    },
+    {
+     "excerpt_sha256": "3a053ae33aab439bec41817f2b88f8980b4319b986c840943831f95923872494",
+     "line_end": 430,
+     "line_start": 367,
+     "path": "fastmcp/tools/base.py",
+     "source_sha256": "d0b38a083950e46231b46e80cc337aa0b14eb9d9dfa5d3d7308a174f06f0676a"
+    },
+    {
+     "excerpt_sha256": "7ea85bf2f37f83bf40fec2ff1d21e3b19ca29ddf5bdd7217e6ea510b27ea3a48",
+     "line_end": 346,
+     "line_start": 335,
+     "path": "fastmcp/tools/function_tool.py",
+     "source_sha256": "829b1d227606a1eab2475723efa8d33aaa2c820b5efd2c1a019e5e5457d0133c"
+    },
+    {
+     "excerpt_sha256": "8554fc6c38b3dffb8c3566734a8130c965f1ea7a6546bfd54a5b336d1fe5f345",
+     "line_end": 1109,
+     "line_start": 1101,
+     "path": "mcp/client/session.py",
+     "source_sha256": "fb1365c908c0dfc65ad9b59f63d1f5d433153c5da050725f5f98450871fc9a39"
+    },
+    {
+     "excerpt_sha256": "d8bff2d44bb24f318a1cf66efb6b73e796d3d124cd5d16d31c5df67927770898",
+     "line_end": 1154,
+     "line_start": 1118,
+     "path": "mcp/client/session.py",
+     "source_sha256": "fb1365c908c0dfc65ad9b59f63d1f5d433153c5da050725f5f98450871fc9a39"
+    }
+   ],
+   "task_aliases": [
+    "Choose result representations and preserve client contracts",
+    "structured_content content data output schema serialization alias computed field"
+   ],
+   "title": "Choose result representations and preserve client contracts"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.prompts",
+   "operations": [
+    "fastmcp.Client.complete",
+    "fastmcp.Client.complete_mcp",
+    "fastmcp.Client.get_prompt",
+    "fastmcp.FastMCP.add_completion_handler",
+    "fastmcp.FastMCP.completion",
+    "fastmcp.FastMCP.prompt",
+    "fastmcp.prompts.Prompt",
+    "mcp_types.Completion",
+    "mcp_types.PromptReference",
+    "mcp_types.ResourceTemplateReference"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "e39215e12cb97e69333617276c5f899e180735be732651053c10329a3f2e89b3",
+     "line_end": 1489,
+     "line_start": 1434,
+     "path": "fastmcp/client/client.py",
+     "source_sha256": "a912c23bc7ae72e9fe4313cd162d71cc1f4acf0c3ec06550e03a0d280a6d8fa6"
+    },
+    {
+     "excerpt_sha256": "cc8f9ce49f2d4ca843145a6180fbf8f60357b20244a33159f5a08cd7d24df5b6",
+     "line_end": 161,
+     "line_start": 150,
+     "path": "fastmcp/client/mixins/prompts.py",
+     "source_sha256": "9302da9443830805c55ba0d5ebfa2c871ea11c860d732b048fd90eeb788b3845"
+    },
+    {
+     "excerpt_sha256": "53de27f111dd9ee102f6aeb28b4e34ea135e21b9ed83c8083f7be13c22200af3",
+     "line_end": 343,
+     "line_start": 313,
+     "path": "fastmcp/prompts/function_prompt.py",
+     "source_sha256": "df1b67255d18790eeb849ac8d9fd4ff734dbf6163198342309c2c796a7406734"
+    },
+    {
+     "excerpt_sha256": "d2b0cc99bbf77ce8c21babf562adda024bd89169500e307b643cde0fe4686cfd",
+     "line_end": 43,
+     "line_start": 20,
+     "path": "fastmcp/server/completions.py",
+     "source_sha256": "b0365fb71bd6d2c70e726da165b35baca0d8195a0127ad6e40287d5a70ed371a"
+    },
+    {
+     "excerpt_sha256": "3fde666cf43dbacd9ff97f84a57564df73b9ac98a634769cbcbffcb497aa143d",
+     "line_end": 87,
+     "line_start": 48,
+     "path": "fastmcp/server/completions.py",
+     "source_sha256": "b0365fb71bd6d2c70e726da165b35baca0d8195a0127ad6e40287d5a70ed371a"
+    },
+    {
+     "excerpt_sha256": "993b7a1eaa1475c67f9d265e508101ae5446ddd74f097eb9f7d02add107e103b",
+     "line_end": 2298,
+     "line_start": 2252,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    }
+   ],
+   "task_aliases": [
+    "Return reusable prompt messages and completions",
+    "prompt messages roles template arguments completion"
+   ],
+   "title": "Return reusable prompt messages and completions"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.providers",
+   "operations": [
+    "fastmcp.FastMCP.add_provider",
+    "fastmcp.server.providers.AggregateProvider",
+    "fastmcp.server.providers.Provider",
+    "fastmcp.server.providers.Provider.wrap_transform",
+    "fastmcp.server.providers.wrapped_provider._WrappedProvider"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "ece98b8b9b65ac2314c30c0b230ab498fe21875f9af3088b6220d87c4258f63e",
+     "line_end": 85,
+     "line_start": 47,
+     "path": "fastmcp/server/providers/aggregate.py",
+     "source_sha256": "70107fb3af005fa4d1317d2e64ef8eae7896ec146b22fca5bb00f3bd0c20fb9b"
+    },
+    {
+     "excerpt_sha256": "e9460ce365746fef1c59fafad01a63dfe702b4a1bb6f676f496fac884f8d584d",
+     "line_end": 180,
+     "line_start": 156,
+     "path": "fastmcp/server/providers/aggregate.py",
+     "source_sha256": "70107fb3af005fa4d1317d2e64ef8eae7896ec146b22fca5bb00f3bd0c20fb9b"
+    },
+    {
+     "excerpt_sha256": "d7bb8b14eaddb11e3a6b23a64b54c8cd4a4841ebd745507b2436e4c5715967a6",
+     "line_end": 207,
+     "line_start": 187,
+     "path": "fastmcp/server/providers/aggregate.py",
+     "source_sha256": "70107fb3af005fa4d1317d2e64ef8eae7896ec146b22fca5bb00f3bd0c20fb9b"
+    },
+    {
+     "excerpt_sha256": "e929f3cf2c0caedcf8ff2cb80ba6be9c8cb8742bf15bbed0843ee7bb54d39d71",
+     "line_end": 71,
+     "line_start": 60,
+     "path": "fastmcp/server/providers/base.py",
+     "source_sha256": "8f093998fc564a216664a7761b44dd5edcdf67cf4a7b698d8056fc04507a7565"
+    },
+    {
+     "excerpt_sha256": "ae088c544be4277c23f487fc718d0c6b68afa297baac76906b7fa2ea367a2cc1",
+     "line_end": 140,
+     "line_start": 106,
+     "path": "fastmcp/server/providers/base.py",
+     "source_sha256": "8f093998fc564a216664a7761b44dd5edcdf67cf4a7b698d8056fc04507a7565"
+    },
+    {
+     "excerpt_sha256": "3e65fa29c0f44822204ec992a9c342e1f8ec03ae6cb252f6a0a810317a2a778a",
+     "line_end": 185,
+     "line_start": 142,
+     "path": "fastmcp/server/providers/base.py",
+     "source_sha256": "8f093998fc564a216664a7761b44dd5edcdf67cf4a7b698d8056fc04507a7565"
+    },
+    {
+     "excerpt_sha256": "dd86c99c9347205893697d8d53682cfe06547ab16545ad48873b97dcc1f4ba25",
+     "line_end": 395,
+     "line_start": 363,
+     "path": "fastmcp/server/providers/base.py",
+     "source_sha256": "8f093998fc564a216664a7761b44dd5edcdf67cf4a7b698d8056fc04507a7565"
+    },
+    {
+     "excerpt_sha256": "b0028c2e06f0bd7472cb5fda73202fd84b6a13fe4bc88a1ac0b9550d89a8bfa4",
+     "line_end": 4,
+     "line_start": 1,
+     "path": "fastmcp/server/providers/wrapped_provider.py",
+     "source_sha256": "0b06d98b23dc3b5adb4288d076dd48df91a433c23e4817d9aafc4b65d7607b39"
+    }
+   ],
+   "task_aliases": [
+    "Supply static or dynamic component catalogs",
+    "dynamic registry catalog Provider list lookup source adapter"
+   ],
+   "title": "Supply static or dynamic component catalogs"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.register",
+   "operations": [
+    "fastmcp.FastMCP.add_tool",
+    "fastmcp.FastMCP.tool",
+    "fastmcp.server.providers.LocalProvider",
+    "fastmcp.server.providers.Provider",
+    "fastmcp.tools.Tool",
+    "fastmcp.tools.Tool.from_function"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "897f4cd34736576adbd49a6c8fc0e404314c39565e2965850ec799128fefb19b",
+     "line_end": 103,
+     "line_start": 91,
+     "path": "fastmcp/server/providers/local_provider/local_provider.py",
+     "source_sha256": "e24ce11b171cc40867aa559c952254c16eea7d3c09e8a639754de6eea301ab38"
+    },
+    {
+     "excerpt_sha256": "961b921c696c0ad6b57586269e6f0b7ef8258dcc1164fd0da311562cd347d4c0",
+     "line_end": 148,
+     "line_start": 134,
+     "path": "fastmcp/server/providers/local_provider/local_provider.py",
+     "source_sha256": "e24ce11b171cc40867aa559c952254c16eea7d3c09e8a639754de6eea301ab38"
+    },
+    {
+     "excerpt_sha256": "aba41bb74b11e064e7067ea49aa65ef4fbab610afccd2c00719b513d2c9d16fe",
+     "line_end": 201,
+     "line_start": 179,
+     "path": "fastmcp/server/providers/local_provider/local_provider.py",
+     "source_sha256": "e24ce11b171cc40867aa559c952254c16eea7d3c09e8a639754de6eea301ab38"
+    },
+    {
+     "excerpt_sha256": "b3b48ba0231f15ba8b3c8d517ae01c11834b58155013a2f8d1e6921958d684db",
+     "line_end": 362,
+     "line_start": 340,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "8ec4e8e05b6495d1bf25e6e9bd1c751dd906de06c2e2d01173670b44cbb36b6f",
+     "line_end": 1852,
+     "line_start": 1817,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "2f74253389d45d0dc21a02a3a4cc1bc6b15e4ce04a2d1bbbedbce8e5c24673c1",
+     "line_end": 347,
+     "line_start": 311,
+     "path": "fastmcp/tools/base.py",
+     "source_sha256": "d0b38a083950e46231b46e80cc337aa0b14eb9d9dfa5d3d7308a174f06f0676a"
+    },
+    {
+     "excerpt_sha256": "b02081a5bcd353fec22cde80ff61a3b05090157a7707924b45d8023fb8ef0b75",
+     "line_end": 216,
+     "line_start": 200,
+     "path": "fastmcp/tools/function_tool.py",
+     "source_sha256": "829b1d227606a1eab2475723efa8d33aaa2c820b5efd2c1a019e5e5457d0133c"
+    },
+    {
+     "excerpt_sha256": "6077a8ea3018180d495922d9dbd1a26f91a22fb1b5c34d3f9ac8f6b3e78927e8",
+     "line_end": 323,
+     "line_start": 305,
+     "path": "fastmcp/tools/function_tool.py",
+     "source_sha256": "829b1d227606a1eab2475723efa8d33aaa2c820b5efd2c1a019e5e5457d0133c"
+    },
+    {
+     "excerpt_sha256": "6d29a86f260349bc8ba1454b82d6ba82a13d5b1d0aa7ebd6b05986031f6427c1",
+     "line_end": 576,
+     "line_start": 553,
+     "path": "fastmcp/tools/function_tool.py",
+     "source_sha256": "829b1d227606a1eab2475723efa8d33aaa2c820b5efd2c1a019e5e5457d0133c"
+    }
+   ],
+   "task_aliases": [
+    "Register functions and expose component metadata",
+    "decorate callable imperative add tool registry original function"
+   ],
+   "title": "Register functions and expose component metadata"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.resources",
+   "operations": [
+    "fastmcp.Client.read_resource",
+    "fastmcp.FastMCP.resource",
+    "fastmcp.resources.function_resource.FunctionResource",
+    "fastmcp.resources.security.ResourceSecurity",
+    "fastmcp.resources.template.ResourceTemplate",
+    "mcp.client.Client.listen",
+    "mcp.server.subscriptions.InMemorySubscriptionBus",
+    "mcp.server.subscriptions.ListenHandler"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "8943a254038c94e740f52f4227e90d3dfbf79e49630f007dd63309f5e6d4ce1d",
+     "line_end": 117,
+     "line_start": 75,
+     "path": "fastmcp/resources/security.py",
+     "source_sha256": "55117e732a770d4c1be19ad22b50dd2898c2153505dc7ab2c20664680f554e8b"
+    },
+    {
+     "excerpt_sha256": "d356452a18b4f911d5c2d81217abf4001f3a44876106ee57fb54d4a420b9c0f8",
+     "line_end": 57,
+     "line_start": 46,
+     "path": "fastmcp/resources/template.py",
+     "source_sha256": "3242cb29d9c3c97885eef760c87a69b8b4c3bd7a7f0a8b5496d429fd3b59bd2a"
+    },
+    {
+     "excerpt_sha256": "65a34c171093a681b245ec5c5477318ed7c201291b720374d45f92e730434a0e",
+     "line_end": 214,
+     "line_start": 192,
+     "path": "fastmcp/resources/template.py",
+     "source_sha256": "3242cb29d9c3c97885eef760c87a69b8b4c3bd7a7f0a8b5496d429fd3b59bd2a"
+    },
+    {
+     "excerpt_sha256": "42089339c557b5e3c19274654713e7f929c722d0e3af92360db0c59a3213acce",
+     "line_end": 535,
+     "line_start": 460,
+     "path": "fastmcp/resources/template.py",
+     "source_sha256": "3242cb29d9c3c97885eef760c87a69b8b4c3bd7a7f0a8b5496d429fd3b59bd2a"
+    },
+    {
+     "excerpt_sha256": "9b8dd64bbd61748324b485103048c246bca64bc158bba74701c9da5c12b7f7de",
+     "line_end": 1712,
+     "line_start": 1691,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "97fcf3b5e206d54d3f0a931ef0edc9ccab8a3665eb278162a8c24e916e25d0b5",
+     "line_end": 2030,
+     "line_start": 1994,
+     "path": "fastmcp/server/server.py",
+     "source_sha256": "8f5886f5e9510995fc49c6909686e3a4d88faa0c6d92a1c4d4a86786714075ed"
+    },
+    {
+     "excerpt_sha256": "fff1c338f9bf3dc5c07abf8b535a85cc9d2ed5a3952561e4d2cd2acdf18b9e04",
+     "line_end": 720,
+     "line_start": 690,
+     "path": "mcp/client/client.py",
+     "source_sha256": "4c8f6ac1152da2bad65a6f51e252c077f8a75595bb472fae29370c2288f60381"
+    },
+    {
+     "excerpt_sha256": "f5df49af3b8b74f69aabbdd9aad721eafe05a066825099b9135c160ed93723fa",
+     "line_end": 601,
+     "line_start": 557,
+     "path": "mcp/server/lowlevel/server.py",
+     "source_sha256": "56051fa2a7fe1bfb4330a6603763785b0ac976d0e623340582487da9aab92d86"
+    },
+    {
+     "excerpt_sha256": "aa806f0f7d5aaefcc7087cf24bc43e9a8c93fc8e2d5acbee84d8f194bb701084",
+     "line_end": 178,
+     "line_start": 155,
+     "path": "mcp/server/subscriptions.py",
+     "source_sha256": "57b3083bc614c1a3bb3f45d18f650226e076268acb1d3f6376c9e08584cb5d9d"
+    }
+   ],
+   "task_aliases": [
+    "Expose URI-addressed content and resource templates",
+    "resource URI template MIME blob text read content subscription"
+   ],
+   "title": "Expose URI-addressed content and resource templates"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.sampling_elicitation",
+   "operations": [
+    "fastmcp.Client.set_sampling_callback",
+    "fastmcp.Context.elicit",
+    "fastmcp.Context.input_responses",
+    "fastmcp.Context.request_state",
+    "mcp_types.CreateMessageRequest",
+    "mcp_types.ElicitRequest",
+    "mcp_types.ElicitRequestFormParams",
+    "mcp_types.InputRequiredResult"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "37d1f4922f51c2df334acf6a0f6d327b2769cf1debeda855ba5d723824396174",
+     "line_end": 1280,
+     "line_start": 1240,
+     "path": "fastmcp/client/client.py",
+     "source_sha256": "a912c23bc7ae72e9fe4313cd162d71cc1f4acf0c3ec06550e03a0d280a6d8fa6"
+    },
+    {
+     "excerpt_sha256": "c45ca0eeb419f30c01ab667c0f7fda0910e3baf73c7643971b60e9200a548f13",
+     "line_end": 415,
+     "line_start": 378,
+     "path": "fastmcp/server/context.py",
+     "source_sha256": "9a2b41e617561baf383b7f82f5eeaaf4823793705d6d50aea76b7e556185a8fc"
+    },
+    {
+     "excerpt_sha256": "ee638837dccea8288e92ce68efe0aa2f1266e1d2723bc4b91f5f821bee1f5e1e",
+     "line_end": 1094,
+     "line_start": 1067,
+     "path": "fastmcp/server/context.py",
+     "source_sha256": "9a2b41e617561baf383b7f82f5eeaaf4823793705d6d50aea76b7e556185a8fc"
+    },
+    {
+     "excerpt_sha256": "b36389254c843087780cf83b03590f8c4a9c4edde5b33255c92751f0eb7a7155",
+     "line_end": 219,
+     "line_start": 173,
+     "path": "fastmcp_tasks/client.py",
+     "source_sha256": "76c246cceaeac96b411cd2cd72f646b0e8c26a9660c0742adbc61a812a0aa842"
+    }
+   ],
+   "task_aliases": [
+    "Request caller input or model generation with explicit continuation",
+    "sampling model generation input required continuation elicitation accept decline"
+   ],
+   "title": "Request caller input or model generation with explicit continuation"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.tasks",
+   "operations": [
+    "fastmcp.FastMCP.add_extension",
+    "fastmcp.utilities.tasks.TaskConfig",
+    "fastmcp_tasks.TasksExtension",
+    "fastmcp_tasks.call_tool_task",
+    "fastmcp_tasks.client.ToolTask",
+    "fastmcp_tasks.settings.DocketSettings",
+    "fastmcp_tasks.settings.TasksSettings"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "256e0081c7ccc709fefe4c2bc41db0229fc6c317ee60aabc0c807b2fe504cf19",
+     "line_end": 82,
+     "line_start": 12,
+     "path": "fastmcp/utilities/tasks.py",
+     "source_sha256": "71ca08b2820799c3e9e6e3c412e57fa7a7c11c93fbe79e4f6b078ed028349f55"
+    },
+    {
+     "excerpt_sha256": "d4ed4712f93fb981846e252670c686706cadffa8259a0a33f631f81ed4098b50",
+     "line_end": 20,
+     "line_start": 1,
+     "path": "fastmcp_tasks/__init__.py",
+     "source_sha256": "d778419a898d01e63e99b45ba1402dd406e9b2bf469995ba69c7d8bbd016ea2e"
+    },
+    {
+     "excerpt_sha256": "186096af447cda537c9466f4a72968cb1b22a154f7fcd67c481fda63973226b5",
+     "line_end": 21,
+     "line_start": 1,
+     "path": "fastmcp_tasks/client.py",
+     "source_sha256": "76c246cceaeac96b411cd2cd72f646b0e8c26a9660c0742adbc61a812a0aa842"
+    },
+    {
+     "excerpt_sha256": "f96e12a67ad3789df00ec0fed97f2aacff7e7c7e2b098348cf499226c1d31d47",
+     "line_end": 567,
+     "line_start": 520,
+     "path": "fastmcp_tasks/client.py",
+     "source_sha256": "76c246cceaeac96b411cd2cd72f646b0e8c26a9660c0742adbc61a812a0aa842"
+    },
+    {
+     "excerpt_sha256": "a712eeed5ce7e48b55cbaa832c0aad24c094565756e26444168c1c550044e91d",
+     "line_end": 210,
+     "line_start": 189,
+     "path": "fastmcp_tasks/context.py",
+     "source_sha256": "937da79f92e88751b58cda34ea01cafbf4c8d2e5b0f8edb3d042686d0d16965e"
+    },
+    {
+     "excerpt_sha256": "a2be9b587ef5af141f7647f7578dc03c43e7ef5c9c719499d3783a945e23ac18",
+     "line_end": 264,
+     "line_start": 247,
+     "path": "fastmcp_tasks/context.py",
+     "source_sha256": "937da79f92e88751b58cda34ea01cafbf4c8d2e5b0f8edb3d042686d0d16965e"
+    },
+    {
+     "excerpt_sha256": "05329e37c4e6f5d1a001106b5690fd93b47ca9309480f041c231e49b9ed0c075",
+     "line_end": 91,
+     "line_start": 69,
+     "path": "fastmcp_tasks/encryption.py",
+     "source_sha256": "2aa76c189161fe325442505ceaa46b28ea7eb488a6fb0abd9093e7b210979022"
+    },
+    {
+     "excerpt_sha256": "89f1c3c7894840466bc9c2361509e07a0c04d7937a30af2616c99432f5e00309",
+     "line_end": 145,
+     "line_start": 130,
+     "path": "fastmcp_tasks/encryption.py",
+     "source_sha256": "2aa76c189161fe325442505ceaa46b28ea7eb488a6fb0abd9093e7b210979022"
+    },
+    {
+     "excerpt_sha256": "30503103cf81f24126a9f1ce7d43c4bc39f742c4d54d3b55244b332de3942524",
+     "line_end": 166,
+     "line_start": 161,
+     "path": "fastmcp_tasks/encryption.py",
+     "source_sha256": "2aa76c189161fe325442505ceaa46b28ea7eb488a6fb0abd9093e7b210979022"
+    },
+    {
+     "excerpt_sha256": "a209a5685840138bd7a24b6c1e5fbf27056e6bc34df2de22b06f648d0d1e3836",
+     "line_end": 284,
+     "line_start": 220,
+     "path": "fastmcp_tasks/extension.py",
+     "source_sha256": "5ee2aa9107c54d10a79f7f14bead64f6e375e428b4f63e1453d47b2c3f2950bd"
+    },
+    {
+     "excerpt_sha256": "545b11e1f5debf30fea44a7f786eb0e29c7988b84aa12db8a24a0312a91899b2",
+     "line_end": 64,
+     "line_start": 25,
+     "path": "fastmcp_tasks/settings.py",
+     "source_sha256": "2155303d473364ddd36e57276bfd172fe78058cb7419ac2e671306a232250b8d"
+    },
+    {
+     "excerpt_sha256": "089121bf530bc1ca9e8017778a5deaef15f5450d4ff6559a7ab5a4265a4b939e",
+     "line_end": 157,
+     "line_start": 135,
+     "path": "fastmcp_tasks/settings.py",
+     "source_sha256": "2155303d473364ddd36e57276bfd172fe78058cb7419ac2e671306a232250b8d"
+    }
+   ],
+   "task_aliases": [
+    "Run ordinary async work or negotiated background tasks",
+    "background task job handles worker Docket memory Redis polling cancellation"
+   ],
+   "title": "Run ordinary async work or negotiated background tasks"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.telemetry",
+   "operations": [
+    "fastmcp.server.middleware.Middleware",
+    "fastmcp.telemetry",
+    "fastmcp.telemetry.extract_trace_context",
+    "fastmcp.telemetry.get_tracer",
+    "fastmcp.telemetry.inject_trace_context",
+    "fastmcp.telemetry.suppress_fastmcp_telemetry"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "65d89b3c204e8419f92a90ded5bbf7d97cfa7c0bed04022d6f085afdff491213",
+     "line_end": 55,
+     "line_start": 43,
+     "path": "fastmcp/server/telemetry.py",
+     "source_sha256": "edc40c3221165191d4bfd4411483636b06bbe06bbd31662697ef8de6789ebec3"
+    },
+    {
+     "excerpt_sha256": "f44478e382e0a0f57c11f9d108426e00159044461c2c71db5b2c0204c88b8ce0",
+     "line_end": 175,
+     "line_start": 154,
+     "path": "fastmcp/server/telemetry.py",
+     "source_sha256": "edc40c3221165191d4bfd4411483636b06bbe06bbd31662697ef8de6789ebec3"
+    },
+    {
+     "excerpt_sha256": "045071b650cb209d42dbb54788bedcb305f383058a3cc829eeaf09c83b013eed",
+     "line_end": 242,
+     "line_start": 234,
+     "path": "fastmcp/server/telemetry.py",
+     "source_sha256": "edc40c3221165191d4bfd4411483636b06bbe06bbd31662697ef8de6789ebec3"
+    },
+    {
+     "excerpt_sha256": "4c95c86b877e56803a134f879f8b4f3aedaa8f95325022db65af78d2591a0ea7",
+     "line_end": 174,
+     "line_start": 154,
+     "path": "fastmcp/settings.py",
+     "source_sha256": "e3ebcdd09d4f1f365b13f69e7282cfb7bc02cfc4d7c2e5438ed20ca07879379a"
+    },
+    {
+     "excerpt_sha256": "6e5ca67007911b75568f2659c8d6e648992c2f95d1e4c769735c98638c8f9dcc",
+     "line_end": 21,
+     "line_start": 1,
+     "path": "fastmcp/telemetry.py",
+     "source_sha256": "065c15ab2d3859ad3212f2a79a54af575fdb4be72b3143f8b8f0a39c5699e33c"
+    },
+    {
+     "excerpt_sha256": "7d1a7785108b899eb86ab8685aa7a65ebfd864fbb737a8496272359e0fc6819f",
+     "line_end": 125,
+     "line_start": 86,
+     "path": "fastmcp/telemetry.py",
+     "source_sha256": "065c15ab2d3859ad3212f2a79a54af575fdb4be72b3143f8b8f0a39c5699e33c"
+    },
+    {
+     "excerpt_sha256": "95535f8a718a9704f1a5089dba8ae9685a156745dd5f34adce85e906d7b43ee9",
+     "line_end": 179,
+     "line_start": 152,
+     "path": "fastmcp/telemetry.py",
+     "source_sha256": "065c15ab2d3859ad3212f2a79a54af575fdb4be72b3143f8b8f0a39c5699e33c"
+    }
+   ],
+   "task_aliases": [
+    "Observe execution and integrate tracing without assuming coverage",
+    "telemetry tracing spans propagation exporter logs instrumentation"
+   ],
+   "title": "Observe execution and integrate tracing without assuming coverage"
+  },
+  {
+   "authoring_sha256": "00e96ea758c2b08d2062fed9b47f18daad3183cb6228c11ae338a38794c0be58",
+   "id": "fm.visibility_versions",
+   "operations": [
+    "fastmcp.server.middleware.Middleware.on_list_tools",
+    "fastmcp.server.transforms.Namespace",
+    "fastmcp.server.transforms.VersionFilter",
+    "fastmcp.server.transforms.Visibility"
+   ],
+   "source_spans": [
+    {
+     "excerpt_sha256": "fae6b4304ffb2aafbe36af5a2e58d221a68b5f7ba0047b1920dbf9775e88e173",
+     "line_end": 64,
+     "line_start": 24,
+     "path": "fastmcp/server/transforms/version_filter.py",
+     "source_sha256": "a19318f8a4c57fb13dc319e821d04f2673fb8770c3c0770a47eb073d9337a101"
+    },
+    {
+     "excerpt_sha256": "0328968a8b81448591a8c81f8d1c9584c8d3ec295361088f7aeac9c4c68fe43f",
+     "line_end": 57,
+     "line_start": 40,
+     "path": "fastmcp/server/transforms/visibility.py",
+     "source_sha256": "121063c2c7446c8309e9e69fb8e1ecf87cde5af074bea7f034cf98eadfda91a0"
+    },
+    {
+     "excerpt_sha256": "794c141173dfab3c9a6b1175d754e87e14d5e89471b3e7cda6eccf765fbc0e9c",
+     "line_end": 95,
+     "line_start": 61,
+     "path": "fastmcp/server/transforms/visibility.py",
+     "source_sha256": "121063c2c7446c8309e9e69fb8e1ecf87cde5af074bea7f034cf98eadfda91a0"
+    },
+    {
+     "excerpt_sha256": "4b375a8e6b8d7197ee3da0088d1a484a35a8da29c86958860c1997e5830be5c0",
+     "line_end": 185,
+     "line_start": 125,
+     "path": "fastmcp/server/transforms/visibility.py",
+     "source_sha256": "121063c2c7446c8309e9e69fb8e1ecf87cde5af074bea7f034cf98eadfda91a0"
+    }
+   ],
+   "task_aliases": [
+    "Control discovery and component availability",
+    "hide list tools direct call permission version rename namespace"
+   ],
+   "title": "Control discovery and component availability"
+  }
+ ],
+ "library": "fastmcp",
+ "release": "fastmcp==4.0.5"
+}

@@ -1,12 +1,17 @@
 [project]
 name = "library-context-dev"
 version = "0.0.0"
-description = "Dev-only Python: repo scripts and their tests. No product Python in stage 1."
+description = "The uv workspace root: repo scripts, their tests and the dev tools. Product Python is a member (ADR-0010)."
 requires-python = ">=3.14"
-dependencies = [
-    "fastmcp>=4.0.5",
-    "vllm>=0.30.0",
-]
+# The members, so the root environment runs their tests and type-checks them. vLLM is served from
+# its own locked project (services/vllm), never from here.
+dependencies = ["lctx-mcp"]
+
+[tool.uv.workspace]
+members = ["python/lctx_mcp"]
+
+[tool.uv.sources]
+lctx-mcp = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -19,12 +24,13 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests/scripts"]
+testpaths = ["tests/scripts", "python/lctx_mcp/tests"]
 addopts = ["--strict-markers", "--strict-config", "-q"]
 pythonpath = ["scripts"]
 
 [tool.ruff]
 line-length = 100
+src = ["scripts", "python/lctx_mcp/src"]
 target-version = "py314"
 # fixtures/python is input data for the analyzers, not code we maintain.
 extend-exclude = ["fixtures", ".claude/skills", "target"]
@@ -34,6 +40,6 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.pyrefly]
 python-version = "3.14"
-project-includes = ["scripts", "tests"]
+project-includes = ["scripts", "tests", "python/lctx_mcp/src", "python/lctx_mcp/tests"]
 project-excludes = ["fixtures/**", ".claude/**", "**/target/**"]
 search-path = ["scripts"]

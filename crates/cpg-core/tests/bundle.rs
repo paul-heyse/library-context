@@ -228,3 +228,16 @@ fn serving_schema_digests_are_the_shared_known_answers() {
         "a served schema changed: rewrite the known answers deliberately"
     );
 }
+
+/// The generation the Python tests serve (`just py-fixture`, DESIGN §11.3): `analysis_shapes` with
+/// the fake embedder, built into `$LCTX_PY_FIXTURE`, its key in `CURRENT`. A no-op without it.
+#[tokio::test(flavor = "multi_thread")]
+async fn writes_the_python_fixture_generation() {
+    let Some(out) = std::env::var_os("LCTX_PY_FIXTURE") else {
+        return;
+    };
+    let out = PathBuf::from(out);
+    let (_dir, store) = compiled("fixture", false).await;
+    let g = bundle(&store, SNAPSHOT, &out).await.unwrap();
+    std::fs::write(out.join("CURRENT"), &g.key).unwrap();
+}

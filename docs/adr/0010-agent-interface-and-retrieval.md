@@ -122,3 +122,13 @@ all passed):
   - **Not adopted:** `ResponseCachingMiddleware` (it caches every call for an hour and would keep
     serving a degraded result), `ResponseLimitingMiddleware` (it drops structured output),
     `fastmcp install`/`fastmcp.json` (unpinned).
+- 2026-09-23, slice 1.8 (built):
+  - The root is a uv workspace with one member, `python/lctx_mcp`. The `eval` member is added with
+    its first code, the 3.3 scoring (deviation log D13). The root drops `vllm`, `scipy` and
+    `fastmcp`: no script uses them.
+  - `bm25s` 0.3.11 depends on numpy only.
+  - The manifest carries `library` and `requirement`, so `search_capabilities` checks the library
+    against the generation itself.
+  - The server takes its query spec from package data. That data equals the committed specs, as
+    a test checks. The fake twin is held to `specs/embedding/fake_vectors.json`.
+  - `just py-fixture` builds the generation the tests serve from `analysis_shapes`.

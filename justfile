@@ -34,10 +34,14 @@ lint:
 test *args:
     INSTA_UPDATE=no cargo nextest run --workspace --no-tests=pass {{args}}
 
-# Python script tests + pyrefly
-py-check:
+# Python tests (scripts and lctx_mcp over the fixture generation) + pyrefly
+py-check: py-fixture
     uv run pytest
     uv run pyrefly check --summary=none
+
+# The generation the lctx_mcp tests serve: analysis_shapes with fake vectors, into build/py-fixture
+py-fixture:
+    LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail
 
 # Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0012)
 deps:

@@ -3,8 +3,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import adr
 import pytest
+
+import adr
 
 REPO = Path(__file__).resolve().parents[2]
 

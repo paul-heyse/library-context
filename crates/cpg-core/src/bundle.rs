@@ -492,6 +492,16 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
          FROM snapshots GROUP BY 1, 2, 3",
     )
     .await?;
+    // The library the generation serves: an acquired library's name, else a source tree's label.
+    let release = counted(
+        ctx,
+        "SELECT COALESCE(min(library), min(label)), COALESCE(min(requirement), ''), count(*) \
+         FROM releases",
+    )
+    .await?;
+    let [(release, _)] = release.as_slice() else {
+        return Err(bad("the snapshot has no release"));
+    };
     let [(ids, _)] = snapshot.as_slice() else {
         return Err(bad(format!(
             "the session holds {} snapshot identities, not one",
@@ -567,6 +577,8 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     }
     let mut manifest = json!({
         "format": FORMAT,
+        "library": release[0],
+        "requirement": release[1],
         "snapshot_id": ids[0],
         "content_digest": ids[1],
         "compiler_digest": ids[2],

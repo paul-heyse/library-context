@@ -2236,6 +2236,17 @@ read, and bundles copy the vectors they need from it.
 **Hydration.** `(snapshot_id, brief_id)` → the full brief, all conditions, limits, evidence and
 usage patterns, by deterministic lookup. It never depends on a second search.
 
+**Implemented** and **Tested** in slice 1.8 (2026-09-23; `lctx_mcp.retrieval`):
+- the tokenizer is lower-cased runs of letters and digits;
+- bm25s (`method="lucene"`, k1 1.5, b 0.75) equals a hand computation of the Lucene formula
+  (`test_bm25_scores_are_the_lucene_formula`); unknown words count for nothing;
+- a brief's vector score is its best chunk's cosine;
+- RRF ties go to the lower brief id (`test_fusion_ranks_ties_by_id_and_promotes_exact_symbols`);
+- a promoted brief ranks first;
+- a down embedder gives `lexical-only` with its reason (`test_a_down_embedder_degrades_to_lexical_and_says_so`).
+- Hybrid ranking with **real** vectors is 1.9's check. The fixture's fake vectors carry no
+  meaning.
+
 **LanceDB.** LanceDB 0.39.0 (Python) is **deferred behind a trigger**: corpus above a few
 thousand briefs, or ANN / managed FTS needed.
 - Its hybrid, FTS and RRF call chain is Interface-checked.
@@ -2273,6 +2284,20 @@ thousand briefs, or ANN / managed FTS needed.
   connect.
   **Tested** (E3): `auto` negotiated `2026-07-28` and `legacy` `2025-11-25`; both mismatch
   fixtures failed at connect.
+- **Implemented** and **Tested** in slice 1.8 (2026-09-23; `python/lctx_mcp`, 19 tests over the
+  `just py-fixture` generation):
+  - The round trip in both eras (`test_the_tools_round_trip_in_both_protocol_eras`).
+  - Promotion, and degraded mode.
+  - `ToolError` for an unknown library, snapshot or id, and for out-of-bounds arguments.
+  - The resource as Markdown, with `ResourceError` for an unknown id.
+  - A schema digest, spec or key mismatch fails at load and at connect
+    (`test_a_mismatched_generation_fails_at_connect`).
+  - Byte-identical request bodies (`test_request_bodies_are_byte_identical_to_rusts`), and the
+    fake twin (`test_the_fake_twin_reproduces_rusts_vectors`).
+  - The serving digests' known answers.
+  - A `StdioTransport` subprocess that writes nothing but the protocol
+    (`test_the_server_speaks_only_the_protocol_on_stdout`).
+  - Started as `python -m lctx_mcp --generation DIR --embedder vllm|fake|none`.
 
 > Decision: ADR-0010, ADR-0013
 
