@@ -275,23 +275,24 @@ async fn finish(
 
     let (violations, costs) = validate_costed(&ctx).await?;
     stages.mark("validate");
-    // What dominates validation (C6, §4.3): the slowest rules, and the one that raised the peak.
+    // What dominates validation (C6, §4.3; H1 P5, from each rule's own plan metrics): the
+    // slowest rules by operator compute, and the largest hash-join build.
     let mut slowest = costs.clone();
-    slowest.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
+    slowest.sort_by(|a, b| b.compute_seconds.total_cmp(&a.compute_seconds));
     for c in slowest.iter().take(3) {
         stages.push(
             format!("validate:   slowest {}", c.rule),
-            std::time::Duration::from_secs_f64(c.seconds),
+            std::time::Duration::from_secs_f64(c.compute_seconds),
         );
     }
-    if let Some(c) = costs.iter().max_by_key(|c| c.raised_peak_bytes) {
+    if let Some(c) = costs.iter().max_by_key(|c| c.build_bytes) {
         stages.push(
             format!(
-                "validate:   raised the peak most (+{} MiB) {}",
-                c.raised_peak_bytes >> 20,
+                "validate:   largest hash build ({} MiB) {}",
+                c.build_bytes >> 20,
                 c.rule
             ),
-            std::time::Duration::from_secs_f64(c.seconds),
+            std::time::Duration::from_secs_f64(c.compute_seconds),
         );
     }
     if !violations.is_empty() {

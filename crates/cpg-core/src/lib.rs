@@ -31,6 +31,8 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error("not a table url: {0}")]
     Url(String),
+    #[error("a validation rule's task failed: {0}")]
+    Rule(String),
     #[error(
         "{0}: the stored schema differs from the declared contract (a schema migration: use a new store or migrate the table)"
     )]

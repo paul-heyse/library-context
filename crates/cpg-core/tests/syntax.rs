@@ -168,35 +168,38 @@ async fn tree(ctx: &SessionContext) -> String {
     out
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_syntax_tree_places_what_the_passes_read() {
     let (ctx, _dir) = published_fixture("syntax_shapes").await;
     insta::assert_snapshot!(tree(&ctx).await);
     // Pysa's `for`/`with` protocol, operator and comparison sites land on placed nodes: a site
-    // edge from a syntax node for each resolved record.
-    let sites = batches(
-        &ctx,
-        &format!(
-            "SELECT count(*) FROM site_targets t WHERE t.site_node_id IS NULL \
-             UNION ALL SELECT count(*) FROM edges WHERE edge_kind = {}",
-            EdgeKind::SiteTarget.code()
-        ),
-    )
+    // edge from a syntax node for each resolved record. (Two queries: a UNION ALL's branch order
+    // is not an output order once plans run on several partitions.)
+    let count = |statement: String| {
+        let ctx = &ctx;
+        async move {
+            let b = batches(ctx, &statement).await;
+            b[0].column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .value(0)
+        }
+    };
+    let unplaced =
+        count("SELECT count(*) FROM site_targets t WHERE t.site_node_id IS NULL".to_owned()).await;
+    let site_edges = count(format!(
+        "SELECT count(*) FROM edges WHERE edge_kind = {}",
+        EdgeKind::SiteTarget.code()
+    ))
     .await;
-    let counts: Vec<i64> = sites
-        .iter()
-        .flat_map(|b| {
-            let a = b.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
-            (0..a.len()).map(|i| a.value(i)).collect::<Vec<_>>()
-        })
-        .collect();
-    assert_eq!(counts[0], 0, "every site has its node");
-    assert!(counts[1] > 0, "site edges exist");
+    assert_eq!(unplaced, 0, "every site has its node");
+    assert!(site_edges > 0, "site edges exist");
 }
 
 /// C3 (DESIGN §3.2 `lexical`): every name reference of the `lexical_shapes` fixture and what the
 /// recognizer resolves it to, rendered by name, line and scope.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn names_resolve_under_python_scoping() {
     let (ctx, _dir) = published_fixture("lexical_shapes").await;
     let text = |b: &RecordBatch, c: usize| -> Vec<Option<String>> {
@@ -294,7 +297,7 @@ async fn lines(ctx: &SessionContext, statement: &str) -> String {
 
 /// C4 (DESIGN §3.2 `types`, §3.5.1): what each element's type is, the terms' structure and
 /// binders, the classes they name, and the record fields, on the `type_shapes` fixture.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn types_keep_structure_binders_and_record_fields() {
     let (ctx, _dir) = published_fixture("type_shapes").await;
     let role = "CASE o.role WHEN 0 THEN 'parameter' WHEN 1 THEN 'return' \
@@ -315,7 +318,7 @@ async fn types_keep_structure_binders_and_record_fields() {
              LEFT JOIN call_syntax c ON c.node_id = o.subject_node_id \
              LEFT JOIN arguments a ON a.node_id = o.subject_node_id \
              LEFT JOIN syntax_nodes r ON r.node_id = o.subject_node_id \
-             ORDER BY subject, role"
+             ORDER BY subject, role, 3, t.display"
         ),
     )
     .await;
@@ -388,7 +391,7 @@ async fn types_keep_structure_binders_and_record_fields() {
                 ct.display \
          FROM s JOIN type_term_args a ON a.parent_node_id = s.node_id \
          JOIN type_terms pt ON pt.node_id = a.parent_node_id \
-         JOIN type_terms ct ON ct.node_id = a.child_node_id ORDER BY 1, 2, 3",
+         JOIN type_terms ct ON ct.node_id = a.child_node_id ORDER BY 1, 2, 3, 4",
     )
     .await;
     insta::assert_snapshot!(out);
@@ -496,7 +499,7 @@ fn source() -> cpg_extract::library::Source {
 /// C5 (DESIGN §3.2 `docs`): a corpus run beside the library run. The documents the selection
 /// keeps, their passages, code blocks and links, the mentions of the library's API by class, and
 /// each document's coverage.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_corpus_documents_its_library() {
     let dir = tempfile::tempdir().unwrap();
     let s = Id([7; 16]);
@@ -753,7 +756,7 @@ fn a_file_with_two_roles_is_refused() {
 
 /// Each C5 rule rejects an injected violation on the `docs_shapes` corpus, and nothing is
 /// published (C5 review F7).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_corpus_rules_reject_their_violations() {
     type Raw = Vec<(&'static str, RecordBatch)>;
     fn batch<'a>(raw: &'a mut Raw, name: &str) -> &'a mut RecordBatch {

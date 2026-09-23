@@ -38,8 +38,8 @@ call@1997 | call_result | false | Config
 call@2011 | call_result | false | int
 call@2029 | call_result | false | Box[int]
 call@2029 | call_result | false | None
-call@2051 | call_result | false | tuple[int, str]
 call@2051 | call_result | false | Pair[str, int]
+call@2051 | call_result | false | tuple[int, str]
 call@2085 | call_result | false | int
 call@2099 | call_result | false | str
 call@2118 | call_result | false | Point

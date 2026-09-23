@@ -128,7 +128,7 @@ fn label(a: &str) -> String {
     )
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_catalogs_hold_every_graph_shape() {
     let (ctx, _dir) = shapes("one", false).await;
     // The edges between named nodes (declarations, exports, modules, external and synthetic
@@ -275,7 +275,7 @@ async fn the_catalogs_hold_every_graph_shape() {
     assert!(version.contains("| 12        |"), "a binding: {version}");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_projection_reads_the_catalogs_without_losing_shape_or_lineage() {
     use petgraph::algo::tarjan_scc;
     use petgraph::graph::{DiGraph, NodeIndex};
@@ -398,7 +398,7 @@ async fn a_projection_reads_the_catalogs_without_losing_shape_or_lineage() {
     assert_eq!(unmatched, 0);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_catalogs_are_the_same_across_runs_order_and_location() {
     let ids = |ctx: SessionContext| async move {
         let mut out = BTreeSet::new();
@@ -436,7 +436,7 @@ async fn the_catalogs_are_the_same_across_runs_order_and_location() {
 /// other case reached (C6 review F1): each rejects a published table replaced by a doctored view.
 /// A case runs its own rule's query, the shared validator (§8); the restored snapshot then passes
 /// every rule.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn each_graph_rule_rejects_a_doctored_catalog() {
     let (ctx, _dir) = shapes("one", false).await;
     let doctored = [

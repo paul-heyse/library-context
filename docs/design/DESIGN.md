@@ -1281,7 +1281,7 @@ rules.
 | Open | When an attempt opens a table, compare its `delta.constraints.*`, `delta.appendOnly` and (C1) the two retention properties, as exact strings, with the generated set, in delta-rs's normalized form, and abort on a mismatch. A table left without its constraints (a crash between create and `add_constraint`) is refused | The verify helper |
 | Write raw | `DeltaTable::write(batches)` (`WriteBuilder`), with `CommitProperties::with_metadata` carrying `lctx.snapshot_id`. That metadata is audit only; `snapshots` stays the authority. **Tested:** CHECK is enforced, `appendOnly` rejects deletes, and the metadata reads back through `history()` | — |
 | Derive | A session over the attempt's tables at their written versions, each filtered to the snapshot (§6.2). The derivation SQL from `cpg-schema` computes derived ids with the `lctx_id` UDF (§3.4.1, C1) and runs through the one helper, `ctx.sql_with_options` with DDL, DML and statements disallowed; no other code calls `ctx.sql`. The result is collected, cast strictly to the declared schema, sorted canonically and written like a raw table, so it passes the same local type check. `with_input_plan` streaming (Tested in S6) is not needed at pilot scale: the review probe on FastMCP 4.0.5 (2026-09-22, Measured) had 33,012 `pysa_calls`, 15,772 `call_targets` and 93,101 `facts` rows. Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
-| Validate | DataFusion queries generated from the contracts (§8). `target_partitions = 1` for float aggregates | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
+| Validate | DataFusion queries generated from the contracts (§8), over the session read once into memory, 8 rules at a time (H1 P2). No float aggregate exists yet; when one does, its query fixes its own reduction order | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
 | Publish | `snapshots.write([rows])` in one commit (§6.1). **Tested:** a rejected append is classified unpublished by re-reading | Classification after an ambiguous error |
 | Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3). **Tested:** with two snapshots in one table, dropping the version pin or the snapshot filter changes the result. Reading a missing table creates nothing | One helper |
 
@@ -1340,9 +1340,14 @@ per-rule validation costs; FastMCP 4.0.5 and its corpus; fresh store, snapshot `
   - Reopen when derivation dominates the per-stage time, or its working set dominates the peak.
     Under jemalloc (ADR-0016) the reported peak **is** the working set; the earlier
     `MALLOC_ARENA_MAX=2` reading applied only to glibc. At C6 it did neither (above).
-- **Validation over cached tables, or concurrent rules:** register the hot tables as in-memory
-  batches for the rule run, or run rules concurrently. Reopen when validation outgrows
-  extraction's wall time. Both remedies raise the peak.
+- **Validation over cached tables and concurrent rules: taken** (H1 P2, operator 2026-09-23).
+  `validate` reads every registered table once through its pinned, snapshot-filtered Delta view
+  into a `MemTable` (`cached_session`), then runs the rules 8 at a time on spawned tasks, putting
+  violations back in `rules()` order; every session plans on `TARGET_PARTITIONS = 8`. Still one
+  query per rule, the same SQL, the one shared validator (§B3). Per-rule cost is read from each
+  rule's own physical plan (wall time, summed `elapsed_compute`, largest `build_mem_used`; H1 P5),
+  since a process-wide peak delta means nothing under concurrency. **Measured** on the pilot:
+  validation 10.2 s → 0.89 s, the peak unchanged (3.65 GB under jemalloc).
 - **Peak memory:** taken by ADR-0016 (jemalloc: the peak is the working set, 3.6 GB on the
   pilot, flat from extraction on) and the raw batches released once written. Reopen when the
   peak nears the host's memory.
@@ -1550,7 +1555,9 @@ declarations, so they are enforcement at the storage boundary, not a second defi
 reject the next code. The local validators above check it against the current codebook.
 
 **Cross-table** (DataFusion), **one query per rule**, generated in `cpg_schema::rules` from the
-contracts and snapshot-tested:
+contracts and snapshot-tested; the rules read the session's tables cached once in memory and run
+concurrently, their violations reported in rule order (§4.3; `violations_come_back_in_rule_order`;
+`every_table_is_read_by_some_rule` walks every rule's plan):
 - `key`: uniqueness of every table's declared total key via `GROUP BY … HAVING count(*) > 1`;
 - `ref`: each declared reference via `LEFT ANTI JOIN` returning zero rows;
 - `fact`: every raw row has its `facts` row and every `facts` row its raw row;

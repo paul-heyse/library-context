@@ -9,6 +9,7 @@ use cpg_schema::id::Id;
 use cpg_schema::table::Table;
 use cpg_schema::tables::Snapshots;
 use datafusion::common::ScalarValue;
+use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::{SessionContext, col, lit};
 use deltalake::delta_datafusion::create_session;
 use deltalake::{DeltaTable, DeltaTableBuilder};
@@ -19,9 +20,25 @@ use crate::{CoreError, sql};
 /// Table name → the Delta version a snapshot's rows are visible at.
 pub type Versions = BTreeMap<String, u64>;
 
-/// A session over Delta's planner defaults, with the `lctx_id` UDF (§3.4.1) and no tables.
+/// Partitions per plan (H1 P2): the 32-thread default doubled derivation's working set for no
+/// wall time (deriving `nodes`: 433 → 152 MiB accounted, +0.1 s), and validation runs
+/// `validate::CONCURRENT_RULES` plans at once. Outputs are canonically sorted, so no result depends
+/// on it.
+pub const TARGET_PARTITIONS: usize = 8;
+
+/// A session over Delta's planner defaults, with [`TARGET_PARTITIONS`], the `lctx_id` UDF (§3.4.1)
+/// and no tables.
 pub fn empty_session() -> SessionContext {
-    let ctx = create_session().into_inner();
+    let state = create_session().into_inner().state();
+    let config = state
+        .config()
+        .clone()
+        .with_target_partitions(TARGET_PARTITIONS);
+    let ctx = SessionContext::new_with_state(
+        SessionStateBuilder::new_from_existing(state)
+            .with_config(config)
+            .build(),
+    );
     ctx.register_udf(crate::udf::lctx_id());
     ctx
 }

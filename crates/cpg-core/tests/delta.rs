@@ -54,7 +54,7 @@ fn copy(src: &Path, dst: &Path) {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn every_table_round_trips_through_delta_exactly() {
     let dir = tempfile::tempdir().unwrap();
     let out = fixture_output(dir.path());
@@ -105,7 +105,7 @@ fn decl_in(snapshot_id: Id, start: i64, end: i64) -> RecordBatch {
     .unwrap()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn reads_pin_the_version_and_filter_the_snapshot() {
     // Review F7: with two snapshots in one table, a read that ignored either the version pin or
     // the snapshot filter returns the wrong rows.
@@ -131,7 +131,7 @@ async fn reads_pin_the_version_and_filter_the_snapshot() {
     assert!(!dir.path().join(Boundaries::NAME).exists());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn open_refuses_a_table_whose_checks_drift_or_are_missing() {
     let dir = tempfile::tempdir().unwrap();
     let t = create::<Declarations>(dir.path()).await.unwrap();
@@ -157,7 +157,7 @@ async fn open_refuses_a_table_whose_checks_drift_or_are_missing() {
     assert!(matches!(err, CoreError::ConstraintMismatch { .. }), "{err}");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn append_enforces_the_immutable_checks() {
     let dir = tempfile::tempdir().unwrap();
     let t = create::<Declarations>(dir.path()).await.unwrap();
@@ -168,7 +168,7 @@ async fn append_enforces_the_immutable_checks() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn codebook_growth_needs_no_constraint_change() {
     // Codebooks are append-only and never a CHECK (DESIGN §8): a code the current codebook does
     // not yet have must still be writable, or the next codebook append would stall.
@@ -194,7 +194,7 @@ async fn codebook_growth_needs_no_constraint_change() {
         .expect("a future code is writable");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_sql_helper_rejects_writes_at_plan_time() {
     let dir = tempfile::tempdir().unwrap();
     let t = create::<Declarations>(dir.path()).await.unwrap();
@@ -215,7 +215,7 @@ async fn the_sql_helper_rejects_writes_at_plan_time() {
     assert!(sql::query(&ctx, "SELECT count(*) FROM t").await.is_ok());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn insert_into_still_bypasses_checks_at_this_delta_rs_revision() {
     // Pinned upstream behaviour (delta-rs 58f07cd6, spike S6): DataFusion INSERT INTO commits a
     // CHECK-violating row. If this starts failing, the bypass is fixed upstream: revisit §4.3.
@@ -238,7 +238,7 @@ async fn insert_into_still_bypasses_checks_at_this_delta_rs_revision() {
     assert!(reloaded.version() > t.version());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn open_refuses_a_table_whose_schema_drifted() {
     // A changed contract is a migration (DESIGN §6.3): a table stored under an older schema is
     // refused by name, before any write can fail on a cast.
@@ -278,7 +278,7 @@ async fn table_with(
     builder.await.unwrap()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn retention_keeps_old_versions_loadable() {
     // DESIGN §6.1, ADR-0014: under delta-rs's defaults the post-commit hook checkpoints and then
     // deletes the log below the newest checkpoint older than the retention, so an old version no

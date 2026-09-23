@@ -14,8 +14,10 @@ arrow-schema.workspace = true
 arrow-select.workspace = true
 datafusion.workspace = true
 deltalake.workspace = true
+futures.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 url.workspace = true
 
 [dev-dependencies]
@@ -23,7 +25,6 @@ cpg-extract = { path = "../cpg-extract" }
 insta.workspace = true
 petgraph.workspace = true
 tempfile.workspace = true
-tokio.workspace = true
 
 [lints]
 workspace = true

@@ -80,7 +80,7 @@ async fn count(ctx: &SessionContext, statement: &str) -> i64 {
     a.value(0)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() {
     let root = tempfile::tempdir().unwrap();
     let (a, b) = (Id([1; 16]), Id([2; 16]));
@@ -181,7 +181,7 @@ async fn derived_text(fixture: &str) -> (String, SessionContext, tempfile::TempD
     (out, ctx, root)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn derived_tables_on_the_variant_fixture() {
     let (out, ctx, _root) = derived_text("pysa_variants").await;
     insta::assert_snapshot!(out);
@@ -201,7 +201,7 @@ async fn derived_tables_on_the_variant_fixture() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn derived_tables_on_the_unicode_fixture() {
     let (out, ctx, _root) = derived_text("unicode_bom").await;
     insta::assert_snapshot!(out);
@@ -247,7 +247,7 @@ async fn derived_tables_on_the_unicode_fixture() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn derived_tables_on_the_keys_fixture() {
     let (out, ctx, _root) = derived_text("pysa_keys").await;
     insta::assert_snapshot!(out);
@@ -297,7 +297,7 @@ async fn derived_tables_on_the_keys_fixture() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn derived_tables_on_the_derive_cases_fixture() {
     let (out, ctx, _root) = derived_text("derive_cases").await;
     insta::assert_snapshot!(out);
@@ -383,7 +383,7 @@ fn keep_rows(
 }
 
 /// Each rule kind rejects a snapshot that breaks it, and nothing is published (DM-53).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
@@ -705,6 +705,70 @@ async fn every_rule_kind_rejects_its_violation() {
     compile(root.path(), s, &base).await.unwrap();
 }
 
+/// Rules run concurrently, but violations come back in `rules()` order, so a report never depends
+/// on which rule finished first (H1 P2).
+#[tokio::test(flavor = "multi_thread")]
+async fn violations_come_back_in_rule_order() {
+    let s = Id([3; 16]);
+    let mut raw = raw("pysa_variants", s);
+    let b = table(&mut raw, "syntax_nodes");
+    *b = b.slice(0, 0);
+    drop_rows(&mut raw, "coverage", 1);
+    let root = tempfile::tempdir().unwrap();
+    let Err(CoreError::Invalid(violations)) = compile(root.path(), s, &raw).await else {
+        panic!("expected violations");
+    };
+    assert!(violations.len() >= 3, "{violations:?}");
+    let order: Vec<usize> = cpg_schema::rules::rules()
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| violations.iter().any(|v| v.rule == r.name))
+        .map(|(i, _)| i)
+        .collect();
+    let reported: Vec<usize> = violations
+        .iter()
+        .map(|v| {
+            cpg_schema::rules::rules()
+                .iter()
+                .position(|r| r.name == v.rule)
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(reported, order);
+}
+
+/// Every table a snapshot registers is read by at least one rule (DataFusion probe #8): each rule's
+/// logical plan is walked for the tables it scans, over the validation session's named in-memory
+/// tables.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_table_is_read_by_some_rule() {
+    use datafusion::common::tree_node::TreeNodeRecursion;
+    use datafusion::logical_expr::LogicalPlan;
+    let s = Id([5; 16]);
+    let root = tempfile::tempdir().unwrap();
+    compile(root.path(), s, &raw("pysa_variants", s))
+        .await
+        .unwrap();
+    let (versions, ctx) = published(root.path(), s).await.unwrap().unwrap();
+    let cache = cpg_core::validate::cached_session(&ctx).await.unwrap();
+    let mut read = std::collections::BTreeSet::new();
+    for rule in cpg_schema::rules::rules() {
+        let plan = sql::query(&cache, &rule.sql)
+            .await
+            .unwrap()
+            .into_unoptimized_plan();
+        plan.apply_with_subqueries(|p| {
+            if let LogicalPlan::TableScan(scan) = p {
+                read.insert(scan.table_name.table().to_owned());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })
+        .unwrap();
+    }
+    let unread: Vec<&String> = versions.keys().filter(|t| !read.contains(*t)).collect();
+    assert!(unread.is_empty(), "tables no rule reads: {unread:?}");
+}
+
 /// Every hand-written rule is exercised by an injected violation or declared an edit guard, every
 /// generated template by at least one case, and no case names a rule that no longer exists (C6
 /// review F1). A case is a tuple opening with the rule's name in this crate's rule tests.
@@ -785,7 +849,7 @@ fn every_rule_is_exercised_or_declared_an_edit_guard() {
 
 /// The C4 rules reject their violations on `type_shapes`, which has records and type variables
 /// (C4 review F1, F3, and the `id:record_fields` case it asked for).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_types_rules_reject_their_violations() {
     let s = Id([9; 16]);
     let base = raw("type_shapes", s);
@@ -850,7 +914,7 @@ async fn the_types_rules_reject_their_violations() {
     compile(root.path(), s, &base).await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_failed_snapshots_append_is_classified_by_rereading() {
     // ADR-0009 P3 in-repo: the append is rejected (a CHECK), and re-reading `snapshots` shows the
     // attempt unpublished. A published attempt reads back as published.
