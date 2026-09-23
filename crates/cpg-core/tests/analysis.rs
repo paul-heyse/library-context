@@ -391,6 +391,40 @@ async fn templates_say_what_the_findings_show() {
         ),
         "{texts}"
     );
+    // Slice 2.1 review F1: a restriction carries its path's qualifiers, and none is published
+    // that the seed cannot trigger.
+    let configure = text(
+        &ctx,
+        "SELECT a.text FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         WHERE b.title = 'pkg.configure' AND a.assertion_kind = 8 ORDER BY ba.ordinal",
+    )
+    .await;
+    let raises = |callee: &str| {
+        configure
+            .lines()
+            .map(|l| l.trim_matches(|c| c == '|' || c == ' '))
+            .find(|l| l.starts_with(&format!("`{callee}` raises")))
+            .map(str::to_owned)
+    };
+    assert!(
+        raises("pkg.controls.Registry.add").is_some_and(|l| l
+            .ends_with("(`pkg.configure`'s call to `pkg.controls.Registry.add` is overridable).")),
+        "{configure}"
+    );
+    assert!(
+        raises("pkg.controls.slow").is_some_and(
+            |l| l.ends_with("(`pkg.configure` calls `pkg.controls.slow` only on some paths).")
+        ),
+        "{configure}"
+    );
+    for never in [
+        "pkg.controls.strict",
+        "pkg.controls.muted",
+        "pkg.controls.probe_attr",
+    ] {
+        assert_eq!(raises(never), None, "{configure}");
+    }
 }
 
 /// Pass B (DESIGN §9.2, §12) on `pkg.configure`: forwarding directly, through one alias and over a
@@ -403,33 +437,65 @@ async fn pass_b_finds_the_known_answers_on_analysis_shapes() {
     let rows = text(
         &ctx,
         "SELECT f.finding_kind AS kind, src.label AS source, d.qualified_name AS callee, \
-                ps.name AS formal, v.label AS value, f.depth, \
+                ps.name AS formal, COALESCE(v.label, why.label) AS value, f.depth, \
                 (SELECT count(*) FROM finding_members a WHERE a.finding_id = f.finding_id \
-                 AND a.role = 3) AS aliases \
+                 AND a.role = 3) AS aliases, \
+                (SELECT count(*) FROM finding_members a WHERE a.finding_id = f.finding_id \
+                 AND a.role = 7) AS conditional \
          FROM findings f JOIN declarations s ON s.node_id = f.subject_node_id \
          LEFT JOIN finding_members src ON src.finding_id = f.finding_id AND src.role = 1 \
          LEFT JOIN finding_members v ON v.finding_id = f.finding_id AND v.role = 2 \
+         LEFT JOIN finding_members why ON why.finding_id = f.finding_id AND why.role = 8 \
          LEFT JOIN finding_members fm ON fm.finding_id = f.finding_id AND fm.role = 4 \
          LEFT JOIN parameter_syntax ps ON ps.node_id = COALESCE(fm.node_id, f.related_node_id) \
-         LEFT JOIN declarations d ON d.node_id = ps.function_node_id \
+         LEFT JOIN declarations d ON d.node_id = COALESCE(ps.function_node_id, \
+           CASE WHEN f.finding_kind = 10 THEN f.related_node_id END) \
          WHERE s.qualified_name = 'pkg.controls.configure' AND f.finding_kind >= 6 \
-         ORDER BY kind, source, callee, formal",
+         ORDER BY kind, source, callee, formal, value",
     )
     .await;
     insta::assert_snapshot!("pass_b_configure", rows);
-    // Never followed.
+    // No restriction: behind a `try` or a suppressing `with`, under the caller's own test of the
+    // value, on an attribute, after rebinding, from an unmapped `**` argument (review F1, F5).
     for absent in [
         "pkg.controls.passthrough",
         "pkg.controls.checked",
+        "pkg.controls.muted",
+        "pkg.controls.strict",
+        "pkg.controls.probe_attr",
         "pkg.controls.rebinding",
     ] {
         let raised = rows
             .lines()
-            .filter(|l| l.contains("| 8 ") && l.contains(absent))
+            .filter(|l| l.starts_with("| 8 ") && l.contains(absent))
             .count();
         assert_eq!(raised, 0, "a guard in {absent} is reported:\n{rows}");
     }
-    assert!(!rows.contains("passthrough"), "{rows}");
+    // Declines leave a trace (review F4): rebound, computed, unpacked or taken by no formal.
+    for (source, callee, why) in [
+        ("note", "pkg.controls.annotate", "rebound"),
+        ("name", "pkg.controls.annotate", "computed"),
+        ("name", "pkg.controls.swap", "unmapped"),
+        ("extra", "pkg.controls.swap", "unmapped"),
+        ("options", "pkg.controls.passthrough", "unmapped"),
+    ] {
+        assert!(
+            rows.lines().any(|l| l.starts_with("| 10 ")
+                && l.contains(&format!("| {source} "))
+                && l.contains(callee)
+                && l.contains(why)),
+            "no {why} trace of {source} into {callee}:\n{rows}"
+        );
+    }
+    // The chain's third hop (`finish` → `record`) is past the depth bound, and says so.
+    let stop = text(
+        &ctx,
+        "SELECT i.stop_reason FROM analysis_invocations i \
+         JOIN declarations s ON s.node_id = i.subject_node_id \
+         WHERE s.qualified_name = 'pkg.controls.configure' AND i.method = 1",
+    )
+    .await;
+    assert!(stop.contains("| 0 "), "{stop}");
 }
 
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
@@ -667,6 +733,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             6,
             7,
             "6a58ea464f733da304e251dfd905a0e54f1399577e8158cf2d87673574a4a4b1",
+        ),
+        (
+            7,
+            8,
+            "a1059c90f44d1e3d9fcac8d70043dfbea917a6facf056fb890e833cad70d610c",
         ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
@@ -925,6 +996,24 @@ async fn the_analysis_rules_reject_their_violations() {
             "SELECT snapshot_id, evidence_id, evidence_kind, cited_fact_id, node_id, \
                     module_node_id, start_byte + 1 AS start_byte, end_byte + 1 AS end_byte, text \
              FROM evidence_published",
+        ),
+        // Review F3: each documented parameter cites another parameter's description.
+        (
+            "semantic:documented-parameter-cites-its-doc",
+            "evidence",
+            "WITH others AS ( \
+               SELECT a.function_node_id, a.name AS own, min(b.name) AS other \
+               FROM parameter_docs a JOIN parameter_docs b \
+                 ON b.function_node_id = a.function_node_id AND b.name <> a.name \
+               GROUP BY a.function_node_id, a.name) \
+             SELECT e.snapshot_id, e.evidence_id, e.evidence_kind, e.cited_fact_id, e.node_id, \
+                    e.module_node_id, COALESCE(d.start_byte, e.start_byte) AS start_byte, \
+                    COALESCE(d.end_byte, e.end_byte) AS end_byte, e.text \
+             FROM evidence_published e \
+             LEFT JOIN parameter_syntax ps ON ps.node_id = e.node_id \
+             LEFT JOIN others o ON o.function_node_id = ps.function_node_id AND o.own = ps.name \
+             LEFT JOIN parameter_docs d ON d.function_node_id = o.function_node_id \
+               AND d.name = o.other",
         ),
         // Two specs in one snapshot.
         (

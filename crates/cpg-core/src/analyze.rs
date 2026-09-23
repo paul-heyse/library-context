@@ -423,7 +423,8 @@ struct PassBParameters<'a> {
     public_roots: &'a [String],
 }
 
-/// Each seed's parameters, the receiver aside (a first parameter named `self` or `cls`).
+/// Each seed's parameters, the receiver aside (`cpg_schema::flows::receivers_sql`: decided by
+/// the method's kind, never by the parameter's name; slice 2.1 review F8).
 async fn seed_parameters(
     ctx: &SessionContext,
     seeds: &[Id],
@@ -431,10 +432,12 @@ async fn seed_parameters(
     let batches = collect(
         ctx,
         &format!(
-            "SELECT function_node_id, node_id, name FROM parameter_syntax \
-             WHERE function_node_id IN ({}) AND NOT (ordinal = 0 AND name IN ('self', 'cls')) \
-             ORDER BY function_node_id, ordinal",
-            hex_list(seeds.iter().copied())
+            "SELECT ps.function_node_id, ps.node_id, ps.name FROM parameter_syntax ps \
+             LEFT ANTI JOIN ({receivers}) r ON r.parameter_node_id = ps.node_id \
+             WHERE ps.function_node_id IN ({seeds}) \
+             ORDER BY ps.function_node_id, ps.ordinal",
+            receivers = cpg_schema::flows::receivers_sql(),
+            seeds = hex_list(seeds.iter().copied())
         ),
         &schema(&[
             ("function_node_id", DataType::FixedSizeBinary(16)),
@@ -569,8 +572,14 @@ pub async fn run(
         &cpg_schema::flows::schemas::guards(),
     )
     .await?;
-    let flows =
-        Flows::build(&flow_rows, &guard_rows).map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let read_rows = collect(
+        ctx,
+        &cpg_schema::flows::parameter_reads_sql(),
+        &cpg_schema::flows::schemas::parameter_reads(),
+    )
+    .await?;
+    let flows = Flows::build(&flow_rows, &guard_rows, &read_rows)
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let parameters_of =
         seed_parameters(ctx, &rows.seeds.iter().map(|s| s.1).collect::<Vec<_>>()).await?;
     let inside = |n: Id| p.dense(n).is_some_and(|i| subsystem.contains(i as usize));

@@ -843,6 +843,10 @@ codebook!(
         /// C, §9.3): `x = producer(...); consumer(x)` in one straight-line block, or nested. The
         /// subject is the seed, the related node the other callable; the score counts occurrences.
         Handoff = 9 => "handoff",
+        /// A seed parameter reaches a call's argument in a form Pass B does not follow: after the
+        /// name is rebound, inside an expression, or unpacked or taken by no single formal (slice
+        /// 2.1 review F4). The related node is the callee; a `reason` member says which.
+        UnfollowedArgument = 10 => "unfollowed_argument",
     }
 );
 
@@ -885,6 +889,11 @@ codebook!(
         ProducerSite = 5 => "producer_site",
         /// A handoff occurrence's consumer call site.
         ConsumerSite = 6 => "consumer_site",
+        /// A call site on a Pass B path that its caller makes only on some paths (inside a
+        /// conditional construct; slice 2.1 review F1).
+        ConditionalCall = 7 => "conditional_call",
+        /// Why Pass B does not follow a value (`rebound`, `computed`, `unmapped`).
+        Reason = 8 => "reason",
     }
 );
 
@@ -927,6 +936,9 @@ codebook!(
         UsagePattern = 9 => "usage_pattern",
         /// A direct handoff official usage code shows (Pass C `handoff`).
         Handoff = 10 => "handoff",
+        /// A parameter that reaches a callee in a form the analysis does not follow (Pass B
+        /// `unfollowed_argument`).
+        UnfollowedControl = 11 => "unfollowed_control",
     }
 );
 

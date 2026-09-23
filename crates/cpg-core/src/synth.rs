@@ -41,8 +41,9 @@ use crate::{CoreError, sql};
 /// analysis's own boundaries (slice 1.9). 5: documented parameters, controls, transformed
 /// controls and restrictions (slice 2.1). 6: call sites count call arcs only, "may call" over an
 /// override-open final arc, a definition claims nothing more (increment-1 deep review F5). 7: usage
-/// patterns and handoffs, and the pattern's code in the brief document (slice 2.2).
-pub const TEMPLATE_VERSION: i64 = 7;
+/// patterns and handoffs, and the pattern's code in the brief document (slice 2.2). 8: one
+/// path-qualifier rule for Pass B's templates, and unfollowed controls (slice 2.1 review F1, F4).
+pub const TEMPLATE_VERSION: i64 = 8;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
@@ -404,7 +405,12 @@ pub async fn run(
         .iter()
         .flat_map(|f| [Some(f.subject_node_id), f.related_node_id])
         .flatten()
-        .chain(found.witnesses.iter().map(|w| w.callee_node_id))
+        .chain(
+            found
+                .witnesses
+                .iter()
+                .flat_map(|w| [w.caller_node_id, w.callee_node_id]),
+        )
         .collect();
     let labels_sql = format!(
         "SELECT n.node_id, COALESCE(d.qualified_name, \
@@ -607,19 +613,21 @@ pub async fn run(
         "SELECT p.signature_node_id, ps.node_id, ps.fact_id, ps.ordinal, ps.name, ps.kind, \
                 ps.default_text, ps.annotation_text, ps.start_byte, ps.end_byte, \
                 sem.required, sem.fact_id AS semantics_fact_id, d.module_node_id, \
-                pdoc.text AS doc_text, pdoc.start_byte AS doc_start, pdoc.end_byte AS doc_end \
+                pdoc.text AS doc_text, pdoc.start_byte AS doc_start, pdoc.end_byte AS doc_end, \
+                rcv.parameter_node_id IS NOT NULL AS receiver \
          FROM parameters p JOIN parameter_syntax ps ON ps.fact_id = p.syntax_fact_id \
          LEFT JOIN parameter_semantics sem ON sem.fact_id = p.semantics_fact_id \
          LEFT JOIN parameter_docs pdoc ON pdoc.function_node_id = p.signature_node_id \
            AND pdoc.name = ps.name \
+         LEFT JOIN ({receivers}) rcv ON rcv.parameter_node_id = ps.node_id \
          JOIN declarations d ON d.node_id = p.signature_node_id \
-         WHERE p.signature_node_id IN ({}) ORDER BY p.signature_node_id, ps.ordinal",
-        hex_list(seeds.iter().copied())
+         WHERE p.signature_node_id IN ({seeds}) ORDER BY p.signature_node_id, ps.ordinal",
+        receivers = cpg_schema::flows::receivers_sql(),
+        seeds = hex_list(seeds.iter().copied())
     );
     struct Param {
         node: Id,
         fact: Id,
-        ordinal: i64,
         name: String,
         kind: Option<ParameterKind>,
         default: Option<String>,
@@ -630,6 +638,8 @@ pub async fn run(
         module: Id,
         /// The docstring's description of it (slice 2.1): normalized text and verbatim span.
         doc: Option<(String, usize, usize)>,
+        /// The method's receiver, by the declaration's kind (slice 2.1 review F8).
+        receiver: bool,
     }
     let mut params: BTreeMap<Id, Vec<Param>> = BTreeMap::new();
     for (b, i) in Table::read(
@@ -652,6 +662,7 @@ pub async fn run(
             ("doc_text", DataType::Utf8),
             ("doc_start", DataType::Int64),
             ("doc_end", DataType::Int64),
+            ("receiver", DataType::Boolean),
         ],
     )
     .await?
@@ -668,7 +679,6 @@ pub async fn run(
         params.entry(sig).or_default().push(Param {
             node,
             fact,
-            ordinal: int(b, "ordinal", i).unwrap_or_default(),
             name: text(b, "name", i).unwrap_or_default(),
             kind: small(b, "kind", i).and_then(ParameterKind::from_code),
             default: text(b, "default_text", i),
@@ -684,6 +694,7 @@ pub async fn run(
                 .zip(int(b, "doc_start", i))
                 .zip(int(b, "doc_end", i))
                 .map(|((t, a), z)| (t, a as usize, z as usize)),
+            receiver: flag(b, "receiver", i).unwrap_or(false),
         });
     }
 
@@ -697,6 +708,7 @@ pub async fn run(
                 FindingKind::Forwarding
                     | FindingKind::TransformedArgument
                     | FindingKind::ConditionalRaise
+                    | FindingKind::UnfollowedArgument
             )
         })
         .collect();
@@ -1058,7 +1070,7 @@ pub async fn run(
         // Parameters of the seed's own signature (the receiver aside), each citing its syntax
         // fact and, where Pysa's model has it, its semantics fact (slice 1.5 review O5).
         for p in params.get(&seed).map(Vec::as_slice).unwrap_or_default() {
-            if p.ordinal == 0 && (p.name == "self" || p.name == "cls") {
+            if p.receiver {
                 continue;
             }
             let Some(decl) = decls.get(&seed) else {
@@ -1190,6 +1202,36 @@ pub async fn run(
                 .and_then(|ps| ps.iter().position(|p| p.name == name))
                 .unwrap_or(usize::MAX)
         };
+        // One path-qualifier rule for every Pass B template (slice 2.1 review F1): each
+        // override-open hop named, and each call its caller makes only on some paths.
+        let qualified = |f: &FindingsRow| {
+            let conditional: BTreeSet<Id> = found
+                .members
+                .iter()
+                .filter(|m| m.finding_id == f.finding_id && m.role == MemberRole::ConditionalCall)
+                .filter_map(|m| m.node_id)
+                .collect();
+            let mut notes = Vec::new();
+            for w in path_of(f) {
+                let caller = if w.caller_node_id == seed {
+                    seed_label.clone()
+                } else {
+                    label(w.caller_node_id)
+                };
+                let callee = label(w.callee_node_id);
+                if w.modality == Modality::Candidate {
+                    notes.push(format!("`{caller}`'s call to `{callee}` is overridable"));
+                }
+                if conditional.contains(&w.call_site_node_id) {
+                    notes.push(format!("`{caller}` calls `{callee}` only on some paths"));
+                }
+            }
+            if notes.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", notes.join("; "))
+            }
+        };
         let mut forwarded: BTreeMap<(usize, String), Vec<&&FindingsRow>> = BTreeMap::new();
         for f in findings
             .iter()
@@ -1220,12 +1262,7 @@ pub async fn run(
                     } else {
                         String::new()
                     };
-                    let open = if steps.iter().any(|w| w.modality == Modality::Candidate) {
-                        ", over an overridable call"
-                    } else {
-                        ""
-                    };
-                    format!("`{target}` as `{}`{via}{open}", formal_of(f))
+                    format!("`{target}` as `{}`{via}{}", formal_of(f), qualified(f))
                 })
                 .collect();
             let mut draft = Draft::new(
@@ -1258,9 +1295,10 @@ pub async fn run(
                 Draft::new(
                     AssertionKind::TransformedControl,
                     format!(
-                        "`{seed_label}` calls `{target}` with `{}` fixed to `{}`.",
+                        "`{seed_label}` calls `{target}` with `{}` fixed to `{}`{}.",
                         formal_of(f),
-                        member(f, MemberRole::Value)
+                        member(f, MemberRole::Value),
+                        qualified(f)
                     ),
                 )
                 .citing(f),
@@ -1291,9 +1329,10 @@ pub async fn run(
                     "The implementation raises (`{raised}`) when `{test_text}`, a check on `{p}`."
                 ),
                 Some(w) => format!(
-                    "`{}` raises (`{raised}`) when `{test_text}`; its `{}` receives `{p}`.",
+                    "`{}` raises (`{raised}`) when `{test_text}`; its `{}` receives `{p}`{}.",
                     label(w.callee_node_id),
-                    member(f, MemberRole::Formal)
+                    member(f, MemberRole::Formal),
+                    qualified(f)
                 ),
             };
             let mut draft = Draft::new(AssertionKind::Restriction, text).citing(f);
@@ -1318,6 +1357,60 @@ pub async fn run(
                     }),
                     EvidenceKind::Fact,
                 ));
+            }
+            drafts.push(draft);
+        }
+
+        // Values Pass B does not follow (slice 2.1 review F4): one Limits line per parameter, so
+        // "not listed as passed on" is never read as "not passed on".
+        let mut unfollowed: BTreeMap<(usize, String), Vec<&&FindingsRow>> = BTreeMap::new();
+        for f in findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::UnfollowedArgument)
+        {
+            let p = member(f, MemberRole::SourceParameter);
+            unfollowed.entry((ordinal_of(&p), p)).or_default().push(f);
+        }
+        for ((_, p), mut group) in unfollowed {
+            group.sort_by_key(|f| {
+                let steps = path_of(f);
+                (
+                    f.depth,
+                    steps.last().map(|w| label(w.callee_node_id)),
+                    member(f, MemberRole::Reason),
+                )
+            });
+            let mut items: Vec<String> = Vec::new();
+            for f in &group {
+                let steps = path_of(f);
+                let target = steps
+                    .last()
+                    .map(|w| label(w.callee_node_id))
+                    .unwrap_or_default();
+                let via = if steps.len() > 1 {
+                    format!(" through `{}`", label(steps[0].callee_node_id))
+                } else {
+                    String::new()
+                };
+                let why = match member(f, MemberRole::Reason).as_str() {
+                    "rebound" => "after it is rebound",
+                    "unmapped" => "unpacked, or where no single parameter takes it",
+                    _ => "inside an expression",
+                };
+                let item = format!("`{target}`{via} ({why})");
+                if !items.contains(&item) {
+                    items.push(item);
+                }
+            }
+            let mut draft = Draft::new(
+                AssertionKind::UnfollowedControl,
+                format!(
+                    "`{p}` also reaches {}; the analysis does not follow it there.",
+                    items.join("; ")
+                ),
+            );
+            for f in group {
+                draft = draft.citing(f);
             }
             drafts.push(draft);
         }
@@ -1655,21 +1748,24 @@ pub async fn run(
             .get(&seed)
             .map(|ps| {
                 ps.iter()
-                    .filter(|p| !(p.ordinal == 0 && (p.name == "self" || p.name == "cls")))
+                    .filter(|p| !p.receiver)
                     .map(|p| p.name.clone())
                     .collect::<Vec<_>>()
                     .join(", ")
             })
             .unwrap_or_default();
-        // The capability's own limits, never the analysis's scope: an `analysis_boundary`
-        // (what the analysis did not follow) stays in the brief and out of the document
-        // (slice 1.5 review O7, measured in slice 1.9; deviation log D14).
+        // The capability's own limits, never the analysis's scope: an `analysis_boundary` or an
+        // `unfollowed_control` (what the analysis did not follow) stays in the brief and out of
+        // the document (slice 1.5 review O7, measured in slice 1.9; deviation log D14).
         let limits: Vec<String> = assertion_ids
             .iter()
             .filter_map(assertion)
             .filter(|a| {
                 section_of(a.assertion_kind) == BriefSection::Limits
-                    && a.assertion_kind != AssertionKind::AnalysisBoundary
+                    && !matches!(
+                        a.assertion_kind,
+                        AssertionKind::AnalysisBoundary | AssertionKind::UnfollowedControl
+                    )
             })
             .filter_map(|a| a.text.clone())
             .collect();

@@ -2,22 +2,40 @@
 source: crates/cpg-core/tests/analysis.rs
 expression: rows
 ---
-+------+--------+---------------------------+--------+-------+-------+---------+
-| kind | source | callee                    | formal | value | depth | aliases |
-+------+--------+---------------------------+--------+-------+-------+---------+
-| 6    | mode   | pkg.controls.Registry.add | tag    |       | 1     | 0       |
-| 6    | mode   | pkg.controls.validate     | mode   |       | 1     | 0       |
-| 6    | name   | pkg.controls.Registry.add | item   |       | 1     | 0       |
-| 6    | name   | pkg.controls.build        | label  |       | 1     | 1       |
-| 6    | name   | pkg.controls.rebinding    | label  |       | 1     | 0       |
-| 6    | name   | pkg.controls.swap         | left   |       | 1     | 0       |
-| 6    | name   | pkg.controls.swap         | right  |       | 1     | 0       |
-| 6    | size   | pkg.controls.build        | count  |       | 1     | 0       |
-| 6    | size   | pkg.controls.checked      | count  |       | 1     | 0       |
-| 6    | size   | pkg.controls.swap         | left   |       | 1     | 0       |
-| 6    | size   | pkg.controls.swap         | right  |       | 1     | 0       |
-| 7    |        | pkg.controls.build        | flag   | True  | 1     | 0       |
-| 8    | mode   | pkg.controls.validate     | mode   |       | 1     | 0       |
-| 8    | name   | pkg.controls.Registry.add | item   |       | 1     | 0       |
-| 8    | name   | pkg.controls.build        | label  |       | 1     | 0       |
-+------+--------+---------------------------+--------+-------+-------+---------+
++------+---------+------------------------------+----------+----------+-------+---------+-------------+
+| kind | source  | callee                       | formal   | value    | depth | aliases | conditional |
++------+---------+------------------------------+----------+----------+-------+---------+-------------+
+| 6    | mode    | pkg.controls.Registry.add    | tag      |          | 1     | 0       | 0           |
+| 6    | mode    | pkg.controls.validate        | mode     |          | 1     | 0       | 0           |
+| 6    | name    | pkg.controls.Registry.add    | item     |          | 1     | 0       | 0           |
+| 6    | name    | pkg.controls.Widget.__init__ | label    |          | 1     | 0       | 0           |
+| 6    | name    | pkg.controls.build           | label    |          | 1     | 1       | 0           |
+| 6    | name    | pkg.controls.finish          | text     |          | 2     | 1       | 0           |
+| 6    | name    | pkg.controls.probe_attr      | obj      |          | 1     | 0       | 0           |
+| 6    | name    | pkg.controls.rebinding       | label    |          | 1     | 0       | 0           |
+| 6    | name    | pkg.controls.slow            | label    |          | 1     | 0       | 1           |
+| 6    | name    | pkg.controls.strict          | value    |          | 1     | 0       | 1           |
+| 6    | name    | pkg.controls.swap            | left     |          | 1     | 0       | 0           |
+| 6    | name    | pkg.controls.swap            | right    |          | 1     | 0       | 0           |
+| 6    | size    | pkg.controls.Registry.create | capacity |          | 1     | 0       | 0           |
+| 6    | size    | pkg.controls.build           | count    |          | 1     | 0       | 0           |
+| 6    | size    | pkg.controls.checked         | count    |          | 1     | 0       | 0           |
+| 6    | size    | pkg.controls.finish          | count    |          | 2     | 0       | 0           |
+| 6    | size    | pkg.controls.muted           | count    |          | 1     | 0       | 0           |
+| 6    | size    | pkg.controls.swap            | left     |          | 1     | 0       | 0           |
+| 6    | size    | pkg.controls.swap            | right    |          | 1     | 0       | 0           |
+| 7    |         | pkg.controls.build           | flag     | True     | 1     | 0       | 0           |
+| 8    | mode    | pkg.controls.validate        | mode     |          | 1     | 0       | 0           |
+| 8    | name    | pkg.controls.Registry.add    | item     |          | 1     | 0       | 0           |
+| 8    | name    | pkg.controls.Widget.__init__ | label    |          | 1     | 0       | 0           |
+| 8    | name    | pkg.controls.build           | label    |          | 1     | 0       | 0           |
+| 8    | name    | pkg.controls.finish          | text     |          | 2     | 0       | 0           |
+| 8    | name    | pkg.controls.slow            | label    |          | 1     | 0       | 1           |
+| 8    | size    | pkg.controls.Registry.create | capacity |          | 1     | 0       | 0           |
+| 8    | size    | pkg.controls.finish          | count    |          | 2     | 0       | 0           |
+| 10   | extra   | pkg.controls.swap            |          | unmapped | 1     | 0       | 0           |
+| 10   | name    | pkg.controls.annotate        |          | computed | 1     | 0       | 0           |
+| 10   | name    | pkg.controls.swap            |          | unmapped | 1     | 0       | 0           |
+| 10   | note    | pkg.controls.annotate        |          | rebound  | 1     | 0       | 0           |
+| 10   | options | pkg.controls.passthrough     |          | unmapped | 1     | 0       | 0           |
++------+---------+------------------------------+----------+----------+-------+---------+-------------+

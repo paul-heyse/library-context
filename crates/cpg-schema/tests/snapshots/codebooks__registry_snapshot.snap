@@ -480,6 +480,7 @@ finding_kind
   7 transformed_argument
   8 conditional_raise
   9 handoff
+  10 unfollowed_argument
 stop_reason
   0 depth_limit
   1 vertex_budget
@@ -497,6 +498,8 @@ member_role
   4 formal
   5 producer_site
   6 consumer_site
+  7 conditional_call
+  8 reason
 assertion_kind
   0 outcome
   1 public_access
@@ -509,6 +512,7 @@ assertion_kind
   8 restriction
   9 usage_pattern
   10 handoff
+  11 unfollowed_control
 brief_section
   0 outcome
   1 public_access

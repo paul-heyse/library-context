@@ -357,28 +357,30 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
         BriefSection::Related,
         &[EvidenceStatus::StatisticallyDerived],
     ),
-    // Pass B (§9.2): a forwarded parameter is observed; its documentation makes it documented.
+    // Pass B (§9.2): a forwarded parameter is observed. Nothing documents one yet (D18), so the
+    // policy permits nothing more (slice 2.1 review F7); 3.4 widens it with its rule.
     (
         AssertionKind::Control,
         BriefSection::Controls,
-        &[
-            EvidenceStatus::StructurallyObserved,
-            EvidenceStatus::Documented,
-        ],
+        &[EvidenceStatus::StructurallyObserved],
     ),
     (
         AssertionKind::TransformedControl,
         BriefSection::Controls,
         &[EvidenceStatus::StructurallyObserved],
     ),
-    // An implementation raise is observed; a public precondition needs documented support.
+    // An implementation raise is observed. A public precondition needs documented support, which
+    // no recognizer gives yet (D18; review F7): 3.4 widens this with its rule.
     (
         AssertionKind::Restriction,
         BriefSection::Limits,
-        &[
-            EvidenceStatus::StructurallyObserved,
-            EvidenceStatus::Documented,
-        ],
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    // A value Pass B does not follow is an observed limit of the analysis (review F4).
+    (
+        AssertionKind::UnfollowedControl,
+        BriefSection::Limits,
+        &[EvidenceStatus::StructurallyObserved],
     ),
     // Pass C and §10.5: a pattern is official usage code (documented), or an executed fixture.
     (
@@ -500,6 +502,10 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
         EvidenceStatus::StructurallyObserved,
     ),
     (FindingKind::Handoff, EvidenceStatus::StructurallyObserved),
+    (
+        FindingKind::UnfollowedArgument,
+        EvidenceStatus::StructurallyObserved,
+    ),
 ];
 
 /// The status each evidence kind supports (slice 1.5 review F1): an extracted fact is observed
@@ -559,8 +565,8 @@ pub fn derive_status(supports: &[(SupportRole, EvidenceStatus)]) -> EvidenceStat
 
 /// The finding kinds that make a brief analysis-backed (§1.5's no-bypass rule; slice 1.5 review
 /// F4): a derivation family's positive result about behaviour. A `public_alias` is an export
-/// lookup; an unresolved site or a traversal stop says what is not known. Pass B and Pass C kinds
-/// join as they land.
+/// lookup; an unresolved site, a traversal stop or an unfollowed argument says what is not known.
+/// Pass B and Pass C kinds join as they land.
 pub const ANALYSIS_BACKED: &[FindingKind] = &[
     FindingKind::DirectDelegation,
     FindingKind::BoundedDelegationPath,

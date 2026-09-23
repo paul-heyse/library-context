@@ -6,7 +6,7 @@ expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS seed, i.completion, i.stop
 | seed                    | completion | stop_reason | vertices_examined |
 +-------------------------+------------+-------------+-------------------+
 | pkg.controls.configure  | 1          | 1           | 1                 |
-| pkg.controls.configure  | 0          |             | 16                |
+| pkg.controls.configure  | 0          | 0           | 25                |
 | pkg.controls.configure  | 0          |             |                   |
 | pkg.helpers.describe    | 0          |             | 1                 |
 | pkg.helpers.describe    | 0          |             | 0                 |

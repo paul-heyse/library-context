@@ -768,6 +768,22 @@ fn run_release(
                 Some("__all__ is not a literal list or tuple of strings".to_owned()),
             );
         }
+        for (function, name, docstring) in &module_walk.unlocated_parameter_docs {
+            partial
+                .entry(FactFamily::Signatures)
+                .or_insert(BoundaryReason::ProviderDisagreement);
+            report.boundary(
+                &mut sink,
+                m.node_id,
+                Some(*function),
+                FactFamily::Signatures,
+                BoundaryReason::ProviderDisagreement,
+                Some(*docstring),
+                Some(format!(
+                    "the description of parameter `{name}` is not located in the docstring's bytes"
+                )),
+            );
+        }
         for &family in &code_families {
             let (status, reason) = match partial.get(&family) {
                 Some(reason) => (CoverageStatus::Partial, Some(*reason)),

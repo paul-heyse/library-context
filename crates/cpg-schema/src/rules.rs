@@ -276,13 +276,16 @@ fn semantic() -> Vec<Rule> {
         ),
         (
             // Increment-1 deep review O7 (fired by 2.1): a `documented` parameter cites its own
-            // parameter's description, not any documentation of its operation.
+            // parameter's description, not any documentation of its operation, nor another
+            // parameter's (slice 2.1 review F3: keyed by the parameter the evidence names).
             "semantic:documented-parameter-cites-its-doc",
             format!(
                 "SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( \
                    SELECT s.assertion_id FROM assertion_support s \
                    JOIN evidence e ON e.evidence_id = s.evidence_id \
-                   JOIN parameter_docs d ON d.module_node_id = e.module_node_id \
+                   JOIN parameter_syntax ps ON ps.node_id = e.node_id \
+                   JOIN parameter_docs d ON d.function_node_id = ps.function_node_id \
+                     AND d.name = ps.name AND d.module_node_id = e.module_node_id \
                      AND d.start_byte = e.start_byte AND d.end_byte = e.end_byte \
                    WHERE e.evidence_kind = {span}) own ON own.assertion_id = a.assertion_id \
                  WHERE a.assertion_kind = {parameter} AND a.evidence_status = {documented}",

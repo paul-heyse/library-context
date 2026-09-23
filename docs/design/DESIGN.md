@@ -482,14 +482,14 @@ declaration, and an AST node is not an execution point.
 |---|---|---|
 | `provenance` | `releases` (library, requirement, lock digest, or a source tree's label), `distributions` (every installed distribution: version, artifact sha256s, `RECORD` digest, in the release or not), `source_files` (C1: with its release `distribution`; ADR-0015: its `text`, the bytes every span indexes, null only when not UTF-8, and its `role`: `release`, `example`, `test` or `doc_block`), `contexts`, `producers`, `runs`, `facts`. C1: `context_modules` (each dependency module a fact references: name, site-relative path or Pyrefly's bundled typeshed, distribution and version) and `context_definitions` (the Pysa definitions of those modules: the existence source of `external_symbol` nodes; §3.8) | 1 |
 | `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin and its file, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → the seed declaration in the origin's file: an implementation before an `@overload` stub, then the one Pysa describes, then the last in source order; one row per `public_names` row, so a `.py`/`.pyi` pair gives an access path two rows, one seeding each file, told apart by `source_files.is_stub`; Pass A seeds from the source row) | 1 |
-| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `parameter_docs` (slice 2.1, **Implemented** and **Tested**: Pyrefly's `parse_parameter_documentation` over each `def`'s docstring, Sphinx and Google styles; one row per documented parameter of the signature, its text as Pyrefly normalizes it, its span the description's verbatim bytes, located from its first line to its last after the parameter's name, and a description that cannot be located is not emitted; `a_description_span_covers_its_lines_verbatim`; 1,580 rows on the pilot), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO), C1 `pysa_classes` (one row per class, so a class without bases is keyed). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal); C1 `provider_class_map` (Stage C for classes), `synthetic_callables`, `ancestry_targets` and `override_targets` (bases, MRO entries and overridden methods resolved to nodes, a reason where an end does not resolve) | 1 |
+| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `parameter_docs` (slice 2.1, **Implemented** and **Tested**: Pyrefly's `parse_parameter_documentation` over each `def`'s docstring, Sphinx and Google styles; one row per documented parameter of the signature, its text as Pyrefly normalizes it, its span the description's verbatim bytes. The entry is anchored on its own header line (Sphinx `:param [type] name:`, Google `name:` or `name (type):`), never on a substring of the name, and runs over the lines indented deeper than the header; it is accepted only when its trimmed lines equal Pyrefly's text, or begin with it: Pyrefly's Google parser ends an entry at a continuation line holding a colon, and such a description is **extended** to its entry's end, its text then those lines (slice 2.1 review F2, F3). A description no header, or more than one, locates is a `signatures` boundary (`provider_disagreement`), never guessed; `docstring_tests` in `walk.rs`; on the pilot (Measured, 2026-09-23): 1,580 rows, 46 of them extended, and one description (`truncation_suffix`) a boundary), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO), C1 `pysa_classes` (one row per class, so a class without bases is keyed). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal); C1 `provider_class_map` (Stage C for classes), `synthetic_callables`, `ancestry_targets` and `override_targets` (bases, MRO entries and overridden methods resolved to nodes, a reason where an end does not resolve) | 1 |
 | `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). C1: `arguments.node_id`, `pysa_calls.payload_id`, `argument_resolutions` (higher-order arguments: status and unresolved remainder); `call_targets` typed (a declaration, a synthetic callable or a dependency definition, with the higher-order argument). Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) stay raw, as a declared pending class of the lineage rule, until C2 and C3 give them nodes | 1 |
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified: its read mode is `global` (§6.2); written by an insert-only MERGE (ADR-0017 amendment); the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `graph` | derived: `nodes`, `edges` (§3.8). Not a coverage unit | C1 |
 | `syntax` | **Implemented and Tested (C2; revised by its compact review).** Raw `syntax_nodes` (Ruff): every statement, the clause nodes (`elif`/`else`, `except`, `case`, `with` items) and **every expression outside annotations** (the IP 2.1 exhaustive-exporter contract; placement depends on the source alone, never on a provider). Each row has its parent (the nearest placed ancestor), owner, field (`syntax_field`: body, test, orelse, handler, exc, cause, default, argument, …), ordinal in that field (a statement's block index), span, `kind` (Ruff's `NodeKind`, the `syntax_kind` codebook, an exhaustive match) and detail (a name, attribute, operator, literal as written, or a handler's name). A `def`, a `class` and a call are placed under their declaration and call-site ids; nothing inside an annotation is placed. Derived: `site_targets` (each Pysa attribute, artificial and format-string record → the deepest syntax node at its span, a chained comparison's pairwise site → its comparison → its typed target; a span with no node is our own failure, never a reason). Consumers: Pass B guards, raises, handlers and defaults; Pass C straight-line regions; FCA raised types (their type is C4's) | C2 |
 | `lexical` | **Implemented and Tested (C3; revised by its compact review).** Raw, from our recognizer (surface `lctx-lexical`, `recognizer`, inside the Ruff walk): `scopes` (module, class, function, lambda, comprehension; owner, and parent = the scope the scope's position evaluates in, so a lambda in a default or decorator belongs to the enclosing scope), `bindings` (every binding event per scope, ordinals in source order: kind, site, span, the assigned value's span, and the innermost branch Pyrefly decides statically that it sits in: the deciding test's kind (`type_checking`, `version_info`, `platform`, `constant`, `combined`) and whether Pyrefly analyzes or prunes that branch, clause by clause exactly as `SysInfo::pruned_if_branches` decides, recursively: an `if` inside a pruned clause is never walked, so its bindings take the pruning clause's mark (H1 C1, H1 review F1: `SysInfo::evaluate_bool` per clause, the kind from the expression tree; `static_marks_agree_with_pyrefly_pruning` checks every fixture `if`, and `static_polarity_is_pyrefly_recursive_pruning` every assignment binding, against Pyrefly's own pruning, nested cases included); every event under `global`/`nonlocal` binds in the declared scope, a `nonlocal` target decided once every binding is known; a repeated name in one declaration is one event; the module's implicit globals and a method's `__class__` cell are `implicit` events), `references` (every name load outside annotations, and an augmented assignment's target, which reads before it binds; a role of its placed name, with its parent and field; nothing inside an annotation opens a scope or binds), `reference_resolutions` (Python's scoping rules as modelled: the scope's own bindings, else the nearest enclosing function scope with class scopes skipped, else the module, else the star imports whose wildcard set holds the name, else a builtin; comprehension first iterables and function defaults in the enclosing scope; walrus in the nearest non-comprehension scope; flow-insensitive candidates, except that a module or class body reading a name it binds only later also reads it from outside, as `LOAD_NAME` does; a builtin names itself, a builtin variable reads `variable_origin`, anything else `unresolved_target`). Every name set from outside the module's text is Pyrefly's: its `ImplicitGlobal` set, its `builtins` definitions that are real public names, each star import's `Transaction::get_wildcard` set (a star module Pyrefly cannot find stays a candidate for any otherwise unbound name). **Not modelled:** PEP 695 annotation scopes (class and alias type parameters), the implicit unbinding at the end of an `except … as` handler (C3 review O4, O5, deferred). `export_syntax.resolved_module` is each import's absolute module by Pyrefly's own `ModuleName::new_maybe_relative`. Derived: `identifier_targets` (Pysa's identifier sites → the reference at their span → typed target), `import_targets` (each import → the release or dependency module it names; `unresolved_target` only where Pyrefly's finder says not found, a `context_modules` row of origin `not_found`, or where the import climbs past the top package). Consumers: Pass B binding order (§4.2.4), Pass C bindings and values, the import graph, `if_called` targets, variable exports | C3 |
-| `types` | **Implemented and Tested (C4; revised by its compact review).** Raw, from Pyrefly's native types (surface `pyrefly-types`, `native_structural`). `type_terms`: one row per distinct term, its id a Merkle hash over Pyrefly's own structure and identities (kind, detail, class pair, children with their roles; §3.4.1); the display is a label, and only a display-only kind (`other`, `truncated`) hashes it. Two structures that share an id but differ in kind, detail or display fail `unique:type_terms` (several runs may observe one term; `nodes` keeps it once). A class is a (module ref, class key) pair, an enum member keeps its class, and a recursive alias is a reference to its name, so a term is finite; a depth cap (32) makes that a guarantee. A type variable's id is Pyrefly's own identity (`QuantifiedIdentity`), so one variable is one term wherever it is observed and two unrelated `T`s are two; its bound, constraints and default are its children (`type_arg_role` `bound`, `constraint`, `default`). `type_term_kind` maps every `Type` variant by an exhaustive match; solver-internal and experimental variants are `other` (`display_only`). `type_term_args`: each child at its role and ordinal; a callable parameter carries its name, kind and requiredness. `type_observations` (§3.5.1): each parameter's type, each `def`'s return (`Key::ReturnType`; an annotated one is the annotation, §3.5.1), each call's result, each argument's value and each `raise`'s exception (Pyrefly's expression trace at the exact span; calls in annotations excluded). A subject Pyrefly records no type for (a `TypeVar(...)` declaration, a call in a lambda body, a branch Pyrefly skips for the platform) is a `types` boundary (`missing_evidence`) and the module's coverage is `partial`; a bare `raise` has no exception to type. `record_fields`: the fields a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple` declares itself (an inherited field a subclass assigns in a method stays its base's), with the flags as the field states them (default, `init`, alias and `kw_only` through `ClassField::dataclass_flags_of`; `TypedDict` required and read-only); the constructor they imply is Pyrefly's synthesized `__init__`, a `synthetic_callable` with its `parameter_semantics`. Derived: `type_class_targets` (each term's class → a release class or dependency definition; a miss is our failure, never a reason) and `type_binders` (each source-anchored variable → the innermost release declaration, type-alias or assignment statement holding Pyrefly's scope anchor, a joined fact; `scope_boundary` for an anchor outside the release). Consumers: Pass C type compatibility, FCA parameter, return and raised types, controls from record fields | C4 |
+| `types` | **Implemented and Tested (C4; revised by its compact review).** Raw, from Pyrefly's native types (surface `pyrefly-types`, `native_structural`). `type_terms`: one row per distinct term, its id a Merkle hash over Pyrefly's own structure and identities (kind, detail, class pair, children with their roles; §3.4.1); the display is a label, and only a display-only kind (`other`, `truncated`) hashes it. Two structures that share an id but differ in kind, detail or display fail `unique:type_terms` (several runs may observe one term; `nodes` keeps it once). A class is a (module ref, class key) pair, an enum member keeps its class, and a recursive alias is a reference to its name, so a term is finite; a depth cap (32) makes that a guarantee. A type variable's id is Pyrefly's own identity (`QuantifiedIdentity`), so one variable is one term wherever it is observed and two unrelated `T`s are two; its bound, constraints and default are its children (`type_arg_role` `bound`, `constraint`, `default`). `type_term_kind` maps every `Type` variant by an exhaustive match; solver-internal and experimental variants are `other` (`display_only`). `type_term_args`: each child at its role and ordinal; a callable parameter carries its name, kind and requiredness. `type_observations` (§3.5.1): each parameter's type, each `def`'s return (`Key::ReturnType`; an annotated one is the annotation, §3.5.1), each call's result, each argument's value and each `raise`'s exception (Pyrefly's expression trace at the exact span; calls in annotations excluded). A subject Pyrefly records no type for (a `TypeVar(...)` declaration, a call in a lambda body, a branch Pyrefly skips for the platform) is a `types` boundary (`missing_evidence`) and the module's coverage is `partial`; a bare `raise` has no exception to type. `record_fields`: the fields a dataclass, attrs or pydantic class, `TypedDict` or `NamedTuple` declares itself (an inherited field a subclass assigns in a method stays its base's), with the flags as the field states them (default, `init`, alias and `kw_only` through `ClassField::dataclass_flags_of`; `TypedDict` required and read-only); the constructor they imply is Pyrefly's synthesized `__init__`, a `synthetic_callable` with its `parameter_semantics`. Derived: `type_class_targets` (each term's class → a release class or dependency definition; a miss is our failure, never a reason) and `type_binders` (each source-anchored variable → the innermost release declaration, type-alias or assignment statement holding Pyrefly's scope anchor, a joined fact; `scope_boundary` for an anchor outside the release). Consumers: Pass C type compatibility, FCA parameter, return and raised types. Controls from record fields are **not yet read**: Pass B follows parameters only (C4 O3, deferred until a seed's controls are a record's fields) | C4 |
 | `docs` | **Implemented and Tested (C5a, C5b).** A corpus run over the library's upstream tree at its pinned commit (§4.0), in the library's environment; its search path is the tree, then site-packages (the library run's search path), so a module both runs import is one file. Raw, parsed by markdown-rs 1.0 (MDX constructs and frontmatter; byte offsets, probe P5): `documents` (each selected file: path, digest, frontmatter title, whether it parsed; one that does not parse is `unavailable` with markdown-rs's message), `passages` (each top-level heading's section to the next, so a document's passages partition it, with level, heading and heading path; the text before the first heading is passage 0), `code_blocks` (fenced blocks at any depth, MDX components included: language, meta, code, digest; each in the passage its start falls in) and `doc_links` (URL, title, text). `mentions` (our recognizer, `lctx-docs`) against the library run's public names and declarations, two classes never merged: `exact` for inline code (or a dotted prose token) that is a public access path, an origin path or a public class's member (`FastMCP.tool`); `lexical` for inline code that is a bare public name of a class, function, method or module, or such a name in prose when it is distinctive (an underscore, or two capitals and a lower-case letter), one `candidate` per origin (re-exports collapse to the shortest access path). Embedding-based linking is §9.7's. Derived: `mention_targets` (→ the `export` node, or the member's release declaration by the seed rank). Consumers: exact doc links to APIs and extractive brief text, §9.4 co-mention. **The usage run (C5b)** is the same corpus run's code: the selected examples and tests, and every Python code block materialized as a module of its own (`_lctx_blocks/d_<document>/block_<n>.py`, named in `code_blocks.module_path`), with every code family but `exports`. The corpus names each installed file the release's distributions own by the library run's own site-relative `@path` (C5 review F2), so a usage call's target is the release's own declaration or synthetic callable (the same Pysa key, probe P4), a release class is one type term whichever run observes it, and an import of a library module targets the library's module node. A tree that holds its own copy of the package ahead of the installed one (a flat layout) would cut the usage code off the release, so it fails the compile, naming the module. Consumers: Pass C examples and tests, §10.3–§10.5 usage patterns, §9.4 co-use. Each usage module's text and role are in `source_files` (ADR-0015, closing C6 review F2), so a snippet and whether it is an example, a test or a doc block are read from Delta alone | C5 |
 | `findings` | ADR-0019 (contracts in `cpg_schema::findings`; provenance in-row, no `fact_id`; not a coverage unit; outside the `nodes`/`edges` catalogs): `analysis_invocations` (method, parameters as canonical JSON, projection digest, seed, diagnostics), `findings`, `finding_members`, `witnesses` (path steps keyed by node ids, `edge_id` as lineage), `evidence` (evidence_id → one of: fact, span, passage, example, fixture run, with resolved text), `assertions`, `assertion_support` (assertion → finding / evidence, role `support` or `scope`), `briefs` (with `review_state`, outside `brief_id`), `brief_assertions`, `brief_members`, `brief_documents`, `assertion_policy`; `usage_patterns` with Pass C | 1 |
 
@@ -1257,6 +1257,11 @@ one process.
 
 - **The rule.** Any binding of a parameter's name that appears lexically before a guard or
   forwarding site in the same scope marks that site `ambiguous_binding` (a boundary).
+- **As implemented** (slice 2.1; review F4). Stricter than "before": a parameter whose name has
+  any second binding event in its scope (after the site, or in a statically pruned branch) is
+  never followed, and a guard on it is no guard. The trace is an analysis finding, not a
+  `boundaries` row (extraction's table): a read of the name at a call into the subsystem is an
+  `unfollowed_argument` with reason `rebound`, stated in the brief's Limits (§9.2).
 - **The motivating case** is pyarrow's `write_dataset`. Its `schema` guard only applies to
   caller-supplied scanners, because earlier branches rebind `schema`.
 - **Pyrefly's flow-sensitive `Bindings` are not used for this rule.** Its binding pass drops
@@ -1846,48 +1851,87 @@ comes before the definition (it could define the name, and we cannot see it). Te
 | defaulted or transformed argument | a literal, default or expression supplied downstream | `transformed_argument` |
 | local restriction | a supported predicate over known parameters leading to a local `raise` | `conditional_raise` |
 
+- **Supported predicate** (slice 2.1 review F5). An expression of the function's own parameters
+  (each bound once), builtin names and literals, joined by comparisons, `not`/`and`/`or`,
+  arithmetic, tuples, lists and sets, where every call's callee is a builtin's name. An
+  attribute, subscript, other call, lambda, comprehension or walrus reads state the analysis does
+  not model, so it is not a guard.
+
 - **Never guessed:**
   - `*args`/`**kwargs` passthrough;
   - ambiguous overloads;
   - multiple writes;
   - property or subscript access;
   - any §4.2 `ambiguous_binding` site.
-- **Visited key.** `(callable, formal_parameter, mapping_context)`.
+- **Visited key.** `(callable, formal, source parameter)` (slice 2.1 review O2: the mapping
+  context is the source parameter, since the mapping itself is per arc).
 - **Promotion.** A `conditional_raise` is reported as "the implementation raises in this
   branch". It becomes a public precondition only with supporting evidence, and never when an
   enclosing handler may catch it.
+- **What a path must say** (slice 2.1 review F1). Every Pass B template shares one path-qualifier
+  rule: each override-open hop is named, and each call its caller makes only on some paths is
+  said. A raise is not reported when a call on the path may be absorbed (inside a `try` or a
+  `with`, whose context manager may suppress it) or sits in a construct of its caller that also
+  tests the flowing value (the caller may pass only values the callee accepts).
+- **What is declined leaves a trace** (slice 2.1 review F4, §4.2.4). A reached parameter read at
+  a call into the subsystem in a form not followed (rebound in its scope, inside an expression,
+  unpacked, or taken by no single formal) is an `unfollowed_argument` finding, stated in Limits,
+  so "not listed as passed on" is never read as "not passed on".
 
-**Implemented** and **Tested** in slice 2.1 (2026-09-23; deviation log D17, D18):
-- **Relations.** Two declared SQL relations (`cpg_schema::flows`), whose digest joins the
-  compiler digest.
+**Implemented** and **Tested** in slice 2.1, revised by its compact review (2026-09-23;
+deviation log D17, D18, D26):
+- **Relations.** Declared SQL relations (`cpg_schema::flows`), whose digest joins the compiler
+  digest. Their arcs take the invocation projection's accepted evidence (review O1), and one
+  mapping fragment serves Pass B and Pass C (review O7).
   - *Argument flows:* each argument of a `call` or `init` arc mapped to one formal of its
-    target, the implicit receiver counted. A positional argument before any `*` maps by index; a
-    keyword argument maps by name to a positional-or-keyword or keyword-only formal. Each value is
-    classed as a parameter bound once, one identity alias assigned directly in the caller's body,
-    a literal as written, or other. Each row records whether its call site sits in a `try` of the
-    caller.
-  - *Guards:* an `if` directly in a function's body whose test reads only that function's
-    parameters (bound once) and builtins, with a `raise` directly in its branch.
+    target, the implicit receiver counted. A positional argument before any `*` argument maps by
+    index; a keyword argument maps by name to a positional-or-keyword or keyword-only formal,
+    also after a `*` argument. Each value is classed as a parameter bound once, one identity
+    alias assigned directly in the caller's body, a literal as written, or other. Each row says
+    whether its call site sits in a `try` or `with` of the caller, in a conditional construct
+    (`if`, loop, `match`, conditional expression, boolean operator, comprehension, lambda,
+    `except` clause), and whether such a construct also reads the flowing value.
+  - *Guards:* an `if` directly in a function's body whose test is a supported predicate reading
+    at least one of its parameters, with a `raise` directly in its branch.
+  - *Parameter reads:* each argument of an arc whose value reads a name the caller binds under
+    one of its parameters' names: rebound or not, bare or not, unpacked or not.
+  - *Receivers:* a method's first positional parameter unless Pysa says it is static, by the
+    declaration's kind and never by the parameter's name (review F8; the seed parameters and the
+    brief's parameter list both use it).
 - **Worklist.** `lctx_analytics::pass_b`, keyed by `(callable, formal, source parameter)` and
   bounded by Pass A's depth. It follows parameters and aliases into subsystem callees only.
-  - It reports `forwarding`, `transformed_argument` (a literal the seed itself supplies) and
-    `conditional_raise`.
-  - A raise is declined when a call on the way sits in a `try` of its caller, or the tested
-    parameter is rebound.
-  - Never mapped: starred arguments and anything after one, `**` arguments, catch-all formals,
-    property or subscript values, and literals below the seed.
-- **Stage F.** Pass B's findings become assertions:
-  - `control`: per seed parameter, where it is passed on, each overridable hop said;
-  - `transformed_control`;
-  - `restriction`: "the implementation raises (`raise E`) when `test`", citing the test's and the
-    raise's syntax facts. It is never a documented precondition in 2.1.
-- **Tests.** `pass_b_finds_the_known_answers_on_analysis_shapes` (`pkg.configure`) covers:
-  forwarding directly, through an alias and over a bound receiver; two mappings of one
-  parameter; a literal; three raises reached by forwarding. It shows none for the `try`-guarded
-  call, the rebound guard or `**options`.
-- **Pilot (Measured, 2026-09-23).** 35 `forwarding` and 4 `conditional_raise` findings, among
-  them `FastMCP.tool`'s `name_or_fn` reaching `ToolDecoratorMixin.tool`'s
-  `isinstance(name_or_fn, classmethod)` guard, and `FastMCP.mount`'s `server is self`.
+  - It reports `forwarding`, `transformed_argument` (a literal the seed itself supplies),
+    `conditional_raise` and `unfollowed_argument` (reason `rebound`, `computed` or `unmapped`).
+  - A call its caller makes only on some paths is a `conditional_call` member of each finding
+    whose path crosses it.
+  - A raise is declined when a call on the way may be absorbed or is tested by its caller, or
+    when the tested parameter is rebound.
+  - Never mapped: starred arguments and any positional after one, `**` arguments, catch-all
+    formals, property or subscript values, and literals below the seed.
+- **Stage F.** Pass B's findings become assertions, all `structurally_observed` (the kind policy
+  permits nothing more until 3.4's documented warnings; review F7):
+  - `control`: per seed parameter, where it is passed on, with the path qualifiers;
+  - `transformed_control`, with the path qualifiers;
+  - `restriction`: "`callee` raises (`raise E`) when `test`; its `formal` receives `p`", with the
+    path qualifiers, citing the test's and the raise's syntax facts;
+  - `unfollowed_control` (Limits): per seed parameter, the callees it reaches in forms the
+    analysis does not follow, and why. Like `analysis_boundary`, it stays out of the brief
+    document (D14).
+- **Tests.** `pass_b_finds_the_known_answers_on_analysis_shapes` (`pkg.configure`) covers
+  forwarding directly, through an alias, over a bound receiver, over a class receiver
+  (`Registry.create`) and into a constructor (`Widget(name)`); two mappings of one parameter; a
+  literal; a depth-2 chain and the depth bound's stop; raises reached by each. It shows no raise
+  for the `try`-guarded call, the `contextlib.suppress` call, the call under `if name is not
+  None`, the attribute guard, the rebound guard or `**options`, and an `unfollowed_argument` for
+  each of a rebound value, a computed one, a positional after `*extra`, `*extra` itself and
+  `**options`. `templates_say_what_the_findings_show` checks the overridable and conditional
+  qualifiers in the published text.
+- **Pilot (Measured, 2026-09-23, snapshot `c9309c78`).** 35 `forwarding`, 4 `conditional_raise`
+  and 5 `unfollowed_argument` findings. `FastMCP.tool`'s `name_or_fn` reaches
+  `ToolDecoratorMixin.tool`'s `isinstance(name_or_fn, classmethod)` guard, now stated with its
+  overridable hop; `FastMCP.mount` has `server is self`. The unfollowed ones are `FastMCP.tool`'s
+  `meta` (rebound) and `task` (computed), `FastMCP.resource`'s `mime_type` and `meta` (rebound),
+  and `FastMCP.mount`'s `namespace` (computed).
 
 ### §9.3 Pass C — direct handoff
 
@@ -2118,9 +2162,10 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | `public_access` | Public access | Pass A `public_alias`, `exports` | structurally_observed |
 | `coordinates` | Public access, "already coordinates" | Pass A `direct_delegation`, `bounded_delegation_path` | structurally_observed |
 | `parameter` | Important controls | `parameters` (name, kind, default, required) and, from 2.1, `parameter_docs` (the description, its span cited) | structurally_observed, documented (with parameter-doc evidence only; deviation log D8) |
-| `control` (2.1) | Important controls | Pass B `forwarding`, per seed parameter | structurally_observed, documented |
+| `control` (2.1) | Important controls | Pass B `forwarding`, per seed parameter, with the path qualifiers | structurally_observed (documented from 3.4, with its rule; slice 2.1 review F7) |
 | `transformed_control` (2.1) | Important controls | Pass B `transformed_argument` | structurally_observed |
-| `restriction` (2.1) | Limits and prerequisites | Pass B `conditional_raise`, with the test's and raise's syntax facts | structurally_observed; documented only with precondition documentation |
+| `restriction` (2.1) | Limits and prerequisites | Pass B `conditional_raise`, with the test's and raise's syntax facts and the path qualifiers | structurally_observed (documented only with precondition documentation, from 3.4 with its rule; review F7) |
+| `unfollowed_control` (2.1 review) | Limits and prerequisites | Pass B `unfollowed_argument`, per seed parameter | structurally_observed |
 | `analysis_boundary` | Limits and prerequisites | `boundaries` on the seed's neighbourhood | structurally_observed |
 | `related` | Related | community co-membership, page rank | statistically_derived |
 
@@ -2484,3 +2529,5 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 2.0: the seed audit and the pre-registered seed `fastmcp.FastMCP.mount` (§1.4) | ADR-0004 |
 | 2026-09-23 | Slice 2.1: Pass B (`cpg_schema::flows`, `lctx_analytics::pass_b`), `parameter_docs`, the control/transformed-control/restriction kinds (§3.2, §9.2, §10.2) | ADR-0019 |
 | 2026-09-23 | Increment-1 deep review fixes: the template version in `compiler_digest` (§3.4.1); the fusion policy and pre-registered retrieval evaluation (§11.2); absent slot sections served (§10.3); the budget enforced and `serve_unreviewed` removed; truthful call-site, may-call and definition templates; a raw-pipe stdio test; the gold freeze at 1.9 | ADR-0004, ADR-0010, ADR-0019 |
+| 2026-09-23 | Slice 2.2: Pass C (`cpg_schema::flows::handoffs_sql`, `lctx_analytics::pass_c`) and usage patterns (`cpg_core::usage`), the `usage_pattern` and `handoff` kinds (§9.3, §10.2, §10.5) | ADR-0019 (amended) |
+| 2026-09-23 | Slice 2.1 compact review fixes: the path-qualifier rule, handler (`try`/`with`), conditional and tested calls, `unfollowed_argument` and `unfollowed_control`, supported predicates, receivers by the declaration's kind, one mapping fragment, header-anchored and extended parameter descriptions; §4.2.4's trace; `control` and `restriction` narrowed to `structurally_observed` (§3.2, §4.2.4, §9.2, §10.2) | ADR-0019; deviation log D26, D27 |

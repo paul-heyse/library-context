@@ -1,5 +1,5 @@
 //! Pass B (DESIGN §9.2): controls and local restrictions, a bounded worklist over the declared
-//! argument flows and parameter guards (`cpg_schema::flows`).
+//! argument flows, parameter guards and parameter reads (`cpg_schema::flows`).
 //!
 //! From each of the seed's parameters, the worklist follows flows whose value is that parameter
 //! (directly, or through one identity alias) into callees inside the subsystem, keyed by
@@ -7,11 +7,16 @@
 //! - `forwarding`: a seed parameter reaches a callee's formal, with the call chain as witness;
 //! - `transformed_argument`: the seed supplies a callee's formal with a literal;
 //! - `conditional_raise`: a reached callable raises in the branch of an `if` testing the formal
-//!   the seed's parameter reaches, unless a call on the way sits inside a `try` of its caller,
-//!   where a handler may catch it.
+//!   the seed's parameter reaches, unless a call on the way sits inside a `try` or `with` of its
+//!   caller (a handler or context manager may absorb it) or inside a construct of its caller that
+//!   also tests the flowing value (the caller may pass only values the callee accepts);
+//! - `unfollowed_argument`: a reached formal's name is read by an argument of a call into the
+//!   subsystem in a form the worklist does not follow: after the name is rebound, inside an
+//!   expression, or unpacked or taken by no single formal (slice 2.1 review F4).
 //!
-//! Every finding is `structurally_observed`: it states what the code does, never a public
-//! precondition (Stage F says "the implementation raises").
+//! A call on a path that its caller makes only on some paths is a `conditional_call` member, so
+//! Stage F qualifies what it says (review F1). Every finding is `structurally_observed`: it states
+//! what the code does, never a public precondition (Stage F says "the implementation raises").
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -40,13 +45,74 @@ pub struct Flow {
     pub edge_id: Id,
     pub modality: Modality,
     pub phase: InvocationPhase,
+    pub argument: Id,
     pub formal: Id,
     pub formal_name: String,
     pub value_class: i16,
     pub source_parameter: Option<Id>,
     pub alias_name: Option<String>,
     pub value_text: Option<String>,
-    pub in_try: bool,
+    /// The call site lies inside a `try` or `with` of its caller.
+    pub may_catch: bool,
+    /// The caller makes the call only on some paths.
+    pub conditional: bool,
+    /// A construct around the call also reads the flowing value.
+    pub value_tested: bool,
+}
+
+/// One parameter read (a row of `cpg_schema::flows::parameter_reads_sql`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Read {
+    pub caller: Id,
+    pub call_site: Id,
+    pub target: Id,
+    pub edge_id: Id,
+    pub modality: Modality,
+    pub phase: InvocationPhase,
+    pub argument: Id,
+    pub parameter: Id,
+    pub rebound: bool,
+    pub bare: bool,
+    pub unpacked: bool,
+}
+
+impl Read {
+    /// Why the worklist does not follow this read.
+    pub fn reason(&self) -> &'static str {
+        if self.rebound {
+            "rebound"
+        } else if self.bare || self.unpacked {
+            "unmapped"
+        } else {
+            "computed"
+        }
+    }
+}
+
+/// One call on a witness path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Step {
+    caller: Id,
+    call_site: Id,
+    callee: Id,
+    edge_id: Id,
+    modality: Modality,
+    phase: InvocationPhase,
+    conditional: bool,
+}
+
+impl Step {
+    fn of_flow(f: &Flow) -> Self {
+        Step {
+            caller: f.caller,
+            call_site: f.call_site,
+            callee: f.target,
+            edge_id: f.edge_id,
+            modality: f.modality,
+            phase: f.phase,
+            conditional: f.conditional,
+        }
+    }
 }
 
 /// One parameter guard (a row of `cpg_schema::flows::guards_sql`).
@@ -58,13 +124,17 @@ pub struct Guard {
     pub parameter: Id,
 }
 
-/// The flows and guards, indexed by caller and by function.
+/// The flows, guards and parameter reads, indexed by caller and by function.
 #[derive(Debug, Default)]
 pub struct Flows {
     pub flows: Vec<Flow>,
     pub guards: Vec<Guard>,
+    pub reads: Vec<Read>,
     by_caller: BTreeMap<Id, Vec<usize>>,
     guards_of: BTreeMap<(Id, Id), Vec<usize>>,
+    reads_of: BTreeMap<(Id, Id), Vec<usize>>,
+    /// (argument, source parameter) of every flow the worklist can follow.
+    followed: BTreeSet<(Id, Id)>,
 }
 
 fn col<'a, T: 'static>(b: &'a RecordBatch, name: &str) -> Result<&'a T, AnalyticsError> {
@@ -83,15 +153,20 @@ fn text_at(a: &StringArray, i: usize) -> Option<String> {
 
 impl Flows {
     /// Index the declared relations' batches (already in their total order).
-    pub fn build(flows: &[RecordBatch], guards: &[RecordBatch]) -> Result<Self, AnalyticsError> {
+    pub fn build(
+        flows: &[RecordBatch],
+        guards: &[RecordBatch],
+        reads: &[RecordBatch],
+    ) -> Result<Self, AnalyticsError> {
         let mut out = Flows::default();
         for b in flows {
             let ids = |n| col::<FixedSizeBinaryArray>(b, n);
-            let (caller, site, target, edge, formal, source) = (
+            let (caller, site, target, edge, argument, formal, source) = (
                 ids("caller_node_id")?,
                 ids("call_site_node_id")?,
                 ids("target_node_id")?,
                 ids("edge_id")?,
+                ids("argument_node_id")?,
                 ids("formal_node_id")?,
                 ids("source_parameter_node_id")?,
             );
@@ -101,7 +176,9 @@ impl Flows {
             let formal_name = col::<StringArray>(b, "formal_name")?;
             let alias = col::<StringArray>(b, "alias_name")?;
             let value = col::<StringArray>(b, "value_text")?;
-            let in_try = col::<BooleanArray>(b, "in_try")?;
+            let may_catch = col::<BooleanArray>(b, "may_catch")?;
+            let conditional = col::<BooleanArray>(b, "conditional")?;
+            let value_tested = col::<BooleanArray>(b, "value_tested")?;
             for i in 0..b.num_rows() {
                 let bad = |what: &str| AnalyticsError::Graph(format!("a flow's {what}"));
                 out.flows.push(Flow {
@@ -113,13 +190,16 @@ impl Flows {
                         .ok_or_else(|| bad("modality"))?,
                     phase: InvocationPhase::from_code(phase.value(i))
                         .ok_or_else(|| bad("phase"))?,
+                    argument: id_at(argument, i).ok_or_else(|| bad("argument"))?,
                     formal: id_at(formal, i).ok_or_else(|| bad("formal"))?,
                     formal_name: formal_name.value(i).to_owned(),
                     value_class: class.value(i),
                     source_parameter: id_at(source, i),
                     alias_name: text_at(alias, i),
                     value_text: text_at(value, i),
-                    in_try: in_try.value(i),
+                    may_catch: may_catch.value(i),
+                    conditional: conditional.value(i),
+                    value_tested: value_tested.value(i),
                 });
             }
         }
@@ -141,8 +221,52 @@ impl Flows {
                 });
             }
         }
+        for b in reads {
+            let ids = |n| col::<FixedSizeBinaryArray>(b, n);
+            let (caller, site, target, edge, argument, parameter) = (
+                ids("caller_node_id")?,
+                ids("call_site_node_id")?,
+                ids("target_node_id")?,
+                ids("edge_id")?,
+                ids("argument_node_id")?,
+                ids("parameter_node_id")?,
+            );
+            let modality = col::<Int16Array>(b, "modality")?;
+            let phase = col::<Int16Array>(b, "phase")?;
+            let flag = |n| col::<BooleanArray>(b, n);
+            let (rebound, bare, unpacked) = (flag("rebound")?, flag("bare")?, flag("unpacked")?);
+            for i in 0..b.num_rows() {
+                let bad = |what: &str| AnalyticsError::Graph(format!("a parameter read's {what}"));
+                out.reads.push(Read {
+                    caller: id_at(caller, i).ok_or_else(|| bad("caller"))?,
+                    call_site: id_at(site, i).ok_or_else(|| bad("call site"))?,
+                    target: id_at(target, i).ok_or_else(|| bad("target"))?,
+                    edge_id: id_at(edge, i).ok_or_else(|| bad("edge"))?,
+                    modality: Modality::from_code(modality.value(i))
+                        .ok_or_else(|| bad("modality"))?,
+                    phase: InvocationPhase::from_code(phase.value(i))
+                        .ok_or_else(|| bad("phase"))?,
+                    argument: id_at(argument, i).ok_or_else(|| bad("argument"))?,
+                    parameter: id_at(parameter, i).ok_or_else(|| bad("parameter"))?,
+                    rebound: rebound.value(i),
+                    bare: bare.value(i),
+                    unpacked: unpacked.value(i),
+                });
+            }
+        }
         for (i, f) in out.flows.iter().enumerate() {
             out.by_caller.entry(f.caller).or_default().push(i);
+            if let Some(source) = f.source_parameter
+                && matches!(f.value_class, value_class::PARAMETER | value_class::ALIAS)
+            {
+                out.followed.insert((f.argument, source));
+            }
+        }
+        for (i, r) in out.reads.iter().enumerate() {
+            out.reads_of
+                .entry((r.caller, r.parameter))
+                .or_default()
+                .push(i);
         }
         for (i, g) in out.guards.iter().enumerate() {
             out.guards_of
@@ -177,8 +301,22 @@ struct Draft {
     kind: FindingKind,
     related: Id,
     condition: Option<Id>,
-    path: Vec<usize>,
+    path: Vec<Step>,
     members: Vec<(MemberRole, Option<Id>, String)>,
+}
+
+/// The `conditional_call` members of a path: each call its caller makes only on some paths.
+fn conditional_members(path: &[Step]) -> Vec<(MemberRole, Option<Id>, String)> {
+    path.iter()
+        .filter(|s| s.conditional)
+        .map(|s| {
+            (
+                MemberRole::ConditionalCall,
+                Some(s.call_site),
+                "conditional".to_owned(),
+            )
+        })
+        .collect()
 }
 
 /// Run Pass B from one seed. `inside` says whether a callable is in the subsystem.
@@ -202,6 +340,18 @@ pub fn run(
         visited.insert((seed, p.node, p.node), Vec::new());
         queue.push_back((seed, p.node, p.node));
     }
+    let steps_of = |path: &[usize]| -> Vec<Step> {
+        path.iter()
+            .map(|&i| Step::of_flow(&flows.flows[i]))
+            .collect()
+    };
+    let source_member = |source: Id| {
+        (
+            MemberRole::SourceParameter,
+            Some(source),
+            name_of[&source].to_owned(),
+        )
+    };
     let mut drafts: Vec<Draft> = Vec::new();
     let mut depth_limited = false;
     let mut flows_examined = 0i64;
@@ -232,21 +382,19 @@ pub fn run(
             }
             let mut to = path.clone();
             to.push(i);
-            let mut members = vec![(
-                MemberRole::SourceParameter,
-                Some(source),
-                name_of[&source].to_owned(),
-            )];
+            let mut members = vec![source_member(source)];
             for &j in &to {
                 if let Some(alias) = &flows.flows[j].alias_name {
                     members.push((MemberRole::Alias, None, alias.clone()));
                 }
             }
+            let steps = steps_of(&to);
+            members.extend(conditional_members(&steps));
             drafts.push(Draft {
                 kind: FindingKind::Forwarding,
                 related: f.formal,
                 condition: None,
-                path: to.clone(),
+                path: steps,
                 members,
             });
             visited.insert(next, to);
@@ -267,16 +415,20 @@ pub fn run(
             && let Some(v) = &f.value_text
             && literals.insert((f.formal, v.clone()))
         {
+            let steps = vec![Step::of_flow(f)];
+            let mut members = vec![(MemberRole::Value, None, v.clone())];
+            members.extend(conditional_members(&steps));
             drafts.push(Draft {
                 kind: FindingKind::TransformedArgument,
                 related: f.formal,
                 condition: None,
-                path: vec![i],
-                members: vec![(MemberRole::Value, None, v.clone())],
+                path: steps,
+                members,
             });
         }
     }
-    // Guards on every reached formal, unless a call on the way may be caught.
+    // Guards on every reached formal, unless a call on the way may be absorbed, or is made only
+    // for values its caller tests.
     let formal_name: BTreeMap<Id, &str> = flows
         .flows
         .iter()
@@ -284,7 +436,10 @@ pub fn run(
         .collect();
     let mut guarded: BTreeSet<(Id, Id, Id)> = BTreeSet::new();
     for (&(callable, formal, source), path) in &visited {
-        if path.iter().any(|&i| flows.flows[i].in_try) {
+        if path
+            .iter()
+            .any(|&i| flows.flows[i].may_catch || flows.flows[i].value_tested)
+        {
             continue;
         }
         for &g in flows
@@ -295,11 +450,7 @@ pub fn run(
         {
             let guard = &flows.guards[g];
             if guarded.insert((guard.raise, guard.test, source)) {
-                let mut members = vec![(
-                    MemberRole::SourceParameter,
-                    Some(source),
-                    name_of[&source].to_owned(),
-                )];
+                let mut members = vec![source_member(source)];
                 if !path.is_empty() {
                     members.push((
                         MemberRole::Formal,
@@ -311,14 +462,68 @@ pub fn run(
                             .to_owned(),
                     ));
                 }
+                let steps = steps_of(path);
+                members.extend(conditional_members(&steps));
                 drafts.push(Draft {
                     kind: FindingKind::ConditionalRaise,
                     related: guard.raise,
                     condition: Some(guard.test),
-                    path: path.clone(),
+                    path: steps,
                     members,
                 });
             }
+        }
+    }
+    // Reads of a reached formal the worklist does not follow (review F4), within the depth bound.
+    let mut unfollowed: BTreeSet<(Id, Id, Id, &'static str)> = BTreeSet::new();
+    for (&(callable, formal, source), path) in &visited {
+        if path.len() as u32 >= max_depth {
+            continue;
+        }
+        for &r in flows
+            .reads_of
+            .get(&(callable, formal))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            let read = &flows.reads[r];
+            if !inside(read.target) || flows.followed.contains(&(read.argument, formal)) {
+                continue;
+            }
+            let reason = read.reason();
+            if !unfollowed.insert((read.call_site, read.target, source, reason)) {
+                continue;
+            }
+            let mut steps = steps_of(path);
+            steps.push(Step {
+                caller: read.caller,
+                call_site: read.call_site,
+                callee: read.target,
+                edge_id: read.edge_id,
+                modality: read.modality,
+                phase: read.phase,
+                conditional: false,
+            });
+            let mut members = vec![source_member(source)];
+            if !path.is_empty() {
+                members.push((
+                    MemberRole::Formal,
+                    Some(formal),
+                    formal_name
+                        .get(&formal)
+                        .copied()
+                        .unwrap_or_default()
+                        .to_owned(),
+                ));
+            }
+            members.push((MemberRole::Reason, None, reason.to_owned()));
+            drafts.push(Draft {
+                kind: FindingKind::UnfollowedArgument,
+                related: read.target,
+                condition: None,
+                path: steps,
+                members,
+            });
         }
     }
 
@@ -329,15 +534,12 @@ pub fn run(
         let steps: Vec<StepKey> = d
             .path
             .iter()
-            .map(|&i| {
-                let f = &flows.flows[i];
-                StepKey {
-                    call_site: f.call_site,
-                    callee: f.target,
-                    modality: f.modality.code(),
-                    arc_kind: ArcKind::Call.code(),
-                    phase: Some(f.phase.code()),
-                }
+            .map(|s| StepKey {
+                call_site: s.call_site,
+                callee: s.callee,
+                modality: s.modality.code(),
+                arc_kind: ArcKind::Call.code(),
+                phase: Some(s.phase.code()),
             })
             .collect();
         let paths = if steps.is_empty() {
@@ -388,20 +590,19 @@ pub fn run(
                 weight: None,
             });
         }
-        for (step, &i) in d.path.iter().enumerate() {
-            let f = &flows.flows[i];
+        for (step, s) in d.path.iter().enumerate() {
             witnesses.push(WitnessesRow {
                 snapshot_id,
                 finding_id,
                 path: 0,
                 step: step as i64,
-                caller_node_id: f.caller,
-                call_site_node_id: f.call_site,
-                callee_node_id: f.target,
-                edge_id: f.edge_id,
-                modality: f.modality,
+                caller_node_id: s.caller,
+                call_site_node_id: s.call_site,
+                callee_node_id: s.callee,
+                edge_id: s.edge_id,
+                modality: s.modality,
                 arc_kind: ArcKind::Call,
-                phase: Some(f.phase),
+                phase: Some(s.phase),
             });
         }
         findings.push(FindingsRow {
