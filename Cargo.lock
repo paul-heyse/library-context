@@ -1175,6 +1175,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tikv-jemallocator",
  "toml",
+ "tracing-subscriber",
  "walkdir",
 ]
 
@@ -3443,6 +3444,7 @@ dependencies = [
  "tempfile",
  "tikv-jemallocator",
  "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]

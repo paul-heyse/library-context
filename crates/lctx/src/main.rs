@@ -490,7 +490,20 @@ fn run() -> Result<(), String> {
     }
 }
 
+/// Warnings from Pyrefly, delta-kernel and DataFusion (its `log` records through the tracing-log
+/// bridge) go to stderr; without a subscriber they were dropped (H1 O1). `LCTX_LOG` overrides the
+/// level (`LCTX_LOG=debug`); it changes output only, never an identity.
+fn init_logging() {
+    let filter = tracing_subscriber::EnvFilter::try_from_env("LCTX_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .try_init();
+}
+
 fn main() -> ExitCode {
+    init_logging();
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

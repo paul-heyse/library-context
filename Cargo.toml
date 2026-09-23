@@ -58,6 +58,9 @@ clap = { version = "=4.6.7", features = ["derive"] }
 # The binaries' global allocator (ADR-0016): Pyrefly's own Linux/macOS allocator at its exact
 # version, already compiled in this graph.
 tikv-jemallocator = "=0.7.0"
+# The binaries' log subscriber (H1 O1): Pyrefly, delta-kernel and DataFusion (through
+# tracing-log) report through it; the features are those already compiled in this graph.
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 walkdir = "=2.5.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"
