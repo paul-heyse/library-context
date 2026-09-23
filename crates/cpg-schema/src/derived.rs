@@ -9,7 +9,7 @@
 use crate::codebook::{
     BoundaryReason, Codebook, DeclarationKind, DefinitionKind, PysaCalleeKind, PysaSiteKind,
     PysaTargetKind, PysaUnresolvedReason, ResolutionDomain, ResolutionStatus, SignatureForm,
-    SymbolKind,
+    SymbolKind, SyntaxKind,
 };
 use crate::id::Id;
 use crate::table::{Table, table};
@@ -722,6 +722,77 @@ impl Derived for OverrideTargets {
     }
 }
 
+table!(
+    /// Pysa's records at attribute, artificial and format-string sites (CPG slice C2), each
+    /// resolved to the syntax node at its range (the deepest placed node with exactly that span;
+    /// a chained comparison's pairwise site, which no node spans, to the innermost comparison that
+    /// contains it) and to its typed target. A span no placed node has reads `provider_disagreement`; an
+    /// unresolved record `unresolved_target`; otherwise a reason only from Stage C, as for
+    /// `call_targets` (ADR-0014 review F1). Identifier sites wait for C3's references.
+    SiteTargets, SiteTargetsRow = "site_targets",
+    family = Syntax,
+    key = [snapshot_id, pysa_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        pysa_fact_id: Id,
+        site_node_id: Option<Id>,
+        target_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for SiteTargets {
+    fn sql() -> String {
+        format!(
+            "WITH external_functions AS ({external}), \
+             sites AS ( \
+               SELECT fact_id, module_node_id, start_byte, end_byte, target_kind, target_module, \
+                      target_key \
+               FROM pysa_calls \
+               WHERE NOT (site_kind = {regular} AND callee_kind = {call}) \
+                 AND callee_kind <> {identifier}), \
+             exact AS ( \
+               SELECT s.fact_id, n.node_id, n.parent_node_id FROM sites s \
+               JOIN syntax_nodes n \
+                 ON n.module_node_id = s.module_node_id AND n.start_byte = s.start_byte \
+                AND n.end_byte = s.end_byte), \
+             chained AS ( \
+               SELECT s.fact_id, n.node_id, n.parent_node_id FROM sites s \
+               LEFT ANTI JOIN exact e ON e.fact_id = s.fact_id \
+               JOIN syntax_nodes n \
+                 ON n.module_node_id = s.module_node_id AND n.kind = {compare} \
+                AND n.start_byte <= s.start_byte AND n.end_byte >= s.end_byte), \
+             candidates AS (SELECT * FROM exact UNION ALL SELECT * FROM chained), \
+             deepest AS ( \
+               SELECT c.fact_id, c.node_id, \
+                      row_number() OVER (PARTITION BY c.fact_id ORDER BY c.node_id \
+                                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pick \
+               FROM candidates c LEFT ANTI JOIN candidates d \
+                 ON d.fact_id = c.fact_id AND d.parent_node_id = c.node_id) \
+             SELECT s.fact_id AS pysa_fact_id, x.node_id AS site_node_id, \
+                    CASE WHEN s.target_kind <> {unresolved} THEN {node} END AS target_node_id, \
+                    CAST(CASE WHEN x.node_id IS NULL THEN {disagreement} \
+                              WHEN s.target_kind = {unresolved} THEN {unresolved_target} \
+                              ELSE {reason} END AS SMALLINT) AS reason \
+             FROM sites s \
+             LEFT JOIN deepest x ON x.fact_id = s.fact_id AND x.pick = 1 \
+             {target}",
+            external = external(DefinitionKind::Function),
+            regular = c(PysaSiteKind::Regular),
+            call = c(PysaCalleeKind::Call),
+            identifier = c(PysaCalleeKind::Identifier),
+            unresolved = c(PysaTargetKind::Unresolved),
+            node = function_target_node("t"),
+            reason = function_target_reason("t"),
+            disagreement = c(BoundaryReason::ProviderDisagreement),
+            unresolved_target = c(BoundaryReason::UnresolvedTarget),
+            target = function_target("t", "s.target_module", "s.target_key"),
+            compare = c(SyntaxKind::ExprCompare),
+        )
+    }
+}
+
 /// Invoke `$mac!(Table, …)` with every derived table, in dependency order: each query reads only
 /// raw tables and the derived tables before it.
 #[macro_export]
@@ -739,6 +810,7 @@ macro_rules! for_each_derived_table {
             $crate::derived::CallTargets,
             $crate::derived::AncestryTargets,
             $crate::derived::OverrideTargets,
+            $crate::derived::SiteTargets,
             $crate::graph::Nodes,
             $crate::graph::Edges,
             $crate::graph::GraphGaps,

@@ -1,15 +1,17 @@
 //! One Ruff walk over Pyrefly's own parse (DESIGN §4.2.2): the `ruff-ast` raw tables.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
     ArgumentKind, DeclarationKind, ExportSyntaxKind, Fidelity, Modality, Origin, ParameterKind,
+    SyntaxField,
 };
 use cpg_schema::id::{Id, IdHasher, kind};
 use cpg_schema::tables::{
     Arguments, ArgumentsRow, CallSyntax, CallSyntaxRow, Declarations, DeclarationsRow,
-    ExportSyntax, ExportSyntaxRow, ParameterSyntax, ParameterSyntaxRow,
+    ExportSyntax, ExportSyntaxRow, ParameterSyntax, ParameterSyntaxRow, SyntaxNodes,
+    SyntaxNodesRow,
 };
 use ruff_python_ast::visitor::source_order::{
     SourceOrderVisitor, TraversalSignal, walk_annotation,
@@ -21,6 +23,7 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
+use crate::syntax;
 
 pub(crate) struct ModuleCtx<'s> {
     pub release_id: Id,
@@ -38,6 +41,7 @@ pub(crate) struct WalkOut {
     pub parameter_syntax: Vec<ParameterSyntaxRow>,
     pub call_syntax: Vec<CallSyntaxRow>,
     pub arguments: Vec<ArgumentsRow>,
+    pub syntax_nodes: Vec<SyntaxNodesRow>,
     /// Ranges of module-level `__all__` statements that are not literal (F3 detector input).
     pub nonliteral_dunder_all: Vec<TextRange>,
 }
@@ -68,9 +72,47 @@ struct ImportCtx {
     level: i64,
 }
 
+/// A placed node children attach to: its id, its fields and the next ordinal per field.
+struct Frame {
+    id: Id,
+    fields: Vec<(SyntaxField, TextRange)>,
+    counts: HashMap<SyntaxField, i64>,
+    /// Subtree-field ranges this frame opened (popped when it closes).
+    opened: usize,
+}
+
+impl Frame {
+    fn new(id: Id, node: AnyNodeRef<'_>) -> Self {
+        Self {
+            id,
+            fields: syntax::fields(node),
+            counts: HashMap::new(),
+            opened: 0,
+        }
+    }
+
+    /// The field `r` sits in, and its ordinal there.
+    fn place(&mut self, r: TextRange) -> (SyntaxField, i64) {
+        let field = self
+            .fields
+            .iter()
+            .find(|(_, fr)| fr.contains_range(r))
+            .map_or(SyntaxField::Child, |(f, _)| *f);
+        let n = self.counts.entry(field).or_insert(0);
+        *n += 1;
+        (field, *n - 1)
+    }
+}
+
 struct Walker<'s, 'f> {
     ctx: &'f ModuleCtx<'s>,
     sink: &'f mut FactSink,
+    /// The module frame, then one entry per entered node (`None` when it is not placed).
+    frames: Vec<Option<Frame>>,
+    /// Ranges of the `test`/`exc`/`cause`/`guard`/`msg` fields whose whole subtree is placed.
+    subtree: Vec<TextRange>,
+    /// Pysa's non-call, non-identifier site ranges: a node there is always placed.
+    sites: &'f HashSet<(i64, i64)>,
     /// Structural occurrence path of the current node: `Kind#ordinal` from the module body down.
     path: Vec<String>,
     counters: Vec<u32>,
@@ -81,10 +123,18 @@ struct Walker<'s, 'f> {
     out: WalkOut,
 }
 
-pub(crate) fn walk_module(ctx: &ModuleCtx<'_>, ast: &ModModule, sink: &mut FactSink) -> WalkOut {
+pub(crate) fn walk_module(
+    ctx: &ModuleCtx<'_>,
+    ast: &ModModule,
+    sink: &mut FactSink,
+    sites: &HashSet<(i64, i64)>,
+) -> WalkOut {
     let mut w = Walker {
         ctx,
         sink,
+        frames: vec![Some(Frame::new(ctx.module_node_id, AnyNodeRef::from(ast)))],
+        subtree: Vec::new(),
+        sites,
         path: Vec::new(),
         counters: vec![0],
         decls: Vec::new(),
@@ -162,6 +212,65 @@ impl Walker<'_, '_> {
             .finish_id()
     }
 
+    /// Place `node` in `syntax_nodes` when the policy says so (`syntax::placed`, or a Pysa site
+    /// range), under its parent frame; push its frame either way.
+    fn place(&mut self, node: AnyNodeRef<'_>, own_id: Option<Id>) {
+        let r = node.range();
+        // As for calls: the innermost declaration whose body holds the node (a decorator or a
+        // default belongs to the enclosing scope; a `def`'s own frame starts at its body).
+        let owner = self
+            .decls
+            .iter()
+            .rev()
+            .find(|d| d.body_start <= r.start())
+            .map(|d| d.node_id);
+        let (start, end) = span(r);
+        let in_subtree = self.subtree.iter().any(|s| s.contains_range(r));
+        let at_site = self.sites.contains(&(start, end)) && node.as_expr_ref().is_some();
+        let placed = self.annotation_depth == 0 && (syntax::placed(node, in_subtree) || at_site);
+        if !placed {
+            self.frames.push(None);
+            return;
+        }
+        let node_id = own_id.unwrap_or_else(|| self.syntax_id());
+        let parent = self
+            .frames
+            .iter_mut()
+            .rev()
+            .find_map(Option::as_mut)
+            .expect("the module frame is never popped");
+        let parent_id = parent.id;
+        let (field, ordinal) = parent.place(r);
+        let row = fact_row!(
+            self.sink,
+            SyntaxNodes,
+            ruff(),
+            SyntaxNodesRow {
+                snapshot_id: Id::ZERO,
+                fact_id: Id::ZERO,
+                node_id,
+                module_node_id: self.ctx.module_node_id,
+                owner_node_id: owner,
+                parent_node_id: parent_id,
+                kind: syntax::syntax_kind(node.kind()),
+                field,
+                ordinal,
+                start_byte: start,
+                end_byte: end,
+                detail: syntax::detail(node, self.ctx.text),
+            }
+        );
+        self.out.syntax_nodes.push(row);
+        let mut frame = Frame::new(node_id, node);
+        for (f, fr) in &frame.fields {
+            if syntax::subtree_field(*f) {
+                self.subtree.push(*fr);
+                frame.opened += 1;
+            }
+        }
+        self.frames.push(Some(frame));
+    }
+
     fn text(&self, r: TextRange) -> String {
         self.ctx.text[r].to_owned()
     }
@@ -227,7 +336,7 @@ impl Walker<'_, '_> {
         node_id
     }
 
-    fn function(&mut self, f: &StmtFunctionDef) {
+    fn function(&mut self, f: &StmtFunctionDef) -> Id {
         let decorators = f
             .decorator_list
             .iter()
@@ -310,9 +419,10 @@ impl Walker<'_, '_> {
             );
             self.out.parameter_syntax.push(row);
         }
+        function_node_id
     }
 
-    fn class(&mut self, c: &StmtClassDef) {
+    fn class(&mut self, c: &StmtClassDef) -> Id {
         let decorators = c
             .decorator_list
             .iter()
@@ -325,10 +435,10 @@ impl Walker<'_, '_> {
             c.name.range(),
             &c.body,
             decorators,
-        );
+        )
     }
 
-    fn call(&mut self, c: &ExprCall) {
+    fn call(&mut self, c: &ExprCall) -> Id {
         let node_id = self.syntax_id();
         let r = c.range();
         // The owner is the innermost declaration whose *body* holds the call: decorators, defaults
@@ -391,6 +501,7 @@ impl Walker<'_, '_> {
             );
             self.out.arguments.push(row);
         }
+        node_id
     }
 
     fn export_row(
@@ -449,10 +560,14 @@ impl<'a> SourceOrderVisitor<'a> for Walker<'_, '_> {
         });
         self.path.push(format!("{:?}#{ordinal}", node.kind()));
         self.counters.push(0);
+        let own_id = match node {
+            AnyNodeRef::StmtFunctionDef(f) => Some(self.function(f)),
+            AnyNodeRef::StmtClassDef(c) => Some(self.class(c)),
+            AnyNodeRef::ExprCall(c) => Some(self.call(c)),
+            _ => None,
+        };
+        self.place(node, own_id);
         match node {
-            AnyNodeRef::StmtFunctionDef(f) => self.function(f),
-            AnyNodeRef::StmtClassDef(c) => self.class(c),
-            AnyNodeRef::ExprCall(c) => self.call(c),
             AnyNodeRef::StmtImport(_) => {
                 self.import = Some(ImportCtx {
                     kind: ExportSyntaxKind::Import,
@@ -503,6 +618,10 @@ impl<'a> SourceOrderVisitor<'a> for Walker<'_, '_> {
     }
 
     fn leave_node(&mut self, node: AnyNodeRef<'a>) {
+        if let Some(Some(frame)) = self.frames.pop() {
+            let keep = self.subtree.len() - frame.opened;
+            self.subtree.truncate(keep);
+        }
         match node {
             AnyNodeRef::StmtFunctionDef(_) | AnyNodeRef::StmtClassDef(_) => {
                 self.decls.pop();

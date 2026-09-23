@@ -1,0 +1,90 @@
+---
+source: crates/cpg-core/tests/syntax.rs
+expression: tree(&ctx).await
+---
+stmt_expr [body 0]
+stmt_import [body 1]
+stmt_class_def [body 2]
+  stmt_pass [body 0]
+stmt_function_def [body 3]
+  stmt_if [body 0]
+    expr_compare [test 0] is
+      expr_name [left 0] x
+      expr_none_literal [right 0] None
+    stmt_raise [body 0]
+      expr_call [exc 0]
+        expr_name [callee 0] ValueError
+        expr_string_literal [argument 0] "x is required"
+    elif_else_clause [orelse 0]
+      expr_compare [test 0] not in
+        expr_name [left 0] mode
+        expr_tuple [right 0]
+          expr_string_literal [element 0] "fast"
+          expr_string_literal [element 1] "safe"
+      stmt_raise [body 0]
+        expr_call [exc 0]
+          expr_name [callee 0] ConfigError
+          expr_f_string [argument 0]
+            interpolated_element [child 0]
+              expr_name [child 0] mode
+        expr_none_literal [cause 0] None
+  stmt_if [body 1]
+    expr_compare [test 0] <= <
+      expr_number_literal [left 0] 0
+      expr_name [right 0] limit
+      expr_number_literal [right 1] 10
+    stmt_aug_assign [body 0] +
+  stmt_assert [body 2]
+    expr_compare [test 0] >=
+      expr_name [left 0] limit
+      expr_number_literal [right 0] 0
+    expr_string_literal [msg 0] "limit is negative"
+  stmt_return [body 3]
+stmt_function_def [body 4]
+  stmt_try [body 0]
+    stmt_assign [body 0]
+      expr_call [value 0]
+        expr_attribute [callee 0] read
+          expr_call [value 0]
+    except_handler_except_handler [handler 0] err
+      expr_tuple [test 0]
+        expr_name [element 0] OSError
+        expr_name [element 1] ValueError
+      stmt_raise [body 0]
+        expr_call [exc 0]
+          expr_name [callee 0] ConfigError
+          expr_string_literal [argument 0] "cannot read"
+        expr_name [cause 0] err
+    stmt_return [orelse 0]
+    stmt_pass [finalbody 0]
+stmt_function_def [body 5]
+  stmt_match [body 0]
+    match_case [case 0]
+      expr_compare [guard 0] >
+        expr_named [left 0]
+          expr_name [target 0] n
+          expr_call [value 0]
+            expr_name [callee 0] len
+            expr_name [argument 0] op
+        expr_number_literal [right 0] 3
+      stmt_return [body 0]
+    match_case [case 1]
+      stmt_return [body 0]
+stmt_function_def [body 6]
+  stmt_assign [body 0]
+  stmt_for [body 1]
+    expr_name [iter 0] items
+    stmt_with [body 0]
+      with_item [item 0]
+        expr_call [value 0]
+      stmt_aug_assign [body 0] +
+        expr_call [value 0]
+          expr_call [argument 0]
+            expr_attribute [callee 0] read
+  stmt_return [body 2]
+stmt_function_def [body 7]
+  expr_call [decorator 0]
+    expr_attribute [callee 0] lru_cache
+  stmt_return [body 0]
+    expr_call [value 0]
+      expr_attribute [callee 0] upper

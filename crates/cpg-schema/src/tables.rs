@@ -7,7 +7,8 @@ use crate::codebook::{
     AncestryRelation, ArgumentKind, BoundaryReason, CoverageStatus, DeclarationKind,
     DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
     InvocationPhase, Modality, ModuleOrigin, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind,
-    PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm, SymbolKind,
+    PysaTargetKind, PysaUnresolvedReason, ScopeKind, SignatureForm, SymbolKind, SyntaxField,
+    SyntaxKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -545,6 +546,44 @@ table!(
     }
 );
 
+// ---------------------------------------------------------------- syntax
+
+table!(
+    /// Placed syntax nodes (`ruff-ast`; CPG slice C2, DESIGN §3.2): every statement, the clause
+    /// nodes, the expressions Pysa reports sites at, and the full expression subtree under each
+    /// `test`, `exc`, `cause`, `guard` and `msg`. A `def`, a `class` and a call are placed under
+    /// their existing declaration and call-site ids (so one syntax node has one id), which gives
+    /// every placed node its parent, field and ordinal. Nothing inside an annotation is placed.
+    SyntaxNodes, SyntaxNodesRow = "syntax_nodes",
+    family = Syntax,
+    key = [snapshot_id, module_node_id, start_byte, end_byte, node_id],
+    checks = [
+        ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+        ("ordinal_nonnegative", "ordinal >= 0"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        /// The structural syntax id; for a `def`/`class` the declaration id, for a call the
+        /// call-site id.
+        node_id: Id,
+        module_node_id: Id,
+        /// The innermost enclosing declaration; null at module level.
+        owner_node_id: Option<Id>,
+        /// The nearest placed ancestor: a syntax node, a declaration, a call site or the module.
+        parent_node_id: Id,
+        kind: SyntaxKind,
+        field: SyntaxField,
+        /// Position among the parent's placed children in the same field, in source order (a
+        /// statement's index in its block).
+        ordinal: i64,
+        start_byte: i64,
+        end_byte: i64,
+        /// A name, an attribute, an operator, a literal as written, a handler's bound name.
+        detail: Option<String>,
+    }
+);
+
 // ---------------------------------------------------------------- coverage
 
 table!(
@@ -639,6 +678,7 @@ macro_rules! for_each_table {
             $crate::tables::PysaClasses,
             $crate::tables::CallSyntax,
             $crate::tables::Arguments,
+            $crate::tables::SyntaxNodes,
             $crate::tables::PysaCalls,
             $crate::tables::Coverage,
             $crate::tables::Boundaries

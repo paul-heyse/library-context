@@ -98,6 +98,7 @@ fact_family
   4 coverage
   5 publication
   6 graph
+  7 syntax
 scope_kind
   0 release
   1 module
@@ -171,6 +172,7 @@ node_kind
   7 external_module
   8 external_symbol
   9 synthetic_callable
+  10 syntax_node
 edge_kind
   0 declares
   1 overload_of
@@ -185,6 +187,9 @@ edge_kind
   10 mro_entry
   11 overrides
   12 declared_in
+  13 ast_child
+  14 argument_value
+  15 site_target
 symbol_kind
   0 module
   1 attribute
@@ -201,3 +206,124 @@ derivation_class
   1 analyzer
   2 joined
   3 recognizer
+syntax_kind
+  0 mod_module
+  1 mod_expression
+  2 stmt_function_def
+  3 stmt_class_def
+  4 stmt_return
+  5 stmt_delete
+  6 stmt_type_alias
+  7 stmt_assign
+  8 stmt_aug_assign
+  9 stmt_ann_assign
+  10 stmt_for
+  11 stmt_while
+  12 stmt_if
+  13 stmt_with
+  14 stmt_match
+  15 stmt_raise
+  16 stmt_try
+  17 stmt_assert
+  18 stmt_import
+  19 stmt_import_from
+  20 stmt_global
+  21 stmt_nonlocal
+  22 stmt_expr
+  23 stmt_pass
+  24 stmt_break
+  25 stmt_continue
+  26 stmt_ipy_escape_command
+  27 expr_bool_op
+  28 expr_named
+  29 expr_bin_op
+  30 expr_unary_op
+  31 expr_lambda
+  32 expr_if
+  33 expr_dict
+  34 expr_set
+  35 expr_list_comp
+  36 expr_set_comp
+  37 expr_dict_comp
+  38 expr_generator
+  39 expr_await
+  40 expr_yield
+  41 expr_yield_from
+  42 expr_compare
+  43 expr_call
+  44 expr_f_string
+  45 expr_t_string
+  46 expr_string_literal
+  47 expr_bytes_literal
+  48 expr_number_literal
+  49 expr_boolean_literal
+  50 expr_none_literal
+  51 expr_ellipsis_literal
+  52 expr_attribute
+  53 expr_subscript
+  54 expr_starred
+  55 expr_name
+  56 expr_list
+  57 expr_tuple
+  58 expr_slice
+  59 expr_ipy_escape_command
+  60 except_handler_except_handler
+  61 interpolated_element
+  62 interpolated_string_literal_element
+  63 pattern_match_value
+  64 pattern_match_singleton
+  65 pattern_match_sequence
+  66 pattern_match_mapping
+  67 pattern_match_class
+  68 pattern_match_star
+  69 pattern_match_as
+  70 pattern_match_or
+  71 type_param_type_var
+  72 type_param_type_var_tuple
+  73 type_param_param_spec
+  74 interpolated_string_format_spec
+  75 pattern_arguments
+  76 pattern_keyword
+  77 comprehension
+  78 arguments
+  79 parameters
+  80 parameter
+  81 parameter_with_default
+  82 keyword
+  83 alias
+  84 with_item
+  85 match_case
+  86 decorator
+  87 elif_else_clause
+  88 type_params
+  89 f_string
+  90 t_string
+  91 string_literal
+  92 bytes_literal
+  93 identifier
+syntax_field
+  0 body
+  1 orelse
+  2 test
+  3 handler
+  4 finalbody
+  5 target
+  6 value
+  7 exc
+  8 cause
+  9 msg
+  10 subject
+  11 case
+  12 guard
+  13 iter
+  14 item
+  15 annotation
+  16 left
+  17 right
+  18 operand
+  19 slice
+  20 callee
+  21 argument
+  22 decorator
+  23 element
+  24 child

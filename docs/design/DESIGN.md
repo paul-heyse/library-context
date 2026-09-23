@@ -440,7 +440,7 @@ declaration, and an AST node is not an execution point.
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `graph` | derived: `nodes`, `edges` (§3.8). Not a coverage unit | C1 |
-| `syntax` | raw `syntax_nodes` (Ruff): branches, handlers, raises, returns, assignments, loops, `with`, `assert`, `yield`, the expressions Pysa reports sites at, and the full expression subtree under every `test`/`exc`/`cause`; each with parent, owner, field, ordinal, block index and span. Declarations, calls and parameters are not re-emitted. Derived: `site_nodes` (Pysa non-call sites → syntax nodes, with a kind constraint). Consumers: Pass B guards and raises, Pass C regions, FCA raised types | C2 |
+| `syntax` | **Implemented and Tested (C2).** Raw `syntax_nodes` (Ruff): every statement; the clause nodes (`elif`/`else`, `except`, `case`, `with` items); the expressions Pysa reports sites at (attribute, subscript, operators, comparisons, format strings, `await`, `yield`, walrus, lambda), and any expression at the exact range of one of Pysa's attribute, artificial or format-string sites; and the full expression subtree under every `test`, `exc`, `cause`, `guard` and `msg`. Each row has its parent (the nearest placed ancestor), owner, field (`syntax_field`), ordinal in that field (a statement's block index), span, `kind` (Ruff's `NodeKind`, the `syntax_kind` codebook, an exhaustive match) and detail (a name, attribute, operator, literal as written, or a handler's name). A `def`, a `class` and a call are placed under their declaration and call-site ids; nothing inside an annotation is placed. Derived: `site_targets` (each Pysa attribute, artificial and format-string record → the deepest syntax node at its span, a chained comparison's pairwise site → its comparison → its typed target). Consumers: Pass B guards, raises and handlers; Pass C straight-line regions; FCA raised types | C2 |
 | `lexical` | raw, from our recognizer (`recognizer`): `scopes`, `bindings` (with shadowed history: ordinal per scope, kind, value, the statically decided branch it sits in), `references`, `reference_resolutions` (full Python scoping: LEGB, class-scope skip, comprehension, lambda and annotation scopes, `global`/`nonlocal`, `del`; candidate sets; builtins as external symbols; reasons otherwise). Imports resolved through Pyrefly where it answers. Consumers: Pass B binding order (§4.2.4), Pass C bindings, the import graph, `if_called` targets, variable exports | C3 |
 | `types` | raw, from Pyrefly's native types: `type_terms` (one row per distinct term; typevars keep their binder), `type_term_args` (structure), `type_observations` (subject, role, term; §3.5.1), `record_fields` (dataclass, attrs, pydantic, `TypedDict`, `NamedTuple`). Consumers: Pass C type compatibility, FCA type attributes, controls from record fields | C4 |
 | `docs` | raw: `documents`, `passages`, `code_blocks`, `doc_links`, `mentions` (exact, and lexical candidates, never merged; embedding-based linking is §9.7's). Examples, tests and materialized code blocks are compiled as a usage run of their own release, with every code family, linked to the library by the derived `usage_targets` | C5 |
@@ -723,7 +723,7 @@ rules are generated from (DM-52).
 | Slice | Edge kind: source → target (derivation) |
 |---|---|
 | C1 | `declares`: module/class/function → class/function (extracted). `overload_of`: stub → callable (joined). `stub_for`: `.pyi` declaration → the `.py` declaration the `exports` seed rank picks, one shared rank (joined). `has_parameter`: function → parameter, ordinal (extracted). `exports`: export → declaration, external symbol, module or external module, one edge per access file, the file as discriminator (analyzer; parallel). `encloses_call`: owner → call site (extracted). `has_argument`: call site → argument, ordinal (extracted). `call_target`: call site → function, synthetic callable or external symbol (analyzer; discriminator `payload_id`; phase, receiver and modality on the evidence row). `higher_order_target`: argument → callable (analyzer; `potential`). `base_class`, `mro_entry`: class → class or external symbol, ordinal, MRO as reported (analyzer). `overrides`: function → function or external symbol (analyzer). `declared_in`: external symbol → external module (joined) |
-| C2 | `ast_child`: syntax node, declaration, call site or module → child, ordinal (extracted). `argument_value`: argument → expression node (extracted). `site_target`: attribute, artificial or format-string site → callable (analyzer; `synthetic_model` for artificial sites) |
+| C2 (**Implemented**) | `ast_child`: module, declaration, call site or syntax node → the placed child, ordinal (extracted; one parent per node). `argument_value`: argument → each placed node directly in its value (joined; no lineage obligation, since a plain name or literal is not placed). `site_target`: the syntax node or call site at a Pysa attribute, artificial or format-string site → function, synthetic callable or external symbol (analyzer; parallel, discriminator `payload_id`; `synthetic_model` for artificial sites) |
 | C3 | `owns_scope`, `lexical_parent`, `binds`, `introduces` (recognizer). `reads_binding`: reference → binding (recognizer; `candidate` when not unique). `shadows`: binding → the previous binding of its name in its scope. `captures`, `global_binding`, `nonlocal_binding`. `potential_target`: reference or site → callable (analyzer; `if_called`). `imports_module`, `imports_symbol` (analyzer where Pyrefly answers, else joined) |
 | C4 | `has_type`: subject → type term (analyzer; role on the evidence row). `type_arg`: term → term, ordinal. `type_class`: term → class or external symbol. `has_field`: class → field. `field_type`: field → term |
 | C5 | `contains_passage`, `contains_block`, `block_module` (extracted). `mentions`: passage → export or declaration (recognizer; `definite` for exact, `candidate` for lexical). `usage_link`: usage call site → release declaration (joined) |
@@ -739,7 +739,10 @@ rules are generated from (DM-52).
 - **Lineage from raw rows:** each source row yields exactly its declared edges, or its derived row
   carries a provider's reason.
 - **Partition of `pysa_calls`:** every row is a call-site row (lineage), an unresolved remainder
-  counted on its `resolutions` or `argument_resolutions` row, or a published gap.
+  counted on its `resolutions` or `argument_resolutions` row, a C2 site row (lineage through
+  `site_targets`), or an identifier site published as a gap.
+- **Placement (C2):** every declaration, and every call outside an annotation, has its
+  `syntax_nodes` row; a placed child lies within its placed parent, in the same module.
 - **Typed targets:** a null target carries a reason.
 - **Ids:** the Rust recipes equal their SQL form (`id:*`).
 - A rule whose target is built from its own source column is not generated, because it cannot
@@ -760,8 +763,13 @@ rules are generated from (DM-52).
 - every call target (17,174), ancestry entry (1,182) and overridden method (1,107) is a typed node;
 - 978 exports have a target, and 335 are variables (`variable_origin`), every one a symbol Pyrefly
   itself calls a variable;
-- 17,282 Pysa rows are published gaps: 8,083 artificial, 1,502 attribute and 1,942 format-string
-  sites for C2, and 5,755 identifier sites for C3;
+- 17,282 Pysa rows were published gaps after C1: 8,083 artificial, 1,502 attribute and 1,942
+  format-string sites for C2, and 5,755 identifier sites for C3. **After C2** only the 5,755
+  identifier sites remain. Every other site lands on a placed node: 8,500 resolve to targets and
+  3,027 are unresolved by Pysa itself (`unresolved_target`). Thirteen chained-comparison sites
+  that no node spans attach to their comparison;
+- **C2 on the pilot** (2026-09-23): 83,627 placed syntax nodes; 113,897 nodes and 165,053 edges
+  in all; every rule passing; 14.9 s, 2.91 GB peak RSS; validation 1.8 s;
 - 329 dependency modules: 249 site-packages modules, all with their distribution, and 80 from
   Pyrefly's bundled typeshed;
 - 1,913 external symbols;
@@ -974,6 +982,8 @@ one process.
 
 ### §4.2.2 Syntax: one walk over Pyrefly's parse
 
+- **Order (C2).** Per module the Pysa collectors run first and hand the walk the ranges of their
+  non-call, non-identifier sites, so the walk places a node at each (`syntax_nodes`, §3.2).
 - **One walk.** A single `SourceOrderVisitor` walks `Transaction::get_ast(handle)`, the unmodified
   ruff parse Pyrefly analyzed, which is kept at `Require::Everything`. The text is
   `get_module_info(handle)`'s contents. There is no second parse.
@@ -1841,3 +1851,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | Pilot moved to FastMCP 4.0.5; libraries are pinned uv projects acquired with `uv sync --frozen`, Stage A reads the acquired environment (RECORD-verified release files, lock-derived `release_id`, environment and lock digests), `releases`/`distributions` added, `lctx` CLI; §1.2, §1.4, §3.2, §3.4.1, §4.0, §4.1, §11, §12 amended | ADR-0013 |
 | 2026-09-22 | ADR-0013 standard review F1–F9: one equivalence (verified analyzer-readable bytes) for `release_id` and the environment digest; hermetic acquisition (`--no-config --python --link-mode copy`, `--reinstall`); hash-less releases refused; docs source pinned by commit; `distributions` keyed by context; writer rule; schema drift refused at open; `just gold`; ADR-0013 accepted | ADR-0013 |
 | 2026-09-22 | CPG first (operator): slices C1–C6 before Pass A (§1.2). The node and edge catalogs, persistent `edge_id`, typed external and synthetic endpoints, the graph registry and its generated rules (§3.1, §3.2, §3.4.1, §3.5, §3.7, new §3.8, §8); `lctx_id` UDF, metrics, deferred streaming and file skipping (§4.3); retention for pinned reads (§6.1); the syntax, lexical, types and docs families specified for C2–C5, with type structure and record fields no longer deferred. Aligned with the operator's Rust code-intelligence guidelines; probe P1 (dependency definitions) recorded | ADR-0014 (supersedes ADR-0008), ADR-0004 and ADR-0009 amendments |
+| 2026-09-23 | ADR-0014 standard review F1–F6 fixed and ADR-0014 accepted: reasons only from providers, export edges per access file, one id recipe in Rust and SQL, generated node references, `graph_gaps`, `edge_kinds` (§3.2, §3.4.1, §3.5, §3.7, §3.8, §8). CPG slice C2: the `syntax` family (`syntax_nodes`, `site_targets`, `ast_child`/`argument_value`/`site_target`) (§3.2, §3.8, §4.2.2) | ADR-0014 |

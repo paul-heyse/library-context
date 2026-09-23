@@ -15,7 +15,7 @@
 
 use crate::codebook::{
     AncestryRelation, BoundaryReason, Codebook, DeclarationKind, DerivationClass, EdgeKind,
-    NodeKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
+    NodeKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, SyntaxField, SyntaxKind,
 };
 use crate::id::Id;
 use crate::rules::Rule;
@@ -173,6 +173,18 @@ pub fn node_sources() -> Vec<NodeSource> {
             "SELECT node_id, module_node_id, pysa_fact_id AS existence_fact_id \
              FROM synthetic_callables"
                 .to_owned(),
+        ),
+        // C2: placed syntax other than declarations and calls, whose existence sources are
+        // `declarations` and `call_syntax` (their placement rows share their ids).
+        n(
+            NodeKind::SyntaxNode,
+            format!(
+                "SELECT node_id, module_node_id, fact_id AS existence_fact_id FROM syntax_nodes \
+                 WHERE kind NOT IN ({}, {}, {})",
+                c(SyntaxKind::StmtFunctionDef),
+                c(SyntaxKind::StmtClassDef),
+                c(SyntaxKind::ExprCall)
+            ),
         ),
     ]
 }
@@ -522,6 +534,94 @@ pub fn edge_sources() -> Vec<EdgeSource> {
                 explained: None,
             }),
         },
+        // C2: the syntax tree and Pysa's non-call sites.
+        EdgeSource {
+            kind: EdgeKind::AstChild,
+            src: &[N::Module, N::Class, N::Function, N::CallSite, N::SyntaxNode],
+            dst: &[N::Class, N::Function, N::CallSite, N::SyntaxNode],
+            direction: "the child is placed in the parent's field at the ordinal (source order)",
+            parallel: false,
+            derivation: DerivationClass::Extracted,
+            evidence_table: "syntax_nodes",
+            sql: format!(
+                "SELECT {} FROM syntax_nodes s",
+                row(
+                    "s.parent_node_id",
+                    "s.node_id",
+                    Some("s.ordinal"),
+                    "s.fact_id",
+                    None,
+                    None
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: "SELECT fact_id FROM syntax_nodes".to_owned(),
+                explained: None,
+            }),
+        },
+        EdgeSource {
+            kind: EdgeKind::ArgumentValue,
+            src: &[N::Argument],
+            dst: &[N::CallSite, N::SyntaxNode],
+            direction: "the placed expression is (part of) the argument's value, directly in it",
+            parallel: false,
+            derivation: DerivationClass::Joined,
+            evidence_table: "syntax_nodes",
+            sql: format!(
+                "SELECT {} FROM arguments a JOIN syntax_nodes s \
+                   ON s.parent_node_id = a.call_node_id AND s.field = {} \
+                  AND s.start_byte >= a.start_byte AND s.end_byte <= a.end_byte",
+                row(
+                    "a.node_id",
+                    "s.node_id",
+                    None,
+                    "s.fact_id",
+                    Some("a.fact_id"),
+                    None
+                ),
+                c(SyntaxField::Argument)
+            ),
+            one_per_evidence: true,
+            // An argument whose value is a plain name or literal has no placed node (C3's
+            // references carry names): no lineage obligation.
+            lineage: None,
+        },
+        EdgeSource {
+            kind: EdgeKind::SiteTarget,
+            src: &[N::SyntaxNode, N::CallSite],
+            dst: callables,
+            direction: "the site (an attribute access, an operator, a `for`/`with` protocol, a \
+                        format string) may invoke the target (phase and modality on the evidence \
+                        row; artificial sites are `synthetic_model`)",
+            parallel: true,
+            derivation: DerivationClass::Analyzer,
+            evidence_table: "pysa_calls",
+            sql: format!(
+                "SELECT {} FROM site_targets t JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
+                 WHERE t.site_node_id IS NOT NULL AND t.target_node_id IS NOT NULL",
+                row(
+                    "t.site_node_id",
+                    "t.target_node_id",
+                    None,
+                    "t.pysa_fact_id",
+                    None,
+                    Some("p.payload_id")
+                )
+            ),
+            one_per_evidence: true,
+            lineage: Some(Lineage {
+                expected: format!(
+                    "SELECT fact_id FROM pysa_calls WHERE NOT ({}) AND callee_kind <> {}",
+                    call_site_rows(),
+                    c(PysaCalleeKind::Identifier)
+                ),
+                explained: Some(
+                    "SELECT pysa_fact_id AS fact_id FROM site_targets WHERE reason IS NOT NULL"
+                        .to_owned(),
+                ),
+            }),
+        },
     ]
 }
 
@@ -701,19 +801,12 @@ table!(
 impl crate::derived::Derived for GraphGaps {
     fn sql() -> String {
         format!(
-            "SELECT fact_id AS gap_fact_id, 'pysa_calls' AS table_name, CAST({not_requested} AS SMALLINT) AS reason, \
-                    CASE WHEN callee_kind = {identifier} \
-                           THEN 'identifier site: C3 lexical references' \
-                         WHEN site_kind IN ({artificial_call}, {artificial_attribute}) \
-                           THEN 'artificial site: C2 syntax nodes' \
-                         WHEN callee_kind = {attribute} THEN 'attribute site: C2 syntax nodes' \
-                         ELSE 'format-string site: C2 syntax nodes' END AS detail \
-             FROM pysa_calls WHERE NOT ({call_site})",
+            "SELECT fact_id AS gap_fact_id, 'pysa_calls' AS table_name, \
+                    CAST({not_requested} AS SMALLINT) AS reason, \
+                    'identifier site: C3 lexical references' AS detail \
+             FROM pysa_calls WHERE NOT ({call_site}) AND callee_kind = {identifier}",
             not_requested = c(BoundaryReason::NotRequested),
             identifier = c(PysaCalleeKind::Identifier),
-            attribute = c(PysaCalleeKind::AttributeAccess),
-            artificial_call = c(PysaSiteKind::ArtificialCall),
-            artificial_attribute = c(PysaSiteKind::ArtificialAttributeAccess),
             call_site = call_site_rows(),
         )
     }
@@ -863,6 +956,20 @@ pub fn node_columns() -> Vec<NodeColumn> {
         ),
         nc("override_targets", "overridden_node_id", CALLABLE),
         nc("nodes", "module_node_id", &[N::Module, N::ExternalModule]),
+        // C2
+        nc("syntax_nodes", "module_node_id", MODULE),
+        nc("syntax_nodes", "owner_node_id", DECL),
+        nc(
+            "syntax_nodes",
+            "parent_node_id",
+            &[N::Module, N::Class, N::Function, N::CallSite, N::SyntaxNode],
+        ),
+        nc(
+            "site_targets",
+            "site_node_id",
+            &[N::SyntaxNode, N::CallSite],
+        ),
+        nc("site_targets", "target_node_id", CALLABLE),
     ]
 }
 
@@ -973,8 +1080,9 @@ pub fn rules() -> Vec<Rule> {
         format!(
             "SELECT p.fact_id FROM pysa_calls p LEFT ANTI JOIN graph_gaps g \
                ON g.gap_fact_id = p.fact_id AND g.table_name = 'pysa_calls' \
-             WHERE NOT ({})",
-            call_site_rows()
+             WHERE NOT ({}) AND p.callee_kind = {}",
+            call_site_rows(),
+            c(PysaCalleeKind::Identifier)
         ),
     ));
     out.push(rule(
@@ -1001,6 +1109,26 @@ pub fn rules() -> Vec<Rule> {
             unresolved = c(PysaTargetKind::Unresolved),
         ),
     ));
+    // C2: every declaration, and every call outside an annotation, is placed; a child lies within
+    // its placed parent, in the same module.
+    out.push(rule(
+        "placed:declarations".to_owned(),
+        "SELECT d.fact_id FROM declarations d LEFT ANTI JOIN syntax_nodes s ON s.node_id = d.node_id"
+            .to_owned(),
+    ));
+    out.push(rule(
+        "placed:call_syntax".to_owned(),
+        "SELECT c.fact_id FROM call_syntax c LEFT ANTI JOIN syntax_nodes s ON s.node_id = c.node_id \
+         WHERE NOT c.in_annotation"
+            .to_owned(),
+    ));
+    out.push(rule(
+        "contained:syntax_nodes".to_owned(),
+        "SELECT c.node_id FROM syntax_nodes c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+         WHERE c.start_byte < p.start_byte OR c.end_byte > p.end_byte \
+            OR c.module_node_id <> p.module_node_id"
+            .to_owned(),
+    ));
     out.push(rule(
         "support:edges".to_owned(),
         "SELECT e.edge_id FROM edges e LEFT ANTI JOIN facts f ON f.fact_id = e.support_fact_id \
@@ -1019,6 +1147,10 @@ pub fn rules() -> Vec<Rule> {
             "(function_node_id IS NULL OR overridden_node_id IS NULL)",
         ),
         ("exports", "target_node_id IS NULL"),
+        (
+            "site_targets",
+            "(site_node_id IS NULL OR target_node_id IS NULL)",
+        ),
     ] {
         out.push(rule(
             format!("typed:{table}"),

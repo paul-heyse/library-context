@@ -16,6 +16,7 @@ expression: out
 | 7         | 4  |
 | 8         | 20 |
 | 9         | 2  |
+| 10        | 71 |
 +-----------+----+
 ## named edges
 +-----------+--------------------------+--------------------------+---------+
@@ -124,6 +125,107 @@ expression: out
 | 12        | depmod:DepBase.run       | depmod                   |         |
 | 12        | depmod:helper            | depmod                   |         |
 | 12        | typing:overload          | typing                   |         |
+| 13        | shapes.core.Point        |                          | 0       |
+| 13        | shapes.core.Point        |                          | 1       |
+| 13        | shapes.core.apply_all    |                          | 0       |
+| 13        | shapes.core.bottom       |                          | 0       |
+| 13        | shapes.core.callee       |                          | 0       |
+| 13        | shapes.core.compat       |                          | 0       |
+| 13        | shapes.core.compat       |                          | 0       |
+| 13        | shapes.core.dispatch     |                          | 0       |
+| 13        | shapes.core.double       |                          | 0       |
+| 13        | shapes.core.fact         |                          | 0       |
+| 13        | shapes.core.left         |                          | 0       |
+| 13        | shapes.core.lonely       |                          | 0       |
+| 13        | shapes.core.lonely       |                          | 1       |
+| 13        | shapes.core.make_point   |                          | 0       |
+| 13        | shapes.core.mode         |                          | 0       |
+| 13        | shapes.core.mode         |                          | 0       |
+| 13        | shapes.core.nested       |                          | 0       |
+| 13        | shapes.core.right        |                          | 0       |
+| 13        | shapes.core.top          |                          | 0       |
+| 13        | shapes.core.twice        |                          | 0       |
+| 13        | shapes.core.twice        |                          | 1       |
+| 13        | shapes.core.unresolved   |                          | 0       |
+| 13        | shapes.models.Base       | shapes.models.Base.run   | 0       |
+| 13        | shapes.models.Base.run   |                          | 0       |
+| 13        | shapes.models.Child      | shapes.models.Child.run  | 0       |
+| 13        | shapes.models.Child.run  |                          | 0       |
+| 13        | shapes.models.Plain      |                          | 0       |
+| 13        | shapes.ping.ping         |                          | 0       |
+| 13        | shapes.ping.ping         |                          | 1       |
+| 13        | shapes.pong.pong         |                          | 0       |
+| 13        | shapes.pong.pong         |                          | 1       |
+| 13        | shapes.typed.overloaded  |                          | 0       |
+| 13        | shapes.typed.overloaded  |                          | 0       |
+| 13        | shapes.typed.overloaded  |                          | 0       |
+| 13        | shapes.typed.overloaded  |                          | 0       |
+| 13        | shapes/__init__.py       |                          | 0       |
+| 13        | shapes/__init__.py       |                          | 1       |
+| 13        | shapes/__init__.py       |                          | 2       |
+| 13        | shapes/__init__.py       |                          | 3       |
+| 13        | shapes/__init__.py       |                          | 4       |
+| 13        | shapes/__init__.py       |                          | 5       |
+| 13        | shapes/__init__.py       |                          | 6       |
+| 13        | shapes/__init__.py       |                          | 7       |
+| 13        | shapes/core.py           | shapes.core.Point        | 14      |
+| 13        | shapes/core.py           | shapes.core.apply_all    | 17      |
+| 13        | shapes/core.py           | shapes.core.bottom       | 10      |
+| 13        | shapes/core.py           | shapes.core.callee       | 5       |
+| 13        | shapes/core.py           | shapes.core.dispatch     | 12      |
+| 13        | shapes/core.py           | shapes.core.double       | 16      |
+| 13        | shapes/core.py           | shapes.core.fact         | 7       |
+| 13        | shapes/core.py           | shapes.core.left         | 8       |
+| 13        | shapes/core.py           | shapes.core.lonely       | 4       |
+| 13        | shapes/core.py           | shapes.core.make_point   | 15      |
+| 13        | shapes/core.py           | shapes.core.nested       | 18      |
+| 13        | shapes/core.py           | shapes.core.right        | 9       |
+| 13        | shapes/core.py           | shapes.core.top          | 11      |
+| 13        | shapes/core.py           | shapes.core.twice        | 6       |
+| 13        | shapes/core.py           | shapes.core.unresolved   | 13      |
+| 13        | shapes/core.py           |                          | 0       |
+| 13        | shapes/core.py           |                          | 1       |
+| 13        | shapes/core.py           |                          | 2       |
+| 13        | shapes/core.py           |                          | 3       |
+| 13        | shapes/core.py           |                          | 19      |
+| 13        | shapes/core.py           |                          | 20      |
+| 13        | shapes/dual/__init__.py  |                          | 0       |
+| 13        | shapes/dual/__init__.py  |                          | 1       |
+| 13        | shapes/dual/__init__.pyi |                          | 0       |
+| 13        | shapes/dual/__init__.pyi |                          | 1       |
+| 13        | shapes/models.py         | shapes.models.Base       | 2       |
+| 13        | shapes/models.py         | shapes.models.Child      | 3       |
+| 13        | shapes/models.py         | shapes.models.Plain      | 1       |
+| 13        | shapes/models.py         |                          | 0       |
+| 13        | shapes/ping.py           | shapes.ping.ping         | 0       |
+| 13        | shapes/pong.py           | shapes.pong.pong         | 0       |
+| 13        | shapes/typed.py          | shapes.typed.overloaded  | 0       |
+| 13        | shapes/typed.pyi         | shapes.typed.overloaded  | 1       |
+| 13        | shapes/typed.pyi         | shapes.typed.overloaded  | 2       |
+| 13        | shapes/typed.pyi         |                          | 0       |
+| 13        |                          | shapes.core.compat       | 0       |
+| 13        |                          | shapes.core.compat       | 0       |
+| 13        |                          | shapes.core.mode         | 0       |
+| 13        |                          | shapes.core.mode         | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 0       |
+| 13        |                          |                          | 1       |
+| 13        |                          |                          | 1       |
+| 15        |                          | builtins:int.__add__     |         |
+| 15        |                          | builtins:int.__le__      |         |
+| 15        |                          | builtins:int.__mul__     |         |
+| 15        |                          | builtins:tuple.__ge__    |         |
+| 15        |                          | typing:overload          |         |
 +-----------+--------------------------+--------------------------+---------+
 ## call graph
 +-------------------------+------+--------------------------+----------+

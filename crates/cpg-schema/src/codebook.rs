@@ -205,6 +205,8 @@ codebook!(
         Publication = 5 => "publication",
         /// The derived `nodes`/`edges` catalogs (DESIGN §3.8): not a coverage unit.
         Graph = 6 => "graph",
+        /// C2: syntax nodes the passes read (DESIGN §3.2).
+        Syntax = 7 => "syntax",
     }
 );
 
@@ -345,6 +347,8 @@ codebook!(
         ExternalModule = 7 => "external_module",
         ExternalSymbol = 8 => "external_symbol",
         SyntheticCallable = 9 => "synthetic_callable",
+        /// C2: a placed syntax node that is not a declaration or a call site.
+        SyntaxNode = 10 => "syntax_node",
     }
 );
 
@@ -364,6 +368,10 @@ codebook!(
         MroEntry = 10 => "mro_entry",
         Overrides = 11 => "overrides",
         DeclaredIn = 12 => "declared_in",
+        // C2
+        AstChild = 13 => "ast_child",
+        ArgumentValue = 14 => "argument_value",
+        SiteTarget = 15 => "site_target",
     }
 );
 
@@ -395,6 +403,139 @@ codebook!(
         Joined = 2 => "joined",
         /// Our own analysis decides it.
         Recognizer = 3 => "recognizer",
+    }
+);
+
+codebook!(
+    /// A syntax node's kind (DESIGN §3.2, C2): Ruff's `NodeKind` at the pinned ruff line, in its
+    /// declaration order. A Ruff bump that adds a variant fails the exhaustive match in the
+    /// extractor and is appended here.
+    SyntaxKind = "syntax_kind" {
+        ModModule = 0 => "mod_module",
+        ModExpression = 1 => "mod_expression",
+        StmtFunctionDef = 2 => "stmt_function_def",
+        StmtClassDef = 3 => "stmt_class_def",
+        StmtReturn = 4 => "stmt_return",
+        StmtDelete = 5 => "stmt_delete",
+        StmtTypeAlias = 6 => "stmt_type_alias",
+        StmtAssign = 7 => "stmt_assign",
+        StmtAugAssign = 8 => "stmt_aug_assign",
+        StmtAnnAssign = 9 => "stmt_ann_assign",
+        StmtFor = 10 => "stmt_for",
+        StmtWhile = 11 => "stmt_while",
+        StmtIf = 12 => "stmt_if",
+        StmtWith = 13 => "stmt_with",
+        StmtMatch = 14 => "stmt_match",
+        StmtRaise = 15 => "stmt_raise",
+        StmtTry = 16 => "stmt_try",
+        StmtAssert = 17 => "stmt_assert",
+        StmtImport = 18 => "stmt_import",
+        StmtImportFrom = 19 => "stmt_import_from",
+        StmtGlobal = 20 => "stmt_global",
+        StmtNonlocal = 21 => "stmt_nonlocal",
+        StmtExpr = 22 => "stmt_expr",
+        StmtPass = 23 => "stmt_pass",
+        StmtBreak = 24 => "stmt_break",
+        StmtContinue = 25 => "stmt_continue",
+        StmtIpyEscapeCommand = 26 => "stmt_ipy_escape_command",
+        ExprBoolOp = 27 => "expr_bool_op",
+        ExprNamed = 28 => "expr_named",
+        ExprBinOp = 29 => "expr_bin_op",
+        ExprUnaryOp = 30 => "expr_unary_op",
+        ExprLambda = 31 => "expr_lambda",
+        ExprIf = 32 => "expr_if",
+        ExprDict = 33 => "expr_dict",
+        ExprSet = 34 => "expr_set",
+        ExprListComp = 35 => "expr_list_comp",
+        ExprSetComp = 36 => "expr_set_comp",
+        ExprDictComp = 37 => "expr_dict_comp",
+        ExprGenerator = 38 => "expr_generator",
+        ExprAwait = 39 => "expr_await",
+        ExprYield = 40 => "expr_yield",
+        ExprYieldFrom = 41 => "expr_yield_from",
+        ExprCompare = 42 => "expr_compare",
+        ExprCall = 43 => "expr_call",
+        ExprFString = 44 => "expr_f_string",
+        ExprTString = 45 => "expr_t_string",
+        ExprStringLiteral = 46 => "expr_string_literal",
+        ExprBytesLiteral = 47 => "expr_bytes_literal",
+        ExprNumberLiteral = 48 => "expr_number_literal",
+        ExprBooleanLiteral = 49 => "expr_boolean_literal",
+        ExprNoneLiteral = 50 => "expr_none_literal",
+        ExprEllipsisLiteral = 51 => "expr_ellipsis_literal",
+        ExprAttribute = 52 => "expr_attribute",
+        ExprSubscript = 53 => "expr_subscript",
+        ExprStarred = 54 => "expr_starred",
+        ExprName = 55 => "expr_name",
+        ExprList = 56 => "expr_list",
+        ExprTuple = 57 => "expr_tuple",
+        ExprSlice = 58 => "expr_slice",
+        ExprIpyEscapeCommand = 59 => "expr_ipy_escape_command",
+        ExceptHandlerExceptHandler = 60 => "except_handler_except_handler",
+        InterpolatedElement = 61 => "interpolated_element",
+        InterpolatedStringLiteralElement = 62 => "interpolated_string_literal_element",
+        PatternMatchValue = 63 => "pattern_match_value",
+        PatternMatchSingleton = 64 => "pattern_match_singleton",
+        PatternMatchSequence = 65 => "pattern_match_sequence",
+        PatternMatchMapping = 66 => "pattern_match_mapping",
+        PatternMatchClass = 67 => "pattern_match_class",
+        PatternMatchStar = 68 => "pattern_match_star",
+        PatternMatchAs = 69 => "pattern_match_as",
+        PatternMatchOr = 70 => "pattern_match_or",
+        TypeParamTypeVar = 71 => "type_param_type_var",
+        TypeParamTypeVarTuple = 72 => "type_param_type_var_tuple",
+        TypeParamParamSpec = 73 => "type_param_param_spec",
+        InterpolatedStringFormatSpec = 74 => "interpolated_string_format_spec",
+        PatternArguments = 75 => "pattern_arguments",
+        PatternKeyword = 76 => "pattern_keyword",
+        Comprehension = 77 => "comprehension",
+        Arguments = 78 => "arguments",
+        Parameters = 79 => "parameters",
+        Parameter = 80 => "parameter",
+        ParameterWithDefault = 81 => "parameter_with_default",
+        Keyword = 82 => "keyword",
+        Alias = 83 => "alias",
+        WithItem = 84 => "with_item",
+        MatchCase = 85 => "match_case",
+        Decorator = 86 => "decorator",
+        ElifElseClause = 87 => "elif_else_clause",
+        TypeParams = 88 => "type_params",
+        FString = 89 => "f_string",
+        TString = 90 => "t_string",
+        StringLiteral = 91 => "string_literal",
+        BytesLiteral = 92 => "bytes_literal",
+        Identifier = 93 => "identifier",
+    }
+);
+
+codebook!(
+    /// The field of its placed parent a syntax node sits in (C2).
+    SyntaxField = "syntax_field" {
+        Body = 0 => "body",
+        Orelse = 1 => "orelse",
+        Test = 2 => "test",
+        Handler = 3 => "handler",
+        Finalbody = 4 => "finalbody",
+        Target = 5 => "target",
+        Value = 6 => "value",
+        Exc = 7 => "exc",
+        Cause = 8 => "cause",
+        Msg = 9 => "msg",
+        Subject = 10 => "subject",
+        Case = 11 => "case",
+        Guard = 12 => "guard",
+        Iter = 13 => "iter",
+        Item = 14 => "item",
+        Annotation = 15 => "annotation",
+        Left = 16 => "left",
+        Right = 17 => "right",
+        Operand = 18 => "operand",
+        Slice = 19 => "slice",
+        Callee = 20 => "callee",
+        Argument = 21 => "argument",
+        Decorator = 22 => "decorator",
+        Element = 23 => "element",
+        Child = 24 => "child",
     }
 );
 
@@ -430,6 +571,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<EdgeKind>(),
         CodebookEntry::of::<SymbolKind>(),
         CodebookEntry::of::<DerivationClass>(),
+        CodebookEntry::of::<SyntaxKind>(),
+        CodebookEntry::of::<SyntaxField>(),
     ]
 }
 

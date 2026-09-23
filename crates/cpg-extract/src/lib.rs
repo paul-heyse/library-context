@@ -11,6 +11,7 @@ mod facts;
 pub mod library;
 mod public;
 mod pysa_map;
+mod syntax;
 mod walk;
 
 use std::collections::{BTreeMap, HashMap};
@@ -31,7 +32,7 @@ use cpg_schema::tables::{
     ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
     DistributionsRow, ExportSyntax, Facts, ParameterSemantics, ParameterSyntax, Producers,
     ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, Releases, ReleasesRow, Runs,
-    RunsRow, SourceFiles, SourceFilesRow,
+    RunsRow, SourceFiles, SourceFilesRow, SyntaxNodes,
 };
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
@@ -60,10 +61,11 @@ use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
 use walk::{ModuleCtx, span};
 
 /// The fact families this producer declares (coverage rows exist for each, per module).
-pub const FAMILIES: [FactFamily; 3] = [
+pub const FAMILIES: [FactFamily; 4] = [
     FactFamily::Exports,
     FactFamily::Signatures,
     FactFamily::Calls,
+    FactFamily::Syntax,
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -367,9 +369,6 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             text: &text,
         };
         let clock = Instant::now();
-        let module_walk = walk::walk_module(&ctx, &ast, &mut sink);
-        walk_time += clock.elapsed();
-        let clock = Instant::now();
 
         let resolver = PysaResolver::new(&txn, module_ids, m.handle.clone());
         let context = ModuleContext {
@@ -393,6 +392,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         pysa_map::map_definitions(&here, &defs, &mut sink, &mut module_pysa);
         pysa_map::map_call_graphs(&here, &graphs, &mut sink, &mut module_pysa);
         pysa_time += clock.elapsed();
+        // The walk places a syntax node at every Pysa site range (C2), so it runs second.
+        let clock = Instant::now();
+        let module_walk = walk::walk_module(&ctx, &ast, &mut sink, &module_pysa.site_ranges);
+        walk_time += clock.elapsed();
         if input.keep_pysa_json {
             let mut d = serde_json::to_value(&defs).unwrap_or(Value::Null);
             let mut g = serde_json::to_value(&graphs).unwrap_or(Value::Null);
@@ -510,6 +513,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         walked.parameter_syntax.extend(module_walk.parameter_syntax);
         walked.call_syntax.extend(module_walk.call_syntax);
         walked.arguments.extend(module_walk.arguments);
+        walked.syntax_nodes.extend(module_walk.syntax_nodes);
         pysa.functions.extend(module_pysa.functions);
         pysa.parameters.extend(module_pysa.parameters);
         pysa.ancestry.extend(module_pysa.ancestry);
@@ -585,6 +589,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     dedup_by_fact(&mut walked.parameter_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.call_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.arguments, |r| r.fact_id);
+    dedup_by_fact(&mut walked.syntax_nodes, |r| r.fact_id);
     dedup_by_fact(&mut pysa.functions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.parameters, |r| r.fact_id);
     dedup_by_fact(&mut pysa.ancestry, |r| r.fact_id);
@@ -652,6 +657,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         (
             Arguments::NAME,
             Arguments::to_sorted_batch(&walked.arguments)?,
+        ),
+        (
+            SyntaxNodes::NAME,
+            SyntaxNodes::to_sorted_batch(&walked.syntax_nodes)?,
         ),
         (PysaCalls::NAME, PysaCalls::to_sorted_batch(&pysa.calls)?),
         (Coverage::NAME, Coverage::to_sorted_batch(&report.coverage)?),

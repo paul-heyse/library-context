@@ -4,8 +4,8 @@ expression: "lines.join(\"\\n\")"
 ---
 producer_id a324cb86a336ae5249258bea5104c797
 context_id  4324aa0fdc28105822be36fa3f145f0f
-run_id      52abaea58cd3185746be60749a4e9b96
-source_files[0] lcfix/__init__.py 88f1d865f4c2b2e3490e3c3579a4942f d2de6e95efa839df4c37be01522c9bf8
-declarations[0] lcfix.core.Base 2fe0aee5c0c6aac9055d13dfccdfe2dc 0489443f1ddfdedc78e20c1c972340e0
-parameter_syntax[0] x 1d4d5d7f4548739c9381cdcee92e47b7 c534e99cd6c5d25ea7a71e12be41b1e3
-call_syntax[0] 267 cc40e52b37cb577c0f7867ffa1f0fb2e e62c91fdc88bfeec89d6e93e89b1eaeb
+run_id      1e4986e0a8e09a45ff366d0d4f041dca
+source_files[0] lcfix/__init__.py 88f1d865f4c2b2e3490e3c3579a4942f ce13b56773ea5c60b69eddb97df8b889
+declarations[0] lcfix.core.Base 2fe0aee5c0c6aac9055d13dfccdfe2dc b29ea685c27dbad3cc7af3765c24339e
+parameter_syntax[0] x 1d4d5d7f4548739c9381cdcee92e47b7 01fe73da78db5dcece0b550031d78a1a
+call_syntax[0] 267 cc40e52b37cb577c0f7867ffa1f0fb2e d3d4af40fe6c40cc41e4607dcc5ea74b
