@@ -67,7 +67,9 @@ _Updated 2026-09-22 by the handoff skill._
     19.0 s at 3.93 GB.
   - C5a: the corpus run and the `docs` family (documents, passages, code blocks, links,
     mentions), markdown-rs 1.0; pilot 247,786 nodes, 397,521 edges, 20.7 s at 3.91 GB.
-- **C4 compact review:** running (`design-reviewer`, at `3f0f385` plus the C3 fix).
+  - C4 compact review (`design_review_cpg-c4-types_2026-09-23.md`): F1–F7 fixed with the
+    simpler alternative (term ids from Pyrefly alone, binders derived). The pilot store was
+    rebuilt (the old one is `build/store.pre-c4fix`).
 - **C5b:** the usage run (examples, tests, materialized code blocks), `usage_targets` (probe P4),
   release-scoped joins; then C5's compact review.
 - **C6:** pilot measurement (the ~4 GB peak decides the streaming trigger) and a deep review.

@@ -16,4 +16,6 @@ detail: Utf8 NULL
 class_module: Utf8 NULL
 class_key: Utf8 NULL
 variable: Utf8 NULL
-binder_node_id: FixedSizeBinary(16) NULL
+anchor_module: Utf8 NULL
+anchor_start: Int64 NULL
+anchor_end: Int64 NULL

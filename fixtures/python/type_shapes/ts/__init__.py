@@ -1,9 +1,12 @@
 """Type shapes (CPG slice C4): structure, binders, record fields and raised types."""
 
 import dataclasses
+import enum
+import sys
 from collections.abc import Callable
 from typing import (
     Generic,
+    Literal,
     NamedTuple,
     NotRequired,
     Optional,
@@ -113,3 +116,41 @@ def use(g: Greeter) -> None:
     g.greet("you")
     Point(1)
     Settings(host="h")
+
+
+# C4 review shapes.
+async def fetch(n: int) -> str:  # declared `str`, not the coroutine Pyrefly computes
+    return str(n)
+
+
+B = TypeVar("B", bound=int)
+
+
+def clamp(x: B) -> B:  # `B`'s bound is a child of its term
+    return x
+
+
+class Color(enum.Enum):
+    RED = 1
+
+
+def paint(c: Literal[Color.RED]) -> None: ...
+
+
+@dataclasses.dataclass
+class BaseRec:
+    x: int = 0
+
+
+@dataclasses.dataclass
+class SubRec(BaseRec):
+    def __post_init__(self) -> None:
+        self.x = 1  # an inherited field assigned in a method is still the base's
+
+
+def later(items: list[int]) -> list[int]:
+    return sorted(items, key=lambda i: abs(i))  # a call inside a lambda body
+
+
+if sys.platform == "win32":
+    windows_only = print("never analyzed on linux")

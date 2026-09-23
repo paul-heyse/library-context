@@ -558,7 +558,6 @@ fn run_release(
                 context: &context,
                 solutions: solutions.as_deref(),
                 refs: &refs,
-                module_name: &m.name,
                 module_node_id: m.node_id,
                 walk: &module_walk,
             },
@@ -617,7 +616,7 @@ fn run_release(
             report.boundary(
                 &mut sink,
                 m.node_id,
-                None,
+                miss.subject,
                 FactFamily::Types,
                 miss.reason,
                 Some(miss.span),

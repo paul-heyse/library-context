@@ -2,10 +2,14 @@
 //! §3.5.1).
 //!
 //! A `Type` becomes a term per distinct structure: `type_terms` (one row per term) and
-//! `type_term_args` (its children). The term id is a Merkle id over kind, display, detail, class,
-//! type-variable identity, binder and the children's ids, so the same structure anywhere is one
-//! node. A class is a (module ref, class key) pair and a recursive alias a reference to its name,
-//! so a term is finite; a depth cap makes that a guarantee rather than an expectation.
+//! `type_term_args` (its children). The term id is a Merkle id over Pyrefly's own structure and
+//! identities (kind, detail, class, and the children's ids), so the same structure anywhere is one
+//! node; the display is a label. A type variable's id is Pyrefly's identity for it alone, so it is
+//! one term wherever it is observed; its bound, constraints and default are its children, walked
+//! once. A class is a (module ref, class key) pair and a recursive alias a reference to its name,
+//! so a term is finite; a depth cap makes that a guarantee rather than an expectation. Two
+//! structures that share an id but display differently are both emitted, so `key:nodes` fails
+//! instead of one silently standing for the other.
 //!
 //! Observations attach terms to the walker's nodes by exact span or name: parameters and returns
 //! of every `def`, call results, argument values and raised exceptions. Record fields come from
@@ -26,17 +30,20 @@ use cpg_schema::tables::{
 };
 use pyrefly::alt::answers::Solutions;
 use pyrefly::alt::types::class_metadata::DataclassKind;
+use pyrefly::binding::binding::ClassFieldDefinition;
 use pyrefly::binding::binding::{Key, KeyClassMetadata};
 use pyrefly::report::pysa::class::{
-    ClassRef, get_all_classes, get_class_field_from_current_class_only,
+    ClassRef, get_all_classes, get_class_field_declaration, get_class_field_from_current_class_only,
 };
 use pyrefly::report::pysa::context::ModuleContext;
 use pyrefly::report::pysa::function::get_all_decorated_functions;
 use pyrefly_types::callable::{Callable, Param, ParamList, Params, PrefixParam, Required};
 use pyrefly_types::class::Class;
+use pyrefly_types::literal::Lit;
 use pyrefly_types::quantified::{Quantified, QuantifiedKind, QuantifiedOrigin};
 use pyrefly_types::tuple::Tuple;
 use pyrefly_types::type_alias::TypeAliasData;
+use pyrefly_types::type_var::Restriction;
 use pyrefly_types::typed_dict::TypedDict;
 use pyrefly_types::types::{
     AnyStyle, BoundMethodType, Forallable, NeverStyle, OverloadType, TArgs, Type,
@@ -58,13 +65,15 @@ pub(crate) struct TypesOut {
     pub args: Vec<TypeTermArgsRow>,
     pub observations: Vec<TypeObservationsRow>,
     pub fields: Vec<RecordFieldsRow>,
-    /// Terms already emitted in this run.
-    emitted: HashSet<Id>,
+    /// Terms already emitted in this run, with their display.
+    emitted: HashMap<Id, String>,
 }
 
-/// Something the provider describes that the walker's nodes do not carry: a boundary.
+/// Something the provider does not give, or the walker's nodes do not carry: a boundary.
 pub(crate) struct Miss {
     pub reason: BoundaryReason,
+    /// The call site or declaration it concerns, when it has one.
+    pub subject: Option<Id>,
     pub span: (i64, i64),
     pub detail: String,
 }
@@ -73,7 +82,6 @@ pub(crate) struct ModuleTypes<'a> {
     pub context: &'a ModuleContext<'a>,
     pub solutions: Option<&'a Solutions>,
     pub refs: &'a ModuleRefs,
-    pub module_name: &'a str,
     pub module_node_id: Id,
     pub walk: &'a WalkOut,
 }
@@ -99,33 +107,15 @@ fn span(r: TextRange) -> (i64, i64) {
     (i64::from(r.start().to_u32()), i64::from(r.end().to_u32()))
 }
 
-/// A `def` or `class` header (decorators through the colon: signature, bases, type parameters)
-/// and whether a `def` annotates its return.
-struct Header {
-    name: TextRange,
-    header: TextRange,
-    returns: bool,
-}
-
+/// Each `def`'s name span → whether it annotates its return, and whether it is `async`.
 #[derive(Default)]
-struct Headers(Vec<Header>);
+struct Defs(HashMap<(i64, i64), (bool, bool)>);
 
-impl<'a> StatementVisitor<'a> for Headers {
+impl<'a> StatementVisitor<'a> for Defs {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        let declaration = if let Stmt::FunctionDef(f) = stmt {
-            Some((f.name.range(), &f.body, f.returns.is_some()))
-        } else if let Stmt::ClassDef(c) = stmt {
-            Some((c.name.range(), &c.body, false))
-        } else {
-            None
-        };
-        if let Some((name, body, returns)) = declaration {
-            let end = body.first().map_or(stmt.end(), Ranged::start);
-            self.0.push(Header {
-                name,
-                header: TextRange::new(stmt.start(), end),
-                returns,
-            });
+        if let Stmt::FunctionDef(f) = stmt {
+            self.0
+                .insert(span(f.name.range()), (f.returns.is_some(), f.is_async));
         }
         walk_stmt(self, stmt);
     }
@@ -137,7 +127,8 @@ struct Term {
     detail: Option<String>,
     class: Option<(String, String)>,
     variable: Option<String>,
-    binder: Option<Id>,
+    /// A source-anchored variable's scope anchor: module, start, end.
+    anchor: Option<(String, i64, i64)>,
     args: Vec<Arg>,
 }
 
@@ -157,7 +148,7 @@ impl Term {
             detail: None,
             class: None,
             variable: None,
-            binder: None,
+            anchor: None,
             args: Vec::new(),
         }
     }
@@ -206,9 +197,6 @@ struct Builder<'a, 'o> {
     m: &'a ModuleTypes<'a>,
     sink: &'o mut FactSink,
     out: &'o mut TypesOut,
-    headers: &'a [Header],
-    /// Each declaration's name span → its node id.
-    decls: &'a HashMap<(i64, i64), Id>,
 }
 
 impl Builder<'_, '_> {
@@ -218,25 +206,8 @@ impl Builder<'_, '_> {
             .class_pair(&ClassRef::from_class(class, self.m.context))
     }
 
-    /// The `def` or `class` of this module whose header holds the variable's scope anchor.
-    fn binder(&self, q: &Quantified) -> Option<Id> {
-        let identity = q.identity();
-        let anchored = match identity.origin {
-            QuantifiedOrigin::ScopedLegacy | QuantifiedOrigin::Pep695 => true,
-            QuantifiedOrigin::Synthetic { .. }
-            | QuantifiedOrigin::MapIntTuplesParameter
-            | QuantifiedOrigin::NormalizedMapIntTuplesParameter => false,
-        };
-        if !anchored || identity.module.as_str() != self.m.module_name {
-            return None;
-        }
-        let anchor = identity.anchor.range;
-        self.headers
-            .iter()
-            .find(|h| h.header.contains_range(anchor))
-            .and_then(|h| self.decls.get(&span(h.name)).copied())
-    }
-
+    /// A variable's term: Pyrefly's identity, and for a source-anchored one its scope anchor, where
+    /// Stage D finds the binder (`type_binders`).
     fn variable(&self, q: &Quantified, kind: TypeTermKind, detail: String) -> Term {
         let identity = q.identity();
         let mut t = Term::new(kind).detail(detail);
@@ -248,7 +219,16 @@ impl Builder<'_, '_> {
             identity.anchor.index,
             origin(identity.origin)
         ));
-        t.binder = self.binder(q);
+        let anchored = match identity.origin {
+            QuantifiedOrigin::ScopedLegacy | QuantifiedOrigin::Pep695 => true,
+            QuantifiedOrigin::Synthetic { .. }
+            | QuantifiedOrigin::MapIntTuplesParameter
+            | QuantifiedOrigin::NormalizedMapIntTuplesParameter => false,
+        };
+        if anchored {
+            let (start, end) = span(identity.anchor.range);
+            t.anchor = Some((identity.module.to_string(), start, end));
+        }
         t
     }
 
@@ -387,16 +367,26 @@ impl Builder<'_, '_> {
     /// The term for `ty`: its id, with its rows emitted once per run.
     fn term(&mut self, ty: &Type, depth: u32) -> Id {
         if depth > MAX_DEPTH {
-            return self.finish(ty, Term::new(TypeTermKind::Truncated));
+            return self.finish(ty, Term::new(TypeTermKind::Truncated), depth);
         }
         let t = self.build(ty, depth);
-        self.finish(ty, t)
+        self.finish(ty, t, depth)
     }
 
     fn build(&mut self, ty: &Type, depth: u32) -> Term {
         use TypeTermKind as K;
         match ty {
-            Type::Literal(_) => Term::new(K::Literal).detail(ty.to_string()),
+            Type::Literal(lit) => match &lit.value {
+                // An enum member keeps its class, so same-named enums stay apart (C4 review F5).
+                Lit::Enum(e) => {
+                    let mut t = Term::new(K::Literal).detail(e.member.to_string());
+                    t.class = Some(self.class_ref(e.class.class_object()));
+                    t
+                }
+                Lit::Str(_) | Lit::Int(_) | Lit::Bool(_) | Lit::Bytes(_) => {
+                    Term::new(K::Literal).detail(ty.to_string())
+                }
+            },
             Type::LiteralString(_) => Term::new(K::Literal).detail("LiteralString"),
             Type::Callable(c) => {
                 let mut t = Term::new(K::Callable);
@@ -433,6 +423,10 @@ impl Builder<'_, '_> {
             }
             Type::Union(u) => {
                 let mut t = Term::new(K::Union);
+                // A union an alias names displays as the alias: the name is part of the term.
+                if let Some((module, name)) = &u.display_name.0 {
+                    t.detail = Some(format!("{module}.{name}"));
+                }
                 for (i, m) in u.members.iter().enumerate() {
                     self.arg(&mut t, TypeArgRole::Member, i, m, depth);
                 }
@@ -524,7 +518,7 @@ impl Builder<'_, '_> {
             Type::Forall(f) => {
                 let mut t = Term::new(K::Generic);
                 for (i, q) in f.tparams.as_vec().iter().enumerate() {
-                    let child = self.finish_quantified(q);
+                    let child = self.finish_quantified(q, depth + 1);
                     t.args.push(Arg {
                         role: TypeArgRole::TypeParameter,
                         ordinal: i as i64,
@@ -649,38 +643,66 @@ impl Builder<'_, '_> {
         }
     }
 
-    fn finish_quantified(&mut self, q: &Quantified) -> Id {
+    fn finish_quantified(&mut self, q: &Quantified, depth: u32) -> Id {
         let t = self.quantified(q);
-        self.finish(&Type::Quantified(Box::new(q.clone())), t)
+        self.finish(&Type::Quantified(Box::new(q.clone())), t, depth)
     }
 
-    /// Hash the term, emit its rows once, and return its id.
-    fn finish(&mut self, ty: &Type, t: Term) -> Id {
+    /// A variable's bound, constraints and default, as its children.
+    fn restriction(&mut self, t: &mut Term, q: &Quantified, depth: u32) {
+        match &q.restriction {
+            Restriction::Bound(b) => self.arg(t, TypeArgRole::Bound, 0, b, depth),
+            Restriction::Constraints(cs) => {
+                for (i, c) in cs.iter().enumerate() {
+                    self.arg(t, TypeArgRole::Constraint, i, c, depth);
+                }
+            }
+            Restriction::ShapeExtension(_) | Restriction::Unrestricted => {}
+        }
+        if let Some(d) = &q.default {
+            self.arg(t, TypeArgRole::Default, 0, d, depth);
+        }
+    }
+
+    /// Hash the term, emit its rows once, and return its id. A structured term hashes Pyrefly's
+    /// structure and identities; a display-only one its display; a variable its identity alone,
+    /// with its bound, constraints and default walked after its id is claimed (a bound may name
+    /// the variable itself).
+    fn finish(&mut self, ty: &Type, mut t: Term, depth: u32) -> Id {
         let display = ty.to_string();
         let (class_module, class_key) = t.class.clone().unzip();
+        let display_only = matches!(t.kind, TypeTermKind::Other | TypeTermKind::Truncated);
         let mut h = IdHasher::new(kind::TYPE);
         h.i64(i64::from(cpg_schema::Codebook::code(t.kind)))
-            .str(&display)
+            .opt_str(display_only.then_some(display.as_str()))
             .opt_str(t.detail.as_deref())
             .opt_str(class_module.as_deref())
             .opt_str(class_key.as_deref())
-            .opt_str(t.variable.as_deref())
-            .opt_id(t.binder)
-            .i64(t.args.len() as i64);
-        for a in &t.args {
-            h.i64(i64::from(cpg_schema::Codebook::code(a.role)))
-                .i64(a.ordinal)
-                .id(a.child)
-                .opt_str(a.name.as_deref())
-                .opt_i64(
-                    a.parameter_kind
-                        .map(|k| i64::from(cpg_schema::Codebook::code(k))),
-                )
-                .opt_bool(a.required);
+            .opt_str(t.variable.as_deref());
+        if t.variable.is_none() {
+            h.i64(t.args.len() as i64);
+            for a in &t.args {
+                h.i64(i64::from(cpg_schema::Codebook::code(a.role)))
+                    .i64(a.ordinal)
+                    .id(a.child)
+                    .opt_str(a.name.as_deref())
+                    .opt_i64(
+                        a.parameter_kind
+                            .map(|k| i64::from(cpg_schema::Codebook::code(k))),
+                    )
+                    .opt_bool(a.required);
+            }
         }
         let node_id = h.finish_id();
-        if !self.out.emitted.insert(node_id) {
-            return node_id;
+        match self.out.emitted.get(&node_id) {
+            // Emitted already. A different display for one id is a collision: emit it too, so
+            // `key:nodes` rejects the snapshot rather than one term standing for another.
+            Some(seen) if *seen == display || t.variable.is_some() => return node_id,
+            Some(_) | None => {}
+        }
+        self.out.emitted.insert(node_id, display.clone());
+        if let Type::Quantified(q) = ty {
+            self.restriction(&mut t, q, depth);
         }
         let fidelity = match t.kind {
             TypeTermKind::Other | TypeTermKind::Truncated => Fidelity::DisplayOnly,
@@ -725,7 +747,9 @@ impl Builder<'_, '_> {
                 class_module,
                 class_key,
                 variable: t.variable,
-                binder_node_id: t.binder,
+                anchor_module: t.anchor.as_ref().map(|a| a.0.clone()),
+                anchor_start: t.anchor.as_ref().map(|a| a.1),
+                anchor_end: t.anchor.as_ref().map(|a| a.2),
             }
         );
         self.out.terms.push(row);
@@ -780,8 +804,8 @@ pub(crate) fn module_types(
 ) -> Vec<Miss> {
     let mut misses = Vec::new();
     let ctx = &m.context.answers_context;
-    let mut headers = Headers::default();
-    headers.visit_body(&ast.body);
+    let mut defs = Defs::default();
+    defs.visit_body(&ast.body);
     let decls: HashMap<(i64, i64), Id> = m
         .walk
         .declarations
@@ -795,11 +819,6 @@ pub(crate) fn module_types(
         .filter(|d| d.kind == DeclarationKind::Class)
         .map(|d| ((d.name_start_byte, d.name_end_byte), d.node_id))
         .collect();
-    let returns: HashMap<(i64, i64), bool> = headers
-        .0
-        .iter()
-        .map(|h| (span(h.name), h.returns))
-        .collect();
     let params: HashMap<(Id, &str), (Id, bool)> = m
         .walk
         .parameter_syntax
@@ -811,13 +830,7 @@ pub(crate) fn module_types(
             )
         })
         .collect();
-    let mut b = Builder {
-        m,
-        sink,
-        out,
-        headers: &headers.0,
-        decls: &decls,
-    };
+    let mut b = Builder { m, sink, out };
 
     // Parameters and returns of every `def`.
     for f in get_all_decorated_functions(ctx) {
@@ -825,6 +838,7 @@ pub(crate) fn module_types(
         let Some(&function) = decls.get(&name) else {
             misses.push(Miss {
                 reason: BoundaryReason::MissingEvidence,
+                subject: None,
                 span: name,
                 detail: "a def Pyrefly types has no declaration".to_owned(),
             });
@@ -838,6 +852,7 @@ pub(crate) fn module_types(
                 }
                 None => misses.push(Miss {
                     reason: BoundaryReason::MissingEvidence,
+                    subject: Some(function),
                     span: name,
                     detail: format!("parameter `{pname}` has no parameter node"),
                 }),
@@ -847,8 +862,28 @@ pub(crate) fn module_types(
             .bindings
             .key_to_idx(&Key::ReturnType(f.undecorated.identifier));
         if let Some(ret) = ctx.answers.get_type_at(idx) {
-            let declared = returns.get(&name).copied().unwrap_or(false);
-            b.observe(function, TypeRole::Return, declared, &ret);
+            let (annotated, is_async) = defs.0.get(&name).copied().unwrap_or((false, false));
+            // `Key::ReturnType` is the computed return: for an annotated `async def` that is not a
+            // generator Pyrefly wraps the annotation as `Coroutine[Any, Any, <annotation>]` with
+            // implicit `Any`s (`return_type_from_annotation`). The declared type is the annotation,
+            // so that one rule is inverted exactly (C4 review F2).
+            let declared_ty = match (annotated, is_async, &ret) {
+                (true, true, Type::ClassType(c))
+                    if c.has_qname("typing", "Coroutine")
+                        && matches!(
+                            c.targs().as_slice(),
+                            [
+                                Type::Any(AnyStyle::Implicit),
+                                Type::Any(AnyStyle::Implicit),
+                                _
+                            ]
+                        ) =>
+                {
+                    c.targs().as_slice()[2].clone()
+                }
+                _ => ret,
+            };
+            b.observe(function, TypeRole::Return, annotated, &declared_ty);
         }
     }
 
@@ -864,16 +899,31 @@ pub(crate) fn module_types(
         if c.in_annotation {
             continue;
         }
-        if let Some(t) = ctx.answers.get_type_trace(range(c.start_byte, c.end_byte)) {
-            b.observe(c.node_id, TypeRole::CallResult, false, &t);
+        // A subject Pyrefly records no type for is a boundary, never a silent gap (C4 review F4):
+        // typically code Pyrefly skips in this context (another platform's branch), a call inside
+        // a lambda, or a `TypeVar(...)` declaration.
+        match ctx.answers.get_type_trace(range(c.start_byte, c.end_byte)) {
+            Some(t) => b.observe(c.node_id, TypeRole::CallResult, false, &t),
+            None => misses.push(Miss {
+                reason: BoundaryReason::MissingEvidence,
+                subject: Some(c.node_id),
+                span: (c.start_byte, c.end_byte),
+                detail: "Pyrefly records no type for this call's result".to_owned(),
+            }),
         }
     }
     for (argument, call, value) in &m.walk.argument_values {
         if in_annotation.contains(call) {
             continue;
         }
-        if let Some(t) = ctx.answers.get_type_trace(*value) {
-            b.observe(*argument, TypeRole::Argument, false, &t);
+        match ctx.answers.get_type_trace(*value) {
+            Some(t) => b.observe(*argument, TypeRole::Argument, false, &t),
+            None => misses.push(Miss {
+                reason: BoundaryReason::MissingEvidence,
+                subject: Some(*call),
+                span: span(*value),
+                detail: "Pyrefly records no type for this argument's value".to_owned(),
+            }),
         }
     }
     let raises: HashSet<Id> = m
@@ -888,13 +938,25 @@ pub(crate) fn module_types(
         if s.field != SyntaxField::Exc || !raises.contains(&parent) {
             continue;
         }
-        if let Some(t) = ctx.answers.get_type_trace(range(s.start_byte, s.end_byte)) {
-            b.observe(parent, TypeRole::Raised, false, &t);
+        match ctx.answers.get_type_trace(range(s.start_byte, s.end_byte)) {
+            Some(t) => b.observe(parent, TypeRole::Raised, false, &t),
+            None => misses.push(Miss {
+                reason: BoundaryReason::MissingEvidence,
+                subject: None,
+                span: (s.start_byte, s.end_byte),
+                detail: "Pyrefly records no type for this raised exception".to_owned(),
+            }),
         }
     }
 
     // Record fields: the fields each record class declares itself.
     let Some(solutions) = m.solutions else {
+        misses.push(Miss {
+            reason: BoundaryReason::NativeUnavailable,
+            subject: None,
+            span: (0, 0),
+            detail: "Pyrefly has no solutions for this module: no record fields".to_owned(),
+        });
         return misses;
     };
     let heap = ctx.answers.heap();
@@ -936,6 +998,7 @@ pub(crate) fn module_types(
         let Some(&class_node_id) = classes.get(&class_span) else {
             misses.push(Miss {
                 reason: BoundaryReason::NoSourceDeclaration,
+                subject: None,
                 span: class_span,
                 detail: format!(
                     "record fields of `{}`, a class with no `class` statement",
@@ -947,10 +1010,16 @@ pub(crate) fn module_types(
         let class_fields = &ctx.bindings.metadata().get_class(class.index()).fields;
         for (ordinal, (name, total)) in names.iter().enumerate() {
             let pname = ruff_python_ast::name::Name::new(name);
-            // An inherited field is its base's row.
+            // An inherited field is its base's row, even when this class assigns it in a method
+            // (C4 review F6).
             let Some(field) = get_class_field_from_current_class_only(&class, &pname, ctx) else {
                 continue;
             };
+            if get_class_field_declaration(&class, &pname, ctx).is_some_and(|d| {
+                matches!(d.definition, ClassFieldDefinition::DefinedInMethod { .. })
+            }) {
+                continue;
+            }
             let term_node_id = b.term(&field.ty(), 0);
             let decl = class_fields.field_decl_range(&pname).map(span);
             let (mut has_default, mut init, mut alias, mut kw_only) = (None, None, None, None);

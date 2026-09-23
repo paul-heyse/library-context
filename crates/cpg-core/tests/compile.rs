@@ -88,7 +88,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
-    assert_eq!(versions.len(), 36 + 20, "every raw and derived table");
+    assert_eq!(versions.len(), 36 + 21, "every raw and derived table");
 
     // A second attempt fails validation after writing its rows: it publishes nothing.
     let mut raw_b = raw("pysa_variants", b);
@@ -679,6 +679,73 @@ async fn every_rule_kind_rejects_its_violation() {
         assert!(resolve(root.path(), s).await.unwrap().is_none(), "{rule}");
     }
     // The unmutated snapshot passes every rule.
+    let root = tempfile::tempdir().unwrap();
+    compile(root.path(), s, &base).await.unwrap();
+}
+
+/// The C4 rules reject their violations on `type_shapes`, which has records and type variables
+/// (C4 review F1, F3, and the `id:record_fields` case it asked for).
+#[tokio::test]
+async fn the_types_rules_reject_their_violations() {
+    let s = Id([9; 16]);
+    let base = raw("type_shapes", s);
+    type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
+    let cases: [(&str, Mutation); 3] = [
+        // A class reference nothing defines is our failure, never a catch-all reason.
+        ("typed:type_class_targets", |raw| {
+            let b = table(raw, "type_terms");
+            let i = b.schema().index_of("class_key").unwrap();
+            let moved: arrow_array::StringArray = b
+                .column(i)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap()
+                .iter()
+                .map(|k| k.map(|_| "999999"))
+                .collect();
+            *b = replace(b, "class_key", Arc::new(moved));
+        }),
+        // An anchor inside a release module that nothing holds is our failure too.
+        ("typed:type_binders", |raw| {
+            let b = table(raw, "type_terms");
+            for column in ["anchor_start", "anchor_end"] {
+                let i = b.schema().index_of(column).unwrap();
+                let moved: Int64Array = b
+                    .column(i)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.map(|v| v + 1_000_000))
+                    .collect();
+                *b = replace(b, column, Arc::new(moved));
+            }
+        }),
+        ("id:record_fields", |raw| {
+            let b = table(raw, "record_fields");
+            let names: arrow_array::StringArray = b
+                .column(b.schema().index_of("name").unwrap())
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap()
+                .iter()
+                .map(|n| n.map(|n| format!("{n}_renamed")))
+                .collect();
+            *b = replace(b, "name", Arc::new(names));
+        }),
+    ];
+    for (rule, mutate) in cases {
+        let root = tempfile::tempdir().unwrap();
+        let mut raw = base.clone();
+        mutate(&mut raw);
+        match compile(root.path(), s, &raw).await {
+            Err(CoreError::Invalid(violations)) => assert!(
+                violations.iter().any(|v| v.rule.starts_with(rule)),
+                "{rule}: {violations:?}"
+            ),
+            other => panic!("{rule}: expected a validation failure, got {other:?}"),
+        }
+    }
     let root = tempfile::tempdir().unwrap();
     compile(root.path(), s, &base).await.unwrap();
 }

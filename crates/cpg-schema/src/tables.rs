@@ -746,11 +746,13 @@ table!(
 
 table!(
     /// Distinct type terms from Pyrefly's native types (`pyrefly-types`; CPG slice C4, DESIGN
-    /// §3.2). The id is `H(type, kind, display, detail, class, variable, binder, children…)`: a
-    /// Merkle id over the structure `type_term_args` lists, so one structure is one term. A class is
-    /// a (module ref, class key) pair, never an expansion, and a recursive alias is a reference to
-    /// its name, so every term is finite. A type variable keeps Pyrefly's own identity and its
-    /// binder, so two unrelated `T`s are two terms (§3.4).
+    /// §3.2). The id is `H(type, kind, detail, class, children…)`: a Merkle id over Pyrefly's own
+    /// structure and identities (`type_term_args`), so one structure is one term; the display is a
+    /// label, not identity. A class is a (module ref, class key) pair, never an expansion, and a
+    /// recursive alias is a reference to its name, so every term is finite. A type variable's id is
+    /// Pyrefly's own identity (`QuantifiedIdentity`), so two unrelated `T`s are two terms and one
+    /// variable is one term wherever it is observed (C4 review F3); its bound, constraints and
+    /// default are its children.
     TypeTerms, TypeTermsRow = "type_terms",
     family = Types,
     key = [snapshot_id, node_id, fact_id],
@@ -772,9 +774,11 @@ table!(
         /// A type variable's identity as Pyrefly keys it: `<module>:<start>-<end>#<index>/<origin>`
         /// (its scope anchor; deterministic, from source positions).
         variable: Option<String>,
-        /// The `def` or `class` of this module whose scope binds the type variable; null for a
-        /// variable anchored elsewhere (an alias, another module, a synthesized one).
-        binder_node_id: Option<Id>,
+        /// A source-anchored type variable's scope anchor (Pyrefly's): the module and byte span
+        /// Stage D finds the binder at (`type_binders`). Null for a synthesized variable.
+        anchor_module: Option<String>,
+        anchor_start: Option<i64>,
+        anchor_end: Option<i64>,
     }
 );
 

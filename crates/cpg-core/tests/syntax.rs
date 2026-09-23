@@ -319,12 +319,31 @@ async fn types_keep_structure_binders_and_record_fields() {
         ),
     )
     .await;
-    out += "## type variables: display | kind | variable | binder\n";
+    out += "## type variables: display | kind | variable | binder | reason\n";
     out += &lines(
         &ctx,
-        "SELECT t.display, CAST(t.kind AS VARCHAR), t.variable, d.qualified_name \
-         FROM type_terms t LEFT JOIN declarations d ON d.node_id = t.binder_node_id \
+        "SELECT t.display, CAST(t.kind AS VARCHAR), t.variable, \
+                COALESCE(d.qualified_name, CAST(sn.kind AS VARCHAR)), CAST(b.reason AS VARCHAR) \
+         FROM type_terms t LEFT JOIN type_binders b ON b.term_node_id = t.node_id \
+         LEFT JOIN declarations d ON d.node_id = b.binder_node_id \
+         LEFT JOIN syntax_nodes sn ON sn.node_id = b.binder_node_id AND d.node_id IS NULL \
          WHERE t.variable IS NOT NULL ORDER BY t.variable, t.display",
+    )
+    .await;
+    out += "## variable children: variable | role | child\n";
+    out += &lines(
+        &ctx,
+        "SELECT p.display, CAST(a.role AS VARCHAR), c.display \
+         FROM type_term_args a JOIN type_terms p ON p.node_id = a.parent_node_id \
+         JOIN type_terms c ON c.node_id = a.child_node_id \
+         WHERE p.variable IS NOT NULL ORDER BY 1, 2, 3",
+    )
+    .await;
+    out += "## types boundaries: reason | span | detail\n";
+    out += &lines(
+        &ctx,
+        "SELECT CAST(reason AS VARCHAR), CAST(start_byte AS VARCHAR) AS s, detail \
+         FROM boundaries WHERE fact_family = 9 ORDER BY start_byte, detail",
     )
     .await;
     out += "## classes: term | class\n";
@@ -379,7 +398,8 @@ async fn types_keep_structure_binders_and_record_fields() {
         &ctx,
         "SELECT DISTINCT d.qualified_name FROM type_observations o \
          JOIN type_terms t ON t.node_id = o.term_node_id \
-         JOIN declarations d ON d.node_id = t.binder_node_id \
+         JOIN type_binders b ON b.term_node_id = t.node_id \
+         JOIN declarations d ON d.node_id = b.binder_node_id \
          JOIN declarations f ON f.node_id = o.subject_node_id \
          WHERE o.role = 1 AND t.display = 'T' AND f.qualified_name IN ('ts.first', 'ts.ident') \
          ORDER BY 1",
@@ -388,6 +408,27 @@ async fn types_keep_structure_binders_and_record_fields() {
     assert_eq!(ts, "ts.first\nts.ident\n");
     let truncated = lines(&ctx, "SELECT count(*) FROM type_terms WHERE kind = 27").await;
     assert_eq!(truncated, "0\n");
+    // One variable is one term wherever it is observed (C4 review F3); `P`, `P.args` and
+    // `P.kwargs` are three forms of one variable.
+    let split = lines(
+        &ctx,
+        "SELECT variable FROM type_terms WHERE variable IS NOT NULL \
+         GROUP BY variable, kind, detail HAVING count(DISTINCT node_id) > 1",
+    )
+    .await;
+    assert_eq!(split, "");
+    // Two same-named enums are two literal terms, each with its class (C4 review F5).
+    let enums = lines(
+        &ctx,
+        &format!(
+            "SELECT count(DISTINCT t.node_id) FROM type_terms t JOIN edges e \
+               ON e.src_node_id = t.node_id AND e.edge_kind = {} \
+             WHERE t.kind = 11 AND t.detail = 'RED'",
+            EdgeKind::TypeClass.code()
+        ),
+    )
+    .await;
+    assert_eq!(enums, "2\n");
 }
 
 /// C5 (DESIGN §3.2 `docs`): a corpus run beside the library run. The documents the selection

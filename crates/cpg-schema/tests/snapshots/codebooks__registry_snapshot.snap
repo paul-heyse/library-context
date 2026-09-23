@@ -433,6 +433,9 @@ type_arg_role
   9 type_parameter
   10 target
   11 param_spec
+  12 bound
+  13 constraint
+  14 default
 type_role
   0 parameter
   1 return

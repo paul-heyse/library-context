@@ -713,6 +713,12 @@ codebook!(
         Target = 10 => "target",
         /// The `ParamSpec` standing for a callable's remaining parameters.
         ParamSpec = 11 => "param_spec",
+        /// A type variable's upper bound (C4 review F5).
+        Bound = 12 => "bound",
+        /// One of a type variable's constraints.
+        Constraint = 13 => "constraint",
+        /// A type variable's default.
+        Default = 14 => "default",
     }
 );
 

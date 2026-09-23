@@ -622,9 +622,9 @@ table!(
     /// Each Pysa target of a call site (higher-order argument targets included, with their
     /// argument): the node it names, which is always typed (DESIGN §3.8; ADR-0014). A function of
     /// the release is its declaration (Stage C) or a synthetic callable; any other is a dependency
-    /// definition. A null target always carries a reason: Stage C's, or `missing_evidence` when
-    /// no definition has the key. Modality, origin and phase stay on the Pysa row and its `facts`
-    /// row.
+    /// definition. A null target carries Stage C's reason, or none when no definition has the key
+    /// (our failure, which `typed:call_targets` rejects; ADR-0014 review F1). Modality, origin and
+    /// phase stay on the Pysa row and its `facts` row.
     CallTargets, CallTargetsRow = "call_targets",
     family = Calls,
     key = [snapshot_id, call_site_node_id, pysa_fact_id],
@@ -710,8 +710,9 @@ impl Derived for AncestryTargets {
 
 table!(
     /// Each type term's class resolved to a node (C4, DESIGN §3.8): a class of the release (Stage
-    /// C for classes) or a dependency definition. An unresolved class carries a reason: Stage C's,
-    /// or `missing_evidence` when no definition has the key.
+    /// C for classes) or a dependency definition. A class Stage C maps to no node carries Stage C's
+    /// reason; one no definition has is our failure, a null class with a null reason that
+    /// `typed:type_class_targets` rejects (C4 review F1: no catch-all).
     TypeClassTargets, TypeClassTargetsRow = "type_class_targets",
     family = Types,
     key = [snapshot_id, term_node_id],
@@ -732,8 +733,8 @@ impl Derived for TypeClassTargets {
              SELECT t.node_id AS term_node_id, t.fact_id AS term_fact_id, \
                     COALESCE(m.node_id, e.symbol_node_id) AS class_node_id, \
                     CAST(CASE WHEN COALESCE(m.node_id, e.symbol_node_id) IS NOT NULL THEN NULL \
-                              WHEN m.class_key IS NOT NULL THEN m.reason \
-                              ELSE {missing} END AS SMALLINT) AS reason \
+                              WHEN m.class_key IS NOT NULL THEN m.reason END AS SMALLINT) \
+                      AS reason \
              FROM type_terms t \
              LEFT JOIN source_files f ON t.class_module = '@' || f.path \
              LEFT JOIN provider_class_map m \
@@ -743,7 +744,6 @@ impl Derived for TypeClassTargets {
               AND e.key = t.class_key \
              WHERE t.class_module IS NOT NULL",
             external = external(DefinitionKind::Class),
-            missing = c(BoundaryReason::MissingEvidence),
         )
     }
 }
@@ -782,6 +782,64 @@ impl Derived for MentionTargets {
              LEFT JOIN exported e ON e.access_path = m.access_path \
              LEFT JOIN ranked r ON r.pick = 1 AND r.qualified_name = m.qualified_name",
             rank = seed_rank("d.qualified_name"),
+        )
+    }
+}
+
+table!(
+    /// Each source-anchored type variable's binder (C4 review F3; DESIGN §3.2): the innermost
+    /// release declaration, or type-alias or assignment statement, whose span holds Pyrefly's scope
+    /// anchor (a `.py` before its `.pyi` on a tie). Our join, so a `joined` fact, not Pyrefly's. An
+    /// anchor in no release module is outside the analyzed universe (`scope_boundary`); an anchor
+    /// in a release module that nothing holds is our failure: a null binder with a null reason,
+    /// which `typed:type_binders` rejects.
+    TypeBinders, TypeBindersRow = "type_binders",
+    family = Types,
+    key = [snapshot_id, term_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        term_node_id: Id,
+        term_fact_id: Id,
+        binder_node_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+impl Derived for TypeBinders {
+    fn sql() -> String {
+        format!(
+            "WITH anchored AS ( \
+               SELECT DISTINCT node_id, fact_id, anchor_module, anchor_start, anchor_end \
+               FROM type_terms WHERE anchor_module IS NOT NULL), \
+             holders AS ( \
+               SELECT f.module_name, f.is_stub, d.node_id, d.start_byte, d.end_byte \
+               FROM declarations d JOIN source_files f ON f.module_node_id = d.module_node_id \
+               UNION ALL \
+               SELECT f.module_name, f.is_stub, s.node_id, s.start_byte, s.end_byte \
+               FROM syntax_nodes s JOIN source_files f ON f.module_node_id = s.module_node_id \
+               WHERE s.kind IN ({alias}, {assign}, {ann_assign})), \
+             ranked AS ( \
+               SELECT a.node_id AS term_node_id, h.node_id AS binder_node_id, \
+                      row_number() OVER (PARTITION BY a.node_id \
+                                         ORDER BY h.end_byte - h.start_byte, h.is_stub, \
+                                                  h.node_id \
+                                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) \
+                        AS pick \
+               FROM anchored a JOIN holders h \
+                 ON h.module_name = a.anchor_module AND h.start_byte <= a.anchor_start \
+                AND a.anchor_end <= h.end_byte), \
+             release_modules AS (SELECT DISTINCT module_name FROM source_files) \
+             SELECT a.node_id AS term_node_id, a.fact_id AS term_fact_id, r.binder_node_id, \
+                    CAST(CASE WHEN r.binder_node_id IS NULL AND m.module_name IS NULL \
+                              THEN {outside} END AS SMALLINT) AS reason \
+             FROM anchored a \
+             LEFT JOIN ranked r ON r.term_node_id = a.node_id AND r.pick = 1 \
+             LEFT JOIN release_modules m ON m.module_name = a.anchor_module",
+            alias = c(SyntaxKind::StmtTypeAlias),
+            assign = c(SyntaxKind::StmtAssign),
+            ann_assign = c(SyntaxKind::StmtAnnAssign),
+            outside = c(BoundaryReason::ScopeBoundary),
         )
     }
 }
@@ -1021,6 +1079,7 @@ macro_rules! for_each_derived_table {
             $crate::derived::IdentifierTargets,
             $crate::derived::ImportTargets,
             $crate::derived::TypeClassTargets,
+            $crate::derived::TypeBinders,
             $crate::derived::MentionTargets,
             $crate::graph::Nodes,
             $crate::graph::Edges,

@@ -3,43 +3,54 @@ source: crates/cpg-core/tests/syntax.rs
 expression: out
 ---
 ## observations: subject | role | declared | type
-arg@1437 | argument | false | type[list]
-arg@1494 | argument | false | Literal['']
-arg@1506 | argument | false | Literal[True]
-arg@1558 | argument | false | Literal[0]
-arg@1569 | argument | false | Literal[False]
-arg@1838 | argument | false | Literal['empty path']
-arg@1915 | argument | false | str
-arg@1966 | argument | false | Literal['x']
-arg@1981 | argument | false | list[int]
-arg@2008 | argument | false | Literal[3]
-arg@2037 | argument | false | Literal['a']
-arg@2042 | argument | false | Literal[1]
-arg@2056 | argument | false | Literal[3]
-arg@2071 | argument | false | Literal['you']
-arg@2088 | argument | false | Literal[1]
-arg@2104 | argument | false | Literal['h']
-arg@727 | argument | false | Args[P]
-arg@734 | argument | false | Kwargs[P]
-call@1419 | call_result | false | list[str]
-call@1476 | call_result | false | str
-call@1540 | call_result | false | int
-call@1584 | call_result | false | IdentityFunction
-call@1826 | call_result | false | ConfigError
-call@1908 | call_result | false | Config
-call@1961 | call_result | false | Config
-call@1975 | call_result | false | int
-call@1993 | call_result | false | None
-call@1993 | call_result | false | Box[int]
-call@2015 | call_result | false | Pair[str, int]
-call@2015 | call_result | false | tuple[int, str]
-call@2049 | call_result | false | int
-call@2063 | call_result | false | str
-call@2082 | call_result | false | Point
-call@2095 | call_result | false | Settings
-call@725 | call_result | false | T
-raise@1820 | raised | false | ConfigError
-raise@1880 | raised | false | type[ValueError]
+arg@1473 | argument | false | type[list]
+arg@1530 | argument | false | Literal['']
+arg@1542 | argument | false | Literal[True]
+arg@1594 | argument | false | Literal[0]
+arg@1605 | argument | false | Literal[False]
+arg@1874 | argument | false | Literal['empty path']
+arg@1951 | argument | false | str
+arg@2002 | argument | false | Literal['x']
+arg@2017 | argument | false | list[int]
+arg@2044 | argument | false | Literal[3]
+arg@2073 | argument | false | Literal['a']
+arg@2078 | argument | false | Literal[1]
+arg@2092 | argument | false | Literal[3]
+arg@2107 | argument | false | Literal['you']
+arg@2124 | argument | false | Literal[1]
+arg@2140 | argument | false | Literal['h']
+arg@2273 | argument | false | int
+arg@2295 | argument | false | type[int]
+arg@2751 | argument | false | list[int]
+arg@2758 | argument | false | (i: int) -> int
+arg@2776 | argument | false | int
+arg@292 | argument | false | [T](x: T) -> T
+arg@392 | argument | false | Literal[3]
+arg@763 | argument | false | Args[P]
+arg@770 | argument | false | Kwargs[P]
+call@1455 | call_result | false | list[str]
+call@1512 | call_result | false | str
+call@1576 | call_result | false | int
+call@1620 | call_result | false | IdentityFunction
+call@1862 | call_result | false | ConfigError
+call@1944 | call_result | false | Config
+call@1997 | call_result | false | Config
+call@2011 | call_result | false | int
+call@2029 | call_result | false | Box[int]
+call@2029 | call_result | false | None
+call@2051 | call_result | false | tuple[int, str]
+call@2051 | call_result | false | Pair[str, int]
+call@2085 | call_result | false | int
+call@2099 | call_result | false | str
+call@2118 | call_result | false | Point
+call@2131 | call_result | false | Settings
+call@2269 | call_result | false | str
+call@2744 | call_result | false | list[int]
+call@286 | call_result | false | None
+call@390 | call_result | false | int
+call@761 | call_result | false | T
+raise@1856 | raised | false | ConfigError
+raise@1916 | raised | false | type[ValueError]
 ts.Box.get() | return | true | T
 ts.Box.get.self | parameter | false | Self@Box
 ts.Box.put() | return | true | None
@@ -52,10 +63,18 @@ ts.Pair.swap() | return | true | tuple[V, K]
 ts.Pair.swap.k | parameter | true | K
 ts.Pair.swap.self | parameter | false | Self@Pair
 ts.Pair.swap.v | parameter | true | V
+ts.SubRec.__post_init__() | return | true | None
+ts.SubRec.__post_init__.self | parameter | false | Self@SubRec
+ts.clamp() | return | true | B
+ts.clamp.x | parameter | true | B
+ts.fetch() | return | true | str
+ts.fetch.n | parameter | true | int
 ts.first() | return | true | T
 ts.first.xs | parameter | true | list[T]
 ts.ident() | return | true | T
 ts.ident.x | parameter | true | T
+ts.later() | return | true | list[int]
+ts.later.items | parameter | true | list[int]
 ts.leaves() | return | true | int
 ts.leaves.t | parameter | true | int | list[Tree]
 ts.load() | return | true | Config
@@ -65,34 +84,55 @@ ts.maybe.x | parameter | true | int | None
 ts.maybe.y | parameter | true | int | str | None
 ts.model() | return | true | type[C]
 ts.model.cls | parameter | true | type[C]
+ts.paint() | return | true | None
+ts.paint.c | parameter | true | Literal[Color.RED]
 ts.use() | return | true | None
 ts.use.g | parameter | true | Greeter
+ts.uses.paint_here() | return | true | None
+ts.uses.paint_here.c | parameter | true | Literal[Color.RED]
+ts.uses.use_ident() | return | true | int
 ts.wrap() | return | true | (ParamSpec(P)) -> list[T]
 ts.wrap.f | parameter | true | (ParamSpec(P)) -> T
 ts.wrap.inner() | return | true | list[T]
 ts.wrap.inner.args | parameter | true | Args[P]
 ts.wrap.inner.kwargs | parameter | true | Kwargs[P]
-## type variables: display | kind | variable | binder
-C | 12 | ts:1616-1617#0/pep695 | ts.model
-T | 12 | ts:432-433#0/legacy | ts.first
-T | 12 | ts:474-475#0/legacy | ts.ident
-Args[P] | 13 | ts:616-617#0/legacy | ts.wrap
-Kwargs[P] | 13 | ts:616-617#0/legacy | ts.wrap
-P | 13 | ts:616-617#0/legacy | ts.wrap
-T | 12 | ts:619-620#0/legacy | ts.wrap
-T | 12 | ts:825-826#0/legacy | ts.Box
-K | 12 | ts:934-935#0/pep695 | ts.Pair
-V | 12 | ts:937-938#0/pep695 | ts.Pair
+## type variables: display | kind | variable | binder | reason
+C | 12 | ts:1652-1653#0/pep695 | ts.model | -
+B | 12 | ts:2321-2322#0/legacy | ts.clamp | -
+T | 12 | ts:468-469#0/legacy | ts.first | -
+T | 12 | ts:510-511#0/legacy | ts.ident | -
+Args[P] | 13 | ts:652-653#0/legacy | ts.wrap | -
+Kwargs[P] | 13 | ts:652-653#0/legacy | ts.wrap | -
+P | 13 | ts:652-653#0/legacy | ts.wrap | -
+T | 12 | ts:655-656#0/legacy | ts.wrap | -
+T | 12 | ts:861-862#0/legacy | ts.Box | -
+K | 12 | ts:970-971#0/pep695 | ts.Pair | -
+V | 12 | ts:973-974#0/pep695 | ts.Pair | -
+## variable children: variable | role | child
+B | 12 | int
+## types boundaries: reason | span | detail
+7 | 349 | Pyrefly records no type for this call's result
+7 | 357 | Pyrefly records no type for this argument's value
+7 | 366 | Pyrefly records no type for this call's result
+7 | 376 | Pyrefly records no type for this argument's value
+7 | 2282 | Pyrefly records no type for this call's result
+7 | 2290 | Pyrefly records no type for this argument's value
+7 | 2772 | Pyrefly records no type for this call's result
+7 | 2860 | Pyrefly records no type for this call's result
+7 | 2866 | Pyrefly records no type for this argument's value
 ## classes: term | class
 Box[int] | ts.Box
 Config | ts.Config
 ConfigError | ts.ConfigError
 Greeter | ts.Greeter
+Literal[Color.RED] | ts.uses.Color
+Literal[Color.RED] | ts.Color
 Pair[str, int] | ts.Pair
 Point | ts.Point
 Self@Box | ts.Box
 Self@Greeter | ts.Greeter
 Self@Pair | ts.Pair
+Self@SubRec | ts.SubRec
 Settings | ts.Settings
 dict[str, list[int]] | builtins#19
 int | builtins#5
@@ -103,8 +143,10 @@ list[int] | builtins#18
 list[str] | builtins#18
 str | builtins#10
 type[ValueError] | builtins#60
+type[int] | builtins#5
 type[list] | builtins#18
 ## record fields: class | kind | # | name | type | declared | default | init | alias | kw_only | required | read_only
+ts.BaseRec | 0 | 0 | x | int | true | true | true | - | - | - | -
 ts.Config | 0 | 0 | name | str | true | false | true | - | - | - | -
 ts.Config | 0 | 1 | retries | int | true | true | true | - | - | - | -
 ts.Config | 0 | 2 | tags | list[str] | true | true | true | - | - | - | -

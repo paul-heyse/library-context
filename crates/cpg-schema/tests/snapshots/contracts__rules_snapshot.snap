@@ -104,6 +104,8 @@ key:import_targets
   SELECT snapshot_id, import_fact_id, count(*) AS n FROM import_targets GROUP BY snapshot_id, import_fact_id HAVING count(*) > 1
 key:type_class_targets
   SELECT snapshot_id, term_node_id, count(*) AS n FROM type_class_targets GROUP BY snapshot_id, term_node_id HAVING count(*) > 1
+key:type_binders
+  SELECT snapshot_id, term_node_id, count(*) AS n FROM type_binders GROUP BY snapshot_id, term_node_id HAVING count(*) > 1
 key:mention_targets
   SELECT snapshot_id, mention_fact_id, count(*) AS n FROM mention_targets GROUP BY snapshot_id, mention_fact_id HAVING count(*) > 1
 key:nodes
@@ -331,7 +333,7 @@ codebook:reference_resolutions.reason
 codebook:type_terms.kind
   SELECT kind FROM type_terms WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)
 codebook:type_term_args.role
-  SELECT role FROM type_term_args WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+  SELECT role FROM type_term_args WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 codebook:type_term_args.parameter_kind
   SELECT parameter_kind FROM type_term_args WHERE parameter_kind IS NOT NULL AND parameter_kind NOT IN (0, 1, 2, 3, 4)
 codebook:type_observations.role
@@ -404,6 +406,8 @@ codebook:import_targets.reason
   SELECT reason FROM import_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:type_class_targets.reason
   SELECT reason FROM type_class_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+codebook:type_binders.reason
+  SELECT reason FROM type_binders WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:mention_targets.reason
   SELECT reason FROM mention_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 codebook:nodes.node_kind
@@ -872,8 +876,10 @@ ref:import_targets.module_node_id->nodes
   SELECT f.module_node_id AS value FROM import_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
 ref:import_targets.target_node_id->nodes
   SELECT f.target_node_id AS value FROM import_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0, 7)) r ON f.target_node_id = r.node_id WHERE f.target_node_id IS NOT NULL
-ref:type_terms.binder_node_id->nodes
-  SELECT f.binder_node_id AS value FROM type_terms f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (1, 2)) r ON f.binder_node_id = r.node_id WHERE f.binder_node_id IS NOT NULL
+ref:type_binders.term_node_id->nodes
+  SELECT f.term_node_id AS value FROM type_binders f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.term_node_id = r.node_id WHERE f.term_node_id IS NOT NULL
+ref:type_binders.binder_node_id->nodes
+  SELECT f.binder_node_id AS value FROM type_binders f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (1, 2, 10)) r ON f.binder_node_id = r.node_id WHERE f.binder_node_id IS NOT NULL
 ref:type_term_args.parent_node_id->nodes
   SELECT f.parent_node_id AS value FROM type_term_args f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.parent_node_id = r.node_id WHERE f.parent_node_id IS NOT NULL
 ref:type_term_args.child_node_id->nodes
@@ -960,5 +966,7 @@ typed:reference_resolutions
   SELECT * FROM reference_resolutions WHERE binding_id IS NULL AND builtin_name IS NULL AND reason IS NULL
 typed:type_class_targets
   SELECT * FROM type_class_targets WHERE class_node_id IS NULL AND reason IS NULL
+typed:type_binders
+  SELECT * FROM type_binders WHERE binder_node_id IS NULL AND reason IS NULL
 typed:mention_targets
   SELECT * FROM mention_targets WHERE target_node_id IS NULL AND reason IS NULL

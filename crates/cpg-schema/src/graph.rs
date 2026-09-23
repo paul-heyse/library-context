@@ -1489,7 +1489,12 @@ pub fn node_columns() -> Vec<NodeColumn> {
             &[N::Module, N::ExternalModule],
         ),
         // C4
-        nc("type_terms", "binder_node_id", DECL),
+        nc("type_binders", "term_node_id", &[N::Type]),
+        nc(
+            "type_binders",
+            "binder_node_id",
+            &[N::Class, N::Function, N::SyntaxNode],
+        ),
         nc("type_term_args", "parent_node_id", &[N::Type]),
         nc("type_term_args", "child_node_id", &[N::Type]),
         nc("type_observations", "module_node_id", MODULE),
@@ -1756,6 +1761,7 @@ pub fn rules() -> Vec<Rule> {
             "binding_id IS NULL AND builtin_name IS NULL",
         ),
         ("type_class_targets", "class_node_id IS NULL"),
+        ("type_binders", "binder_node_id IS NULL"),
         ("mention_targets", "target_node_id IS NULL"),
     ] {
         out.push(rule(
