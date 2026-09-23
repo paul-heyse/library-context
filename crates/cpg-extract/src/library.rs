@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use cpg_schema::codebook::SourceRole;
 use cpg_schema::id::{Digest, IdHasher, content_digest, kind};
 use sha2::{Digest as _, Sha256};
 
@@ -450,7 +451,10 @@ pub struct Source {
     pub commit: String,
     pub documents: Vec<String>,
     pub documents_exclude: Vec<String>,
-    pub usage: Vec<String>,
+    /// Official example code (`source_role` `example`, ADR-0015).
+    pub examples: Vec<String>,
+    /// The library's own tests (`source_role` `test`).
+    pub tests: Vec<String>,
 }
 
 /// The declared `[tool.lctx.source]`, checked as Stage A checks it; `None` when not declared.
@@ -473,7 +477,8 @@ pub fn source(library_dir: &Path) -> Result<Option<Source>, ExtractError> {
         "commit",
         "documents",
         "documents_exclude",
-        "usage",
+        "examples",
+        "tests",
     ];
     if let Some(unknown) = t.keys().find(|k| !KEYS.contains(&k.as_str())) {
         return Err(fail(format!(
@@ -498,7 +503,8 @@ pub fn source(library_dir: &Path) -> Result<Option<Source>, ExtractError> {
         commit: text("commit")?,
         documents: list("documents")?,
         documents_exclude: list("documents_exclude")?,
-        usage: list("usage")?,
+        examples: list("examples")?,
+        tests: list("tests")?,
     }))
 }
 
@@ -580,9 +586,20 @@ pub fn corpus(
     source: &Source,
     library: &ExtractInput,
 ) -> Result<crate::config::CorpusInput, ExtractError> {
+    // The previous compile's materialized blocks go first, so no glob can select them (C6 review
+    // O4).
+    let blocks = tree.join("_lctx_blocks");
+    if blocks.exists() {
+        std::fs::remove_dir_all(&blocks)?;
+    }
     // Every include glob selects something: an upstream move of `docs/` must fail, not publish a
     // corpus with no documents (C5 review F5).
-    for glob in source.documents.iter().chain(&source.usage) {
+    for glob in source
+        .documents
+        .iter()
+        .chain(&source.examples)
+        .chain(&source.tests)
+    {
         if select(tree, std::slice::from_ref(glob), &[])?.is_empty() {
             return Err(fail(format!(
                 "[tool.lctx.source] glob `{glob}` selects nothing in {}",
@@ -591,11 +608,20 @@ pub fn corpus(
         }
     }
     let documents = select(tree, &source.documents, &source.documents_exclude)?;
-    let mut usage = select(tree, &source.usage, &[])?;
-    let blocks = tree.join("_lctx_blocks");
-    if blocks.exists() {
-        std::fs::remove_dir_all(&blocks)?;
+    let examples = select(tree, &source.examples, &[])?;
+    let tests = select(tree, &source.tests, &[])?;
+    // A module has one role (ADR-0015): a file both keys select is refused, not ranked.
+    if let Some(both) = examples.iter().find(|f| tests.contains(f)) {
+        return Err(fail(format!(
+            "[tool.lctx.source] `examples` and `tests` both select {}",
+            both.display()
+        )));
     }
+    let mut usage: Vec<(PathBuf, SourceRole)> = examples
+        .into_iter()
+        .map(|f| (f, SourceRole::Example))
+        .chain(tests.into_iter().map(|f| (f, SourceRole::Test)))
+        .collect();
     for d in &documents {
         let rel = d
             .strip_prefix(tree)
@@ -608,7 +634,7 @@ pub fn corpus(
                 std::fs::create_dir_all(dir)?;
             }
             std::fs::write(&module, code)?;
-            usage.push(module);
+            usage.push((module, SourceRole::DocBlock));
         }
     }
     let label = format!("{}@{}", source.repository, source.commit);

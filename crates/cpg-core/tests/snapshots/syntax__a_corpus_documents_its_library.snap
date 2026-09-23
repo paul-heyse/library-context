@@ -22,12 +22,21 @@ Install | exact | code | `Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Ser
 Install | exact | code | `pkg.Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Server.tool
 Details | exact | code | `pkg.core.Server` | pkg.core.Server | 0 | pkg.core.Server
 Details | lexical | prose | make_server | pkg.make_server | 1 | pkg.make_server
+## modules: path | role (ADR-0015)
+_lctx_blocks/d_docs_quickstart_mdx_45e57600/block_0.py | 3
+examples/serve.py | 1
+pkg/__init__.py | 0
+pkg/core.py | 0
+tests/test_pkg.py | 2
 ## corpus modules: path | coverage (family: status)
 _lctx_blocks/d_docs_quickstart_mdx_45e57600/block_0.py | 2:0 3:0 7:0 8:0 9:0
+examples/serve.py | 2:0 3:0 7:0 8:0 9:0
 tests/test_pkg.py | 2:0 3:0 7:0 8:0 9:0
 ## code block → module
 _lctx_blocks/d_docs_quickstart_mdx_45e57600/block_0.py | _lctx_blocks.d_docs_quickstart_mdx_45e57600.block_0
 ## usage calls reaching the release: call site | release callable
+examples/serve.py:122 | pkg.core.make_server
+examples/serve.py:142 | pkg.core.Server.run
 tests/test_pkg.py:172 | pkg.core.make_server
 tests/test_pkg.py:193 | pkg.core.Server.tool
 ## coverage: path | status | reason

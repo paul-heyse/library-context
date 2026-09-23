@@ -14,17 +14,19 @@ _Updated 2026-09-23 by the handoff skill._
     `@path`);
   - C6: the whole-CPG measurement and the **deep review** (`design_review_cpg-c6-whole-cpg_2026-09-23.md`,
     Accept with claims narrowed; fixed in `8d1cac1`).
+  - ADR-0015 (the operator's decision on C6 F2): every analyzed module's text and role are
+    stored in `source_files`; `[tool.lctx.source]` takes `examples` and `tests`.
 - **The pilot graph**: FastMCP 4.0.5 plus its corpus at `004bf15a`. 905,648 nodes,
-  1,449,162 edges and 493 rules (18 of them declared edit guards, DESIGN §8).
-- **Unpushed:** 13 commits on `main` since `origin/main` (`494557c`). Push only when asked.
+  1,449,162 edges and 496 rules (18 of them declared edit guards, DESIGN §8).
+- **Pushed** to `origin/main` on 2026-09-23 (operator).
 
-## Last verified (2026-09-23, at `8d1cac1`)
+## Last verified (2026-09-23, at the ADR-0015 commit)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` | passed: nextest 83/83, pytest 21/21, rule tests 4/4, adr lint (14), lint-agents, fixtures, family, cargo-deny, pyrefly-fork, gold |
-| `just pilot` (fresh store) | passed: snapshot `ddee0669…`, content `66cddc06…`, every rule, 44.6 s at 7.1 GB peak (default glibc) |
-| `MALLOC_ARENA_MAX=2 target/release/lctx compile fastmcp --store build/review-store` | passed: the same content digest, 61.2 s at 4.2 GB (scratch store deleted) |
+| `just test-all` | passed: nextest 84/84, pytest 21/21, rule tests 4/4, adr lint (15), lint-agents, fixtures, family, cargo-deny, pyrefly-fork, gold |
+| `just pilot` (fresh store) | passed: snapshot `9a0ec4de…`, every rule, 45.0 s at 7.1 GB peak (default glibc); 9.1 MB of module text, 3.0 MB in Delta |
+| `MALLOC_ARENA_MAX=2 target/release/lctx compile fastmcp --store build/review-store` (at `8d1cac1`) | passed: 61.2 s at 4.2 GB (scratch store deleted) |
 
 ## Known gaps
 
@@ -38,9 +40,6 @@ _Updated 2026-09-23 by the handoff skill._
 
 ## Open decisions
 
-- **Operator:** the usage modules' text and usage role (DESIGN §13; C6 review F2). Either store
-  the text or re-read it with a content check, and record the role as a codebook. It must be
-  decided before §10.5.
 - **ADR-0011** (analytics) stays `proposed` until its increment-2 spike.
 - **Deferred review rows**, each with its trigger in its review. None has fired unhandled (the
   C6 review re-checked them):

@@ -8,8 +8,8 @@ use crate::codebook::{
     DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
     InvocationPhase, LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin,
     ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind,
-    ScopeKind, SignatureForm, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TypeArgRole,
-    TypeRole, TypeTermKind,
+    ScopeKind, SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind,
+    TypeArgRole, TypeRole, TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -163,6 +163,12 @@ table!(
         /// The release distribution whose `RECORD` lists the file (ADR-0013's module →
         /// distribution link); null for a source tree.
         distribution: Option<String>,
+        /// What the module is to its library: the release, or an example, test or doc block of
+        /// its corpus (ADR-0015).
+        role: SourceRole,
+        /// The module's text, the bytes every span of the snapshot indexes, so a snippet is read
+        /// from Delta alone (ADR-0015); null exactly when the bytes are not UTF-8.
+        text: Option<String>,
     }
 );
 

@@ -298,6 +298,8 @@ codebook:facts.modality
   SELECT modality FROM facts WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:facts.fidelity
   SELECT fidelity FROM facts WHERE fidelity IS NOT NULL AND fidelity NOT IN (0, 1, 2, 3, 4)
+codebook:source_files.role
+  SELECT role FROM source_files WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3)
 codebook:context_modules.origin
   SELECT origin FROM context_modules WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:context_definitions.kind
@@ -444,6 +446,10 @@ semantic:parameter-semantics-function
   SELECT q.module_node_id, q.function_key FROM parameter_semantics q              LEFT ANTI JOIN pysa_functions f                ON f.module_node_id = q.module_node_id AND f.function_key = q.function_key
 semantic:model-id-producer
   SELECT f.fact_id FROM facts f JOIN runs r ON r.run_id = f.run_id              WHERE split_part(f.model_id, '/', 1) <> encode(r.producer_id, 'hex')
+semantic:source-text
+  SELECT fact_id FROM source_files WHERE (text IS NULL) = utf8 OR octet_length(text) <> byte_len
+semantic:source-role-by-run
+  SELECT f.fact_id FROM source_files f JOIN runs r ON r.release_id = f.release_id WHERE array_has(r.families, 'exports') <> (f.role = 0)
 endpoint:declares
   SELECT edge_id FROM edges WHERE edge_kind = 0 AND (src_kind IS NULL OR src_kind NOT IN (0, 1, 2) OR dst_kind IS NULL OR dst_kind NOT IN (1, 2))
 evidence:declares

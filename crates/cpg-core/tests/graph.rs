@@ -598,6 +598,18 @@ async fn each_graph_rule_rejects_a_doctored_catalog() {
             "syntax_nodes",
             "SELECT * FROM syntax_nodes_published WHERE false".to_owned(),
         ),
+        // ADR-0015: a module's text that is not its bytes.
+        (
+            "semantic:source-text",
+            "source_files",
+            "SELECT * REPLACE (text || ' ' AS text) FROM source_files_published".to_owned(),
+        ),
+        // ADR-0015: a library module that claims to be an example.
+        (
+            "semantic:source-role-by-run",
+            "source_files",
+            "SELECT * REPLACE (CAST(1 AS SMALLINT) AS role) FROM source_files_published".to_owned(),
+        ),
         // A run whose release has neither modules nor documents.
         (
             "ref:runs.release_id->source_files|documents",

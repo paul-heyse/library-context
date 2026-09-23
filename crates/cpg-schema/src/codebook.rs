@@ -774,6 +774,21 @@ codebook!(
     }
 );
 
+codebook!(
+    /// What an analyzed module is to its library (ADR-0015, `source_files.role`): the release
+    /// itself, or corpus code using it, by the `[tool.lctx.source]` key that selected it.
+    SourceRole = "source_role" {
+        /// A module of the analyzed release (a library or a source tree).
+        Release = 0 => "release",
+        /// Selected by `examples`: official example code.
+        Example = 1 => "example",
+        /// Selected by `tests`: the library's own tests.
+        Test = 2 => "test",
+        /// A Python code block of a selected document, materialized as a module.
+        DocBlock = 3 => "doc_block",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -817,6 +832,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<RecordKind>(),
         CodebookEntry::of::<MentionClass>(),
         CodebookEntry::of::<MentionSource>(),
+        CodebookEntry::of::<SourceRole>(),
     ]
 }
 

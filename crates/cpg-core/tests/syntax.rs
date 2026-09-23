@@ -11,7 +11,7 @@ use cpg_core::attempt::compile;
 use cpg_core::snapshot::published;
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
-use cpg_schema::codebook::{Codebook, EdgeKind, SyntaxField, SyntaxKind};
+use cpg_schema::codebook::{Codebook, EdgeKind, SourceRole, SyntaxField, SyntaxKind};
 use cpg_schema::id::Id;
 use datafusion::prelude::SessionContext;
 
@@ -488,7 +488,8 @@ fn source() -> cpg_extract::library::Source {
         commit: "0".repeat(40),
         documents: vec!["docs/**/*.mdx".to_owned()],
         documents_exclude: vec!["docs/old/**".to_owned()],
-        usage: vec!["tests/**/*.py".to_owned()],
+        examples: vec!["examples/**/*.py".to_owned()],
+        tests: vec!["tests/**/*.py".to_owned()],
     }
 }
 
@@ -554,6 +555,12 @@ async fn a_corpus_documents_its_library() {
         ),
     )
     .await;
+    text += "## modules: path | role (ADR-0015)\n";
+    text += &lines(
+        &ctx,
+        "SELECT f.path, CAST(f.role AS VARCHAR) FROM source_files f ORDER BY f.path",
+    )
+    .await;
     text += "## corpus modules: path | coverage (family: status)\n";
     text += &lines(
         &ctx,
@@ -605,6 +612,43 @@ async fn a_corpus_documents_its_library() {
     )
     .await;
     assert_eq!(server, "1\n");
+
+    // ADR-0015: a snippet is read from Delta alone. With the fetched tree and the environment
+    // gone, each example and test call is sliced from its module's stored text by its span.
+    std::fs::remove_dir_all(dir.path().join("corpus")).unwrap();
+    std::fs::remove_dir_all(dir.path().join("venv")).unwrap();
+    let rows = batches(
+        &ctx,
+        &format!(
+            "SELECT f.text, c.start_byte, c.end_byte FROM call_syntax c \
+             JOIN source_files f ON f.module_node_id = c.module_node_id \
+             WHERE f.role IN ({}, {}) ORDER BY f.path, c.start_byte",
+            SourceRole::Example.code(),
+            SourceRole::Test.code()
+        ),
+    )
+    .await;
+    let mut snippets = Vec::new();
+    for b in &rows {
+        let texts = arrow_cast::cast(b.column(0), &arrow_schema::DataType::Utf8).unwrap();
+        let texts = texts.as_any().downcast_ref::<StringArray>().unwrap();
+        let int = |c: usize| b.column(c).as_any().downcast_ref::<Int64Array>().unwrap();
+        let (starts, ends) = (int(1), int(2));
+        for i in 0..b.num_rows() {
+            let span = starts.value(i) as usize..ends.value(i) as usize;
+            snippets.push(texts.value(i)[span].to_owned());
+        }
+    }
+    assert_eq!(
+        snippets,
+        [
+            "make_server(\"demo\")",
+            "server.run()",
+            "make_server(\"x\")",
+            "server.tool(print)",
+            "isinstance(server, Server)",
+        ]
+    );
 }
 
 /// The corpus's identity is a function of its inputs, not of where they sit (C5 review F1): the
@@ -659,6 +703,20 @@ fn a_glob_that_selects_nothing_is_refused() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("selects nothing"), "{err}");
+}
+
+/// A module has one role: a file `examples` and `tests` both select is refused (ADR-0015).
+#[test]
+fn a_file_with_two_roles_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = corpus_input(dir.path(), Id([7; 16]), &[]);
+    let tree = std::fs::canonicalize(dir.path().join("corpus")).unwrap();
+    let mut both = source();
+    both.examples.push("tests/**/*.py".to_owned());
+    let err = cpg_extract::library::corpus(&tree, &both, &input)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("both select"), "{err}");
 }
 
 /// Each C5 rule rejects an injected violation on the `docs_shapes` corpus, and nothing is

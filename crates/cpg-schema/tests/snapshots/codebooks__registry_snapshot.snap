@@ -456,3 +456,8 @@ mention_class
 mention_source
   0 inline_code
   1 prose
+source_role
+  0 release
+  1 example
+  2 test
+  3 doc_block

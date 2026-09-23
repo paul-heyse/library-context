@@ -607,3 +607,8 @@ passed on a fresh store: snapshot `ddee0669…`, content `66cddc06…` (the comp
 with O6 and O7), 905,648 nodes, 1,449,162 edges, all 493 rules, 44.6 s at 7,096 MiB peak; the
 same compile under `MALLOC_ARENA_MAX=2` into a scratch store (deleted): the same content digest,
 61.2 s at 4,219 MiB.
+
+**F2, decided** (operator, 2026-09-23): store the text in Delta. ADR-0015 stores every analyzed
+module's text and role in `source_files`. `a_corpus_documents_its_library` now slices each
+example and test call from Delta with the fetched tree and the environment deleted, the Stage-F
+oracle this review asked for, in the only form possible before Stage F exists.

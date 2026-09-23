@@ -28,4 +28,5 @@ commit = "004bf15a2ba99f077160993c00a404e1a9da83ea"
 documents = ["docs/**/*.mdx"]
 # Other versions' pages, and the generated API reference (it repeats the docstrings).
 documents_exclude = ["docs/v2/**", "docs/v3/**", "docs/python-sdk/**"]
-usage = ["examples/**/*.py", "tests/**/*.py"]
+examples = ["examples/**/*.py"]
+tests = ["tests/**/*.py"]

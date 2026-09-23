@@ -25,7 +25,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::ArrowError;
 use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
-    BoundaryReason, CoverageStatus, FactFamily, Fidelity, Modality, Origin, ScopeKind,
+    BoundaryReason, CoverageStatus, FactFamily, Fidelity, Modality, Origin, ScopeKind, SourceRole,
 };
 use cpg_schema::id::{Id, IdHasher, content_digest, kind};
 use cpg_schema::metrics::{Stage, Stages};
@@ -524,7 +524,8 @@ fn run_release(
     };
 
     for m in &modules {
-        let utf8 = std::str::from_utf8(&m.bytes).is_ok();
+        let text = std::str::from_utf8(&m.bytes).ok();
+        let utf8 = text.is_some();
         source_files.push(fact_row!(
             sink,
             SourceFiles,
@@ -545,6 +546,14 @@ fn run_release(
                     ReleaseOrigin::Library(l) => l.owners.get(&m.path).cloned(),
                     ReleaseOrigin::Tree { .. } | ReleaseOrigin::Corpus { .. } => None,
                 },
+                role: match &input.release.origin {
+                    ReleaseOrigin::Corpus { roles, .. } =>
+                        *roles.get(&m.path).ok_or_else(|| {
+                            ExtractError::Context(format!("the corpus has no role for {}", m.path))
+                        })?,
+                    ReleaseOrigin::Library(_) | ReleaseOrigin::Tree { .. } => SourceRole::Release,
+                },
+                text: text.map(str::to_owned),
             }
         ));
         if !utf8 {
@@ -1120,7 +1129,7 @@ fn release_rows(
             Vec::new(),
         ),
         // The corpus runs in the library's environment: its context lists the same distributions.
-        ReleaseOrigin::Corpus { label, library } => (
+        ReleaseOrigin::Corpus { label, library, .. } => (
             vec![ReleasesRow {
                 snapshot_id,
                 release_id,

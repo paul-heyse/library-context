@@ -9,7 +9,7 @@
 //!
 //! The queries read tables registered under their own names and filtered to one snapshot.
 
-use crate::codebook::{Codebook, FactFamily, registry};
+use crate::codebook::{Codebook, FactFamily, SourceRole, registry};
 use crate::column::CODEBOOK_KEY;
 use crate::table::Table;
 
@@ -155,6 +155,25 @@ fn semantic() -> Vec<Rule> {
             "semantic:model-id-producer",
             "SELECT f.fact_id FROM facts f JOIN runs r ON r.run_id = f.run_id              WHERE split_part(f.model_id, '/', 1) <> encode(r.producer_id, 'hex')"
                 .to_owned(),
+        ),
+        (
+            // ADR-0015: a module's text is present exactly when its bytes are UTF-8, and it is
+            // those bytes (their length; the digest is BLAKE3, which SQL does not compute).
+            "semantic:source-text",
+            "SELECT fact_id FROM source_files \
+             WHERE (text IS NULL) = utf8 OR octet_length(text) <> byte_len"
+                .to_owned(),
+        ),
+        (
+            // ADR-0015: the release's modules are those of a run that declares `exports` (the
+            // library, or a source tree); a corpus run's modules are its examples, tests and
+            // doc blocks.
+            "semantic:source-role-by-run",
+            format!(
+                "SELECT f.fact_id FROM source_files f JOIN runs r ON r.release_id = f.release_id \
+                 WHERE array_has(r.families, 'exports') <> (f.role = {release})",
+                release = SourceRole::Release.code()
+            ),
         ),
     ]
     .into_iter()

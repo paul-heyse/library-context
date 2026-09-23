@@ -1,7 +1,9 @@
 //! Explicit inputs, the constructed Pyrefly configuration and run identity (DESIGN §4.0, §4.2.1).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cpg_schema::codebook::{Codebook, SourceRole};
 use cpg_schema::id::{Digest, Id, IdHasher, content_digest, kind};
 use pyrefly_config::config::{ConfigFile, ConfigSource};
 use pyrefly_python::sys_info::{PythonPlatform, PythonVersion};
@@ -26,7 +28,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 15;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 16;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -57,6 +59,8 @@ pub enum ReleaseOrigin {
         /// `<repository>@<commit>`.
         label: String,
         library: Option<crate::library::AcquiredLibrary>,
+        /// Each module's role, by release-relative path (ADR-0015).
+        roles: BTreeMap<String, SourceRole>,
     },
 }
 
@@ -98,26 +102,35 @@ impl Release {
         })
     }
 
-    /// A corpus release (C5): the modules are the usage files (examples, tests), and the id hashes
-    /// the label and every selected file's release-relative path and content, so the release is
-    /// the tree's content, not where it was fetched.
+    /// A corpus release (C5): the modules are the usage files (examples, tests, doc blocks), and
+    /// the id hashes the label and every selected file's release-relative path, content and role,
+    /// so the release is the tree's content, not where it was fetched.
     pub fn corpus(
         root: PathBuf,
         label: &str,
         documents: &[PathBuf],
-        usage: Vec<PathBuf>,
+        usage: Vec<(PathBuf, SourceRole)>,
         library: Option<crate::library::AcquiredLibrary>,
         library_release: Id,
     ) -> std::io::Result<Release> {
-        let mut selected: Vec<(String, Digest)> = Vec::new();
-        for f in documents.iter().chain(&usage) {
-            let rel = f.strip_prefix(&root).map_err(|_| {
-                std::io::Error::other(format!("{} is outside the tree", f.display()))
-            })?;
+        let relative = |f: &PathBuf| {
+            f.strip_prefix(&root)
+                .map(|r| r.display().to_string())
+                .map_err(|_| std::io::Error::other(format!("{} is outside the tree", f.display())))
+        };
+        let mut selected: Vec<(String, Digest, Option<i64>)> = Vec::new();
+        for f in documents {
+            selected.push((relative(f)?, content_digest(&std::fs::read(f)?), None));
+        }
+        let mut roles = BTreeMap::new();
+        for (f, role) in &usage {
+            let rel = relative(f)?;
             selected.push((
-                rel.display().to_string(),
+                rel.clone(),
                 content_digest(&std::fs::read(f)?),
+                Some(i64::from(role.code())),
             ));
+            roles.insert(rel, *role);
         }
         selected.sort();
         let mut h = IdHasher::new(kind::RELEASE);
@@ -127,10 +140,10 @@ impl Release {
             .str(label)
             .id(library_release)
             .i64(selected.len() as i64);
-        for (path, digest) in &selected {
-            h.str(path).digest_field(*digest);
+        for (path, digest, role) in &selected {
+            h.str(path).digest_field(*digest).opt_i64(*role);
         }
-        let mut files = usage;
+        let mut files: Vec<PathBuf> = usage.into_iter().map(|(f, _)| f).collect();
         files.sort();
         Ok(Release {
             release_id: h.finish_id(),
@@ -139,6 +152,7 @@ impl Release {
             origin: ReleaseOrigin::Corpus {
                 label: label.to_owned(),
                 library,
+                roles,
             },
         })
     }

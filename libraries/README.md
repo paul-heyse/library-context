@@ -6,7 +6,7 @@ project; the project's own environment is never an analysis input.
 
 | File | What |
 |---|---|
-| `pyproject.toml` | A virtual uv project (`[tool.uv] package = false`) with exactly one pinned requirement and an exact `requires-python`. `[tool.lctx] release` names the first-party distributions whose code is compiled; everything else installed is dependency context. `[tool.lctx.source]` names the upstream tag for docs, examples and tests (fetched when the docs family lands) |
+| `pyproject.toml` | A virtual uv project (`[tool.uv] package = false`) with exactly one pinned requirement and an exact `requires-python`. `[tool.lctx] release` names the first-party distributions whose code is compiled; everything else installed is dependency context. `[tool.lctx.source]` names the upstream tag and commit, and the globs that select its `documents` (less `documents_exclude`), `examples` and `tests`; each module's role (`example`, `test`, or `doc_block` for a document's Python block) comes from the key that selected it, and a file two keys select is refused (ADR-0015) |
 | `.python-version` | The exact interpreter |
 | `uv.lock` | The acquisition lock: every distribution of the closure with each artifact's sha256. Reviewed and committed |
 
