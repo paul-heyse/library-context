@@ -1,0 +1,13 @@
+import sys
+from typing import overload
+
+if sys.version_info >= (3, 11):
+    @overload
+    def f(x: int) -> int: ...
+    @overload
+    def f(x: str) -> str: ...
+else:
+    @overload
+    def f(x: int) -> int: ...
+    @overload
+    def f(x: bytes) -> bytes: ...

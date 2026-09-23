@@ -1,0 +1,85 @@
+---
+source: crates/cpg-core/tests/compile.rs
+expression: out
+---
+## exports
++-----------------+-----------------+-------------+
+| access_path     | declaration     | is_overload |
++-----------------+-----------------+-------------+
+| dc.Holder       | dc.impl.Holder  | false       |
+| dc.Point        | dc.impl.Point   | false       |
+| dc.api          | dc.api          | false       |
+| dc.compat.load  | dc.compat.load  | false       |
+| dc.impl.Holder  | dc.impl.Holder  | false       |
+| dc.impl.Point   | dc.impl.Point   | false       |
+| dc.impl.make    | dc.impl.make    | false       |
+| dc.impl.wrapped | dc.impl.wrapped | false       |
+| dc.load         | dc.compat.load  | false       |
+| dc.make         | dc.impl.make    | false       |
+| dc.ov.f         | dc.ov.f         | true        |
+| dc.wrapped      | dc.impl.wrapped | false       |
++-----------------+-----------------+-------------+
+## signatures
++-----------------+------------+----------------+--------------+-----------------+------+--------+
+| def             | start_byte | callable_start | function_key | signature_index | form | reason |
++-----------------+------------+----------------+--------------+-----------------+------+--------+
+| dc.compat._new  | 13         | 13             | F:0          | 0               | 0    |        |
+| dc.compat._old  | 41         | 41             | F:1          | 0               | 0    |        |
+| dc.ov.f         | 76         | 120            | F:1          | 0               | 0    |        |
+| dc.impl._helper | 101        | 101            | F:0          | 0               | 0    |        |
+| dc.compat.load  | 105        | 105            | F:2          | 0               | 0    |        |
+| dc.ov.f         | 120        | 120            | F:1          | 1               | 0    |        |
+| dc.compat.load  | 151        | 151            |              |                 |      | 14     |
+| dc.ov.f         | 170        | 214            |              |                 |      | 14     |
+| dc.impl.make    | 179        | 179            | F:1          | 0               | 0    |        |
+| dc.impl.wrapped | 207        | 207            | F:2          | 0               | 0    |        |
+| dc.ov.f         | 214        | 214            |              |                 |      | 14     |
+| dc.api          | 237        | 237            | F:0          | 0               | 0    |        |
++-----------------+------------+----------------+--------------+-----------------+------+--------+
+## parameters
++-----------------+------------+---------+--------+-----------+----------+--------+
+| def             | start_byte | ordinal | syntax | semantics | required | reason |
++-----------------+------------+---------+--------+-----------+----------+--------+
+| dc.compat._new  | 13         | 0       | x      | x         | true     |        |
+| dc.compat._old  | 41         | 0       | x      | x         | true     |        |
+| dc.ov.f         | 76         | 0       | x      | x         | true     |        |
+| dc.impl._helper | 101        | 0       | v      | v         | true     |        |
+| dc.compat.load  | 105        | 0       | x      | x         | true     |        |
+| dc.ov.f         | 120        | 0       | x      | x         | true     |        |
+| dc.compat.load  | 151        | 0       | x      |           |          |        |
+| dc.ov.f         | 170        | 0       | x      |           |          |        |
+| dc.impl.make    | 179        | 0       | x      | x         | true     |        |
+| dc.impl.wrapped | 207        | 0       | x      | x         | true     |        |
+| dc.ov.f         | 214        | 0       | x      |           |          |        |
+| dc.api          | 237        | 0       | x      | x         | true     |        |
++-----------------+------------+---------+--------+-----------+----------+--------+
+## resolutions
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+| start_byte | end_byte | status | remainder | complete | unresolved_reason | target_count | reason |
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+| 133        | 140      | 0      | false     | true     |                   | 1            |        |
+| 155        | 176      | 0      | false     | true     |                   | 2            |        |
+| 179        | 186      | 3      | true      | false    |                   | 0            | 7      |
+| 248        | 276      | 0      | false     | true     |                   | 1            |        |
+| 253        | 264      | 0      | false     | true     |                   | 2            |        |
+| 269        | 277      | 0      | false     | true     |                   | 2            |        |
+| 269        | 283      | 0      | false     | true     |                   | 1            |        |
+| 295        | 302      | 0      | false     | true     |                   | 1            |        |
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+## call_targets
++------------+----------+-------+----+---------------+-------------+-----------------+----------+--------+
+| start_byte | end_byte | phase | ho | target_module | target_name | target          | modality | reason |
++------------+----------+-------+----+---------------+-------------+-----------------+----------+--------+
+| 133        | 140      | 0     |    | @dc/compat.py | _new        | dc.compat._new  | 0        |        |
+| 155        | 176      | 0     | 0  | @dc/impl.py   | _helper     | dc.impl._helper | 2        |        |
+| 155        | 176      | 1     |    | builtins      | __new__     |                 | 0        |        |
+| 155        | 176      | 2     |    | builtins      | __init__    |                 | 0        |        |
+| 248        | 276      | 0     |    | functools     | lru_cache   |                 | 0        |        |
+| 248        | 276      | 0     | 0  | @dc/impl.py   | wrapped     | dc.impl.wrapped | 2        |        |
+| 253        | 264      | 1     |    | builtins      | __new__     |                 | 0        |        |
+| 253        | 264      | 2     |    | @dc/impl.py   | __init__    |                 | 0        | 13     |
+| 269        | 277      | 1     |    | builtins      | __new__     |                 | 0        |        |
+| 269        | 277      | 2     |    | builtins      | __init__    |                 | 0        |        |
+| 269        | 283      | 0     |    | @dc/impl.py   | _helper     | dc.impl._helper | 0        |        |
+| 295        | 302      | 0     |    | @dc/impl.py   | make        | dc.impl.make    | 0        |        |
++------------+----------+-------+----+---------------+-------------+-----------------+----------+--------+

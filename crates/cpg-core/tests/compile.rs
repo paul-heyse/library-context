@@ -153,7 +153,8 @@ async fn derived_text(fixture: &str) -> (String, SessionContext, tempfile::TempD
         (
             "call_targets",
             "SELECT c.start_byte, c.end_byte, p.phase, p.higher_order_index AS ho, \
-                    p.target_module, p.target_name, d.qualified_name AS target, f.modality \
+                    p.target_module, p.target_name, d.qualified_name AS target, f.modality, \
+                    t.reason \
              FROM call_targets t JOIN call_syntax c ON c.node_id = t.call_site_node_id \
              JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
              JOIN facts f ON f.fact_id = t.pysa_fact_id \
@@ -256,6 +257,74 @@ async fn derived_tables_on_the_keys_fixture() {
         targets.contains("keys/dual.py     | keys/dual.py"),
         "{targets}"
     );
+    // Slice-2 review F5: one `exports` row per file of a `.py`/`.pyi` pair, each seeding the
+    // declaration in its own file.
+    let seeds = text(
+        &ctx,
+        "SELECT e.access_path, o.path AS origin, g.path AS seed FROM exports e \
+         JOIN public_names p ON p.fact_id = e.public_fact_id \
+         JOIN source_files o ON o.module_node_id = p.origin_module_node_id \
+         JOIN declarations d ON d.node_id = e.declaration_node_id \
+         JOIN source_files g ON g.module_node_id = d.module_node_id \
+         WHERE e.access_path = 'keys.dual.f' ORDER BY origin",
+    )
+    .await;
+    let rows: Vec<String> = seeds
+        .lines()
+        .filter(|l| l.starts_with("| keys"))
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "| keys.dual.f | keys/dual.py | keys/dual.py |",
+            "| keys.dual.f | keys/dual.pyi | keys/dual.pyi |"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn derived_tables_on_the_derive_cases_fixture() {
+    let (out, ctx, _root) = derived_text("derive_cases").await;
+    insta::assert_snapshot!(out);
+    // F1: constructing a release dataclass names no declaration, and says why.
+    let init = text(
+        &ctx,
+        "SELECT t.reason FROM call_targets t JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
+         WHERE p.target_name = '__init__' AND p.target_module = '@dc/impl.py'",
+    )
+    .await;
+    assert!(init.contains("| 13 "), "no_source_declaration: {init}");
+    // F2: the public `load` is the definition Pyrefly binds under Python 3.14 (the `if` branch);
+    // the `else` branch is unreachable in the context, not missing evidence.
+    let load = text(
+        &ctx,
+        "SELECT d.start_byte, s.reason FROM exports e \
+         JOIN declarations d ON d.node_id = e.declaration_node_id \
+         JOIN signatures s ON s.signature_node_id = d.node_id \
+         WHERE e.access_path = 'dc.load'",
+    )
+    .await;
+    let live = count(
+        &ctx,
+        "SELECT min(start_byte) FROM declarations WHERE qualified_name = 'dc.compat.load'",
+    )
+    .await;
+    assert!(load.contains(&format!("| {live} ")), "{load}");
+    let dead = count(
+        &ctx,
+        "SELECT count(*) FROM signatures s JOIN declarations d ON d.node_id = s.signature_node_id \
+         WHERE d.qualified_name IN ('dc.compat.load', 'dc.ov.f') AND s.reason = 14",
+    )
+    .await;
+    assert_eq!(dead, 1 + 2, "the dead `load` and the two dead `f` stubs");
+    let placed = count(
+        &ctx,
+        "SELECT count(*) FROM signatures s JOIN declarations d ON d.node_id = s.signature_node_id \
+         WHERE d.qualified_name = 'dc.ov.f' AND s.signature_index IS NOT NULL",
+    )
+    .await;
+    assert_eq!(placed, 2, "the live stubs carry Pysa's two signatures");
 }
 
 fn replace(batch: &RecordBatch, column: &str, array: ArrayRef) -> RecordBatch {
@@ -274,13 +343,35 @@ fn drop_rows(raw: &mut [(&'static str, RecordBatch)], name: &str, n: usize) {
     *b = b.slice(n, b.num_rows() - n);
 }
 
+/// Keep the rows of `name` whose `column` (as text) satisfies `keep`.
+fn keep_rows(
+    raw: &mut [(&'static str, RecordBatch)],
+    name: &str,
+    column: &str,
+    keep: impl Fn(&str) -> bool,
+) {
+    let b = table(raw, name);
+    let values = arrow_cast::cast(
+        b.column(b.schema().index_of(column).unwrap()),
+        &arrow_schema::DataType::Utf8,
+    )
+    .unwrap();
+    let values = values
+        .as_any()
+        .downcast_ref::<arrow_array::StringArray>()
+        .unwrap();
+    let mask: arrow_array::BooleanArray =
+        values.iter().map(|v| Some(keep(v.unwrap_or("")))).collect();
+    *b = arrow_select::filter::filter_record_batch(b, &mask).unwrap();
+}
+
 /// Each rule kind rejects a snapshot that breaks it, and nothing is published (DM-53).
 #[tokio::test]
 async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
     type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
-    let cases: [(&str, Mutation); 5] = [
+    let cases: [(&str, Mutation); 9] = [
         ("key:declarations", |raw| {
             let b = table(raw, "declarations");
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &b.slice(0, 1)]).unwrap();
@@ -299,6 +390,44 @@ async fn every_rule_kind_rejects_its_violation() {
             *b = replace(b, "reason", Arc::new(reasons));
         }),
         ("coverage:complete", |raw| drop_rows(raw, "coverage", 1)),
+        ("fact-payload:declarations", |raw| {
+            drop_rows(raw, "declarations", 1)
+        }),
+        ("coverage:declared-family", |raw| {
+            let b = table(raw, "runs");
+            let field = match b.schema().field_with_name("families").unwrap().data_type() {
+                arrow_schema::DataType::List(f) => f.clone(),
+                other => panic!("{other}"),
+            };
+            let mut list =
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::StringBuilder::new())
+                    .with_field(field);
+            for _ in 0..b.num_rows() {
+                list.values().append_value("bogus");
+                list.append(true);
+            }
+            *b = replace(b, "families", Arc::new(list.finish()));
+        }),
+        // Slice-2 review F3: a `resolutions` reason with no matching call boundary.
+        ("semantic:resolution-has-boundary", |raw| {
+            keep_rows(raw, "boundaries", "fact_family", |f| f != "3");
+            keep_rows(raw, "facts", "table_name", |t| t != "boundaries");
+        }),
+        // F1: a release target that names nothing and says nothing.
+        ("semantic:release-target-explained", |raw| {
+            let b = table(raw, "pysa_calls");
+            let i = b.schema().index_of("target_module").unwrap();
+            let modules = b
+                .column(i)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            let moved: arrow_array::StringArray = modules
+                .iter()
+                .map(|m| m.map(|m| if m.starts_with('@') { "@nowhere.py" } else { m }))
+                .collect();
+            *b = replace(b, "target_module", Arc::new(moved));
+        }),
     ];
     for (rule, mutate) in cases {
         let root = tempfile::tempdir().unwrap();
@@ -333,6 +462,7 @@ async fn a_failed_snapshots_append_is_classified_by_rereading() {
         table_name: "declarations".to_owned(),
         table_version: -1,
         schema_digest: cpg_schema::id::Digest([0; 32]),
+        compiler_digest: cpg_schema::id::Digest([0; 32]),
         row_count: 0,
     };
     assert!(matches!(

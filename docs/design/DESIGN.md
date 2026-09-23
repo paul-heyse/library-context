@@ -199,8 +199,14 @@ Changing one needs an ADR and a `standard` review.
 
 - Every assertion is a `facts` row carrying its run, `origin`, `extraction_mode`, `modality`,
   `fidelity` and model.
+- **Scope** (ADR-0008): `facts` rows are the extracted assertions, and later the analytic ones
+  (findings). A derived join row (Stage C/D, §4.1) is not a `facts` row: it is traced by the
+  `fact_id`s it cites plus its snapshot's `compiler_digest` (§3.4.1, §6.1), and it is rebuildable
+  from them.
 - Independent assertions are kept, including disagreement. They are never collapsed into mutable
   node properties.
+
+> Decision: ADR-0008
 
 ### §B7 Delta canonical store, published by a `snapshots` append
 
@@ -350,17 +356,25 @@ declaration, and an AST node is not an execution point.
   producer appends its own rows to; `source_files` is the extractor's until Stage A lands.
 - **Merged tables are derivations.** Where two providers contribute to one logical record, each
   writes its own raw table. The merged table is a DataFusion derivation
-  (`relational_derivation`) that carries keys, both `fact_id`s and what the join decides, never
-  a copy of a raw payload column (**Implemented**, `cpg_schema::derived`, slice 2).
-- **Disagreement is recorded in the derived row.** A `reason` column holds `provider_disagreement`
-  (or `missing_evidence`, `outside_provider_model`); `boundaries` stays the extractor's.
+  (`relational_derivation`) that carries keys, both `fact_id`s and what the join decides: a
+  mapping, a status, a reason, or an aggregate of raw values (`signatures.form` and
+  `function_key`, `resolutions.unresolved_reason`). It never copies a raw payload column
+  unchanged, so the raw table stays the authority (**Implemented**, `cpg_schema::derived`,
+  slice 2; **Tested** by the derived-table snapshots).
+- **Gaps are recorded in the derived row.** Where a null needs explaining, a `reason` column
+  holds it: `provider_disagreement`, `missing_evidence`, `outside_provider_model`,
+  `no_source_declaration` (a function Pysa describes without a `def` of its own) or
+  `unreachable_in_context` (a `def` the context never binds). `boundaries` stays the extractor's.
+  A null node with a null reason has one declared meaning per table: in `exports`, the origin is
+  not a `def` or `class` of the release; in `call_targets`, the target is outside the release (a
+  rule rejects a release target with neither).
 
 | Family | Tables | First increment |
 |---|---|---|
 | `provenance` | `releases`, `distributions`, `source_files`, `contexts`, `producers`, `runs`, `facts` | 1 |
-| `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin and its file, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → the seed declaration: in the origin's file, the last binding, an implementation before an `@overload` stub) | 1 |
+| `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin and its file, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → the seed declaration in the origin's file: an implementation before an `@overload` stub, then the one Pysa describes, then the last in source order; one row per `public_names` row, so a `.py`/`.pyi` pair gives an access path two rows, one seeding each file, told apart by `source_files.is_stub`; Pass A seeds from the source row) | 1 |
 | `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal) | 1 |
-| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) stay raw until the syntax family (increment 2) gives them nodes | 1 |
+| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) and the unresolved remainders of higher-order arguments stay raw until the syntax family (increment 2) gives them nodes | 1 |
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `syntax` | `syntax_nodes` needed by recognizers: branches, raises, assignments, with their structural occurrence paths | 2 |
@@ -436,16 +450,28 @@ migration (DM-51).
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id` | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. `capability_id` = `brief_id` | content |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
-| `content_digest` | sorted `run_id`s (each carrying its `release_id`), acquisition-manifest digest, compiler build digest (its derivation SQL, contracts and rules), analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first and the compiler digest | compares reruns |
+| `content_digest` | sorted `run_id`s (each carrying its `release_id`), acquisition-manifest digest, compiler digest, analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first two | compares reruns |
+| `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script), a hand-bumped compiler output version, every derivation query, table contract and validation rule. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
 
 - **Keys are snapshot-qualified.** Uniqueness is checked on `(snapshot_id, key)`, so an identical
   rerun re-emits the same `node_id` and `fact_id` in a new snapshot without conflict.
 - **Collisions are validator failures** (§8), never silently merged.
-- **The compiler has its own run.** Analytics, synthesis and publication are a run of producer
-  `lctx-compiler`, whose config digest is the analytics config's.
+- **The compiler has its own run** (Proposed, with analytics). Analytics, synthesis and
+  publication are a run of producer `lctx-compiler`, whose config digest is the analytics
+  config's. Until then its identity is the `compiler_digest` stored on `snapshots`.
 - **Overloads.** A public callable with `@overload` stubs is **one** declaration node (the
   implementation), with one `signatures` row per overload (`is_overload`) plus the implementation
-  signature. Seeds and briefs attach to the declaration.
+  signature. Seeds and briefs attach to the declaration. **Implemented** (slice 2): a stub rolls
+  up to the first later `def` of its name that is an implementation or that Pysa describes, else
+  the group's last stub; Pysa gives one undecorated signature per stub, in source order, and none
+  for an implementation.
+- **Binding choice follows the analyzer.** Where one file binds a name more than once (a
+  `sys.version_info` or `TYPE_CHECKING` branch, a redefinition), the `exports` seed and the
+  overload roll-up prefer the `def` Pysa describes (a Stage-C key), because Pyrefly's binding pass
+  drops the branches the context decides statically. The other reads `unreachable_in_context`.
+  Under `TYPE_CHECKING` that means the typed facade wins over the runtime body, a real choice
+  Pass A inherits. Calls inside an unbound `def` still read `missing_evidence` (Pysa has no record
+  of them). **Tested** on `derive_cases` (2026-09-22).
 
 > Decision: ADR-0007
 
@@ -463,7 +489,7 @@ migration (DM-51).
 | `resolution_status` | resolved, partial, unresolved, not_attempted |
 | `resolution_domain` | call, attribute, import, name, type |
 | `invocation_phase` | call, new, init, decorator, property_get, property_set |
-| `boundary_reason` | native_unavailable, unresolved_target, unsupported_unpacking, ambiguous_binding, unsupported_control_flow, scope_boundary, budget_reached, missing_evidence, not_requested, provider_disagreement, outside_provider_model (a construct the provider's model does not cover, e.g. a call inside an annotation), syntax_error (facts from a recovered tree), undecodable_source (bytes are not UTF-8) |
+| `boundary_reason` | native_unavailable, unresolved_target, unsupported_unpacking, ambiguous_binding, unsupported_control_flow, scope_boundary, budget_reached, missing_evidence, not_requested, provider_disagreement, outside_provider_model (a construct the provider's model does not cover, e.g. a call inside an annotation), syntax_error (facts from a recovered tree), undecodable_source (bytes are not UTF-8), no_source_declaration (a function the provider describes that has no `def` of its own: a synthesized member such as a dataclass `__init__`, or a callable class field), unreachable_in_context (a `def` the analyzer's context never binds) |
 | `pysa_unresolved_reason` | the 14 variants of Pysa's unresolved-call reason at the pinned pyrefly, spelled as Pysa spells them; appended when the pin moves |
 | `evidence_status` | structurally_observed, documented, statistically_derived, fixture_checked, unresolved |
 | `finding_kind`, `assertion_kind`, `analytic_method`, `type_role` | Defined in `cpg-schema` as their consumers land (§9, §10) |
@@ -533,6 +559,9 @@ migration (DM-51).
   - Resolution issues and analysis stops, with one row per stop.
   - Analytics and briefs read these rows instead of treating "the analysis stopped" as "the
     library has nothing more".
+- **Two channels, one fact each.** `coverage` and `boundaries` describe the producer's run. Gaps
+  that Stage C/D finds are `reason` columns on the derived rows (§3.2). Where both describe one
+  fact (a call with no Pysa record), a rule requires them to agree per call site, both ways (§8).
 
 > Decision: ADR-0008
 
@@ -594,7 +623,7 @@ when mapping output changes, which the variant and id snapshots show).
 |---|---|---|
 | A. Source and analysis universe | Rust + Arrow, then DataFusion checks | `provenance` family |
 | B. Typed provider facts | Pyrefly and Ruff in-process (§4.2) + Arrow builders (§4.3) | raw family batches, written to Delta |
-| C. Provider-local identity | Rust identity logic + DataFusion joins | `provider_node_map`, with keys checked unique before use |
+| C. Provider-local identity | A DataFusion name-span join (`cpg_schema::derived`) | `provider_node_map`, its keys checked unique and injective before publication (after use by D, which is safe because nothing publishes on failure) |
 | D. Semantic relationships | DataFusion over the written raw tables, written back through Delta (§4.3) | derived family tables and views |
 | E. Projections and analytics | DataFusion → petgraph / leiden-rs / FCA → DataFusion (§5, §9) | `findings` family, with lineage |
 | F. Synthesis | Rust templates + extractive selection (§10) | assertions, briefs |
@@ -802,7 +831,7 @@ rules.
 | Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))`, then `add_constraint()` with the table's **immutable** per-row CHECKs: span order and non-negative offsets. delta-rs counts a NULL result as a violation (**Tested**), so a CHECK on a nullable column reads `c IS NULL OR …`. Codebook membership is not a CHECK, because codebooks grow (§8). `CreateBuilder` rejects `delta.constraints.*` keys (Interface-checked: observed in S6, not asserted) | CHECK declarations |
 | Open | When an attempt opens a table, compare its `delta.constraints.*` and `delta.appendOnly` with the generated set, in delta-rs's normalized form, and abort on a mismatch. A table left without its constraints (a crash between create and `add_constraint`) is refused | The verify helper |
 | Write raw | `DeltaTable::write(batches)` (`WriteBuilder`), with `CommitProperties::with_metadata` carrying `lctx.snapshot_id`. That metadata is audit only; `snapshots` stays the authority. **Tested:** CHECK is enforced, `appendOnly` rejects deletes, and the metadata reads back through `history()` | — |
-| Derive | A session over the attempt's tables at their written versions, each filtered to the snapshot (§6.2). The derivation SQL from `cpg-schema` runs through the one helper, `ctx.sql_with_options` with DDL, DML and statements disallowed; no other code calls `ctx.sql`. The result is collected, cast strictly to the declared schema, sorted canonically and written like a raw table, so it passes the same local type check (`with_input_plan` streaming, Tested in S6, is not needed at pilot scale). Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
+| Derive | A session over the attempt's tables at their written versions, each filtered to the snapshot (§6.2). The derivation SQL from `cpg-schema` runs through the one helper, `ctx.sql_with_options` with DDL, DML and statements disallowed; no other code calls `ctx.sql`. The result is collected, cast strictly to the declared schema, sorted canonically and written like a raw table, so it passes the same local type check. `with_input_plan` streaming (Tested in S6) is not needed at pilot scale: the review probe on FastMCP 4.0.5 (2026-09-22, Measured) had 33,012 `pysa_calls`, 15,772 `call_targets` and 93,101 `facts` rows. Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
 | Validate | DataFusion queries generated from the contracts (§8). `target_partitions = 1` for float aggregates | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
 | Publish | `snapshots.write([rows])` in one commit (§6.1). **Tested:** a rejected append is classified unpublished by re-reading | Classification after an ambiguous error |
 | Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3). **Tested:** with two snapshots in one table, dropping the version pin or the snapshot filter changes the result. Reading a missing table creates nothing | One helper |
@@ -889,9 +918,10 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   1. writes its rows;
   2. runs local and cross-table validation (§8);
   3. then, **and only then**, appends one row per table to `snapshots`: (snapshot_id,
-     content_digest, table, Delta version, schema digest, row count), in a single commit
-     (**Tested**: a validation failure publishes nothing, and the published snapshot's reader
-     sees only its rows).
+     content_digest, table, Delta version, schema digest, compiler digest, row count), in a
+     single commit (**Tested**: a validation failure publishes nothing, and the published
+     snapshot's reader sees only its rows). A snapshot is published at most once: `publish`
+     refuses a `snapshot_id` that `snapshots` already holds.
 - **That commit is the publication act** (Delta commits are atomic per table; there is no
   multi-table commit). The row set also records the `embedding_cache` version the attempt read.
 - **An error on the `snapshots` append itself** is ambiguous (`delta.commit.1`). Re-read
@@ -1005,8 +1035,16 @@ contracts and snapshot-tested:
 - `ref`: each declared reference via `LEFT ANTI JOIN` returning zero rows;
 - `fact`: every raw row has its `facts` row and every `facts` row its raw row;
 - `codebook`: every codebook column holds a code of its codebook (a query, since not a CHECK);
-- `coverage`: a row for every declared family × module of the run's release;
-- endpoint kinds, once `cpg-schema` declares the family → node/edge mapping (the first projection);
+- `coverage`: a row for every declared family × module of the run's release, and every declared
+  family is in the codebook;
+- `semantic` (hand-written, one query each): a release call target names a declaration or gives
+  a reason; every Pysa function with signatures is some signature row's callable; a
+  `resolutions` reason and the extractor's call boundary agree per call site, both ways;
+  Stage C is injective; `parameter_semantics` names an existing Pysa function; `facts.model_id`
+  names its run's producer;
+- endpoint kinds, once `cpg-schema` declares the family → node/edge mapping (the first
+  projection). Then the declared references and the mapping are generated one from the other,
+  so they never become two authorities;
 - every assertion cites existing findings and evidence;
 - every public symbol in a brief exists in `exports`.
 
@@ -1467,3 +1505,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | ADR-0012 standard review F1–F11, O1: abort on any panic; full Pysa variant table and `Overrides` as open candidates (§3.6); `__all__` completeness detector; immutable CHECKs verified at open; fidelity definitions; `Inline` thread; root-relative context paths; labels corrected | ADR-0012 |
 | 2026-09-22 | Slice-1 compact review F1–F9: `is_attribute` and potential remainders; module and class keys; site-packages digest in `context_id`; sorted config keys; revision tied to `Cargo.lock`; §3.4.1, §4.2.1–§4.2.5 reconciled to the code | ADR-0012 |
 | 2026-09-22 | Slice 2: Stage C/D derivations, generated validators, `snapshots` publication and the pinned reader; §3.2, §4.1, §4.3, §6, §8 amended (derived rows carry `fact_id`s, reasons in-row) | ADR-0008 |
+| 2026-09-22 | Slice-2 compact review F1–F5: reasons on `provider_node_map`/`call_targets`, binding choice follows Stage C, per-site resolution/boundary rule, stored `compiler_digest` with locked engines, `.py`/`.pyi` seed cardinality; §B6 scoped; ADR-0008 accepted | ADR-0008 |

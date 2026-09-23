@@ -4,7 +4,8 @@
 //! - `ref`: every reference below names an existing row (null passes);
 //! - `fact`: every raw row has its `facts` row, and every `facts` row has its raw row;
 //! - `codebook`: every `Int16` codebook column holds a code of its codebook;
-//! - `coverage`: every family a run declares has a row for every module of its release.
+//! - `coverage`: every family a run declares has a row for every module of its release;
+//! - `semantic`: hand-written rules no declaration generates (listed in [`semantic`]).
 //!
 //! The queries read tables registered under their own names and filtered to one snapshot.
 
@@ -42,6 +43,8 @@ const fn r(
 /// The declared references of every stored table (keys and fact links are generated).
 pub const REFERENCES: &[Reference] = &[
     r("facts", "run_id", &[("runs", "run_id")]),
+    r("runs", "release_id", &[("source_files", "release_id")]),
+    r("source_files", "release_id", &[("runs", "release_id")]),
     r("runs", "context_id", &[("contexts", "context_id")]),
     r("runs", "producer_id", &[("producers", "producer_id")]),
     r("declarations", "module_node_id", MODULE),
@@ -123,7 +126,64 @@ fn quoted(values: impl IntoIterator<Item = impl std::fmt::Display>) -> String {
         .join(", ")
 }
 
-/// Every rule, in a fixed order: keys, references, fact links, codebooks, coverage.
+/// Rules that span tables in ways no declaration captures.
+fn semantic() -> Vec<Rule> {
+    let calls = FactFamily::Calls.code();
+    [
+        (
+            // Slice-2 review F1: a target in the release either names a declaration or says why not.
+            "semantic:release-target-explained",
+            "SELECT t.pysa_fact_id FROM call_targets t              JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id              WHERE p.target_module LIKE '@%' AND t.target_node_id IS NULL AND t.reason IS NULL"
+                .to_owned(),
+        ),
+        (
+            // F2: every Pysa function with signatures is some signature row's callable.
+            "semantic:pysa-signatures-placed",
+            "SELECT m.module_node_id, m.function_key FROM provider_node_map m              JOIN pysa_functions f                ON f.module_node_id = m.module_node_id AND f.function_key = m.function_key              LEFT ANTI JOIN signatures s                ON s.module_node_id = m.module_node_id AND s.function_key = m.function_key              WHERE m.node_id IS NOT NULL AND f.signature_count > 0"
+                .to_owned(),
+        ),
+        (
+            // F3: the derived "no Pysa record" reason and the extractor's call boundary agree, per
+            // call site, in both directions.
+            "semantic:resolution-has-boundary",
+            format!(
+                "SELECT r.call_site_node_id FROM resolutions r LEFT ANTI JOIN boundaries b                    ON b.subject_node_id = r.call_site_node_id AND b.fact_family = {calls}                   AND b.reason = r.reason                  WHERE r.reason IS NOT NULL"
+            ),
+        ),
+        (
+            "semantic:boundary-has-resolution",
+            format!(
+                "SELECT b.subject_node_id FROM boundaries b LEFT ANTI JOIN resolutions r                    ON r.call_site_node_id = b.subject_node_id AND r.reason = b.reason                  WHERE b.fact_family = {calls} AND b.subject_node_id IS NOT NULL"
+            ),
+        ),
+        (
+            // O4: Stage C maps at most one Pysa key to a declaration.
+            "semantic:stage-c-injective",
+            "SELECT node_id, count(*) AS n FROM provider_node_map WHERE node_id IS NOT NULL              GROUP BY node_id HAVING count(*) > 1"
+                .to_owned(),
+        ),
+        (
+            // O2: a provider-local composite reference.
+            "semantic:parameter-semantics-function",
+            "SELECT q.module_node_id, q.function_key FROM parameter_semantics q              LEFT ANTI JOIN pysa_functions f                ON f.module_node_id = q.module_node_id AND f.function_key = q.function_key"
+                .to_owned(),
+        ),
+        (
+            // O2: `model_id` is `<producer_id hex>/<surface>` of the fact's own run (§3.5).
+            "semantic:model-id-producer",
+            "SELECT f.fact_id FROM facts f JOIN runs r ON r.run_id = f.run_id              WHERE split_part(f.model_id, '/', 1) <> encode(r.producer_id, 'hex')"
+                .to_owned(),
+        ),
+    ]
+    .into_iter()
+    .map(|(name, sql)| Rule {
+        name: name.to_owned(),
+        sql,
+    })
+    .collect()
+}
+
+/// Every rule, in a fixed order: keys, references, fact links, codebooks, coverage, semantic.
 pub fn rules() -> Vec<Rule> {
     let shapes = shapes();
     let mut out = Vec::new();
@@ -236,5 +296,6 @@ pub fn rules() -> Vec<Rule> {
               AND v.fact_family = e.code"
         ),
     });
+    out.extend(semantic());
     out
 }

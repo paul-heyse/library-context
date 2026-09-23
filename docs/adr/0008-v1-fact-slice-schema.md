@@ -1,12 +1,12 @@
 ---
 id: ADR-0008
 title: Authoritative fact-family tables, declared view mapping, codebooks, coverage and boundaries
-status: proposed
+status: accepted
 date: 2026-09-22
 supersedes: []
 superseded-by: null
-design: [§3.2, §3.5, §3.7, §8]
-evidence: Proposed
+design: [§B6, §3.2, §3.5, §3.7, §8]
+evidence: Tested
 revisit: A pass needs a relationship that neither a family table nor the derived edge view can express without a second writable copy.
 ---
 
@@ -56,10 +56,17 @@ The research input proposes both a generic `nodes`/`edges` store and dedicated t
   implicit.
 - **Boundaries.** `boundaries` holds the extractor's resolution issues and analysis stops, keyed
   by fact. A derivation (Stage C/D) keeps an unmapped or disagreeing row in its own table, with a
-  null node and a `reason` column, so each table keeps one producer.
+  null node and, where the null needs explaining, a `reason` column, so each table keeps one
+  producer. A null node with a null reason has one declared meaning per table (DESIGN §3.2). Where
+  a derived reason and an extractor boundary describe one fact, a rule requires them to agree.
 - **Derived rows.** A derived table carries keys, the `fact_id`s of the rows it joins and what the
-  join decides, never a copy of a raw payload column. Its SQL lives in `cpg-schema` next to its
-  contract and is snapshot-tested with it.
+  join decides (a mapping, a status, a reason, or an aggregate of raw values). It never copies a
+  raw payload column unchanged. Its SQL lives in `cpg-schema` next to its contract and is
+  snapshot-tested with it.
+- **Scope of §B6.** `facts` rows are the extracted assertions, and later the analytic ones. A
+  derived join row is not a `facts` row: it is traced by the `fact_id`s it cites plus its
+  snapshot's `compiler_digest` (the locked engines, derivation queries, contracts and rules),
+  and it is rebuildable from them.
 - **Producers.** A fact table has one producer. `runs`, `contexts`, `producers` and `facts` are
   registries each producer appends its own rows to; `source_files` is the extractor's until
   Stage A lands.
@@ -67,7 +74,8 @@ The research input proposes both a generic `nodes`/`edges` store and dedicated t
   (§5), their first reader.
 - **Validation** (DESIGN §8), generated from the contracts:
   - one DataFusion query per rule: key uniqueness, declared references, fact links in both
-    directions, codebook membership and coverage completeness;
+    directions, codebook membership and coverage completeness, plus a short list of hand-written
+    semantic rules;
   - snapshot-qualified uniqueness;
   - total `ORDER BY` everywhere;
   - `safe: false` casts;
@@ -80,6 +88,9 @@ The research input proposes both a generic `nodes`/`edges` store and dedicated t
 - **Schema snapshots** (insta) and the append-only codebook test become the oracles for this ADR.
 - **Endpoint-kind validation** reads the mapping. Materializing views is deferred, so there is
   no regeneration contract to maintain until a reader exists.
-- **Evidence** (slice 2, 2026-09-22, `cpg-core/tests/compile.rs`): each rule kind rejects an
-  injected violation and nothing publishes; the Stage-C key is unique on three fixtures,
-  including a `.py`/`.pyi` pair.
+- **Evidence** (slices 1–2, 2026-09-22):
+  - the contract, codebook-registry, derivation and rule snapshots (`cpg-schema/tests`);
+  - `cpg-core/tests/compile.rs`: derived tables snapshot-tested on four fixtures (including a
+    `.py`/`.pyi` pair, a dataclass and version-conditional definitions); each rule kind, and
+    each semantic rule, rejects an injected violation and nothing publishes;
+  - the slice-2 compact review's probe on FastMCP 4.0.5 passed every rule.

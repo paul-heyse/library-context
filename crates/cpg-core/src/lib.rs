@@ -54,6 +54,8 @@ pub enum CoreError {
     ForeignSnapshot(&'static str),
     #[error("validation failed, nothing published: {}", summary(.0))]
     Invalid(Vec<Violation>),
+    #[error("snapshot {0} is already published")]
+    AlreadyPublished(String),
     #[error("the snapshots append failed and re-reading shows it unpublished: {0}")]
     Unpublished(Box<CoreError>),
 }

@@ -11,3 +11,4 @@ snapshot_id: FixedSizeBinary(16) NOT NULL
 call_site_node_id: FixedSizeBinary(16) NOT NULL
 pysa_fact_id: FixedSizeBinary(16) NOT NULL
 target_node_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

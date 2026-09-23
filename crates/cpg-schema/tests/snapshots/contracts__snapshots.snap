@@ -14,4 +14,5 @@ content_digest: FixedSizeBinary(32) NOT NULL
 table_name: Utf8 NOT NULL
 table_version: Int64 NOT NULL
 schema_digest: FixedSizeBinary(32) NOT NULL
+compiler_digest: FixedSizeBinary(32) NOT NULL
 row_count: Int64 NOT NULL

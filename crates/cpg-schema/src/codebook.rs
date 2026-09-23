@@ -151,6 +151,12 @@ codebook!(
         SyntaxError = 11 => "syntax_error",
         /// The module's bytes are not UTF-8; nothing was analyzed.
         UndecodableSource = 12 => "undecodable_source",
+        /// A function the provider describes that has no `def` of its own: a synthesized member
+        /// (a dataclass `__init__`) or a callable class field (`fn = staticmethod(f)`).
+        NoSourceDeclaration = 13 => "no_source_declaration",
+        /// A definition the analyzer's context never binds: a branch it decides statically
+        /// (`sys.version_info`, `TYPE_CHECKING`) while a same-name definition is bound.
+        UnreachableInContext = 14 => "unreachable_in_context",
     }
 );
 

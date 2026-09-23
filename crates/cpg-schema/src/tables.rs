@@ -460,6 +460,8 @@ table!(
         table_version: i64,
         /// `cpg-schema`'s canonical schema digest of the table's declared contract.
         schema_digest: Digest,
+        /// The compiler that derived, validated and published the snapshot (§3.4.1).
+        compiler_digest: Digest,
         /// Rows the attempt wrote to the table.
         row_count: i64,
     }

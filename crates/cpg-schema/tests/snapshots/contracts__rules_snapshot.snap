@@ -50,6 +50,10 @@ key:call_targets
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, count(*) AS n FROM call_targets GROUP BY snapshot_id, call_site_node_id, pysa_fact_id HAVING count(*) > 1
 ref:facts.run_id
   SELECT f.run_id AS value FROM facts f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
+ref:runs.release_id
+  SELECT f.release_id AS value FROM runs f LEFT ANTI JOIN (SELECT release_id AS k FROM source_files) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
+ref:source_files.release_id
+  SELECT f.release_id AS value FROM source_files f LEFT ANTI JOIN (SELECT release_id AS k FROM runs) r ON f.release_id = r.k WHERE f.release_id IS NOT NULL
 ref:runs.context_id
   SELECT f.context_id AS value FROM runs f LEFT ANTI JOIN (SELECT context_id AS k FROM contexts) r ON f.context_id = r.k WHERE f.context_id IS NOT NULL
 ref:runs.producer_id
@@ -215,17 +219,19 @@ codebook:coverage.fact_family
 codebook:coverage.status
   SELECT status FROM coverage WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3, 4)
 codebook:coverage.reason
-  SELECT reason FROM coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+  SELECT reason FROM coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 codebook:boundaries.fact_family
   SELECT fact_family FROM boundaries WHERE fact_family IS NOT NULL AND fact_family NOT IN (0, 1, 2, 3, 4, 5)
 codebook:boundaries.reason
-  SELECT reason FROM boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+  SELECT reason FROM boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+codebook:provider_node_map.reason
+  SELECT reason FROM provider_node_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 codebook:signatures.form
   SELECT form FROM signatures WHERE form IS NOT NULL AND form NOT IN (0, 1, 2)
 codebook:signatures.reason
-  SELECT reason FROM signatures WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+  SELECT reason FROM signatures WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 codebook:parameters.reason
-  SELECT reason FROM parameters WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+  SELECT reason FROM parameters WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 codebook:resolutions.status
   SELECT status FROM resolutions WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3)
 codebook:resolutions.domain
@@ -233,8 +239,24 @@ codebook:resolutions.domain
 codebook:resolutions.unresolved_reason
   SELECT unresolved_reason FROM resolutions WHERE unresolved_reason IS NOT NULL AND unresolved_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 codebook:resolutions.reason
-  SELECT reason FROM resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+  SELECT reason FROM resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+codebook:call_targets.reason
+  SELECT reason FROM call_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 coverage:declared-family
   WITH declared AS (SELECT unnest(families) AS family FROM runs) SELECT family FROM declared WHERE family NOT IN ('provenance', 'exports', 'signatures', 'calls', 'coverage', 'publication')
 coverage:complete
   WITH declared AS (SELECT run_id, release_id, unnest(families) AS family FROM runs), codes AS (SELECT * FROM (VALUES ('provenance', 0), ('exports', 1), ('signatures', 2), ('calls', 3), ('coverage', 4), ('publication', 5)) AS c(family, code)), expected AS ( SELECT d.run_id, s.module_node_id, c.code FROM declared d JOIN codes c ON c.family = d.family JOIN source_files s ON s.release_id = d.release_id) SELECT e.run_id, e.module_node_id, e.code FROM expected e LEFT ANTI JOIN coverage v ON v.run_id = e.run_id AND v.scope_node_id = e.module_node_id AND v.fact_family = e.code
+semantic:release-target-explained
+  SELECT t.pysa_fact_id FROM call_targets t              JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id              WHERE p.target_module LIKE '@%' AND t.target_node_id IS NULL AND t.reason IS NULL
+semantic:pysa-signatures-placed
+  SELECT m.module_node_id, m.function_key FROM provider_node_map m              JOIN pysa_functions f                ON f.module_node_id = m.module_node_id AND f.function_key = m.function_key              LEFT ANTI JOIN signatures s                ON s.module_node_id = m.module_node_id AND s.function_key = m.function_key              WHERE m.node_id IS NOT NULL AND f.signature_count > 0
+semantic:resolution-has-boundary
+  SELECT r.call_site_node_id FROM resolutions r LEFT ANTI JOIN boundaries b                    ON b.subject_node_id = r.call_site_node_id AND b.fact_family = 3                   AND b.reason = r.reason                  WHERE r.reason IS NOT NULL
+semantic:boundary-has-resolution
+  SELECT b.subject_node_id FROM boundaries b LEFT ANTI JOIN resolutions r                    ON r.call_site_node_id = b.subject_node_id AND r.reason = b.reason                  WHERE b.fact_family = 3 AND b.subject_node_id IS NOT NULL
+semantic:stage-c-injective
+  SELECT node_id, count(*) AS n FROM provider_node_map WHERE node_id IS NOT NULL              GROUP BY node_id HAVING count(*) > 1
+semantic:parameter-semantics-function
+  SELECT q.module_node_id, q.function_key FROM parameter_semantics q              LEFT ANTI JOIN pysa_functions f                ON f.module_node_id = q.module_node_id AND f.function_key = q.function_key
+semantic:model-id-producer
+  SELECT f.fact_id FROM facts f JOIN runs r ON r.run_id = f.run_id              WHERE split_part(f.model_id, '/', 1) <> encode(r.producer_id, 'hex')

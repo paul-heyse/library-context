@@ -26,21 +26,45 @@ pub struct Published {
     pub versions: Versions,
 }
 
-/// What the compiler adds to every snapshot's identity: its version, every derivation query,
-/// every table contract and every validation rule.
-pub fn compiler_digest() -> Digest {
+/// Bumped by hand whenever the derive, cast or sort code changes output for the same inputs; the
+/// derived-table snapshots are what show such a change.
+pub const COMPILER_OUTPUT_VERSION: u32 = 1;
+
+/// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
+/// `Cargo.lock` at build time (`build.rs`).
+pub const ENGINES: &str = env!("LCTX_ENGINES");
+
+/// The compiler's identity from its parts (review F4).
+pub fn compiler_digest_of(
+    engines: &str,
+    output_version: u32,
+    derivations: &[(&str, String)],
+    contracts: &[(&str, String)],
+    rules: &[(String, String)],
+) -> Digest {
     let mut h = IdHasher::new(kind::COMPILER);
-    h.str(env!("CARGO_PKG_VERSION"));
-    for (name, sql) in derivations() {
-        h.str(name).str(&sql);
+    h.str(engines).i64(i64::from(output_version));
+    for (name, text) in derivations.iter().chain(contracts) {
+        h.str(name).str(text);
     }
-    for (name, text) in contracts() {
-        h.str(name).str(&text);
-    }
-    for rule in rules() {
-        h.str(&rule.name).str(&rule.sql);
+    for (name, sql) in rules {
+        h.str(name).str(sql);
     }
     h.finish_digest()
+}
+
+/// The identity of the code that derives, validates and publishes: the locked engines, the output
+/// version, every derivation query, every table contract and every validation rule. Stored on each
+/// `snapshots` row and folded into `content_digest`.
+pub fn compiler_digest() -> Digest {
+    let rules: Vec<(String, String)> = rules().into_iter().map(|r| (r.name, r.sql)).collect();
+    compiler_digest_of(
+        ENGINES,
+        COMPILER_OUTPUT_VERSION,
+        &derivations(),
+        &contracts(),
+        &rules,
+    )
 }
 
 fn ids(batch: &RecordBatch, column: &'static str) -> Result<Vec<Id>, CoreError> {
@@ -185,6 +209,7 @@ pub async fn compile(
             table_name: (*name).to_owned(),
             table_version: versions[*name] as i64,
             schema_digest: schema_digest_of(name),
+            compiler_digest: compiler_digest(),
             row_count: *count,
         })
         .collect();
@@ -197,8 +222,12 @@ pub async fn compile(
 }
 
 /// The publication act: one `snapshots` append. An error on it is ambiguous (`delta.commit.1`),
-/// so the attempt is classified by re-reading `snapshots` before anything else happens.
+/// so the attempt is classified by re-reading `snapshots` before anything else happens. A snapshot
+/// is published at most once.
 pub async fn publish(root: &Path, snapshot_id: Id, rows: &[SnapshotsRow]) -> Result<(), CoreError> {
+    if resolve(root, snapshot_id).await?.is_some() {
+        return Err(CoreError::AlreadyPublished(snapshot_id.hex()));
+    }
     let batch = Snapshots::to_sorted_batch(rows)?;
     let attempt =
         async { append(open_or_create::<Snapshots>(root).await?, batch, snapshot_id).await };
@@ -208,5 +237,26 @@ pub async fn publish(root: &Path, snapshot_id: Id, rows: &[SnapshotsRow]) -> Res
             Some(_) => Ok(()),
             None => Err(CoreError::Unpublished(Box::new(error))),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_compiler_digest_follows_each_input() {
+        let d = vec![("t", "SELECT 1".to_owned())];
+        let c = vec![("t", "contract".to_owned())];
+        let r = vec![("key:t".to_owned(), "SELECT 2".to_owned())];
+        let base = compiler_digest_of("engines", 1, &d, &c, &r);
+        assert_ne!(base, compiler_digest_of("engines'", 1, &d, &c, &r));
+        assert_ne!(base, compiler_digest_of("engines", 2, &d, &c, &r));
+        let d2 = vec![("t", "SELECT 1 ".to_owned())];
+        assert_ne!(base, compiler_digest_of("engines", 1, &d2, &c, &r));
+        let r2 = vec![("key:t".to_owned(), "SELECT 3".to_owned())];
+        assert_ne!(base, compiler_digest_of("engines", 1, &d, &c, &r2));
+        assert!(ENGINES.contains("datafusion 55.1.0"), "{ENGINES}");
+        assert!(ENGINES.contains("deltalake-core 1.0.0 git+"), "{ENGINES}");
     }
 }

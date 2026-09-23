@@ -66,19 +66,19 @@ expression: out
 | 896        | 909      | 0      | false     | false    |                   | 1            |        |
 +------------+----------+--------+-----------+----------+-------------------+--------------+--------+
 ## call_targets
-+------------+----------+-------+----+----------------+-------------+------------------------------+----------+
-| start_byte | end_byte | phase | ho | target_module  | target_name | target                       | modality |
-+------------+----------+-------+----+----------------+-------------+------------------------------+----------+
-| 267        | 274      | 1     |    | builtins       | __new__     |                              | 0        |
-| 267        | 274      | 2     |    | builtins       | __init__    |                              | 0        |
-| 502        | 509      | 1     |    | builtins       | __new__     |                              | 0        |
-| 502        | 509      | 2     |    | builtins       | __init__    |                              | 0        |
-| 502        | 521      | 0     |    | @lcfix/core.py | méthode     | lcfix.core.Base.méthode      | 0        |
-| 666        | 685      | 1     |    | @lcfix/core.py | __new__     | lcfix.core.Écrivain.__new__  | 0        |
-| 666        | 685      | 2     |    | @lcfix/core.py | __init__    | lcfix.core.Écrivain.__init__ | 0        |
-| 711        | 719      | 0     |    | builtins       | print       |                              | 0        |
-| 838        | 867      | 0     |    | @lcfix/core.py | λ_helper    | lcfix.core.λ_helper          | 0        |
-| 876        | 887      | 1     |    | @lcfix/core.py | __new__     | lcfix.core.Écrivain.__new__  | 0        |
-| 876        | 887      | 2     |    | @lcfix/core.py | __init__    | lcfix.core.Écrivain.__init__ | 0        |
-| 896        | 909      | 0     |    | @lcfix/core.py | méthode     | lcfix.core.Écrivain.méthode  | 1        |
-+------------+----------+-------+----+----------------+-------------+------------------------------+----------+
++------------+----------+-------+----+----------------+-------------+------------------------------+----------+--------+
+| start_byte | end_byte | phase | ho | target_module  | target_name | target                       | modality | reason |
++------------+----------+-------+----+----------------+-------------+------------------------------+----------+--------+
+| 267        | 274      | 1     |    | builtins       | __new__     |                              | 0        |        |
+| 267        | 274      | 2     |    | builtins       | __init__    |                              | 0        |        |
+| 502        | 509      | 1     |    | builtins       | __new__     |                              | 0        |        |
+| 502        | 509      | 2     |    | builtins       | __init__    |                              | 0        |        |
+| 502        | 521      | 0     |    | @lcfix/core.py | méthode     | lcfix.core.Base.méthode      | 0        |        |
+| 666        | 685      | 1     |    | @lcfix/core.py | __new__     | lcfix.core.Écrivain.__new__  | 0        |        |
+| 666        | 685      | 2     |    | @lcfix/core.py | __init__    | lcfix.core.Écrivain.__init__ | 0        |        |
+| 711        | 719      | 0     |    | builtins       | print       |                              | 0        |        |
+| 838        | 867      | 0     |    | @lcfix/core.py | λ_helper    | lcfix.core.λ_helper          | 0        |        |
+| 876        | 887      | 1     |    | @lcfix/core.py | __new__     | lcfix.core.Écrivain.__new__  | 0        |        |
+| 876        | 887      | 2     |    | @lcfix/core.py | __init__    | lcfix.core.Écrivain.__init__ | 0        |        |
+| 896        | 909      | 0     |    | @lcfix/core.py | méthode     | lcfix.core.Écrivain.méthode  | 1        |        |
++------------+----------+-------+----+----------------+-------------+------------------------------+----------+--------+
