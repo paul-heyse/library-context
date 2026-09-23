@@ -9,12 +9,16 @@ use std::sync::Arc;
 use arrow_array::builder::FixedSizeBinaryBuilder;
 use arrow_array::cast::AsArray;
 use arrow_array::types::{Int16Type, Int64Type};
-use arrow_array::{Array, ArrayRef};
-use arrow_schema::DataType;
+use arrow_array::{
+    Array, ArrayRef, BinaryArray, BinaryViewArray, BooleanArray, FixedSizeBinaryArray, Int16Array,
+    Int64Array, LargeBinaryArray, LargeStringArray, StringArray, StringViewArray,
+};
+use arrow_schema::{DataType, Field, FieldRef};
 use cpg_schema::id::IdHasher;
-use datafusion::common::{Result, exec_err, plan_err};
+use datafusion::common::{Result, ScalarValue, exec_err, plan_err};
 use datafusion::logical_expr::{
-    ColumnarValue, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
+    ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
+    Volatility,
 };
 
 /// The SQL name.
@@ -53,46 +57,65 @@ fn accepted(t: &DataType) -> bool {
         )
 }
 
-fn text_at(a: &ArrayRef, row: usize) -> Option<&str> {
-    if a.is_null(row) {
-        return None;
-    }
-    Some(match a.data_type() {
-        DataType::Utf8 => a.as_string::<i32>().value(row),
-        DataType::LargeUtf8 => a.as_string::<i64>().value(row),
-        _ => a.as_string_view().value(row),
-    })
+/// An argument column, its type resolved once per batch rather than per row (H1 P7).
+enum Column {
+    Utf8(StringArray),
+    LargeUtf8(LargeStringArray),
+    Utf8View(StringViewArray),
+    Int16(Int16Array),
+    Int64(Int64Array),
+    Binary(BinaryArray),
+    LargeBinary(LargeBinaryArray),
+    BinaryView(BinaryViewArray),
+    Fixed(FixedSizeBinaryArray),
+    Boolean(BooleanArray),
 }
 
-/// Feed `a[row]` to `h` in the `opt_*` encoding of its type.
-fn feed(h: &mut IdHasher, a: &ArrayRef, row: usize) -> Result<()> {
-    let null = a.is_null(row);
-    match a.data_type() {
-        t if text(t) => {
-            h.opt_str(text_at(a, row));
-        }
-        DataType::Int16 => {
-            h.opt_i64((!null).then(|| i64::from(a.as_primitive::<Int16Type>().value(row))));
-        }
-        DataType::Int64 => {
-            h.opt_i64((!null).then(|| a.as_primitive::<Int64Type>().value(row)));
-        }
-        DataType::Binary => {
-            h.opt_bytes((!null).then(|| a.as_binary::<i32>().value(row)));
-        }
-        DataType::LargeBinary => {
-            h.opt_bytes((!null).then(|| a.as_binary::<i64>().value(row)));
-        }
-        DataType::BinaryView => {
-            h.opt_bytes((!null).then(|| a.as_binary_view().value(row)));
-        }
-        DataType::FixedSizeBinary(_) => {
-            h.opt_bytes((!null).then(|| a.as_fixed_size_binary().value(row)));
-        }
-        DataType::Boolean => {
-            h.opt_bool((!null).then(|| a.as_boolean().value(row)));
-        }
-        other => return exec_err!("{NAME}: unsupported argument type {other}"),
+impl Column {
+    fn of(a: &ArrayRef) -> Result<Self> {
+        Ok(match a.data_type() {
+            DataType::Utf8 => Self::Utf8(a.as_string::<i32>().clone()),
+            DataType::LargeUtf8 => Self::LargeUtf8(a.as_string::<i64>().clone()),
+            DataType::Utf8View => Self::Utf8View(a.as_string_view().clone()),
+            DataType::Int16 => Self::Int16(a.as_primitive::<Int16Type>().clone()),
+            DataType::Int64 => Self::Int64(a.as_primitive::<Int64Type>().clone()),
+            DataType::Binary => Self::Binary(a.as_binary::<i32>().clone()),
+            DataType::LargeBinary => Self::LargeBinary(a.as_binary::<i64>().clone()),
+            DataType::BinaryView => Self::BinaryView(a.as_binary_view().clone()),
+            DataType::FixedSizeBinary(_) => Self::Fixed(a.as_fixed_size_binary().clone()),
+            DataType::Boolean => Self::Boolean(a.as_boolean().clone()),
+            other => return exec_err!("{NAME}: unsupported argument type {other}"),
+        })
+    }
+
+    /// Feed row `row` to `h` in the `opt_*` encoding of its type.
+    fn feed(&self, h: &mut IdHasher, row: usize) {
+        match self {
+            Self::Utf8(a) => h.opt_str((!a.is_null(row)).then(|| a.value(row))),
+            Self::LargeUtf8(a) => h.opt_str((!a.is_null(row)).then(|| a.value(row))),
+            Self::Utf8View(a) => h.opt_str((!a.is_null(row)).then(|| a.value(row))),
+            Self::Int16(a) => h.opt_i64((!a.is_null(row)).then(|| i64::from(a.value(row)))),
+            Self::Int64(a) => h.opt_i64((!a.is_null(row)).then(|| a.value(row))),
+            Self::Binary(a) => h.opt_bytes((!a.is_null(row)).then(|| a.value(row))),
+            Self::LargeBinary(a) => h.opt_bytes((!a.is_null(row)).then(|| a.value(row))),
+            Self::BinaryView(a) => h.opt_bytes((!a.is_null(row)).then(|| a.value(row))),
+            Self::Fixed(a) => h.opt_bytes((!a.is_null(row)).then(|| a.value(row))),
+            Self::Boolean(a) => h.opt_bool((!a.is_null(row)).then(|| a.value(row))),
+        };
+    }
+}
+
+/// The argument types: the kind is text, every other argument an accepted type.
+fn check(args: &[DataType]) -> Result<()> {
+    match args.first() {
+        Some(t) if text(t) => {}
+        _ => return plan_err!("{NAME}: the first argument is the kind, a text literal"),
+    }
+    if let Some((i, t)) = args.iter().enumerate().skip(1).find(|(_, t)| !accepted(t)) {
+        return plan_err!(
+            "{NAME}: argument {i} has type {t}; accepted: Utf8, Int16, Int64, Binary, \
+             FixedSizeBinary, Boolean (cast explicitly, e.g. a row_number() to BIGINT)"
+        );
     }
     Ok(())
 }
@@ -107,34 +130,56 @@ impl ScalarUDFImpl for LctxId {
     }
 
     fn return_type(&self, args: &[DataType]) -> Result<DataType> {
-        match args.first() {
-            Some(t) if text(t) => {}
-            _ => return plan_err!("{NAME}: the first argument is the kind, a text literal"),
-        }
-        if let Some((i, t)) = args.iter().enumerate().skip(1).find(|(_, t)| !accepted(t)) {
-            return plan_err!(
-                "{NAME}: argument {i} has type {t}; accepted: Utf8, Int16, Int64, Binary, \
-                 FixedSizeBinary, Boolean (cast explicitly, e.g. a row_number() to BIGINT)"
-            );
-        }
+        check(args)?;
         Ok(DataType::FixedSizeBinary(16))
+    }
+
+    /// The kind must be a non-null text literal, checked here at plan time (§3.4.1 says so; H1 P7
+    /// enforces it), and the id is never null (a null argument is encoded, not propagated), so
+    /// the optimizer can fold `IS NULL` tests.
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
+        let types: Vec<DataType> = args
+            .arg_fields
+            .iter()
+            .map(|f| f.data_type().clone())
+            .collect();
+        check(&types)?;
+        match args.scalar_arguments.first() {
+            Some(Some(
+                ScalarValue::Utf8(Some(_))
+                | ScalarValue::Utf8View(Some(_))
+                | ScalarValue::LargeUtf8(Some(_)),
+            )) => {}
+            _ => return plan_err!("{NAME}: the kind must be a non-null text literal"),
+        }
+        Ok(Arc::new(Field::new(
+            NAME,
+            DataType::FixedSizeBinary(16),
+            false,
+        )))
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let rows = args.number_rows;
-        let arrays: Vec<ArrayRef> = args
-            .args
+        let kind = match args.args.first() {
+            Some(ColumnarValue::Scalar(
+                ScalarValue::Utf8(Some(k))
+                | ScalarValue::Utf8View(Some(k))
+                | ScalarValue::LargeUtf8(Some(k)),
+            )) => k.clone(),
+            _ => return exec_err!("{NAME}: the kind must be a non-null text literal"),
+        };
+        let columns: Vec<Column> = args.args[1..]
             .iter()
-            .map(|a| a.to_array(rows))
+            .map(|a| Column::of(&a.to_array(rows)?))
             .collect::<Result<_>>()?;
+        // The tag and kind are hashed once; each row continues from a copy.
+        let seed = IdHasher::new(&kind);
         let mut out = FixedSizeBinaryBuilder::with_capacity(rows, 16);
         for row in 0..rows {
-            let Some(kind) = text_at(&arrays[0], row) else {
-                return exec_err!("{NAME}: the kind is null");
-            };
-            let mut h = IdHasher::new(kind);
-            for a in &arrays[1..] {
-                feed(&mut h, a, row)?;
+            let mut h = seed.clone();
+            for c in &columns {
+                c.feed(&mut h, row);
             }
             out.append_value(h.finish_id().0)?;
         }
@@ -145,7 +190,6 @@ impl ScalarUDFImpl for LctxId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow_array::FixedSizeBinaryArray;
     use cpg_schema::id::Id;
 
     async fn eval(sql: &str) -> Result<Vec<Id>> {
@@ -262,5 +306,23 @@ mod tests {
             let err = eval(sql).await.unwrap_err().to_string();
             assert!(err.contains("lctx_id"), "{sql}: {err}");
         }
+    }
+
+    /// The kind is a literal, checked at planning (H1 P7): a column or a null kind is refused
+    /// before any row runs. The id is never null.
+    #[tokio::test]
+    async fn the_kind_is_a_literal_and_the_id_never_null() {
+        for sql in [
+            "SELECT lctx_id(k, 'x') FROM (VALUES ('a'), ('b')) AS t(k)",
+            "SELECT lctx_id(CAST(NULL AS VARCHAR), 'x')",
+        ] {
+            let err = eval(sql).await.unwrap_err().to_string();
+            assert!(err.contains("literal"), "{sql}: {err}");
+        }
+        let ctx = crate::snapshot::empty_session();
+        let df = crate::sql::query(&ctx, "SELECT lctx_id('k', CAST(NULL AS VARCHAR)) AS id")
+            .await
+            .unwrap();
+        assert!(!df.schema().field(0).is_nullable());
     }
 }

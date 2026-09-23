@@ -547,7 +547,10 @@ migration (DM-51).
     in the `opt_*` encoding (a presence byte, then the length-prefixed value).
   - It accepts Utf8/Utf8View/LargeUtf8, Int16 and Int64 (hashed as i64), Binary, BinaryView and
     FixedSizeBinary, and Boolean. UInt64 (`row_number()`), Int32 and floats are rejected at plan
-    time, never cast.
+    time, never cast. The kind must be a non-null text literal, and the result field is
+    non-nullable; both are checked when the query is planned (`return_field_from_args`; H1 P7).
+    Each argument's type is resolved once per batch, and each row continues a hasher already
+    seeded with the tag and kind.
   - Known-answer vectors are shared with the Rust tests, so an id computed in Rust (the
     extractor, a later pass) equals the one computed in SQL.
   - The UDF's recipe is part of `compiler_digest`.
