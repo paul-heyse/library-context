@@ -18,7 +18,8 @@ _Updated 2026-09-22 by the handoff skill._
 - **The fastmcp skill (gold) is at 4.0.5,** re-pinned through its own pipeline; the 4.0.3
   original is archived at `~/skill-work/fastmcp-4.0.3-original`. `just gold` checks they agree.
 - **DESIGN.md has no line budget** (operator; ADR-0004 amendment).
-- **Not pushed:** `a27e112` … `771b7e8` (six commits) are ahead of `origin/main`.
+- **Pushed** to `origin/main` (2026-09-22), including the operator's
+  `docs/design_review/design_principles/rust_code_intelligence_data_graph_guidelines.md`.
 
 ## Last verified (2026-09-22, at `771b7e8`)
 
@@ -32,9 +33,6 @@ _Updated 2026-09-22 by the handoff skill._
 
 - **`build/`** (environments, stores) is local and rebuildable. A contract change makes an old
   store fail with `SchemaDrift`; delete it or use a new `--store`.
-- **Untracked, not mine:**
-  `docs/design_review/design_principles/rust_code_intelligence_data_graph_guidelines.md` appeared
-  during the session. It is left for the operator.
 - **`pyproject.toml`** (project environment: fastmcp, vllm) is serving and dev only, and never an
   analysis input. Its restructuring per ADR-0010 is still due.
 - **An asserted library claim not yet located:** petgraph's Bfs and Dfs visit siblings in
