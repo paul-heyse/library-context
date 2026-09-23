@@ -1343,6 +1343,29 @@ per-rule validation costs; FastMCP 4.0.5 and its corpus; fresh store, snapshot `
 - **Decision:** streaming derive stays deferred, since its trigger is not met: derivation is 5% of
   the wall time, and its working set about 0.5 GB.
 
+**Measured, after H1 (2026-09-23;** `just pilot` on a fresh store at `fff5aa5`: jemalloc
+(ADR-0016), validation over cached tables 8 at a time, per-commit reads, zstd, fork `a07b7bae`;
+FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the same host**):**
+
+| Stage | Before H1 (baseline, `1a4c4406…`) | After H1 |
+|---|---|---|
+| Total | 45.0 s | **29.9 s** |
+| Extraction | 31.4 s | 25.7 s (library: check 1.8 s, per-module 4.2 s, dependencies 3.1 s; corpus: 3.1 s, 6.7 s, 3.0 s, documents 0.2 s) |
+| Raw writes | 0.73 s | 0.95 s (zstd) |
+| Derivation | 2.56 s | 2.24 s (`edges` 1.02 s, `nodes` 0.50 s) |
+| Validation | 10.16 s | **0.90 s** (the slowest rule's compute 0.28 s, `key:edges`; the largest hash build 160 MiB) |
+| Peak RSS | 7.59 GB (6.7–8.0 GB across runs) | **3.65 GB**, flat from extraction on |
+| Store | 272 MB | 235 MB |
+
+- 905,648 nodes and 1,449,162 edges, all 496 rules passing, before and after.
+- **What stayed the same.** Through H1b, every runtime-only commit left the content digest
+  (`f01077be…`) and the table fingerprints (the sorted ids of `facts`, `nodes`, `edges`,
+  `type_terms`, `syntax_nodes`, `bindings`, `mentions`, hashed) identical to the baseline.
+- **What moved.** The fork revision bump (D6) moves producer, run and fact ids. It also moves the
+  1,085 nodes of Pyrefly's bundled stubs (their identity is the Pyrefly revision, §3.4.1) and the
+  91,278 edges that touch them. Every other node and edge is byte-identical to the pre-D6 build.
+- **The test suite** runs in 83 s instead of 225 s.
+
 **Deferred, with triggers.**
 - `datafusion-tracing` (compatible with 55.1 per its skill): until per-operator spans are needed.
 - **Streaming derive:** `WriteBuilder::with_input_plan(LogicalPlan)` streams per partition and
@@ -2112,3 +2135,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | C5 compact review F1–F8: the corpus run names the release's installed files by their `@path`, so usage calls, type terms and imports reach the release's own nodes and `usage_targets` and `usage_link` retire; a tree shadowing the release fails; the corpus identity is location-free and includes the library release; hermetic git attributes; source keys and globs checked, `coverage:family-has-scope`; `exact` members need their prefix; injective block paths; injected violations for every C5 rule (§3.2, §3.4.1, §3.8, §4.0, §8) | ADR-0014; ADR-0013 |
 | 2026-09-23 | C6 deep review (Accept, claims narrowed): §8 states the 18 edit-guard rules (`EDIT_GUARDS`) and counts them apart (493 rules, 475 falsifiable), and a meta-test holds every other hand-written rule to an injected case; 14 new cases, `ref:documents.release_id`, unique tie-breaks; the C6 memory figures restated with their allocator conditions and range, the arena-limited peak, retargeted triggers, and the raw batches released once written; the usage run's §10 consumers narrowed, with the text-and-role decision open in §13; labels raised where verified (§B2, §B3, §B6, §B7, §3.3, §3.4.1, §3.5, §3.6, §4.0, §8) | ADR-0014 amendment |
 | 2026-09-23 | ADR-0015 (operator decision, closing C6 review F2): every analyzed module's text and role are stored in `source_files` (`source_role` appended); `[tool.lctx.source]` `examples` and `tests` replace `usage`; `semantic:source-text` and `semantic:source-role-by-run` (496 rules); the §13 open row removed (§3.2, §3.5, §4.0, §8, §13) | ADR-0015 |
+| 2026-09-23 | H1, the library-leverage hardening slice (operator: every review item adopted). Static branches are Pyrefly's own decisions (`constant`, `combined` appended); globset/walkdir selection that follows no link; typed library definitions; `RECORD` as CSV; clap CLI; hermetic `git init`; Pyrefly's own predicates; hash and sort known answers. jemalloc (ADR-0016); cached, concurrent validation with plan metrics; per-commit Delta reads; zstd; the UDF's literal kind; a log subscriber; fs-err/anyhow; `cargo shear`. The declared return annotation read from Pyrefly (fork `a07b7bae`); ADR-0011 amended (own PageRank, normalized Leiden input, own FCA with an oracle, condensation from SCCs, §5's adapter recipe). Pilot 45.0 s → 29.9 s, 7.6 → 3.65 GB, 272 → 235 MB (§3.2, §3.3, §3.4.1, §3.5, §4.0, §4.3, §5, §6.2, §7, §8, §9.4–§9.6, §13) | ADR-0016; ADR-0011; ADR-0009, ADR-0012, ADR-0013, ADR-0002 amendments |
