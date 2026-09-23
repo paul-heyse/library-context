@@ -1338,14 +1338,14 @@ per-rule validation costs; FastMCP 4.0.5 and its corpus; fresh store, snapshot `
   still enforces CHECKs (read in the pinned source, `write/execution.rs:405-431`, 2026-09-22).
   - It would need its own schema and foreign-snapshot checks, and row counts from write metrics.
   - Reopen when derivation dominates the per-stage time, or its working set dominates the peak.
-    Working set is read as the peak under `MALLOC_ARENA_MAX=2` (`MALLOC_ARENA_MAX=2 just pilot`),
-    which separates it from allocator retention (C6 review F3). At C6 it did neither (above).
+    Under jemalloc (ADR-0016) the reported peak **is** the working set; the earlier
+    `MALLOC_ARENA_MAX=2` reading applied only to glibc. At C6 it did neither (above).
 - **Validation over cached tables, or concurrent rules:** register the hot tables as in-memory
   batches for the rule run, or run rules concurrently. Reopen when validation outgrows
   extraction's wall time. Both remedies raise the peak.
-- **Peak memory:** the levers that lower it are the allocator's arena policy (or another
-  allocator, a dependency decision) and releasing batches early. Reopen when the arena-limited
-  peak nears the host's memory, or a library's default-allocator peak does.
+- **Peak memory:** taken by ADR-0016 (jemalloc: the peak is the working set, 3.6 GB on the
+  pilot, flat from extraction on) and the raw batches released once written. Reopen when the
+  peak nears the host's memory.
 - **File skipping on `snapshot_id`:** the writer records no Delta-log statistics for Binary
   columns (`writer/stats.rs:214-238`), so the known limit above stands. Reopen when a published
   read's latency is measured to matter.

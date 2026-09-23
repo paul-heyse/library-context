@@ -14,6 +14,9 @@ clap.workspace = true
 getrandom.workspace = true
 tokio.workspace = true
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+tikv-jemallocator.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 

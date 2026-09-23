@@ -1171,6 +1171,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.20",
+ "tikv-jemallocator",
  "toml",
  "walkdir",
 ]
@@ -3438,6 +3439,7 @@ dependencies = [
  "cpg-schema",
  "getrandom 0.3.4",
  "tempfile",
+ "tikv-jemallocator",
  "tokio",
 ]
 

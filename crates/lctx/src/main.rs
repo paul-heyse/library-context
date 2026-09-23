@@ -18,6 +18,13 @@
 
 mod propose;
 
+/// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a 6.1-7.3
+/// GB pilot peak; jemalloc peaks at the working set (3.6 GB) and is no slower. Pyrefly's own CLI
+/// uses it on the same platforms.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;

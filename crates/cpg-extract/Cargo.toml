@@ -33,6 +33,9 @@ csv.workspace = true
 clap.workspace = true
 walkdir.workspace = true
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+tikv-jemallocator.workspace = true
+
 [dev-dependencies]
 arrow-cast.workspace = true
 base64.workspace = true

@@ -14,6 +14,13 @@ use clap::{ArgGroup, Parser};
 use cpg_extract::{ExtractInput, Release, extract, library, write_ipc};
 use cpg_schema::id::Id;
 
+/// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a 6.1-7.3
+/// GB pilot peak; jemalloc peaks at the working set (3.6 GB) and is no slower. Pyrefly's own CLI
+/// uses it on the same platforms.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 /// The command line (H1 C4: clap derive).
 #[derive(Parser, Debug)]
 #[command(
