@@ -161,6 +161,7 @@ fn shapes() -> Vec<Shape> {
     let mut out = crate::for_each_table!(all);
     out.extend(crate::for_each_derived_table!(all));
     out.extend(crate::for_each_analysis_table!(all));
+    out.extend(crate::for_each_global_table!(all));
     out
 }
 
@@ -242,6 +243,13 @@ fn semantic() -> Vec<Rule> {
              JOIN runs r ON r.run_id = i.run_id \
              JOIN producers p ON p.producer_id = r.producer_id \
              WHERE p.tool <> 'lctx-compiler'"
+                .to_owned(),
+        ),
+        (
+            // §11.1: one spec gives one vector length (its declared dimensions).
+            "semantic:embedding-dimensions",
+            "SELECT spec_hash FROM embedding_cache GROUP BY spec_hash \
+             HAVING count(DISTINCT cardinality(vector)) > 1"
                 .to_owned(),
         ),
         (
@@ -500,11 +508,14 @@ pub fn rules() -> Vec<Rule> {
     for s in &shapes {
         for f in s.schema.fields() {
             let values = match f.data_type() {
-                arrow_schema::DataType::Float64 => {
+                arrow_schema::DataType::Float64 | arrow_schema::DataType::Float32 => {
                     format!("SELECT {c} AS v FROM {t}", c = f.name(), t = s.name)
                 }
                 arrow_schema::DataType::List(item)
-                    if item.data_type() == &arrow_schema::DataType::Float64 =>
+                    if matches!(
+                        item.data_type(),
+                        arrow_schema::DataType::Float64 | arrow_schema::DataType::Float32
+                    ) =>
                 {
                     format!("SELECT unnest({c}) AS v FROM {t}", c = f.name(), t = s.name)
                 }

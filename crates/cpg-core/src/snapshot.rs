@@ -144,6 +144,14 @@ pub async fn register(
 ) -> Result<(), CoreError> {
     let table = load_at(root, name, version).await?;
     table.update_datafusion_session(&ctx.state())?;
+    // A global table (ADR-0017 amendment) is read at its version over all its files: it has no
+    // snapshot column, and its version may be another attempt's commit.
+    if cpg_schema::embedding::is_global(name) {
+        // It may stand registered as empty (a session opened before the attempt embedded).
+        ctx.deregister_table(name)?;
+        ctx.register_table(name, table.table_provider().await?)?;
+        return Ok(());
+    }
     let view = ctx
         .read_table(commit_provider(&table, version, snapshot_id).await?)?
         .filter(col("snapshot_id").eq(lit(ScalarValue::Binary(Some(snapshot_id.0.to_vec())))))?
@@ -162,7 +170,25 @@ pub async fn session(
     for (name, version) in versions {
         register(&ctx, root, name, *version, snapshot_id).await?;
     }
+    register_empty_globals(&ctx, versions)?;
     Ok(ctx)
+}
+
+/// A snapshot that used no global table (no embedder) reads it as empty, so every rule and
+/// reader that names it still plans (ADR-0017 amendment).
+pub fn register_empty_globals(ctx: &SessionContext, versions: &Versions) -> Result<(), CoreError> {
+    macro_rules! empty {
+        ($($t:ty),+) => {$(
+            let name = <$t as Table>::NAME;
+            if !versions.contains_key(name) && !ctx.table_exist(name)? {
+                let schema = <$t as Table>::schema();
+                let table = datafusion::datasource::MemTable::try_new(schema, vec![vec![]])?;
+                ctx.register_table(name, std::sync::Arc::new(table))?;
+            }
+        )+};
+    }
+    cpg_schema::for_each_global_table!(empty);
+    Ok(())
 }
 
 /// Each table's version holding `snapshot_id`'s own commit (its `lctx.snapshot_id`), found by
@@ -186,6 +212,12 @@ pub async fn attempt_versions(root: &Path, snapshot_id: Id) -> Result<Versions, 
         let Some(latest) = table.version() else {
             continue;
         };
+        // A global table the attempt may not have committed to (every key cached) is inspected
+        // at its latest version (ADR-0019 review O5).
+        if cpg_schema::embedding::is_global(&name) {
+            versions.insert(name, latest);
+            continue;
+        }
         for v in (0..=latest).rev() {
             if recorded_snapshot(&commit_actions(&table, v).await?).as_deref() == Some(&wanted) {
                 versions.insert(name, v);

@@ -432,3 +432,128 @@ async fn data_files_are_zstd() {
         );
     }
 }
+
+fn cached(keys: &[u8], dims: usize) -> RecordBatch {
+    use cpg_schema::embedding::{EmbeddingCache, EmbeddingCacheRow};
+    use cpg_schema::id::Digest;
+    let rows: Vec<EmbeddingCacheRow> = keys
+        .iter()
+        .map(|k| EmbeddingCacheRow {
+            spec_hash: Digest([7; 32]),
+            input_hash: Digest([*k; 32]),
+            vector: vec![1.0 / (dims as f32).sqrt(); dims],
+            model: "m".to_owned(),
+        })
+        .collect();
+    EmbeddingCache::to_sorted_batch(&rows).unwrap()
+}
+
+async fn rows_of(root: &Path, name: &str) -> usize {
+    let t = deltalake::DeltaTableBuilder::from_url(table_url(root, name).unwrap())
+        .unwrap()
+        .load()
+        .await
+        .unwrap();
+    let ctx = SessionContext::new();
+    ctx.register_table("t", t.table_provider().await.unwrap())
+        .unwrap();
+    ctx.sql("SELECT * FROM t")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap()
+        .iter()
+        .map(RecordBatch::num_rows)
+        .sum()
+}
+
+/// Slice 1.6's probe (ADR-0017 amendment), at the pinned delta-rs: an insert-only MERGE commits
+/// only Add actions on an append-only table, inserts only the keys the table lacks, commits
+/// nothing when it lacks none, carries `lctx.snapshot_id`, and survives a reopen's verify.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_insert_only_merge_adds_only_missing_keys_to_an_append_only_table() {
+    use cpg_core::delta::merge_global;
+    use cpg_schema::embedding::EmbeddingCache;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let v1 = merge_global::<EmbeddingCache>(root, cached(&[1, 2], 8), Id([1; 16]))
+        .await
+        .unwrap();
+    assert_eq!(rows_of(root, "embedding_cache").await, 2);
+    // One known key, one new: only the new one is inserted.
+    let v2 = merge_global::<EmbeddingCache>(root, cached(&[2, 3], 8), Id([2; 16]))
+        .await
+        .unwrap();
+    assert!(v2 > v1);
+    assert_eq!(rows_of(root, "embedding_cache").await, 3);
+    // Only known keys: nothing is inserted (and nothing may be removed from an append-only table).
+    let v3 = merge_global::<EmbeddingCache>(root, cached(&[1, 3], 8), Id([3; 16]))
+        .await
+        .unwrap();
+    assert_eq!(rows_of(root, "embedding_cache").await, 3);
+    let table = open_verified::<EmbeddingCache>(root).await.unwrap();
+    for v in 0..=v3 {
+        let bytes = table
+            .log_store()
+            .read_commit_entry(v)
+            .await
+            .unwrap()
+            .unwrap();
+        let text = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            !text.contains("\"remove\""),
+            "commit {v} removes a file: {text}"
+        );
+    }
+    let bytes = table
+        .log_store()
+        .read_commit_entry(v2)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        String::from_utf8(bytes.to_vec())
+            .unwrap()
+            .contains(&Id([2; 16]).hex()),
+        "the merge commit records its attempt"
+    );
+}
+
+/// Merge enforces the table's CHECK constraints, as `write` does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_enforces_the_immutable_checks() {
+    let dir = tempfile::tempdir().unwrap();
+    create::<Declarations>(dir.path()).await.unwrap();
+    let bad =
+        cpg_core::delta::merge_global::<Declarations>(dir.path(), decl(20, 10), Id([1; 16])).await;
+    assert!(bad.is_err(), "end < start is rejected by a merge too");
+}
+
+/// Two attempts merging one key at once leave exactly one row: the loser conflicts and re-runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_merges_of_one_key_leave_one_row() {
+    use cpg_core::delta::merge_global;
+    use cpg_schema::embedding::EmbeddingCache;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    // Create the table first, so both merges race on inserts, not on creation.
+    merge_global::<EmbeddingCache>(&root, cached(&[9], 8), Id([9; 16]))
+        .await
+        .unwrap();
+    let mut handles = Vec::new();
+    for s in 0..4u8 {
+        let root = root.clone();
+        handles.push(tokio::spawn(async move {
+            merge_global::<EmbeddingCache>(&root, cached(&[5, 6], 8), Id([s; 16])).await
+        }));
+    }
+    for h in handles {
+        h.await.unwrap().unwrap();
+    }
+    assert_eq!(
+        rows_of(&root, "embedding_cache").await,
+        3,
+        "keys 9, 5 and 6 once each"
+    );
+}

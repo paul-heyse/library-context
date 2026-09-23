@@ -91,3 +91,11 @@ impl HashField for Vec<f64> {
         }
     }
 }
+impl HashField for Vec<f32> {
+    fn hash_into(&self, h: &mut IdHasher) {
+        h.i64(self.len() as i64);
+        for v in self {
+            h.bytes(&v.to_bits().to_le_bytes());
+        }
+    }
+}

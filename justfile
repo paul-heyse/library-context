@@ -64,7 +64,16 @@ fixtures-check:
 # The real-library oracle (ADR-0013): acquire the FastMCP pilot from libraries/fastmcp, then
 # extract, derive, validate and publish a snapshot into build/store. First run needs the network.
 pilot:
-    cargo run --release -p lctx -- compile fastmcp --store build/store
+    cargo run --release -p lctx -- compile fastmcp --store build/store --embedder fake
+
+# The same compile with live vectors: needs `just embed-serve` running (else `blocked`)
+pilot-live:
+    cargo run --release -p lctx -- compile fastmcp --store build/store --embedder vllm
+
+# The embedding service (DESIGN §11.1, ADR-0010): vLLM 0.30.0 from the locked services/vllm
+# project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
+embed-serve port="8000":
+    uv run --project services/vllm --frozen vllm serve Qwen/Qwen3-Embedding-8B --revision 1d8ad4ca9b3dd8059ad90a75d4983776a23d44af --runner pooling --max-model-len 8192 --dtype bfloat16 --gpu-memory-utilization 0.80 --port {{port}}
 
 # ast-grep scan over the tree (rules/ grows from design-review findings)
 rules-scan:

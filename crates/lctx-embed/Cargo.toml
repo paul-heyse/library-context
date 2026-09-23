@@ -1,0 +1,19 @@
+[package]
+name = "lctx-embed"
+description = "The compile-time embedding client over a vLLM service (DESIGN §11.1; ADR-0010): implements cpg-core's Embedder, so reqwest stays out of cpg-core."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+cpg-core = { path = "../cpg-core" }
+reqwest = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

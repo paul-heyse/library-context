@@ -1,0 +1,13 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table embedding_cache
+family embedding_cache
+key spec_hash, input_hash
+@lctx.family=embedding_cache
+@lctx.table=embedding_cache
+spec_hash: FixedSizeBinary(32) NOT NULL
+input_hash: FixedSizeBinary(32) NOT NULL
+vector: List(non-null Float32) NOT NULL
+model: Utf8 NOT NULL

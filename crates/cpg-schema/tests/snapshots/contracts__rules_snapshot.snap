@@ -140,6 +140,8 @@ key:brief_documents
   SELECT snapshot_id, brief_id, chunk, count(*) AS n FROM brief_documents GROUP BY snapshot_id, brief_id, chunk HAVING count(*) > 1
 key:assertion_policy
   SELECT snapshot_id, assertion_kind, evidence_status, count(*) AS n FROM assertion_policy GROUP BY snapshot_id, assertion_kind, evidence_status HAVING count(*) > 1
+key:embedding_cache
+  SELECT spec_hash, input_hash, count(*) AS n FROM embedding_cache GROUP BY spec_hash, input_hash HAVING count(*) > 1
 ref:facts.run_id->runs
   SELECT f.run_id AS value FROM facts f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:runs.release_id->releases
@@ -558,6 +560,8 @@ finite:findings.score
   SELECT v FROM (SELECT score AS v FROM findings) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
 finite:finding_members.weight
   SELECT v FROM (SELECT weight AS v FROM finding_members) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
+finite:embedding_cache.vector
+  SELECT v FROM (SELECT unnest(vector) AS v FROM embedding_cache) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
 coverage:declared-family
   WITH declared AS (SELECT unnest(families) AS family FROM runs) SELECT family FROM declared WHERE family NOT IN ('provenance', 'exports', 'signatures', 'calls', 'coverage', 'syntax', 'lexical', 'types', 'docs')
 coverage:complete
@@ -582,6 +586,8 @@ semantic:finding-status-policy
   SELECT f.finding_id FROM findings f LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0)) AS p(kind, status) ON p.kind = f.finding_kind AND p.status = f.evidence_status
 semantic:invocation-run-is-compiler
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id JOIN producers p ON p.producer_id = r.producer_id WHERE p.tool <> 'lctx-compiler'
+semantic:embedding-dimensions
+  SELECT spec_hash FROM embedding_cache GROUP BY spec_hash HAVING count(DISTINCT cardinality(vector)) > 1
 semantic:assertion-policy
   SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN assertion_policy p ON p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status
 semantic:assertion-policy-published

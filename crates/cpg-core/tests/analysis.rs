@@ -83,6 +83,7 @@ async fn analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDi
     .unwrap();
     let analysis = Analysis {
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
+        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
     };
     let store = dir.path().join("store");
     compile_analyzed(&store, s, &out.tables, Some(&analysis))
@@ -399,6 +400,7 @@ async fn the_analysis_rules_reject_their_violations() {
         "evidence",
         "briefs",
         "brief_members",
+        "embedding_cache",
     ] {
         let published = ctx.table(table).await.unwrap();
         ctx.register_table(format!("{table}_published").as_str(), published.into_view())
@@ -507,6 +509,13 @@ async fn the_analysis_rules_reject_their_violations() {
             "semantic:brief-cites-analysis",
             "assertion_support",
             "SELECT * FROM assertion_support_published WHERE finding_id IS NULL",
+        ),
+        (
+            "semantic:embedding-dimensions",
+            "embedding_cache",
+            "SELECT * FROM embedding_cache_published UNION ALL \
+             (SELECT spec_hash, input_hash, array_slice(vector, 1, 8) AS vector, model \
+              FROM embedding_cache_published LIMIT 1)",
         ),
         (
             "ref:witnesses.edge_id->edges",

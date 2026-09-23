@@ -189,6 +189,70 @@ pub async fn append(
         .await?)
 }
 
+/// Insert a global table's missing keys by an insert-only MERGE (ADR-0017 amendment): rows whose
+/// key the table already holds are left alone, so two attempts can never store two rows for one
+/// key. The merge reads the target, so a racing merge that commits first makes this one conflict,
+/// and it re-runs against the new version. The commit carries `lctx.snapshot_id`, like `append`'s.
+/// An empty batch commits nothing. Returns the table's version afterwards.
+pub async fn merge_global<T: Table>(
+    root: &Path,
+    batch: RecordBatch,
+    snapshot_id: Id,
+) -> Result<u64, CoreError> {
+    use deltalake::datafusion::prelude::col;
+    let bare = Arc::new(
+        batch
+            .schema()
+            .as_ref()
+            .clone()
+            .with_metadata(HashMap::new()),
+    );
+    let batch = RecordBatch::try_new(bare, batch.columns().to_vec())?;
+    for attempt in 0..3 {
+        let table = open_or_create::<T>(root).await?;
+        if batch.num_rows() == 0 {
+            return table.version().ok_or(CoreError::NoVersion(T::NAME));
+        }
+        let ctx = crate::snapshot::empty_session();
+        let source = ctx.read_batch(batch.clone())?;
+        let on = T::key()
+            .iter()
+            .map(|k| col(format!("t.{k}")).eq(col(format!("s.{k}"))))
+            .reduce(|a, b| a.and(b))
+            .ok_or(CoreError::NoVersion(T::NAME))?;
+        let props = CommitProperties::default().with_metadata([(
+            "lctx.snapshot_id".to_owned(),
+            serde_json::Value::String(snapshot_id.hex()),
+        )]);
+        let columns: Vec<String> = T::schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect();
+        let merged = table
+            .merge(source, on)
+            .with_source_alias("s")
+            .with_target_alias("t")
+            .with_writer_properties(writer_properties()?)
+            .with_commit_properties(props)
+            .when_not_matched_insert(|mut insert| {
+                for c in &columns {
+                    insert = insert.set(c.as_str(), col(format!("s.{c}")));
+                }
+                insert
+            })?
+            .await;
+        match merged {
+            Ok((table, _)) => return table.version().ok_or(CoreError::NoVersion(T::NAME)),
+            Err(deltalake::DeltaTableError::Transaction {
+                source: deltalake::kernel::transaction::TransactionError::CommitConflict(_),
+            }) if attempt < 2 => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(CoreError::NoVersion(T::NAME))
+}
+
 /// zstd level 3 for every data file (H1 P6): 13.7% smaller than the Snappy default on the pilot
 /// store (`source_files` 36.5%), scans unchanged; dictionary encoding and page statistics stay at
 /// their defaults. Content is unaffected, and files written before read as they are.

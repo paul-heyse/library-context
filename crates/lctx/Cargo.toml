@@ -11,6 +11,7 @@ cpg-schema = { path = "../cpg-schema" }
 cpg-extract = { path = "../cpg-extract" }
 cpg-core = { path = "../cpg-core" }
 lctx-analytics = { path = "../lctx-analytics" }
+lctx-embed = { path = "../lctx-embed" }
 clap.workspace = true
 anyhow.workspace = true
 fs-err.workspace = true

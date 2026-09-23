@@ -5,6 +5,7 @@ pub mod analyze;
 pub mod attempt;
 pub mod delta;
 pub mod derive;
+pub mod embed;
 pub mod snapshot;
 pub mod sql;
 pub mod synth;
@@ -82,6 +83,8 @@ pub enum CoreError {
     ForeignSnapshot(&'static str),
     #[error("analysis: {0}")]
     Analysis(String),
+    #[error("embedding: {0}")]
+    Embed(String),
     #[error("validation failed, nothing published: {}", summary(.0))]
     Invalid(Vec<Violation>),
     #[error("snapshot {0} is already published")]

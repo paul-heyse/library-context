@@ -1140,6 +1140,7 @@ dependencies = [
  "petgraph",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -3448,6 +3449,7 @@ dependencies = [
  "fs-err",
  "getrandom 0.3.4",
  "lctx-analytics",
+ "lctx-embed",
  "tempfile",
  "tikv-jemallocator",
  "tokio",
@@ -3465,6 +3467,17 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "toml",
+]
+
+[[package]]
+name = "lctx-embed"
+version = "0.1.0"
+dependencies = [
+ "cpg-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

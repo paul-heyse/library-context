@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow_array::builder::{Float64Builder, ListBuilder, StringBuilder};
+use arrow_array::builder::{Float32Builder, Float64Builder, ListBuilder, StringBuilder};
 use arrow_array::{
     ArrayRef, BooleanArray, FixedSizeBinaryArray, Float64Array, Int16Array, Int64Array, StringArray,
 };
@@ -265,6 +265,29 @@ impl ArrowColumn for Vec<f64> {
             for v in list {
                 b.values().append_value(*v);
             }
+            b.append(true);
+        }
+        Arc::new(b.finish())
+    }
+}
+
+fn float32_item() -> Arc<Field> {
+    Arc::new(Field::new("item", DataType::Float32, false))
+}
+
+/// An embedding vector (DESIGN §3.3): `List<Float32>` in `embedding_cache` (the child is renamed
+/// `element` by Delta); its length, finiteness and norm are checked where it is made and read.
+impl ArrowColumn for Vec<f32> {
+    fn data_type() -> DataType {
+        DataType::List(float32_item())
+    }
+    fn nullable() -> bool {
+        false
+    }
+    fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
+        let mut b = ListBuilder::new(Float32Builder::new()).with_field(float32_item());
+        for list in values {
+            b.values().append_slice(list);
             b.append(true);
         }
         Arc::new(b.finish())

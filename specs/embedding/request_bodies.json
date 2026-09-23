@@ -1,0 +1,10 @@
+{
+  "q1": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"Instruct: Given a coding task, retrieve capability briefs of a Python library that solve it\\nQuery:register a python function as an MCP tool\"],\"encoding_format\":\"float\"}",
+  "q2": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"Instruct: Given a coding task, retrieve capability briefs of a Python library that solve it\\nQuery:validate tool inputs and return structured output\"],\"encoding_format\":\"float\"}",
+  "q3": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"Instruct: Given a coding task, retrieve capability briefs of a Python library that solve it\\nQuery:run code around every request, like logging or auth\"],\"encoding_format\":\"float\"}",
+  "q4": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"Instruct: Given a coding task, retrieve capability briefs of a Python library that solve it\\nQuery:résumé naïve café — non-ASCII query 日本語\"],\"encoding_format\":\"float\"}",
+  "d1": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"Register a Python function as an MCP tool. Public access: fastmcp.FastMCP.tool. Important controls: name, description, annotations, output_schema.\"],\"encoding_format\":\"float\"}",
+  "d2": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"Expose a file or dynamic data as an MCP resource. Public access: fastmcp.FastMCP.resource. Important controls: uri template, mime_type.\"],\"encoding_format\":\"float\"}",
+  "d3": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"Run code around every request with middleware. Public access: fastmcp.FastMCP.add_middleware.\"],\"encoding_format\":\"float\"}",
+  "d4": "{\"model\":\"Qwen/Qwen3-Embedding-8B\",\"input\":[\"x\"],\"encoding_format\":\"float\"}"
+}

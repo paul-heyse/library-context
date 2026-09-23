@@ -78,6 +78,13 @@ enum Cmd {
         /// Reinstall every package while acquiring.
         #[arg(long)]
         reinstall: bool,
+        /// How brief documents are embedded: `vllm` (the live service; `blocked` without it),
+        /// `fake` (the deterministic test embedder) or `none`.
+        #[arg(long, value_enum, default_value = "fake")]
+        embedder: EmbedderChoice,
+        /// The vLLM service `--embedder vllm` uses.
+        #[arg(long, default_value = "http://127.0.0.1:8000")]
+        embed_url: String,
     },
     /// Read-only SQL over a published snapshot (its tables by name).
     Query {
@@ -92,6 +99,14 @@ enum Cmd {
         unpublished: bool,
         sql: String,
     },
+}
+
+/// The embedder a compile uses (DESIGN §11.1).
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum EmbedderChoice {
+    Vllm,
+    Fake,
+    None,
 }
 
 #[derive(Subcommand, Debug)]
@@ -263,12 +278,27 @@ fn random_id() -> anyhow::Result<Id> {
     Ok(Id(bytes))
 }
 
+fn embedder_of(
+    choice: EmbedderChoice,
+    url: &str,
+) -> Option<std::sync::Arc<dyn cpg_core::embed::Embedder>> {
+    match choice {
+        EmbedderChoice::Vllm => Some(std::sync::Arc::new(lctx_embed::VllmEmbedder::new(
+            url,
+            lctx_embed::qwen_spec(),
+        ))),
+        EmbedderChoice::Fake => Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        EmbedderChoice::None => None,
+    }
+}
+
 fn compile(
     library_dir: &Path,
     env_dir: &Path,
     sources: &Path,
     store: &Path,
     reinstall: bool,
+    embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
 ) -> anyhow::Result<()> {
     let started = Instant::now();
     acquire(library_dir, env_dir, reinstall)?;
@@ -302,8 +332,13 @@ fn compile(
     // The pre-registered analytics config (DESIGN §1.4, §9): without one, no analysis runs.
     let config_path = library_dir.join("analytics.toml");
     let analysis = if config_path.exists() {
+        if let Some(e) = &embedder {
+            let spec = e.spec();
+            println!("embedder {} (spec {})", spec.model, spec.hash().hex());
+        }
         Some(cpg_core::analyze::Analysis {
             config: lctx_analytics::config::AnalyticsConfig::load(&config_path)?,
+            embedder,
         })
     } else {
         None
@@ -478,12 +513,15 @@ fn run() -> anyhow::Result<()> {
             name,
             store,
             reinstall,
+            embedder,
+            embed_url,
         } => compile(
             &libraries.join(&name),
             &envs.join(&name),
             &sources.join(&name),
             &absolute(&store)?,
             reinstall,
+            embedder_of(embedder, &embed_url),
         ),
     }
 }

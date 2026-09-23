@@ -2097,6 +2097,25 @@ template, dimensions, output dtype and normalization.
   ≥ 0.9995. vLLM is not bitwise deterministic across requests (identical inputs differed by up to
   3.8e-3 in a component), so an exact vector match is never expected.
 
+**Implemented** and **Tested** in slice 1.6 (2026-09-23):
+- **The spec** is committed canonical JSON, `specs/embedding/qwen3-embedding-8b.json`, whose
+  SHA-256 is the spec hash (`cpg_core::embed::Spec`; `the_committed_spec_is_its_canonical_form`).
+- **The Rust client** (`lctx-embed`) builds its request bodies with `serde_json` and is held to
+  `specs/embedding/request_bodies.json` for the shared conformance inputs, which the Python
+  client is held to as well; every rejection fires (`every_rejection_fires`); a stub service
+  exercises the real HTTP path; an unreachable service is `blocked`, never fake. It uses the
+  `reqwest` 0.12.28 already in the lock, without TLS (the service is local).
+- **Token counts** come from the service's `/tokenize`; an over-cap document fails the compile.
+- **The fake embedder** (`FakeEmbedder`, its own spec) draws a unit vector by splitmix64 from the
+  request text's SHA-256, so Python reproduces it with its standard library.
+- **The cache** is written by an insert-only MERGE (`delta::merge_global`), probed at the pinned
+  delta-rs: only Add actions on an append-only table, only missing keys inserted, CHECKs enforced,
+  and four racing merges of one key leave one row
+  (`an_insert_only_merge_adds_only_missing_keys_to_an_append_only_table`,
+  `a_merge_enforces_the_immutable_checks`, `concurrent_merges_of_one_key_leave_one_row`).
+- **`lctx compile --embedder vllm|fake|none`**; the service is `just embed-serve`, from the
+  locked `services/vllm` project.
+
 **Cache.** Vectors are keyed by `spec_hash + input_hash` in the canonical `embedding_cache` Delta
 table (§3.2), because vLLM numerics vary between requests (E2). Snapshots record the cache version they
 read, and bundles copy the vectors they need from it.
@@ -2254,3 +2273,5 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 1.4: table groups for analysis results, the `lctx-compiler` run, the declared invocation projection (§5) and its petgraph adapter, Pass A (§9.1) with `analysis_invocations`/`findings`/`finding_members`/`witnesses`; `libraries/fastmcp/analytics.toml` (docs-only authored); the ADR-0019 standard review's P1 items (identity and lineage per contract, completion mapping, status policy, `adr lint` checks for Decision lines and cited records) (§B6, §5, §6.4, §9, §9.1, §10.1) | ADR-0019 (amended), ADR-0004 |
 
 | 2026-09-23 | Slice 1.5: Stage F synthesis (`cpg-core::synth`): the increment-1 assertion kinds, the kind policy published as `assertion_policy`, derived statuses, verbatim evidence by byte span, briefs, brief members and the brief document; eight tables and eight rules (policy, propagation, text, supports, evidence bytes, exported members, briefs cite analysis); `unicode-segmentation` pinned; the analysis-output ledger (§10, §10.2, §10.3) | ADR-0019 |
+| 2026-09-23 | Slice 1.6: the embedding spec, the `Embedder` trait with a fake and the vLLM client (`lctx-embed`), request-body conformance, the global `embedding_cache` (read mode, insert-only MERGE probed at the pin, empty when unused), the keys digest in `content_digest`, `services/vllm` and `just embed-serve`/`pilot-live` (§3.2, §6.1, §6.2, §11.1) | ADR-0017 amendment, ADR-0010 amendment |
+

@@ -1090,6 +1090,7 @@ pub fn contracts() -> Vec<(&'static str, String)> {
     let mut out = crate::for_each_table!(all);
     out.extend(crate::for_each_derived_table!(all));
     out.extend(crate::for_each_analysis_table!(all));
+    out.extend(crate::for_each_global_table!(all));
     out.push((Snapshots::NAME, contract::<Snapshots>()));
     out
 }

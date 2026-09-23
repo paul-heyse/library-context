@@ -1,0 +1,9 @@
+[project]
+name = "lctx-vllm-service"
+version = "0.0.0"
+description = "The embedding service (DESIGN §11.1, ADR-0010 amendment): vLLM 0.30.0 serving Qwen3-Embedding-8B, locked so torch and CUDA are pinned with it. Never a dependency of the compiler or the server."
+requires-python = "==3.14.*"
+dependencies = ["vllm==0.30.0"]
+
+[tool.uv]
+package = false

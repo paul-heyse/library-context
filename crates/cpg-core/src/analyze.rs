@@ -30,10 +30,24 @@ use crate::{CoreError, sql};
 /// The compiler's producer tool name.
 pub const TOOL: &str = "lctx-compiler";
 
-/// What an attempt analyzes: the pre-registered config (DESIGN §1.4, §9).
-#[derive(Debug, Clone)]
+/// What an attempt analyzes: the pre-registered config (DESIGN §1.4, §9), and the embedder
+/// brief documents are embedded with (none: the documents carry no `input_hash`).
+#[derive(Clone)]
 pub struct Analysis {
     pub config: AnalyticsConfig,
+    pub embedder: Option<std::sync::Arc<dyn crate::embed::Embedder>>,
+}
+
+impl std::fmt::Debug for Analysis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Analysis")
+            .field("config", &self.config)
+            .field(
+                "embedder",
+                &self.embedder.as_ref().map(|e| e.spec().model.clone()),
+            )
+            .finish()
+    }
 }
 
 /// The `lctx-compiler` run of one attempt.

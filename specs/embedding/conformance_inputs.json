@@ -1,0 +1,10 @@
+[
+  {"id": "q1", "kind": "query", "text": "register a python function as an MCP tool"},
+  {"id": "q2", "kind": "query", "text": "validate tool inputs and return structured output"},
+  {"id": "q3", "kind": "query", "text": "run code around every request, like logging or auth"},
+  {"id": "q4", "kind": "query", "text": "résumé naïve café — non-ASCII query 日本語"},
+  {"id": "d1", "kind": "document", "text": "Register a Python function as an MCP tool. Public access: fastmcp.FastMCP.tool. Important controls: name, description, annotations, output_schema."},
+  {"id": "d2", "kind": "document", "text": "Expose a file or dynamic data as an MCP resource. Public access: fastmcp.FastMCP.resource. Important controls: uri template, mime_type."},
+  {"id": "d3", "kind": "document", "text": "Run code around every request with middleware. Public access: fastmcp.FastMCP.add_middleware."},
+  {"id": "d4", "kind": "document", "text": "x"}
+]

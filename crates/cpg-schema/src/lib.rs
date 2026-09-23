@@ -6,6 +6,7 @@
 pub mod codebook;
 pub mod column;
 pub mod derived;
+pub mod embedding;
 pub mod findings;
 pub mod graph;
 pub mod hash;

@@ -103,13 +103,22 @@ fn ids(batch: &RecordBatch, column: &'static str) -> Result<Vec<Id>, CoreError> 
 /// and its context's lock and environment digests, ADR-0013) and the compiler digest. The
 /// analytics-config and embedding inputs join it as their stages land.
 pub fn content_digest(run_ids: &[Id]) -> Digest {
+    content_digest_with(run_ids, None)
+}
+
+/// [`content_digest`] with the embedding inputs (§3.4.1; ADR-0017 amendment): the spec hash and a
+/// digest of the sorted keys the snapshot used, never the shared cache version.
+pub fn content_digest_with(run_ids: &[Id], embedded: Option<(Digest, Digest)>) -> Digest {
     let mut runs: Vec<String> = run_ids.iter().map(Id::hex).collect();
     runs.sort();
     runs.dedup();
-    IdHasher::new(kind::SNAPSHOT_CONTENT)
-        .strs(runs.iter().map(String::as_str))
-        .digest_field(compiler_digest())
-        .finish_digest()
+    let mut h = IdHasher::new(kind::SNAPSHOT_CONTENT);
+    h.strs(runs.iter().map(String::as_str))
+        .digest_field(compiler_digest());
+    if let Some((spec, keys)) = embedded {
+        h.digest_field(spec).digest_field(keys);
+    }
+    h.finish_digest()
 }
 
 async fn write<T: Table>(
@@ -191,6 +200,7 @@ fn schema_digest_of(name: &str) -> Result<Digest, CoreError> {
     cpg_schema::for_each_table!(find);
     cpg_schema::for_each_derived_table!(find);
     cpg_schema::for_each_analysis_table!(find);
+    cpg_schema::for_each_global_table!(find);
     Err(CoreError::UnknownTable(name.to_owned()))
 }
 
@@ -397,7 +407,7 @@ async fn finish(
     write_analysis::<Witnesses>(&ctx, root, snapshot_id, &found.witnesses, &mut written).await?;
 
     // Stage F (DESIGN §10): assertions and briefs from the findings, written the same way.
-    let made = match analysis {
+    let mut made = match analysis {
         Some((_, compiler)) => crate::synth::run(&ctx, snapshot_id, compiler, &found).await?,
         None => crate::synth::SynthRows {
             policy: crate::synth::policy_rows(snapshot_id),
@@ -405,6 +415,29 @@ async fn finish(
         },
     };
     written.stages.mark("synthesize");
+    // The brief documents embedded through the global cache (§11.1; ADR-0017 amendment): its
+    // version is registered for validation and recorded in the row set with the keys used.
+    let embedded = match analysis.and_then(|(a, _)| a.embedder.clone()) {
+        Some(embedder) => {
+            let e = crate::embed::embed_documents(
+                root,
+                snapshot_id,
+                embedder.as_ref(),
+                &mut made.brief_documents,
+            )
+            .await?;
+            let name = cpg_schema::embedding::EmbeddingCache::NAME;
+            register(&ctx, root, name, e.version, snapshot_id).await?;
+            written.versions.insert(name.to_owned(), e.version);
+            written.rows.push((name, e.used));
+            written.stages.mark("embed brief documents");
+            Some(e)
+        }
+        None => {
+            crate::snapshot::register_empty_globals(&ctx, &written.versions)?;
+            None
+        }
+    };
     use cpg_schema::findings::{
         AssertionPolicy, AssertionSupport, Assertions, BriefAssertions, BriefDocuments,
         BriefMembers, Briefs, Evidence,
@@ -459,7 +492,7 @@ async fn finish(
         return Err(CoreError::Invalid(violations));
     }
 
-    let digest = content_digest(&runs);
+    let digest = content_digest_with(&runs, embedded.map(|e| (e.spec_hash, e.keys_digest)));
     let snapshot_rows: Vec<SnapshotsRow> = rows
         .iter()
         .map(|(name, count)| {

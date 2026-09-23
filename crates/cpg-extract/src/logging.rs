@@ -6,7 +6,7 @@
 /// table whose `snapshot_id` has no min/max. That limit is documented (§4.3) and designed around
 /// (per-commit reads, ADR-0017), so those lines would only bury the warnings the subscriber exists
 /// to show (H1 review F6).
-pub const DEFAULT_LOG_FILTER: &str = "warn,deltalake_core::writer::stats=error,deltalake_core::kernel::snapshot::stats_projection=error";
+pub const DEFAULT_LOG_FILTER: &str = "warn,deltalake_core::writer::stats=error,deltalake_core::kernel::snapshot::stats_projection=error,deltalake_core::operations::merge=error";
 
 /// Install the subscriber. `LCTX_LOG` replaces [`DEFAULT_LOG_FILTER`] (`LCTX_LOG=debug`); it
 /// changes output only, never an identity.
