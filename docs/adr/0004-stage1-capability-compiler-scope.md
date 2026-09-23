@@ -72,3 +72,6 @@ The operator chose:
 
 - 2026-09-22: pointer only. ADR-0012 now records the DESIGN.md budget (~1,450 lines), raised to
   hold the extraction and fact-construction detail (§4.2.1–§4.2.6, §4.3).
+- 2026-09-22: operator decision. DESIGN.md has no line budget; the detail the design needs comes
+  before length. This replaces the budget line in the Decision and the ~1,450 figure above (which
+  ADR-0012 itself never recorded).

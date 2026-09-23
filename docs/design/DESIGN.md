@@ -3,7 +3,8 @@
 **This file is the current truth.** It says what the system *is*. `docs/adr/` says *why*, and what
 was rejected. Change a governed section only in the same commit as the ADR that decides it, and
 end the section with `> Decision: ADR-NNNN`. Sections are never renumbered: insert `§3.2.1` rather
-than shifting `§3.3`. Budget: about 1,450 lines (ADR-0012). Column-level contracts live in
+than shifting `§3.3`. There is no line budget: the detail the design needs comes before length
+(operator, 2026-09-22; ADR-0004 amendment). Column-level contracts live in
 `cpg-schema` and are snapshot-tested; they are not repeated here.
 
 **Labels.** Every claim carries a charter §D label (`Proposed`, `Interface-checked`,
@@ -609,7 +610,11 @@ column. No inner join drops them.
 **Labels.** A line that cites a spike result (S1–S7, `spike/pyrefly-inproc`, FastMCP 4.0.3,
 2026-09-22) is **Tested** or **Measured**. The rest is **Implemented** in `cpg-extract` and
 **Tested** by `crates/cpg-extract/tests` (slice 1, 2026-09-22), where each test names the claim
-it checks. The `catch_unwind` and per-module-thread ban is an ast-grep rule. Pyrefly is linked from the pinned fork (§B8). A run is one call of the driver over one context, and everything below happens in
+it checks: the variant table (every site kind, `is_attribute`, potential remainders), module and
+class keys, `__all__` forms, `_invalid/` modules, BOM/CRLF offsets against the stored bytes, two
+install locations, two dependency environments, module order and cross-process determinism, the
+id recipes, the panic abort, the ambient refusal and harness equivalence with the CLI. The
+`catch_unwind` and per-module-thread ban is an ast-grep rule. Pyrefly is linked from the pinned fork (§B8). A run is one call of the driver over one context, and everything below happens in
 one process.
 
 | Provider surface (`model_id` suffix) | Mode | Raw tables (v1) |
@@ -639,9 +644,11 @@ one process.
    is part of the producer config (the spike used 512 MiB). The check and the lazy solves all run
    on that thread; it is the producer's config digest, so changing it changes `run_id`. One
    thread is a precaution (upstream's cycle placeholders are per thread) with no difference
-   shown: FastMCP (S3) and the import-cycle fixture, whose solved cycle types reach `pysa_calls`,
-   are identical up to 8 threads (2026-09-22). **Tested:** sorted and reversed module order and
-   separate processes give identical output.
+   shown. FastMCP is identical at `Inline`, `NumThreads(1)` and `NumThreads(4)` (S3). The
+   import-cycle fixture (a return-type cycle and a global cycle whose solved types reach
+   `pysa_calls`) is identical at `NumThreads(8)`, 6 runs in each module order (probe,
+   2026-09-22); Pyrefly 1.3.1 iterates cycles to a fixpoint. **Tested:** sorted and reversed
+   module order and separate processes give identical output.
 4. **Handles.** One per project module, from `cfg.handle_from_module_path`, sorted by module name.
 5. **Run.** Install a `PysaReporter` with `write_files: false` and `ModuleIds::new(&handles)`, then
    call `transaction.run(&handles, Require::Everything, None)`. Keep the reporter installed during
