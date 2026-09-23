@@ -55,6 +55,8 @@ pub mod kind {
     pub const FACT: &str = "fact";
     pub const CONTENT: &str = "content";
     pub const SITE_PACKAGES: &str = "site-packages";
+    pub const COMPILER: &str = "compiler";
+    pub const SNAPSHOT_CONTENT: &str = "snapshot-content";
 }
 
 /// Length-prefixed BLAKE3 hasher for ids and digests.

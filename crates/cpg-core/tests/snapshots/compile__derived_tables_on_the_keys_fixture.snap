@@ -1,0 +1,59 @@
+---
+source: crates/cpg-core/tests/compile.rs
+expression: out
+---
+## exports
++--------------------+--------------------+-------------+
+| access_path        | declaration        | is_overload |
++--------------------+--------------------+-------------+
+| keys.dual.f        | keys.dual.f        | false       |
+| keys.dual.f        | keys.dual.f        | false       |
+| keys.dual.g        | keys.dual.g        | false       |
+| keys.dual.g        | keys.dual.g        | false       |
+| keys.nested.A      | keys.nested.A      | false       |
+| keys.nested.B      | keys.nested.B      | false       |
+| keys.nested.use    | keys.nested.use    | false       |
+| keys.use_dual.call | keys.use_dual.call | false       |
++--------------------+--------------------+-------------+
+## signatures
++------------------------+------------+----------------+--------------+-----------------+------+--------+
+| def                    | start_byte | callable_start | function_key | signature_index | form | reason |
++------------------------+------------+----------------+--------------+-----------------+------+--------+
+| keys.dual.f            | 0          | 0              | F:0          | 0               | 0    |        |
+| keys.dual.f            | 0          | 0              | F:0          | 0               | 0    |        |
+| keys.use_dual.call     | 24         | 24             | F:0          | 0               | 0    |        |
+| keys.dual.g            | 25         | 25             | F:1          | 0               | 0    |        |
+| keys.dual.g            | 26         | 26             | F:1          | 0               | 0    |        |
+| keys.nested.A.Config.m | 35         | 35             | F:0          | 0               | 0    |        |
+| keys.nested.B.Config.m | 113        | 113            | F:1          | 0               | 0    |        |
+| keys.nested.use        | 156        | 156            | F:2          | 0               | 0    |        |
++------------------------+------------+----------------+--------------+-----------------+------+--------+
+## parameters
++------------------------+------------+---------+--------+-----------+----------+--------+
+| def                    | start_byte | ordinal | syntax | semantics | required | reason |
++------------------------+------------+---------+--------+-----------+----------+--------+
+| keys.dual.f            | 0          | 0       | x      | x         | true     |        |
+| keys.dual.f            | 0          | 0       | x      | x         | true     |        |
+| keys.nested.A.Config.m | 35         | 0       | self   | self      | true     |        |
+| keys.nested.B.Config.m | 113        | 0       | self   | self      | true     |        |
+| keys.nested.use        | 156        | 0       | a      | a         | true     |        |
+| keys.nested.use        | 156        | 1       | b      | b         | true     |        |
++------------------------+------------+---------+--------+-----------+----------+--------+
+## resolutions
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+| start_byte | end_byte | status | remainder | complete | unresolved_reason | target_count | reason |
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+| 45         | 49       | 0      | false     | true     |                   | 1            |        |
+| 54         | 62       | 0      | false     | true     |                   | 1            |        |
+| 209        | 214      | 0      | false     | false    |                   | 1            |        |
+| 217        | 222      | 0      | false     | false    |                   | 1            |        |
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+## call_targets
++------------+----------+-------+----+-----------------+-------------+------------------------+----------+
+| start_byte | end_byte | phase | ho | target_module   | target_name | target                 | modality |
++------------+----------+-------+----+-----------------+-------------+------------------------+----------+
+| 45         | 49       | 0     |    | @keys/dual.py   | f           | keys.dual.f            | 0        |
+| 54         | 62       | 0     |    | @keys/dual.pyi  | g           | keys.dual.g            | 0        |
+| 209        | 214      | 0     |    | @keys/nested.py | m           | keys.nested.A.Config.m | 1        |
+| 217        | 222      | 0     |    | @keys/nested.py | m           | keys.nested.B.Config.m | 1        |
++------------+----------+-------+----+-----------------+-------------+------------------------+----------+

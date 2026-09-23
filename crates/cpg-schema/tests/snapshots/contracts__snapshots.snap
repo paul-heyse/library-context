@@ -1,0 +1,17 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table snapshots
+family publication
+key snapshot_id, table_name
+check version_nonnegative: table_version >= 0
+check row_count_nonnegative: row_count >= 0
+@lctx.family=publication
+@lctx.table=snapshots
+snapshot_id: FixedSizeBinary(16) NOT NULL
+content_digest: FixedSizeBinary(32) NOT NULL
+table_name: Utf8 NOT NULL
+table_version: Int64 NOT NULL
+schema_digest: FixedSizeBinary(32) NOT NULL
+row_count: Int64 NOT NULL

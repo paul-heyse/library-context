@@ -24,3 +24,4 @@ is_stub: Boolean NOT NULL
 is_def_statement: Boolean NOT NULL
 defining_class: Utf8 NULL
 overridden_base: Utf8 NULL
+signature_count: Int64 NOT NULL

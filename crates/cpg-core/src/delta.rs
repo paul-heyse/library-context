@@ -174,17 +174,7 @@ pub async fn read_at<T: Table>(
     version: u64,
     snapshot_id: Id,
 ) -> Result<RecordBatch, CoreError> {
-    let table = DeltaTableBuilder::from_url(table_url(root, T::NAME)?)?
-        .with_version(version)
-        .load()
-        .await?;
-    if table.version() != Some(version) {
-        return Err(CoreError::VersionMismatch {
-            table: T::NAME,
-            requested: version,
-            loaded: table.version(),
-        });
-    }
+    let table = crate::snapshot::load_at(root, T::NAME, version).await?;
     let ctx: SessionContext = create_session().into_inner();
     table.update_datafusion_session(&ctx.state())?;
     ctx.register_table("t", table.table_provider().await?)?;

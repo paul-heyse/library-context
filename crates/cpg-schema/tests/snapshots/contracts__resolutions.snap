@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table resolutions
+family calls
+key snapshot_id, call_site_node_id
+check target_count_nonnegative: target_count >= 0
+@lctx.family=calls
+@lctx.table=resolutions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+status: Int16 NOT NULL [lctx.codebook=resolution_status]
+domain: Int16 NOT NULL [lctx.codebook=resolution_domain]
+has_unresolved_remainder: Boolean NOT NULL
+candidate_set_complete_under_model: Boolean NOT NULL
+unresolved_reason: Int16 NULL [lctx.codebook=pysa_unresolved_reason]
+target_count: Int64 NOT NULL
+call_fact_id: FixedSizeBinary(16) NOT NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

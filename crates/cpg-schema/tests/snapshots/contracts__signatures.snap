@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table signatures
+family signatures
+key snapshot_id, signature_node_id
+check signature_index_nonnegative: signature_index IS NULL OR signature_index >= 0
+@lctx.family=signatures
+@lctx.table=signatures
+snapshot_id: FixedSizeBinary(16) NOT NULL
+signature_node_id: FixedSizeBinary(16) NOT NULL
+callable_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+function_key: Utf8 NULL
+signature_index: Int64 NULL
+form: Int16 NULL [lctx.codebook=signature_form]
+declaration_fact_id: FixedSizeBinary(16) NOT NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

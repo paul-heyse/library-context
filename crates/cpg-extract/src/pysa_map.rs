@@ -258,6 +258,7 @@ pub(crate) fn map_definitions(
                     .overridden_base_method
                     .as_ref()
                     .map(|f| refs.function(f)),
+                signature_count: def.undecorated_signatures.len() as i64,
             }
         ));
         for (si, sig) in def.undecorated_signatures.iter().enumerate() {

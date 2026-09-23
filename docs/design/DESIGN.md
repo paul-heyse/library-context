@@ -344,20 +344,22 @@ declaration, and an AST node is not an execution point.
   this mapping.
 - **Deferred views.** Generic `nodes`/`edges` views are **not materialized** until a pass reads
   them. Projections (§5) are built directly from family joins.
-- **One producer per table.** A table is written by one producer: one extractor surface, or one
-  Stage-D relational derivation (§4.1).
+- **One producer per table.** A fact table is written by one producer: one extractor surface, or
+  one Stage-C/D derivation (§4.1). `runs`, `contexts`, `producers` and `facts` are registries each
+  producer appends its own rows to; `source_files` is the extractor's until Stage A lands.
 - **Merged tables are derivations.** Where two providers contribute to one logical record, each
-  writes its own raw table. The merged table is a DataFusion derivation that carries both
-  `fact_id`s (`extraction_mode = relational_derivation`).
-- **Disagreement is recorded.** When the raw tables disagree, the derivation records a
-  `boundaries` row with `provider_disagreement`.
+  writes its own raw table. The merged table is a DataFusion derivation
+  (`relational_derivation`) that carries keys, both `fact_id`s and what the join decides, never
+  a copy of a raw payload column (**Implemented**, `cpg_schema::derived`, slice 2).
+- **Disagreement is recorded in the derived row.** A `reason` column holds `provider_disagreement`
+  (or `missing_evidence`, `outside_provider_model`); `boundaries` stays the extractor's.
 
 | Family | Tables | First increment |
 |---|---|---|
 | `provenance` | `releases`, `distributions`, `source_files`, `contexts`, `producers`, `runs`, `facts` | 1 |
-| `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → declaration) | 1 |
-| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span and flags; the Stage-C bridge), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO). Derived: `signatures`, `parameters` | 1 |
-| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `call_sites`, `resolutions` (§3.6), `call_targets` (joined on the full call-expression range, §4.2.3) | 1 |
+| `exports` | raw: `declarations` (Ruff: qualified name, kind, parent, span, docstring text and span, `is_overload`), `export_syntax` (Ruff: import aliases, `__all__` statement span; syntax evidence only), `public_names` (Pyrefly: access path → origin and its file, `via_dunder_all`; §4.2.3). Derived: `exports` (public access path → the seed declaration: in the origin's file, the last binding, an implementation before an `@overload` stub) | 1 |
+| `signatures` | raw: `parameter_syntax` (Ruff: ordinal, name, default text and span, annotation text), `pysa_functions` (Pyrefly: function key → name span, flags, signature count), `parameter_semantics` (Pyrefly Pysa undecorated signatures: kind, required, annotation), `class_ancestry` (Pyrefly: bases and reported MRO). Derived: `provider_node_map` (Stage C, name-span join), `signatures` (per `def`: its callable, stubs rolled up to the implementation, and its Pysa signature index), `parameters` (Ruff ⋈ Pysa on the ordinal) | 1 |
+| `calls` | raw: `call_syntax` and `arguments` (Ruff: span, owner, ordinal, keyword, starred, expression span; `call_syntax` rows are the call sites), `pysa_calls` (Pyrefly Pysa call graphs: targets, receiver, phase, unresolved reasons). Derived: `resolutions` (§3.6, one per call site), `call_targets` (joined on the full call-expression range, §4.2.3). Pysa rows at non-call sites (property accesses, identifiers, artificial and format-string sites) stay raw until the syntax family (increment 2) gives them nodes | 1 |
 | `embedding_cache` | `embedding_cache` (spec_hash, input_hash, vector as `List<Float32>`, model identity). Global and append-only; not snapshot-qualified; the key is unique | 1 |
 | `coverage` | `coverage`, `boundaries` (§3.7) | 1 |
 | `syntax` | `syntax_nodes` needed by recognizers: branches, raises, assignments, with their structural occurrence paths | 2 |
@@ -433,7 +435,7 @@ migration (DM-51).
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id` | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. `capability_id` = `brief_id` | content |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
-| `content_digest` | sorted `run_id`s (each carrying its `release_id`), acquisition-manifest digest, compiler build digest, analytics-config digest, embedding spec hash, `embedding_cache` version used | compares reruns |
+| `content_digest` | sorted `run_id`s (each carrying its `release_id`), acquisition-manifest digest, compiler build digest (its derivation SQL, contracts and rules), analytics-config digest, embedding spec hash, `embedding_cache` version used. Slice 2 has the first and the compiler digest | compares reruns |
 
 - **Keys are snapshot-qualified.** Uniqueness is checked on `(snapshot_id, key)`, so an identical
   rerun re-emits the same `node_id` and `fact_id` in a new snapshot without conflict.
@@ -597,7 +599,8 @@ when mapping output changes, which the variant and id snapshots show).
 | F. Synthesis | Rust templates + extractive selection (§10) | assertions, briefs |
 | G. Publication | Rust (§6) | `snapshots` row; serving bundle |
 
-Unmapped or ambiguous rows become `boundaries` rows. They are never dropped by an inner join.
+Unmapped rows stay in the derived table with a null node and, where one applies, a reason
+column. No inner join drops them.
 
 > Decision: ADR-0012
 
@@ -776,43 +779,37 @@ one process.
 
 ### §4.3 Fact construction and persistence
 
-**Implemented** in `cpg-schema` (build, canonicalize, ids) and `cpg-core` (create, open, write,
-read, SQL helper), and **Tested** there (slice 1, 2026-09-22): every slice-1 table round-trips
-exactly through Delta; open refuses drifted or missing CHECKs; the helper refuses writes; the
-`INSERT INTO` bypass is asserted at the pinned delta-rs. Derive, validate and publish are
-**Proposed** until slice 2. This section says which built-in owns each step; §6 and §8 hold the
-protocol and the rules.
+**Implemented** in `cpg-schema` (build, canonicalize, ids, derivation SQL, rules) and `cpg-core`
+(create, open, write, derive, validate, publish, read), and **Tested** there (slices 1–2,
+2026-09-22): every table round-trips exactly through Delta; open refuses drifted or missing
+CHECKs; the helper refuses writes; the `INSERT INTO` bypass is asserted; the derived tables are
+snapshot-tested on three fixtures; each rule kind rejects an injected violation and nothing
+publishes. This section says which built-in owns each step; §6 and §8 hold the protocol and the
+rules.
 
 | Stage | Built-in | Ours |
 |---|---|---|
 | Build | Typed builders against the table's `cpg-schema` `SchemaRef` (`FixedSizeBinaryBuilder`, `Int16Builder`, `BooleanBuilder::append_option`, `GenericListBuilder`, `StructBuilder`). `RecordBatch::try_new` with default options is the local type check: exact types, nested names, nullability, metadata | One builder per table. The arrow-json serde path is tests-only: it expects hex for `FixedSizeBinary` |
 | Canonicalize | `lexsort_to_indices` + `take_record_batch` on the table's declared **total** key. Arrow's sort is unstable | Key declarations |
 | Ids | The `blake3` crate (`=1.8.6`, shared with Pyrefly) inside one `IdHasher` (§3.4.1). Not `RowConverter` bytes: the encoding may change between releases. Not SQL `digest`: it can't write length prefixes | `IdHasher` |
-| Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))`, then `add_constraint()` with the table's **immutable** per-row CHECKs: span order and non-negative offsets. Codebook membership is not a CHECK, because codebooks grow (§8). `CreateBuilder` rejects `delta.constraints.*` keys (Interface-checked: observed in S6, not asserted) | CHECK declarations |
+| Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))`, then `add_constraint()` with the table's **immutable** per-row CHECKs: span order and non-negative offsets. delta-rs counts a NULL result as a violation (**Tested**), so a CHECK on a nullable column reads `c IS NULL OR …`. Codebook membership is not a CHECK, because codebooks grow (§8). `CreateBuilder` rejects `delta.constraints.*` keys (Interface-checked: observed in S6, not asserted) | CHECK declarations |
 | Open | When an attempt opens a table, compare its `delta.constraints.*` and `delta.appendOnly` with the generated set, in delta-rs's normalized form, and abort on a mismatch. A table left without its constraints (a crash between create and `add_constraint`) is refused | The verify helper |
 | Write raw | `DeltaTable::write(batches)` (`WriteBuilder`), with `CommitProperties::with_metadata` carrying `lctx.snapshot_id`. That metadata is audit only; `snapshots` stays the authority. **Tested:** CHECK is enforced, `appendOnly` rejects deletes, and the metadata reads back through `history()` | — |
-| Derive | Read raw at the written versions (§6.2). Run the derivation SQL from `cpg-schema` through one session helper, `ctx.sql_with_options`, disallowing DDL, DML and statements. No other code calls `ctx.sql`. Write with `write(vec![]).with_input_plan(plan).with_session_state(..)`. **Tested:** CHECK is enforced on this path. Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
-| Validate | DataFusion queries generated from the key, reference and endpoint declarations (§8). `target_partitions = 1` for float aggregates | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
-| Publish | `snapshots.write([rows])` in one commit (§6.1) | Classification after an ambiguous error |
+| Derive | A session over the attempt's tables at their written versions, each filtered to the snapshot (§6.2). The derivation SQL from `cpg-schema` runs through the one helper, `ctx.sql_with_options` with DDL, DML and statements disallowed; no other code calls `ctx.sql`. The result is collected, cast strictly to the declared schema, sorted canonically and written like a raw table, so it passes the same local type check (`with_input_plan` streaming, Tested in S6, is not needed at pilot scale). Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
+| Validate | DataFusion queries generated from the contracts (§8). `target_partitions = 1` for float aggregates | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
+| Publish | `snapshots.write([rows])` in one commit (§6.1). **Tested:** a rejected append is classified unpublished by re-reading | Classification after an ambiguous error |
 | Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3). **Tested:** with two snapshots in one table, dropping the version pin or the snapshot filter changes the result. Reading a missing table creates nothing | One helper |
 
 Operations are methods on `DeltaTable`. `DeltaOps` does not exist at this pin.
 
-**Never:**
+**Never** (the write, SQL and Parquet-scan items are ast-grep rules):
 - DataFusion `INSERT INTO` or `DataFrame::write_table` into a Delta table. The `DeltaDataSink`
-  path skips CHECK constraints and invariants. **Tested:** an invalid row was committed. Slice 1
-  turns this observation into an asserting test pinned to the delta-rs revision, so an upstream
-  fix gets noticed.
-- delta-rs's low-level `RecordBatchWriter` or `JsonWriter` on fact tables. They carry no
-  constraint handling (Interface-checked).
-
-ast-grep rules for these, and for `ctx.sql` outside the helper, land with slice 1's first Delta
-write.
-- `SaveMode::Ignore`.
-- Deletion vectors, which switch off Parquet predicate pushdown.
-- Column mapping.
-- Raw Parquet scans.
-- Vacuum or optimize.
+  path skips CHECK constraints and invariants; a test asserts the bypass at the pinned revision,
+  so an upstream fix gets noticed.
+- delta-rs's low-level `RecordBatchWriter` or `JsonWriter` on fact tables (no constraint
+  handling; Interface-checked).
+- `SaveMode::Ignore`; deletion vectors (they switch off Parquet pushdown); column mapping; raw
+  Parquet scans; vacuum or optimize.
 
 **Known limit (Tested, P1).** Delta log statistics skip the Binary `snapshot_id`, so Delta skips
 no files. The Parquet footers do carry binary statistics, and row groups are pruned (3 → 1 in
@@ -872,8 +869,8 @@ The vertex universe is selected separately from the edges, so isolated public AP
 
 ## §6 Persistence and publication
 
-**Tested** where a line cites a spike, otherwise **Interface-checked** (deltalake skill probes).
-Source: IP L1603–L1623, L2967–L3006. The ADR-0009 Delta probe ran in full on 2026-09-22: S6
+**Tested** where a line cites a spike or slice 2 (`cpg-core/tests/compile.rs`, 2026-09-22),
+otherwise **Interface-checked** (deltalake skill probes). Source: IP L1603–L1623, L2967–L3006. The ADR-0009 Delta probe ran in full on 2026-09-22: S6
 (CHECK, read cast), P1 (Binary statistics), P2 (a failed validation publishes nothing), P3 (an
 ambiguous append is classified by re-reading) and P4 (a byte-identical bundle rebuild).
 
@@ -885,7 +882,9 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   1. writes its rows;
   2. runs local and cross-table validation (§8);
   3. then, **and only then**, appends one row per table to `snapshots`: (snapshot_id,
-     content_digest, table, Delta version, schema digest, row count), in a single commit.
+     content_digest, table, Delta version, schema digest, row count), in a single commit
+     (**Tested**: a validation failure publishes nothing, and the published snapshot's reader
+     sees only its rows).
 - **That commit is the publication act** (Delta commits are atomic per table; there is no
   multi-table commit). The row set also records the `embedding_cache` version the attempt read.
 - **An error on the `snapshots` append itself** is ambiguous (`delta.commit.1`). Re-read
@@ -923,7 +922,7 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 
 - **Additive nullable columns only**, via `SchemaMode::Merge`. Anything else is a new table
   (`edges_v2`), with the move recorded in `snapshots`.
-- Schema digests are computed from the Delta schema, not from Arrow read back, because read-back
+- Schema digests are `cpg-schema`'s digest of the declared contract, never of Arrow read back, because read-back
   changes `Utf8` → `Utf8View` and renames list children to `element`.
 - **A change to a table's CHECK set is a migration**, like a column change: a new table, or an
   explicit constraint step recorded by ADR. The open-time verify (§4.3) refuses a table whose
@@ -975,7 +974,9 @@ authoritative for them (ADR-0010, ADR-0011, ADR-0012).
 
 ## §8 Validation
 
-**Proposed.** Source: IP L1581–L1601.
+**Implemented** for the cross-table rules below and **Tested** (slice 2, 2026-09-22: each rule
+kind rejects an injected violation); endpoint kinds and the brief rules are **Proposed**. Source:
+IP L1581–L1601.
 
 **Local** (Arrow/Rust), at every materialization boundary:
 - exact physical types, nullability and widths. `RecordBatch::try_new` with default options
@@ -991,12 +992,14 @@ declarations, so they are enforcement at the storage boundary, not a second defi
 **Codebook membership is not a CHECK:** codebooks grow append-only, and a stored range would
 reject the next code. The local validators above check it against the current codebook.
 
-**Cross-table** (DataFusion), **one query per rule**. The uniqueness, reference and endpoint
-queries are generated from `cpg-schema`'s key, reference and endpoint declarations:
-- uniqueness of `(snapshot_id, key)` via `GROUP BY … HAVING count(*) > 1`;
-- foreign references via `LEFT ANTI JOIN` returning zero rows;
-- endpoint kinds;
-- coverage completeness (a row for every declared family × module);
+**Cross-table** (DataFusion), **one query per rule**, generated in `cpg_schema::rules` from the
+contracts and snapshot-tested:
+- `key`: uniqueness of every table's declared total key via `GROUP BY … HAVING count(*) > 1`;
+- `ref`: each declared reference via `LEFT ANTI JOIN` returning zero rows;
+- `fact`: every raw row has its `facts` row and every `facts` row its raw row;
+- `codebook`: every codebook column holds a code of its codebook (a query, since not a CHECK);
+- `coverage`: a row for every declared family × module of the run's release;
+- endpoint kinds, once `cpg-schema` declares the family → node/edge mapping (the first projection);
 - every assertion cites existing findings and evidence;
 - every public symbol in a brief exists in `exports`.
 
@@ -1456,3 +1459,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-22 | ADR-0009 probe ran in full (P1–P4) and ADR-0009 was accepted. ADR-0010 spikes (E1–E3) ran and ADR-0010 was accepted, with the embedding model changed to Qwen3-Embedding-8B (4,096 dimensions) by operator decision: §3.3, §4.3, §6 and §11 amended | ADR-0009, ADR-0010 |
 | 2026-09-22 | ADR-0012 standard review F1–F11, O1: abort on any panic; full Pysa variant table and `Overrides` as open candidates (§3.6); `__all__` completeness detector; immutable CHECKs verified at open; fidelity definitions; `Inline` thread; root-relative context paths; labels corrected | ADR-0012 |
 | 2026-09-22 | Slice-1 compact review F1–F9: `is_attribute` and potential remainders; module and class keys; site-packages digest in `context_id`; sorted config keys; revision tied to `Cargo.lock`; §3.4.1, §4.2.1–§4.2.5 reconciled to the code | ADR-0012 |
+| 2026-09-22 | Slice 2: Stage C/D derivations, generated validators, `snapshots` publication and the pinned reader; §3.2, §4.1, §4.3, §6, §8 amended (derived rows carry `fact_id`s, reasons in-row) | ADR-0008 |

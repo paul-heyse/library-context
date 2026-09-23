@@ -54,9 +54,20 @@ The research input proposes both a generic `nodes`/`edges` store and dedicated t
   `assertion_kind`s and their policy are fixed in DESIGN §10.2.
 - **Coverage.** `coverage` has one row per declared family and module in scope; absence is never
   implicit.
-- **Boundaries.** `boundaries` holds resolution issues and analysis stops, keyed by fact.
-- **Validation** (DESIGN §8):
-  - one DataFusion query per rule;
+- **Boundaries.** `boundaries` holds the extractor's resolution issues and analysis stops, keyed
+  by fact. A derivation (Stage C/D) keeps an unmapped or disagreeing row in its own table, with a
+  null node and a `reason` column, so each table keeps one producer.
+- **Derived rows.** A derived table carries keys, the `fact_id`s of the rows it joins and what the
+  join decides, never a copy of a raw payload column. Its SQL lives in `cpg-schema` next to its
+  contract and is snapshot-tested with it.
+- **Producers.** A fact table has one producer. `runs`, `contexts`, `producers` and `facts` are
+  registries each producer appends its own rows to; `source_files` is the extractor's until
+  Stage A lands.
+- **The family → node/edge mapping** and the endpoint-kind rule land with the first projection
+  (§5), their first reader.
+- **Validation** (DESIGN §8), generated from the contracts:
+  - one DataFusion query per rule: key uniqueness, declared references, fact links in both
+    directions, codebook membership and coverage completeness;
   - snapshot-qualified uniqueness;
   - total `ORDER BY` everywhere;
   - `safe: false` casts;
@@ -69,3 +80,6 @@ The research input proposes both a generic `nodes`/`edges` store and dedicated t
 - **Schema snapshots** (insta) and the append-only codebook test become the oracles for this ADR.
 - **Endpoint-kind validation** reads the mapping. Materializing views is deferred, so there is
   no regeneration contract to maintain until a reader exists.
+- **Evidence** (slice 2, 2026-09-22, `cpg-core/tests/compile.rs`): each rule kind rejects an
+  injected violation and nothing publishes; the Stage-C key is unique on three fixtures,
+  including a `.py`/`.pyi` pair.

@@ -1,0 +1,15 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table provider_node_map
+family signatures
+key snapshot_id, module_node_id, function_key
+@lctx.family=signatures
+@lctx.table=provider_node_map
+snapshot_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+function_key: Utf8 NOT NULL
+node_id: FixedSizeBinary(16) NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+declaration_fact_id: FixedSizeBinary(16) NULL

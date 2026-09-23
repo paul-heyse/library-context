@@ -20,6 +20,7 @@ url.workspace = true
 
 [dev-dependencies]
 cpg-extract = { path = "../cpg-extract" }
+insta.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 

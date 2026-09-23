@@ -192,6 +192,8 @@ codebook!(
         Signatures = 2 => "signatures",
         Calls = 3 => "calls",
         Coverage = 4 => "coverage",
+        /// The `snapshots` table: the publication act, not a fact family (DESIGN §6.1).
+        Publication = 5 => "publication",
     }
 );
 

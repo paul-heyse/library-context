@@ -14,6 +14,48 @@ fn contracts_snapshot() {
 }
 
 #[test]
+fn derivations_snapshot() {
+    // The Stage C/D queries are part of the contract: a changed join is a changed table.
+    let text: Vec<String> = cpg_schema::derived::derivations()
+        .into_iter()
+        .map(|(name, sql)| format!("-- {name}\n{sql}\n"))
+        .collect();
+    insta::assert_snapshot!(text.join("\n"));
+}
+
+#[test]
+fn rules_snapshot() {
+    let text: Vec<String> = cpg_schema::rules::rules()
+        .into_iter()
+        .map(|r| format!("{}\n  {}", r.name, r.sql))
+        .collect();
+    insta::assert_snapshot!(text.join("\n"));
+}
+
+#[test]
+fn references_name_real_columns() {
+    let schemas: std::collections::BTreeMap<&str, arrow_schema::SchemaRef> = {
+        macro_rules! all {
+            ($($t:ty),+) => { vec![$((<$t as Table>::NAME, <$t as Table>::schema())),+] };
+        }
+        let mut v = cpg_schema::for_each_table!(all);
+        v.extend(cpg_schema::for_each_derived_table!(all));
+        v.into_iter().collect()
+    };
+    for r in cpg_schema::rules::REFERENCES {
+        assert!(
+            schemas[r.table].index_of(r.column).is_ok(),
+            "{}.{}",
+            r.table,
+            r.column
+        );
+        for (t, c) in r.to {
+            assert!(schemas[t].index_of(c).is_ok(), "{t}.{c}");
+        }
+    }
+}
+
+#[test]
 fn keys_and_checks_name_real_columns() {
     // Every key column exists; every CHECK mentions only declared columns.
     macro_rules! check {
@@ -32,8 +74,16 @@ fn keys_and_checks_name_real_columns() {
             }
         })+};
     }
+    use cpg_schema::derived::*;
     use cpg_schema::tables::*;
     check!(
+        Snapshots,
+        ProviderNodeMap,
+        Exports,
+        Signatures,
+        Parameters,
+        Resolutions,
+        CallTargets,
         Facts,
         Runs,
         Contexts,

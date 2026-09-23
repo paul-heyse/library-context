@@ -512,7 +512,11 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .filter(|m| std::str::from_utf8(&m.bytes).is_ok())
         .map(|m| m.handle.clone())
         .collect();
-    let mut public = public::public_names(&readable, &txn, &mut sink)?;
+    let release_files: HashMap<Handle, Id> = modules
+        .iter()
+        .map(|m| (m.handle.clone(), m.node_id))
+        .collect();
+    let mut public = public::public_names(&readable, &release_files, &txn, &mut sink)?;
 
     let snapshot_id = input.snapshot_id;
     let runs = vec![RunsRow {

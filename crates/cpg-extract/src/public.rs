@@ -2,7 +2,7 @@
 //! `trace_export_origin`, checked on every run against `compute_public_fqns`, the function behind
 //! `coverage report --public-only`. Pyrefly stays the only authority for "public".
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use cpg_schema::codebook::{Fidelity, Modality, Origin};
 use cpg_schema::id::Id;
@@ -27,8 +27,11 @@ fn provenance() -> Provenance {
     }
 }
 
+/// `release_files` maps each module handle of the release to its `source_files` node: the file an
+/// origin traces to, since a `.py` and its `.pyi` share a module name.
 pub(crate) fn public_names(
     handles: &[Handle],
+    release_files: &HashMap<Handle, Id>,
     txn: &Transaction<'_>,
     sink: &mut FactSink,
 ) -> Result<Vec<PublicNamesRow>, ExtractError> {
@@ -56,8 +59,13 @@ pub(crate) fn public_names(
             if EXCLUDED_MODULE_DUNDERS.contains(&name.as_str()) {
                 continue;
             }
-            let origin_path = trace_export_origin(handle, name.clone(), txn)
+            let origin = trace_export_origin(handle, name.clone(), txn);
+            let origin_path = origin
+                .as_ref()
                 .map(|(h, n)| format!("{}.{}", h.module(), n));
+            let origin_module_node_id = origin
+                .as_ref()
+                .and_then(|(h, _)| release_files.get(h).copied());
             rows.push(fact_row!(
                 sink,
                 PublicNames,
@@ -69,6 +77,7 @@ pub(crate) fn public_names(
                     access_module: module.clone(),
                     name: name.to_string(),
                     origin_path,
+                    origin_module_node_id,
                     via_dunder_all: via_all,
                 }
             ));

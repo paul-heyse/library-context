@@ -1,0 +1,13 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table call_targets
+family calls
+key snapshot_id, call_site_node_id, pysa_fact_id
+@lctx.family=calls
+@lctx.table=call_targets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NULL

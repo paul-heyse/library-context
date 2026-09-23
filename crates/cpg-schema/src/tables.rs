@@ -188,6 +188,9 @@ table!(
         name: String,
         /// The defining module's path to the name; null when Pyrefly cannot trace it.
         origin_path: Option<String>,
+        /// The file Pyrefly traced the origin to, when it is a file of the release (a `.py` and
+        /// its `.pyi` share `origin_path`).
+        origin_module_node_id: Option<Id>,
         via_dunder_all: bool,
     }
 );
@@ -248,6 +251,9 @@ table!(
         defining_class: Option<String>,
         /// `<module ref>::<function_key>` of the method this one overrides (§4.2.3).
         overridden_base: Option<String>,
+        /// How many undecorated signatures Pysa gives (one per `@overload`, else one). A
+        /// signature without parameters has no `parameter_semantics` row, so this is its trace.
+        signature_count: i64,
     }
 );
 
@@ -433,7 +439,33 @@ table!(
     }
 );
 
-/// Invoke `$mac!(Table, …)` with every table slice 1 emits, in declaration order: the one list.
+// ---------------------------------------------------------------- publication
+
+table!(
+    /// The publication act: one row per table, appended in **one** commit after validation
+    /// passes (DESIGN §6.1). A reader resolves the snapshot's table versions here.
+    Snapshots, SnapshotsRow = "snapshots",
+    family = Publication,
+    key = [snapshot_id, table_name],
+    checks = [
+        ("version_nonnegative", "table_version >= 0"),
+        ("row_count_nonnegative", "row_count >= 0"),
+    ],
+    {
+        snapshot_id: Id,
+        /// §3.4.1: compares reruns.
+        content_digest: Digest,
+        table_name: String,
+        /// The Delta version the attempt's rows are visible at.
+        table_version: i64,
+        /// `cpg-schema`'s canonical schema digest of the table's declared contract.
+        schema_digest: Digest,
+        /// Rows the attempt wrote to the table.
+        row_count: i64,
+    }
+);
+
+/// Invoke `$mac!(Table, …)` with every raw table the extractor emits, in declaration order.
 #[macro_export]
 macro_rules! for_each_table {
     ($mac:ident) => {
@@ -459,11 +491,14 @@ macro_rules! for_each_table {
     };
 }
 
-/// Every table's contract text, in declaration order (snapshot-tested).
+/// Every stored table's contract text: raw, derived, then `snapshots` (snapshot-tested).
 pub fn contracts() -> Vec<(&'static str, String)> {
     use crate::table::{Table, contract};
     macro_rules! all {
         ($($t:ty),+) => { vec![$((<$t as Table>::NAME, contract::<$t>())),+] };
     }
-    crate::for_each_table!(all)
+    let mut out = crate::for_each_table!(all);
+    out.extend(crate::for_each_derived_table!(all));
+    out.push((Snapshots::NAME, contract::<Snapshots>()));
+    out
 }

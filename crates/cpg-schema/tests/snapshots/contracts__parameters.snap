@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table parameters
+family signatures
+key snapshot_id, signature_node_id, ordinal
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=signatures
+@lctx.table=parameters
+snapshot_id: FixedSizeBinary(16) NOT NULL
+signature_node_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+syntax_fact_id: FixedSizeBinary(16) NULL
+semantics_fact_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

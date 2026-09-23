@@ -1,0 +1,118 @@
+---
+source: crates/cpg-core/tests/compile.rs
+expression: out
+---
+## exports
++------------------------------+------------------------------+-------------+
+| access_path                  | declaration                  | is_overload |
++------------------------------+------------------------------+-------------+
+| variants.Base                | variants.Base                | false       |
+| variants.Child               | variants.Child               | false       |
+| variants.MODULE_LEVEL        |                              |             |
+| variants.Marker              | variants.Marker              | false       |
+| variants.Plain               | variants.Plain               | false       |
+| variants.apply               | variants.apply               | false       |
+| variants.artificial_getattr  | variants.artificial_getattr  | false       |
+| variants.decorated           | variants.decorated           | false       |
+| variants.dispatch            | variants.dispatch            | false       |
+| variants.double              | variants.double              | false       |
+| variants.name_partly_unknown | variants.name_partly_unknown | false       |
+| variants.register            | variants.register            | false       |
+| variants.union_property      | variants.union_property      | false       |
+| variants.uses                | variants.uses                | false       |
++------------------------------+------------------------------+-------------+
+## signatures
++------------------------------+------------+----------------+--------------+-----------------+------+--------+
+| def                          | start_byte | callable_start | function_key | signature_index | form | reason |
++------------------------------+------------+----------------+--------------+-----------------+------+--------+
+| variants.Marker.__init__     | 136        | 136            | F:0          | 0               | 0    |        |
+| variants.register            | 205        | 205            | F:1          | 0               | 0    |        |
+| variants.Base.run            | 301        | 301            | F:2          | 0               | 0    |        |
+| variants.Base.size           | 353        | 353            | F:3          | 0               | 0    |        |
+| variants.Base.size           | 412        | 412            | F:4          | 0               | 0    |        |
+| variants.Child.__new__       | 517        | 517            | F:5          | 0               | 0    |        |
+| variants.Child.__init__      | 602        | 602            | F:6          | 0               | 0    |        |
+| variants.Child.run           | 678        | 678            | F:7          | 0               | 0    |        |
+| variants.dispatch            | 753        | 753            | F:8          | 0               | 0    |        |
+| variants.apply               | 825        | 825            | F:9          | 0               | 0    |        |
+| variants.double              | 904        | 904            | F:10         | 0               | 0    |        |
+| variants.decorated           | 950        | 950            | F:11         | 0               | 0    |        |
+| variants.decorated.inner     | 994        | 994            | F:12         | 0               | 0    |        |
+| variants.uses                | 1064       | 1064           | F:13         | 0               | 0    |        |
+| variants.union_property      | 1441       | 1441           | F:14         | 0               | 0    |        |
+| variants.name_partly_unknown | 1573       | 1573           | F:15         | 0               | 0    |        |
+| variants.artificial_getattr  | 1688       | 1688           | F:16         | 0               | 0    |        |
++------------------------------+------------+----------------+--------------+-----------------+------+--------+
+## parameters
++------------------------------+------------+---------+--------+-----------+----------+--------+
+| def                          | start_byte | ordinal | syntax | semantics | required | reason |
++------------------------------+------------+---------+--------+-----------+----------+--------+
+| variants.Marker.__init__     | 136        | 0       | self   | self      | true     |        |
+| variants.Marker.__init__     | 136        | 1       | label  | label     | true     |        |
+| variants.register            | 205        | 0       | func   | func      | true     |        |
+| variants.Base.run            | 301        | 0       | self   | self      | true     |        |
+| variants.Base.run            | 301        | 1       | x      | x         | true     |        |
+| variants.Base.size           | 353        | 0       | self   | self      | true     |        |
+| variants.Base.size           | 412        | 0       | self   | self      | true     |        |
+| variants.Base.size           | 412        | 1       | value  | value     | true     |        |
+| variants.Child.__new__       | 517        | 0       | cls    | cls       | true     |        |
+| variants.Child.__new__       | 517        | 1       | args   | args      |          |        |
+| variants.Child.__init__      | 602        | 0       | self   | self      | true     |        |
+| variants.Child.__init__      | 602        | 1       | start  | start     | false    |        |
+| variants.Child.run           | 678        | 0       | self   | self      | true     |        |
+| variants.Child.run           | 678        | 1       | x      | x         | true     |        |
+| variants.dispatch            | 753        | 0       | obj    | obj       | true     |        |
+| variants.dispatch            | 753        | 1       | value  | value     | true     |        |
+| variants.apply               | 825        | 0       | fn     | fn        | true     |        |
+| variants.apply               | 825        | 1       | value  | value     | true     |        |
+| variants.double              | 904        | 0       | v      | v         | true     |        |
+| variants.decorated           | 950        | 0       | v      | v         | true     |        |
+| variants.decorated.inner     | 994        | 0       | w      | w         | true     |        |
+| variants.uses                | 1064       | 0       | label  | label     | false    |        |
+| variants.union_property      | 1441       | 0       | x      | x         | true     |        |
+| variants.name_partly_unknown | 1573       | 0       | flag   | flag      | true     |        |
+| variants.name_partly_unknown | 1573       | 1       | other  | other     | true     |        |
+| variants.artificial_getattr  | 1688       | 0       | child  | child     | true     |        |
++------------------------------+------------+---------+--------+-----------+----------+--------+
+## resolutions
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+| start_byte | end_byte | status | remainder | complete | unresolved_reason | target_count | reason |
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+| 576        | 583      | 0      | false     | true     |                   | 2            |        |
+| 576        | 596      | 2      | true      | false    | 5                 | 0            |        |
+| 723        | 730      | 0      | false     | true     |                   | 2            |        |
+| 723        | 737      | 0      | false     | true     |                   | 1            |        |
+| 808        | 822      | 0      | false     | false    |                   | 1            |        |
+| 892        | 901      | 2      | true      | false    | 1                 | 0            |        |
+| 1053       | 1061     | 0      | false     | true     |                   | 1            |        |
+| 1095       | 1113     | 3      | true      | false    |                   | 0            | 10     |
+| 1142       | 1150     | 0      | false     | true     |                   | 2            |        |
+| 1206       | 1243     | 0      | false     | true     |                   | 1            |        |
+| 1220       | 1242     | 0      | false     | true     |                   | 1            |        |
+| 1255       | 1278     | 0      | false     | true     |                   | 1            |        |
+| 1366       | 1377     | 0      | false     | true     |                   | 2            |        |
+| 1395       | 1405     | 0      | false     | true     |                   | 1            |        |
+| 1744       | 1769     | 0      | false     | true     |                   | 1            |        |
++------------+----------+--------+-----------+----------+-------------------+--------------+--------+
+## call_targets
++------------+----------+-------+----+-----------------------+-------------+--------------------------+----------+
+| start_byte | end_byte | phase | ho | target_module         | target_name | target                   | modality |
++------------+----------+-------+----+-----------------------+-------------+--------------------------+----------+
+| 576        | 583      | 1     |    | builtins              | __new__     |                          | 0        |
+| 576        | 583      | 2     |    | builtins              | __init__    |                          | 0        |
+| 723        | 730      | 1     |    | builtins              | __new__     |                          | 0        |
+| 723        | 730      | 2     |    | builtins              | __init__    |                          | 0        |
+| 723        | 737      | 0     |    | @variants/__init__.py | run         | variants.Base.run        | 0        |
+| 808        | 822      | 0     |    | @variants/__init__.py | run         | variants.Base.run        | 1        |
+| 1053       | 1061     | 0     |    | @variants/__init__.py | inner       | variants.decorated.inner | 0        |
+| 1142       | 1150     | 1     |    | @variants/__init__.py | __new__     | variants.Child.__new__   | 0        |
+| 1142       | 1150     | 2     |    | @variants/__init__.py | __init__    | variants.Child.__init__  | 0        |
+| 1206       | 1243     | 0     |    | @variants/__init__.py | apply       | variants.apply           | 0        |
+| 1206       | 1243     | 0     | 0  | @variants/__init__.py | double      | variants.double          | 2        |
+| 1220       | 1242     | 0     |    | @variants/__init__.py | dispatch    | variants.dispatch        | 0        |
+| 1255       | 1278     | 0     |    | builtins              | getattr     |                          | 0        |
+| 1366       | 1377     | 1     |    | builtins              | __new__     |                          | 0        |
+| 1366       | 1377     | 2     |    | builtins              | __init__    |                          | 0        |
+| 1395       | 1405     | 0     |    | @variants/__init__.py | double      | variants.double          | 0        |
+| 1744       | 1769     | 0     |    | builtins              | getattr     |                          | 0        |
++------------+----------+-------+----+-----------------------+-------------+--------------------------+----------+
