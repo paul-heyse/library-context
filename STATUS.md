@@ -13,7 +13,7 @@ _Updated 2026-09-22 by the handoff skill._
   deferred. The fixes changed five table contracts (a schema migration, no stored data).
 - **Spike evidence** stays on branch `spike/pyrefly-inproc` (`5fb2eed`), worktree
   `../lc-spike-pyrefly`: S0–S7 (ADR-0012), P1–P4 (ADR-0009), E1–E3 (ADR-0010).
-- **Not pushed:** the six commits `3f1bac1` … `3129102` are ahead of `origin/main`.
+- **Pushed** to `origin/main` (2026-09-22).
 
 ## Last verified (2026-09-22, at `3129102`)
 
@@ -25,9 +25,9 @@ _Updated 2026-09-22 by the handoff skill._
 
 ## Known blocks and uncommitted changes
 
-- **`pyproject.toml` / `uv.lock`** (uncommitted, operator) add `fastmcp>=4.0.5` and
-  `vllm>=0.30.0`. Increment 1 restructures them per ADR-0010 (vLLM as a separate service, pin
-  `fastmcp<4.1` and `pyarrow`, the `lctx_mcp` package).
+- **`pyproject.toml` / `uv.lock`** (committed at the operator's request) add `fastmcp>=4.0.5`
+  and `vllm>=0.30.0`. Increment 1 restructures them per ADR-0010 (vLLM as a separate service,
+  pin `fastmcp<4.1` and `pyarrow`, the `lctx_mcp` package).
 - **`.claude/skills/README.md`** has one uncommitted external hunk: the pyrefly-ruff row.
 - **DESIGN.md is 1,458 lines** against "about 1,450"; the review fixes were net zero.
 - **An asserted library claim not yet located:** petgraph's Bfs and Dfs visit siblings in
