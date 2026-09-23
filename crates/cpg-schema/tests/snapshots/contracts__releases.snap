@@ -1,0 +1,15 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table releases
+family provenance
+key snapshot_id, release_id
+@lctx.family=provenance
+@lctx.table=releases
+snapshot_id: FixedSizeBinary(16) NOT NULL
+release_id: FixedSizeBinary(16) NOT NULL
+library: Utf8 NULL
+requirement: Utf8 NULL
+lock_digest: FixedSizeBinary(32) NULL
+label: Utf8 NULL

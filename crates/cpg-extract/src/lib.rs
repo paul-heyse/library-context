@@ -7,6 +7,7 @@
 
 mod config;
 mod facts;
+pub mod library;
 mod public;
 mod pysa_map;
 mod walk;
@@ -23,9 +24,9 @@ use cpg_schema::id::{Id, IdHasher, content_digest, kind};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
     Arguments, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, Contexts, ContextsRow,
-    Coverage, CoverageRow, Declarations, ExportSyntax, Facts, ParameterSemantics, ParameterSyntax,
-    Producers, ProducersRow, PublicNames, PysaCalls, PysaFunctions, Runs, RunsRow, SourceFiles,
-    SourceFilesRow,
+    Coverage, CoverageRow, Declarations, Distributions, DistributionsRow, ExportSyntax, Facts,
+    ParameterSemantics, ParameterSyntax, Producers, ProducersRow, PublicNames, PysaCalls,
+    PysaFunctions, Releases, ReleasesRow, Runs, RunsRow, SourceFiles, SourceFilesRow,
 };
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
@@ -47,7 +48,7 @@ use serde_json::Value;
 
 pub use config::{
     DRIVER_STACK_BYTES, ExtractInput, PYREFLY_PATCH_SHA256, PYREFLY_REV, REFUSED_ENV,
-    REFUSED_ENV_PREFIX, TOOL, TestHooks,
+    REFUSED_ENV_PREFIX, Release, ReleaseOrigin, TOOL, TestHooks,
 };
 use facts::{FactSink, Provenance, Surface, dedup_by_fact, fact_row};
 use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
@@ -76,6 +77,8 @@ pub enum ExtractError {
     PublicMismatch(String),
     #[error("fact {0} was asserted twice with different provenance")]
     ProvenanceConflict(String),
+    #[error("library: {0}")]
+    Library(String),
     #[error("extraction panicked; the attempt is aborted")]
     Panicked,
 }
@@ -119,27 +122,6 @@ struct SourceModule {
     path: String,
     node_id: Id,
     bytes: Vec<u8>,
-}
-
-fn python_files(root: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(root)?
-        .map(|e| e.map(|e| e.path()))
-        .collect::<Result<_, _>>()?;
-    entries.sort();
-    for p in entries {
-        let name = p
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if p.is_dir() {
-            if !name.starts_with('.') && name != "__pycache__" {
-                python_files(&p, acc)?;
-            }
-        } else if name.ends_with(".py") || name.ends_with(".pyi") {
-            acc.push(p);
-        }
-    }
-    Ok(())
 }
 
 fn strip_module_ids(v: &mut Value) {
@@ -227,22 +209,25 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         .iter()
         .map(|f| cpg_schema::Codebook::text(*f))
         .collect();
-    let run_id = config::run_id(input.release_id, context.id, &producer, &family_names);
+    let run_id = config::run_id(
+        input.release.release_id,
+        context.id,
+        &producer,
+        &family_names,
+    );
     let mut sink = FactSink::new(run_id, input.snapshot_id, producer.id);
 
     // Modules of the release, sorted by name.
-    let mut files = Vec::new();
-    python_files(&input.release_root, &mut files)?;
     let mut modules = Vec::new();
-    for file in files {
+    for file in &input.release.files {
         let rel = file
-            .strip_prefix(&input.release_root)
+            .strip_prefix(&input.release.root)
             .map_err(|_| ExtractError::RelativePath(file.clone()))?
             .display()
             .to_string();
         let handle = cfg.handle_from_module_path(ModulePath::filesystem(file.clone()));
         let node_id = IdHasher::new(kind::MODULE)
-            .id(input.release_id)
+            .id(input.release.release_id)
             .str(&rel)
             .finish_id();
         modules.push(SourceModule {
@@ -250,7 +235,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             handle,
             path: rel,
             node_id,
-            bytes: std::fs::read(&file)?,
+            bytes: std::fs::read(file)?,
         });
     }
     modules.sort_by(|a, b| (&a.name, &a.path).cmp(&(&b.name, &b.path)));
@@ -312,7 +297,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
                 snapshot_id: Id::ZERO,
                 fact_id: Id::ZERO,
                 module_node_id: m.node_id,
-                release_id: input.release_id,
+                release_id: input.release.release_id,
                 module_name: m.name.clone(),
                 path: m.path.clone(),
                 is_package: m.path.ends_with("__init__.py") || m.path.ends_with("__init__.pyi"),
@@ -355,7 +340,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         let ast = txn.get_ast(&m.handle).expect("kept at Require::Everything");
         let text = info.lined_buffer().contents().clone();
         let ctx = ModuleCtx {
-            release_id: input.release_id,
+            release_id: input.release.release_id,
             path: &m.path,
             module_name: &m.name,
             module_node_id: m.node_id,
@@ -522,7 +507,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     let runs = vec![RunsRow {
         snapshot_id,
         run_id,
-        release_id: input.release_id,
+        release_id: input.release.release_id,
         context_id: context.id,
         producer_id: producer.id,
         families: {
@@ -540,8 +525,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         search_path: context.search_path.clone(),
         site_package_path: context.site_package_path.clone(),
         config_digest: context.config_digest,
-        site_packages_digest: context.site_packages_digest,
+        environment_digest: context.environment_digest,
+        lock_digest: context.lock_digest,
     }];
+    let (releases, distributions) = release_rows(input, snapshot_id);
     let producers = vec![ProducersRow {
         snapshot_id,
         producer_id: producer.id,
@@ -567,6 +554,11 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         (Runs::NAME, Runs::to_sorted_batch(&runs)?),
         (Contexts::NAME, Contexts::to_sorted_batch(&contexts)?),
         (Producers::NAME, Producers::to_sorted_batch(&producers)?),
+        (Releases::NAME, Releases::to_sorted_batch(&releases)?),
+        (
+            Distributions::NAME,
+            Distributions::to_sorted_batch(&distributions)?,
+        ),
         (
             SourceFiles::NAME,
             SourceFiles::to_sorted_batch(&source_files)?,
@@ -619,6 +611,50 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
         tables,
         pysa_json,
     })
+}
+
+/// The `releases` row and, for an acquired library, one `distributions` row per installed
+/// distribution (ADR-0013).
+fn release_rows(
+    input: &ExtractInput,
+    snapshot_id: Id,
+) -> (Vec<ReleasesRow>, Vec<DistributionsRow>) {
+    let release_id = input.release.release_id;
+    match &input.release.origin {
+        ReleaseOrigin::Tree { label } => (
+            vec![ReleasesRow {
+                snapshot_id,
+                release_id,
+                library: None,
+                requirement: None,
+                lock_digest: None,
+                label: Some(label.clone()),
+            }],
+            Vec::new(),
+        ),
+        ReleaseOrigin::Library(lib) => (
+            vec![ReleasesRow {
+                snapshot_id,
+                release_id,
+                library: Some(lib.name.clone()),
+                requirement: Some(lib.requirement.clone()),
+                lock_digest: Some(lib.lock_digest),
+                label: None,
+            }],
+            lib.distributions
+                .iter()
+                .map(|d| DistributionsRow {
+                    snapshot_id,
+                    release_id,
+                    name: d.name.clone(),
+                    version: d.version.clone(),
+                    in_release: d.in_release,
+                    artifact_sha256: d.artifact_sha256.clone(),
+                    record_digest: d.record_digest,
+                })
+                .collect(),
+        ),
+    }
 }
 
 /// Write each table as an Arrow IPC file `<dir>/<table>.arrow`.

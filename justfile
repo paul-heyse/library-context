@@ -44,6 +44,7 @@ deps:
     uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources licenses
     uv run python scripts/check_pyrefly_fork.py
+    uv run python scripts/check_gold.py
 
 # Byte-compile Python fixtures (input data) so they cannot silently become syntax-error cases
 fixtures-check:
@@ -53,6 +54,11 @@ fixtures-check:
     [ ${#files[@]} -eq 0 ] && { echo "fixtures-check: not_run (no fixtures yet)"; exit 0; }
     uv run python -c 'import ast,sys; [ast.parse(open(f,"rb").read(), f) for f in sys.argv[1:]]' "${files[@]}"
     echo "fixtures-check: ${#files[@]} files parse"
+
+# The real-library oracle (ADR-0013): acquire the FastMCP pilot from libraries/fastmcp, then
+# extract, derive, validate and publish a snapshot into build/store. First run needs the network.
+pilot:
+    cargo run --release -p lctx -- compile fastmcp --store build/store
 
 # ast-grep scan over the tree (rules/ grows from design-review findings)
 rules-scan:

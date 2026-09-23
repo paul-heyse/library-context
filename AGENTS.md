@@ -13,7 +13,9 @@ The pieces:
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
 - **Briefs:** assertions are synthesized **programmatically**. There is no LLM in v1.
 
-The pilot library is FastMCP 4.0.3.
+The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, is a pinned uv
+project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0013); the project's own
+environment is never an analysis input.
 
 This is a personal project with one operator. Process is deliberately light (ADR-0001). Keep
 it that way: before adding a hook, gate, register or new document type, check that it has a
@@ -35,8 +37,9 @@ real consumer.
 | `docs/design_review/design_principles/` | Charter (DM-01–60, gates G1–G7), with the repo layer in `ADDENDUM.md` |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts. Extraction, construction, analytics and publication crates are added as increments need them (ADR-0012) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts; `cpg-extract` (Stage A in `library.rs`, extraction), `cpg-core` (Delta, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0012) |
 | `docs/initial_plan/` | Research input (don't edit it) and `DISPOSITION.md`, which maps each input section to where it landed |
+| `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0013). Environments go to `build/envs/` (gitignored) |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
 | `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0012, `docs/pins.md`) |
 | `scripts/` | `adr.py`, `check_family.py`, `check_agents.py`, and the format hook |
@@ -48,8 +51,10 @@ real consumer.
 |---|---|
 | Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules scan and rule tests, `adr lint`, `lint-agents` |
 | Before committing | `just test-all`: adds fixture parsing and `just deps` |
+| The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`; report its outcome at every slice end |
+| Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt` |
-| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, the Pyrefly fork check (tag + patch, classified env reads), and the gold check (the fastmcp skill and `libraries/fastmcp` name one FastMCP) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Tools present? | `just doctor` |
 
@@ -69,7 +74,8 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `rust-code-model`
 - `ast-grep-ripgrep`
 - `datafusion-tracing`
-- `fastmcp` (FastMCP 4.0.3). This is also the **gold reference for evaluation**: its capability
+- `fastmcp` (FastMCP; must match `libraries/fastmcp`, checked by `scripts/check_gold.py`). This is
+  also the **gold reference for evaluation**: its capability
   families are never a compiler input (DESIGN §1.4).
 
 For a library no skill covers (e.g. vLLM, the Qwen embedding models, LanceDB, pyarrow),

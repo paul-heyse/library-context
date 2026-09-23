@@ -1,0 +1,23 @@
+# The FastMCP pilot as an analyzed library (DESIGN §4.0, ADR-0013). This is not a package of ours:
+# it is the pinned requirement whose closure `uv lock` records, with every artifact's sha256, and
+# `lctx acquire` materializes with `uv sync --frozen` into an isolated environment.
+[project]
+name = "lctx-library-fastmcp"
+version = "0"
+requires-python = "==3.14.*"
+# The extras the `fastmcp` skill (the gold reference) installs, so analysis and gold see the same
+# code, including `fastmcp-tasks`.
+dependencies = ["fastmcp[anthropic,openai,gemini,azure,apps,code-mode,tasks]==4.0.5"]
+
+[tool.uv]
+package = false
+
+[tool.lctx]
+# The first-party distributions whose code is compiled; every other distribution in the
+# environment is dependency context, analyzed only as far as imports reach.
+release = ["fastmcp", "fastmcp-slim", "fastmcp-tasks"]
+
+[tool.lctx.source]
+# Upstream docs, examples and tests for the docs family (increment 3); fetched then.
+repository = "https://github.com/PrefectHQ/fastmcp"
+tag = "v4.0.5"

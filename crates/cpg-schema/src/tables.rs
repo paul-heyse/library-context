@@ -70,10 +70,12 @@ table!(
         site_package_path: Vec<String>,
         /// Digest of the canonical configured analyzer configuration.
         config_digest: Digest,
-        /// Digest of the site-package roots' content: every file's root-relative path and
-        /// content digest, in path order (review F2). The acquisition lock digest joins it in
-        /// Stage A.
-        site_packages_digest: Digest,
+        /// Digest of the dependency environment: each installed distribution's name, version and
+        /// `RECORD` digest, plus the content of every top-level entry no `RECORD` owns (DESIGN
+        /// §4.0, ADR-0013).
+        environment_digest: Digest,
+        /// Digest of the library's `uv.lock`; null for a source tree.
+        lock_digest: Option<Digest>,
     }
 );
 
@@ -89,6 +91,47 @@ table!(
         /// Tool revision: for the extractor, the Pyrefly fork revision, patch digest and ruff line.
         revision: String,
         build_digest: Digest,
+    }
+);
+
+table!(
+    /// The release an extraction analyzed (DESIGN §4.0, ADR-0013): an acquired library, or a
+    /// source tree compiled under a label.
+    Releases, ReleasesRow = "releases",
+    family = Provenance,
+    key = [snapshot_id, release_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        release_id: Id,
+        /// The library definition's name (`libraries/<name>`); null for a source tree.
+        library: Option<String>,
+        /// The pinned requirement the library's lock resolves.
+        requirement: Option<String>,
+        lock_digest: Option<Digest>,
+        /// The label a source tree was compiled under; null for an acquired library.
+        label: Option<String>,
+    }
+);
+
+table!(
+    /// Every distribution installed in an acquired release's environment (ADR-0013).
+    Distributions, DistributionsRow = "distributions",
+    family = Provenance,
+    key = [snapshot_id, release_id, name],
+    checks = [],
+    {
+        snapshot_id: Id,
+        release_id: Id,
+        /// Normalized (PEP 503) name.
+        name: String,
+        version: String,
+        /// One of the library's first-party distributions, whose code is compiled.
+        in_release: bool,
+        /// sha256 (hex) of every artifact `uv.lock` records for this version, sorted.
+        artifact_sha256: Vec<String>,
+        /// Digest of the installed `RECORD`.
+        record_digest: Digest,
     }
 );
 
@@ -476,6 +519,8 @@ macro_rules! for_each_table {
             $crate::tables::Runs,
             $crate::tables::Contexts,
             $crate::tables::Producers,
+            $crate::tables::Releases,
+            $crate::tables::Distributions,
             $crate::tables::SourceFiles,
             $crate::tables::Declarations,
             $crate::tables::ExportSyntax,

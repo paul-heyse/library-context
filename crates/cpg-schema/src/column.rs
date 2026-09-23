@@ -80,6 +80,18 @@ impl ArrowColumn for Digest {
     }
 }
 
+impl ArrowColumn for Option<Digest> {
+    fn data_type() -> DataType {
+        DataType::FixedSizeBinary(32)
+    }
+    fn nullable() -> bool {
+        true
+    }
+    fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
+        fixed(values.map(|v| v.as_ref().map(|d| &d.0)))
+    }
+}
+
 impl ArrowColumn for String {
     fn data_type() -> DataType {
         DataType::Utf8

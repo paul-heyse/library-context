@@ -38,6 +38,13 @@ ruff_text_size = "=0.0.11"
 # Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.
 blake3 = "=1.8.6"
 serde_json = "1"
+# Stage A (ADR-0013): reading a library's `pyproject.toml`/`uv.lock` and verifying `RECORD`
+# hashes. Each is already in the graph at this exact version (Pyrefly, delta-rs), so none adds
+# a version; `getrandom` draws each attempt's `snapshot_id` (DESIGN §3.4.1).
+toml = "=1.1.6"
+sha2 = "=0.10.9"
+base64 = "=0.22.1"
+getrandom = "=0.3.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"
 thiserror = "2"

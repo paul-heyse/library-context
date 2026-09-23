@@ -1,6 +1,8 @@
 # Build output
 /target/
 /.dev/
+# Acquired library environments and local stores (rebuildable from the locks)
+/build/
 
 # Python
 .venv/

@@ -88,6 +88,8 @@ fn keys_and_checks_name_real_columns() {
         Runs,
         Contexts,
         Producers,
+        Releases,
+        Distributions,
         SourceFiles,
         Declarations,
         ExportSyntax,

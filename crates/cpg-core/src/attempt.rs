@@ -24,6 +24,8 @@ pub struct Published {
     pub snapshot_id: Id,
     pub content_digest: Digest,
     pub versions: Versions,
+    /// Rows the attempt wrote, per table (raw, then derived).
+    pub rows: Vec<(&'static str, i64)>,
 }
 
 /// Bumped by hand whenever the derive, cast or sort code changes output for the same inputs; the
@@ -218,6 +220,7 @@ pub async fn compile(
         snapshot_id,
         content_digest: digest,
         versions,
+        rows,
     })
 }
 

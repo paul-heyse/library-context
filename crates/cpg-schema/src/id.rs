@@ -54,7 +54,7 @@ pub mod kind {
     pub const SYNTAX: &str = "syntax";
     pub const FACT: &str = "fact";
     pub const CONTENT: &str = "content";
-    pub const SITE_PACKAGES: &str = "site-packages";
+    pub const ENVIRONMENT: &str = "environment";
     pub const COMPILER: &str = "compiler";
     pub const SNAPSHOT_CONTENT: &str = "snapshot-content";
 }
@@ -124,6 +124,13 @@ impl IdHasher {
         match field {
             None => self.bytes(&[0]),
             Some(v) => self.bytes(&[1]).id(v),
+        }
+    }
+
+    pub fn opt_digest(&mut self, field: Option<Digest>) -> &mut Self {
+        match field {
+            None => self.bytes(&[0]),
+            Some(v) => self.bytes(&[1]).digest_field(v),
         }
     }
 

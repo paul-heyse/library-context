@@ -26,24 +26,89 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 3;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 4;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
 
+/// What is analyzed: the release's modules under one search root, and its identity.
+#[derive(Debug, Clone)]
+pub struct Release {
+    /// The search root the modules are relative to: a source tree, or site-packages for an
+    /// acquired library. Absolute.
+    pub root: PathBuf,
+    /// The release's modules (`.py`/`.pyi`), absolute, under `root`, sorted. For an acquired
+    /// library these are its first-party distributions' `RECORD` entries, verified.
+    pub files: Vec<PathBuf>,
+    pub release_id: Id,
+    pub origin: ReleaseOrigin,
+}
+
+/// How a release was obtained; recorded in `releases` and `distributions`.
+#[derive(Debug, Clone)]
+pub enum ReleaseOrigin {
+    /// A source tree compiled under a label (fixtures, local checkouts).
+    Tree { label: String },
+    /// A library acquired from its committed uv project (Stage A, ADR-0013).
+    Library(crate::library::AcquiredLibrary),
+}
+
+impl Release {
+    /// Every `.py`/`.pyi` under `root` (dot-directories and `__pycache__` skipped); the id hashes
+    /// `label`, so one label on two trees gives one id.
+    pub fn from_tree(root: PathBuf, label: &str) -> std::io::Result<Release> {
+        fn walk(dir: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
+            let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
+                .map(|e| e.map(|e| e.path()))
+                .collect::<Result<_, _>>()?;
+            entries.sort();
+            for p in entries {
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if p.is_dir() {
+                    if !name.starts_with('.') && name != "__pycache__" {
+                        walk(&p, acc)?;
+                    }
+                } else if name.ends_with(".py") || name.ends_with(".pyi") {
+                    acc.push(p);
+                }
+            }
+            Ok(())
+        }
+        let mut files = Vec::new();
+        if root.is_dir() {
+            walk(&root, &mut files)?;
+        }
+        Ok(Release {
+            release_id: IdHasher::new(kind::RELEASE).str(label).finish_id(),
+            root,
+            files,
+            origin: ReleaseOrigin::Tree {
+                label: label.to_owned(),
+            },
+        })
+    }
+
+    pub(crate) fn lock_digest(&self) -> Option<Digest> {
+        match &self.origin {
+            ReleaseOrigin::Tree { .. } => None,
+            ReleaseOrigin::Library(l) => Some(l.lock_digest),
+        }
+    }
+}
+
 /// Everything an extraction may depend on, passed explicitly (DESIGN §4.0).
 #[derive(Debug, Clone)]
 pub struct ExtractInput {
-    /// The immutable analysis tree holding the release's code. Absolute.
-    pub release_root: PathBuf,
-    /// The analysis venv root; site-package paths are recorded relative to it. Absolute.
+    pub release: Release,
+    /// The analysis environment's root; site-package paths are recorded relative to it. Absolute.
     pub venv_root: PathBuf,
     /// Site-package directories inside `venv_root`, in order. Absolute.
     pub site_packages: Vec<PathBuf>,
     pub python_version: (u32, u32, u32),
     pub python_platform: String,
-    /// From acquisition (Stage A): distributions, versions and artifact digests.
-    pub release_id: Id,
     /// The compile attempt this extraction belongs to (execution identity, DM-12).
     pub snapshot_id: Id,
     /// Keep the Pysa structs as JSON for the harness-equivalence test (§4.2.5).
@@ -73,9 +138,10 @@ pub(crate) fn refuse_ambient() -> Result<(), ExtractError> {
 }
 
 pub(crate) fn require_absolute(input: &ExtractInput) -> Result<(), ExtractError> {
-    let paths = [&input.release_root, &input.venv_root]
+    let paths = [&input.release.root, &input.venv_root]
         .into_iter()
-        .chain(input.site_packages.iter());
+        .chain(input.site_packages.iter())
+        .chain(input.release.files.iter());
     for p in paths {
         if !p.is_absolute() {
             return Err(ExtractError::RelativePath(p.clone()));
@@ -88,8 +154,8 @@ pub(crate) fn require_absolute(input: &ExtractInput) -> Result<(), ExtractError>
 pub(crate) fn pyrefly_config(input: &ExtractInput) -> Result<ConfigFile, ExtractError> {
     let (major, minor, micro) = input.python_version;
     let mut cfg = ConfigFile {
-        source: ConfigSource::File(input.release_root.join("pyrefly.toml")),
-        search_path_from_args: vec![input.release_root.clone()],
+        source: ConfigSource::File(input.release.root.join("pyrefly.toml")),
+        search_path_from_args: vec![input.release.root.clone()],
         disable_search_path_heuristics: true,
         disable_project_excludes_heuristics: true,
         enable_fallback_search_path: false,
@@ -121,8 +187,8 @@ fn relativize(value: &mut Value, input: &ExtractInput) {
     match value {
         Value::String(s) => {
             let p = Path::new(s.as_str());
-            if p.starts_with(&input.release_root) {
-                *s = relative(p, &input.release_root, "release");
+            if p.starts_with(&input.release.root) {
+                *s = relative(p, &input.release.root, "release");
             } else if p.starts_with(&input.venv_root) {
                 *s = relative(p, &input.venv_root, "venv");
             }
@@ -133,10 +199,13 @@ fn relativize(value: &mut Value, input: &ExtractInput) {
     }
 }
 
-/// Digest of the site-package roots' content (review F2): per root in order, every file's
-/// root-relative path and content digest (a symlink's target text), in path order. Bytecode
-/// caches are skipped; the analyzer never reads them.
-fn site_packages_digest(roots: &[PathBuf]) -> std::io::Result<Digest> {
+/// Digest of the dependency environment (review F2, ADR-0013). Per root: each installed
+/// distribution's dist-info name and the digest of its `RECORD`, which lists every file it owns
+/// with a sha256; then, for every top-level entry no `RECORD` owns (`.pth` files,
+/// `_virtualenv.py`, a bare source tree), its files' relative paths and content digests (a
+/// symlink's target text). Owned bytes are covered by their `RECORD`, never re-read, so a large
+/// environment stays cheap. Bytecode caches are skipped; the analyzer never reads them.
+fn environment_digest(roots: &[PathBuf]) -> std::io::Result<Digest> {
     fn files(dir: &Path, acc: &mut Vec<PathBuf>) -> std::io::Result<()> {
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
             .map(|e| e.map(|e| e.path()))
@@ -153,12 +222,54 @@ fn site_packages_digest(roots: &[PathBuf]) -> std::io::Result<Digest> {
         }
         Ok(())
     }
-    let mut h = IdHasher::new(kind::SITE_PACKAGES);
+    let name = |p: &Path| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let mut h = IdHasher::new(kind::ENVIRONMENT);
     for root in roots {
-        let mut listed = Vec::new();
-        files(root, &mut listed)?;
-        h.i64(listed.len() as i64);
-        for f in listed {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(root)?
+            .map(|e| e.map(|e| e.path()))
+            .collect::<Result<_, _>>()?;
+        entries.sort();
+        let mut owned = std::collections::BTreeSet::new();
+        let mut records = Vec::new();
+        for p in entries
+            .iter()
+            .filter(|p| name(p).ends_with(".dist-info") && p.is_dir())
+        {
+            let record = std::fs::read(p.join("RECORD")).unwrap_or_default();
+            for line in String::from_utf8_lossy(&record).lines() {
+                let path = line.split(',').next().unwrap_or_default();
+                if let Some(top) = path
+                    .split('/')
+                    .next()
+                    .filter(|t| !t.is_empty() && *t != "..")
+                {
+                    owned.insert(top.to_owned());
+                }
+            }
+            records.push((name(p), content_digest(&record)));
+        }
+        h.i64(records.len() as i64);
+        for (dist_info, record) in &records {
+            h.str(dist_info).digest_field(*record);
+        }
+        let mut loose = Vec::new();
+        for p in &entries {
+            let n = name(p);
+            if n.ends_with(".dist-info") || n == "__pycache__" || owned.contains(&n) {
+                continue;
+            }
+            if std::fs::symlink_metadata(p)?.is_dir() {
+                files(p, &mut loose)?;
+            } else {
+                loose.push(p.clone());
+            }
+        }
+        h.i64(loose.len() as i64);
+        for f in loose {
             let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy();
             let content = if std::fs::symlink_metadata(&f)?.is_symlink() {
                 content_digest(std::fs::read_link(&f)?.to_string_lossy().as_bytes())
@@ -180,7 +291,8 @@ pub(crate) struct Context {
     pub search_path: Vec<String>,
     pub site_package_path: Vec<String>,
     pub config_digest: Digest,
-    pub site_packages_digest: Digest,
+    pub environment_digest: Digest,
+    pub lock_digest: Option<Digest>,
 }
 
 pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Result<Context, ExtractError> {
@@ -191,7 +303,7 @@ pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Result<Context,
     json.sort_all_objects();
     let search_path: Vec<String> = cfg
         .search_path()
-        .map(|p| relative(p, &input.release_root, "release"))
+        .map(|p| relative(p, &input.release.root, "release"))
         .collect();
     let site_package_path: Vec<String> = cfg
         .site_package_path()
@@ -200,14 +312,16 @@ pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Result<Context,
     let (major, minor, micro) = input.python_version;
     let python_version = format!("{major}.{minor}.{micro}");
     let config_digest = content_digest(json.to_string().as_bytes());
-    let site_packages_digest = site_packages_digest(&input.site_packages)?;
+    let environment_digest = environment_digest(&input.site_packages)?;
+    let lock_digest = input.release.lock_digest();
     let id = IdHasher::new(kind::CONTEXT)
         .str(&python_version)
         .str(&input.python_platform)
         .strs(search_path.iter().map(String::as_str))
         .strs(site_package_path.iter().map(String::as_str))
         .digest_field(config_digest)
-        .digest_field(site_packages_digest)
+        .digest_field(environment_digest)
+        .opt_digest(lock_digest)
         .finish_id();
     Ok(Context {
         id,
@@ -216,7 +330,8 @@ pub(crate) fn context(cfg: &ConfigFile, input: &ExtractInput) -> Result<Context,
         search_path,
         site_package_path,
         config_digest,
-        site_packages_digest,
+        environment_digest,
+        lock_digest,
     })
 }
 

@@ -43,7 +43,11 @@ const fn r(
 /// The declared references of every stored table (keys and fact links are generated).
 pub const REFERENCES: &[Reference] = &[
     r("facts", "run_id", &[("runs", "run_id")]),
+    r("runs", "release_id", &[("releases", "release_id")]),
+    // A run's release has modules, so `coverage:complete` cannot pass vacuously.
     r("runs", "release_id", &[("source_files", "release_id")]),
+    r("releases", "release_id", &[("runs", "release_id")]),
+    r("distributions", "release_id", &[("releases", "release_id")]),
     r("source_files", "release_id", &[("runs", "release_id")]),
     r("runs", "context_id", &[("contexts", "context_id")]),
     r("runs", "producer_id", &[("producers", "producer_id")]),
@@ -204,7 +208,12 @@ pub fn rules() -> Vec<Rule> {
                 .collect::<Vec<_>>()
                 .join(" UNION ALL ");
         out.push(Rule {
-            name: format!("ref:{}.{}", r.table, r.column),
+            name: format!(
+                "ref:{}.{}->{}",
+                r.table,
+                r.column,
+                r.to.iter().map(|(t, _)| *t).collect::<Vec<_>>().join("|")
+            ),
             sql: format!(
                 "SELECT f.{c} AS value FROM {t} f LEFT ANTI JOIN ({targets}) r ON f.{c} = r.k \
                  WHERE f.{c} IS NOT NULL",

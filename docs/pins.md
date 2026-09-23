@@ -19,7 +19,7 @@ DESIGN §7 / ADR-0002. A row without a date is not verified.
 
 ## Analyzers (ADR-0012, accepted)
 
-Neither analyzer is a workspace dependency yet; `Cargo.toml` gains them in increment 1, slice 1.
+Both analyzers are workspace dependencies since increment 1, slice 1 (`Cargo.toml`, `Cargo.lock`).
 These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and checked.
 
 | Component | Pin | Verified | How |
@@ -31,12 +31,15 @@ These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and 
 | git sources | `github.com/paul-heyse/pyrefly`; `github.com/yangdanny97/lsp-types` rev `395d6bfcd6c3696a64cfe9cd93b86f981fb85112` (used by `pyrefly_python` and `pyrefly_util`) | 2026-09-22 | spike `deny.toml` `allow-git`. Licenses pyrefly adds: 0BSD, ISC, Unicode-DFS-2016, BSL-1.0 |
 | research-input revisions | ruff `660350be…`, pyrefly `9733bdcf…` (1.4.0-dev.1) | — | **not adopted**: untagged; revisit when 1.4.x is on PyPI |
 
-## Pilot subject (ADR-0004, accepted)
+## Analyzed libraries (ADR-0013; the pilot per ADR-0004)
+
+Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.python-version`,
+`uv.lock`); these rows only summarize. `uv lock --project libraries/<name> --check` confirms a lock.
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
-| FastMCP (analyzed) | 4.0.3: `fastmcp` + `fastmcp-slim` + `fastmcp-tasks`; docs/examples/tests from `jlowin/fastmcp@v4.0.3` | 2026-09-22 | fastmcp skill `build/manifests/fastmcp.json` |
-| gold reference | fastmcp skill capability families (22), evaluation only | 2026-09-22 | `content/capabilities/fm.*.json` with `authoring_sha256` |
+| FastMCP (analyzed, the pilot) | `fastmcp[anthropic,openai,gemini,azure,apps,code-mode,tasks]==4.0.5`; release `fastmcp`, `fastmcp-slim`, `fastmcp-tasks` 4.0.5; `mcp`/`mcp-types` 2.2.0; 109 locked packages; Python 3.14.7. Docs/examples/tests: `PrefectHQ/fastmcp@v4.0.5` (fetched in increment 3) | 2026-09-22 | `libraries/fastmcp/uv.lock` (`uv lock`, uv 0.12.18); `lctx acquire fastmcp` then Stage A verified 275 release files against their `RECORD`s; `just pilot` published a snapshot |
+| gold reference | fastmcp skill capability families (22), evaluation only; must name the same install line and release versions as `libraries/fastmcp` | 2026-09-22 | `scripts/check_gold.py` (`just deps`); `content/capabilities/fm.*.json` with `authoring_sha256` |
 
 ## Analytics crates (ADR-0011, proposed; planned, not yet dependencies)
 
@@ -49,7 +52,7 @@ These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and 
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
-| FastMCP (served) | 4.0.x (4.0.5 installed) | 2026-09-22 | skill 4.0.3 vs installed 4.0.5 diff: logging only |
+| FastMCP (served) | 4.0.x (4.0.5 installed in the project environment; independent of the analyzed pin) | 2026-09-22 | the 4.0.3 → 4.0.5 source diff changes behaviour, not only logging (DESIGN §1.4) |
 | vLLM | 0.30.0, **separate service environment**, `--runner pooling` | 2026-09-22 | spike E1 ran `vllm serve Qwen/Qwen3-Embedding-8B --revision … --runner pooling --max-model-len 8192` on the RTX 5090 (from the project `.venv`; it moves to its own environment in increment 1) |
 | Qwen/Qwen3-Embedding-8B | revision `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; 4,096 dims; bf16 weights (15 GB), float32 output, L2-normalized (pooling `LAST` + sentence-transformers normalize). Operator choice over 4B (ADR-0010) | 2026-09-22 | HF API `sha` at that revision; `hf download … --revision`; spike E1 served it with vLLM 0.30.0 and every norm was 1 ± 1e-7 |
 | pyarrow | 25.0.1 (the bundle reader in `lctx_mcp`; cp314 wheels) | 2026-09-22 | spike E3 ran the MCP round trip on it through `uv run --with pyarrow`; locked when `pyproject.toml` is restructured in increment 1 |

@@ -38,8 +38,7 @@ fn identities_follow_the_dependency_environment() {
         extract(&input(&l, "dep_env")).unwrap()
     };
     let (a, b) = (run_with("site_a"), run_with("site_b"));
-    let contexts =
-        |o: &ExtractOutput| cell(o.table("contexts").unwrap(), "site_packages_digest", 0);
+    let contexts = |o: &ExtractOutput| cell(o.table("contexts").unwrap(), "environment_digest", 0);
     assert_ne!(contexts(&a), contexts(&b));
     assert_ne!(
         a.context_id, b.context_id,
@@ -132,7 +131,7 @@ fn relative_paths_are_refused() {
     let dir = tempfile::tempdir().unwrap();
     let l = layout("pysa_variants", dir.path());
     let mut i = input(&l, "pysa_variants");
-    i.release_root = "relative/tree".into();
+    i.release.root = "relative/tree".into();
     assert!(matches!(extract(&i), Err(ExtractError::RelativePath(_))));
 }
 

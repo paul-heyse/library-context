@@ -1,10 +1,10 @@
 ---
 id: ADR-0007
 title: Multi-distribution releases, explicit run contract, BLAKE3 v1 identities
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0013
 design: [§3.4.1, §4.0]
 evidence: Proposed
 revisit: A proptest or rerun shows the same inputs producing different node_id or fact_id, or an analyzer answer changes without context_id changing.

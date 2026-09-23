@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use arrow_array::{Array, RecordBatch};
 use arrow_cast::display::array_value_to_string;
-use cpg_extract::{ExtractInput, ExtractOutput, extract};
-use cpg_schema::id::{Id, IdHasher, kind};
+use cpg_extract::{ExtractInput, ExtractOutput, Release, extract};
+use cpg_schema::id::Id;
 
 pub fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -52,12 +52,11 @@ pub fn layout(fixture_name: &str, root: &Path) -> Layout {
 
 pub fn input(l: &Layout, label: &str) -> ExtractInput {
     ExtractInput {
-        release_root: l.release_root.clone(),
+        release: Release::from_tree(l.release_root.clone(), label).unwrap(),
         venv_root: l.venv_root.clone(),
         site_packages: vec![l.site_packages.clone()],
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
-        release_id: IdHasher::new(kind::RELEASE).str(label).finish_id(),
         snapshot_id: Id([7; 16]),
         keep_pysa_json: false,
         test_hooks: Default::default(),

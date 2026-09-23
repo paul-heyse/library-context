@@ -8,7 +8,7 @@ use cpg_core::delta::{append, create, open_or_create, open_verified, read_at, ta
 use cpg_core::{CoreError, sql};
 use cpg_extract::{ExtractInput, extract};
 use cpg_schema::codebook::DeclarationKind;
-use cpg_schema::id::{Id, IdHasher, kind};
+use cpg_schema::id::{Id, IdHasher};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{Boundaries, Declarations, DeclarationsRow};
 use datafusion::prelude::SessionContext;
@@ -24,14 +24,15 @@ fn fixture_output(dir: &Path) -> cpg_extract::ExtractOutput {
     let site = dir.join("venv/site-packages");
     std::fs::create_dir_all(&site).unwrap();
     extract(&ExtractInput {
-        release_root: std::fs::canonicalize(&release).unwrap(),
+        release: cpg_extract::Release::from_tree(
+            std::fs::canonicalize(&release).unwrap(),
+            "pysa_variants",
+        )
+        .unwrap(),
         venv_root: std::fs::canonicalize(dir.join("venv")).unwrap(),
         site_packages: vec![std::fs::canonicalize(&site).unwrap()],
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
-        release_id: IdHasher::new(kind::RELEASE)
-            .str("pysa_variants")
-            .finish_id(),
         snapshot_id: Id([9; 16]),
         keep_pysa_json: false,
         test_hooks: Default::default(),

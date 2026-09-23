@@ -11,7 +11,7 @@ use cpg_core::delta::read_at;
 use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
-use cpg_schema::id::{Id, IdHasher, kind};
+use cpg_schema::id::Id;
 use cpg_schema::table::Table;
 use cpg_schema::tables::{Declarations, SnapshotsRow};
 use datafusion::arrow::util::pretty::pretty_format_batches;
@@ -39,12 +39,12 @@ fn raw(fixture: &str, snapshot_id: Id) -> Vec<(&'static str, RecordBatch)> {
     let site = dir.path().join("venv/site-packages");
     std::fs::create_dir_all(&site).unwrap();
     extract(&ExtractInput {
-        release_root: std::fs::canonicalize(&release).unwrap(),
+        release: cpg_extract::Release::from_tree(std::fs::canonicalize(&release).unwrap(), fixture)
+            .unwrap(),
         venv_root: std::fs::canonicalize(dir.path().join("venv")).unwrap(),
         site_packages: vec![std::fs::canonicalize(&site).unwrap()],
         python_version: (3, 14, 0),
         python_platform: "linux".to_owned(),
-        release_id: IdHasher::new(kind::RELEASE).str(fixture).finish_id(),
         snapshot_id,
         keep_pysa_json: false,
         test_hooks: Default::default(),
@@ -86,7 +86,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
-    assert_eq!(versions.len(), 17 + 6, "every raw and derived table");
+    assert_eq!(versions.len(), 19 + 6, "every raw and derived table");
 
     // A second attempt fails validation after writing its rows: it publishes nothing.
     let mut raw_b = raw("pysa_variants", b);

@@ -23,6 +23,11 @@ impl HashField for Digest {
         h.digest_field(*self);
     }
 }
+impl HashField for Option<Digest> {
+    fn hash_into(&self, h: &mut IdHasher) {
+        h.opt_digest(*self);
+    }
+}
 impl HashField for String {
     fn hash_into(&self, h: &mut IdHasher) {
         h.str(self);
