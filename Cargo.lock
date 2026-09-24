@@ -1141,6 +1141,7 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "arrow-select",
+ "blake3",
  "cpg-extract",
  "cpg-schema",
  "datafusion",
