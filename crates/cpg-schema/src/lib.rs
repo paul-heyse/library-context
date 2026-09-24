@@ -18,10 +18,16 @@ pub mod id;
 pub mod metrics;
 pub mod neighbours;
 pub mod projection;
+pub mod query;
 pub mod rules;
 pub mod table;
 pub mod tables;
 
+// For `query_row!` in other crates.
+#[doc(hidden)]
+pub use arrow_array;
+#[doc(hidden)]
+pub use arrow_schema;
 pub use codebook::Codebook;
 pub use id::{Digest, Id, IdHasher};
 pub use table::Table;

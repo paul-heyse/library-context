@@ -2,15 +2,22 @@
 //!
 //! A table's row struct is its single declaration; each field type maps to one Arrow type,
 //! nullability and metadata here, and builds its own array. No table writes builder code.
+//!
+//! The same mapping reads a value back ([`ArrowColumn::read`]), for typed query results
+//! (`query_row!`). A null in a column whose type is not an `Option` is an error, never a default
+//! (the holistic assessment's A8).
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_array::builder::{Float32Builder, Float64Builder, ListBuilder, StringBuilder};
+use arrow_array::cast::AsArray;
+use arrow_array::types::{Float32Type, Float64Type, Int16Type, Int64Type};
 use arrow_array::{
-    ArrayRef, BooleanArray, FixedSizeBinaryArray, Float64Array, Int16Array, Int64Array, StringArray,
+    Array, ArrayRef, BooleanArray, FixedSizeBinaryArray, Float64Array, Int16Array, Int64Array,
+    StringArray,
 };
-use arrow_schema::{DataType, Field};
+use arrow_schema::{ArrowError, DataType, Field};
 
 use crate::codebook::Codebook;
 use crate::id::{Digest, Id};
@@ -27,6 +34,9 @@ pub trait ArrowColumn: Sized {
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef
     where
         Self: 'a;
+    /// Row `i` of `array`, which has [`Self::data_type`] (a caller casts first). A null is an
+    /// error unless `Self` is an `Option`.
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError>;
 
     fn field(name: &str) -> Field {
         Field::new(name, Self::data_type(), Self::nullable()).with_metadata(Self::metadata())
@@ -42,6 +52,48 @@ fn fixed<'a, const N: usize>(
     )
 }
 
+/// Row `i`, or an error for a null in a column that admits none.
+fn present(array: &dyn Array, i: usize) -> Result<(), ArrowError> {
+    if array.is_null(i) {
+        Err(ArrowError::InvalidArgumentError(format!(
+            "a null at row {i} of a column that admits none"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// Row `i` of an optional column: `None` for a null, else the non-null reading.
+fn optional<T: ArrowColumn>(array: &dyn Array, i: usize) -> Result<Option<T>, ArrowError> {
+    if array.is_null(i) {
+        Ok(None)
+    } else {
+        T::read(array, i).map(Some)
+    }
+}
+
+fn bytes<const N: usize>(array: &dyn Array, i: usize) -> Result<[u8; N], ArrowError> {
+    present(array, i)?;
+    let a = array.as_fixed_size_binary_opt().ok_or_else(|| {
+        ArrowError::CastError(format!(
+            "expected FixedSizeBinary({N}), got {}",
+            array.data_type()
+        ))
+    })?;
+    <[u8; N]>::try_from(a.value(i))
+        .map_err(|_| ArrowError::InvalidArgumentError(format!("expected {N} bytes at row {i}")))
+}
+
+fn typed<'a, T: 'static>(
+    array: &'a dyn Array,
+    cast: impl FnOnce(&'a dyn Array) -> Option<&'a T>,
+    expected: &str,
+) -> Result<&'a T, ArrowError> {
+    cast(array).ok_or_else(|| {
+        ArrowError::CastError(format!("expected {expected}, got {}", array.data_type()))
+    })
+}
+
 impl ArrowColumn for Id {
     fn data_type() -> DataType {
         DataType::FixedSizeBinary(16)
@@ -51,6 +103,9 @@ impl ArrowColumn for Id {
     }
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         fixed(values.map(|v| Some(&v.0)))
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        bytes::<16>(array, i).map(Id)
     }
 }
 
@@ -64,6 +119,9 @@ impl ArrowColumn for Option<Id> {
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         fixed(values.map(|v| v.as_ref().map(|i| &i.0)))
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        optional(array, i)
+    }
 }
 
 impl ArrowColumn for Digest {
@@ -75,6 +133,9 @@ impl ArrowColumn for Digest {
     }
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         fixed(values.map(|v| Some(&v.0)))
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        bytes::<32>(array, i).map(Digest)
     }
 }
 
@@ -88,6 +149,9 @@ impl ArrowColumn for Option<Digest> {
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         fixed(values.map(|v| v.as_ref().map(|d| &d.0)))
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        optional(array, i)
+    }
 }
 
 impl ArrowColumn for String {
@@ -99,6 +163,12 @@ impl ArrowColumn for String {
     }
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(StringArray::from_iter_values(values))
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        Ok(typed(array, |a| a.as_string_opt::<i32>(), "Utf8")?
+            .value(i)
+            .to_owned())
     }
 }
 
@@ -112,6 +182,9 @@ impl ArrowColumn for Option<String> {
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(values.map(|v| v.as_deref()).collect::<StringArray>())
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        optional(array, i)
+    }
 }
 
 impl ArrowColumn for i64 {
@@ -123,6 +196,10 @@ impl ArrowColumn for i64 {
     }
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(Int64Array::from_iter_values(values.copied()))
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        Ok(typed(array, |a| a.as_primitive_opt::<Int64Type>(), "Int64")?.value(i))
     }
 }
 
@@ -136,6 +213,9 @@ impl ArrowColumn for Option<i64> {
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(values.copied().collect::<Int64Array>())
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        optional(array, i)
+    }
 }
 
 impl ArrowColumn for bool {
@@ -148,6 +228,10 @@ impl ArrowColumn for bool {
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(values.map(|v| Some(*v)).collect::<BooleanArray>())
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        Ok(typed(array, |a| a.as_boolean_opt(), "Boolean")?.value(i))
+    }
 }
 
 impl ArrowColumn for Option<bool> {
@@ -159,6 +243,9 @@ impl ArrowColumn for Option<bool> {
     }
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(values.copied().collect::<BooleanArray>())
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        optional(array, i)
     }
 }
 
@@ -174,6 +261,14 @@ impl<C: Codebook> ArrowColumn for C {
     }
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(Int16Array::from_iter_values(values.map(|v| v.code())))
+    }
+    /// A code outside the codebook is an error, as the generated `codebook:` rules make it.
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        let code = typed(array, |a| a.as_primitive_opt::<Int16Type>(), "Int16")?.value(i);
+        C::from_code(code).ok_or_else(|| {
+            ArrowError::InvalidArgumentError(format!("{code} is not in codebook {}", C::NAME))
+        })
     }
 }
 
@@ -193,6 +288,9 @@ impl<C: Codebook> ArrowColumn for Option<C> {
                 .map(|v| v.map(Codebook::code))
                 .collect::<Int16Array>(),
         )
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        optional(array, i)
     }
 }
 
@@ -219,6 +317,12 @@ impl ArrowColumn for Vec<String> {
         }
         Arc::new(b.finish())
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        let list = typed(array, |a| a.as_list_opt::<i32>(), "List<Utf8>")?.value(i);
+        let values = typed(list.as_ref(), |a| a.as_string_opt::<i32>(), "Utf8 items")?;
+        (0..values.len()).map(|j| String::read(values, j)).collect()
+    }
 }
 
 /// A score or weight (DESIGN §3.3): `Float64`, finite. Finiteness is checked where the value is
@@ -233,6 +337,10 @@ impl ArrowColumn for f64 {
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(Float64Array::from_iter_values(values.copied()))
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        Ok(typed(array, |a| a.as_primitive_opt::<Float64Type>(), "Float64")?.value(i))
+    }
 }
 
 impl ArrowColumn for Option<f64> {
@@ -244,6 +352,9 @@ impl ArrowColumn for Option<f64> {
     }
     fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
         Arc::new(values.copied().collect::<Float64Array>())
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        optional(array, i)
     }
 }
 
@@ -269,6 +380,16 @@ impl ArrowColumn for Vec<f64> {
         }
         Arc::new(b.finish())
     }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        let list = typed(array, |a| a.as_list_opt::<i32>(), "List<Float64>")?.value(i);
+        let values = typed(
+            list.as_ref(),
+            |a| a.as_primitive_opt::<Float64Type>(),
+            "Float64 items",
+        )?;
+        (0..values.len()).map(|j| f64::read(values, j)).collect()
+    }
 }
 
 fn float32_item() -> Arc<Field> {
@@ -291,5 +412,20 @@ impl ArrowColumn for Vec<f32> {
             b.append(true);
         }
         Arc::new(b.finish())
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        let list = typed(array, |a| a.as_list_opt::<i32>(), "List<Float32>")?.value(i);
+        let values = typed(
+            list.as_ref(),
+            |a| a.as_primitive_opt::<Float32Type>(),
+            "Float32 items",
+        )?;
+        if values.null_count() > 0 {
+            return Err(ArrowError::InvalidArgumentError(format!(
+                "a null element in the vector at row {i}"
+            )));
+        }
+        Ok(values.values().to_vec())
     }
 }

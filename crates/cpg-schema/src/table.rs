@@ -190,6 +190,18 @@ macro_rules! table {
                 arrow_array::RecordBatch::try_new(<Self as $crate::table::Table>::schema(), columns)
             }
         }
+
+        // A stored row is also a query result row: `sql::fetch` reads a table's rows as itself.
+        impl $crate::query::QueryRow for $row {
+            fn schema() -> arrow_schema::SchemaRef {
+                <$table as $crate::table::Table>::schema()
+            }
+            fn read_batch(
+                batch: &arrow_array::RecordBatch,
+            ) -> Result<Vec<Self>, arrow_schema::ArrowError> {
+                $crate::__read_rows!($row, batch, $($field: $ty),+)
+            }
+        }
     };
 }
 pub(crate) use table;
