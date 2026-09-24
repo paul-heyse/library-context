@@ -473,6 +473,7 @@ analytic_method
   4 community_consensus
   5 pagerank
   6 fca_next_closure
+  7 seed_selection
 finding_kind
   0 public_alias
   1 direct_delegation

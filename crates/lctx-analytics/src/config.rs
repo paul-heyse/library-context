@@ -58,8 +58,8 @@ pub struct PassA {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Briefs {
-    /// How many briefs a compile may publish: the seeds, until seed selection (2.6) chooses
-    /// among candidates within it. More seeds than the budget are refused.
+    /// How many briefs a compile may publish: the configured seeds, then seed selection chooses
+    /// from the communities (slice 2.6) up to it. More configured seeds than it are refused.
     pub budget: u32,
 }
 

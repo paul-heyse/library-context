@@ -10,7 +10,8 @@ use std::collections::BTreeMap;
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
-    AnalyticMethod, Codebook, CoverageStatus, ExtractionMode, NodeKind, SourceRole,
+    AnalyticMethod, Codebook, CoverageStatus, ExtractionMode, FindingKind, MemberRole, NodeKind,
+    SourceRole,
 };
 use cpg_schema::findings::{
     AnalysisInvocationsRow, FindingMembersRow, FindingsRow, WitnessesRow, recipe as findings,
@@ -24,7 +25,7 @@ use lctx_analytics::graph::Projection;
 use lctx_analytics::pass_a::{self, Budgets, Seed};
 use lctx_analytics::pass_b::{self, Flows, SeedParameter};
 use lctx_analytics::pass_c::{self, Handoffs};
-use lctx_analytics::{communities, concepts, ranking};
+use lctx_analytics::{communities, concepts, ranking, selection};
 use serde::Serialize;
 
 use crate::delta::to_schema;
@@ -419,6 +420,18 @@ struct PassCParameters<'a> {
 }
 
 #[derive(Serialize)]
+struct SelectionParameters<'a> {
+    budget: u32,
+    rule: &'a str,
+}
+
+#[derive(Serialize)]
+struct SelectionDiagnostics<'a> {
+    configured: &'a [String],
+    selected: &'a [String],
+}
+
+#[derive(Serialize)]
 struct ConceptParameters<'a> {
     fca: &'a concepts::Params,
     scope: &'a str,
@@ -513,7 +526,302 @@ pub async fn run(
                 .as_deref()
                 .is_some_and(|m| config.in_subsystem(m))
     });
-    let seeds = config.seeds();
+    let mut rows = AnalysisRows::default();
+    // Communities (§9.4): Leiden over the subsystem's invocation and co-use layers, at the
+    // pre-registered resolutions and seeds; the consensus's communities cite it.
+    let community_digest = cpg_schema::communities::digest();
+    let public = collect(
+        ctx,
+        &cpg_schema::communities::public_callables_sql(&config.subsystem.public_roots),
+        &cpg_schema::communities::schemas::public_callables(),
+    )
+    .await?;
+    let mut paths: Vec<(Id, String)> = Vec::new();
+    for b in &public {
+        let nodes = id_col(b, "node_id")?;
+        let access = str_col(b, "access_path")?;
+        for (i, node) in nodes.into_iter().enumerate() {
+            paths.push((node, access.value(i).to_owned()));
+        }
+    }
+    let input = communities::Input::build(
+        &p,
+        &subsystem,
+        &collect(
+            ctx,
+            &cpg_schema::communities::co_use_sql(),
+            &cpg_schema::communities::schemas::co_use(),
+        )
+        .await?,
+        &public,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let params = communities::Params::preregistered();
+    let parameters = serde_json::to_string(&CommunityParameters {
+        communities: &params,
+        module_prefixes: &config.subsystem.module_prefixes,
+        public_roots: &config.subsystem.public_roots,
+    })
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let parameters_digest = content_digest(parameters.as_bytes());
+    let consensus_id = findings::invocation(
+        AnalyticMethod::CommunityConsensus.code(),
+        parameters_digest,
+        Some(community_digest),
+        None,
+        None,
+    );
+    let outcome = communities::run(&input, &params, snapshot_id, consensus_id)
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    for run in &outcome.runs {
+        let parameters = format!(
+            "{{\"consensus\":\"{}\",\"run\":{}}}",
+            parameters_digest.hex(),
+            run.parameters
+        );
+        let run_digest = content_digest(parameters.as_bytes());
+        rows.invocations.push(AnalysisInvocationsRow {
+            snapshot_id,
+            invocation_id: findings::invocation(
+                AnalyticMethod::Leiden.code(),
+                run_digest,
+                Some(community_digest),
+                None,
+                Some(run.seed as i64),
+            ),
+            run_id: compiler.run_id,
+            model_id: compiler.model("leiden"),
+            extraction_mode: ExtractionMode::GraphAnalysis,
+            method: AnalyticMethod::Leiden,
+            parameters,
+            parameters_digest: run_digest,
+            projection_digest: Some(community_digest),
+            library_versions: lctx_analytics::libraries(),
+            subject_node_id: None,
+            seed: Some(run.seed as i64),
+            iterations: Some(run.iterations),
+            residual: None,
+            converged: Some(run.converged),
+            quality_history: run.quality_history.clone(),
+            candidate_set_size: Some(outcome.vertices as i64),
+            vertices_examined: Some(outcome.vertices as i64),
+            arcs_examined: Some(outcome.pairs as i64),
+            completion: if run.converged {
+                CoverageStatus::CompleteUnderStatedModel
+            } else {
+                CoverageStatus::Partial
+            },
+            stop_reason: None,
+            diagnostics: None,
+        });
+    }
+    rows.invocations.push(AnalysisInvocationsRow {
+        snapshot_id,
+        invocation_id: consensus_id,
+        run_id: compiler.run_id,
+        model_id: compiler.model("community-consensus"),
+        extraction_mode: ExtractionMode::GraphAnalysis,
+        method: AnalyticMethod::CommunityConsensus,
+        parameters,
+        parameters_digest,
+        projection_digest: Some(community_digest),
+        library_versions: lctx_analytics::libraries(),
+        subject_node_id: None,
+        seed: None,
+        iterations: None,
+        residual: None,
+        converged: None,
+        quality_history: Vec::new(),
+        candidate_set_size: Some(outcome.vertices as i64),
+        vertices_examined: Some(outcome.vertices as i64),
+        arcs_examined: Some(outcome.pairs as i64),
+        completion: outcome.completion,
+        stop_reason: None,
+        diagnostics: Some(outcome.diagnostics),
+    });
+    rows.findings.extend(outcome.findings);
+    rows.members.extend(outcome.members);
+    // Centrality (§9.5): PageRank over the usage projection; each public API's rank.
+    let usage_digest = ranking::projection_digest(spec.digest());
+    let rank_params = ranking::Params::preregistered();
+    let parameters = serde_json::to_string(&RankingParameters {
+        pagerank: &rank_params,
+        weight_policy: ranking::WEIGHT_POLICY,
+        module_prefixes: &config.subsystem.module_prefixes,
+        public_roots: &config.subsystem.public_roots,
+    })
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let parameters_digest = content_digest(parameters.as_bytes());
+    let invocation_id = findings::invocation(
+        AnalyticMethod::PageRank.code(),
+        parameters_digest,
+        Some(usage_digest),
+        None,
+        None,
+    );
+    let ranked = ranking::run(
+        &ranking::UsageGraph::build(&p, &subsystem),
+        &public,
+        &rank_params,
+        snapshot_id,
+        invocation_id,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    rows.invocations.push(AnalysisInvocationsRow {
+        snapshot_id,
+        invocation_id,
+        run_id: compiler.run_id,
+        model_id: compiler.model("pagerank"),
+        extraction_mode: ExtractionMode::GraphAnalysis,
+        method: AnalyticMethod::PageRank,
+        parameters,
+        parameters_digest,
+        projection_digest: Some(usage_digest),
+        library_versions: lctx_analytics::libraries(),
+        subject_node_id: None,
+        seed: None,
+        iterations: Some(ranked.ranks.iterations),
+        residual: Some(ranked.ranks.residual),
+        converged: Some(ranked.ranks.converged),
+        quality_history: Vec::new(),
+        candidate_set_size: Some(ranked.vertices as i64),
+        vertices_examined: Some(ranked.vertices as i64),
+        arcs_examined: Some(ranked.arcs as i64),
+        completion: ranked.completion,
+        stop_reason: None,
+        diagnostics: Some(ranked.diagnostics),
+    });
+    rows.findings.extend(ranked.findings);
+    // Seed selection (§9.4, §9.5; slice 2.6): the configured seeds, then, while the brief budget
+    // allows, each community's most central public API (`lctx_analytics::selection`).
+    let configured = config.seeds();
+    let configured_nodes: Vec<Id> = {
+        let resolved = resolve_seeds(ctx, &configured).await?;
+        configured.iter().map(|n| resolved[n].node).collect()
+    };
+    let community_members: Vec<selection::Community> = rows
+        .findings
+        .iter()
+        .filter(|f| f.finding_kind == FindingKind::Community)
+        .map(|f| selection::Community {
+            finding: f.finding_id,
+            members: rows
+                .members
+                .iter()
+                .filter(|m| m.finding_id == f.finding_id && m.role == MemberRole::CommunityMember)
+                .filter_map(|m| m.node_id)
+                .collect(),
+        })
+        .collect();
+    // Only a documented API (with a docstring) can be selected: its brief needs an outcome.
+    let candidates: Vec<Id> = community_members
+        .iter()
+        .flat_map(|c| c.members.iter().copied())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut documented: std::collections::BTreeSet<Id> = std::collections::BTreeSet::new();
+    if !candidates.is_empty() {
+        for b in collect(
+            ctx,
+            &format!(
+                "SELECT node_id FROM declarations WHERE docstring IS NOT NULL \
+                 AND node_id IN ({}) ORDER BY node_id",
+                hex_list(candidates.iter().copied())
+            ),
+            &schema(&[("node_id", DataType::FixedSizeBinary(16))]),
+        )
+        .await?
+        {
+            documented.extend(id_col(&b, "node_id")?);
+        }
+    }
+    let community_members: Vec<selection::Community> = community_members
+        .into_iter()
+        .map(|c| selection::Community {
+            finding: c.finding,
+            members: c
+                .members
+                .into_iter()
+                .filter(|m| documented.contains(m))
+                .collect(),
+        })
+        .collect();
+    let centrality: BTreeMap<Id, f64> = rows
+        .findings
+        .iter()
+        .filter(|f| f.finding_kind == FindingKind::Centrality)
+        .filter_map(|f| f.score.map(|s| (f.subject_node_id, s)))
+        .collect();
+    let least_path: BTreeMap<Id, String> = paths.iter().fold(BTreeMap::new(), |mut m, (id, p)| {
+        m.entry(*id).or_insert_with(|| p.clone());
+        m
+    });
+    let selected: Vec<Id> = selection::select(
+        &configured_nodes,
+        config.briefs.budget as usize,
+        &community_members,
+        &centrality,
+    );
+    let mut seeds = configured.clone();
+    let mut chosen: Vec<String> = Vec::new();
+    for node in &selected {
+        if let Some(path) = least_path.get(node) {
+            chosen.push(path.clone());
+        }
+    }
+    let resolved_chosen = if chosen.is_empty() {
+        BTreeMap::new()
+    } else {
+        resolve_seeds(ctx, &chosen).await?
+    };
+    let chosen: Vec<String> = chosen
+        .into_iter()
+        .filter(|n| selected.contains(&resolved_chosen[n].node))
+        .collect();
+    seeds.extend(chosen.iter().cloned());
+    let selection_parameters = serde_json::to_string(&SelectionParameters {
+        budget: config.briefs.budget,
+        rule: selection::RULE,
+    })
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let selection_digest = content_digest(selection_parameters.as_bytes());
+    rows.invocations.push(AnalysisInvocationsRow {
+        snapshot_id,
+        invocation_id: findings::invocation(
+            AnalyticMethod::SeedSelection.code(),
+            selection_digest,
+            None,
+            None,
+            None,
+        ),
+        run_id: compiler.run_id,
+        model_id: compiler.model("seed-selection"),
+        extraction_mode: ExtractionMode::GraphAnalysis,
+        method: AnalyticMethod::SeedSelection,
+        parameters: selection_parameters,
+        parameters_digest: selection_digest,
+        projection_digest: None,
+        library_versions: lctx_analytics::libraries(),
+        subject_node_id: None,
+        seed: None,
+        iterations: None,
+        residual: None,
+        converged: None,
+        quality_history: Vec::new(),
+        candidate_set_size: Some(community_members.len() as i64),
+        vertices_examined: None,
+        arcs_examined: None,
+        completion: CoverageStatus::CompleteUnderStatedModel,
+        stop_reason: None,
+        diagnostics: Some(
+            serde_json::to_string(&SelectionDiagnostics {
+                configured: &configured,
+                selected: &chosen,
+            })
+            .map_err(|e| CoreError::Analysis(e.to_string()))?,
+        ),
+    });
     let resolved = resolve_seeds(ctx, &seeds).await?;
     // Two seeds naming one declaration would be one subject twice (ADR-0019 review F1): the
     // config is wrong, so the attempt stops and says which.
@@ -531,7 +839,6 @@ pub async fn run(
         max_edges: config.pass_a.max_edges,
         max_witnesses: config.pass_a.max_witnesses,
     };
-    let mut rows = AnalysisRows::default();
     for name in &seeds {
         let seed = &resolved[name];
         let parameters = serde_json::to_string(&PassAParameters {
@@ -724,174 +1031,9 @@ pub async fn run(
         rows.findings.extend(result.findings);
         rows.members.extend(result.members);
     }
-    // Communities (§9.4): Leiden over the subsystem's invocation and co-use layers, at the
-    // pre-registered resolutions and seeds; the consensus's communities cite it.
-    let community_digest = cpg_schema::communities::digest();
-    let public = collect(
-        ctx,
-        &cpg_schema::communities::public_callables_sql(&config.subsystem.public_roots),
-        &cpg_schema::communities::schemas::public_callables(),
-    )
-    .await?;
-    let input = communities::Input::build(
-        &p,
-        &subsystem,
-        &collect(
-            ctx,
-            &cpg_schema::communities::co_use_sql(),
-            &cpg_schema::communities::schemas::co_use(),
-        )
-        .await?,
-        &public,
-    )
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    let params = communities::Params::preregistered();
-    let parameters = serde_json::to_string(&CommunityParameters {
-        communities: &params,
-        module_prefixes: &config.subsystem.module_prefixes,
-        public_roots: &config.subsystem.public_roots,
-    })
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    let parameters_digest = content_digest(parameters.as_bytes());
-    let consensus_id = findings::invocation(
-        AnalyticMethod::CommunityConsensus.code(),
-        parameters_digest,
-        Some(community_digest),
-        None,
-        None,
-    );
-    let outcome = communities::run(&input, &params, snapshot_id, consensus_id)
-        .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    for run in &outcome.runs {
-        let parameters = format!(
-            "{{\"consensus\":\"{}\",\"run\":{}}}",
-            parameters_digest.hex(),
-            run.parameters
-        );
-        let run_digest = content_digest(parameters.as_bytes());
-        rows.invocations.push(AnalysisInvocationsRow {
-            snapshot_id,
-            invocation_id: findings::invocation(
-                AnalyticMethod::Leiden.code(),
-                run_digest,
-                Some(community_digest),
-                None,
-                Some(run.seed as i64),
-            ),
-            run_id: compiler.run_id,
-            model_id: compiler.model("leiden"),
-            extraction_mode: ExtractionMode::GraphAnalysis,
-            method: AnalyticMethod::Leiden,
-            parameters,
-            parameters_digest: run_digest,
-            projection_digest: Some(community_digest),
-            library_versions: lctx_analytics::libraries(),
-            subject_node_id: None,
-            seed: Some(run.seed as i64),
-            iterations: Some(run.iterations),
-            residual: None,
-            converged: Some(run.converged),
-            quality_history: run.quality_history.clone(),
-            candidate_set_size: Some(outcome.vertices as i64),
-            vertices_examined: Some(outcome.vertices as i64),
-            arcs_examined: Some(outcome.pairs as i64),
-            completion: if run.converged {
-                CoverageStatus::CompleteUnderStatedModel
-            } else {
-                CoverageStatus::Partial
-            },
-            stop_reason: None,
-            diagnostics: None,
-        });
-    }
-    rows.invocations.push(AnalysisInvocationsRow {
-        snapshot_id,
-        invocation_id: consensus_id,
-        run_id: compiler.run_id,
-        model_id: compiler.model("community-consensus"),
-        extraction_mode: ExtractionMode::GraphAnalysis,
-        method: AnalyticMethod::CommunityConsensus,
-        parameters,
-        parameters_digest,
-        projection_digest: Some(community_digest),
-        library_versions: lctx_analytics::libraries(),
-        subject_node_id: None,
-        seed: None,
-        iterations: None,
-        residual: None,
-        converged: None,
-        quality_history: Vec::new(),
-        candidate_set_size: Some(outcome.vertices as i64),
-        vertices_examined: Some(outcome.vertices as i64),
-        arcs_examined: Some(outcome.pairs as i64),
-        completion: outcome.completion,
-        stop_reason: None,
-        diagnostics: Some(outcome.diagnostics),
-    });
-    rows.findings.extend(outcome.findings);
-    rows.members.extend(outcome.members);
-    // Centrality (§9.5): PageRank over the usage projection; each public API's rank.
-    let usage_digest = ranking::projection_digest(spec.digest());
-    let rank_params = ranking::Params::preregistered();
-    let parameters = serde_json::to_string(&RankingParameters {
-        pagerank: &rank_params,
-        weight_policy: ranking::WEIGHT_POLICY,
-        module_prefixes: &config.subsystem.module_prefixes,
-        public_roots: &config.subsystem.public_roots,
-    })
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    let parameters_digest = content_digest(parameters.as_bytes());
-    let invocation_id = findings::invocation(
-        AnalyticMethod::PageRank.code(),
-        parameters_digest,
-        Some(usage_digest),
-        None,
-        None,
-    );
-    let ranked = ranking::run(
-        &ranking::UsageGraph::build(&p, &subsystem),
-        &public,
-        &rank_params,
-        snapshot_id,
-        invocation_id,
-    )
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    rows.invocations.push(AnalysisInvocationsRow {
-        snapshot_id,
-        invocation_id,
-        run_id: compiler.run_id,
-        model_id: compiler.model("pagerank"),
-        extraction_mode: ExtractionMode::GraphAnalysis,
-        method: AnalyticMethod::PageRank,
-        parameters,
-        parameters_digest,
-        projection_digest: Some(usage_digest),
-        library_versions: lctx_analytics::libraries(),
-        subject_node_id: None,
-        seed: None,
-        iterations: Some(ranked.ranks.iterations),
-        residual: Some(ranked.ranks.residual),
-        converged: Some(ranked.ranks.converged),
-        quality_history: Vec::new(),
-        candidate_set_size: Some(ranked.vertices as i64),
-        vertices_examined: Some(ranked.vertices as i64),
-        arcs_examined: Some(ranked.arcs as i64),
-        completion: ranked.completion,
-        stop_reason: None,
-        diagnostics: Some(ranked.diagnostics),
-    });
-    rows.findings.extend(ranked.findings);
     // Concepts (§9.6): FCA of each seed's structural scope, the public APIs of the exported class
     // or module namespace that its access path names (`fastmcp.FastMCP` for
     // `fastmcp.FastMCP.tool`).
-    let mut paths: Vec<(Id, String)> = Vec::new();
-    for b in &public {
-        let nodes = id_col(b, "node_id")?;
-        let access = str_col(b, "access_path")?;
-        for (i, node) in nodes.into_iter().enumerate() {
-            paths.push((node, access.value(i).to_owned()));
-        }
-    }
     let containers: std::collections::BTreeSet<String> = rows
         .seeds
         .iter()

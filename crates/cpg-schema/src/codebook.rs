@@ -820,6 +820,9 @@ codebook!(
         /// Formal concept analysis of one structural scope: our own NextClosure, concepts and the
         /// Duquenne–Guigues basis over a support threshold (§9.6).
         Fca = 6 => "fca_next_closure",
+        /// Seed selection within the brief budget: communities choose, centrality orders
+        /// (§9.4, §9.5; slice 2.6). Its diagnostics name the configured and selected seeds.
+        SeedSelection = 7 => "seed_selection",
     }
 );
 

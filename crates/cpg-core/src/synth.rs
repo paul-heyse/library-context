@@ -45,8 +45,8 @@ use crate::{CoreError, sql};
 /// path-qualifier rule for Pass B's templates, and unfollowed controls (slice 2.1 review F1, F4).
 /// 9: a usage pattern cites only a handoff it shows (slice 2.2 review F3). 10: applicable cases
 /// and implications from FCA, the applicable case in the brief document, and over-cap documents
-/// split into chunks (slice 2.5).
-pub const TEMPLATE_VERSION: i64 = 10;
+/// split into chunks (slice 2.5). 11: Related from communities and centrality (slice 2.6).
+pub const TEMPLATE_VERSION: i64 = 11;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -1622,6 +1622,55 @@ pub async fn run(
                     )
                     .citing(f),
                 );
+            }
+        }
+
+        // Related (§10.3; slice 2.6): the seed's community co-members, most central first. It is
+        // statistical, so it only chooses which operations are listed, never says what they do.
+        let community = found.findings.iter().find(|f| {
+            f.finding_kind == FindingKind::Community
+                && concept_rows(f, MemberRole::CommunityMember)
+                    .iter()
+                    .any(|m| m.node_id == Some(seed))
+        });
+        if let Some(c) = community {
+            let ranks: BTreeMap<Id, &FindingsRow> = found
+                .findings
+                .iter()
+                .filter(|f| f.finding_kind == FindingKind::Centrality)
+                .map(|f| (f.subject_node_id, f))
+                .collect();
+            let members = concept_rows(c, MemberRole::CommunityMember);
+            let mut co: Vec<(f64, String, Id)> = members
+                .iter()
+                .filter(|m| m.node_id != Some(seed))
+                .filter_map(|m| {
+                    let node = m.node_id?;
+                    let rank = ranks.get(&node).and_then(|f| f.score).unwrap_or(0.0);
+                    Some((rank, m.label.clone()?, node))
+                })
+                .collect();
+            co.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+            co.truncate(5);
+            if !co.is_empty() {
+                let names: Vec<String> = co.iter().map(|(_, l, _)| format!("`{l}`")).collect();
+                let mut draft = Draft::new(
+                    AssertionKind::Related,
+                    format!(
+                        "Related operations, from its community of {} public APIs (co-assignment \
+                         {:.2} across Leiden seeds), by usage centrality: {}.",
+                        members.len(),
+                        c.score.unwrap_or_default(),
+                        listed(&names)
+                    ),
+                )
+                .citing(c);
+                for (_, _, node) in &co {
+                    if let Some(f) = ranks.get(node) {
+                        draft = draft.citing(f);
+                    }
+                }
+                drafts.push(draft);
             }
         }
 

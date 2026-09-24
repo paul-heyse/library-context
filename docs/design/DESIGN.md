@@ -2060,6 +2060,26 @@ log D24, D25, D30):
   walk skips unresolved or outside ancestors and class-level rebindings, where §9.1's `member()`
   refuses. No pilot instance.
 
+**The consumers, Implemented and Tested in slice 2.6** (2026-09-23; deviation log D34):
+- **Seed selection** (`lctx_analytics::selection`). Communities and PageRank run first, before
+  any per-seed pass. The configured seeds come first; while the brief budget allows, rounds over
+  the communities (those holding no chosen seed first, then by their most central member) each
+  take the most central unchosen *documented* public API (one with a docstring: a brief needs an
+  outcome). A `seed_selection` invocation records the rule and names the configured and selected
+  seeds; each selected seed gets Passes A–C, FCA of its scope and a brief. Tested by
+  `select`'s unit test and `communities_select_seeds_within_the_budget` (budget 8 over six seeds:
+  `pkg.helpers.finish` and `pkg.helpers.prepare` are chosen). The pilot's budget equals its five
+  seeds, so nothing is selected there until increment 3 raises it (an ADR-0004 amendment).
+- **Related** (§10.3): the seed's community co-members, at most five, by centrality, citing the
+  community and each member's `centrality` finding, so its status derives `statistically_derived`.
+  The policy case holds by construction and by rule: the kind policy permits
+  `statistically_derived` only for `related`, and a control citing a community finding or stated
+  statistically is rejected (two injected cases in `the_analysis_rules_reject_their_violations`).
+- **Pilot (Measured, 2026-09-23, snapshot `8e1e1f19`).** Nothing is selected (budget five, five
+  seeds). Four seeds list Related operations from the 78-member server community (co-assignment
+  0.83), led by `FastMCP.__init__` and `FastMCPProviderTool.from_function`; `custom_route`, in no
+  reported community, has none.
+
 ### §9.5 Centrality
 
 - **Consumer.** The primary entry point within a community, which orders seeds for briefs.
@@ -2294,7 +2314,7 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | Usage pattern | Pass C handoff or official example, with setup preserved |
 | Limits and prerequisites | Pass B restrictions, documented warnings, boundaries |
 | Evidence | all cited findings and evidence ids |
-| Related | other briefs in the same community, ordered by page rank (`statistically_derived`) |
+| Related | other public APIs of the seed's community, at most five, by usage centrality (`statistically_derived`; slice 2.6) |
 
 **Outcome order.** Take the first source that applies:
 1. the entry point's docstring summary: the first sentence of the docstring's first paragraph;
@@ -2657,3 +2677,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 2.2 compact review fixes: release handoff endpoints, one-target producers, the narrowed receiver rule, doc blocks by document, self-contained usage patterns (block and free-name checks), citations of shown handoffs only; two rules; §10.2 rows for `usage_pattern` and `handoff`; §3.2, §9.3, §10.4, §10.5 (§3.2, §9.3, §10.2, §10.4, §10.5) | ADR-0019 (dated amendment); deviation log D30 |
 | 2026-09-23 | ADR-0011 standard review fixes and ADR-0011 accepted: γ = 1 fixed with a recorded profile, named layer policies, the invocation projection in the community digest, the public co-assignment score, the parameters in the gold freeze (§9, §9.4) | ADR-0011 (accepted); ADR-0004 (amended); deviation log D31 |
 | 2026-09-23 | Slice 2.5: FCA (`cpg_schema::concepts`, `lctx_analytics::concepts`: NextClosure concepts and the Duquenne–Guigues basis), `applicable_case` and `implication` findings and assertions, the applicable case in the brief document, over-cap documents split into chunks (§9.6, §10.2, §10.3) | ADR-0011; deviation log D32 |
+| 2026-09-23 | Slice 2.6: seed selection within the brief budget (`lctx_analytics::selection`, a `seed_selection` invocation), Related from communities and centrality, the statistical-policy cases (§9.4, §10.3) | ADR-0011; deviation log D34 |

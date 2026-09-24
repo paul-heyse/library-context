@@ -43,7 +43,8 @@ pub struct Published {
 /// 10: the slice 2.2 review: release handoff endpoints, one-target producers, the narrowed
 /// receiver exclusion, doc blocks by document, self-contained usage patterns. 11: the ADR-0011
 /// review: γ = 1 fixed, the public co-assignment score, named layer policies. 12: FCA (slice 2.5).
-pub const COMPILER_OUTPUT_VERSION: u32 = 12;
+/// 13: seed selection within the brief budget (slice 2.6).
+pub const COMPILER_OUTPUT_VERSION: u32 = 13;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

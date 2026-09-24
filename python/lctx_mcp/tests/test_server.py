@@ -57,9 +57,10 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert result is not None
         assert result["mode"] == "hybrid" and result["degraded_reason"] is None
         assert result["library"] == LIBRARY and len(result["generation"]) == 16
-        # Passes A, B and C for each of 5 seeds, 40 Leiden runs and their consensus (slice 2.3),
-        # the PageRank (slice 2.4), and FCA of the seeds' two scopes (slice 2.5).
-        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 59}
+        # Passes A, B and C for each of 5 configured seeds and the one seed selection adds
+        # (slice 2.6), 40 Leiden runs and their consensus (2.3), the PageRank (2.4), the selection,
+        # and FCA of the seeds' three scopes (2.5).
+        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 64}
         assert 1 <= len(result["hits"]) <= 5
         tool = next(h for h in result["hits"] if h["title"] == "pkg.Server.tool")
         brief = await client.call_tool(
@@ -73,7 +74,7 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert sections[0] == "outcome" and "limits" in sections
         # Increment-1 deep review F4: the slots the brief does not fill are named.
         assert c["sections_absent"] == ["applicable_case", "usage_pattern"]
-        assert result["coverage"]["absent_slots"]["usage_pattern"] == 5
+        assert result["coverage"]["absent_slots"]["usage_pattern"] == 6
         outcome = c["assertions"][0]
         cited = {e["evidence_id"]: e for e in c["evidence"]}
         span = cited[outcome["supports"][0]["evidence_id"]]

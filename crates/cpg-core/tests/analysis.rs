@@ -615,6 +615,32 @@ async fn concepts_come_from_each_seeds_structural_scope() {
     );
 }
 
+/// Seed selection (slice 2.6): with room in the brief budget, the communities choose more seeds,
+/// the most central public API of each first; each gets its passes and its brief, and the
+/// selection invocation names what was configured and what was chosen.
+#[tokio::test(flavor = "multi_thread")]
+async fn communities_select_seeds_within_the_budget() {
+    let (result, dir) = compile_config(
+        "select",
+        &CONFIG.replace("budget = 6", "budget = 8"),
+        "linux",
+    )
+    .await;
+    result.unwrap();
+    let (_, ctx) = published(&dir.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    let selection = text(
+        &ctx,
+        "SELECT parameters, diagnostics FROM analysis_invocations WHERE method = 7",
+    )
+    .await;
+    insta::assert_snapshot!("seed_selection", selection);
+    let briefs = text(&ctx, "SELECT count(*) AS briefs FROM briefs").await;
+    assert!(briefs.contains("| 8 "), "{briefs}");
+}
+
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
 /// `partial` with its stop reason, and Stage F states it as a limit of the brief.
 #[tokio::test(flavor = "multi_thread")]
@@ -882,6 +908,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             10,
             "982bc3a8b44d4c4fe033b665edaf19081a44e1926b43f19287e5583e12974b1f",
         ),
+        (
+            13,
+            11,
+            "44252165621a2305caebdef9f2bac256f6e0fd6c57397a3e629e1e7080ccaa1f",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -1001,6 +1032,33 @@ async fn the_analysis_rules_reject_their_violations() {
             "semantic:assertion-status-derived",
             "assertion_support",
             "SELECT * FROM assertion_support_published WHERE evidence_id IS NULL",
+        ),
+        // Slice 2.6's policy case: statistical output never states a control. A control stated
+        // `statistically_derived` breaks the kind policy...
+        (
+            "semantic:assertion-policy",
+            "assertions",
+            "SELECT snapshot_id, assertion_id, run_id, model_id, extraction_mode, assertion_kind, \
+                    subject_node_id, applicable_case, \
+                    CASE WHEN assertion_kind = 6 THEN CAST(2 AS SMALLINT) ELSE evidence_status END \
+                      AS evidence_status, \
+                    text, conditions, limitations, template_version \
+             FROM assertions_published",
+        ),
+        // ...and a control citing a community finding, left `structurally_observed`, is not the
+        // status its supports derive.
+        (
+            "semantic:assertion-status-derived",
+            "assertion_support",
+            "SELECT * FROM assertion_support_published UNION ALL \
+             SELECT a.snapshot_id, a.assertion_id, s.role, 999 AS ordinal, f.finding_id, \
+                    CAST(NULL AS BYTEA) AS evidence_id \
+             FROM assertions_published a \
+             JOIN assertion_support_published s ON s.assertion_id = a.assertion_id \
+               AND s.ordinal = 0 \
+             CROSS JOIN (SELECT finding_id FROM findings WHERE finding_kind = 11 \
+                         ORDER BY finding_id LIMIT 1) f \
+             WHERE a.assertion_kind = 6",
         ),
         // A parameter relabelled `documented` on fact evidence alone (the policy permits it).
         (

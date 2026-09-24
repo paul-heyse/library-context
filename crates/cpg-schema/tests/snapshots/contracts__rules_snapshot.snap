@@ -527,7 +527,7 @@ codebook:edge_kinds.derivation
 codebook:analysis_invocations.extraction_mode
   SELECT extraction_mode FROM analysis_invocations WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:analysis_invocations.method
-  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0, 1, 2, 3, 4, 5, 6)
+  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:analysis_invocations.completion
   SELECT completion FROM analysis_invocations WHERE completion IS NOT NULL AND completion NOT IN (0, 1, 2, 3, 4)
 codebook:analysis_invocations.stop_reason

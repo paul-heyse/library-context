@@ -1,6 +1,7 @@
 # Café: a non-ASCII byte before the docstrings, so evidence offsets are bytes (review F8).
 
 def finish(fn):
+    """Finish `fn`."""
     return fn
 
 
@@ -10,6 +11,7 @@ def helper(fn, n=1):
 
 
 def prepare(fn):
+    """Check `fn`, then finish it."""
     if isinstance(fn, str):
         raise TypeError(fn)
     return finish(fn)

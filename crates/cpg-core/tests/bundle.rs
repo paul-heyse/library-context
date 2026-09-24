@@ -118,17 +118,19 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
     assert_eq!(again.key, a.key);
     let manifest = verify(&a.dir).unwrap();
     let rows = |f: &str| manifest["files"][f]["rows"].as_u64().unwrap();
-    assert_eq!(rows("briefs"), 5);
-    assert_eq!(rows("vectors"), 5);
-    assert_eq!(rows("lexical_text"), 5);
+    // Five configured seeds, and one the communities select to fill the budget of six (2.6).
+    assert_eq!(rows("briefs"), 6);
+    assert_eq!(rows("vectors"), 6);
+    assert_eq!(rows("lexical_text"), 6);
     assert_eq!(rows("embedding_spec"), 1);
     assert!(
         rows("symbol_map") >= 8,
         "every public access path of each brief"
     );
+    // `pkg.describe`, and the selected `pkg.helpers.finish`, which calls nothing.
     assert_eq!(
         manifest["summary"]["briefs"]["unreviewed"]["documentation_only"],
-        1
+        2
     );
     assert_eq!(manifest["spec_hash"].as_str().unwrap().len(), 64);
     let names: Vec<&String> = manifest["files"].as_object().unwrap().keys().collect();
