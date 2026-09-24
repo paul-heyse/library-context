@@ -104,7 +104,7 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | bm25s | `==0.3.11`, numpy backend; it depends on numpy only, so no scipy enters the environment | 2026-09-23 | `uv.lock` (`dependencies = [numpy]`); `test_bm25_scores_are_the_lucene_formula` |
 | uv_build | `>=0.12,<0.13` (the `lctx-mcp` build backend, matching uv 0.12.18) | 2026-09-23 | `uv sync` built the member |
 | PyO3 | `=0.29.2` with `extension-module` (native semantic query member; CPython 3.14.7) | 2026-09-24 | `cargo info pyo3@0.29.2`, official PyO3 0.29.2 changelog for Python 3.14 support, and `cargo check -p lctx-semantics` |
-| maturin | `==1.15.0` (the `lctx-semantics` PEP 517/660 backend) | 2026-09-24 | PyPI 1.15.0 release (2026-08-24), `uvx --from maturin==1.15.0 maturin --version`; mixed package route checked in Context7 `/pyo3/maturin`; `uv sync` and `uv build --package lctx-semantics` plus isolated CPython 3.14.7 wheel import passed |
+| maturin | `==1.15.0` (the `lctx-semantics` PEP 517/660 backend) | 2026-09-24 | PyPI 1.15.0 release (2026-08-24), `uvx --from maturin==1.15.0 maturin --version`; mixed package route checked in Context7 `/pyo3/maturin`; `uv sync` passed. A one-time `uv build --package lctx-semantics` and isolated CPython 3.14.7 wheel import passed before the operator chose the faster design track; those artifacts were removed and wheel builds are deferred to release. |
 | LanceDB | 0.39.0 (Python) — **deferred** behind a size trigger | 2026-09-22 (source read at tag) | hybrid/FTS/RRF chain; bundles Arrow 58 / DataFusion 54 |
 
 ## Dev tools

@@ -62,13 +62,17 @@ The file-based generation and one embedding spec remain useful.
 - The native package is a separate `python/lctx_semantics` uv workspace member, built by
   `maturin==1.15.0` from a Cargo workspace crate with `pyo3 = 0.29.2`. It exposes
   `lctx_semantics._native` for pinned CPython 3.14.7. The pure-Python `lctx_mcp` package
-  depends on that member. Both an editable `uv run` and a built wheel must load it; startup
+  depends on that member. During design and integration, `uv sync`/`uv run` editable loading
+  and focused native tests are the fast gate. At the Stage 3.6 product acceptance checkpoint,
+  after the generation contract and served API settle, one clean wheel install must execute
+  a generation-pinned FastMCP/native query; repeat that check for release. Startup
   rejects extension/kernel format mismatches against the generation manifest.
 - Results cite row/node ids and verdicts from the pinned generation. The interface has no hard
   wall-clock guarantee; latency is measured and a sustained breach triggers an architectural
   revisit. The FastMCP layer maps
   domain errors to tool errors. The extension is built and pinned with the uv workspace and
-  Cargo lock, with a same-generation integration test.
+  Cargo lock, with a same-generation integration test. During design, focused tests and probes
+  run before the broader repository and pilot gates at product checkpoints.
 - ADR-0010's embedding model/spec, cached vectors, view policy, conformance rule, lexical
   degradation, BM25/fusion and exact-symbol promotion continue as DESIGN §B14 and §11.1–§11.2
   state. This supersession changes the executor boundary only.

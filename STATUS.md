@@ -1,60 +1,30 @@
 # Status
 
-_Updated 2026-09-24 by the handoff skill (Stage 2.9.1, the forward plan, and ADR-0023)._
+_Updated 2026-09-24 under the handoff skill. Work is on `main`; no push was requested._
 
 ## Where we are
 
-- **The plan** is `docs/plans/behavioral-model-forward-plan_2026-09-24.md`, which supersedes the
-  pivot plan. Stages 0–2 of the pivot are built. The operator approved decisions D-10 to D-13
-  (evaluation atoms, a BDD condition kernel, the validation lane, a typed theory; deviation B23),
-  and kept ty as the flow provider with Pysa as the cross-check (B21).
-- **Stage 2.9 (hardening the semantic bridge) is in progress.** 2.9.1 is done (`4a79501`): the
-  Stage 2 end review's fixes R1–R11, `flow_tests`, `flow_attribute_loads`,
-  `raise_sites.escapes`, `abstract_body`, and four new semantic rules. Pilot refutations fell from
-  63 to 19.
-- **Reviews use the layered design standard** (ADR-0023, accepted, `fc3942d`), declared in
-  `docs/design_review/design_principles/standard.toml`: core DP-01–24 and G1–G8, the
-  code-intelligence profile CI-01–13 and CI-G1–G3, and `binding/library-context.md`. The skills
-  are `design-review` and `design-review-code-intelligence`. Naming a check in every finding is
-  optional. No new lints for design alignment.
-- **Unpushed:** every commit since `origin/main`. Push only when asked.
+- The active scope is [the behavioral-model forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 2.9 is complete: ADR-0022 is accepted, the compact re-review and Stage 2 structured evaluation passed, and the live pilot smoke passed.
+- Stage 3 is in **design and focused-probe mode** by operator direction. The BDD spike (`2da15a6`) and the bounded kernel/native developer-probe foundation (`f2549cb`) are committed. ADR-0024 and ADR-0025 remain **proposed**. The [standard design review](docs/design_review/reviews/design_review_stage3_kernel_serving_standard_2026-09-24.md) accepts their corrected proposal; the [compact review](docs/design_review/reviews/design_review_stage3_0_kernel_native_compact_2026-09-24.md) accepts only the foundation slice.
+- The user chose ADRs and focused probes for this phase. The proposed serving design permits bounded Rust semantic queries over one pinned generation, replacing ADR-0010's materialized-only executor constraint. Editable native import and focused tests are the design loop; one clean wheel install and generation-pinned tool call wait for Stage 3.6 product acceptance, then repeat at release. The wheel/archive and isolated wheel-test environment created during this session were removed.
 
 ## Last verified (2026-09-24)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` (at `24f381a`) | passed: nextest 262/262, pytest 80, rule tests 7/7, lint-agents, adr lint (23), fixtures 65, deps, shear, gold. This also covers `fc3942d`, which had left it not_run |
-| `just adr lint`, `just lint-agents` (at `fc3942d`) | passed |
-| `just pilot` (the tree of `4a79501`) | passed: snapshot `8f40e20a`, generation `4c50ccdc`, 41.5 s, smoke 20/20; 0 conditions `false` |
-| `just pilot-live` | passed at Stage 2's evaluation, generation `85304572` (before the end review's fixes); not re-run since |
-| Stage 2's structured evaluation | passed on attempt 2 (`structured_eval_stage2_2026-09-24.md`); to be re-applied at Stage 2.9.8 |
+| `cargo test -p cpg-schema condition_kernel --lib --quiet` | passed: 8/8 bounded-kernel tests |
+| `uv run pytest python/lctx_mcp/tests/test_native_semantics.py -q` | passed: 1/1 editable native developer smoke |
+| `just test-all` at `f2549cb` | passed: 277/277 Rust, fixture generation 1/1, 94/94 Python, Pyrefly, 7/7 rules, 25 ADRs, 65 fixture parses, dependency/fork/shear/gold checks |
+| `just pilot` at `f2549cb` | passed: snapshot `ecf8b9cdc11ebaf4c1dae61fa9b35dee`, generation `88660525d69030df`, 20/20 FastMCP smoke; 44.9 s total, 4,227 MiB peak RSS. Compiler still uses Stage 2 DNF |
+| `CARGO_TARGET_DIR="$PWD/target" cargo run --locked --manifest-path docs/design_review/evidence/2026-09-24_bdd-pilot-survey/Cargo.toml -- build/store ecf8b9cdc11ebaf4c1dae61fa9b35dee` | passed: 13,775/13,775 stated conditions converted and validated in 0.97 s; p95 8, max 53 nodes per root; 23,760 unique node ids; one `SourceOverBudget` sentinel |
+| `just adr lint`; `just adr revisit`; `git diff --check` | passed: 25 ADR records, dependency revisit check, no whitespace errors |
 
-## Known failures and blocks
+## Open boundaries
 
-- **Translation defects** (the external review's assessment, X1–X3): condition atoms identified by
-  their text drop feasible paths. The eight reproduced shapes cover impure calls, loops over
-  `range`, mutation, `==` against `is`, version tuples and a `TYPE_CHECKING` parameter. **Tested**
-  by probes and confirmed by CPython 3.14.7; the fixes are Stage 2.9.2–2.9.4.
-- **Disk:** 189 GB free; the moved-aside stores (`build/store-pre-*`, ~11 GB) await the operator.
-- **Untracked:** `docs/full_cpg_pipeline_external_review.md` (the operator's; not committed).
-
-## Open decisions
-
-- **ADR-0022** (proposed): accepted after Stage 2.9's re-review, with D-10 amended in. **ADR-0020**
-  stays proposed; the LLM-trigger decision waits for increment 5.
-- **`just adr revisit`:** nothing has fired. ADR-0021 needs two consecutive exit failures, and
-  Stage 2's attempt 2 passed. ADR-0023's trigger: a principle that needs a repository-specific
-  reading, or the shared core changing without a refreshed copy.
-- **Deferred rows:** in `design_review_stage2-end_2026-09-24.md` §12 and
-  `design_review_external-review-assessment_2026-09-24.md` §10.
-- **For the operator's review:** the Stage 1 and Stage 2 evaluations, deviations B1–B23, and the
-  moved-aside stores.
-- **The first review under the new standard** is Stage 2.9.9's compact re-review. Record any
-  friction in its Deferred table and tell the operator (ADR-0023's revisit trigger).
+- The single Stage 2 `over_budget` condition row is referenced by 237 `flow_regions` and 846 `flow_reaching` facts across modules. Materialized-row conversion cannot recover those distinct source expressions. Construct BDDs in `cpg-flow` **before** DNF truncation, migrate `flow_model` with the root/node schema, then measure whether the 66 recorded `budget_reached` claims fall.
+- BDD nodes are not yet a published Delta or serving-bundle relation; typed test-use observations, exact-value/effect-stability proofs, generation-pinned semantic queries, models catalog, handlers/callbacks/resources, SCC summaries, Pysa differential, and Stage 3 structured exit evaluation are **not_run/not implemented**. The native `probe_*` calls are developer smoke only, not FastMCP verdicts.
+- ADR-0024/0025 remain proposed; ADR-0020 remains proposed on its separate increment-5 trigger. No new manual revisit trigger was established by this session. The standalone survey's own lock may differ in unrelated transitive packages from the product lock, so it is design evidence, not product acceptance.
 
 ## Next
 
-Stage 2.9.2: evaluation identity for condition atoms (the forward plan §4.1). Operators are kept
-(`== None` becomes `equals`, and `is <literal>` gets its own atom, a codebook append). Synthetic
-predicates are per site. Versions become definition sets. Sharing is limited to identity and
-`isinstance` tests on names, and each of the assessment's P1 shapes gets a `flow_shapes` case.
+Finish the pre-DNF BDD migration design and its exact source-to-query proof contracts with focused counterexample probes. Keep product integration and broad packaging gates for the later product checkpoint.

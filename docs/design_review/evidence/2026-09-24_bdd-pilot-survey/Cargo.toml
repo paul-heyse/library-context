@@ -1,0 +1,12 @@
+[package]
+name = "bdd-pilot-survey"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+cpg-core = { path = "../../../../crates/cpg-core" }
+cpg-schema = { path = "../../../../crates/cpg-schema" }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread"] }

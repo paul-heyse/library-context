@@ -483,7 +483,10 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
   Python. The current materialized lookup route stays available for direct retrieval.
   The extension is `lctx_semantics._native`, built by a pinned maturin uv workspace member
   for CPython 3.14.7, and startup checks its kernel format and lossless node closure against the
-  generation. A semantic filter partitions candidates into matched, proven-excluded,
+  generation. Editable `uv run` loading is the design-phase gate; a clean wheel installation
+  and generation-pinned FastMCP/native query are required at Stage 3.6 product acceptance and
+  again at release, after the generation format and query API settle. A semantic filter partitions
+  candidates into matched, proven-excluded,
   source-open and unexamined; `complete` requires the latter two to be empty.
 - Which facet rows are complete remains served data (`operation_facet_status`); facet names are
   held to the codebook by `specs/serving/facets.json`.
@@ -3617,3 +3620,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-24 | Holistic assessment A3 (with slice 3.4's warnings): `doc_components` and `doc_component_attributes` from markdown-rs's mdast (codebooks `component_form`, `attribute_value_kind`; four semantic rules, `docs-span-in-document` among them); documented warnings from `<Warning>` components, scoped to their `<ParamField>`; a top-level `<ParamField>` as a parameter's description after the docstring; `EXTRACTOR_OUTPUT_VERSION` 19, `TEMPLATE_VERSION` 16; zero of either on the pilot, Measured (§3.2, §9.2, §10.3) | Deviation log D44, D45 |
 | 2026-09-24 | The behavioral-model pivot, Stage 0. The product becomes a behavioral model of the whole public surface, with briefs as one rendering: §1.1–§1.5, §9 rules, §12, §13 (ADR-0021, superseding ADR-0004). The model's semantics: places, the runtime view, closed conditions, five verdicts, models as data (§B5, §B10, §3.2, new §3.9, new §9.9; ADR-0022). Serving tools, the executor, `FORMAT` 3 and embedding views (§B13, §B14, §6.4, §11.3; ADR-0010 amendment). Declared extra dependency families (ADR-0002 amendment). Flow and summary algorithms (§B4; ADR-0011 amendment). The keep rule under the new consumers, and the deletion exit paused (§9.8; ADR-0020 amendment). Source: `design_review_behavioral-model-pivot_2026-09-24.md` and the plan `docs/plans/behavioral-model-pivot-plan_2026-09-24.md` | ADR-0021, ADR-0022; deviation log B1 |
 | 2026-09-24 | The review standard: §2's pointer moves from `ADDENDUM.md` to the library-context binding; charter and graph-guideline citations re-keyed to DP and CI IDs | ADR-0023 |
+| 2026-09-24 | Proposed Stage 3 kernel and serving design: bounded BDD conditions, typed proof links and same-generation native queries (§B10, §B13, §B14, §3.9, §9.9, §11.3). During design, editable native import and focused probes are the fast gate; clean wheel installation with a generation-pinned tool call waits for Stage 3.6 product acceptance, then repeats at release. | ADR-0024, ADR-0025 (proposed) |

@@ -20,6 +20,13 @@ identity and defers compatibility; §B10 calls the finite evaluator "not a solve
 identity must stay per-site because a call or nonlocal write can change a name even when its
 static definition set is unchanged (Stage 2.9 compact review F01).
 
+The read-only [pilot conversion survey](../design_review/evidence/2026-09-24_bdd-pilot-survey/README.md)
+measured 13,775 stated condition rows converting to BDDs in 0.97s; the one `over_budget`
+sentinel row is cited by 237 regions and 846 reaching facts across multiple modules and
+has lost their separate source expressions. Converting only stored DNF rows therefore cannot
+address that source loss; whether the 66 recorded budget claims fall requires a product pilot.
+This is design evidence, not product acceptance.
+
 ## Options
 
 1. **Keep DNF with a larger budget.** This is simpler and preserves its encoding, but it does not
@@ -57,6 +64,10 @@ static definition set is unchanged (Stage 2.9 compact review F01).
   its root; terminals have fixed ids; each nonterminal names an atom identity and its low/high
   child ids. Publication and native load validate closure, acyclicity, strictly increasing atom
   order on every path, distinct children, unique reduced nodes and recomputed Merkle ids.
+  The `cpg-flow` translator must construct and compose diagrams **before** Stage 2's
+  `Condition::from_dnf` limit can discard an expression. Converting the stored DNF after
+  extraction is insufficient; the flow-model consumer migrates to the same root/node authority
+  in the schema change.
   DNF text becomes a bounded display rendering with a truncation marker, neither the raw id
   input nor serving's sole input. Condition ids and the flow schema migrate together. The bundle
   carries the root/node closure and a kernel-format version.

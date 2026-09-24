@@ -271,6 +271,12 @@ outcome.
   - a node-limit case;
   - on the pilot, `budget_reached` falls, and the node limit's hits and compile time are reported.
 - **Then, in the product:**
+  - construct and compose BDDs in `cpg-flow` before the Stage 2 DNF limit. The read-only
+    2026-09-24 pilot survey converted all 13,775 stated condition rows but found one
+    `over_budget` sentinel shared by 237 regions and 846 reaching facts across modules;
+    post-extraction conversion cannot recover those separate expressions. Measure any
+    reduction in the 66 recorded budget claims on a product pilot. Migrate the flow-model
+    consumer with the same root/node schema;
   - lossless conditions (a node table in the `flow` family), with the DNF encoding as a bounded
     rendering;
   - an attributed test-use/type-term observation and the typed theory: only exact builtin
@@ -331,6 +337,11 @@ boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for co
   node, pair-work and depth limits produce explicit `unknown` and `truncated`. Direct lookups and
   ranked retrieval keep their existing materialized routes. A `standard` review covers the §B13
   pivot (ADR-0025) before acceptance.
+- **Design-phase loop:** use focused kernel/translator tests, editable `uv run` import and
+  targeted probes while the node relation, proof contracts and served API are being designed.
+  Run the broader repository and pilot gates at product checkpoints. At Stage 3.6 acceptance,
+  after the generation format and served API settle, build and clean-install one wheel and
+  exercise a generation-pinned FastMCP/native query; repeat that check for release.
 
 **Exit:** `behavior_shapes` part 2 passes, and Stage 3's pre-registered exit rule (Q01, Q03, Q05,
 Q09) passes. Then increment 4's `compact` review.
