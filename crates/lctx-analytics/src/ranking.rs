@@ -1,5 +1,13 @@
-//! Centrality (DESIGN §9.5; ADR-0011): our own weighted PageRank over the usage projection, in
-//! canonical order, recording iterations, the final L1 residual and a converged flag.
+//! Usage ranking (DESIGN §9.5; ADR-0011 and its increment-2 amendment): what official usage calls.
+//!
+//! - **Direct usage** (the default; the increment-2 review's U1): each subsystem function's
+//!   definite calls from official usage code ([`USAGE_POLICY`]). Seed selection and the Related
+//!   line order by it: the question they ask is which operations users call.
+//! - **PageRank** (the `+pagerank` variant, kept for the §9.8 ablation): our own weighted power
+//!   iteration over the usage projection, in canonical order, recording iterations, the final L1
+//!   residual and a converged flag. It ranks what usage reaches through the library's own
+//!   delegation, so implementation sinks rank high; it replaces direct usage as the order only in
+//!   its variant.
 //!
 //! **The usage projection** (H1 review F9) is the invocation projection (§5) restricted and
 //! weighted by a named policy ([`WEIGHT_POLICY`]):
@@ -12,10 +20,10 @@
 //! own delegation. The teleport and the dangling target are uniform, which makes
 //! `leiden_rs::infomap::compute_flow` (teleport rate = 1 − damping) a reference oracle.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch, StringArray};
-use cpg_schema::codebook::{Codebook, CoverageStatus, FindingKind, NodeKind, SourceRole};
+use arrow_array::RecordBatch;
+use cpg_schema::codebook::{ArcKind, Codebook, CoverageStatus, FindingKind, NodeKind, SourceRole};
 use cpg_schema::findings::{FINDING_STATUS, FindingsRow, recipe::FindingKey};
 use cpg_schema::id::{Digest, Id, IdHasher, content_digest};
 use fixedbitset::FixedBitSet;
@@ -25,8 +33,141 @@ use crate::AnalyticsError;
 use crate::graph::Projection;
 
 /// The usage projection's weight policy: the count of invocation arcs per ordered pair.
-pub const WEIGHT_POLICY: &str = "usage-projection: invocation arcs into subsystem functions from \
-                                 subsystem functions or official-usage callers, weight = arc count";
+pub const WEIGHT_POLICY: &str = "usage-projection: invocation arcs (call and definition arcs, any \
+                                 modality) into subsystem functions from subsystem functions or \
+                                 official-usage callers, weight = arc count";
+
+/// What a direct-usage count counts (the increment-2 review's U1 and F3(c)). A method call on an
+/// instance is a `candidate` arc (Pysa's override marking), almost always with one target, so both
+/// accepted modalities count; a site with several targets is one call, shared among them.
+pub const USAGE_POLICY: &str = "direct-usage: call arcs (definite or candidate, any phase) from an \
+                                official-usage caller (a function or module of an example, test \
+                                or doc block); each call site counts once, split evenly among its \
+                                targets; a subsystem function's count is the sum of its shares";
+
+/// Direct usage's identity: the invocation projection's and the policy.
+pub fn usage_digest(invocation: Digest) -> Digest {
+    IdHasher::new("direct-usage")
+        .str(&invocation.hex())
+        .str(USAGE_POLICY)
+        .finish_digest()
+}
+
+/// A subsystem function: the usage projection's own vertices.
+fn is_function(projection: &Projection, subsystem: &FixedBitSet, i: usize) -> bool {
+    projection.kinds[i] == NodeKind::Function && subsystem.contains(i)
+}
+
+/// An official-usage caller: a vertex of an example, test or doc block.
+fn is_usage(projection: &Projection, i: usize) -> bool {
+    matches!(
+        projection.roles[i],
+        Some(SourceRole::Example | SourceRole::Test | SourceRole::DocBlock)
+    )
+}
+
+/// Each subsystem function's direct official-usage calls ([`USAGE_POLICY`]), for those with any.
+pub fn usage_counts(projection: &Projection, subsystem: &FixedBitSet) -> BTreeMap<Id, f64> {
+    // Each usage call site's targets, in canonical order.
+    let mut sites: BTreeMap<Id, BTreeSet<usize>> = BTreeMap::new();
+    for arc in &projection.arcs {
+        if arc.arc_kind == ArcKind::Call && is_usage(projection, arc.src as usize) {
+            sites
+                .entry(arc.call_site)
+                .or_default()
+                .insert(arc.dst as usize);
+        }
+    }
+    let mut counts: BTreeMap<Id, f64> = BTreeMap::new();
+    for targets in sites.values() {
+        let share = 1.0 / targets.len() as f64;
+        for &d in targets {
+            if is_function(projection, subsystem, d) {
+                *counts.entry(projection.ids[d]).or_insert(0.0) += share;
+            }
+        }
+    }
+    counts
+}
+
+#[derive(Debug, Serialize)]
+struct UsageDiagnostics {
+    functions_called: usize,
+    /// The call sites' shares that reach subsystem functions.
+    calls: f64,
+    reported: usize,
+}
+
+/// Direct usage's results: each public API's count, and its findings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Usage {
+    pub counts: BTreeMap<Id, f64>,
+    pub diagnostics: String,
+    pub findings: Vec<FindingsRow>,
+}
+
+/// Each public API (`public`: `cpg_schema::communities::public_callables_sql`'s rows) that official
+/// usage calls directly is a `direct_usage` finding whose score is its count.
+pub fn run_usage(
+    projection: &Projection,
+    subsystem: &FixedBitSet,
+    public: &[RecordBatch],
+    snapshot_id: Id,
+    invocation_id: Id,
+) -> Result<Usage, AnalyticsError> {
+    let paths = crate::communities::preferred_paths(public)?;
+    let all = usage_counts(projection, subsystem);
+    let status = FINDING_STATUS
+        .iter()
+        .find(|(k, _)| *k == FindingKind::DirectUsage)
+        .map(|(_, s)| *s)
+        .ok_or_else(|| AnalyticsError::Graph("no status policy for direct usage".to_owned()))?;
+    let counts: BTreeMap<Id, f64> = all
+        .iter()
+        .filter(|(id, _)| paths.contains_key(id))
+        .map(|(id, n)| (*id, *n))
+        .collect();
+    let findings = counts
+        .iter()
+        .map(|(id, n)| FindingsRow {
+            snapshot_id,
+            finding_id: FindingKey {
+                finding_kind: FindingKind::DirectUsage.code(),
+                subject: *id,
+                related: None,
+                condition: None,
+                evidence_status: status.code(),
+                depth: None,
+                stop_reason: None,
+                witnesses_omitted: false,
+                paths: &[],
+                members: &[],
+            }
+            .id(),
+            invocation_id,
+            finding_kind: FindingKind::DirectUsage,
+            subject_node_id: *id,
+            related_node_id: None,
+            evidence_status: status,
+            depth: None,
+            stop_reason: None,
+            witnesses_omitted: false,
+            score: Some(*n),
+            condition_node_id: None,
+        })
+        .collect();
+    let diagnostics = serde_json::to_string(&UsageDiagnostics {
+        functions_called: all.len(),
+        calls: all.values().sum(),
+        reported: counts.len(),
+    })
+    .expect("diagnostics serialize");
+    Ok(Usage {
+        counts,
+        diagnostics,
+        findings,
+    })
+}
 
 /// The usage projection's identity: the invocation projection's and the policy.
 pub fn projection_digest(invocation: Digest) -> Digest {
@@ -76,14 +217,8 @@ pub struct UsageGraph {
 impl UsageGraph {
     /// The usage projection from the invocation projection and the subsystem mask.
     pub fn build(projection: &Projection, subsystem: &FixedBitSet) -> Self {
-        let function =
-            |i: usize| projection.kinds[i] == NodeKind::Function && subsystem.contains(i);
-        let usage = |i: usize| {
-            matches!(
-                projection.roles[i],
-                Some(SourceRole::Example | SourceRole::Test | SourceRole::DocBlock)
-            )
-        };
+        let function = |i: usize| is_function(projection, subsystem, i);
+        let usage = |i: usize| is_usage(projection, i);
         let mut pairs: Vec<(usize, usize)> = Vec::new();
         for arc in &projection.arcs {
             let (s, d) = (arc.src as usize, arc.dst as usize);
@@ -206,22 +341,7 @@ pub fn run(
     snapshot_id: Id,
     invocation_id: Id,
 ) -> Result<Outcome, AnalyticsError> {
-    let mut paths: BTreeMap<Id, String> = BTreeMap::new();
-    for b in public {
-        let node = b
-            .column_by_name("node_id")
-            .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
-            .ok_or_else(|| AnalyticsError::Column("node_id".to_owned()))?;
-        let path = b
-            .column_by_name("access_path")
-            .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-            .ok_or_else(|| AnalyticsError::Column("access_path".to_owned()))?;
-        for i in 0..b.num_rows() {
-            paths
-                .entry(Id(<[u8; 16]>::try_from(node.value(i)).expect("16 bytes")))
-                .or_insert_with(|| path.value(i).to_owned());
-        }
-    }
+    let paths = crate::communities::preferred_paths(public)?;
     let n = graph.vertices.len();
     let ranks = pagerank(n, &graph.arcs, params);
     let status = FINDING_STATUS
@@ -358,23 +478,162 @@ mod tests {
         );
     }
 
+    use crate::graph::{Arc, InvocationGraph};
+    use cpg_schema::codebook::{ArcKind, InvocationPhase, Modality};
+
+    fn id(k: u8) -> Id {
+        Id([k; 16])
+    }
+
+    /// Vertices 1–3 subsystem functions, 4 a usage caller (an example module), 5 a release
+    /// function outside the subsystem; arcs as `(src, dst, call site, modality, kind)`.
+    fn projection(arcs: &[(u8, u8, u8, Modality, ArcKind)]) -> (Projection, FixedBitSet) {
+        let ids: Vec<Id> = (1..=5).map(id).collect();
+        let dense = |k: u8| u32::from(k - 1);
+        let p = Projection {
+            kinds: vec![
+                NodeKind::Function,
+                NodeKind::Function,
+                NodeKind::Function,
+                NodeKind::Module,
+                NodeKind::Function,
+            ],
+            modules: vec![None; 5],
+            roles: vec![
+                Some(SourceRole::Release),
+                Some(SourceRole::Release),
+                Some(SourceRole::Release),
+                Some(SourceRole::Example),
+                Some(SourceRole::Release),
+            ],
+            arcs: arcs
+                .iter()
+                .map(|&(s, d, site, modality, arc_kind)| Arc {
+                    src: dense(s),
+                    dst: dense(d),
+                    call_site: id(site),
+                    edge_id: id(site.wrapping_add(100)),
+                    phase: (arc_kind == ArcKind::Call).then_some(InvocationPhase::Call),
+                    modality,
+                    has_unresolved_remainder: false,
+                    arc_kind,
+                })
+                .collect(),
+            unresolved: Vec::new(),
+            graph: InvocationGraph::default(),
+            ids,
+        };
+        let mut subsystem = FixedBitSet::with_capacity(5);
+        for i in 0..3 {
+            subsystem.insert(i);
+        }
+        (p, subsystem)
+    }
+
+    const USAGE: &[(u8, u8, u8, Modality, ArcKind)] = &[
+        // The example calls 1 at two sites, and at a third either 1 or 3 (a site with two
+        // candidate targets); it calls 2 once, a candidate.
+        (4, 1, 41, Modality::Definite, ArcKind::Call),
+        (4, 1, 42, Modality::Definite, ArcKind::Call),
+        (4, 1, 45, Modality::Candidate, ArcKind::Call),
+        (4, 2, 43, Modality::Candidate, ArcKind::Call),
+        (4, 3, 45, Modality::Candidate, ArcKind::Call),
+        // 1 delegates to 2 and 3; 3 to 2; 2 calls outside the subsystem.
+        (1, 2, 11, Modality::Definite, ArcKind::Call),
+        (1, 3, 12, Modality::Definite, ArcKind::Call),
+        (3, 2, 31, Modality::Definite, ArcKind::Call),
+        (2, 5, 21, Modality::Definite, ArcKind::Call),
+        // A definition arc from the example counts in the usage projection, never as a call.
+        (4, 3, 44, Modality::Definite, ArcKind::Definition),
+    ];
+
+    /// The increment-2 review's U1 and F6(a): direct usage counts the usage caller's calls, each
+    /// site once and shared among its targets, and so ranks the API usage calls above the sink
+    /// its delegation reaches, where PageRank over the same projection ranks the sink first.
     #[test]
-    fn shuffled_rows_give_identical_scores() {
-        let rows = [
-            (3, 1, 2),
-            (0, 1, 1),
-            (2, 3, 1),
-            (1, 0, 4),
-            (0, 3, 1),
-            (2, 1, 1),
-        ];
-        let mut reversed = rows;
+    fn direct_usage_ranks_what_usage_calls_above_its_delegation_sink() {
+        let (p, subsystem) = projection(USAGE);
+        let counts = usage_counts(&p, &subsystem);
+        assert_eq!(
+            counts,
+            [(id(1), 2.5), (id(2), 1.0), (id(3), 0.5)]
+                .into_iter()
+                .collect()
+        );
+        let graph = UsageGraph::build(&p, &subsystem);
+        assert_eq!(graph.functions, vec![true, true, true, false]);
+        let ranks = pagerank(graph.vertices.len(), &graph.arcs, &Params::preregistered());
+        assert!(ranks.scores[1] > ranks.scores[0], "{:?}", ranks.scores);
+    }
+
+    /// The increment-2 review's F6(b): the projection's arcs in another order give the same usage
+    /// graph, scores and counts.
+    #[test]
+    fn a_permuted_projection_gives_identical_scores() {
+        let (a, subsystem) = projection(USAGE);
+        let mut reversed = USAGE.to_vec();
         reversed.reverse();
+        let (b, _) = projection(&reversed);
+        let (ga, gb) = (
+            UsageGraph::build(&a, &subsystem),
+            UsageGraph::build(&b, &subsystem),
+        );
+        assert_eq!(ga, gb);
         let p = Params::preregistered();
         assert_eq!(
-            pagerank(4, &arcs(&rows), &p),
-            pagerank(4, &arcs(&reversed), &p)
+            pagerank(ga.vertices.len(), &ga.arcs, &p),
+            pagerank(gb.vertices.len(), &gb.arcs, &p)
         );
+        assert_eq!(usage_counts(&a, &subsystem), usage_counts(&b, &subsystem));
+    }
+
+    /// The increment-2 review's probe 2 (F6(d)): `compute_flow` agrees on 30 random weighted
+    /// digraphs of 5–44 vertices, about a quarter of them dangling. The kernel is run to its
+    /// tolerance here (a slowly mixing graph can need more than the pre-registered 100 steps,
+    /// which a compile records as `partial`).
+    #[test]
+    fn compute_flow_agrees_on_random_graphs() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move |bound: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % bound
+        };
+        let p = Params {
+            max_iterations: 1000,
+            ..Params::preregistered()
+        };
+        for _ in 0..30 {
+            let n = 5 + next(40) as usize;
+            let mut rows: BTreeMap<(u32, u32), u64> = BTreeMap::new();
+            for s in 0..n {
+                if next(4) == 0 {
+                    continue;
+                }
+                for _ in 0..1 + next(4) {
+                    let d = next(n as u64) as usize;
+                    if d != s {
+                        *rows.entry((s as u32, d as u32)).or_insert(0) += 1 + next(5);
+                    }
+                }
+            }
+            let ours = pagerank(n, &rows, &p);
+            let mut builder = GraphDataBuilder::new(n).directed();
+            for (&(s, d), &w) in &rows {
+                builder.add_edge(s as usize, d as usize, w as f64).unwrap();
+            }
+            let flow = leiden_rs::infomap::compute_flow(
+                &builder.build().unwrap(),
+                1.0 - p.damping,
+                1e-14,
+                1000,
+            );
+            assert!(ours.converged);
+            for (a, b) in ours.scores.iter().zip(&flow) {
+                assert!((a - b.flow).abs() < 1e-9, "n = {n}");
+            }
+        }
     }
 
     /// ADR-0011's oracle: `compute_flow` (uniform teleport and dangling target) agrees.

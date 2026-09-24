@@ -385,10 +385,16 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
         BriefSection::Limits,
         &[EvidenceStatus::StructurallyObserved],
     ),
-    // FCA (§9.6): exact over the scope's extracted attributes, the scope stated.
+    // Reserved for an input or mode source (the increment-2 review's U2): nothing fills it in v1.
     (
         AssertionKind::ApplicableCase,
         BriefSection::ApplicableCase,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    // FCA (§9.6): exact over the scope's extracted attributes, the scope stated.
+    (
+        AssertionKind::SharedSignature,
+        BriefSection::Related,
         &[EvidenceStatus::StructurallyObserved],
     ),
     (
@@ -545,6 +551,39 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
         FindingKind::CommunityLabel,
         EvidenceStatus::StatisticallyDerived,
     ),
+    // A count of observed definite calls: structure, used only to order (the increment-2 review's
+    // U1).
+    (
+        FindingKind::DirectUsage,
+        EvidenceStatus::StructurallyObserved,
+    ),
+];
+
+/// The method whose invocation may produce each finding kind (the ADR-0011 review's deferred row,
+/// fired by the increment-2 review): the rule `semantic:finding-kind-by-method` checks each
+/// finding's invocation against it.
+pub const FINDING_METHOD: &[(FindingKind, AnalyticMethod)] = &[
+    (FindingKind::PublicAlias, AnalyticMethod::PassABfs),
+    (FindingKind::DirectDelegation, AnalyticMethod::PassABfs),
+    (FindingKind::BoundedDelegationPath, AnalyticMethod::PassABfs),
+    (
+        FindingKind::ImplementationBoundary,
+        AnalyticMethod::PassABfs,
+    ),
+    (FindingKind::IncompleteResolution, AnalyticMethod::PassABfs),
+    (FindingKind::TraversalStop, AnalyticMethod::PassABfs),
+    (FindingKind::Forwarding, AnalyticMethod::PassBFlows),
+    (FindingKind::TransformedArgument, AnalyticMethod::PassBFlows),
+    (FindingKind::ConditionalRaise, AnalyticMethod::PassBFlows),
+    (FindingKind::UnfollowedArgument, AnalyticMethod::PassBFlows),
+    (FindingKind::Handoff, AnalyticMethod::PassCHandoffs),
+    (FindingKind::Community, AnalyticMethod::CommunityConsensus),
+    (FindingKind::Centrality, AnalyticMethod::PageRank),
+    (FindingKind::ApplicableCase, AnalyticMethod::Fca),
+    (FindingKind::Implication, AnalyticMethod::Fca),
+    (FindingKind::DocLink, AnalyticMethod::Knn),
+    (FindingKind::CommunityLabel, AnalyticMethod::Knn),
+    (FindingKind::DirectUsage, AnalyticMethod::UsageCount),
 ];
 
 /// The status each evidence kind supports (slice 1.5 review F1): an extracted fact is observed
@@ -757,5 +796,37 @@ pub mod recipe {
             h.id(*a);
         }
         h.finish_id()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ASSERTION_POLICY, FINDING_METHOD, FINDING_STATUS};
+    use crate::codebook::{AssertionKind, Codebook, FindingKind};
+
+    #[test]
+    fn every_kind_has_one_policy_row() {
+        for kind in FindingKind::all() {
+            assert_eq!(
+                FINDING_STATUS.iter().filter(|(k, _)| k == kind).count(),
+                1,
+                "{kind:?}"
+            );
+            assert_eq!(
+                FINDING_METHOD.iter().filter(|(k, _)| k == kind).count(),
+                1,
+                "{kind:?}"
+            );
+        }
+        for kind in AssertionKind::all() {
+            assert_eq!(
+                ASSERTION_POLICY
+                    .iter()
+                    .filter(|(k, _, _)| k == kind)
+                    .count(),
+                1,
+                "{kind:?}"
+            );
+        }
     }
 }

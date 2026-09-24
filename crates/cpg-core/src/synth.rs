@@ -46,8 +46,10 @@ use crate::{CoreError, sql};
 /// 9: a usage pattern cites only a handoff it shows (slice 2.2 review F3). 10: applicable cases
 /// and implications from FCA, the applicable case in the brief document, and over-cap documents
 /// split into chunks (slice 2.5). 11: Related from communities and centrality (slice 2.6). 12: doc
-/// links and community labels from embeddings (slice 3.1).
-pub const TEMPLATE_VERSION: i64 = 12;
+/// links and community labels from embeddings (slice 3.1). 13: the increment-2 review: the
+/// concept as a shared signature under Related from the seed's own scope, never the Applicable
+/// case; attributes as what an API does, each with its scope; Related by direct usage.
+pub const TEMPLATE_VERSION: i64 = 13;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -400,8 +402,9 @@ fn listed(items: &[String]) -> String {
     }
 }
 
-/// FCA attributes as noun phrases: the parameter names, each declared parameter type, then the
-/// return, raised and decorator attributes (§9.6's attribute forms, `cpg_schema::concepts`).
+/// FCA attributes as what an API does, each with its scope (the increment-2 review's F2): it
+/// declares parameters and parameter types, declares a return type, raises an exception class
+/// directly in its body, is decorated (§9.6's attribute forms, `cpg_schema::concepts`).
 fn attributes_text(attributes: &[String]) -> String {
     let (mut params, mut types, mut returns, mut raises, mut decorators) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -411,26 +414,32 @@ fn attributes_text(attributes: &[String]) -> String {
         } else if let Some(n) = a.strip_prefix("parameter ") {
             params.push(format!("`{n}`"));
         } else if let Some(t) = a.strip_prefix("returns ") {
-            returns.push(format!("the return type `{t}`"));
+            returns.push(format!("`{t}`"));
         } else if let Some(e) = a.strip_prefix("raises ") {
-            raises.push(format!("the raised type `{e}`"));
+            raises.push(format!("`{e}`"));
         } else if let Some(d) = a.strip_prefix("decorator ") {
             decorators.push(format!("`@{d}`"));
         }
     }
-    let mut parts = Vec::new();
+    let mut declared = Vec::new();
     match params.len() {
         0 => {}
-        1 => parts.push(format!("the parameter {}", params[0])),
-        _ => parts.push(format!("the parameters {}", listed(&params))),
+        1 => declared.push(format!("the parameter {}", params[0])),
+        _ => declared.push(format!("the parameters {}", listed(&params))),
     }
-    parts.extend(types);
-    parts.extend(returns);
-    parts.extend(raises);
-    match decorators.len() {
-        0 => {}
-        1 => parts.push(format!("the decorator {}", decorators[0])),
-        _ => parts.push(format!("the decorators {}", listed(&decorators))),
+    declared.extend(types);
+    for t in returns {
+        declared.push(format!("the return type {t}"));
+    }
+    let mut parts = Vec::new();
+    if !declared.is_empty() {
+        parts.push(format!("declares {}", listed(&declared)));
+    }
+    if !raises.is_empty() {
+        parts.push(format!("raises {} directly in its body", listed(&raises)));
+    }
+    if !decorators.is_empty() {
+        parts.push(format!("is decorated with {}", listed(&decorators)));
     }
     listed(&parts)
 }
@@ -1504,13 +1513,12 @@ pub async fn run(
             drafts.push(draft);
         }
 
-        // Applicable case (§9.6): among the concepts of the seed's scope that hold it with another
-        // public API and share at least two attributes (one is closer to coincidence), the one with
-        // the most (other API, shared attribute) pairs, |intent| · (|extent| − 1), then the larger
-        // intent, then the finding id (pre-registered; D32).
-        let scope_label = access_path
-            .rsplit_once('.')
-            .map_or(access_path.as_str(), |(c, _)| c);
+        // Shared signature (§9.6; the increment-2 review's F1 and U2): among the concepts of the
+        // seed's own scope that hold it with another public API and share at least two attributes
+        // (one is closer to coincidence), the one with the most (other API, shared attribute)
+        // pairs, |intent| · (|extent| − 1), then the larger intent, then the finding id
+        // (pre-registered; D32). It is stated under Related, never as the Applicable case.
+        let choices = lctx_analytics::selection::Params::preregistered();
         let concept_rows = |f: &FindingsRow, role: MemberRole| -> Vec<&FindingMembersRow> {
             let mut rows: Vec<&FindingMembersRow> = found
                 .members
@@ -1520,114 +1528,117 @@ pub async fn run(
             rows.sort_by_key(|m| m.ordinal);
             rows
         };
-        let holding: Vec<&FindingsRow> = found
-            .findings
-            .iter()
-            .filter(|f| {
-                f.finding_kind == FindingKind::ApplicableCase
-                    && concept_rows(f, MemberRole::ExtentMember)
-                        .iter()
-                        .any(|m| m.node_id == Some(seed))
-            })
-            .collect();
-        let chosen = holding
-            .iter()
-            .map(|f| {
-                let extent = concept_rows(f, MemberRole::ExtentMember).len();
-                let intent = concept_rows(f, MemberRole::IntentAttribute).len();
-                (intent * extent.saturating_sub(1), intent, *f)
-            })
-            .filter(|(pairs, intent, _)| *pairs > 0 && *intent >= 2)
-            .max_by(|a, b| {
-                (a.0, a.1)
-                    .cmp(&(b.0, b.1))
-                    .then(b.2.finding_id.cmp(&a.2.finding_id))
-            })
-            .map(|(_, _, f)| f);
-        if let Some(f) = chosen {
-            let mut others: Vec<String> = concept_rows(f, MemberRole::ExtentMember)
-                .iter()
-                .filter(|m| m.node_id != Some(seed))
-                .filter_map(|m| m.label.clone())
-                .map(|l| format!("`{l}`"))
-                .collect();
-            let count = others.len();
-            // At most five named; the rest counted (the finding lists them all).
-            if count > 5 {
-                others.truncate(5);
-                others.push(format!("{} more", count - 5));
-            }
-            let intent: Vec<String> = concept_rows(f, MemberRole::IntentAttribute)
-                .iter()
-                .filter_map(|m| m.label.clone())
-                .collect();
-            drafts.push(
-                Draft::new(
-                    AssertionKind::ApplicableCase,
-                    format!(
-                        "`{seed_label}` belongs with {} ({} public APIs of `{scope_label}`): each \
-                         has {}.",
-                        listed(&others),
-                        count + 1,
-                        attributes_text(&intent)
-                    ),
-                )
-                .citing(f),
-            );
-        }
-        // Implications of the seed's scope it satisfies: its attributes hold every premise
-        // attribute, so it has the conclusion's too. The three best supported.
-        if let (Some(scope), Some(own)) = (
-            holding.first().map(|f| f.subject_node_id),
-            seed_attributes.get(&seed),
-        ) {
-            let mut met: Vec<(&FindingsRow, Vec<String>, Vec<String>)> = found
+        if let Some((scope, scope_label)) = found.seed_scopes.get(&seed) {
+            let holding: Vec<&FindingsRow> = found
                 .findings
                 .iter()
                 .filter(|f| {
-                    f.finding_kind == FindingKind::Implication && f.subject_node_id == scope
-                })
-                .filter_map(|f| {
-                    let premise: Vec<String> = concept_rows(f, MemberRole::Premise)
-                        .iter()
-                        .filter_map(|m| m.label.clone())
-                        .collect();
-                    let conclusion: Vec<String> = concept_rows(f, MemberRole::Conclusion)
-                        .iter()
-                        .filter_map(|m| m.label.clone())
-                        .collect();
-                    (!premise.is_empty()
-                        && !conclusion.is_empty()
-                        && premise.iter().all(|a| own.contains(a)))
-                    .then_some((f, premise, conclusion))
+                    f.finding_kind == FindingKind::ApplicableCase
+                        && f.subject_node_id == *scope
+                        && concept_rows(f, MemberRole::ExtentMember)
+                            .iter()
+                            .any(|m| m.node_id == Some(seed))
                 })
                 .collect();
-            met.sort_by(|a, b| {
-                b.0.score
-                    .unwrap_or_default()
-                    .total_cmp(&a.0.score.unwrap_or_default())
-                    .then(a.1.len().cmp(&b.1.len()))
-                    .then(a.0.finding_id.cmp(&b.0.finding_id))
-            });
-            for (f, premise, conclusion) in met.into_iter().take(3) {
+            let chosen = holding
+                .iter()
+                .map(|f| {
+                    let extent = concept_rows(f, MemberRole::ExtentMember).len();
+                    let intent = concept_rows(f, MemberRole::IntentAttribute).len();
+                    (intent * extent.saturating_sub(1), intent, *f)
+                })
+                .filter(|(pairs, intent, _)| {
+                    *pairs > 0 && *intent >= choices.shared_signature_min_attributes
+                })
+                .max_by(|a, b| {
+                    (a.0, a.1)
+                        .cmp(&(b.0, b.1))
+                        .then(b.2.finding_id.cmp(&a.2.finding_id))
+                })
+                .map(|(_, _, f)| f);
+            if let Some(f) = chosen {
+                let mut others: Vec<String> = concept_rows(f, MemberRole::ExtentMember)
+                    .iter()
+                    .filter(|m| m.node_id != Some(seed))
+                    .filter_map(|m| m.label.clone())
+                    .map(|l| format!("`{l}`"))
+                    .collect();
+                let count = others.len();
+                // A few named; the rest counted (the finding lists them all).
+                if count > choices.shared_signature_names {
+                    others.truncate(choices.shared_signature_names);
+                    others.push(format!("{} more", count - choices.shared_signature_names));
+                }
+                let intent: Vec<String> = concept_rows(f, MemberRole::IntentAttribute)
+                    .iter()
+                    .filter_map(|m| m.label.clone())
+                    .collect();
                 drafts.push(
                     Draft::new(
-                        AssertionKind::Implication,
+                        AssertionKind::SharedSignature,
                         format!(
-                            "Among the public APIs of `{scope_label}`, every one that has {} also \
-                             has {} ({} APIs).",
-                            attributes_text(&premise),
-                            attributes_text(&conclusion),
-                            f.score.unwrap_or_default() as i64
+                            "Like {} ({} public APIs of `{scope_label}` in all), `{seed_label}` \
+                             {}.",
+                            listed(&others),
+                            count + 1,
+                            attributes_text(&intent)
                         ),
                     )
                     .citing(f),
                 );
             }
+            // Implications of the seed's scope it satisfies: its attributes hold every premise
+            // attribute, so it has the conclusion's too. The best supported few.
+            if let Some(own) = seed_attributes.get(&seed) {
+                let mut met: Vec<(&FindingsRow, Vec<String>, Vec<String>)> = found
+                    .findings
+                    .iter()
+                    .filter(|f| {
+                        f.finding_kind == FindingKind::Implication && f.subject_node_id == *scope
+                    })
+                    .filter_map(|f| {
+                        let premise: Vec<String> = concept_rows(f, MemberRole::Premise)
+                            .iter()
+                            .filter_map(|m| m.label.clone())
+                            .collect();
+                        let conclusion: Vec<String> = concept_rows(f, MemberRole::Conclusion)
+                            .iter()
+                            .filter_map(|m| m.label.clone())
+                            .collect();
+                        (!premise.is_empty()
+                            && !conclusion.is_empty()
+                            && premise.iter().all(|a| own.contains(a)))
+                        .then_some((f, premise, conclusion))
+                    })
+                    .collect();
+                met.sort_by(|a, b| {
+                    b.0.score
+                        .unwrap_or_default()
+                        .total_cmp(&a.0.score.unwrap_or_default())
+                        .then(a.1.len().cmp(&b.1.len()))
+                        .then(a.0.finding_id.cmp(&b.0.finding_id))
+                });
+                for (f, premise, conclusion) in met.into_iter().take(choices.implications) {
+                    drafts.push(
+                        Draft::new(
+                            AssertionKind::Implication,
+                            format!(
+                                "Among the public APIs of `{scope_label}`, every one that {} also \
+                                 {} ({} APIs).",
+                                attributes_text(&premise),
+                                attributes_text(&conclusion),
+                                f.score.unwrap_or_default() as i64
+                            ),
+                        )
+                        .citing(f),
+                    );
+                }
+            }
         }
 
-        // Related (§10.3; slice 2.6): the seed's community co-members, most central first. It is
-        // statistical, so it only chooses which operations are listed, never says what they do.
+        // Related (§10.3; slice 2.6): the seed's community co-members, the most called in official
+        // usage first (by PageRank in its variant; the increment-2 review's U1). It is statistical,
+        // so it only chooses which operations are listed, never says what they do.
         let community = found.findings.iter().find(|f| {
             f.finding_kind == FindingKind::Community
                 && concept_rows(f, MemberRole::CommunityMember)
@@ -1635,10 +1646,19 @@ pub async fn run(
                     .any(|m| m.node_id == Some(seed))
         });
         if let Some(c) = community {
+            let by_pagerank = found
+                .findings
+                .iter()
+                .any(|f| f.finding_kind == FindingKind::Centrality);
+            let rank_kind = if by_pagerank {
+                FindingKind::Centrality
+            } else {
+                FindingKind::DirectUsage
+            };
             let ranks: BTreeMap<Id, &FindingsRow> = found
                 .findings
                 .iter()
-                .filter(|f| f.finding_kind == FindingKind::Centrality)
+                .filter(|f| f.finding_kind == rank_kind)
                 .map(|f| (f.subject_node_id, f))
                 .collect();
             let members = concept_rows(c, MemberRole::CommunityMember);
@@ -1652,7 +1672,7 @@ pub async fn run(
                 })
                 .collect();
             co.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-            co.truncate(5);
+            co.truncate(choices.related_names);
             if !co.is_empty() {
                 let names: Vec<String> = co.iter().map(|(_, l, _)| format!("`{l}`")).collect();
                 // The community's label: its centroid's nearest documentation (slice 3.1).
@@ -1669,9 +1689,16 @@ pub async fn run(
                     AssertionKind::Related,
                     format!(
                         "Related operations, from its community of {} public APIs (co-assignment \
-                         {:.2} across Leiden seeds{label}), by usage centrality: {}.",
+                         {:.2} across Leiden seeds{label}), {}: {}.",
                         members.len(),
                         c.score.unwrap_or_default(),
+                        if by_pagerank {
+                            "by usage centrality"
+                        } else if co.iter().any(|(rank, _, _)| *rank > 0.0) {
+                            "the most called in official usage first"
+                        } else {
+                            "by name (official usage calls none of them)"
+                        },
                         listed(&names)
                     ),
                 )

@@ -1,0 +1,5 @@
+---
+source: crates/cpg-core/tests/syntax.rs
+expression: selection
+---
+{"budget":4,"choices":{"rule":"configured seeds first; then the eligible public APIs (with a docstring summary and at least one direct official-usage call) by rank, then id, each skipped once its community holds ceil(budget / community_share) seeds, until the budget is reached","usage_policy":"direct-usage: call arcs (definite or candidate, any phase) from an official-usage caller (a function or module of an example, test or doc block); each call site counts once, split evenly among its targets; a subsystem function's count is the sum of its shares","community_share":3,"shared_signature_min_attributes":2,"shared_signature_names":5,"implications":3,"related_names":5},"ranked_by":"direct_usage"} | 2 | {"configured":["pkg.Server.tool","pkg.make_server","pkg.Server.stop"],"eligible":2,"selected":["pkg.Server.run"],"dropped":[]}

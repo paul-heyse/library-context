@@ -23,7 +23,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch, StringArray};
+use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, RecordBatch, StringArray};
 use cpg_schema::codebook::{Codebook, CoverageStatus, FindingKind, MemberRole, NodeKind};
 use cpg_schema::findings::{
     FINDING_STATUS, FindingMembersRow, FindingsRow, MemberKey, recipe::FindingKey,
@@ -156,6 +156,36 @@ pub struct Input {
     pub public: BTreeMap<Id, String>,
 }
 
+/// Each public callable's preferred path (`cpg_schema::communities::public_callables_sql`'s
+/// `preferred` rows; the increment-2 review's F4): the one name every consumer shows it by.
+pub fn preferred_paths(public: &[RecordBatch]) -> Result<BTreeMap<Id, String>, AnalyticsError> {
+    let mut out = BTreeMap::new();
+    for b in public {
+        let node = ids(b, "node_id")?;
+        let path = b
+            .column_by_name("access_path")
+            .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+            .ok_or_else(|| AnalyticsError::Column("access_path".to_owned()))?;
+        let preferred = b
+            .column_by_name("preferred")
+            .and_then(|c| c.as_any().downcast_ref::<BooleanArray>())
+            .ok_or_else(|| AnalyticsError::Column("preferred".to_owned()))?;
+        for i in 0..b.num_rows() {
+            if preferred.value(i)
+                && out
+                    .insert(id_at(node, i), path.value(i).to_owned())
+                    .is_some()
+            {
+                return Err(AnalyticsError::Graph(format!(
+                    "two preferred paths for one callable ({})",
+                    path.value(i)
+                )));
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn ids<'a>(b: &'a RecordBatch, name: &str) -> Result<&'a FixedSizeBinaryArray, AnalyticsError> {
     b.column_by_name(name)
         .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
@@ -222,18 +252,7 @@ impl Input {
         for (a, b, scope) in &co {
             out.co_use.add(dense(a), dense(b), *scope);
         }
-        for b in public {
-            let node = ids(b, "node_id")?;
-            let path = b
-                .column_by_name("access_path")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| AnalyticsError::Column("access_path".to_owned()))?;
-            for i in 0..b.num_rows() {
-                out.public
-                    .entry(id_at(node, i))
-                    .or_insert_with(|| path.value(i).to_owned());
-            }
-        }
+        out.public = preferred_paths(public)?;
         Ok(out)
     }
 
@@ -781,6 +800,15 @@ mod tests {
             freeze["knn_parameters"].as_str(),
             Some(
                 crate::neighbours::Params::preregistered()
+                    .digest()
+                    .hex()
+                    .as_str()
+            )
+        );
+        assert_eq!(
+            freeze["selection_parameters"].as_str(),
+            Some(
+                crate::selection::Params::preregistered()
                     .digest()
                     .hex()
                     .as_str()

@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use arrow_array::RecordBatch;
-use cpg_core::analyze::{Analysis, project};
+use cpg_core::analyze::{Analysis, Techniques, project};
 use cpg_core::attempt::compile_analyzed;
 use cpg_core::snapshot::published;
 use cpg_core::sql;
@@ -61,6 +61,19 @@ async fn compile_config(
     Result<cpg_core::attempt::Published, cpg_core::CoreError>,
     tempfile::TempDir,
 ) {
+    compile_variant(sub, config, platform, Techniques::default()).await
+}
+
+/// [`compile_config`] with an analytics variant (§9.8).
+async fn compile_variant(
+    sub: &str,
+    config: &str,
+    platform: &str,
+    techniques: Techniques,
+) -> (
+    Result<cpg_core::attempt::Published, cpg_core::CoreError>,
+    tempfile::TempDir,
+) {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join(sub);
     let fixture =
@@ -87,7 +100,7 @@ async fn compile_config(
     let analysis = Analysis {
         config: AnalyticsConfig::parse(config).unwrap(),
         embedder: None,
-        techniques: Default::default(),
+        techniques,
     };
     let result = compile_analyzed(&dir.path().join("store"), s, &out.tables, Some(&analysis)).await;
     (result, dir)
@@ -510,6 +523,14 @@ async fn pass_b_finds_the_known_answers_on_analysis_shapes() {
 #[tokio::test(flavor = "multi_thread")]
 async fn communities_are_stable_and_projected_onto_public_apis() {
     let (ctx, _dir) = analyzed("one", false).await;
+    // The increment-2 review's F4: `Alpha` inherits `Server`'s methods and sorts first, but a
+    // method is named through the class that declares it.
+    let named = text(
+        &ctx,
+        "SELECT count(*) AS n FROM finding_members WHERE starts_with(label, 'pkg.Alpha.')",
+    )
+    .await;
+    assert!(named.contains("| 0 |"), "{named}");
     let runs = text(
         &ctx,
         "SELECT count(*) AS runs, count(DISTINCT seed) AS seeds, \
@@ -544,12 +565,32 @@ async fn communities_are_stable_and_projected_onto_public_apis() {
     );
 }
 
-/// Centrality (DESIGN §9.5): one PageRank invocation over the usage projection, converged, with
-/// its iterations, residual and diagnostics; each public API's rank is a `centrality` finding, and
-/// the ranks of all vertices sum to one.
+/// Centrality (DESIGN §9.5) in the `+pagerank` variant: one PageRank invocation over the usage
+/// projection, converged, with its iterations, residual and diagnostics; each public API's rank is
+/// a `centrality` finding. The default runs no PageRank (the increment-2 review's U1).
 #[tokio::test(flavor = "multi_thread")]
 async fn public_apis_are_ranked_over_the_usage_projection() {
-    let (ctx, _dir) = analyzed("one", false).await;
+    let (default, _dd) = analyzed("one", false).await;
+    assert!(
+        text(
+            &default,
+            "SELECT count(*) AS n FROM analysis_invocations WHERE method = 5"
+        )
+        .await
+        .contains("| 0 |")
+    );
+    let (result, dir) = compile_variant(
+        "pagerank",
+        CONFIG,
+        "linux",
+        Techniques::parse("+pagerank").unwrap(),
+    )
+    .await;
+    result.unwrap();
+    let (_, ctx) = published(&dir.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
     insta::assert_snapshot!(
         "pagerank",
         text(
@@ -581,6 +622,18 @@ async fn public_apis_are_ranked_over_the_usage_projection() {
 #[tokio::test(flavor = "multi_thread")]
 async fn concepts_come_from_each_seeds_structural_scope() {
     let (ctx, _dir) = analyzed("one", false).await;
+    // The increment-2 review's F2: an undetermined return type is no attribute, and a class raised
+    // as a class or as an instance is one.
+    let labels = text(
+        &ctx,
+        "SELECT DISTINCT label FROM finding_members WHERE role IN (12, 13, 14) ORDER BY label",
+    )
+    .await;
+    assert!(labels.contains("raises KeyError"), "{labels}");
+    assert!(
+        !labels.contains("Unknown") && !labels.contains("type[KeyError]"),
+        "{labels}"
+    );
     insta::assert_snapshot!(
         "fca_invocations",
         text(
@@ -617,11 +670,11 @@ async fn concepts_come_from_each_seeds_structural_scope() {
     );
 }
 
-/// Seed selection (slice 2.6): with room in the brief budget, the communities choose more seeds,
-/// the most central public API of each first; each gets its passes and its brief, and the
-/// selection invocation names what was configured and what was chosen.
+/// Seed selection (the increment-2 review's U1): with room in the brief budget but no official usage
+/// code, nothing is eligible, so nothing is selected, and the invocation says so. (`docs_shapes`
+/// selects what its usage code calls: `selection_takes_what_usage_calls_within_the_budget`.)
 #[tokio::test(flavor = "multi_thread")]
-async fn communities_select_seeds_within_the_budget() {
+async fn selection_needs_official_usage() {
     let (result, dir) = compile_config(
         "select",
         &CONFIG.replace("budget = 6", "budget = 8"),
@@ -635,12 +688,68 @@ async fn communities_select_seeds_within_the_budget() {
         .unwrap();
     let selection = text(
         &ctx,
-        "SELECT parameters, diagnostics FROM analysis_invocations WHERE method = 7",
+        "SELECT candidate_set_size, diagnostics FROM analysis_invocations WHERE method = 7",
     )
     .await;
-    insta::assert_snapshot!("seed_selection", selection);
+    assert!(
+        selection.contains("\"eligible\":0,\"selected\":[],\"dropped\":[]"),
+        "{selection}"
+    );
     let briefs = text(&ctx, "SELECT count(*) AS briefs FROM briefs").await;
-    assert!(briefs.contains("| 8 "), "{briefs}");
+    assert!(briefs.contains("| 6 "), "{briefs}");
+}
+
+/// The increment-2 review's F1 (its probes 3 and 4): an FCA scope is a node. Two paths naming
+/// `Catalog` are one scope, and `Widgets`, which inherits `Catalog`'s methods, is another; a seed's
+/// shared signature and implications come from its own scope only, and name only its APIs.
+#[tokio::test(flavor = "multi_thread")]
+async fn fca_scopes_are_nodes_and_state_only_their_own_apis() {
+    let (result, dir) = compile_config(
+        "scopes",
+        &CONFIG
+            .replace(
+                "\"pkg.Catalog.add_tool\"]",
+                "\"pkg.Catalog.add_tool\", \"pkg.registry.Catalog.add_prompt\", \
+                 \"pkg.Widgets.remove\", \"pkg.Widgets.add_gadget\"]",
+            )
+            .replace("budget = 6", "budget = 9"),
+        "linux",
+    )
+    .await;
+    result.unwrap();
+    let (_, ctx) = published(&dir.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    let scopes = text(
+        &ctx,
+        "SELECT parameters FROM analysis_invocations WHERE method = 6 ORDER BY parameters",
+    )
+    .await;
+    assert!(scopes.contains("\"scope\":\"pkg.Catalog\""), "{scopes}");
+    assert!(scopes.contains("\"scope\":\"pkg.Widgets\""), "{scopes}");
+    assert!(!scopes.contains("pkg.registry.Catalog"), "{scopes}");
+    let stated = text(
+        &ctx,
+        "SELECT b.title, a.assertion_kind, a.text FROM briefs b \
+         JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         WHERE a.assertion_kind IN (13, 15) ORDER BY b.title, ba.ordinal",
+    )
+    .await;
+    insta::assert_snapshot!("fca_scopes", stated);
+    for line in stated
+        .lines()
+        .filter(|l| l.contains("pkg.Catalog.add_tool |"))
+    {
+        assert!(
+            !line.contains("add_gadget") && !line.contains("add_widget"),
+            "{line}"
+        );
+        assert!(!line.contains("pkg.Widgets"), "{line}");
+    }
+    // The same method under `Widgets` does state `Widgets`' own APIs.
+    assert!(stated.contains("add_gadget"), "{stated}");
 }
 
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
@@ -920,6 +1029,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             12,
             "02cbec86553c6e4fb4e4d098a21d0dc9539f271090fd9c96825e0d823b45bf9b",
         ),
+        (
+            15,
+            13,
+            "bc3a98ff16fbcb0a3a355db8e827e7859dea812b3a2d84abc6ce4bbfd2a41bb8",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -962,6 +1076,7 @@ async fn the_analysis_rules_reject_their_violations() {
     for table in [
         "analysis_invocations",
         "findings",
+        "finding_members",
         "witnesses",
         "assertions",
         "assertion_policy",
@@ -1222,6 +1337,25 @@ async fn the_analysis_rules_reject_their_violations() {
              LEFT JOIN others o ON o.function_node_id = ps.function_node_id AND o.own = ps.name \
              LEFT JOIN parameter_docs d ON d.function_node_id = o.function_node_id \
                AND d.name = o.other",
+        ),
+        // The increment-2 review's deferred row: every finding credited to one Pass A invocation.
+        (
+            "semantic:finding-kind-by-method",
+            "findings",
+            "SELECT snapshot_id, finding_id, \
+                    (SELECT min(invocation_id) FROM analysis_invocations WHERE method = 0) \
+                      AS invocation_id, \
+                    finding_kind, subject_node_id, related_node_id, evidence_status, depth, \
+                    stop_reason, witnesses_omitted, score, condition_node_id \
+             FROM findings_published",
+        ),
+        // The increment-2 review's F2: a concept about an undetermined type.
+        (
+            "semantic:concept-attribute-known",
+            "finding_members",
+            "SELECT * EXCLUDE (label), \
+                    CASE WHEN role = 12 THEN 'returns Unknown' ELSE label END AS label \
+             FROM finding_members_published",
         ),
         // Two specs in one snapshot.
         (

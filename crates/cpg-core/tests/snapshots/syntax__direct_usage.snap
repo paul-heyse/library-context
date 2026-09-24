@@ -1,0 +1,8 @@
+---
+source: crates/cpg-core/tests/syntax.rs
+expression: counts
+---
+pkg.core.Server.run | 2 | 0
+pkg.core.Server.stop | 2 | 0
+pkg.core.Server.tool | 9 | 0
+pkg.core.make_server | 12 | 0

@@ -67,6 +67,9 @@ expression: "text(&ctx,\n\"SELECT m.label FROM finding_members m \\\n           
 | parameter name                 |
 | parameter name                 |
 | parameter name                 |
+| parameter path                 |
+| parameter path                 |
+| parameter path                 |
 | parameter tags                 |
 | parameter tags                 |
 | parameter tags                 |
@@ -87,6 +90,10 @@ expression: "text(&ctx,\n\"SELECT m.label FROM finding_members m \\\n           
 | parameter type set[str] | None |
 | parameter type set[str] | None |
 | parameter type set[str] | None |
+| parameter type str             |
+| parameter type str             |
+| parameter type str             |
+| parameter type str             |
 | parameter type str | None      |
 | parameter type str | None      |
 | parameter type str | None      |
@@ -99,9 +106,17 @@ expression: "text(&ctx,\n\"SELECT m.label FROM finding_members m \\\n           
 | pkg.Catalog.add_prompt         |
 | pkg.Catalog.add_prompt         |
 | pkg.Catalog.add_resource       |
+| pkg.Catalog.add_resource       |
 | pkg.Catalog.add_tool           |
 | pkg.Catalog.add_tool           |
 | pkg.Catalog.add_tool           |
+| pkg.Catalog.load               |
+| pkg.Catalog.load               |
+| pkg.Catalog.load               |
+| pkg.Catalog.reload             |
+| pkg.Catalog.reload             |
+| pkg.Catalog.reload             |
+| pkg.Catalog.remove             |
 | pkg.Server.route               |
 | pkg.Server.tool                |
 | pkg.configure                  |
@@ -113,6 +128,10 @@ expression: "text(&ctx,\n\"SELECT m.label FROM finding_members m \\\n           
 | pkg.registry.Catalog.add_tool  |
 | pkg.server.Server.route        |
 | pkg.server.Server.tool         |
+| raises KeyError                |
+| raises KeyError                |
+| raises KeyError                |
+| raises KeyError                |
 | rebound                        |
 | returns None                   |
 | returns None                   |

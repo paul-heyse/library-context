@@ -7,11 +7,17 @@
 //!   method's kind, `flows::receivers_sql`);
 //! - `parameter type T`: a parameter's declared type, as Pyrefly displays it (C4);
 //! - `returns T`: the declared return type;
-//! - `raises E`: the type of an exception a `raise` directly in the body raises (C4; a bare
-//!   re-raise has no type, so it is no attribute: C4 review O4);
+//! - `raises E`: the class of an exception a `raise` directly in the body raises, whether it
+//!   raises the class (`raise E`) or an instance (`raise E()`), one attribute either way (C4; a
+//!   bare re-raise has no type, so it is no attribute: C4 review O4; C2 O4);
 //! - `decorator D`: a decorator as written (its trailing name).
+//!
+//! A type Pyrefly could not determine is no attribute (the increment-2 review's F2): a term that
+//! is, or holds anywhere in its structure, an `Any` of style `error` or `implicit` (displayed
+//! `Unknown`), found by walking `type_term_args` up from those terms. Two APIs are never grouped
+//! for sharing what the analysis does not know.
 
-use crate::codebook::{Codebook, DeclarationKind, ParameterKind, TypeRole};
+use crate::codebook::{Codebook, DeclarationKind, ParameterKind, TypeRole, TypeTermKind};
 use crate::flows::{codes, receivers_sql};
 use crate::id::{Digest, Id, IdHasher};
 
@@ -27,7 +33,14 @@ pub fn attributes_sql(functions: &[Id]) -> String {
             .join(", ")
     };
     format!(
-        "WITH receivers AS ({receivers}), \
+        "WITH RECURSIVE unknown(node_id) AS ( \
+           SELECT node_id FROM type_terms WHERE kind = {any} AND detail IN ('error', 'implicit') \
+           UNION ALL \
+           SELECT a.parent_node_id FROM type_term_args a \
+           JOIN unknown u ON u.node_id = a.child_node_id), \
+         known AS (SELECT t.node_id, t.kind, t.display FROM type_terms t \
+                   LEFT ANTI JOIN unknown u ON u.node_id = t.node_id), \
+         receivers AS ({receivers}), \
          wanted AS (SELECT node_id FROM declarations \
                     WHERE node_id IN ({list}) AND kind IN ({functions})), \
          params AS ( \
@@ -41,17 +54,22 @@ pub fn attributes_sql(functions: &[Id]) -> String {
            SELECT p.function_node_id, 'parameter type ' || t.display FROM params p \
            JOIN type_observations o ON o.subject_node_id = p.node_id \
              AND o.role = {parameter} AND o.declared \
-           JOIN type_terms t ON t.node_id = o.term_node_id \
+           JOIN known t ON t.node_id = o.term_node_id \
            UNION ALL \
            SELECT w.node_id, 'returns ' || t.display FROM wanted w \
            JOIN type_observations o ON o.subject_node_id = w.node_id \
              AND o.role = {returns} AND o.declared \
-           JOIN type_terms t ON t.node_id = o.term_node_id \
+           JOIN known t ON t.node_id = o.term_node_id \
            UNION ALL \
-           SELECT w.node_id, 'raises ' || t.display FROM wanted w \
+           SELECT w.node_id, 'raises ' || CASE \
+               WHEN t.kind = {class_object} AND starts_with(t.display, 'type[') \
+                 AND ends_with(t.display, ']') \
+               THEN substr(t.display, 6, character_length(t.display) - 6) \
+               ELSE t.display END FROM wanted w \
            JOIN syntax_nodes sn ON sn.owner_node_id = w.node_id \
            JOIN type_observations o ON o.subject_node_id = sn.node_id AND o.role = {raised} \
-           JOIN type_terms t ON t.node_id = o.term_node_id \
+           JOIN known t ON t.node_id = o.term_node_id \
+             AND t.kind IN ({class_instance}, {class_object}) \
            UNION ALL \
            SELECT d.node_id, 'decorator ' || d.decorator FROM ( \
              SELECT node_id, unnest(decorators) AS decorator FROM declarations \
@@ -65,6 +83,9 @@ pub fn attributes_sql(functions: &[Id]) -> String {
         parameter = TypeRole::Parameter.code(),
         returns = TypeRole::Return.code(),
         raised = TypeRole::Raised.code(),
+        any = TypeTermKind::Any.code(),
+        class_instance = TypeTermKind::ClassInstance.code(),
+        class_object = TypeTermKind::ClassObject.code(),
     )
 }
 

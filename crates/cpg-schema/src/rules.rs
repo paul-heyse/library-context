@@ -244,6 +244,36 @@ fn semantic() -> Vec<Rule> {
             ),
         ),
         (
+            // The ADR-0011 review's deferred row (fired by the increment-2 review): a finding's
+            // invocation ran the method its kind comes from.
+            "semantic:finding-kind-by-method",
+            format!(
+                "SELECT f.finding_id FROM findings f \
+                 JOIN analysis_invocations i ON i.invocation_id = f.invocation_id \
+                 LEFT ANTI JOIN (VALUES {}) AS p(kind, method) \
+                   ON p.kind = f.finding_kind AND p.method = i.method",
+                crate::findings::FINDING_METHOD
+                    .iter()
+                    .map(|(k, m)| format!("({}, {})", k.code(), m.code()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ),
+        (
+            // The increment-2 review's F2: no concept or implication is about a type the analysis
+            // could not determine (`Unknown`). A tripwire over labels: the attribute relation
+            // drops such terms by their structure.
+            "semantic:concept-attribute-known",
+            format!(
+                "SELECT m.finding_id, m.label FROM finding_members m \
+                 WHERE m.role IN ({intent}, {premise}, {conclusion}) \
+                   AND m.label ~ '\\bUnknown\\b'",
+                intent = crate::codebook::MemberRole::IntentAttribute.code(),
+                premise = crate::codebook::MemberRole::Premise.code(),
+                conclusion = crate::codebook::MemberRole::Conclusion.code(),
+            ),
+        ),
+        (
             // ADR-0019 review F6: every analysis invocation is the compiler's.
             "semantic:invocation-run-is-compiler",
             "SELECT i.invocation_id FROM analysis_invocations i \

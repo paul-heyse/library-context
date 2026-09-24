@@ -2060,18 +2060,37 @@ log D24, D25, D30):
   walk skips unresolved or outside ancestors and class-level rebindings, where §9.1's `member()`
   refuses. No pilot instance.
 
-**The consumers, Implemented and Tested in slice 2.6** (2026-09-23; deviation log D34):
-- **Seed selection** (`lctx_analytics::selection`). Communities and PageRank run first, before
-  any per-seed pass. The configured seeds come first; while the brief budget allows, rounds over
-  the communities (those holding no chosen seed first, then by their most central member) each
-  take the most central unchosen *documented* public API (one with a docstring: a brief needs an
-  outcome). A `seed_selection` invocation records the rule and names the configured and selected
-  seeds; each selected seed gets Passes A–C, FCA of its scope and a brief. Tested by
-  `select`'s unit test and `communities_select_seeds_within_the_budget` (budget 8 over six seeds:
-  `pkg.helpers.finish` and `pkg.helpers.prepare` are chosen). The pilot's budget equals its five
-  seeds, so nothing is selected there until increment 3 raises it (an ADR-0004 amendment).
-- **Related** (§10.3): the seed's community co-members, at most five, by centrality, citing the
-  community and each member's `centrality` finding, so its status derives `statistically_derived`.
+**The consumers, Implemented and Tested in slice 2.6** (2026-09-23; deviation log D34), **revised
+by the increment-2 review** (U1; ADR-0011 amendment; deviation log D37):
+- **Seed selection** (`lctx_analytics::selection`). Communities and direct usage (§9.5) run
+  first, before any per-seed pass. The configured seeds come first. While the brief budget
+  allows, the **eligible** public APIs follow by rank: the most direct official-usage calls first
+  (PageRank in the `+pagerank` variant), ties to the smaller id. Eligible means official usage
+  calls it at least once and its docstring has a summary, the Outcome its brief will state
+  (`synth::summary_span`; the review's O1). Communities **cap** rather than choose: an API is
+  skipped once its community holds ⌈budget / 3⌉ seeds, configured ones included; an API in no
+  community is capped by nothing. Each selected API is named by its preferred path (below); one
+  whose path resolves to another declaration is dropped and recorded. A `seed_selection`
+  invocation records the rule and its choices (`selection::Params`, frozen with the analytics
+  parameters: the review's F7) and names the configured, selected and dropped seeds and the
+  eligible count. Each selected seed gets Passes A–C, FCA of its scope and a brief. Tested by
+  `select`'s unit test, `selection_needs_official_usage` (`analysis_shapes` has no usage code:
+  nothing is eligible) and `selection_takes_what_usage_calls_within_the_budget` (`docs_shapes`,
+  budget 4: `pkg.Server.run` is chosen). The pilot's budget equals its five seeds, so nothing is
+  selected there until increment 3 raises it (an ADR-0004 amendment). *Superseded:* 2.6's rule,
+  rounds over the communities each taking its most PageRank-central documented member, which the
+  review showed would fill a larger budget with helpers (F3).
+- **The preferred path** (the review's F4). A public callable is shown by one path wherever it is
+  named (community members, Related, selected seeds, kNN texts):
+  `cpg_schema::communities::public_callables_sql`'s `preferred` column, read by
+  `lctx_analytics::communities::preferred_paths`. It is a path through the class that declares
+  the method first, so a classmethod is never named through a subclass it would bind
+  differently, then the fewest segments, then the least. *Superseded:* the least path, which
+  named `Tool.from_function` as `FastMCPProviderTool.from_function` on the pilot.
+- **Related** (§10.3): the seed's community co-members, at most five, the most called in official
+  usage first (by PageRank in its variant; by name, and saying so, when usage calls none of them),
+  citing the community and each listed member's `direct_usage` finding, so its status derives
+  `statistically_derived`.
   The policy case holds by construction and by rule: the kind policy permits
   `statistically_derived` only for `related`, and a control citing a community finding or stated
   statistically is rejected (two injected cases in `the_analysis_rules_reject_their_violations`).
@@ -2079,18 +2098,38 @@ log D24, D25, D30):
   seeds). Four seeds list Related operations from the 78-member server community (co-assignment
   0.83), led by `FastMCP.__init__` and `FastMCPProviderTool.from_function`; `custom_route`, in no
   reported community, has none.
+- **Pilot after the increment-2 review (Measured, 2026-09-23, snapshot `a8591982`, generation
+  `4a789baa`, fake vectors).** 196 public APIs are eligible; nothing is selected (budget = seeds).
+  The four Related lines name the server community by preferred path, the most called first:
+  `fastmcp.FastMCP.__init__`, `tool`, `resource`, `call_tool`, `list_tools` (`mount` for two).
+  No line names a method through an unrelated subclass. Stage E takes 3.9 s; the compile 35.1 s.
 
 ### §9.5 Centrality
 
-- **Consumer.** The primary entry point within a community, which orders seeds for briefs.
-- **Method.** Our own weighted power iteration (about 40 lines) over the usage projection in
-  canonical order. The edge weights are the usage counts from examples and tests (a named weight
-  policy), with dangling-mass redistribution. It records iterations, the final L1 residual and a
-  converged flag (guidelines §8). petgraph's `page_rank` is rejected (the library-leverage review,
-  D1). **Owed by the §9.5 slice** (H1 review F9): the input projection (§5 declares only the
-  invocation projection), and the damping, tolerance, iteration budget and dangling target,
-  recorded in the analytics-config digest. The dangling target is uniform, so
+- **Consumer.** Which operations get briefs (seed selection, §9.4) and the order of a Related
+  line: the question both ask is **which operations official usage calls** (the increment-2
+  review's U1; ADR-0011 amendment).
+- **Method (the default): direct usage** (`lctx_analytics::ranking::usage_counts`, the review's
+  U1). Each call arc (definite or candidate, any phase) from an official-usage caller (a function
+  or module of an example, test or doc block) into a subsystem function; each call site counts
+  once, split evenly among its targets (`USAGE_POLICY`, digested with the invocation projection).
+  A method call on an instance is a `candidate` arc (Pysa's override marking), almost always with
+  one target, so a definite-only count would see constructors and module functions only (pilot:
+  11,794 of 11,854 candidate usage sites have one target; D37). One `usage_count` invocation;
+  each public API usage calls is a `direct_usage` finding (`structurally_observed`: a count of
+  observed calls) whose score is its count. It orders, and never states behaviour.
+- **Method (the `+pagerank` variant, kept for the §9.8 ablation).** Our own weighted power
+  iteration (about 40 lines) over the usage projection in canonical order. The edge weights are
+  the usage counts from examples and tests (a named weight policy), with dangling-mass
+  redistribution. It records iterations, the final L1 residual and a converged flag (guidelines
+  §8). petgraph's `page_rank` is rejected (the library-leverage review, D1). The input projection
+  and the damping, tolerance, iteration budget and dangling target are pre-registered code (D29),
+  frozen by digest in `eval/gold/analytics-freeze.json`. The dangling target is uniform, so
   `leiden_rs::compute_flow` (weighted, directed, uniform teleport) is the reference oracle.
+  PageRank ranks what usage reaches **through the library's own delegation**, so implementation
+  sinks rank high (the review's F3: on the pilot, its 6th and 8th public APIs have no direct
+  usage call, while `FastMCP.call_tool`, 320 sites, is 16th). It replaces direct usage as the
+  order only in its variant, and is kept only if the ablation shows it helps.
 - **Tests:**
   - a hand-computed 3-node fixture;
   - two parallel arcs counted with their weights;
@@ -2098,13 +2137,15 @@ log D24, D25, D30):
   - shuffled rows giving identical scores.
 - **Output.** A `statistically_derived` ranking finding.
 
-**Implemented** and **Tested** in slice 2.4 (2026-09-23; deviation log D29):
+**Implemented** and **Tested** in slice 2.4 (2026-09-23; deviation log D29); since the increment-2
+review, the `+pagerank` variant's method:
 - **The usage projection** (`lctx_analytics::ranking`, H1 F9 answered). The invocation projection
   restricted and weighted by a named policy (`WEIGHT_POLICY`, digested with the invocation
   projection into the compiler digest and the invocation's `projection_digest`). Vertices: every
   subsystem function, and every official-usage caller (a function or module of an example, test
   or doc block) with an arc into one. Arcs: each invocation arc into a subsystem function from a
-  subsystem function or a usage caller, weighted by the arc count per ordered pair. A function
+  subsystem function or a usage caller (call and definition arcs, any accepted modality: the
+  review's F3(c), now named in the policy), weighted by the arc count per ordered pair. A function
   ranks by the official usage that reaches it, directly or through the library's own delegation.
 - **Iteration.** `r'ⱼ = (1−d)/n + d·(Σᵢ rᵢ·wᵢⱼ/Wᵢ + D/n)`, from the uniform start, over the arcs
   in canonical order, where `D` is the dangling mass; damping 0.85, L1 tolerance 1e-10, 100
@@ -2112,16 +2153,27 @@ log D24, D25, D30):
   L1 residual, `converged` and diagnostics; each public API (`cpg_schema::communities`'
   public callables) is a `centrality` finding whose score is its rank.
 - **Tests** (`ranking::tests`): the hand-computed 3-node fixed point; parallel arcs counted with
-  their weights; a 2-iteration budget reported as not converged; reversed rows giving identical
-  scores; `leiden_rs::infomap::compute_flow` agreeing to 1e-9. On `analysis_shapes`,
-  `public_apis_are_ranked_over_the_usage_projection`.
+  their weights; a 2-iteration budget reported as not converged; a permuted projection giving an
+  identical usage graph, scores and counts (the review's F6(b); the earlier reversed-rows test
+  could not fail); `compute_flow` agreeing to 1e-9 on one hand-made graph and on 30 random
+  weighted digraphs of 5–44 vertices, a quarter dangling (the review's probe 2); direct usage
+  ranking what usage calls above the sink its delegation reaches, which PageRank ranks first.
+  **The usage branch is Tested** (the review's F6(a)): the unit test's usage caller, and
+  `selection_takes_what_usage_calls_within_the_budget` on `docs_shapes` (counts `make_server` 12,
+  `Server.tool` 9, `run` 2, `stop` 2). On `analysis_shapes`, with no usage code,
+  `public_apis_are_ranked_over_the_usage_projection` runs the `+pagerank` variant.
 - **Pilot (Measured, 2026-09-23, snapshot `25e8465c`).** 4,444 vertices (607 subsystem
   functions, 3,837 usage callers), 8,080 weighted arcs (total weight 9,346), 273 dangling;
   converged in 38 iterations. 328 public APIs ranked: `FastMCP.tool` 7th, `resource` 13th,
   `mount` 43rd, `prompt` 65th, `custom_route` 169th. The top of the ranking is helpers the whole surface delegates
   to (`fastmcp.decorators.get_fastmcp_meta`, `fastmcp.server.dependencies.get_http_request`),
-  which is what PageRank over delegation measures; the seed order in 2.6 reads it within a
-  community.
+  which is what PageRank over delegation measures, and why the review moved the default to direct
+  usage.
+- **Direct usage on the pilot (Measured, 2026-09-23, snapshot `a8591982`).** 7,030.5 calls reach
+  257 subsystem functions; 219 public APIs are `direct_usage` findings. The top: `FastMCP.__init__`
+  1,185.5, `tool` 674, `resource` 429, `call_tool` 320, `list_tools` 249, `mount` 198,
+  `add_transform` 180, `add_provider` 174, `Tool.from_function` 162, `add_middleware` 142: the
+  review's direct-usage list (§8 of that review), which it computed independently.
 
 ### §9.6 Formal and relational concept analysis
 
@@ -2131,8 +2183,8 @@ log D24, D25, D30):
   - Our own NextClosure (Ganter, ICFCA 2010) over `fixedbitset`, which also yields the
     Duquenne–Guigues implication basis; FCbO (Outrata & Vychodil 2012) only if the concept count
     exceeds the budget. No usable crate exists: odis is AGPL, fcars enumerates concepts only. So
-    `fcars =0.2.2` is a dev-dependency **oracle** for concept sets, and Python `concepts` 0.9.2 for
-    the cover relation.
+    `fcars =0.2.2` is a dev-dependency **oracle** for concept sets. No cover relation is computed,
+    so none is checked (the increment-2 review's F8; Python `concepts` 0.9.2 would be its oracle).
   - Objects: the public APIs of one **structurally defined scope**: the subsystem, one module, or
     one class hierarchy. Communities are never an FCA scope, because their membership is
     statistical.
@@ -2142,7 +2194,9 @@ log D24, D25, D30):
   DataFusion join that adds attribute columns to the same FCA.
   It is kept only if the ablation shows it changes published output.
 - **Output.**
-  - Concepts become `applicable_case` findings.
+  - Concepts become `applicable_case` findings (the kind's name is historical: a brief states one
+    as a **shared signature** under Related, not as the Applicable case; the increment-2 review's
+    U2).
   - Implications with confidence 1 over the support threshold become `implication` findings.
   - Both are `structurally_observed`, because they are exact over the extracted attributes, with
     the attribute scope stated.
@@ -2164,24 +2218,58 @@ log D24, D25, D30):
 - **Findings.** Each frequent concept with a non-empty intent is an `applicable_case` finding
   (`extent_member` APIs, `intent_attribute`s; score = extent size); each basis implication an
   `implication` finding (`premise`, `conclusion`; score = support). The subject is the scope.
-- **Stage F.** A seed's `applicable_case` assertion (section Applicable case) is the concept of its
-  scope that holds it with another API, shares at least two attributes, and has the most (other
-  API, shared attribute) pairs, |intent| · (|extent| − 1), then the larger intent. Up to three `implication` assertions
-  (section Important controls) are the best-supported implications whose premise the seed meets.
-  Both are `structurally_observed`, and the scope is named in the text. The applicable case
-  enters the brief document (§11.1).
+- **Stage F** (as revised by the increment-2 review, F1 and U2; deviation log D38). A seed's
+  `shared_signature` assertion (section Related) is the concept of **its own** scope that holds it
+  with another API, shares at least two attributes, and has the most (other API, shared
+  attribute) pairs, |intent| · (|extent| − 1), then the larger intent: "Like `A`, `B` and `C` (4
+  public APIs of `S` in all), `X` declares … and raises `E` directly in its body." Up to three
+  `implication` assertions (section Important controls) are the best-supported implications of
+  its own scope whose premise the seed meets. Both are `structurally_observed`, and the scope is
+  named in the text. Neither enters the brief document's header. The Applicable-case slot stays
+  **absent** until an input-or-mode source exists, so the §B11 gap metric sees it. The floor,
+  caps and counts are `selection::Params`, frozen (F7). *Superseded:* 2.5 published the concept
+  as the Applicable case ("belongs with"), from any scope holding the seed, in the document
+  header.
+- **Scopes are nodes** (the review's F1). Each seed's access-path container resolves to its class
+  or module node; container strings naming one node are one scope, one invocation, labelled by
+  the fewest-segment, then least, of them. Each seed records its scope (`AnalysisRows.
+  seed_scopes`); Stage F reads concepts and implications of that scope only, so a method inherited
+  into two scopes is never described through the other one. Tested by
+  `fca_scopes_are_nodes_and_state_only_their_own_apis` (the review's probes 3 and 4: two paths to
+  `Catalog` compile as one scope; `Widgets(Catalog)` adds a family, and `Catalog.add_tool`'s lines
+  name only `pkg.Catalog` APIs).
+- **Attributes from term structure** (the review's F2). A type Pyrefly could not determine is no
+  attribute: a term that is, or holds anywhere in its structure (`type_term_args`, a recursive
+  walk), an `Any` of style `error` or `implicit` (displayed `Unknown`). A raised class is one
+  attribute whether raised as the class (`raise E`, a `ClassObject` term) or an instance; only
+  class-typed raises count. The text says what an API does with each attribute's scope
+  ("declares …", "raises `E` directly in its body", "is decorated with …"). The rule
+  `semantic:concept-attribute-known` is a tripwire over labels. Tested in
+  `concepts_come_from_each_seeds_structural_scope` (`Catalog.load`/`reload` return an unresolvable
+  type and raise `KeyError` both ways: one `raises KeyError`, no `Unknown`).
 - **Tests** (`concepts::tests`): the hand-computed context of §12 (seven concepts; the basis
   `b → a`, `c → a`, `{a,d} → {b,c}`); fcars 0.2.2 agreeing on random contexts at supports 0, 2
   and 4; the basis sound and complete (closing every subset under it gives its Galois closure);
-  the budget stop. `concepts_come_from_each_seeds_structural_scope` on `analysis_shapes`
-  (`pkg.Catalog`: a registration family and an unrelated method).
-- **Pilot (Measured, 2026-09-23, snapshot `57039be8`).** One scope, `fastmcp.FastMCP`: 51 public
-  APIs, 195 attributes, 97 frequent concepts and 107 implications from 205 closed sets, far under
+  the budget stop; the frequent basis sound, complete over every frequent set and non-redundant at
+  supports 1–4 on 29 random contexts (the review's probe 1, F6(c)).
+  `concepts_come_from_each_seeds_structural_scope` on `analysis_shapes` (`pkg.Catalog`: a
+  registration family, two loaders and an unrelated method).
+- **Pilot (Measured, 2026-09-23, snapshot `57039be8`; before the increment-2 review).** One scope,
+  `fastmcp.FastMCP`: 51 public APIs, 195 attributes, 97 frequent concepts and 107 implications from 205 closed sets, far under
   the budget. `tool`, `resource` and `prompt` share an applicable case of eight parameters
   (`auth`, `description`, `icons`, `meta`, `name`, `tags`, `title`, `version`) and six declared
   parameter types; `mount`'s is five APIs sharing a `str | None` parameter and raising
-  `ValueError`. Every seed has an applicable case, so the slot is no longer absent, and 1–3
-  implications. The longest brief document is 1,429 bytes: none is split on the pilot.
+  `ValueError`. Every seed had an applicable case, which the review showed filled the slot by
+  construction (U2), and 1–3 implications, 22 of the 107 implications carrying `Unknown` (F2).
+  The longest brief document is 1,429 bytes: none is split on the pilot.
+- **Pilot after the review (Measured, 2026-09-23, snapshot `a8591982`).** The one scope,
+  `fastmcp.FastMCP`: 51 APIs, 193 attributes, 95 concepts and 104 implications from 200 closed
+  sets; no attribute is `Unknown`. `tool`, `resource` and `prompt` each carry the shared signature
+  of the eight registration parameters and six declared types; `mount`'s ("Like `http_app`,
+  `run_http_async`, `__init__` and `resource` … declares a parameter typed `str | None` and raises
+  `ValueError` directly in its body") and `custom_route`'s (`name` and a `str` parameter) are the
+  coincidental overlaps the review named, now under Related and out of the retrieval header. The
+  Applicable-case slot is absent on all five briefs (`absent_slots`: `applicable_case` 5).
 
 ### §9.7 Embeddings in analytics
 
@@ -2332,7 +2420,11 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | `usage_pattern` (2.2) | Usage pattern | `cpg_core::usage`: a verbatim statement subset of official usage code, its `example` spans, and each handoff it shows | documented, fixture_checked |
 | `handoff` (2.2) | Usage pattern | Pass C `handoff`: the other callable, the formal and the occurrence count | structurally_observed |
 | `analysis_boundary` | Limits and prerequisites | `boundaries` on the seed's neighbourhood | structurally_observed |
-| `related` | Related | community co-membership, page rank | statistically_derived |
+| `related` | Related | community co-membership, ordered by direct usage (PageRank in its variant) | statistically_derived |
+| `applicable_case` | Applicable input or mode | reserved: no v1 source (the increment-2 review's U2) | structurally_observed |
+| `implication` (2.5) | Important controls | an FCA `implication` of the seed's own scope whose premise it meets | structurally_observed |
+| `doc_link` (3.1) | Related | kNN `doc_link` findings | statistically_derived |
+| `shared_signature` (increment-2 review) | Related | the FCA concept of the seed's own scope with the most shared pairs | structurally_observed |
 
 ### §10.3 Brief structure and the Outcome order
 
@@ -2342,12 +2434,12 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 |---|---|
 | Outcome | the order below |
 | Public access | Pass A `public_alias` / exports, plus "already coordinates" from Pass A delegation findings (with the note that these are implementation details the caller does not need to rebuild) |
-| Applicable input or mode | FCA cases; explicit branches |
+| Applicable input or mode | an input or mode source: none in v1, so the slot is absent (the increment-2 review's U2; FCA concepts are shared signatures under Related) |
 | Important controls | Pass B forwarding + parameter docs |
 | Usage pattern | Pass C handoff or official example, with setup preserved |
 | Limits and prerequisites | Pass B restrictions, documented warnings, boundaries |
 | Evidence | all cited findings and evidence ids |
-| Related | other public APIs of the seed's community, at most five, by usage centrality (`statistically_derived`; slice 2.6) |
+| Related | other public APIs of the seed's community, at most five, the most called in official usage first (`statistically_derived`; slice 2.6, the increment-2 review's U1); the seed's shared signature (`structurally_observed`); doc links (`statistically_derived`) |
 
 **Outcome order.** Take the first source that applies:
 1. the entry point's docstring summary: the first sentence of the docstring's first paragraph;
@@ -2397,11 +2489,11 @@ a.evidence_status = 4 GROUP BY p.brief_section ORDER BY 1`.
   callables, release code outside the subsystem, unresolved sites). What the seed calls itself
   is kept apart from what the callables it reaches call. Plus the depth bound or a budget
   truncation, citing Pass A's `traversal_stop` finding.
-- **The brief document** (§11.1): outcome, applicable case (slice 2.5), public APIs, control names,
-  usage and limits. Over 2,048 tokens (a declared proxy of 4 bytes per token) it is split into
-  chunks of whole parts, each under the outcome and applicable case, never truncated; a part too
-  long for any chunk fails the compile (slice 2.5, `chunked`). Retrieval scores a brief by its
-  best chunk.
+- **The brief document** (§11.1): outcome, applicable case (when one exists: none in v1),
+  public APIs, control names, usage and limits. Over 2,048 tokens (a declared proxy of 4 bytes per
+  token) it is split into chunks of whole parts, each under the header (the outcome and any
+  applicable case), never truncated; a part too long for any chunk fails the compile (slice 2.5,
+  `chunked`). Retrieval scores a brief by its best chunk.
 - A template or extractive-rule change bumps `synth::TEMPLATE_VERSION`; the analysis output is
   pinned to the versions in a test ledger (ADR-0019 review O4).
 
@@ -2414,8 +2506,9 @@ These are mechanical and run before publication.
   Whether each imported API exists is the release's to say: a pattern is verbatim official code
   (slice 2.2 review F1(d), narrowed).
 - No assertion's status exceeds its evidence (see the §10.2 rule).
-- Warnings and unresolved conditions are never dropped for length. An over-long brief is split by
-  applicable case instead.
+- Warnings and unresolved conditions are never dropped for length. An over-long brief's document
+  is chunked at whole parts instead (§10.3); the brief itself is never split (the increment-2
+  review's F8).
 
 **Manual review.** From increment 3, each brief gets one manual review pass before
 publication, which checks that its extracted sentences are true of **this** entry point. The
@@ -2479,8 +2572,9 @@ template, dimensions, output dtype and normalization.
 - **Query template (query only):** `Instruct: {task_description}\nQuery:{query}`. There is no
   space after `Query:`. Documents take no prefix.
 - **Document text** is the deterministic brief projection (IP L2666–L2689): outcome, applicable
-  case, public APIs, controls, usage description and limits, capped at 2,048 tokens. An over-long
-  brief is split by applicable case, never truncated.
+  case (when one exists), public APIs, controls, usage description and limits, capped at 2,048
+  tokens. An over-long document is chunked at whole parts under its header, never truncated
+  (§10.3; the increment-2 review's F8).
   - The limits are the capability's own: Limits-section kinds other than `analysis_boundary`.
   - What the analysis did not follow (dependency and synthetic boundaries, unresolved sites, the
     depth bound) stays in the served brief, out of retrieval. Slice 1.9 measured this with live
@@ -2712,3 +2806,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 2.5: FCA (`cpg_schema::concepts`, `lctx_analytics::concepts`: NextClosure concepts and the Duquenne–Guigues basis), `applicable_case` and `implication` findings and assertions, the applicable case in the brief document, over-cap documents split into chunks (§9.6, §10.2, §10.3) | ADR-0011; deviation log D32 |
 | 2026-09-23 | Slice 2.6: seed selection within the brief budget (`lctx_analytics::selection`, a `seed_selection` invocation), Related from communities and centrality, the statistical-policy cases (§9.4, §10.3) | ADR-0011; deviation log D34 |
 | 2026-09-23 | Slice 3.1: embeddings in analytics: E0 through the cache (`embed_texts`), exact kNN (`lctx_analytics::neighbours`), `doc_link` and `community_label` findings, the doc-link assertion and the Related label (§9.7) | ADR-0011; deviation log D35 |
+| 2026-09-23 | Increment-2 compact review fixes: direct usage as the default ranking and selection by it with a community cap (§9.4, §9.5; U1), the PageRank variant, one preferred path per callable (F4), FCA scopes keyed by node (F1), attributes from term structure (F2), the concept as a shared signature under Related with the Applicable-case slot absent (§9.6, §10.2, §10.3; U2), Stage E/F choices frozen (F7), the finding-kind-by-method rule; stale sentences fixed (F8) | ADR-0011 amendment; ADR-0019 amendment; deviation log D37–D40 |

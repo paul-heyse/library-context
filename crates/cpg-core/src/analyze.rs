@@ -51,6 +51,8 @@ pub struct Analysis {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Techniques {
     pub communities: bool,
+    /// Delegation PageRank orders seeds and Related instead of direct usage (§9.5; the
+    /// increment-2 review's U1 keeps it only for the ablation).
     pub pagerank: bool,
     pub fca: bool,
     pub knn: bool,
@@ -68,7 +70,7 @@ impl Default for Techniques {
     fn default() -> Self {
         Techniques {
             communities: true,
-            pagerank: true,
+            pagerank: false,
             fca: true,
             knn: true,
             rca: false,
@@ -205,6 +207,9 @@ pub struct AnalysisRows {
     pub witnesses: Vec<WitnessesRow>,
     /// E0's embedding keys (slice 3.1): the snapshot's key set includes them.
     pub embedded_keys: Vec<cpg_schema::id::Digest>,
+    /// Each seed's FCA scope: its node and label (the increment-2 review's F1). Stage F states
+    /// only that scope's concepts and implications for the seed.
+    pub seed_scopes: BTreeMap<Id, (Id, String)>,
 }
 
 async fn collect(
@@ -522,13 +527,25 @@ struct KnnParameters<'a> {
 #[derive(Serialize)]
 struct SelectionParameters<'a> {
     budget: u32,
-    rule: &'a str,
+    choices: &'a selection::Params,
+    ranked_by: &'a str,
 }
 
 #[derive(Serialize)]
 struct SelectionDiagnostics<'a> {
     configured: &'a [String],
+    eligible: usize,
     selected: &'a [String],
+    /// Selected APIs whose preferred path resolves to another declaration (the increment-2
+    /// review's O1): recorded, not replaced.
+    dropped: &'a [String],
+}
+
+#[derive(Serialize)]
+struct UsageParameters<'a> {
+    policy: &'a str,
+    module_prefixes: &'a [String],
+    public_roots: &'a [String],
 }
 
 #[derive(Serialize)]
@@ -645,6 +662,9 @@ pub async fn run(
             paths.push((node, access.value(i).to_owned()));
         }
     }
+    // One name per public callable (the increment-2 review's F4).
+    let preferred = lctx_analytics::communities::preferred_paths(&public)
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let techniques = analysis.techniques;
     if techniques.communities {
         let input = communities::Input::build(
@@ -745,6 +765,50 @@ pub async fn run(
         rows.findings.extend(outcome.findings);
         rows.members.extend(outcome.members);
     }
+    // Direct usage (§9.5; the increment-2 review's U1): each public API's definite calls from the
+    // official usage code.
+    let usage_digest = ranking::usage_digest(spec.digest());
+    let usage_parameters = serde_json::to_string(&UsageParameters {
+        policy: ranking::USAGE_POLICY,
+        module_prefixes: &config.subsystem.module_prefixes,
+        public_roots: &config.subsystem.public_roots,
+    })
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let usage_parameters_digest = content_digest(usage_parameters.as_bytes());
+    let usage_invocation = findings::invocation(
+        AnalyticMethod::UsageCount.code(),
+        usage_parameters_digest,
+        Some(usage_digest),
+        None,
+        None,
+    );
+    let usage = ranking::run_usage(&p, &subsystem, &public, snapshot_id, usage_invocation)
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    rows.invocations.push(AnalysisInvocationsRow {
+        snapshot_id,
+        invocation_id: usage_invocation,
+        run_id: compiler.run_id,
+        model_id: compiler.model("usage-count"),
+        extraction_mode: ExtractionMode::GraphAnalysis,
+        method: AnalyticMethod::UsageCount,
+        parameters: usage_parameters,
+        parameters_digest: usage_parameters_digest,
+        projection_digest: Some(usage_digest),
+        library_versions: lctx_analytics::libraries(),
+        subject_node_id: None,
+        seed: None,
+        iterations: None,
+        residual: None,
+        converged: None,
+        quality_history: Vec::new(),
+        candidate_set_size: Some(usage.counts.len() as i64),
+        vertices_examined: None,
+        arcs_examined: Some(p.arcs.len() as i64),
+        completion: CoverageStatus::CompleteUnderStatedModel,
+        stop_reason: None,
+        diagnostics: Some(usage.diagnostics.clone()),
+    });
+    rows.findings.extend(usage.findings.iter().cloned());
     if techniques.pagerank {
         // Centrality (§9.5): PageRank over the usage projection; each public API's rank.
         let usage_digest = ranking::projection_digest(spec.digest());
@@ -828,11 +892,7 @@ pub async fn run(
                 texts.extend(w);
             }
         }
-        let mut least: BTreeMap<Id, String> = BTreeMap::new();
-        for (id, path) in &paths {
-            least.entry(*id).or_insert_with(|| path.clone());
-        }
-        let api_nodes: Vec<Id> = least
+        let api_nodes: Vec<Id> = preferred
             .keys()
             .copied()
             .filter(|n| {
@@ -855,7 +915,7 @@ pub async fn run(
                 let parameters = str_col(&b, "parameters")?;
                 for (i, node) in nodes.into_iter().enumerate() {
                     let text = neighbours::api_text(
-                        &least[&node],
+                        &preferred[&node],
                         (!parameters.is_null(i)).then(|| parameters.value(i)),
                         (!docstring.is_null(i)).then(|| docstring.value(i)),
                     );
@@ -943,97 +1003,118 @@ pub async fn run(
         rows.findings.extend(found.findings);
         rows.members.extend(found.members);
     }
-    // Seed selection (§9.4, §9.5; slice 2.6): the configured seeds, then, while the brief budget
-    // allows, each community's most central public API (`lctx_analytics::selection`).
+    // Seed selection (§9.4, §9.5; the increment-2 review's U1): the configured seeds, then, while
+    // the brief budget allows, the eligible public APIs by rank (direct usage, or PageRank in its
+    // variant), each community capped at its share (`lctx_analytics::selection`).
+    let choices = selection::Params::preregistered();
     let configured = config.seeds();
     let configured_nodes: Vec<Id> = {
         let resolved = resolve_seeds(ctx, &configured).await?;
         configured.iter().map(|n| resolved[n].node).collect()
     };
-    let community_members: Vec<selection::Community> = rows
+    let community_of: BTreeMap<Id, Id> = rows
         .findings
         .iter()
         .filter(|f| f.finding_kind == FindingKind::Community)
-        .map(|f| selection::Community {
-            finding: f.finding_id,
-            members: rows
-                .members
+        .flat_map(|f| {
+            rows.members
                 .iter()
-                .filter(|m| m.finding_id == f.finding_id && m.role == MemberRole::CommunityMember)
-                .filter_map(|m| m.node_id)
-                .collect(),
+                .filter(move |m| {
+                    m.finding_id == f.finding_id && m.role == MemberRole::CommunityMember
+                })
+                .filter_map(move |m| m.node_id.map(|n| (n, f.finding_id)))
         })
         .collect();
-    // Only a documented API (with a docstring) can be selected: its brief needs an outcome.
-    let candidates: Vec<Id> = community_members
-        .iter()
-        .flat_map(|c| c.members.iter().copied())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    let mut documented: std::collections::BTreeSet<Id> = std::collections::BTreeSet::new();
-    if !candidates.is_empty() {
+    // Eligible: a public API official usage calls directly whose docstring has a summary, the
+    // Outcome its brief will state (`synth::summary_span`; the increment-2 review's O1).
+    let called: Vec<Id> = usage.counts.keys().copied().collect();
+    let mut eligible: Vec<Id> = Vec::new();
+    if !called.is_empty() {
         for b in collect(
             ctx,
             &format!(
-                "SELECT node_id FROM declarations WHERE docstring IS NOT NULL \
-                 AND node_id IN ({}) ORDER BY node_id",
-                hex_list(candidates.iter().copied())
+                "SELECT d.node_id, d.docstring_start_byte, d.docstring_end_byte, s.text \
+                 FROM declarations d JOIN source_files s ON s.module_node_id = d.module_node_id \
+                 WHERE d.docstring_start_byte IS NOT NULL AND d.node_id IN ({}) \
+                 ORDER BY d.node_id",
+                hex_list(called.iter().copied())
             ),
-            &schema(&[("node_id", DataType::FixedSizeBinary(16))]),
+            &schema(&[
+                ("node_id", DataType::FixedSizeBinary(16)),
+                ("docstring_start_byte", DataType::Int64),
+                ("docstring_end_byte", DataType::Int64),
+                ("text", DataType::Utf8),
+            ]),
         )
         .await?
         {
-            documented.extend(id_col(&b, "node_id")?);
+            let nodes = id_col(&b, "node_id")?;
+            let text = str_col(&b, "text")?;
+            let int = |name: &str| {
+                b.column_by_name(name)
+                    .and_then(|c| c.as_any().downcast_ref::<arrow_array::Int64Array>())
+                    .ok_or_else(|| CoreError::Analysis(format!("column {name}")))
+            };
+            let (start, end) = (int("docstring_start_byte")?, int("docstring_end_byte")?);
+            for (i, node) in nodes.into_iter().enumerate() {
+                if !text.is_null(i)
+                    && crate::synth::summary_span(
+                        text.value(i),
+                        start.value(i) as usize,
+                        end.value(i) as usize,
+                    )
+                    .is_some()
+                {
+                    eligible.push(node);
+                }
+            }
         }
     }
-    let community_members: Vec<selection::Community> = community_members
-        .into_iter()
-        .map(|c| selection::Community {
-            finding: c.finding,
-            members: c
-                .members
-                .into_iter()
-                .filter(|m| documented.contains(m))
+    let (rank, ranked_by): (BTreeMap<Id, f64>, &str) = if techniques.pagerank {
+        (
+            rows.findings
+                .iter()
+                .filter(|f| f.finding_kind == FindingKind::Centrality)
+                .filter_map(|f| f.score.map(|s| (f.subject_node_id, s)))
                 .collect(),
-        })
-        .collect();
-    let centrality: BTreeMap<Id, f64> = rows
-        .findings
-        .iter()
-        .filter(|f| f.finding_kind == FindingKind::Centrality)
-        .filter_map(|f| f.score.map(|s| (f.subject_node_id, s)))
-        .collect();
-    let least_path: BTreeMap<Id, String> = paths.iter().fold(BTreeMap::new(), |mut m, (id, p)| {
-        m.entry(*id).or_insert_with(|| p.clone());
-        m
-    });
+            "pagerank",
+        )
+    } else {
+        (usage.counts.clone(), "direct_usage")
+    };
     let selected: Vec<Id> = selection::select(
         &configured_nodes,
         config.briefs.budget as usize,
-        &community_members,
-        &centrality,
+        &eligible,
+        &rank,
+        &community_of,
+        &choices,
     );
     let mut seeds = configured.clone();
-    let mut chosen: Vec<String> = Vec::new();
-    for node in &selected {
-        if let Some(path) = least_path.get(node) {
-            chosen.push(path.clone());
-        }
-    }
-    let resolved_chosen = if chosen.is_empty() {
+    let named: Vec<String> = selected
+        .iter()
+        .filter_map(|n| preferred.get(n).cloned())
+        .collect();
+    let resolved_chosen = if named.is_empty() {
         BTreeMap::new()
     } else {
-        resolve_seeds(ctx, &chosen).await?
+        resolve_seeds(ctx, &named).await?
     };
-    let chosen: Vec<String> = chosen
-        .into_iter()
-        .filter(|n| selected.contains(&resolved_chosen[n].node))
-        .collect();
+    // A path already chosen (a property's getter and setter share one) or resolving to another
+    // declaration is dropped and recorded, never a second seed.
+    let (mut chosen, mut dropped): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    for n in named {
+        if selected.contains(&resolved_chosen[&n].node) && !chosen.contains(&n) {
+            chosen.push(n);
+        } else {
+            dropped.push(n);
+        }
+    }
     seeds.extend(chosen.iter().cloned());
     let selection_parameters = serde_json::to_string(&SelectionParameters {
         budget: config.briefs.budget,
-        rule: selection::RULE,
+        choices: &choices,
+        ranked_by,
     })
     .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let selection_digest = content_digest(selection_parameters.as_bytes());
@@ -1060,7 +1141,7 @@ pub async fn run(
         residual: None,
         converged: None,
         quality_history: Vec::new(),
-        candidate_set_size: Some(community_members.len() as i64),
+        candidate_set_size: Some(eligible.len() as i64),
         vertices_examined: None,
         arcs_examined: None,
         completion: CoverageStatus::CompleteUnderStatedModel,
@@ -1068,7 +1149,9 @@ pub async fn run(
         diagnostics: Some(
             serde_json::to_string(&SelectionDiagnostics {
                 configured: &configured,
+                eligible: eligible.len(),
                 selected: &chosen,
+                dropped: &dropped,
             })
             .map_err(|e| CoreError::Analysis(e.to_string()))?,
         ),
@@ -1284,7 +1367,8 @@ pub async fn run(
     }
     // Concepts (§9.6): FCA of each seed's structural scope, the public APIs of the exported class
     // or module namespace that its access path names (`fastmcp.FastMCP` for
-    // `fastmcp.FastMCP.tool`).
+    // `fastmcp.FastMCP.tool`). A scope is its node (the increment-2 review's F1): paths naming
+    // one class are one scope, labelled by the one with the fewest segments, then the least.
     let containers: std::collections::BTreeSet<String> = rows
         .seeds
         .iter()
@@ -1334,23 +1418,45 @@ pub async fn run(
                 .or_insert(node);
         }
     }
+    let mut names: BTreeMap<Id, std::collections::BTreeSet<String>> = BTreeMap::new();
+    for (container, node) in &scope_nodes {
+        names.entry(*node).or_default().insert(container.clone());
+    }
     let mut scopes: Vec<concepts::Scope> = Vec::new();
-    for container in &containers {
-        let Some(&node) = scope_nodes.get(container) else {
-            continue;
-        };
+    for (node, names) in &names {
+        let label = names
+            .iter()
+            .min_by_key(|n| (n.matches('.').count(), n.as_str()))
+            .expect("a scope has a name")
+            .clone();
+        // Each object by its path under the label, else its least under another of the names.
         let mut objects: BTreeMap<Id, String> = BTreeMap::new();
-        for (id, path) in &paths {
-            if path.rsplit_once('.').is_some_and(|(c, _)| c == container) {
-                objects.entry(*id).or_insert_with(|| path.clone());
+        for under_label in [true, false] {
+            for (id, path) in &paths {
+                if let Some((c, _)) = path.rsplit_once('.')
+                    && names.contains(c)
+                    && (c == label) == under_label
+                {
+                    objects.entry(*id).or_insert_with(|| path.clone());
+                }
             }
         }
         if objects.len() >= 2 {
             scopes.push(concepts::Scope {
-                node,
-                label: container.clone(),
+                node: *node,
+                label,
                 objects: objects.into_iter().collect(),
             });
+        }
+    }
+    for (name, seed) in &rows.seeds {
+        let scope = name
+            .rsplit_once('.')
+            .and_then(|(c, _)| scope_nodes.get(c))
+            .and_then(|n| scopes.iter().find(|s| s.node == *n));
+        if let Some(scope) = scope.filter(|_| techniques.fca) {
+            rows.seed_scopes
+                .insert(*seed, (scope.node, scope.label.clone()));
         }
     }
     let all: Vec<Id> = scopes

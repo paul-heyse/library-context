@@ -8,7 +8,7 @@ class Server:
         return fn
 
     def run(self):
-        return None
+        """Runs."""
 
     def stop(self, timeout=None):
         """Stop the server."""

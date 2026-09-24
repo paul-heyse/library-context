@@ -176,3 +176,23 @@ The header's `evidence: Interface-checked` is the record's floor: FCA is still o
   (F5), this consolidation (F7). Accepted with those fixes.
 
 ## Amendments
+
+- 2026-09-23, the increment-2 compact review (`design_review_inc2-compact_2026-09-23.md`,
+  Revise small; deviation log D37, D38):
+  - **Centrality's consumer (U1).** Seed selection and the Related order ask which operations
+    official usage calls. The default ranking is now **direct usage**: each usage call site
+    counted once, split among its definite or candidate targets (`ranking::USAGE_POLICY`), a
+    `usage_count` invocation and `direct_usage` findings (`structurally_observed`, ordering
+    only). Delegation PageRank, this record's page-rank decision, becomes the `+pagerank`
+    analytics variant, kept only if the §9.8 ablation shows it helps: over delegation it ranks
+    implementation sinks above what users call (review F3).
+  - **Selection.** Configured seeds first; then eligible public APIs (a docstring summary and at
+    least one direct usage call) by rank; a community caps rather than chooses (at most
+    ⌈budget / 3⌉ seeds each). This replaces slice 2.6's rounds over communities.
+  - **FCA's published form (U2).** A concept holding the seed is stated as a shared signature
+    under Related, from the seed's **own** scope only (F1: scopes are keyed by node), and the
+    Applicable-case slot stays absent until an input-or-mode source exists. Attributes are built
+    from term structure: no undetermined (`Unknown`) type, one attribute per raised class (F2).
+  - **Names.** One preferred path per public callable, through its declaring class first (F4).
+  - **Freeze.** These choices are `selection::Params`, frozen by digest beside the analytics
+    parameters (F7).

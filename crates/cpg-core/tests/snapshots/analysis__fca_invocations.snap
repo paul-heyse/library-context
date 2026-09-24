@@ -6,6 +6,6 @@ expression: "text(&ctx,\n\"SELECT parameters, completion, stop_reason, diagnosti
 | parameters                                                     | completion | stop_reason | diagnostics                                                                                      |
 +----------------------------------------------------------------+------------+-------------+--------------------------------------------------------------------------------------------------+
 | {"fca":{"min_support":2,"budget":20000},"scope":"pkg"}         | 0          |             | {"objects":3,"attributes":8,"concepts":0,"implications":0,"examined":1,"budget_reached":false}   |
-| {"fca":{"min_support":2,"budget":20000},"scope":"pkg.Catalog"} | 0          |             | {"objects":4,"attributes":13,"concepts":2,"implications":7,"examined":10,"budget_reached":false} |
+| {"fca":{"min_support":2,"budget":20000},"scope":"pkg.Catalog"} | 0          |             | {"objects":6,"attributes":14,"concepts":5,"implications":9,"examined":15,"budget_reached":false} |
 | {"fca":{"min_support":2,"budget":20000},"scope":"pkg.Server"}  | 0          |             | {"objects":5,"attributes":6,"concepts":0,"implications":0,"examined":1,"budget_reached":false}   |
 +----------------------------------------------------------------+------------+-------------+--------------------------------------------------------------------------------------------------+

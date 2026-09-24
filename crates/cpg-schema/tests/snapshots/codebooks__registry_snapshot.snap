@@ -475,6 +475,7 @@ analytic_method
   6 fca_next_closure
   7 seed_selection
   8 knn
+  9 usage_count
 finding_kind
   0 public_alias
   1 direct_delegation
@@ -493,6 +494,7 @@ finding_kind
   14 implication
   15 doc_link
   16 community_label
+  17 direct_usage
 stop_reason
   0 depth_limit
   1 vertex_budget
@@ -536,6 +538,7 @@ assertion_kind
   12 applicable_case
   13 implication
   14 doc_link
+  15 shared_signature
 brief_section
   0 outcome
   1 public_access

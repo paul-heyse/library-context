@@ -261,3 +261,19 @@ After acceptance (2026-09-23), amendments are appended here, dated. Those above 
     `member_role` `community_member` and `supporting_site`; `analysis_invocations.diagnostics`
     (a declared migration);
   - slice 2.4: `analytic_method` `pagerank`; `finding_kind` `centrality`.
+  - slice 2.5: `analytic_method` `fca_next_closure`; `finding_kind` `applicable_case` and
+    `implication`; `member_role` `extent_member`, `intent_attribute`, `premise` and `conclusion`;
+    `assertion_kind` `applicable_case` and `implication`; `stop_reason` `concept_budget`;
+  - slice 2.6: `analytic_method` `seed_selection`;
+  - slice 3.1: `analytic_method` `knn`; `finding_kind` `doc_link` and `community_label`;
+    `member_role` `label`; `assertion_kind` `doc_link`;
+  - the increment-2 review: `analytic_method` `usage_count`; `finding_kind` `direct_usage`;
+    `assertion_kind` `shared_signature` (the `applicable_case` kind is kept, reserved).
+- 2026-09-23 (the increment-2 review's deferred rows):
+  - **Stage E composes in memory** (ADR-0019 review O6). Every method's rows are collected in
+    one `AnalysisRows`; a later method reads earlier ones (selection reads communities and direct
+    usage, Stage F reads all) from memory, never from Delta. Each analysis table is written once,
+    after Stage F, inside ADR-0017's one commit.
+  - **A finding kind has one method** (`findings::FINDING_METHOD`); the rule
+    `semantic:finding-kind-by-method` checks each finding's invocation against it, with an
+    injected case.

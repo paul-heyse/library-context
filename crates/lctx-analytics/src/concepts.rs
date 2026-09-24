@@ -585,6 +585,76 @@ mod tests {
         }
     }
 
+    /// Close `x` under every implication whose premise it holds, proper or not.
+    fn close_under(x: &FixedBitSet, basis: &[(FixedBitSet, FixedBitSet)]) -> FixedBitSet {
+        let mut closed = x.clone();
+        loop {
+            let before = closed.clone();
+            for (p, q) in basis {
+                if p.is_subset(&closed) {
+                    closed.union_with(q);
+                }
+            }
+            if closed == before {
+                return closed;
+            }
+        }
+    }
+
+    /// The increment-2 review's probe 1 (F6(c)): at the supports production uses (1–4), the
+    /// pruned basis is sound, complete over every frequent attribute set, and non-redundant.
+    #[test]
+    fn the_frequent_basis_is_sound_complete_and_non_redundant() {
+        for seed in 1..30u64 {
+            let ctx = random(10, 7, seed);
+            for min_support in 1..=4 {
+                let lattice = analyse(&ctx, min_support, 100_000);
+                let full: Vec<(FixedBitSet, FixedBitSet)> = lattice
+                    .implications
+                    .iter()
+                    .map(|i| {
+                        let mut closed = i.premise.clone();
+                        closed.union_with(&i.conclusion);
+                        (i.premise.clone(), closed)
+                    })
+                    .collect();
+                for i in &lattice.implications {
+                    assert!(ctx.closure(&i.premise).is_superset(&i.conclusion));
+                    assert!(i.support >= min_support);
+                    assert_eq!(i.support, ctx.extent(&i.premise).count_ones(..));
+                }
+                for bits in 0u32..(1 << ctx.attributes) {
+                    let x = set(
+                        ctx.attributes,
+                        &(0..ctx.attributes)
+                            .filter(|m| bits >> m & 1 == 1)
+                            .collect::<Vec<_>>(),
+                    );
+                    if ctx.extent(&x).count_ones(..) >= min_support {
+                        assert_eq!(
+                            close_under(&x, &full),
+                            ctx.closure(&x),
+                            "seed {seed}, support {min_support}, set {bits:b}"
+                        );
+                    }
+                }
+                for (k, (premise, closed)) in full.iter().enumerate() {
+                    let others: Vec<(FixedBitSet, FixedBitSet)> = full
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, _)| *j != k)
+                        .map(|(_, r)| r.clone())
+                        .collect();
+                    assert_ne!(
+                        &close_under(premise, &others),
+                        closed,
+                        "seed {seed}, support {min_support}: implication {k} is redundant"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn a_budget_stops_enumeration_and_says_so() {
         let ctx = random(12, 9, 3);

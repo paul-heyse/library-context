@@ -820,12 +820,16 @@ codebook!(
         /// Formal concept analysis of one structural scope: our own NextClosure, concepts and the
         /// Duquenne–Guigues basis over a support threshold (§9.6).
         Fca = 6 => "fca_next_closure",
-        /// Seed selection within the brief budget: communities choose, centrality orders
-        /// (§9.4, §9.5; slice 2.6). Its diagnostics name the configured and selected seeds.
+        /// Seed selection within the brief budget (§9.4, §9.5; slice 2.6; the increment-2 review's
+        /// U1): usage ranks, communities cap. Its diagnostics name the configured, selected and
+        /// dropped seeds.
         SeedSelection = 7 => "seed_selection",
         /// Exact nearest neighbours over cached embeddings: doc links and community labels
         /// (§9.7; slice 3.1).
         Knn = 8 => "knn",
+        /// Each public API's direct official-usage calls, counted over the usage projection
+        /// (§9.5; the increment-2 review's U1).
+        UsageCount = 9 => "usage_count",
     }
 );
 
@@ -869,10 +873,13 @@ codebook!(
         /// agreement. Statistical: it never states a control or a limit.
         Community = 11 => "community",
         /// A public API's rank in the usage projection (§9.5): the score is its PageRank.
-        /// Statistical: it orders seeds and Related entries, never states behaviour.
+        /// Statistical: in the `+pagerank` variant it orders seeds and Related entries, never
+        /// states behaviour.
         Centrality = 12 => "centrality",
         /// A formal concept of one structural scope (§9.6): public APIs (its extent) sharing
-        /// attributes (its intent). The subject is the scope; the score its extent's size.
+        /// attributes (its intent). The subject is the scope; the score its extent's size. A brief
+        /// states it as a shared signature (`AssertionKind::SharedSignature`), not as an
+        /// applicable case (the increment-2 review's U2); the kind's name is historical.
         ApplicableCase = 13 => "applicable_case",
         /// An implication of the scope's Duquenne–Guigues basis, with confidence 1 over the support
         /// threshold: every API with the premise's attributes has the conclusion's. The score is
@@ -885,6 +892,10 @@ codebook!(
         /// The heading of the passage nearest a community's centroid (§9.7): the subject is the
         /// community's subject, the related node the passage, the score the cosine.
         CommunityLabel = 16 => "community_label",
+        /// A public API's direct official-usage calls (§9.5): definite call arcs from a function or
+        /// module of an example, test or doc block, one per call site. The score is the count.
+        /// It orders seeds and Related entries, never states behaviour.
+        DirectUsage = 17 => "direct_usage",
     }
 );
 
@@ -995,13 +1006,17 @@ codebook!(
         /// A parameter that reaches a callee in a form the analysis does not follow (Pass B
         /// `unfollowed_argument`).
         UnfollowedControl = 11 => "unfollowed_control",
-        /// The seed's most specific shared concept: the public APIs of its scope that share the
-        /// most attributes with it (FCA `applicable_case`).
+        /// An input or mode the operation applies to (§10.3). Reserved: no v1 source states one.
+        /// Slice 2.5 filled it from an FCA concept; the increment-2 review's U2 moved that to
+        /// `SharedSignature`, so the slot stays absent and the gap metric sees it.
         ApplicableCase = 12 => "applicable_case",
         /// An implication of the seed's scope that the seed satisfies (FCA `implication`).
         Implication = 13 => "implication",
         /// Documentation near the operation by embedding similarity (kNN `doc_link`).
         DocLink = 14 => "doc_link",
+        /// The public APIs of the seed's own scope that share its signature: the FCA concept
+        /// holding it with the most (other API, shared attribute) pairs (FCA `applicable_case`).
+        SharedSignature = 15 => "shared_signature",
     }
 );
 

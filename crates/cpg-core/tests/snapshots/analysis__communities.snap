@@ -13,7 +13,7 @@ expression: "text(&ctx,\n\"SELECT s.label AS subject, f.score, f.evidence_status
 | pkg.controls.finish            | 1.0   | 2               | false             | 2       | 9    | pkg.controls.record            |
 | pkg.controls.finish            | 1.0   | 2               | false             | 3       | 10   | invocation                     |
 | pkg.controls.finish            | 1.0   | 2               | false             | 4       | 10   | invocation                     |
-| pkg.helper                     | 1.0   | 2               | true              | 0       | 9    | pkg.Aliased.run                |
+| pkg.helper                     | 1.0   | 2               | true              | 0       | 9    | pkg.shadow.Mixin.run           |
 | pkg.helper                     | 1.0   | 2               | true              | 1       | 9    | pkg.helper                     |
 | pkg.helper                     | 1.0   | 2               | true              | 2       | 9    | pkg.handlers.Handler.handle    |
 | pkg.helper                     | 1.0   | 2               | true              | 3       | 9    | pkg.handlers.run               |

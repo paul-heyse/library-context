@@ -987,7 +987,7 @@ budget = 2
 /// `docs_shapes` with its usage modules as official examples, compiled with the analytics config
 /// at `sub` under a temporary directory, module order reversed or not.
 async fn docs_shapes_analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDir) {
-    docs_shapes_embedded(sub, reverse, None).await
+    docs_shapes_embedded(sub, reverse, None, 3).await
 }
 
 /// A bag-of-words embedder for tests: each lowercase word adds one to a hashed dimension of 64,
@@ -1062,6 +1062,7 @@ async fn docs_shapes_embedded(
     sub: &str,
     reverse: bool,
     embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
+    budget: u32,
 ) -> (SessionContext, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join(sub);
@@ -1071,7 +1072,7 @@ async fn docs_shapes_embedded(
     input.test_hooks.reverse_module_order = reverse;
     let out = extract(&input).unwrap();
     let analysis = cpg_core::analyze::Analysis {
-        config: lctx_analytics::config::AnalyticsConfig::parse(
+        config: lctx_analytics::config::AnalyticsConfig::parse(&format!(
             r#"
 version = 1
 [subsystem]
@@ -1086,9 +1087,9 @@ max_vertices = 128
 max_edges = 512
 max_witnesses = 3
 [briefs]
-budget = 3
+budget = {budget}
 "#,
-        )
+        ))
         .unwrap(),
         embedder,
         techniques: Default::default(),
@@ -1214,6 +1215,7 @@ async fn doc_links_come_from_embedding_similarity() {
         "knn",
         false,
         Some(std::sync::Arc::new(WordsEmbedder::new())),
+        3,
     )
     .await;
     let knn = lines(
@@ -1244,6 +1246,37 @@ async fn doc_links_come_from_embedding_similarity() {
         briefs.contains("pkg.Server.tool | 2 | Documentation near this operation"),
         "{briefs}"
     );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+}
+
+/// Direct usage and seed selection (DESIGN §9.5; the increment-2 review's U1 and F6(a)): each public
+/// API the official usage code calls is counted, one per definite call site; with room in the
+/// budget, the most called eligible API (one with a docstring summary) becomes a seed, named by its
+/// preferred path, with its brief.
+#[tokio::test(flavor = "multi_thread")]
+async fn selection_takes_what_usage_calls_within_the_budget() {
+    let (ctx, _dir) = docs_shapes_embedded("select", false, None, 4).await;
+    let counts = lines(
+        &ctx,
+        "SELECT d.qualified_name, CAST(f.score AS BIGINT), f.evidence_status FROM findings f \
+         JOIN declarations d ON d.node_id = f.subject_node_id \
+         WHERE f.finding_kind = 17 ORDER BY 1",
+    )
+    .await;
+    insta::assert_snapshot!("direct_usage", counts);
+    let selection = lines(
+        &ctx,
+        "SELECT parameters, candidate_set_size, diagnostics FROM analysis_invocations \
+         WHERE method = 7",
+    )
+    .await;
+    insta::assert_snapshot!("docs_shapes_selection", selection);
+    assert!(
+        selection.contains("\"selected\":[\"pkg.Server.run\"]"),
+        "{selection}"
+    );
+    let briefs = lines(&ctx, "SELECT title FROM briefs ORDER BY title").await;
+    assert!(briefs.contains("pkg.Server.run\n"), "{briefs}");
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
 

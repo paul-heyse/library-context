@@ -10,8 +10,11 @@
 //! - **Public callables.** What a community reports: each function exported under a public root
 //!   by a path with no private segment, and each public method (or `__init__`, `__call__`) an
 //!   exported class declares or inherits along its MRO, the nearest definition winning; each with
-//!   every access path (ordered, so a consumer's first is the least). An `@overload` stub is not a
-//!   callable of its own.
+//!   every access path. An `@overload` stub is not a callable of its own.
+//! - **The preferred path** (the increment-2 review's F4), the one name every consumer shows a
+//!   callable by: a path through the class that declares the method first (so a classmethod is
+//!   never named through a subclass it would bind differently), then the fewest segments, then
+//!   the least. Exactly one path per callable is `preferred`.
 
 use crate::codebook::{AncestryRelation, Codebook, DeclarationKind, EdgeKind, SourceRole};
 use crate::flows::{call_targets, codes};
@@ -42,7 +45,8 @@ fn quoted(names: &[String]) -> String {
         .join(", ")
 }
 
-/// The public callables under `public_roots` with every access path, ordered by node and path.
+/// The public callables under `public_roots` with every access path and which one is preferred,
+/// ordered by node and path.
 pub fn public_callables_sql(public_roots: &[String]) -> String {
     let functions = codes(&[DeclarationKind::Function, DeclarationKind::AsyncFunction]);
     format!(
@@ -51,7 +55,7 @@ pub fn public_callables_sql(public_roots: &[String]) -> String {
            WHERE split_part(access_path, '.', 1) IN ({roots}) \
              AND strpos(access_path, '._') = 0 AND NOT starts_with(access_path, '_')), \
          direct AS ( \
-           SELECT d.node_id, x.access_path FROM declarations d \
+           SELECT d.node_id, x.access_path, true AS own FROM declarations d \
            JOIN exported x ON x.node_id = d.node_id \
            WHERE d.kind IN ({functions}) AND NOT d.is_overload), \
          classes AS ( \
@@ -71,15 +75,24 @@ pub fn public_callables_sql(public_roots: &[String]) -> String {
            SELECT class_node_id, name, min(ordinal) AS ordinal FROM candidates \
            GROUP BY class_node_id, name), \
          methods AS ( \
-           SELECT c.node_id, x.access_path || '.' || c.name AS access_path FROM candidates c \
+           SELECT c.node_id, x.access_path || '.' || c.name AS access_path, \
+                  c.ordinal = -1 AS own FROM candidates c \
            JOIN nearest n ON n.class_node_id = c.class_node_id AND n.name = c.name \
              AND n.ordinal = c.ordinal \
            JOIN classes x ON x.class_node_id = c.class_node_id \
            JOIN declarations dd ON dd.node_id = c.node_id \
            WHERE c.kind IN ({functions}) AND NOT dd.is_overload \
-             AND (NOT starts_with(c.name, '_') OR c.name IN ('__init__', '__call__'))) \
-         SELECT DISTINCT node_id, access_path \
-         FROM (SELECT * FROM direct UNION ALL SELECT * FROM methods) \
+             AND (NOT starts_with(c.name, '_') OR c.name IN ('__init__', '__call__'))), \
+         paths AS ( \
+           SELECT node_id, access_path, bool_or(own) AS own \
+           FROM (SELECT * FROM direct UNION ALL SELECT * FROM methods) \
+           GROUP BY node_id, access_path), \
+         ranked AS ( \
+           SELECT node_id, access_path, row_number() OVER ( \
+             PARTITION BY node_id ORDER BY own DESC, \
+               length(access_path) - length(replace(access_path, '.', '')), access_path) AS pick \
+           FROM paths) \
+         SELECT node_id, access_path, pick = 1 AS preferred FROM ranked \
          ORDER BY node_id, access_path",
         roots = quoted(public_roots),
         class = DeclarationKind::Class.code(),
@@ -125,6 +138,7 @@ pub mod schemas {
         Arc::new(Schema::new(vec![
             id("node_id"),
             Field::new("access_path", DataType::Utf8, false),
+            Field::new("preferred", DataType::Boolean, false),
         ]))
     }
 }
