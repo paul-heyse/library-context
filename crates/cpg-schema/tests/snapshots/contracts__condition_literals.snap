@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table condition_literals
+family flow
+key snapshot_id, condition_id, conjunction, ordinal, fact_id
+check ordinal_nonnegative: conjunction >= 0 AND ordinal >= 0
+@lctx.family=flow
+@lctx.table=condition_literals
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+conjunction: Int64 NOT NULL
+ordinal: Int64 NOT NULL
+atom: Int16 NOT NULL [lctx.codebook=condition_atom]
+positive: Boolean NOT NULL
+place: Utf8 NULL
+argument: Utf8 NULL

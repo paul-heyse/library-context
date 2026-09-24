@@ -9,6 +9,7 @@ mod config;
 mod context;
 mod docs;
 mod facts;
+mod flow;
 mod lexical;
 pub mod library;
 pub mod logging;
@@ -33,12 +34,14 @@ use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
-    ContextDefinitions, ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
-    Distributions, DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
-    ExportSyntax, Facts, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax, Passages,
-    Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields,
-    ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles,
-    SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
+    ConditionLiterals, Conditions, ContextDefinitions, ContextModules, Contexts, ContextsRow,
+    Coverage, CoverageRow, Declarations, Distributions, DistributionsRow, DocComponentAttributes,
+    DocComponents, DocLinks, Documents, ExportSyntax, Facts, FlowDefinitions, FlowReaching,
+    FlowRegions, FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics,
+    ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses,
+    PysaFunctions, RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs,
+    RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs,
+    TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -73,13 +76,15 @@ use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
 use walk::{ModuleCtx, span};
 
 /// The fact families this producer declares (coverage rows exist for each, per module).
-pub const FAMILIES: [FactFamily; 6] = [
+pub const FAMILIES: [FactFamily; 7] = [
     FactFamily::Exports,
     FactFamily::Signatures,
     FactFamily::Calls,
     FactFamily::Syntax,
     FactFamily::Lexical,
     FactFamily::Types,
+    // The flow IR's facts (ADR-0022 §The flow provider): release modules only.
+    FactFamily::Flow,
 ];
 
 /// The families a corpus run declares (C5): its documents, and every code family but `exports` for
@@ -517,6 +522,7 @@ fn run_release(
         boundaries: Vec::new(),
     };
     let mut pysa_json = BTreeMap::new();
+    let mut flow_modules: Vec<flow::FlowModule> = Vec::new();
     let source = Provenance {
         surface: Surface::Source,
         mode: ExtractionMode::NativeTraversal,
@@ -591,6 +597,13 @@ fn run_release(
             .expect("loaded at Require::Everything");
         let ast = txn.get_ast(&m.handle).expect("kept at Require::Everything");
         let text = info.lined_buffer().contents().clone();
+        if families.contains(&FactFamily::Flow) {
+            flow_modules.push(flow::FlowModule {
+                node_id: m.node_id,
+                path: m.path.clone(),
+                text: text.to_string(),
+            });
+        }
         let ctx = ModuleCtx {
             release_id: input.release.release_id,
             path: &m.path,
@@ -784,7 +797,8 @@ fn run_release(
                 )),
             );
         }
-        for &family in &code_families {
+        // The flow family's coverage comes from its own indexing, below.
+        for &family in code_families.iter().filter(|f| **f != FactFamily::Flow) {
             let (status, reason) = match partial.get(&family) {
                 Some(reason) => (CoverageStatus::Partial, Some(*reason)),
                 None => (CoverageStatus::CompleteUnderStatedModel, None),
@@ -810,6 +824,39 @@ fn run_release(
     stages.push("extract:   of which the ruff walk", walk_time);
     stages.push("extract:   of which the pysa collectors", pysa_time);
     stages.push("extract:   of which the types", types_time);
+    // The flow IR over the release (ADR-0022 §The flow provider): one ty database, every module.
+    let mut flow_out = flow::FlowOut::default();
+    if families.contains(&FactFamily::Flow) {
+        let (major, minor, micro) = input.python_version;
+        flow_out = flow::run(
+            &mut sink,
+            &flow_modules,
+            &cpg_flow::RuntimeContext {
+                python_version: (major, minor, micro),
+                platform: input.python_platform.clone(),
+            },
+        );
+        for m in &flow_modules {
+            let (status, reason, detail) = match (
+                flow_out.errors.get(&m.node_id),
+                flow_out.recovered.get(&m.node_id),
+            ) {
+                (Some(e), _) => (
+                    CoverageStatus::Failed,
+                    Some(BoundaryReason::OutsideProviderModel),
+                    Some(e.clone()),
+                ),
+                (None, Some(_)) => (
+                    CoverageStatus::Partial,
+                    Some(BoundaryReason::SyntaxError),
+                    None,
+                ),
+                (None, None) => (CoverageStatus::CompleteUnderStatedModel, None, None),
+            };
+            report.cover(&sink, m.node_id, FactFamily::Flow, status, reason, detail);
+        }
+        stages.mark("extract: flow (ty)");
+    }
     let readable: Vec<Handle> = modules
         .iter()
         .filter(|m| std::str::from_utf8(&m.bytes).is_ok())
@@ -955,6 +1002,13 @@ fn run_release(
     dedup_by_fact(&mut docs_out.components, |r| r.fact_id);
     dedup_by_fact(&mut docs_out.component_attributes, |r| r.fact_id);
     dedup_by_fact(&mut report.boundaries, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.uses, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.definitions, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.reaching, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.values, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.regions, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.conditions, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.literals, |r| r.fact_id);
 
     let tables = vec![
         (Runs::NAME, Runs::to_sorted_batch(&runs)?),
@@ -1077,6 +1131,31 @@ fn run_release(
             DocComponentAttributes::to_sorted_batch(&docs_out.component_attributes)?,
         ),
         (PysaCalls::NAME, PysaCalls::to_sorted_batch(&pysa.calls)?),
+        (FlowUses::NAME, FlowUses::to_sorted_batch(&flow_out.uses)?),
+        (
+            FlowDefinitions::NAME,
+            FlowDefinitions::to_sorted_batch(&flow_out.definitions)?,
+        ),
+        (
+            FlowReaching::NAME,
+            FlowReaching::to_sorted_batch(&flow_out.reaching)?,
+        ),
+        (
+            FlowValues::NAME,
+            FlowValues::to_sorted_batch(&flow_out.values)?,
+        ),
+        (
+            FlowRegions::NAME,
+            FlowRegions::to_sorted_batch(&flow_out.regions)?,
+        ),
+        (
+            Conditions::NAME,
+            Conditions::to_sorted_batch(&flow_out.conditions)?,
+        ),
+        (
+            ConditionLiterals::NAME,
+            ConditionLiterals::to_sorted_batch(&flow_out.literals)?,
+        ),
         (Coverage::NAME, Coverage::to_sorted_batch(&report.coverage)?),
         (
             Boundaries::NAME,

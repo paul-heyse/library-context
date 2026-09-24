@@ -5,11 +5,12 @@
 
 use crate::codebook::{
     AncestryRelation, ArgumentKind, AttributeValueKind, BindingKind, BoundaryReason, ComponentForm,
-    CoverageStatus, DeclarationKind, DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily,
-    Fidelity, ImplicitReceiver, InvocationPhase, LexicalScopeKind, MentionClass, MentionSource,
-    Modality, ModuleOrigin, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
-    PysaUnresolvedReason, RecordKind, ScopeKind, SignatureForm, SourceRole, StaticBranch,
-    SymbolKind, SyntaxField, SyntaxKind, TypeArgRole, TypeRole, TypeTermKind,
+    ConditionAtom, CoverageStatus, DeclarationKind, DefinitionKind, ExportSyntaxKind,
+    ExtractionMode, FactFamily, Fidelity, FlowSink, ImplicitReceiver, InvocationPhase,
+    LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin, ParameterKind,
+    PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind, ScopeKind,
+    SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TypeArgRole,
+    TypeRole, TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -729,6 +730,165 @@ table!(
     }
 );
 
+// ---------------------------------------------------------------- flow
+
+table!(
+    /// A place load ty records (ADR-0022 §The flow provider; `cpg-flow`): a name, an attribute
+    /// chain or a literal subscript read, an augmented assignment's target, a `del` target. Id
+    /// `H(flow_use, module, start, end)`. `annotation`: inside an annotation, which `references`
+    /// does not model as a read (the declared parity residue).
+    FlowUses, FlowUsesRow = "flow_uses",
+    family = Flow,
+    key = [snapshot_id, module_node_id, start_byte, end_byte, fact_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        use_id: Id,
+        module_node_id: Id,
+        /// The place as ty spells it (`timeout`, `self._x`, `settings.host`, `d["k"]`).
+        place: String,
+        scope_kind: LexicalScopeKind,
+        /// The span naming the scope: a function's or class's name, a lambda's or
+        /// comprehension's expression; null for the module.
+        scope_start_byte: Option<i64>,
+        scope_end_byte: Option<i64>,
+        start_byte: i64,
+        end_byte: i64,
+        annotation: bool,
+    }
+);
+
+table!(
+    /// A binding ty records, normalized (ADR-0022): loop headers become the bindings they stand
+    /// for; an import alias's target is the bound name. Id `H(flow_definition, module, kind,
+    /// start, end, place)`.
+    FlowDefinitions, FlowDefinitionsRow = "flow_definitions",
+    family = Flow,
+    key = [snapshot_id, module_node_id, start_byte, end_byte, definition_id, fact_id],
+    checks = [
+        ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+        (
+            "value_span_order",
+            "(value_start_byte IS NULL AND value_end_byte IS NULL) \
+             OR (value_start_byte >= 0 AND value_end_byte >= value_start_byte)"
+        ),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        definition_id: Id,
+        module_node_id: Id,
+        place: String,
+        kind: BindingKind,
+        scope_kind: LexicalScopeKind,
+        scope_start_byte: Option<i64>,
+        scope_end_byte: Option<i64>,
+        /// The bound target.
+        start_byte: i64,
+        end_byte: i64,
+        /// The value it takes (see `flow_values` for what the value reads).
+        value_start_byte: Option<i64>,
+        value_end_byte: Option<i64>,
+    }
+);
+
+table!(
+    /// A definition reaching a use, under the condition of its reachability at the use (a path
+    /// condition from the scope's entry). A null definition: the place may be unbound there.
+    FlowReaching, FlowReachingRow = "flow_reaching",
+    family = Flow,
+    key = [snapshot_id, use_id, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        use_id: Id,
+        definition_id: Option<Id>,
+        condition_id: Id,
+        /// Reached around a loop's back edge.
+        loop_carried: bool,
+    }
+);
+
+table!(
+    /// What a value reads: per sink (a definition's value, a call argument, a `return`, a
+    /// `yield`, a `raise`), each use inside it, **identity** (the value passes unchanged) or
+    /// derived, under the condition inside the expression that selects it.
+    FlowValues, FlowValuesRow = "flow_values",
+    family = Flow,
+    key = [snapshot_id, module_node_id, sink_start_byte, sink_end_byte, use_id, fact_id],
+    checks = [("sink_span_order", "sink_start_byte >= 0 AND sink_end_byte >= sink_start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        sink: FlowSink,
+        sink_start_byte: i64,
+        sink_end_byte: i64,
+        use_id: Id,
+        identity: bool,
+        condition_id: Id,
+    }
+);
+
+table!(
+    /// A statement's reachability condition, relative to its scope's entry: a statement inside a
+    /// function is reached under this **and** its `def` statement's region.
+    FlowRegions, FlowRegionsRow = "flow_regions",
+    family = Flow,
+    key = [snapshot_id, module_node_id, start_byte, end_byte, fact_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        scope_kind: LexicalScopeKind,
+        scope_start_byte: Option<i64>,
+        scope_end_byte: Option<i64>,
+        start_byte: i64,
+        end_byte: i64,
+        condition_id: Id,
+    }
+);
+
+table!(
+    /// A condition in normal form (ADR-0022 §Conditions; `cpg_schema::condition`): its canonical
+    /// encoding, which its id hashes. `stated` is false past the budget.
+    Conditions, ConditionsRow = "conditions",
+    family = Flow,
+    key = [snapshot_id, condition_id, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        condition_id: Id,
+        encoding: String,
+        stated: bool,
+    }
+);
+
+table!(
+    /// A condition's literals: conjunction by conjunction, in the normal form's order.
+    ConditionLiterals, ConditionLiteralsRow = "condition_literals",
+    family = Flow,
+    key = [snapshot_id, condition_id, conjunction, ordinal, fact_id],
+    checks = [("ordinal_nonnegative", "conjunction >= 0 AND ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        condition_id: Id,
+        conjunction: i64,
+        ordinal: i64,
+        atom: ConditionAtom,
+        positive: bool,
+        /// The place tested; null for an opaque atom.
+        place: Option<String>,
+        /// The value, value set, class or opaque text, as encoded.
+        argument: Option<String>,
+    }
+);
+
 // ---------------------------------------------------------------- coverage
 
 table!(
@@ -1167,6 +1327,13 @@ macro_rules! for_each_table {
             $crate::tables::DocComponents,
             $crate::tables::DocComponentAttributes,
             $crate::tables::PysaCalls,
+            $crate::tables::FlowUses,
+            $crate::tables::FlowDefinitions,
+            $crate::tables::FlowReaching,
+            $crate::tables::FlowValues,
+            $crate::tables::FlowRegions,
+            $crate::tables::Conditions,
+            $crate::tables::ConditionLiterals,
             $crate::tables::Coverage,
             $crate::tables::Boundaries
         )

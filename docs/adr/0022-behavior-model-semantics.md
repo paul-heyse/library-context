@@ -115,8 +115,14 @@ semantics must close:
   - `semantic:flow-reaching-within-candidates`: ty's reaching definitions of a use lie within our
     candidate bindings for it (the spike's exit test, kept).
 
-  The declared residue is names inside annotations: ty indexes them, and `references` does not
-  model annotations as reads (§3.2). It is counted per run.
+  The declared residue (Stage 2.3, measured on the pilot and the fixtures):
+  - names inside annotations and PEP 695 type-alias values, which ty indexes and `references`
+    does not model as reads (§3.2); they are flow uses marked `annotation`;
+  - bindings ty never defines as such: `global` and `nonlocal` declarations, `del` (an unbinding
+    in both models: a `del` target is no flow use either), implicit names, and a star import
+    (ours is the `*`, ty's are the names it brings in);
+  - a class's or an alias's type parameters, which our lexical recognizer does not model, so the
+    flow IR records no definition for them.
 - **The spike's measurements** on FastMCP 4.0.5's 275 release modules (2026-09-24, *Measured*):
   - 213 ms and 47 MiB peak;
   - every one of our 39,986 references is a ty use, once augmented-assignment targets are read as

@@ -49,7 +49,6 @@ use 111:level level <- <unbound> [unbound] if true
 use 112:level level <- level + 1 [assignment] if true
 use 114:inner inner <- inner [function_def] if true
 use 118:data data <- data [parameter] if true
-use 119:copy copy <- data [assignment] if true
 use 120:data data <- data [parameter] if true
 use 124:transport transport <- transport [parameter] if true
 use 125:host host <- host [parameter] if member_of(transport,{"http","sse"})

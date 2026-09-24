@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 cpg-schema = { path = "../cpg-schema" }
+cpg-flow = { path = "../cpg-flow" }
 arrow-array.workspace = true
 arrow-ipc.workspace = true
 arrow-schema.workspace = true

@@ -1254,6 +1254,21 @@ codebook!(
     }
 );
 
+codebook!(
+    /// What a flow value source's sink is (ADR-0022 §The flow provider; `cpg_flow::Sink`).
+    FlowSink = "flow_sink" {
+        /// A definition's value: an assignment's right-hand side, a walrus's value, an
+        /// augmented assignment's operand, a `for` or comprehension iterable, a `with` context.
+        Definition = 0 => "definition",
+        /// A call argument's value.
+        Argument = 1 => "argument",
+        Return = 2 => "return",
+        Yield = 3 => "yield",
+        /// A `raise`'s exception or its cause.
+        Raise = 4 => "raise",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1317,6 +1332,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<OperationFacet>(),
         CodebookEntry::of::<EmbeddingView>(),
         CodebookEntry::of::<ConditionAtom>(),
+        CodebookEntry::of::<FlowSink>(),
     ]
 }
 

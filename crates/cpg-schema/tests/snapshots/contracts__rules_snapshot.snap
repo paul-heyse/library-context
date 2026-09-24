@@ -76,6 +76,20 @@ key:doc_component_attributes
   SELECT snapshot_id, document_node_id, component_ordinal, ordinal, fact_id, count(*) AS n FROM doc_component_attributes GROUP BY snapshot_id, document_node_id, component_ordinal, ordinal, fact_id HAVING count(*) > 1
 key:pysa_calls
   SELECT snapshot_id, module_node_id, start_byte, end_byte, fact_id, count(*) AS n FROM pysa_calls GROUP BY snapshot_id, module_node_id, start_byte, end_byte, fact_id HAVING count(*) > 1
+key:flow_uses
+  SELECT snapshot_id, module_node_id, start_byte, end_byte, fact_id, count(*) AS n FROM flow_uses GROUP BY snapshot_id, module_node_id, start_byte, end_byte, fact_id HAVING count(*) > 1
+key:flow_definitions
+  SELECT snapshot_id, module_node_id, start_byte, end_byte, definition_id, fact_id, count(*) AS n FROM flow_definitions GROUP BY snapshot_id, module_node_id, start_byte, end_byte, definition_id, fact_id HAVING count(*) > 1
+key:flow_reaching
+  SELECT snapshot_id, use_id, fact_id, count(*) AS n FROM flow_reaching GROUP BY snapshot_id, use_id, fact_id HAVING count(*) > 1
+key:flow_values
+  SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, use_id, fact_id, count(*) AS n FROM flow_values GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, use_id, fact_id HAVING count(*) > 1
+key:flow_regions
+  SELECT snapshot_id, module_node_id, start_byte, end_byte, fact_id, count(*) AS n FROM flow_regions GROUP BY snapshot_id, module_node_id, start_byte, end_byte, fact_id HAVING count(*) > 1
+key:conditions
+  SELECT snapshot_id, condition_id, fact_id, count(*) AS n FROM conditions GROUP BY snapshot_id, condition_id, fact_id HAVING count(*) > 1
+key:condition_literals
+  SELECT snapshot_id, condition_id, conjunction, ordinal, fact_id, count(*) AS n FROM condition_literals GROUP BY snapshot_id, condition_id, conjunction, ordinal, fact_id HAVING count(*) > 1
 key:coverage
   SELECT snapshot_id, run_id, scope_node_id, fact_family, count(*) AS n FROM coverage GROUP BY snapshot_id, run_id, scope_node_id, fact_family HAVING count(*) > 1
 key:boundaries
@@ -416,12 +430,40 @@ fact:pysa_calls
   SELECT t.fact_id FROM pysa_calls t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'pysa_calls'
 fact-payload:pysa_calls
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN pysa_calls t ON t.fact_id = f.fact_id WHERE f.table_name = 'pysa_calls'
+fact:flow_uses
+  SELECT t.fact_id FROM flow_uses t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_uses'
+fact-payload:flow_uses
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_uses t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_uses'
+fact:flow_definitions
+  SELECT t.fact_id FROM flow_definitions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_definitions'
+fact-payload:flow_definitions
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_definitions t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_definitions'
+fact:flow_reaching
+  SELECT t.fact_id FROM flow_reaching t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_reaching'
+fact-payload:flow_reaching
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_reaching t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_reaching'
+fact:flow_values
+  SELECT t.fact_id FROM flow_values t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_values'
+fact-payload:flow_values
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_values t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_values'
+fact:flow_regions
+  SELECT t.fact_id FROM flow_regions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_regions'
+fact-payload:flow_regions
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_regions t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_regions'
+fact:conditions
+  SELECT t.fact_id FROM conditions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'conditions'
+fact-payload:conditions
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN conditions t ON t.fact_id = f.fact_id WHERE f.table_name = 'conditions'
+fact:condition_literals
+  SELECT t.fact_id FROM condition_literals t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'condition_literals'
+fact-payload:condition_literals
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN condition_literals t ON t.fact_id = f.fact_id WHERE f.table_name = 'condition_literals'
 fact:boundaries
   SELECT t.fact_id FROM boundaries t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'boundaries'
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_regions', 'conditions', 'condition_literals', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -496,6 +538,18 @@ codebook:pysa_calls.implicit_receiver
   SELECT implicit_receiver FROM pysa_calls WHERE implicit_receiver IS NOT NULL AND implicit_receiver NOT IN (0, 1, 2)
 codebook:pysa_calls.unresolved_reason
   SELECT unresolved_reason FROM pysa_calls WHERE unresolved_reason IS NOT NULL AND unresolved_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+codebook:flow_uses.scope_kind
+  SELECT scope_kind FROM flow_uses WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
+codebook:flow_definitions.kind
+  SELECT kind FROM flow_definitions WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:flow_definitions.scope_kind
+  SELECT scope_kind FROM flow_definitions WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
+codebook:flow_values.sink
+  SELECT sink FROM flow_values WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
+codebook:flow_regions.scope_kind
+  SELECT scope_kind FROM flow_regions WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
+codebook:condition_literals.atom
+  SELECT atom FROM condition_literals WHERE atom IS NOT NULL AND atom NOT IN (0, 1, 2, 3, 4, 5)
 codebook:coverage.scope_kind
   SELECT scope_kind FROM coverage WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3)
 codebook:coverage.fact_family
@@ -664,6 +718,16 @@ coverage:complete
   WITH declared AS (SELECT run_id, release_id, unnest(families) AS family FROM runs), codes AS (SELECT * FROM (VALUES ('provenance', 0), ('exports', 1), ('signatures', 2), ('calls', 3), ('coverage', 4), ('publication', 5), ('graph', 6), ('syntax', 7), ('lexical', 8), ('types', 9), ('docs', 10), ('findings', 11), ('embedding_cache', 12), ('flow', 13)) AS c(family, code)), expected AS ( SELECT d.run_id, s.module_node_id, c.code FROM declared d JOIN codes c ON c.family = d.family JOIN source_files s ON s.release_id = d.release_id WHERE d.family <> 'docs' UNION ALL SELECT d.run_id, x.node_id AS module_node_id, c.code FROM declared d JOIN codes c ON c.family = d.family JOIN documents x ON x.release_id = d.release_id WHERE d.family = 'docs') SELECT e.run_id, e.module_node_id, e.code FROM expected e LEFT ANTI JOIN coverage v ON v.run_id = e.run_id AND v.scope_node_id = e.module_node_id AND v.fact_family = e.code
 coverage:family-has-scope
   WITH declared AS (SELECT run_id, release_id, unnest(families) AS family FROM runs), docs_runs AS (SELECT DISTINCT run_id, release_id FROM declared WHERE family = 'docs'), code_runs AS (SELECT DISTINCT run_id, release_id FROM declared WHERE family IN ('exports', 'signatures', 'calls', 'syntax', 'lexical', 'types')) SELECT r.run_id, 'docs' AS family FROM docs_runs r LEFT ANTI JOIN documents x ON x.release_id = r.release_id UNION ALL SELECT r.run_id, 'code' AS family FROM code_runs r LEFT ANTI JOIN source_files s ON s.release_id = r.release_id
+semantic:flow-use-is-a-reference
+  SELECT u.use_id FROM flow_uses u LEFT ANTI JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte WHERE NOT u.annotation AND strpos(place, '.') = 0 AND strpos(place, '[') = 0
+semantic:reference-is-a-flow-use
+  SELECT r.node_id FROM references r JOIN (SELECT scope_node_id AS module_node_id FROM coverage WHERE fact_family = 13 AND status = 0) m ON m.module_node_id = r.module_node_id LEFT ANTI JOIN flow_uses u ON u.module_node_id = r.module_node_id AND u.start_byte = r.start_byte AND u.end_byte = r.end_byte
+semantic:flow-definition-is-a-binding
+  SELECT d.definition_id FROM flow_definitions d LEFT ANTI JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte WHERE strpos(place, '.') = 0 AND strpos(place, '[') = 0
+semantic:binding-is-a-flow-definition
+  SELECT b.node_id FROM bindings b JOIN (SELECT scope_node_id AS module_node_id FROM coverage WHERE fact_family = 13 AND status = 0) m ON m.module_node_id = b.module_node_id LEFT ANTI JOIN flow_definitions d ON d.module_node_id = b.module_node_id AND d.start_byte = b.start_byte AND d.end_byte = b.end_byte WHERE b.kind NOT IN (16, 17, 15, 20, 11)
+semantic:flow-reaching-within-candidates
+  SELECT fr.use_id FROM flow_reaching fr JOIN flow_uses u ON u.use_id = fr.use_id JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte JOIN flow_definitions d ON d.definition_id = fr.definition_id JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte LEFT ANTI JOIN reference_resolutions rr ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id
 semantic:pysa-signatures-placed
   SELECT m.module_node_id, m.function_key FROM provider_node_map m              JOIN pysa_functions f                ON f.module_node_id = m.module_node_id AND f.function_key = m.function_key              LEFT ANTI JOIN signatures s                ON s.module_node_id = m.module_node_id AND s.function_key = m.function_key              WHERE m.node_id IS NOT NULL AND f.signature_count > 0
 semantic:resolution-has-boundary

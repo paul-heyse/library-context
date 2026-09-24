@@ -90,7 +90,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        39 + 21 + 25,
+        46 + 21 + 25,
         "every raw, derived and analysis table"
     );
 
@@ -392,7 +392,7 @@ async fn every_rule_kind_rejects_its_violation() {
     let s = Id([4; 16]);
     let base = raw("pysa_variants", s);
     type Mutation = fn(&mut Vec<(&'static str, RecordBatch)>);
-    let cases: [(&str, Mutation); 24] = [
+    let cases: [(&str, Mutation); 29] = [
         ("key:declarations", |raw| {
             let b = table(raw, "declarations");
             *b = arrow_select::concat::concat_batches(&b.schema(), [&*b, &b.slice(0, 1)]).unwrap();
@@ -498,6 +498,67 @@ async fn every_rule_kind_rejects_its_violation() {
                 })
                 .collect();
             *b = replace(b, "target_key", Arc::new(keys));
+        }),
+        // ADR-0022 §The flow provider: parity with ty, both ways, and reaching within our
+        // candidates. A name use moved off every reference...
+        ("semantic:flow-use-is-a-reference", |raw| {
+            let b = table(raw, "flow_uses");
+            let shift = |c: &str| -> Arc<dyn Array> {
+                let a = b
+                    .column(b.schema().index_of(c).unwrap())
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap();
+                Arc::new(
+                    a.iter()
+                        .map(|v| v.map(|v| v + 1_000_000))
+                        .collect::<Int64Array>(),
+                )
+            };
+            let (start, end) = (shift("start_byte"), shift("end_byte"));
+            *b = replace(&replace(b, "start_byte", start), "end_byte", end);
+        }),
+        // ...a reference ty never read...
+        ("semantic:reference-is-a-flow-use", |raw| {
+            keep_rows(raw, "flow_uses", "place", |_| false);
+        }),
+        // ...a definition no binding matches...
+        ("semantic:flow-definition-is-a-binding", |raw| {
+            let b = table(raw, "flow_definitions");
+            let shift = |c: &str| -> Arc<dyn Array> {
+                let a = b
+                    .column(b.schema().index_of(c).unwrap())
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap();
+                Arc::new(
+                    a.iter()
+                        .map(|v| v.map(|v| v + 1_000_000))
+                        .collect::<Int64Array>(),
+                )
+            };
+            let (start, end) = (shift("start_byte"), shift("end_byte"));
+            *b = replace(&replace(b, "start_byte", start), "end_byte", end);
+        }),
+        // ...a binding ty never defined...
+        ("semantic:binding-is-a-flow-definition", |raw| {
+            keep_rows(raw, "flow_definitions", "place", |_| false);
+        }),
+        // ...and a use reached by a definition we never resolve it to (every reaching row points
+        // at the first definition).
+        ("semantic:flow-reaching-within-candidates", |raw| {
+            let first = table(raw, "flow_definitions")
+                .column_by_name("definition_id")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap()
+                .value(0)
+                .to_vec();
+            let b = table(raw, "flow_reaching");
+            let ids = FixedSizeBinaryArray::try_from_iter(std::iter::repeat_n(first, b.num_rows()))
+                .unwrap();
+            *b = replace(b, "definition_id", Arc::new(ids));
         }),
         // Review O2: two rows asserting one argument id are a collision, never merged.
         ("key:nodes", |raw| {

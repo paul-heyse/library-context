@@ -1759,8 +1759,9 @@ async fn all_techniques_guard() {
     // Moved by declared migrations: the behavioral-model plan's Stage 1 (ADR-0021: nine behavior
     // tables, their site columns and status reasons, the `pass_b_surface` invocation), then
     // increment 3's deep review (one verdict per arc, the status over the region, class facets,
-    // `operation_facet_status` and `behavior_steps`). The analysis ledger (Stage E/F's own output)
-    // did not move.
-    const GUARD: &str = "e3e137af3e7e47e3a58542a02414c8a53350ffa6feb01feb34dedb4f4b0b7ca5";
+    // `operation_facet_status` and `behavior_steps`), then Stage 2.3 (the `flow` family moves the
+    // producer, and so the run-scoped fact ids evidence cites). The analysis ledger (Stage E/F's
+    // own output) did not move.
+    const GUARD: &str = "b37824b5a08aa9b98e8d44ddabd19de8e357bc17bc5c95fbe08e8819f6de3a0d";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }

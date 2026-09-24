@@ -1,0 +1,24 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_definitions
+family flow
+key snapshot_id, module_node_id, start_byte, end_byte, definition_id, fact_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+check value_span_order: (value_start_byte IS NULL AND value_end_byte IS NULL) OR (value_start_byte >= 0 AND value_end_byte >= value_start_byte)
+@lctx.family=flow
+@lctx.table=flow_definitions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+definition_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+place: Utf8 NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=binding_kind]
+scope_kind: Int16 NOT NULL [lctx.codebook=lexical_scope_kind]
+scope_start_byte: Int64 NULL
+scope_end_byte: Int64 NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+value_start_byte: Int64 NULL
+value_end_byte: Int64 NULL

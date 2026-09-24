@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_values
+family flow
+key snapshot_id, module_node_id, sink_start_byte, sink_end_byte, use_id, fact_id
+check sink_span_order: sink_start_byte >= 0 AND sink_end_byte >= sink_start_byte
+@lctx.family=flow
+@lctx.table=flow_values
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+sink: Int16 NOT NULL [lctx.codebook=flow_sink]
+sink_start_byte: Int64 NOT NULL
+sink_end_byte: Int64 NOT NULL
+use_id: FixedSizeBinary(16) NOT NULL
+identity: Boolean NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL

@@ -25,6 +25,8 @@ pub(crate) enum Surface {
     Docs,
     /// Pyrefly's docstring parameter parser (`parse_parameter_documentation`, slice 2.1).
     PyreflyDocstring,
+    /// ty's semantic index read through `cpg-flow` (ADR-0022 §The flow provider).
+    TyFlow,
 }
 
 impl Surface {
@@ -40,6 +42,7 @@ impl Surface {
             Surface::MarkdownRs => "markdown-rs",
             Surface::Docs => "lctx-docs",
             Surface::PyreflyDocstring => "pyrefly-docstring",
+            Surface::TyFlow => "ty-flow",
         }
     }
 }

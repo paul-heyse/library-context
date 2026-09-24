@@ -1209,6 +1209,7 @@ dependencies = [
  "arrow-select",
  "base64 0.22.1",
  "clap",
+ "cpg-flow",
  "cpg-schema",
  "csv",
  "fs-err",

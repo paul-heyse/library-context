@@ -1,0 +1,15 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_reaching
+family flow
+key snapshot_id, use_id, fact_id
+@lctx.family=flow
+@lctx.table=flow_reaching
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+use_id: FixedSizeBinary(16) NOT NULL
+definition_id: FixedSizeBinary(16) NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+loop_carried: Boolean NOT NULL

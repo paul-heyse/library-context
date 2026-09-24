@@ -2,8 +2,8 @@
 //! each release module, read as our runtime flow facts.
 //!
 //! For each module, from the same text Pyrefly parsed:
-//! - **uses**: every place load ty records (a name, an attribute chain, a literal subscript), an
-//!   augmented assignment's target, a `del` target;
+//! - **uses**: every place load ty records (a name, an attribute chain, a literal subscript) and
+//!   an augmented assignment's target; a `del` target is an unbinding, as in our lexical model;
 //! - **definitions**: every binding ty records, each with its place, kind, target span and value;
 //! - **reaching definitions**: per use, the definitions that reach it, each under the condition of
 //!   its reachability at the use (a path condition from the scope's entry). ty's loop-header
@@ -94,6 +94,8 @@ pub struct Use {
     pub scope: Scope,
     pub place: String,
     pub span: Span,
+    /// Inside an annotation: `references` does not model these as reads (the parity residue).
+    pub annotation: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +163,9 @@ pub struct ModuleFlow {
     pub regions: Vec<Region>,
     /// `TYPE_CHECKING` words renamed.
     pub renamed: u32,
+    /// Syntax errors ty's parser recovered from: the facts come from a recovered tree, as every
+    /// other family's do.
+    pub syntax_errors: usize,
     pub error: Option<String>,
 }
 
@@ -248,9 +253,7 @@ fn module(
     let file = system_path_to_file(db, path).map_err(|e| e.to_string())?;
     let pf = ProgramFile::new(db, file, program);
     let parsed = parsed_module(db, pf.python_file(db)).load(db);
-    if !parsed.errors().is_empty() {
-        return Err(format!("{} syntax errors", parsed.errors().len()));
-    }
+    let syntax_errors = parsed.errors().len();
     let index = semantic_index(db, pf);
     let t = Translator {
         db,
@@ -269,10 +272,20 @@ fn module(
         def_of: HashMap::new(),
         diagrams: HashMap::new(),
         regions: HashMap::new(),
+        in_annotation: false,
     };
-    // Definitions first, scope by scope, so reaching rows can name them.
+    // Definitions first, scope by scope, so reaching rows can name them. A class's or an alias's
+    // PEP 695 type parameters are not modelled by our lexical recognizer (DESIGN §3.2), so they
+    // are not definitions here either.
     for scope in index.scope_ids() {
         let fid = scope.file_scope_id(db);
+        if matches!(
+            index.scope(fid).node(),
+            NodeWithScopeKind::ClassTypeParameters(_)
+                | NodeWithScopeKind::TypeAliasTypeParameters(_)
+        ) {
+            continue;
+        }
         let Some(sc) = w.scope(fid) else { continue };
         let map = index.use_def_map(fid);
         for (_, d, _) in map.definitions_with_usage() {
@@ -287,7 +300,10 @@ fn module(
     for stmt in parsed.suite() {
         v.visit_stmt(stmt);
     }
-    Ok(w.flow)
+    Ok(ModuleFlow {
+        syntax_errors,
+        ..w.flow
+    })
 }
 
 struct Walk<'a, 'db> {
@@ -302,6 +318,8 @@ struct Walk<'a, 'db> {
     diagrams: HashMap<FileScopeId, HashMap<ScopedReachabilityConstraintId, Condition>>,
     /// Per scope, its range-reachability entries in recording order.
     regions: HashMap<FileScopeId, Vec<(TextRange, Condition)>>,
+    /// The visitor is inside an annotation.
+    in_annotation: bool,
 }
 
 impl<'db> Walk<'_, 'db> {
@@ -338,10 +356,14 @@ impl<'db> Walk<'_, 'db> {
                 LexicalScopeKind::Comprehension,
                 Some(c.node(self.parsed).range()),
             ),
+            // PEP 695 type parameters and alias values: attributed to the enclosing scope, as
+            // our lexical recognizer does (it does not model annotation scopes), and read lazily.
             NodeWithScopeKind::ClassTypeParameters(_)
             | NodeWithScopeKind::FunctionTypeParameters(_)
             | NodeWithScopeKind::TypeAliasTypeParameters(_)
-            | NodeWithScopeKind::TypeAlias(_) => return None,
+            | NodeWithScopeKind::TypeAlias(_) => {
+                return self.index.parent_scope_id(fid).and_then(|p| self.scope(p));
+            }
         };
         Some(Scope {
             kind,
@@ -349,11 +371,31 @@ impl<'db> Walk<'_, 'db> {
         })
     }
 
+    /// A PEP 695 type-parameter or alias scope: its reads are evaluated lazily, like annotations.
+    fn lazy(&self, fid: FileScopeId) -> bool {
+        matches!(
+            self.index.scope(fid).node(),
+            NodeWithScopeKind::ClassTypeParameters(_)
+                | NodeWithScopeKind::FunctionTypeParameters(_)
+                | NodeWithScopeKind::TypeAliasTypeParameters(_)
+                | NodeWithScopeKind::TypeAlias(_)
+        )
+    }
+
     /// Record a definition once; loop headers and nested-binding markers are not definitions of
     /// ours (`None`).
     fn def(&mut self, scope: Scope, d: Definition<'db>) -> Option<u32> {
         if let Some(ix) = self.def_of.get(&d) {
             return *ix;
+        }
+        if matches!(
+            self.index.scope(d.file_scope(self.db)).node(),
+            NodeWithScopeKind::ClassTypeParameters(_)
+                | NodeWithScopeKind::TypeAliasTypeParameters(_)
+        ) {
+            // Not modelled by our lexical recognizer (see `module`).
+            self.def_of.insert(d, None);
+            return None;
         }
         let m = self.parsed;
         let kind = d.kind(self.db);
@@ -409,14 +451,12 @@ impl<'db> Walk<'_, 'db> {
         let target = match kind {
             // The bound name, where our bindings put it (ADR-0022 normalization).
             DefinitionKind::Import(i) => {
+                // `import a.b` binds `a`, and our bindings place it on the whole dotted name.
                 let alias = i.alias(m);
-                alias.asname.as_ref().map_or_else(
-                    || {
-                        let first = alias.name.as_str().split('.').next().unwrap_or_default();
-                        TextRange::at(alias.name.start(), (first.len() as u32).into())
-                    },
-                    Ranged::range,
-                )
+                alias
+                    .asname
+                    .as_ref()
+                    .map_or(alias.name.range(), Ranged::range)
             }
             DefinitionKind::ImportFrom(i) => {
                 let alias = i.alias(m);
@@ -481,7 +521,12 @@ impl<'db> Walk<'_, 'db> {
         let place = self.unsentinel(&place.to_string(), e.range());
         let use_id = ast::ExprRef::from(e).scoped_use_id(self.db, self.pf);
         let ix = self.flow.uses.len() as u32;
-        self.flow.uses.push(Use { scope, place, span });
+        self.flow.uses.push(Use {
+            scope,
+            place,
+            span,
+            annotation: self.in_annotation || self.lazy(fid),
+        });
         self.use_of.insert(span, ix);
         let bindings: Vec<(DefinitionState<'db>, _)> = self
             .map(fid)
@@ -811,12 +856,19 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
         }
     }
 
+    fn visit_annotation(&mut self, e: &'ast Expr) {
+        let outer = std::mem::replace(&mut self.w.in_annotation, true);
+        self.visit_expr(e);
+        self.w.in_annotation = outer;
+    }
+
     fn visit_expr(&mut self, e: &'ast Expr) {
         source_order::walk_expr(self, e);
+        // A `del` target is an unbinding in our model (`bindings` kind `del`), not a read.
         let is_use = match e {
-            Expr::Name(n) => matches!(n.ctx, ExprContext::Load | ExprContext::Del),
-            Expr::Attribute(a) => matches!(a.ctx, ExprContext::Load | ExprContext::Del),
-            Expr::Subscript(s) => matches!(s.ctx, ExprContext::Load | ExprContext::Del),
+            Expr::Name(n) => matches!(n.ctx, ExprContext::Load),
+            Expr::Attribute(a) => matches!(a.ctx, ExprContext::Load),
+            Expr::Subscript(s) => matches!(s.ctx, ExprContext::Load),
             _ => false,
         } || self.aug.contains(&e.range());
         if is_use && PlaceExpr::try_from_expr(e).is_some() {

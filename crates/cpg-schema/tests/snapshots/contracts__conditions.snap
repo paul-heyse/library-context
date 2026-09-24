@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table conditions
+family flow
+key snapshot_id, condition_id, fact_id
+@lctx.family=flow
+@lctx.table=conditions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+encoding: Utf8 NOT NULL
+stated: Boolean NOT NULL

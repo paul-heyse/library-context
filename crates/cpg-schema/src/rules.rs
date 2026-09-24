@@ -184,7 +184,86 @@ fn quoted(values: impl IntoIterator<Item = impl std::fmt::Display>) -> String {
 /// Rules that span tables in ways no declaration captures.
 fn semantic() -> Vec<Rule> {
     let calls = FactFamily::Calls.code();
-    [
+    // The flow family's parity with ours (ADR-0022 §The flow provider), over modules the
+    // provider indexed completely.
+    let flow_complete = format!(
+        "SELECT scope_node_id AS module_node_id FROM coverage \
+         WHERE fact_family = {flow} AND status = {complete}",
+        flow = FactFamily::Flow.code(),
+        complete = crate::codebook::CoverageStatus::CompleteUnderStatedModel.code(),
+    );
+    let name_place = "strpos(place, '.') = 0 AND strpos(place, '[') = 0";
+    // Bindings ty never defines as such: `global`/`nonlocal` declarations, `del`, names the
+    // runtime binds with no statement, and a star import (ours is the `*`; ty's are the names it
+    // brings in).
+    let not_defined = crate::flows::codes(&[
+        crate::codebook::BindingKind::Global,
+        crate::codebook::BindingKind::Nonlocal,
+        crate::codebook::BindingKind::Del,
+        crate::codebook::BindingKind::Implicit,
+        crate::codebook::BindingKind::StarImport,
+    ]);
+    let flow_rules = [
+        (
+            // Every name ty reads, outside annotations, is one of our references.
+            "semantic:flow-use-is-a-reference",
+            format!(
+                "SELECT u.use_id FROM flow_uses u \
+                 LEFT ANTI JOIN references r ON r.module_node_id = u.module_node_id \
+                   AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte \
+                 WHERE NOT u.annotation AND {name_place}"
+            ),
+        ),
+        (
+            // Every reference in a completely indexed module is a use ty reads (the direction
+            // that protects negative answers; the Stage 2 review's F5).
+            "semantic:reference-is-a-flow-use",
+            format!(
+                "SELECT r.node_id FROM references r \
+                 JOIN ({flow_complete}) m ON m.module_node_id = r.module_node_id \
+                 LEFT ANTI JOIN flow_uses u ON u.module_node_id = r.module_node_id \
+                   AND u.start_byte = r.start_byte AND u.end_byte = r.end_byte"
+            ),
+        ),
+        (
+            // Every name ty defines is one of our bindings.
+            "semantic:flow-definition-is-a-binding",
+            format!(
+                "SELECT d.definition_id FROM flow_definitions d \
+                 LEFT ANTI JOIN bindings b ON b.module_node_id = d.module_node_id \
+                   AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte \
+                 WHERE {name_place}"
+            ),
+        ),
+        (
+            // Every binding a statement makes, in a completely indexed module, is a definition ty
+            // records.
+            "semantic:binding-is-a-flow-definition",
+            format!(
+                "SELECT b.node_id FROM bindings b \
+                 JOIN ({flow_complete}) m ON m.module_node_id = b.module_node_id \
+                 LEFT ANTI JOIN flow_definitions d ON d.module_node_id = b.module_node_id \
+                   AND d.start_byte = b.start_byte AND d.end_byte = b.end_byte \
+                 WHERE b.kind NOT IN ({not_defined})"
+            ),
+        ),
+        (
+            // ty's reaching definitions of a name lie within our candidate bindings for it (the
+            // Stage 2.1 spike's exit test, kept).
+            "semantic:flow-reaching-within-candidates",
+            "SELECT fr.use_id FROM flow_reaching fr \
+             JOIN flow_uses u ON u.use_id = fr.use_id \
+             JOIN references r ON r.module_node_id = u.module_node_id \
+               AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte \
+             JOIN flow_definitions d ON d.definition_id = fr.definition_id \
+             JOIN bindings b ON b.module_node_id = d.module_node_id \
+               AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte \
+             LEFT ANTI JOIN reference_resolutions rr \
+               ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id"
+                .to_owned(),
+        ),
+    ];
+    flow_rules.into_iter().chain([
         (
             // F2: every Pysa function with signatures is some signature row's callable.
             "semantic:pysa-signatures-placed",
@@ -823,8 +902,7 @@ fn semantic() -> Vec<Rule> {
                 release = SourceRole::Release.code()
             ),
         ),
-    ]
-    .into_iter()
+    ])
     .map(|(name, sql)| Rule {
         name: name.to_owned(),
         sql,
