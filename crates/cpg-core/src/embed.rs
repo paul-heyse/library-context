@@ -205,14 +205,6 @@ pub async fn embed_documents(
     let mut requests: Vec<(cpg_schema::id::Digest, String)> = Vec::new();
     for doc in docs.iter_mut() {
         let request = spec.document_text(&doc.text);
-        let tokens = embedder.count_tokens(&request).await?;
-        if tokens > spec.max_document_tokens as usize {
-            return Err(CoreError::Embed(format!(
-                "a brief document chunk is {tokens} tokens, over the {}-token cap (the byte proxy \
-                 that split it undercounted)",
-                spec.max_document_tokens
-            )));
-        }
         let key = input_hash(&request);
         doc.spec_hash = Some(spec_hash);
         doc.input_hash = Some(key);
@@ -224,29 +216,28 @@ pub async fn embed_documents(
     let have = cached_keys(root, spec_hash, requests.iter().map(|r| r.0)).await?;
     let missing: Vec<&(Digest, String)> =
         requests.iter().filter(|r| !have.contains(&r.0)).collect();
-    let mut rows = Vec::new();
-    for chunk in missing.chunks(BATCH) {
-        let texts: Vec<String> = chunk.iter().map(|r| r.1.clone()).collect();
-        let vectors = embedder.embed(&texts).await?;
-        if vectors.len() != texts.len() {
+    // The token cap, for the keys the cache lacks only (the holistic assessment's D3): a cached
+    // key's request text passed it when it was embedded, under this spec's tokenizer, so a fully
+    // cached compile needs no service.
+    for (_, request) in &missing {
+        let tokens = embedder.count_tokens(request).await?;
+        if tokens > spec.max_document_tokens as usize {
             return Err(CoreError::Embed(format!(
-                "{} vectors for {} texts",
-                vectors.len(),
-                texts.len()
+                "a brief document chunk is {tokens} tokens, over the {}-token cap (the byte proxy \
+                 that split it undercounted)",
+                spec.max_document_tokens
             )));
         }
-        for ((key, _), vector) in chunk.iter().copied().zip(vectors) {
-            check_vector(&vector, spec.dimensions).map_err(CoreError::Embed)?;
-            rows.push(EmbeddingCacheRow {
-                spec_hash,
-                input_hash: *key,
-                vector,
-                model: spec.model.clone(),
-            });
-        }
     }
+    let texts: Vec<(Digest, &String)> = missing.iter().map(|(k, r)| (*k, r)).collect();
+    let (rows, failed) = embed_batches(embedder, &texts).await;
+    // Completed batches are kept even when a later one fails (the insert-only MERGE is
+    // idempotent), so a rerun embeds only what is still missing.
     let batch = EmbeddingCache::to_sorted_batch(&rows)?;
     let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
+    if let Some(e) = failed {
+        return Err(e);
+    }
     // The snapshot's keys: its documents' and the analytics' (E0, slice 3.1), sorted and distinct.
     let mut keys: Vec<Digest> = requests
         .iter()
@@ -298,36 +289,58 @@ pub async fn embed_texts(
         .filter(|(k, _)| !vectors.contains_key(*k))
         .map(|(k, r)| (*k, *r))
         .collect();
-    let mut rows = Vec::new();
-    for chunk in missing.chunks(BATCH) {
-        let batch: Vec<String> = chunk.iter().map(|(_, r)| (*r).clone()).collect();
-        let embedded = embedder.embed(&batch).await?;
-        if embedded.len() != batch.len() {
-            return Err(CoreError::Embed(format!(
-                "{} vectors for {} texts",
-                embedded.len(),
-                batch.len()
-            )));
-        }
-        for ((key, _), vector) in chunk.iter().zip(embedded) {
-            check_vector(&vector, spec.dimensions).map_err(CoreError::Embed)?;
-            vectors.insert(*key, vector.clone());
-            rows.push(EmbeddingCacheRow {
-                spec_hash,
-                input_hash: *key,
-                vector,
-                model: spec.model.clone(),
-            });
-        }
+    let (rows, failed) = embed_batches(embedder, &missing).await;
+    for row in &rows {
+        vectors.insert(row.input_hash, row.vector.clone());
     }
+    // Completed batches are kept even when a later one fails (the holistic assessment's D3).
     let batch = EmbeddingCache::to_sorted_batch(&rows)?;
     let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
+    if let Some(e) = failed {
+        return Err(e);
+    }
     let out = requests
         .iter()
         .map(|(k, _)| vectors.get(k).cloned())
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| CoreError::Embed("a text without a vector".to_owned()))?;
     Ok((out, unique.into_keys().collect(), version))
+}
+
+/// Embed `(key, request text)` pairs in batches of [`BATCH`], checking each vector: the cache rows
+/// of every batch that completed, and the first failure, after which nothing more is sent.
+async fn embed_batches(
+    embedder: &dyn Embedder,
+    requests: &[(Digest, &String)],
+) -> (Vec<EmbeddingCacheRow>, Option<CoreError>) {
+    let spec = embedder.spec();
+    let spec_hash = spec.hash();
+    let mut rows = Vec::new();
+    for chunk in requests.chunks(BATCH) {
+        let texts: Vec<String> = chunk.iter().map(|(_, r)| (*r).clone()).collect();
+        let vectors = match embedder.embed(&texts).await {
+            Ok(v) if v.len() == texts.len() => v,
+            Ok(v) => {
+                let e = format!("{} vectors for {} texts", v.len(), texts.len());
+                return (rows, Some(CoreError::Embed(e)));
+            }
+            Err(e) => return (rows, Some(e)),
+        };
+        let mut checked = Vec::with_capacity(vectors.len());
+        for ((key, _), vector) in chunk.iter().zip(vectors) {
+            if let Err(e) = check_vector(&vector, spec.dimensions) {
+                return (rows, Some(CoreError::Embed(e)));
+            }
+            checked.push(EmbeddingCacheRow {
+                spec_hash,
+                input_hash: *key,
+                vector,
+                model: spec.model.clone(),
+            });
+        }
+        rows.extend(checked);
+    }
+    (rows, None)
 }
 
 /// Every cached vector of `spec_hash`, by key (the global read mode).
@@ -429,5 +442,111 @@ mod tests {
             format!("Instruct: {}\nQuery:add a tool", s.query_task)
         );
         assert_eq!(s.document_text("x"), "x");
+    }
+
+    /// The fake embedder, counting what it is asked, and failing its `fail_on`-th batch.
+    struct Probe {
+        fake: FakeEmbedder,
+        counted: std::sync::atomic::AtomicUsize,
+        embedded: std::sync::atomic::AtomicUsize,
+        batches: std::sync::atomic::AtomicUsize,
+        fail_on: Option<usize>,
+    }
+
+    impl Probe {
+        fn new(fail_on: Option<usize>) -> Self {
+            Probe {
+                fake: FakeEmbedder::new(),
+                counted: Default::default(),
+                embedded: Default::default(),
+                batches: Default::default(),
+                fail_on,
+            }
+        }
+        fn get(n: &std::sync::atomic::AtomicUsize) -> usize {
+            n.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl Embedder for Probe {
+        fn spec(&self) -> &Spec {
+            self.fake.spec()
+        }
+        fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize> {
+            self.counted
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.fake.count_tokens(request_text)
+        }
+        fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
+            let n = self
+                .batches
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            if self.fail_on == Some(n) {
+                return Box::pin(async {
+                    Err(CoreError::Embed("the service went down".to_owned()))
+                });
+            }
+            self.embedded
+                .fetch_add(request_texts.len(), std::sync::atomic::Ordering::SeqCst);
+            self.fake.embed(request_texts)
+        }
+    }
+
+    fn document(text: &str) -> BriefDocumentsRow {
+        BriefDocumentsRow {
+            snapshot_id: Id([1; 16]),
+            brief_id: Id([2; 16]),
+            chunk: 0,
+            text: text.to_owned(),
+            spec_hash: None,
+            input_hash: None,
+        }
+    }
+
+    /// The holistic assessment's D3: a cached document is neither counted nor embedded again, so
+    /// a fully cached compile needs no service.
+    #[tokio::test]
+    async fn only_documents_the_cache_lacks_are_counted_and_embedded() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = Probe::new(None);
+        let mut docs = vec![document("alpha"), document("beta")];
+        embed_documents(dir.path(), Id([1; 16]), &first, &mut docs, &[])
+            .await
+            .unwrap();
+        assert_eq!(Probe::get(&first.counted), 2);
+        let second = Probe::new(None);
+        let mut again = vec![document("alpha"), document("beta"), document("gamma")];
+        embed_documents(dir.path(), Id([3; 16]), &second, &mut again, &[])
+            .await
+            .unwrap();
+        assert_eq!(Probe::get(&second.counted), 1);
+        assert_eq!(Probe::get(&second.embedded), 1);
+        let cached = Probe::new(None);
+        let mut all = vec![document("gamma"), document("alpha")];
+        embed_documents(dir.path(), Id([4; 16]), &cached, &mut all, &[])
+            .await
+            .unwrap();
+        assert_eq!(Probe::get(&cached.counted) + Probe::get(&cached.batches), 0);
+    }
+
+    /// D3: when a later batch fails, the batches before it are merged, so a rerun embeds only
+    /// what is still missing.
+    #[tokio::test]
+    async fn completed_batches_survive_a_later_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let texts: Vec<String> = (0..BATCH + 8).map(|i| format!("text {i}")).collect();
+        let failing = Probe::new(Some(2));
+        assert!(
+            embed_texts(dir.path(), Id([1; 16]), &failing, &texts)
+                .await
+                .is_err()
+        );
+        let rerun = Probe::new(None);
+        let (vectors, keys, _) = embed_texts(dir.path(), Id([2; 16]), &rerun, &texts)
+            .await
+            .unwrap();
+        assert_eq!(Probe::get(&rerun.embedded), 8);
+        assert_eq!((vectors.len(), keys.len()), (BATCH + 8, BATCH + 8));
     }
 }

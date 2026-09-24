@@ -2796,6 +2796,13 @@ template, dimensions, output dtype and normalization.
   exercises the real HTTP path; an unreachable service is `blocked`, never fake. It uses the
   `reqwest` 0.12.28 already in the lock, without TLS (the service is local).
 - **Token counts** come from the service's `/tokenize`; an over-cap document fails the compile.
+  Since the holistic assessment's D3 (2026-09-24), only keys the cache lacks are counted (a cached
+  key passed the cap when it was embedded), so a fully cached `--embedder vllm` compile needs no
+  service; batches completed before a failing one are merged, so a rerun embeds only what is
+  missing; the client has a 10 s connect and a 300 s request timeout; and the request bodies are
+  typed structs, so their key order does not depend on `serde_json`'s features (the bytes are
+  unchanged, held to `request_bodies.json`). Tested: `only_documents_the_cache_lacks_are_counted_and_embedded`,
+  `completed_batches_survive_a_later_failure`.
 - **The fake embedder** (`FakeEmbedder`, its own spec) draws a unit vector by splitmix64 from the
   request text's SHA-256, so Python reproduces it with its standard library.
 - **The cache** is written by an insert-only MERGE (`delta::merge_global`), probed at the pinned

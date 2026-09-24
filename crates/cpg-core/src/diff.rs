@@ -16,6 +16,7 @@ use serde::Serialize;
 use crate::CoreError;
 use crate::snapshot::published;
 use crate::sql;
+use cpg_schema::codebook::{AssertionKind, EvidenceStatus};
 use cpg_schema::id::Id;
 
 /// One table's ids compared.
@@ -47,24 +48,46 @@ pub struct Diff {
     pub changed: Vec<BriefChange>,
 }
 
-/// The ids compared: each table's content id, as text (a document by its brief, chunk and text).
-const IDS: [(&str, &str); 5] = [
-    ("findings", "encode(finding_id, 'hex')"),
-    ("assertions", "encode(assertion_id, 'hex')"),
-    ("evidence", "encode(evidence_id, 'hex')"),
-    ("briefs", "encode(brief_id, 'hex')"),
-    (
-        "brief_documents",
-        "encode(brief_id, 'hex') || ':' || CAST(chunk AS VARCHAR) || ':' \
-         || encode(sha256(text), 'hex')",
-    ),
-];
+/// The ids compared: each table's content id, as text. A document is keyed by its brief's seed,
+/// its chunk and its text (the ADR-0020 review's F7), not by its brief's id, which moves with any
+/// assertion: a document no technique reaches compares equal.
+fn id_queries() -> [(&'static str, &'static str); 5] {
+    [
+        (
+            "findings",
+            "SELECT DISTINCT encode(finding_id, 'hex') FROM findings",
+        ),
+        (
+            "assertions",
+            "SELECT DISTINCT encode(assertion_id, 'hex') FROM assertions",
+        ),
+        (
+            "evidence",
+            "SELECT DISTINCT encode(evidence_id, 'hex') FROM evidence",
+        ),
+        (
+            "briefs",
+            "SELECT DISTINCT encode(brief_id, 'hex') FROM briefs",
+        ),
+        (
+            "brief_documents",
+            "SELECT DISTINCT encode(b.seed_node_id, 'hex') || ':' || CAST(d.chunk AS VARCHAR) \
+             || ':' || encode(sha256(d.text), 'hex') \
+             FROM brief_documents d JOIN briefs b ON b.brief_id = d.brief_id",
+        ),
+    ]
+}
 
-/// What a brief states, per title.
-const STATEMENTS: &str = "SELECT b.title, CAST(a.assertion_kind AS VARCHAR) AS kind, \
-     CAST(a.evidence_status AS VARCHAR) AS status, COALESCE(a.text, '') AS text \
-     FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
-     JOIN assertions a ON a.assertion_id = ba.assertion_id";
+/// What a brief states, per title, its kind and status by codebook name (the ADR-0020 review's O3).
+fn statements_query() -> String {
+    format!(
+        "SELECT b.title, {kind} AS kind, {status} AS status, COALESCE(a.text, '') AS text \
+         FROM briefs b JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id",
+        kind = crate::bundle::text_of::<AssertionKind>("a.assertion_kind"),
+        status = crate::bundle::text_of::<EvidenceStatus>("a.evidence_status"),
+    )
+}
 
 async fn strings(ctx: &SessionContext, query: &str) -> Result<Vec<Vec<String>>, CoreError> {
     let batches = sql::query(ctx, query).await?.collect().await?;
@@ -111,7 +134,7 @@ type Statements = BTreeMap<String, BTreeSet<(String, String, String)>>;
 
 async fn statements(ctx: &SessionContext) -> Result<Statements, CoreError> {
     let mut out: Statements = BTreeMap::new();
-    for row in strings(ctx, STATEMENTS).await? {
+    for row in strings(ctx, &statements_query()).await? {
         let [title, kind, status, text]: [String; 4] = row.try_into().expect("four columns");
         out.entry(title).or_default().insert((kind, status, text));
     }
@@ -122,16 +145,15 @@ async fn statements(ctx: &SessionContext) -> Result<Statements, CoreError> {
 pub async fn diff(store: &Path, from: Id, to: Id) -> Result<Diff, CoreError> {
     let (a, b) = (session(store, from).await?, session(store, to).await?);
     let mut tables = Vec::new();
-    for (table, id) in IDS {
-        let query = format!("SELECT DISTINCT {id} FROM {table}");
+    for (table, query) in id_queries() {
         let ids = |rows: Vec<Vec<String>>| -> BTreeSet<String> {
             rows.into_iter()
                 .filter_map(|r| r.into_iter().next())
                 .collect()
         };
         let (x, y) = (
-            ids(strings(&a, &query).await?),
-            ids(strings(&b, &query).await?),
+            ids(strings(&a, query).await?),
+            ids(strings(&b, query).await?),
         );
         tables.push(TableDiff {
             table,

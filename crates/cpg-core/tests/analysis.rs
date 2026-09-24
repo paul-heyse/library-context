@@ -911,17 +911,30 @@ async fn a_diff_is_a_join_on_content_ids() {
     assert!(diff.changes_published_output());
     let findings = &diff.tables[0];
     assert!(findings.only_from > 0 && findings.only_to == 0 && findings.common > 0);
-    // Only FCA's statements go: implications (13) and shared signatures (15).
+    // Only FCA's statements go: implications and shared signatures, by codebook name (the ADR-0020
+    // review's O3).
     for change in &diff.changed {
         assert!(change.added.is_empty(), "{change:?}");
         assert!(
             change
                 .removed
                 .iter()
-                .all(|(kind, _, _)| kind == "13" || kind == "15"),
+                .all(|(kind, _, _)| kind == "implication" || kind == "shared_signature"),
             "{change:?}"
         );
     }
+    // FCA's text never enters a brief document (U2, D14), so no document is one-sided, however
+    // the briefs' ids move (the ADR-0020 review's F7: documents keyed by seed, chunk and text).
+    let documents = diff
+        .tables
+        .iter()
+        .find(|t| t.table == "brief_documents")
+        .unwrap();
+    assert_eq!(
+        (documents.only_from, documents.only_to),
+        (0, 0),
+        "{documents:?}"
+    );
     insta::assert_snapshot!("diff_minus_fca", diff.render());
     let same = cpg_core::diff::diff(&store, a, a).await.unwrap();
     assert!(!same.changes_published_output());

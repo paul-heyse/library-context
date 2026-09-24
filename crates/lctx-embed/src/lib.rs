@@ -13,8 +13,7 @@
 
 use cpg_core::CoreError;
 use cpg_core::embed::{EmbedFuture, Embedder, Spec, check_vector};
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
 
 /// The committed spec (canonical JSON; its SHA-256 is the spec hash).
 pub const QWEN_SPEC: &str = include_str!("../../../specs/embedding/qwen3-embedding-8b.json");
@@ -24,13 +23,29 @@ pub fn qwen_spec() -> Spec {
     serde_json::from_str(QWEN_SPEC).expect("the committed spec parses")
 }
 
+/// An embeddings request (the holistic assessment's D3): a struct, so its key order is its field
+/// order whatever `serde_json` features the build enables (DataFusion turns on `preserve_order`).
+#[derive(Serialize)]
+struct EmbeddingsRequest<'a> {
+    model: &'a str,
+    input: &'a [String],
+    encoding_format: &'a str,
+}
+
+/// A tokenize request: the model and one prompt.
+#[derive(Serialize)]
+struct TokenizeRequest<'a> {
+    model: &'a str,
+    prompt: &'a str,
+}
+
 /// The embedding request body for request texts: the model, the texts, float encoding.
 pub fn request_body(spec: &Spec, request_texts: &[String]) -> Vec<u8> {
-    serde_json::to_vec(&json!({
-        "model": spec.model,
-        "input": request_texts,
-        "encoding_format": "float",
-    }))
+    serde_json::to_vec(&EmbeddingsRequest {
+        model: &spec.model,
+        input: request_texts,
+        encoding_format: "float",
+    })
     .expect("a request serializes")
 }
 
@@ -81,6 +96,12 @@ pub fn parse_embeddings(spec: &Spec, n: usize, body: &[u8]) -> Result<Vec<Vec<f3
         .collect()
 }
 
+/// How long a connection to the service may take.
+pub const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long one request may take: a batch of 32 documents at the 2,048-token cap is about 65,000
+/// tokens, seconds of work for the served model.
+pub const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// A vLLM service at `base` (e.g. `http://127.0.0.1:8000`) under the committed spec.
 pub struct VllmEmbedder {
     base: String,
@@ -93,7 +114,12 @@ impl VllmEmbedder {
         Self {
             base: base.trim_end_matches('/').to_owned(),
             spec,
-            client: reqwest::Client::new(),
+            // The holistic assessment's D3: a hung service fails the compile rather than hanging it.
+            client: reqwest::Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(REQUEST_TIMEOUT)
+                .build()
+                .expect("a client builds"),
         }
     }
 
@@ -131,10 +157,10 @@ impl Embedder for VllmEmbedder {
 
     fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize> {
         Box::pin(async move {
-            let body = serde_json::to_vec(&json!({
-                "model": self.spec.model,
-                "prompt": request_text,
-            }))
+            let body = serde_json::to_vec(&TokenizeRequest {
+                model: &self.spec.model,
+                prompt: request_text,
+            })
             .expect("a request serializes");
             let bytes = self.post("/tokenize", body).await?;
             let parsed: Tokenized = serde_json::from_slice(&bytes)

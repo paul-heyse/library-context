@@ -69,7 +69,7 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 /// A codebook column as its text.
-fn text_of<C: Codebook>(expr: &str) -> String {
+pub(crate) fn text_of<C: Codebook>(expr: &str) -> String {
     let arms: String = C::all()
         .iter()
         .map(|c| format!(" WHEN {} THEN '{}'", c.code(), c.text()))

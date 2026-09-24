@@ -7,10 +7,10 @@ diff 07070707070707070707070707070707 -> 08080808080808080808080808080808
   assertions       only in from      4, only in to      0, common     89
   evidence         only in from      0, only in to      0, common     52
   briefs           only in from      1, only in to      1, common      5
-  brief_documents  only in from      1, only in to      1, common      5
+  brief_documents  only in from      0, only in to      0, common      6
 ~ brief pkg.Catalog.add_tool
-    - [13/0] Among the public APIs of `pkg.Catalog`, every one that declares the parameter `name` also declares the parameters `fn` and `tags`, a parameter typed `set[str] | None`, a parameter typed `str | None` and the return type `None` (3 APIs).
-    - [13/0] Among the public APIs of `pkg.Catalog`, every one that declares the parameter `tags` also declares the parameters `fn` and `name`, a parameter typed `set[str] | None`, a parameter typed `str | None` and the return type `None` (3 APIs).
-    - [13/0] Among the public APIs of `pkg.Catalog`, every one that declares the return type `None` also declares the parameters `fn`, `name` and `tags`, a parameter typed `set[str] | None` and a parameter typed `str | None` (3 APIs).
-    - [15/0] Like `pkg.Catalog.add_prompt` and `pkg.Catalog.add_resource` (3 public APIs of `pkg.Catalog` in all), `pkg.Catalog.add_tool` declares the parameters `fn`, `name` and `tags`, a parameter typed `set[str] | None`, a parameter typed `str | None` and the return type `None`.
+    - [implication/structurally_observed] Among the public APIs of `pkg.Catalog`, every one that declares the parameter `name` also declares the parameters `fn` and `tags`, a parameter typed `set[str] | None`, a parameter typed `str | None` and the return type `None` (3 APIs).
+    - [implication/structurally_observed] Among the public APIs of `pkg.Catalog`, every one that declares the parameter `tags` also declares the parameters `fn` and `name`, a parameter typed `set[str] | None`, a parameter typed `str | None` and the return type `None` (3 APIs).
+    - [implication/structurally_observed] Among the public APIs of `pkg.Catalog`, every one that declares the return type `None` also declares the parameters `fn`, `name` and `tags`, a parameter typed `set[str] | None` and a parameter typed `str | None` (3 APIs).
+    - [shared_signature/structurally_observed] Like `pkg.Catalog.add_prompt` and `pkg.Catalog.add_resource` (3 public APIs of `pkg.Catalog` in all), `pkg.Catalog.add_tool` declares the parameters `fn`, `name` and `tags`, a parameter typed `set[str] | None`, a parameter typed `str | None` and the return type `None`.
 published output changed
