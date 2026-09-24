@@ -274,8 +274,8 @@ async fn names_resolve_under_python_scoping() {
 }
 
 /// Text of each row's columns, joined by ` | ` (nulls as `-`).
-async fn lines(ctx: &SessionContext, statement: &str) -> String {
-    let mut out = String::new();
+async fn rows(ctx: &SessionContext, statement: &str) -> Vec<Vec<Option<String>>> {
+    let mut out = Vec::new();
     for b in batches(ctx, statement).await {
         let cols: Vec<StringArray> = (0..b.num_columns())
             .map(|c| {
@@ -284,13 +284,22 @@ async fn lines(ctx: &SessionContext, statement: &str) -> String {
             })
             .collect();
         for i in 0..b.num_rows() {
-            let row: Vec<&str> = cols
-                .iter()
-                .map(|c| if c.is_null(i) { "-" } else { c.value(i) })
-                .collect();
-            out.push_str(&row.join(" | "));
-            out.push('\n');
+            out.push(
+                cols.iter()
+                    .map(|c| (!c.is_null(i)).then(|| c.value(i).to_owned()))
+                    .collect(),
+            );
         }
+    }
+    out
+}
+
+async fn lines(ctx: &SessionContext, statement: &str) -> String {
+    let mut out = String::new();
+    for row in rows(ctx, statement).await {
+        let row: Vec<&str> = row.iter().map(|c| c.as_deref().unwrap_or("-")).collect();
+        out.push_str(&row.join(" | "));
+        out.push('\n');
     }
     out
 }
@@ -540,6 +549,48 @@ async fn a_corpus_documents_its_library() {
          FROM doc_links l JOIN passages p ON p.node_id = l.passage_node_id ORDER BY l.start_byte",
     )
     .await;
+    // Spans are bytes: each is sliced from its passage's text here, not by SQL's `substr`,
+    // which counts characters.
+    text += "## components: document | ordinal | parent | depth | name | form | passage | \
+             inner | lead | attributes (name=value:kind)\n";
+    for r in rows(
+        &ctx,
+        "SELECT d.path, c.ordinal, c.parent_ordinal, c.depth, c.name, c.form, \
+                COALESCE(p.heading, '(preamble)'), p.text, p.start_byte, \
+                c.inner_start, c.inner_end, c.lead_start, c.lead_end, a.attributes \
+         FROM doc_components c JOIN documents d ON d.node_id = c.document_node_id \
+         JOIN passages p ON p.node_id = c.passage_node_id \
+         LEFT JOIN (SELECT document_node_id, component_ordinal, \
+                           string_agg(COALESCE(name, '...') || '=' || COALESCE(value, '') \
+                                      || ':' || CAST(value_kind AS VARCHAR), ' ' \
+                                      ORDER BY ordinal) AS attributes \
+                    FROM doc_component_attributes GROUP BY 1, 2) a \
+           ON a.document_node_id = c.document_node_id AND a.component_ordinal = c.ordinal \
+         ORDER BY d.path, c.ordinal",
+    )
+    .await
+    {
+        let int = |i: usize| r[i].as_deref().map(|v| v.parse::<usize>().unwrap());
+        let (body, start) = (r[7].as_deref().unwrap(), int(8).unwrap());
+        let slice = |a: Option<usize>, z: Option<usize>| match a.zip(z) {
+            Some((a, z)) => body[a - start..z - start].replace('\n', " / "),
+            None => "-".to_owned(),
+        };
+        let cells = [
+            r[0].clone().unwrap(),
+            r[1].clone().unwrap(),
+            r[2].clone().unwrap_or("-".into()),
+            r[3].clone().unwrap(),
+            r[4].clone().unwrap_or("(fragment)".into()),
+            r[5].clone().unwrap(),
+            r[6].clone().unwrap(),
+            slice(int(9), int(10)),
+            slice(int(11), int(12)),
+            r[13].clone().unwrap_or_default(),
+        ];
+        text += &cells.join(" | ");
+        text.push('\n');
+    }
     text += "## mentions: passage | class | source | form | target | modality | edge target\n";
     text += &lines(
         &ctx,
@@ -773,7 +824,7 @@ fn a_file_with_two_roles_is_refused() {
     assert!(err.contains("both select"), "{err}");
 }
 
-/// Each C5 rule rejects an injected violation on the `docs_shapes` corpus, and nothing is
+/// Each C5 and A3 rule rejects an injected violation on the `docs_shapes` corpus, and nothing is
 /// published (C5 review F7).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_corpus_rules_reject_their_violations() {
@@ -818,7 +869,7 @@ async fn the_corpus_rules_reject_their_violations() {
         *b = arrow_select::filter::filter_record_batch(b, &mask).unwrap();
     }
     type Mutation = fn(&mut Raw);
-    let cases: [(&str, Mutation); 10] = [
+    let cases: [(&str, Mutation); 14] = [
         // C6 review O6: a document of a release no run compiled escapes nothing.
         ("ref:documents.release_id->runs", |raw| {
             let b = batch(raw, "documents");
@@ -877,6 +928,37 @@ async fn the_corpus_rules_reject_their_violations() {
             let b = batch(raw, "code_blocks");
             let paths = texts(b, "module_path", |_| "_lctx_blocks/nowhere.py".to_owned());
             set(b, "module_path", std::sync::Arc::new(paths));
+        }),
+        // A3: every component one level below a parent that contains it.
+        ("semantic:doc-component-parent", |raw| {
+            shift(batch(raw, "doc_components"), "depth")
+        }),
+        // A3: every component in the first passage of the corpus, which holds none of them.
+        ("semantic:doc-component-in-passage", |raw| {
+            let first = batch(raw, "passages")
+                .column_by_name("node_id")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                .unwrap()
+                .value(0)
+                .to_owned();
+            let b = batch(raw, "doc_components");
+            let moved = arrow_array::FixedSizeBinaryArray::try_from_iter(std::iter::repeat_n(
+                first,
+                b.num_rows(),
+            ))
+            .unwrap();
+            set(b, "passage_node_id", std::sync::Arc::new(moved));
+        }),
+        ("semantic:doc-attribute-component", |raw| {
+            shift(batch(raw, "doc_component_attributes"), "component_ordinal")
+        }),
+        // Every document one byte long: its spans run past it.
+        ("semantic:docs-span-in-document", |raw| {
+            let b = batch(raw, "documents");
+            let one = Int64Array::from(vec![1; b.num_rows()]);
+            set(b, "byte_len", std::sync::Arc::new(one));
         }),
     ];
     let dir = tempfile::tempdir().unwrap();
@@ -1250,9 +1332,10 @@ async fn doc_links_come_from_embedding_similarity() {
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
 
-/// Slice 3.4: a `<Warning>` in a passage that exactly mentions the seed is a Limits assertion,
-/// `documented`, verbatim with where it is, citing the warning's own bytes; it enters the brief
-/// document as one of the capability's own limits.
+/// Slice 3.4 (A3): a `<Warning>` component in a passage that exactly mentions the seed is a
+/// Limits assertion, `documented`, verbatim with where it is, citing the warning's own bytes; it
+/// enters the brief document as one of the capability's own limits. A `<ParamField>` describes a
+/// parameter the docstring leaves undescribed.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_documented_warning_is_a_limit() {
     let (ctx, _dir) = docs_shapes_analyzed("warn", false).await;
@@ -1266,12 +1349,34 @@ async fn a_documented_warning_is_a_limit() {
          WHERE a.assertion_kind = 16 ORDER BY 1, 3",
     )
     .await;
+    // The titled warning shows its title; the one inside `<ParamField body="timeout">` is about
+    // that parameter. The fenced and inline-code `<Warning>`s are not components.
     assert_eq!(
         warned,
-        "pkg.Server.tool | 1 | The documentation warns, in `docs/quickstart.mdx` § Limits (which \
+        "pkg.Server.stop | 1 | The documentation warns (“Heads up”), in `docs/quickstart.mdx` § \
+         Stopping (which mentions `pkg.Server.stop`): `pkg.Server.stop` may block. | \
+         `pkg.Server.stop` may block.\n\
+         pkg.Server.stop | 1 | The documentation warns, about the parameter `timeout`, in \
+         `docs/quickstart.mdx` § Stopping (which mentions `pkg.Server.stop`): A `timeout` of zero \
+         stops at once. | A `timeout` of zero stops at once.\n\
+         pkg.Server.tool | 1 | The documentation warns, in `docs/quickstart.mdx` § Limits (which \
          mentions `pkg.Server.tool`): `pkg.Server.tool` does not validate `fn`. | \
          `pkg.Server.tool` does not validate `fn`.\n"
     );
+    // A3's second Controls source: `timeout` has no docstring description, so its top-level
+    // `<ParamField>` describes it, citing the field's lead paragraph; `drain`'s docstring comes
+    // first. The nested `grace` and the stray `force` describe nothing.
+    let parameters = lines(
+        &ctx,
+        "SELECT a.evidence_status, a.text, e.evidence_kind, e.text FROM briefs b \
+         JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         LEFT JOIN assertion_support s ON s.assertion_id = a.assertion_id \
+         LEFT JOIN evidence e ON e.evidence_id = s.evidence_id \
+         WHERE a.assertion_kind = 3 AND b.title = 'pkg.Server.stop' ORDER BY 2, 3, 4",
+    )
+    .await;
+    insta::assert_snapshot!("docs_shapes_fielded_parameters", parameters);
     let document = lines(
         &ctx,
         "SELECT d.text FROM brief_documents d JOIN briefs b \

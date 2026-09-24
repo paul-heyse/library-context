@@ -1591,6 +1591,14 @@ pub fn node_columns() -> Vec<NodeColumn> {
         nc("code_blocks", "passage_node_id", &[N::Passage]),
         nc("doc_links", "passage_node_id", &[N::Passage]),
         nc("mentions", "passage_node_id", &[N::Passage]),
+        // The holistic assessment's A3.
+        nc("doc_components", "document_node_id", &[N::Document]),
+        nc("doc_components", "passage_node_id", &[N::Passage]),
+        nc(
+            "doc_component_attributes",
+            "document_node_id",
+            &[N::Document],
+        ),
         nc("mention_targets", "passage_node_id", &[N::Passage]),
         nc(
             "mention_targets",

@@ -566,3 +566,11 @@ review_state
 arc_kind
   0 call
   1 definition
+component_form
+  0 flow
+  1 text
+attribute_value_kind
+  0 literal
+  1 expression
+  2 bare
+  3 spread

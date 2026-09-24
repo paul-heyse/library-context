@@ -34,11 +34,11 @@ use cpg_schema::table::Table;
 use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
     ContextDefinitions, ContextModules, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
-    Distributions, DistributionsRow, DocLinks, Documents, ExportSyntax, Facts, Mentions,
-    ParameterDocs, ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow,
-    PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions,
-    References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow,
-    SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
+    Distributions, DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
+    ExportSyntax, Facts, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax, Passages,
+    Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields,
+    ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles,
+    SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -952,6 +952,8 @@ fn run_release(
     dedup_by_fact(&mut docs_out.code_blocks, |r| r.fact_id);
     dedup_by_fact(&mut docs_out.links, |r| r.fact_id);
     dedup_by_fact(&mut docs_out.mentions, |r| r.fact_id);
+    dedup_by_fact(&mut docs_out.components, |r| r.fact_id);
+    dedup_by_fact(&mut docs_out.component_attributes, |r| r.fact_id);
     dedup_by_fact(&mut report.boundaries, |r| r.fact_id);
 
     let tables = vec![
@@ -1065,6 +1067,14 @@ fn run_release(
         (
             Mentions::NAME,
             Mentions::to_sorted_batch(&docs_out.mentions)?,
+        ),
+        (
+            DocComponents::NAME,
+            DocComponents::to_sorted_batch(&docs_out.components)?,
+        ),
+        (
+            DocComponentAttributes::NAME,
+            DocComponentAttributes::to_sorted_batch(&docs_out.component_attributes)?,
         ),
         (PysaCalls::NAME, PysaCalls::to_sorted_batch(&pysa.calls)?),
         (Coverage::NAME, Coverage::to_sorted_batch(&report.coverage)?),

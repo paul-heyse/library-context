@@ -6,7 +6,10 @@
 //!   verbatim bytes of their source, with their span (review F8).
 //! - **Public access** from Pass A's `public_alias`, **coordinates** from its delegations,
 //!   **analysis boundaries** from its boundaries, unresolved sites and truncation, **parameters**
-//!   from the extracted signature.
+//!   from the extracted signature, each described by its docstring, else by a top-level
+//!   `<ParamField>` of a passage that mentions the seed exactly.
+//! - **Documented warnings** (Limits) from the `<Warning>` components of those passages, each
+//!   about the seed or, inside a `<ParamField>`, about that parameter.
 //! - An assertion's status is derived from its supports, never chosen (§10.2); an `unresolved`
 //!   slot has no text.
 
@@ -15,9 +18,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
-    ArcKind, AssertionKind, BriefSection, Codebook, DeclarationKind, EvidenceKind, EvidenceStatus,
-    ExtractionMode, FindingKind, InvocationPhase, MemberRole, MentionClass, Modality,
-    ParameterKind, ReviewState, StopReason, SupportRole,
+    ArcKind, AssertionKind, AttributeValueKind, BriefSection, Codebook, DeclarationKind,
+    EvidenceKind, EvidenceStatus, ExtractionMode, FindingKind, InvocationPhase, MemberRole,
+    MentionClass, Modality, ParameterKind, ReviewState, StopReason, SupportRole,
 };
 use cpg_schema::findings::recipe::{self, AssertionKey};
 use cpg_schema::findings::{
@@ -50,8 +53,10 @@ use crate::{CoreError, sql};
 /// concept as a shared signature under Related from the seed's own scope, never the Applicable
 /// case; attributes as what an API does, each with its scope; Related by direct usage. 14: RCA's
 /// relational attributes (`calls`, handoffs) in the shared-signature and implication texts
-/// (slice 3.2). 15: documented warnings in Limits (slice 3.4).
-pub const TEMPLATE_VERSION: i64 = 15;
+/// (slice 3.2). 15: documented warnings in Limits (slice 3.4). 16: warnings from `<Warning>`
+/// components, scoped to their `<ParamField>` and titled, and a top-level `<ParamField>` as a
+/// parameter's description when the docstring gives none (the holistic assessment's A3).
+pub const TEMPLATE_VERSION: i64 = 16;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -158,26 +163,12 @@ fn normalized(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The `<Warning>` components of a passage (slice 3.4): each one's inner text as a byte span,
-/// trimmed. An unclosed component is not one.
-pub fn warnings(passage: &str) -> Vec<(usize, usize)> {
-    const OPEN: &str = "<Warning>";
-    const CLOSE: &str = "</Warning>";
-    let mut out = Vec::new();
-    let mut at = 0;
-    while let Some(open) = passage[at..].find(OPEN).map(|i| at + i + OPEN.len()) {
-        let Some(close) = passage[open..].find(CLOSE).map(|i| open + i) else {
-            break;
-        };
-        let inner = &passage[open..close];
-        let lead = inner.len() - inner.trim_start().len();
-        let body = inner.trim();
-        if !body.is_empty() {
-            out.push((open + lead, open + lead + body.len()));
-        }
-        at = close + CLOSE.len();
-    }
-    out
+/// The one description several documentation fields give, or none when they disagree after
+/// normalization (the holistic assessment's A3): the first field's evidence stands for it.
+fn agreed<T>(fields: Vec<(String, T)>) -> Option<(String, T)> {
+    let mut fields = fields.into_iter();
+    let first = fields.next()?;
+    fields.all(|(text, _)| text == first.0).then_some(first)
 }
 
 /// The first sentence (UAX #29) of `text[start..end]`, as bytes of `text`. It is found on a view
@@ -741,6 +732,87 @@ pub async fn run(
         }
     }
 
+    // The MDX components of the passages that mention a seed (the holistic assessment's A3): their
+    // nesting, spans and literal attributes, from the extracted `doc_components` facts.
+    struct Component {
+        passage: Id,
+        name: Option<String>,
+        parent: Option<i64>,
+        inner: Option<(i64, i64)>,
+        lead: Option<(i64, i64)>,
+        literal: BTreeMap<String, String>,
+    }
+    let mentioned: BTreeSet<Id> = passages.values().flatten().map(|p| p.node).collect();
+    let mut components: BTreeMap<(Id, i64), Component> = BTreeMap::new();
+    if !mentioned.is_empty() {
+        let component_sql = format!(
+            "SELECT c.document_node_id, c.passage_node_id, c.ordinal, c.parent_ordinal, c.name, \
+                    c.inner_start, c.inner_end, c.lead_start, c.lead_end, \
+                    a.name AS attribute, a.value \
+             FROM doc_components c LEFT JOIN doc_component_attributes a \
+               ON a.document_node_id = c.document_node_id AND a.component_ordinal = c.ordinal \
+               AND a.value_kind = {literal} \
+             WHERE c.passage_node_id IN ({passages}) \
+             ORDER BY c.document_node_id, c.ordinal, a.ordinal",
+            literal = AttributeValueKind::Literal.code(),
+            passages = hex_list(mentioned.iter().copied())
+        );
+        for (b, i) in Table::read(
+            ctx,
+            &component_sql,
+            &[
+                ("document_node_id", ID),
+                ("passage_node_id", ID),
+                ("ordinal", DataType::Int64),
+                ("parent_ordinal", DataType::Int64),
+                ("name", DataType::Utf8),
+                ("inner_start", DataType::Int64),
+                ("inner_end", DataType::Int64),
+                ("lead_start", DataType::Int64),
+                ("lead_end", DataType::Int64),
+                ("attribute", DataType::Utf8),
+                ("value", DataType::Utf8),
+            ],
+        )
+        .await?
+        .rows()
+        {
+            let (Some(document), Some(passage), Some(ordinal)) = (
+                id(b, "document_node_id", i),
+                id(b, "passage_node_id", i),
+                int(b, "ordinal", i),
+            ) else {
+                continue;
+            };
+            let c = components
+                .entry((document, ordinal))
+                .or_insert_with(|| Component {
+                    passage,
+                    name: text(b, "name", i),
+                    parent: int(b, "parent_ordinal", i),
+                    inner: int(b, "inner_start", i).zip(int(b, "inner_end", i)),
+                    lead: int(b, "lead_start", i).zip(int(b, "lead_end", i)),
+                    literal: BTreeMap::new(),
+                });
+            if let (Some(a), Some(v)) = (text(b, "attribute", i), text(b, "value", i)) {
+                c.literal.insert(a, v);
+            }
+        }
+    }
+    // The nearest enclosing `ParamField`'s literal `body`: `None` with no such ancestor,
+    // `Some(None)` for one without a literal body.
+    let param_field = |document: Id, ordinal: i64| -> Option<Option<String>> {
+        let mut at = components.get(&(document, ordinal))?.parent;
+        while let Some(o) = at {
+            let c = components.get(&(document, o))?;
+            if c.name.as_deref() == Some("ParamField") {
+                return Some(c.literal.get("body").cloned());
+            }
+            at = c.parent;
+        }
+        None
+    };
+
     // The seeds' own signatures' parameters.
     let params_sql = format!(
         "SELECT p.signature_node_id, ps.node_id, ps.fact_id, ps.ordinal, ps.name, ps.kind, \
@@ -1252,6 +1324,42 @@ pub async fn run(
                 let verbatim = decl.text.as_deref()?.get(*a..*z)?.to_owned();
                 Some((normalized(doc), *a, *z, verbatim))
             });
+            // Otherwise (the holistic assessment's A3), the lead text of a top-level
+            // `<ParamField body="p">` in a passage that exactly mentions the seed, when every such
+            // field says the same thing.
+            let fielded = || {
+                let mut seen: BTreeSet<Id> = BTreeSet::new();
+                let mut fields = Vec::new();
+                for m in passages.get(&seed).into_iter().flatten() {
+                    if !seen.insert(m.node) {
+                        continue;
+                    }
+                    for ((document, ordinal), c) in components.range((m.document, i64::MIN)..) {
+                        if *document != m.document {
+                            break;
+                        }
+                        if c.passage != m.node
+                            || c.name.as_deref() != Some("ParamField")
+                            || c.literal.get("body") != Some(&p.name)
+                            || param_field(*document, *ordinal).is_some()
+                        {
+                            continue;
+                        }
+                        let Some((a, z)) = c.lead else {
+                            continue;
+                        };
+                        let Some(verbatim) = m
+                            .text
+                            .get((a - m.start) as usize..(z - m.start) as usize)
+                            .map(str::to_owned)
+                        else {
+                            continue;
+                        };
+                        fields.push((normalized(&verbatim), (m.node, m.document, a, z, verbatim)));
+                    }
+                }
+                agreed(fields)
+            };
             let text = match described {
                 Some((doc, a, z, verbatim)) => {
                     evidence.push((
@@ -1268,7 +1376,24 @@ pub async fn run(
                     ));
                     format!("`{}` ({}): {}", p.name, parts.join("; "), sentence(&doc))
                 }
-                None => format!("`{}`: {}.", p.name, parts.join("; ")),
+                None => match fielded() {
+                    Some((doc, (passage, document, a, z, verbatim))) => {
+                        evidence.push((
+                            add_evidence(EvidenceRow::new(
+                                snapshot_id,
+                                EvidenceKind::Passage,
+                                Some(passage),
+                                Some(document),
+                                Some((a, z)),
+                                Some(verbatim),
+                                None,
+                            )),
+                            EvidenceKind::Passage,
+                        ));
+                        format!("`{}` ({}): {}", p.name, parts.join("; "), sentence(&doc))
+                    }
+                    None => format!("`{}`: {}.", p.name, parts.join("; ")),
+                },
             };
             drafts.push(Draft {
                 kind: AssertionKind::Parameter,
@@ -1852,29 +1977,65 @@ pub async fn run(
             drafts.push(Draft::new(AssertionKind::Handoff, text).citing(f));
         }
 
-        // Documented warnings (§10.3 Limits; slice 3.4): every `<Warning>` of a passage that
-        // exactly mentions the seed, verbatim, with where it is; never dropped for length (§10.4).
+        // Documented warnings (§10.3 Limits; slice 3.4, the holistic assessment's A3): every
+        // `<Warning>` component of a passage that exactly mentions the seed, verbatim, with where it
+        // is; never dropped for length (§10.4). One inside a `<ParamField body="p">` is about the
+        // parameter `p` of the nearest such field: stated only if `p` is a parameter of the seed.
+        let seed_params: BTreeSet<&str> = params
+            .get(&seed)
+            .into_iter()
+            .flatten()
+            .filter(|p| !p.receiver)
+            .map(|p| p.name.as_str())
+            .collect();
         let mut warned: BTreeSet<Id> = BTreeSet::new();
         for p in passages.get(&seed).into_iter().flatten() {
             if !warned.insert(p.node) {
                 continue;
             }
-            for (a, z) in warnings(&p.text) {
-                let verbatim = p.text[a..z].to_owned();
-                let (start, end) = (p.start + a as i64, p.start + z as i64);
+            for ((document, ordinal), c) in components.range((p.document, i64::MIN)..) {
+                if *document != p.document {
+                    break;
+                }
+                if c.passage != p.node || c.name.as_deref() != Some("Warning") {
+                    continue;
+                }
+                let about = match param_field(*document, *ordinal) {
+                    None => String::new(),
+                    Some(Some(name)) if seed_params.contains(name.as_str()) => {
+                        format!(", about the parameter `{name}`")
+                    }
+                    Some(_) => continue,
+                };
+                let Some((a, z)) = c.inner else {
+                    continue;
+                };
+                let Some(verbatim) = p
+                    .text
+                    .get((a - p.start) as usize..(z - p.start) as usize)
+                    .map(str::to_owned)
+                else {
+                    continue;
+                };
+                let titled = c
+                    .literal
+                    .get("title")
+                    .map(|t| format!(" (“{t}”)"))
+                    .unwrap_or_default();
                 let ev = add_evidence(EvidenceRow::new(
                     snapshot_id,
                     EvidenceKind::Passage,
                     Some(p.node),
                     Some(p.document),
-                    Some((start, end)),
+                    Some((a, z)),
                     Some(verbatim.clone()),
                     None,
                 ));
                 drafts.push(Draft {
                     kind: AssertionKind::DocumentedWarning,
                     text: Some(format!(
-                        "The documentation warns, in {} (which mentions `{seed_label}`): {verbatim}",
+                        "The documentation warns{titled}{about}, in {} (which mentions \
+                         `{seed_label}`): {verbatim}",
                         p.place
                     )),
                     findings: Vec::new(),
@@ -2195,17 +2356,19 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
 
-    /// Slice 3.4: a passage's `<Warning>` components, each inner text trimmed; an unclosed one is
-    /// none.
+    /// The holistic assessment's A3: documentation fields describe a parameter only when they
+    /// agree; the first field's evidence stands for them.
     #[test]
-    fn warnings_are_the_warning_components_inner_text() {
-        let p = "Intro.\n<Warning>\n  Mind `x`.\n</Warning>\n<Note>n</Note>\n<Warning>b</Warning>\n<Warning>open";
-        let got: Vec<&str> = super::warnings(p)
-            .into_iter()
-            .map(|(a, z)| &p[a..z])
-            .collect();
-        assert_eq!(got, vec!["Mind `x`.", "b"]);
-        assert!(super::warnings("<Warning>  </Warning>").is_empty());
+    fn fields_describe_a_parameter_only_when_they_agree() {
+        assert_eq!(super::agreed::<u8>(vec![]), None);
+        assert_eq!(
+            super::agreed(vec![("Seconds.".to_owned(), 1), ("Seconds.".to_owned(), 2)]),
+            Some(("Seconds.".to_owned(), 1))
+        );
+        assert_eq!(
+            super::agreed(vec![("Seconds.".to_owned(), 1), ("Minutes.".to_owned(), 2)]),
+            None
+        );
     }
 
     use super::*;

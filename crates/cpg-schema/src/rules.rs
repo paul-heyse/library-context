@@ -317,12 +317,83 @@ fn semantic() -> Vec<Rule> {
                    JOIN parameter_docs d ON d.function_node_id = ps.function_node_id \
                      AND d.name = ps.name AND d.module_node_id = e.module_node_id \
                      AND d.start_byte = e.start_byte AND d.end_byte = e.end_byte \
-                   WHERE e.evidence_kind = {span}) own ON own.assertion_id = a.assertion_id \
+                   WHERE e.evidence_kind = {span} \
+                   UNION \
+                   SELECT s.assertion_id FROM assertion_support s \
+                   JOIN evidence e ON e.evidence_id = s.evidence_id AND e.evidence_kind = {passage} \
+                   JOIN doc_components c ON c.document_node_id = e.module_node_id \
+                     AND c.lead_start = e.start_byte AND c.lead_end = e.end_byte \
+                     AND c.name = 'ParamField' \
+                   JOIN doc_component_attributes at ON at.document_node_id = c.document_node_id \
+                     AND at.component_ordinal = c.ordinal AND at.name = 'body' \
+                     AND at.value_kind = {literal} \
+                   JOIN assertion_support s2 ON s2.assertion_id = s.assertion_id \
+                   JOIN evidence e2 ON e2.evidence_id = s2.evidence_id \
+                   JOIN parameter_syntax ps ON ps.node_id = e2.node_id AND ps.name = at.value \
+                 ) own ON own.assertion_id = a.assertion_id \
                  WHERE a.assertion_kind = {parameter} AND a.evidence_status = {documented}",
                 span = crate::codebook::EvidenceKind::Span.code(),
+                passage = crate::codebook::EvidenceKind::Passage.code(),
+                literal = crate::codebook::AttributeValueKind::Literal.code(),
                 parameter = AssertionKind::Parameter.code(),
                 documented = EvidenceStatus::Documented.code()
             ),
+        ),
+        (
+            // The holistic assessment's A3: a component's parent is in its document, earlier in
+            // pre-order, one level up, and contains it; a top-level component is at depth 0.
+            "semantic:doc-component-parent",
+            "SELECT c.document_node_id, c.ordinal FROM doc_components c \
+             LEFT ANTI JOIN doc_components p ON p.document_node_id = c.document_node_id \
+               AND p.ordinal = c.parent_ordinal AND p.depth = c.depth - 1 \
+               AND p.start_byte <= c.start_byte AND c.end_byte <= p.end_byte \
+             WHERE c.parent_ordinal IS NOT NULL \
+             UNION ALL \
+             SELECT document_node_id, ordinal FROM doc_components \
+             WHERE parent_ordinal IS NULL AND depth <> 0"
+                .to_owned(),
+        ),
+        (
+            // A3: a component lies inside its passage, which is in its document.
+            "semantic:doc-component-in-passage",
+            "SELECT c.document_node_id, c.ordinal FROM doc_components c \
+             LEFT ANTI JOIN passages p ON p.node_id = c.passage_node_id \
+               AND p.document_node_id = c.document_node_id \
+               AND p.start_byte <= c.start_byte AND c.end_byte <= p.end_byte"
+                .to_owned(),
+        ),
+        (
+            // A3: an attribute belongs to a component, and its kind says which parts it has: no
+            // name exactly for a spread, no value exactly for a bare name.
+            "semantic:doc-attribute-component",
+            format!(
+                "SELECT a.document_node_id, a.component_ordinal, a.ordinal \
+                 FROM doc_component_attributes a LEFT ANTI JOIN doc_components c \
+                   ON c.document_node_id = a.document_node_id AND c.ordinal = a.component_ordinal \
+                 UNION ALL \
+                 SELECT document_node_id, component_ordinal, ordinal FROM doc_component_attributes \
+                 WHERE (name IS NULL) <> (value_kind = {spread}) \
+                    OR (value IS NULL) <> (value_kind = {bare})",
+                spread = crate::codebook::AttributeValueKind::Spread.code(),
+                bare = crate::codebook::AttributeValueKind::Bare.code(),
+            ),
+        ),
+        (
+            // A3 (the missing docs span rule): every docs span lies within its document's bytes.
+            "semantic:docs-span-in-document",
+            "SELECT 'passages' AS t, x.start_byte FROM passages x \
+               JOIN documents d ON d.node_id = x.document_node_id WHERE x.end_byte > d.byte_len \
+             UNION ALL SELECT 'code_blocks', x.start_byte FROM code_blocks x \
+               JOIN documents d ON d.node_id = x.document_node_id WHERE x.end_byte > d.byte_len \
+             UNION ALL SELECT 'doc_components', x.start_byte FROM doc_components x \
+               JOIN documents d ON d.node_id = x.document_node_id WHERE x.end_byte > d.byte_len \
+             UNION ALL SELECT 'doc_links', x.start_byte FROM doc_links x \
+               JOIN passages p ON p.node_id = x.passage_node_id \
+               JOIN documents d ON d.node_id = p.document_node_id WHERE x.end_byte > d.byte_len \
+             UNION ALL SELECT 'mentions', x.start_byte FROM mentions x \
+               JOIN passages p ON p.node_id = x.passage_node_id \
+               JOIN documents d ON d.node_id = p.document_node_id WHERE x.end_byte > d.byte_len"
+                .to_owned(),
         ),
         (
             // Slice 2.2 review F3: a usage pattern cites only a handoff it shows, one whose

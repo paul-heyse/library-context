@@ -785,6 +785,30 @@ codebook!(
 );
 
 codebook!(
+    /// How an MDX JSX component is written (`doc_components.form`; the holistic assessment's
+    /// A3): as a block of its own, or inside a paragraph's text.
+    ComponentForm = "component_form" {
+        Flow = 0 => "flow",
+        Text = 1 => "text",
+    }
+);
+
+codebook!(
+    /// What an MDX JSX attribute's value is (`doc_component_attributes.value_kind`; A3). Only a
+    /// literal is ever read as a value; an expression's source text is kept, never evaluated.
+    AttributeValueKind = "attribute_value_kind" {
+        /// `b="c"`: the value as written.
+        Literal = 0 => "literal",
+        /// `b={c}`: the expression's source text.
+        Expression = 1 => "expression",
+        /// `b`: a name with no value.
+        Bare = 2 => "bare",
+        /// `{...b}`: a spread, no name; the expression's source text.
+        Spread = 3 => "spread",
+    }
+);
+
+codebook!(
     /// What an analyzed module is to its library (ADR-0015, `source_files.role`): the release
     /// itself, or corpus code using it, by the `[tool.lctx.source]` key that selected it.
     SourceRole = "source_role" {
@@ -1142,6 +1166,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<EvidenceKind>(),
         CodebookEntry::of::<ReviewState>(),
         CodebookEntry::of::<ArcKind>(),
+        CodebookEntry::of::<ComponentForm>(),
+        CodebookEntry::of::<AttributeValueKind>(),
     ]
 }
 

@@ -4,12 +4,12 @@
 //! (run, origin, extraction mode, modality, fidelity, model) is one `facts` row (§B6).
 
 use crate::codebook::{
-    AncestryRelation, ArgumentKind, BindingKind, BoundaryReason, CoverageStatus, DeclarationKind,
-    DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily, Fidelity, ImplicitReceiver,
-    InvocationPhase, LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin,
-    ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind,
-    ScopeKind, SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind,
-    TypeArgRole, TypeRole, TypeTermKind,
+    AncestryRelation, ArgumentKind, AttributeValueKind, BindingKind, BoundaryReason, ComponentForm,
+    CoverageStatus, DeclarationKind, DefinitionKind, ExportSyntaxKind, ExtractionMode, FactFamily,
+    Fidelity, ImplicitReceiver, InvocationPhase, LexicalScopeKind, MentionClass, MentionSource,
+    Modality, ModuleOrigin, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
+    PysaUnresolvedReason, RecordKind, ScopeKind, SignatureForm, SourceRole, StaticBranch,
+    SymbolKind, SyntaxField, SyntaxKind, TypeArgRole, TypeRole, TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -1030,6 +1030,73 @@ table!(
     }
 );
 
+table!(
+    /// The MDX JSX components of a document (`markdown-rs`'s mdast; the holistic assessment's A3):
+    /// each element in pre-order, with its parent, name and form, its span, the span of its
+    /// children (null when self-closing) and of its first direct paragraph. A component lies in one
+    /// passage (passages are cut only at top-level headings). A span fact, not a graph node; a
+    /// fragment has no name.
+    DocComponents, DocComponentsRow = "doc_components",
+    family = Docs,
+    key = [snapshot_id, document_node_id, ordinal, fact_id],
+    checks = [
+        ("ordinal_nonnegative", "ordinal >= 0 AND depth >= 0"),
+        ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+        ("parent_before", "parent_ordinal IS NULL OR (parent_ordinal >= 0 AND parent_ordinal < ordinal)"),
+        (
+            "inner_within",
+            "inner_start IS NULL OR (inner_start >= start_byte AND inner_start <= inner_end AND inner_end <= end_byte)"
+        ),
+        (
+            "lead_within",
+            "lead_start IS NULL OR (lead_start >= start_byte AND lead_start <= lead_end AND lead_end <= end_byte)"
+        ),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        document_node_id: Id,
+        passage_node_id: Id,
+        /// Pre-order over the document's components.
+        ordinal: i64,
+        /// The enclosing component's ordinal; null at the top level.
+        parent_ordinal: Option<i64>,
+        /// Enclosing components.
+        depth: i64,
+        name: Option<String>,
+        form: ComponentForm,
+        start_byte: i64,
+        end_byte: i64,
+        /// From the first child's start to the last child's end.
+        inner_start: Option<i64>,
+        inner_end: Option<i64>,
+        /// The first direct paragraph child: a component's lead text.
+        lead_start: Option<i64>,
+        lead_end: Option<i64>,
+    }
+);
+
+table!(
+    /// A component's attributes in order (A3): a literal value as written; an expression's or a
+    /// spread's source text, never read as a literal.
+    DocComponentAttributes, DocComponentAttributesRow = "doc_component_attributes",
+    family = Docs,
+    key = [snapshot_id, document_node_id, component_ordinal, ordinal, fact_id],
+    checks = [("ordinal_nonnegative", "component_ordinal >= 0 AND ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        document_node_id: Id,
+        component_ordinal: i64,
+        ordinal: i64,
+        /// Null for a spread.
+        name: Option<String>,
+        /// Null for a bare name.
+        value: Option<String>,
+        value_kind: AttributeValueKind,
+    }
+);
+
 // ---------------------------------------------------------------- publication
 
 table!(
@@ -1097,6 +1164,8 @@ macro_rules! for_each_table {
             $crate::tables::CodeBlocks,
             $crate::tables::DocLinks,
             $crate::tables::Mentions,
+            $crate::tables::DocComponents,
+            $crate::tables::DocComponentAttributes,
             $crate::tables::PysaCalls,
             $crate::tables::Coverage,
             $crate::tables::Boundaries

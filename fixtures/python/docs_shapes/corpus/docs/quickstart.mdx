@@ -35,3 +35,41 @@ Registering with `pkg.Server.tool` twice keeps the last.
 <Warning>
 `pkg.Server.tool` does not validate `fn`.
 </Warning>
+
+## Stopping
+
+`pkg.Server.stop` stops the server — gracefully, by default.
+
+<ParamField body="timeout" type="float">
+Seconds to wait before stopping.
+
+<Warning>
+A `timeout` of zero stops at once.
+</Warning>
+
+<ParamField body="grace">
+A nested field is not a parameter of its own.
+</ParamField>
+</ParamField>
+
+<ParamField body="force">
+Not a parameter of the operation.
+</ParamField>
+
+<ParamField body="drain">
+The docstring's description comes first.
+</ParamField>
+
+<VersionBadge version="2.0" />
+
+A <Badge label="x" /> inline badge, and <Tip level={1 + 1} {...rest} open>a tip</Tip>.
+
+```text
+<Warning>A fence is not a component.</Warning>
+```
+
+Inline `<Warning>` code is not a component either.
+
+<Warning title="Heads up">
+`pkg.Server.stop` may block.
+</Warning>

@@ -7,6 +7,12 @@
 //! blocks, links and mentions are found at any depth (MDX components hold most code blocks) and
 //! belong to the passage their start falls in.
 //!
+//! MDX components (the holistic assessment's A3) are the mdast's JSX elements, flow and text, in
+//! pre-order with their parent and depth; code (fenced or inline) never yields one. Each keeps its
+//! inner span (first child to last) and its lead (the first direct paragraph), and its attributes
+//! by kind: a literal's value as written, an expression's as source text, never evaluated. A
+//! heading inside a component does not open a passage.
+//!
 //! Mentions come in two classes that are never merged (DESIGN §3.2 `docs`):
 //! - `exact`: inline code (or a dotted token in prose) that is a public access path, a public
 //!   name's origin path, or a public class's member (`FastMCP.tool`);
@@ -17,15 +23,16 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use cpg_schema::codebook::{
-    BoundaryReason, CoverageStatus, DeclarationKind, ExtractionMode, Fidelity, MentionClass,
-    MentionSource, Modality, Origin, SymbolKind,
+    AttributeValueKind, BoundaryReason, ComponentForm, CoverageStatus, DeclarationKind,
+    ExtractionMode, Fidelity, MentionClass, MentionSource, Modality, Origin, SymbolKind,
 };
 use cpg_schema::id::{Id, content_digest, recipe};
 use cpg_schema::tables::{
-    CodeBlocks, CodeBlocksRow, DeclarationsRow, DocLinks, DocLinksRow, Documents, DocumentsRow,
-    Mentions, MentionsRow, Passages, PassagesRow, PublicNamesRow,
+    CodeBlocks, CodeBlocksRow, DeclarationsRow, DocComponentAttributes, DocComponentAttributesRow,
+    DocComponents, DocComponentsRow, DocLinks, DocLinksRow, Documents, DocumentsRow, Mentions,
+    MentionsRow, Passages, PassagesRow, PublicNamesRow,
 };
-use markdown::mdast::Node;
+use markdown::mdast::{AttributeContent, AttributeValue, Node};
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
 
@@ -111,6 +118,8 @@ pub(crate) struct DocsOut {
     pub code_blocks: Vec<CodeBlocksRow>,
     pub links: Vec<DocLinksRow>,
     pub mentions: Vec<MentionsRow>,
+    pub components: Vec<DocComponentsRow>,
+    pub component_attributes: Vec<DocComponentAttributesRow>,
 }
 
 /// A document's coverage: complete, or unavailable with the reason and the parser's message.
@@ -286,9 +295,93 @@ struct Collected {
     /// Start, end, URL, title, text.
     links: Vec<(usize, usize, String, Option<String>, String)>,
     found: Vec<Found>,
+    /// MDX JSX components, in pre-order (the holistic assessment's A3).
+    components: Vec<Component>,
+}
+
+/// One MDX JSX element as the mdast gives it.
+struct Component {
+    start: usize,
+    end: usize,
+    parent: Option<usize>,
+    depth: i64,
+    name: Option<String>,
+    form: ComponentForm,
+    /// First child's start to last child's end; none when self-closing.
+    inner: Option<(usize, usize)>,
+    /// The first direct paragraph child.
+    lead: Option<(usize, usize)>,
+    /// Name, value, kind.
+    attributes: Vec<(Option<String>, Option<String>, AttributeValueKind)>,
+}
+
+fn attribute(a: &AttributeContent) -> (Option<String>, Option<String>, AttributeValueKind) {
+    match a {
+        AttributeContent::Property(p) => match &p.value {
+            None => (Some(p.name.clone()), None, AttributeValueKind::Bare),
+            Some(AttributeValue::Literal(v)) => (
+                Some(p.name.clone()),
+                Some(v.clone()),
+                AttributeValueKind::Literal,
+            ),
+            Some(AttributeValue::Expression(e)) => (
+                Some(p.name.clone()),
+                Some(e.value.clone()),
+                AttributeValueKind::Expression,
+            ),
+        },
+        AttributeContent::Expression(e) => {
+            (None, Some(e.value.clone()), AttributeValueKind::Spread)
+        }
+    }
 }
 
 fn collect(n: &Node, text: &str, v: &Vocabulary, out: &mut Collected) {
+    collect_in(n, text, v, out, None, 0);
+}
+
+/// The walk, inside the component `parent` (at `depth` components deep).
+fn collect_in(
+    n: &Node,
+    text: &str,
+    v: &Vocabulary,
+    out: &mut Collected,
+    parent: Option<usize>,
+    depth: i64,
+) {
+    let element = match n {
+        Node::MdxJsxFlowElement(e) => {
+            Some((&e.name, &e.attributes, &e.children, ComponentForm::Flow))
+        }
+        Node::MdxJsxTextElement(e) => {
+            Some((&e.name, &e.attributes, &e.children, ComponentForm::Text))
+        }
+        _ => None,
+    };
+    if let (Some((name, attributes, children, form)), Some((s, e))) = (element, span(n)) {
+        let spans: Vec<(usize, usize)> = children.iter().filter_map(span).collect();
+        let inner = spans.first().zip(spans.last()).map(|(a, z)| (a.0, z.1));
+        let lead = children
+            .iter()
+            .find(|c| matches!(c, Node::Paragraph(_)))
+            .and_then(span);
+        let index = out.components.len();
+        out.components.push(Component {
+            start: s,
+            end: e,
+            parent,
+            depth,
+            name: name.clone(),
+            form,
+            inner,
+            lead,
+            attributes: attributes.iter().map(attribute).collect(),
+        });
+        for c in children {
+            collect_in(c, text, v, out, Some(index), depth + 1);
+        }
+        return;
+    }
     match n {
         Node::Code(c) => {
             if let Some((s, e)) = span(n) {
@@ -343,7 +436,7 @@ fn collect(n: &Node, text: &str, v: &Vocabulary, out: &mut Collected) {
         _ => {}
     }
     for c in n.children().into_iter().flatten() {
-        collect(c, text, v, out);
+        collect_in(c, text, v, out, parent, depth);
     }
 }
 
@@ -606,10 +699,138 @@ pub(crate) fn document(
             }
         ));
     }
+    // Components (A3): each in the passage holding its start; one outside every passage (in the
+    // frontmatter) is not recorded, and neither are its descendants.
+    for (ordinal, c) in found.components.into_iter().enumerate() {
+        let Some(passage) = passage_of(c.start) else {
+            continue;
+        };
+        out.components.push(fact_row!(
+            sink,
+            DocComponents,
+            provenance(
+                Surface::MarkdownRs,
+                ExtractionMode::NativeTraversal,
+                Origin::SourceObservation
+            ),
+            DocComponentsRow {
+                snapshot_id: Id::ZERO,
+                fact_id: Id::ZERO,
+                document_node_id: node_id,
+                passage_node_id: passage,
+                ordinal: ordinal as i64,
+                parent_ordinal: c.parent.map(|p| p as i64),
+                depth: c.depth,
+                name: c.name,
+                form: c.form,
+                start_byte: c.start as i64,
+                end_byte: c.end as i64,
+                inner_start: c.inner.map(|i| i.0 as i64),
+                inner_end: c.inner.map(|i| i.1 as i64),
+                lead_start: c.lead.map(|l| l.0 as i64),
+                lead_end: c.lead.map(|l| l.1 as i64),
+            }
+        ));
+        for (i, (name, value, value_kind)) in c.attributes.into_iter().enumerate() {
+            out.component_attributes.push(fact_row!(
+                sink,
+                DocComponentAttributes,
+                provenance(
+                    Surface::MarkdownRs,
+                    ExtractionMode::NativeTraversal,
+                    Origin::SourceObservation
+                ),
+                DocComponentAttributesRow {
+                    snapshot_id: Id::ZERO,
+                    fact_id: Id::ZERO,
+                    document_node_id: node_id,
+                    component_ordinal: ordinal as i64,
+                    ordinal: i as i64,
+                    name,
+                    value,
+                    value_kind,
+                }
+            ));
+        }
+    }
     Covered {
         document: node_id,
         status: CoverageStatus::CompleteUnderStatedModel,
         reason: None,
         detail: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn components(mdx: &str) -> Vec<Component> {
+        let mut options = markdown::ParseOptions::mdx();
+        options.constructs.frontmatter = true;
+        let tree = markdown::to_mdast(mdx, &options).unwrap();
+        let mut found = Collected::default();
+        collect(&tree, mdx, &Vocabulary::default(), &mut found);
+        found.components
+    }
+
+    /// The holistic assessment's A3: MDX components come from the mdast, with their nesting,
+    /// form, attributes and spans; a tag inside a code fence or inline code is none.
+    #[test]
+    fn components_are_the_mdast_elements() {
+        let mdx = "Ü\n\n<ParamField body=\"timeout\" type=\"float\">\nSeconds.\n\n<Warning>\nMind it.\n</Warning>\n</ParamField>\n\nA <Badge label=\"x\" /> and <Tip level={1 + 1} {...rest} open>tip</Tip>.\n\n```text\n<Warning>no</Warning>\n```\n\nInline `<Warning>` too.\n\n<VersionBadge version=\"2.0\" />\n";
+        let c = components(mdx);
+        let names: Vec<Option<&str>> = c.iter().map(|x| x.name.as_deref()).collect();
+        assert_eq!(
+            names,
+            vec![
+                Some("ParamField"),
+                Some("Warning"),
+                Some("Badge"),
+                Some("Tip"),
+                Some("VersionBadge")
+            ]
+        );
+        // Nesting and depth.
+        assert_eq!((c[0].parent, c[0].depth), (None, 0));
+        assert_eq!((c[1].parent, c[1].depth), (Some(0), 1));
+        // Forms: blocks against inline elements.
+        assert_eq!(c[0].form, ComponentForm::Flow);
+        assert_eq!(c[2].form, ComponentForm::Text);
+        assert_eq!(c[3].form, ComponentForm::Text);
+        // Byte spans (the leading `Ü` is two bytes).
+        assert_eq!(&mdx[c[0].start..c[0].start + 11], "<ParamField");
+        let lead = c[0].lead.unwrap();
+        assert_eq!(&mdx[lead.0..lead.1], "Seconds.");
+        let inner = c[1].inner.unwrap();
+        assert_eq!(&mdx[inner.0..inner.1], "Mind it.");
+        // Self-closing: no children.
+        assert!(c[4].inner.is_none() && c[4].lead.is_none());
+        // Attributes, each with its kind.
+        assert_eq!(
+            c[0].attributes,
+            vec![
+                (
+                    Some("body".to_owned()),
+                    Some("timeout".to_owned()),
+                    AttributeValueKind::Literal
+                ),
+                (
+                    Some("type".to_owned()),
+                    Some("float".to_owned()),
+                    AttributeValueKind::Literal
+                ),
+            ]
+        );
+        let kinds: Vec<AttributeValueKind> = c[3].attributes.iter().map(|a| a.2).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                AttributeValueKind::Expression,
+                AttributeValueKind::Spread,
+                AttributeValueKind::Bare
+            ]
+        );
+        assert_eq!(c[3].attributes[0].1.as_deref(), Some("1 + 1"));
     }
 }

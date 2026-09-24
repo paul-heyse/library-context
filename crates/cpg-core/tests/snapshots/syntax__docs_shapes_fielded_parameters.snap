@@ -1,0 +1,10 @@
+---
+source: crates/cpg-core/tests/syntax.rs
+expression: parameters
+---
+1 | `drain` (positional or keyword; default `False`; optional): Finish the calls in flight first. | 0 | drain=False
+1 | `drain` (positional or keyword; default `False`; optional): Finish the calls in flight first. | 0 | optional
+1 | `drain` (positional or keyword; default `False`; optional): Finish the calls in flight first. | 1 | Finish the calls in flight first.
+1 | `timeout` (positional or keyword; default `None`; optional): Seconds to wait before stopping. | 0 | optional
+1 | `timeout` (positional or keyword; default `None`; optional): Seconds to wait before stopping. | 0 | timeout=None
+1 | `timeout` (positional or keyword; default `None`; optional): Seconds to wait before stopping. | 2 | Seconds to wait before stopping.

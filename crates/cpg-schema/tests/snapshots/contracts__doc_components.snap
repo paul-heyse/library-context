@@ -1,0 +1,29 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table doc_components
+family docs
+key snapshot_id, document_node_id, ordinal, fact_id
+check ordinal_nonnegative: ordinal >= 0 AND depth >= 0
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+check parent_before: parent_ordinal IS NULL OR (parent_ordinal >= 0 AND parent_ordinal < ordinal)
+check inner_within: inner_start IS NULL OR (inner_start >= start_byte AND inner_start <= inner_end AND inner_end <= end_byte)
+check lead_within: lead_start IS NULL OR (lead_start >= start_byte AND lead_start <= lead_end AND lead_end <= end_byte)
+@lctx.family=docs
+@lctx.table=doc_components
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+document_node_id: FixedSizeBinary(16) NOT NULL
+passage_node_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+parent_ordinal: Int64 NULL
+depth: Int64 NOT NULL
+name: Utf8 NULL
+form: Int16 NOT NULL [lctx.codebook=component_form]
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+inner_start: Int64 NULL
+inner_end: Int64 NULL
+lead_start: Int64 NULL
+lead_end: Int64 NULL

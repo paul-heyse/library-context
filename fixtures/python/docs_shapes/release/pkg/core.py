@@ -10,8 +10,12 @@ class Server:
     def run(self):
         """Runs."""
 
-    def stop(self, timeout=None):
-        """Stop the server."""
+    def stop(self, timeout=None, drain=False):
+        """Stop the server.
+
+        Args:
+            drain: Finish the calls in flight first.
+        """
         return timeout
 
 

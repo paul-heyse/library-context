@@ -70,6 +70,10 @@ key:doc_links
   SELECT snapshot_id, passage_node_id, ordinal, fact_id, count(*) AS n FROM doc_links GROUP BY snapshot_id, passage_node_id, ordinal, fact_id HAVING count(*) > 1
 key:mentions
   SELECT snapshot_id, passage_node_id, start_byte, fact_id, count(*) AS n FROM mentions GROUP BY snapshot_id, passage_node_id, start_byte, fact_id HAVING count(*) > 1
+key:doc_components
+  SELECT snapshot_id, document_node_id, ordinal, fact_id, count(*) AS n FROM doc_components GROUP BY snapshot_id, document_node_id, ordinal, fact_id HAVING count(*) > 1
+key:doc_component_attributes
+  SELECT snapshot_id, document_node_id, component_ordinal, ordinal, fact_id, count(*) AS n FROM doc_component_attributes GROUP BY snapshot_id, document_node_id, component_ordinal, ordinal, fact_id HAVING count(*) > 1
 key:pysa_calls
   SELECT snapshot_id, module_node_id, start_byte, end_byte, fact_id, count(*) AS n FROM pysa_calls GROUP BY snapshot_id, module_node_id, start_byte, end_byte, fact_id HAVING count(*) > 1
 key:coverage
@@ -376,6 +380,14 @@ fact:mentions
   SELECT t.fact_id FROM mentions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'mentions'
 fact-payload:mentions
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN mentions t ON t.fact_id = f.fact_id WHERE f.table_name = 'mentions'
+fact:doc_components
+  SELECT t.fact_id FROM doc_components t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'doc_components'
+fact-payload:doc_components
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN doc_components t ON t.fact_id = f.fact_id WHERE f.table_name = 'doc_components'
+fact:doc_component_attributes
+  SELECT t.fact_id FROM doc_component_attributes t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'doc_component_attributes'
+fact-payload:doc_component_attributes
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN doc_component_attributes t ON t.fact_id = f.fact_id WHERE f.table_name = 'doc_component_attributes'
 fact:pysa_calls
   SELECT t.fact_id FROM pysa_calls t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'pysa_calls'
 fact-payload:pysa_calls
@@ -385,7 +397,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'pysa_calls', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -444,6 +456,10 @@ codebook:mentions.class
   SELECT class FROM mentions WHERE class IS NOT NULL AND class NOT IN (0, 1)
 codebook:mentions.source
   SELECT source FROM mentions WHERE source IS NOT NULL AND source NOT IN (0, 1)
+codebook:doc_components.form
+  SELECT form FROM doc_components WHERE form IS NOT NULL AND form NOT IN (0, 1)
+codebook:doc_component_attributes.value_kind
+  SELECT value_kind FROM doc_component_attributes WHERE value_kind IS NOT NULL AND value_kind NOT IN (0, 1, 2, 3)
 codebook:pysa_calls.site_kind
   SELECT site_kind FROM pysa_calls WHERE site_kind IS NOT NULL AND site_kind NOT IN (0, 1, 2, 3, 4, 5)
 codebook:pysa_calls.callee_kind
@@ -609,7 +625,15 @@ semantic:document-vector-cached
 semantic:one-embedding-spec
   SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1
 semantic:documented-parameter-cites-its-doc
-  SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( SELECT s.assertion_id FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id JOIN parameter_syntax ps ON ps.node_id = e.node_id JOIN parameter_docs d ON d.function_node_id = ps.function_node_id AND d.name = ps.name AND d.module_node_id = e.module_node_id AND d.start_byte = e.start_byte AND d.end_byte = e.end_byte WHERE e.evidence_kind = 1) own ON own.assertion_id = a.assertion_id WHERE a.assertion_kind = 3 AND a.evidence_status = 1
+  SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( SELECT s.assertion_id FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id JOIN parameter_syntax ps ON ps.node_id = e.node_id JOIN parameter_docs d ON d.function_node_id = ps.function_node_id AND d.name = ps.name AND d.module_node_id = e.module_node_id AND d.start_byte = e.start_byte AND d.end_byte = e.end_byte WHERE e.evidence_kind = 1 UNION SELECT s.assertion_id FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id AND e.evidence_kind = 2 JOIN doc_components c ON c.document_node_id = e.module_node_id AND c.lead_start = e.start_byte AND c.lead_end = e.end_byte AND c.name = 'ParamField' JOIN doc_component_attributes at ON at.document_node_id = c.document_node_id AND at.component_ordinal = c.ordinal AND at.name = 'body' AND at.value_kind = 0 JOIN assertion_support s2 ON s2.assertion_id = s.assertion_id JOIN evidence e2 ON e2.evidence_id = s2.evidence_id JOIN parameter_syntax ps ON ps.node_id = e2.node_id AND ps.name = at.value ) own ON own.assertion_id = a.assertion_id WHERE a.assertion_kind = 3 AND a.evidence_status = 1
+semantic:doc-component-parent
+  SELECT c.document_node_id, c.ordinal FROM doc_components c LEFT ANTI JOIN doc_components p ON p.document_node_id = c.document_node_id AND p.ordinal = c.parent_ordinal AND p.depth = c.depth - 1 AND p.start_byte <= c.start_byte AND c.end_byte <= p.end_byte WHERE c.parent_ordinal IS NOT NULL UNION ALL SELECT document_node_id, ordinal FROM doc_components WHERE parent_ordinal IS NULL AND depth <> 0
+semantic:doc-component-in-passage
+  SELECT c.document_node_id, c.ordinal FROM doc_components c LEFT ANTI JOIN passages p ON p.node_id = c.passage_node_id AND p.document_node_id = c.document_node_id AND p.start_byte <= c.start_byte AND c.end_byte <= p.end_byte
+semantic:doc-attribute-component
+  SELECT a.document_node_id, a.component_ordinal, a.ordinal FROM doc_component_attributes a LEFT ANTI JOIN doc_components c ON c.document_node_id = a.document_node_id AND c.ordinal = a.component_ordinal UNION ALL SELECT document_node_id, component_ordinal, ordinal FROM doc_component_attributes WHERE (name IS NULL) <> (value_kind = 3) OR (value IS NULL) <> (value_kind = 2)
+semantic:docs-span-in-document
+  SELECT 'passages' AS t, x.start_byte FROM passages x JOIN documents d ON d.node_id = x.document_node_id WHERE x.end_byte > d.byte_len UNION ALL SELECT 'code_blocks', x.start_byte FROM code_blocks x JOIN documents d ON d.node_id = x.document_node_id WHERE x.end_byte > d.byte_len UNION ALL SELECT 'doc_components', x.start_byte FROM doc_components x JOIN documents d ON d.node_id = x.document_node_id WHERE x.end_byte > d.byte_len UNION ALL SELECT 'doc_links', x.start_byte FROM doc_links x JOIN passages p ON p.node_id = x.passage_node_id JOIN documents d ON d.node_id = p.document_node_id WHERE x.end_byte > d.byte_len UNION ALL SELECT 'mentions', x.start_byte FROM mentions x JOIN passages p ON p.node_id = x.passage_node_id JOIN documents d ON d.node_id = p.document_node_id WHERE x.end_byte > d.byte_len
 semantic:usage-pattern-shows-its-handoff
   SELECT a.assertion_id, s.finding_id FROM assertions a JOIN assertion_support s ON s.assertion_id = a.assertion_id JOIN findings f ON f.finding_id = s.finding_id AND f.finding_kind = 9 LEFT ANTI JOIN ( SELECT s2.assertion_id, s2.finding_id FROM assertion_support s2 JOIN finding_members m ON m.finding_id = s2.finding_id AND m.role = 6 JOIN call_syntax cs ON cs.node_id = m.node_id JOIN assertion_support se ON se.assertion_id = s2.assertion_id JOIN evidence e ON e.evidence_id = se.evidence_id AND e.evidence_kind = 3 AND e.module_node_id = cs.module_node_id AND e.start_byte <= cs.start_byte AND cs.end_byte <= e.end_byte) shown ON shown.assertion_id = a.assertion_id AND shown.finding_id = s.finding_id WHERE a.assertion_kind = 9
 semantic:no-materialized-block-path
@@ -1128,6 +1152,12 @@ ref:doc_links.passage_node_id->nodes
   SELECT f.passage_node_id AS value FROM doc_links f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (17)) r ON f.passage_node_id = r.node_id WHERE f.passage_node_id IS NOT NULL
 ref:mentions.passage_node_id->nodes
   SELECT f.passage_node_id AS value FROM mentions f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (17)) r ON f.passage_node_id = r.node_id WHERE f.passage_node_id IS NOT NULL
+ref:doc_components.document_node_id->nodes
+  SELECT f.document_node_id AS value FROM doc_components f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (16)) r ON f.document_node_id = r.node_id WHERE f.document_node_id IS NOT NULL
+ref:doc_components.passage_node_id->nodes
+  SELECT f.passage_node_id AS value FROM doc_components f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (17)) r ON f.passage_node_id = r.node_id WHERE f.passage_node_id IS NOT NULL
+ref:doc_component_attributes.document_node_id->nodes
+  SELECT f.document_node_id AS value FROM doc_component_attributes f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (16)) r ON f.document_node_id = r.node_id WHERE f.document_node_id IS NOT NULL
 ref:mention_targets.passage_node_id->nodes
   SELECT f.passage_node_id AS value FROM mention_targets f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (17)) r ON f.passage_node_id = r.node_id WHERE f.passage_node_id IS NOT NULL
 ref:mention_targets.target_node_id->nodes

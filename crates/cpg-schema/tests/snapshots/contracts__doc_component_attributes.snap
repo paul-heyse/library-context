@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table doc_component_attributes
+family docs
+key snapshot_id, document_node_id, component_ordinal, ordinal, fact_id
+check ordinal_nonnegative: component_ordinal >= 0 AND ordinal >= 0
+@lctx.family=docs
+@lctx.table=doc_component_attributes
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+document_node_id: FixedSizeBinary(16) NOT NULL
+component_ordinal: Int64 NOT NULL
+ordinal: Int64 NOT NULL
+name: Utf8 NULL
+value: Utf8 NULL
+value_kind: Int16 NOT NULL [lctx.codebook=attribute_value_kind]
