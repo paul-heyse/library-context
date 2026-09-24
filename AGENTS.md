@@ -76,6 +76,12 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   to reach it from a petgraph graph, and each one's silent failures)
 - `pyrefly-ruff`. It indexes ruff crates 0.0.13, but we link 0.0.11 (Pyrefly's line). The deltas are
   listed in `docs/pins.md`
+- `ty-flow` (the ty 0.0.14 / ruff_db / salsa =0.28.2 line that `cpg-flow` links: use-def maps,
+  reachability and narrowing, module resolution, the salsa pin trap)
+- `rust-reasoning` (biodivine-lib-bdd, OxiDD, z3 on the system libz3, ascent, datafrog, fcars:
+  the condition kernel, SMT escalation, Datalog fixpoints and the FCA oracle)
+- `python-oracles` (Pysa, CrossHair, Hypothesis with `sys.monitoring`, bytecode: independent
+  cross-checks of the facts)
 - `rust-code-model`
 - `ast-grep-ripgrep`
 - `datafusion-tracing`
