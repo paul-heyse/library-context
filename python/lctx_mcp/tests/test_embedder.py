@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-import httpx
+import httpx2
 import numpy as np
 import pytest
 
@@ -107,20 +107,20 @@ async def test_the_http_client_sends_the_exact_bytes_and_reports_a_down_service(
     spec = Spec.packaged(QWEN)
     seen: list[bytes] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         seen.append(request.content)
-        return httpx.Response(200, content=response(spec, [unit(spec.dimensions)]))
+        return httpx2.Response(200, content=response(spec, [unit(spec.dimensions)]))
 
-    client = HttpEmbedder("http://embed.invalid", transport=httpx.MockTransport(handler))
+    client = HttpEmbedder("http://embed.invalid", transport=httpx2.MockTransport(handler))
     text = spec.query_text("résumé naïve café — non-ASCII query 日本語")
     vectors = await client.embed([text])
     assert vectors.shape == (1, spec.dimensions)
     assert seen == [request_body(spec, [text])]
 
-    def refuse(_request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("connection refused")
+    def refuse(_request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("connection refused")
 
-    down = HttpEmbedder("http://embed.invalid", transport=httpx.MockTransport(refuse))
+    down = HttpEmbedder("http://embed.invalid", transport=httpx2.MockTransport(refuse))
     with pytest.raises(EmbedderError, match="no embedding service"):
         await down.embed([text])
 

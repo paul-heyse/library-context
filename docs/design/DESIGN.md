@@ -3010,7 +3010,7 @@ template, dimensions, output dtype and normalization.
 
 **Clients.**
 - Compile-time vectors come from Rust (`reqwest` + `tokio`).
-- Query-time vectors come from Python (`httpx`).
+- Query-time vectors come from Python (`httpx2`, pydantic's continuation of `httpx`; 2026-09-24).
 - **Conformance (Tested, E2).** Over the fixed conformance inputs, both clients build
   byte-identical request texts, apply the same rejections, and return vectors that agree to cosine
   ≥ 0.9995. vLLM is not bitwise deterministic across requests (identical inputs differed by up to
@@ -3093,7 +3093,8 @@ thousand briefs, or ANN / managed FTS needed.
 ### §11.3 FastMCP contract
 
 - **Package.** `python/lctx_mcp`. It depends on `fastmcp` 4.0.x, `pyarrow` 25.0.1 (the bundle
-  reader), `numpy` and `httpx`, never on vLLM.
+  reader), `numpy` and `httpx2` (the continuation of `httpx`, which FastMCP 4.0.5 already uses;
+  2026-09-24), never on vLLM.
 - **Startup checks.** The lifespan rejects a generation whose per-file schema digests differ from
   the canonical schemas it expects, or whose `embedding_spec` hash differs from its query
   client's spec.

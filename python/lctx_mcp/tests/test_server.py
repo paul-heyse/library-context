@@ -6,7 +6,7 @@ import json
 import shutil
 from pathlib import Path
 
-import httpx
+import httpx2
 import numpy as np
 import pytest
 from fastmcp import Client
@@ -211,11 +211,11 @@ async def test_a_mismatched_generation_fails_at_connect(generation: Path, tmp_pa
 async def test_a_malformed_embedder_answer_degrades(generation: Path, body: bytes) -> None:
     """Increment-1 deep review F7: an answer of another shape is a rejection, so lexical-only."""
 
-    def answer(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body)
+    def answer(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, content=body)
 
     odd = HttpEmbedder(
-        "http://embed.invalid", spec=FakeEmbedder().spec, transport=httpx.MockTransport(answer)
+        "http://embed.invalid", spec=FakeEmbedder().spec, transport=httpx2.MockTransport(answer)
     )
     async with Client(build_server(generation, odd)) as client:
         found = await client.call_tool(

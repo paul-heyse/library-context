@@ -2,7 +2,7 @@
 
 The request bytes are built here exactly as the Rust client (`lctx-embed`) builds them, and both
 are held to `specs/embedding/request_bodies.json`. So the body is sent as bytes, never through
-httpx's `json=`, which escapes non-ASCII. The fake twin reproduces the Rust `FakeEmbedder` bit for
+httpx2's `json=`, which escapes non-ASCII. The fake twin reproduces the Rust `FakeEmbedder` bit for
 bit (`specs/embedding/fake_vectors.json`).
 """
 
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import Protocol
 
-import httpx
+import httpx2
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 from pydantic import ValidationError as PydanticValidationError
@@ -145,7 +145,7 @@ class HttpEmbedder:
         url: str,
         spec: Spec | None = None,
         timeout: float = 10.0,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> None:
         self.url = url.rstrip("/")
         self.spec = spec or Spec.packaged(QWEN)
@@ -155,14 +155,14 @@ class HttpEmbedder:
     async def embed(self, texts: list[str]) -> np.ndarray:
         url = f"{self.url}/v1/embeddings"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
+            async with httpx2.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
                 response = await client.post(
                     url,
                     content=request_body(self.spec, texts),
                     headers={"content-type": "application/json"},
                 )
             response.raise_for_status()
-        except httpx.HTTPError as e:
+        except httpx2.HTTPError as e:
             raise EmbedderError(f"no embedding service at {url}: {e!r}") from e
         return parse_embeddings(self.spec, len(texts), response.content)
 

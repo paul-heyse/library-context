@@ -240,3 +240,7 @@ all passed):
     docstring, source body, and later others) is a template id and version inside the input's
     identity and a column of `vectors`. So `semantic:one-embedding-spec` holds per model, and two
     views of one operation have distinct keys.
+- 2026-09-24 (operator): **the query embedder's HTTP client is `httpx2` 2.13.1**, pydantic's
+  maintained continuation of `httpx`, with the same API under `import httpx2`. FastMCP 4.0.5
+  already depends on it, so the server's lock drops `httpx` 0.28.1. The request bytes are
+  unchanged (`content=`, never `json=`), and the conformance tests pass as before.
