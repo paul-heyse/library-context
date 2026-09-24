@@ -1766,8 +1766,9 @@ async fn all_techniques_guard() {
     // `value_flows.through_call`, `call_transfer`, the extractor output version), then the Stage 2
     // end review (`flow_tests`, `flow_attribute_loads`, `raise_sites.escapes`, `abstract_body`,
     // the extractor output version), then Stage 2.9's evaluation identity and resolved runtime
-    // view (`condition_atom.is_value`, `EXTRACTOR_OUTPUT_VERSION` 23). The analysis ledger (Stage
-    // E/F's own output) did not move.
-    const GUARD: &str = "6d68c9648cb09f7e8d98e2bf385b6c3ecd33fbeeb777d4c0192bed3fdccbec6d";
+    // view (`condition_atom.is_value`, `EXTRACTOR_OUTPUT_VERSION` 23), then Stage 3.0's
+    // direct BDD producer, structural condition IDs and flow schema (version 24). The analysis
+    // ledger (Stage E/F's own output) did not move.
+    const GUARD: &str = "99e13bae5edd32e39086d78c203d73e6b55dc0038c343955e7241b6dcb60f681";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }

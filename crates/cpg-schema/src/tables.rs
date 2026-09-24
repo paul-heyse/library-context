@@ -806,6 +806,8 @@ table!(
         use_id: Id,
         definition_id: Option<Id>,
         condition_id: Id,
+        /// The admitted may-path crossed a provider ambiguity or declared assumption.
+        approximated: bool,
         /// Reached around a loop's back edge.
         loop_carried: bool,
     }
@@ -835,6 +837,7 @@ table!(
         identity: bool,
         through_call: bool,
         condition_id: Id,
+        approximated: bool,
     }
 );
 
@@ -855,6 +858,7 @@ table!(
         start_byte: i64,
         end_byte: i64,
         condition_id: Id,
+        approximated: bool,
     }
 );
 
@@ -881,6 +885,34 @@ table!(
 );
 
 table!(
+    /// One evaluation atom of one provider predicate, emitted before span-only test deduplication.
+    /// Its proof identity is (snapshot, module, predicate_key, atom_id).
+    FlowTestLeaves, FlowTestLeavesRow = "flow_test_leaves",
+    family = Flow,
+    key = [snapshot_id, module_node_id, predicate_key, atom_id, fact_id],
+    checks = [
+        ("test_span_order", "test_start_byte >= 0 AND test_end_byte >= test_start_byte"),
+        ("leaf_span_order", "leaf_start_byte >= 0 AND leaf_end_byte >= leaf_start_byte"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        scope_kind: LexicalScopeKind,
+        scope_start_byte: Option<i64>,
+        scope_end_byte: Option<i64>,
+        predicate_key: String,
+        test_start_byte: i64,
+        test_end_byte: i64,
+        condition_id: Id,
+        atom_id: Id,
+        atom: String,
+        leaf_start_byte: i64,
+        leaf_end_byte: i64,
+    }
+);
+
+table!(
     /// An attribute load by name on any receiver, a place or not (`get_server()._worker`,
     /// `x[k].f`), or a `getattr`/`hasattr` with a literal name; outside annotations. The field and
     /// global premises count these (ADR-0022 §Verdicts; the Stage 2 end review's R7).
@@ -899,18 +931,39 @@ table!(
 );
 
 table!(
-    /// A condition in normal form (ADR-0022 §Conditions; `cpg_schema::condition`): its canonical
-    /// encoding, which its id hashes. `stated` is false past the budget.
+    /// A condition's diagram root and bounded display (ADR-0024). The root/node closure is the
+    /// authority; `encoding` is presentation only. An unstated condition has a named boundary.
     Conditions, ConditionsRow = "conditions",
     family = Flow,
     key = [snapshot_id, condition_id, fact_id],
-    checks = [],
+    checks = [
+        ("root_iff_stated", "(stated AND root_id IS NOT NULL AND boundary_reason IS NULL) OR (NOT stated AND root_id IS NULL AND boundary_reason IS NOT NULL)"),
+    ],
     {
         snapshot_id: Id,
         fact_id: Id,
         condition_id: Id,
+        root_id: Option<Id>,
         encoding: String,
         stated: bool,
+        display_truncated: bool,
+        boundary_reason: Option<String>,
+    }
+);
+
+table!(
+    /// Lossless content-addressed decision nodes. Terminal ids are fixed and implicit.
+    ConditionNodes, ConditionNodesRow = "condition_nodes",
+    family = Flow,
+    key = [snapshot_id, node_id, fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        node_id: Id,
+        atom: String,
+        low_id: Id,
+        high_id: Id,
     }
 );
 
@@ -1379,8 +1432,10 @@ macro_rules! for_each_table {
             $crate::tables::FlowValues,
             $crate::tables::FlowRegions,
             $crate::tables::FlowTests,
+            $crate::tables::FlowTestLeaves,
             $crate::tables::FlowAttributeLoads,
             $crate::tables::Conditions,
+            $crate::tables::ConditionNodes,
             $crate::tables::ConditionLiterals,
             $crate::tables::Coverage,
             $crate::tables::Boundaries

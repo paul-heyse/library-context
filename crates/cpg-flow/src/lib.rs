@@ -29,7 +29,8 @@ mod predicate;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub use cpg_schema::codebook::{BindingKind, LexicalScopeKind};
-pub use cpg_schema::condition::Condition;
+use cpg_schema::condition::{Atom, EvaluationIdentity};
+pub use cpg_schema::condition_kernel::BoundedCondition as Condition;
 use cpg_schema::id::IdHasher;
 use ruff_db::files::system_path_to_file;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
@@ -182,6 +183,18 @@ pub struct Test {
     pub condition: Condition,
 }
 
+/// One evaluation atom of one provider predicate, before the test-span projection merges rows.
+/// This is the source identity for Stage 3's attributed type and value-link proofs.
+#[derive(Debug, Clone)]
+pub struct TestLeaf {
+    pub scope: Scope,
+    pub predicate_key: String,
+    pub test_span: Span,
+    pub condition: Condition,
+    pub atom: String,
+    pub leaf_span: Span,
+}
+
 /// An attribute load by name on any receiver (a place or not: `get_server()._worker`), or a
 /// `getattr`/`hasattr` with a literal name. Outside annotations. The field and global premises
 /// count these (the Stage 2 end review's R7).
@@ -201,6 +214,7 @@ pub struct ModuleFlow {
     pub values: Vec<ValueSource>,
     pub regions: Vec<Region>,
     pub tests: Vec<Test>,
+    pub test_leaves: Vec<TestLeaf>,
     pub attribute_loads: Vec<AttributeLoad>,
     /// `TYPE_CHECKING` words renamed.
     pub renamed: u32,
@@ -396,7 +410,7 @@ fn module(
     for stmt in parsed.suite() {
         v.visit_stmt(stmt);
     }
-    // Every test ty records, by scope, once per span.
+    // Preserve every provider predicate and atom before the older span-only test projection.
     let mut seen: HashSet<Span> = HashSet::new();
     for scope in index.scope_ids() {
         let fid = scope.file_scope_id(db);
@@ -420,6 +434,43 @@ fn module(
                 }
                 _ => continue,
             };
+            let predicate_key = match synthetic_identity(module_key, fid, predicate_id) {
+                EvaluationIdentity::Synthetic { predicate, .. } => predicate,
+                _ => unreachable!("the provider predicate identity is synthetic"),
+            };
+            if let Ok(diagram) = condition.diagram() {
+                for encoded in diagram.support() {
+                    let atom = Atom::parse_encoded(encoded)
+                        .expect("the producer's atom encoding round-trips");
+                    let Atom::Evaluated { identity, .. } = atom else {
+                        continue;
+                    };
+                    // The path condition also contains earlier predicates. A leaf row belongs
+                    // to this predicate only when its evaluation lies inside this test, or the
+                    // synthetic predicate identity itself is this provider predicate.
+                    let leaf_span = match identity {
+                        EvaluationIdentity::Site { start, end, .. }
+                            if start >= span.start && end <= span.end =>
+                        {
+                            Span { start, end }
+                        }
+                        EvaluationIdentity::Synthetic { predicate, .. }
+                            if predicate == predicate_key =>
+                        {
+                            span
+                        }
+                        _ => continue,
+                    };
+                    w.flow.test_leaves.push(TestLeaf {
+                        scope: sc,
+                        predicate_key: predicate_key.clone(),
+                        test_span: span,
+                        condition: condition.clone(),
+                        atom: encoded.clone(),
+                        leaf_span,
+                    });
+                }
+            }
             if seen.insert(span) {
                 w.flow.tests.push(Test {
                     scope: sc,
@@ -430,6 +481,9 @@ fn module(
         }
     }
     w.flow.tests.sort_by_key(|t| (t.span.start, t.span.end));
+    w.flow.test_leaves.sort_by(|a, b| {
+        (a.test_span, &a.predicate_key, &a.atom).cmp(&(b.test_span, &b.predicate_key, &b.atom))
+    });
     Ok(ModuleFlow {
         syntax_errors,
         ..w.flow

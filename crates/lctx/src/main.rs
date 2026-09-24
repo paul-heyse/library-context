@@ -214,6 +214,7 @@ fn flow_file(
         "uses": flow.uses.iter().map(|u| serde_json::json!({"place": u.place, "span": span(u.span)})).collect::<Vec<_>>(),
         "definitions": flow.defs.iter().map(|d| serde_json::json!({"place": d.place, "kind": format!("{:?}", d.kind), "target": span(d.target), "value": d.value.map(&span)})).collect::<Vec<_>>(),
         "reaching": flow.reaching.iter().map(|r| serde_json::json!({"use_ix": r.use_ix, "def_ix": r.def_ix, "condition": r.condition.encode(), "loop_carried": r.loop_carried})).collect::<Vec<_>>(),
+        "values": flow.values.iter().map(|v| serde_json::json!({"sink": format!("{:?}", v.sink), "span": span(v.span), "use_ix": v.use_ix, "identity": v.identity, "through_call": v.through_call, "condition": v.condition.encode()})).collect::<Vec<_>>(),
         "regions": flow.regions.iter().map(|r| serde_json::json!({"span": span(r.span), "condition": r.condition.encode()})).collect::<Vec<_>>(),
         "skips": {"reaching_ty_false": flow.skips.reaching_ty_false, "reaching_runtime_view": flow.skips.reaching_runtime_view, "reaching_stable_contradiction": flow.skips.reaching_stable_contradiction,
             "values_runtime_view": flow.skips.values_runtime_view, "values_stable_contradiction": flow.skips.values_stable_contradiction},

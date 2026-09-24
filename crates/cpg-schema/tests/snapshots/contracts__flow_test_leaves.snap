@@ -1,0 +1,25 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_test_leaves
+family flow
+key snapshot_id, module_node_id, predicate_key, atom_id, fact_id
+check test_span_order: test_start_byte >= 0 AND test_end_byte >= test_start_byte
+check leaf_span_order: leaf_start_byte >= 0 AND leaf_end_byte >= leaf_start_byte
+@lctx.family=flow
+@lctx.table=flow_test_leaves
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+scope_kind: Int16 NOT NULL [lctx.codebook=lexical_scope_kind]
+scope_start_byte: Int64 NULL
+scope_end_byte: Int64 NULL
+predicate_key: Utf8 NOT NULL
+test_start_byte: Int64 NOT NULL
+test_end_byte: Int64 NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+atom_id: FixedSizeBinary(16) NOT NULL
+atom: Utf8 NOT NULL
+leaf_start_byte: Int64 NOT NULL
+leaf_end_byte: Int64 NOT NULL

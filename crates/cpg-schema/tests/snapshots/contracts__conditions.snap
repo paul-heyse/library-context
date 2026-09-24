@@ -5,10 +5,14 @@ expression: text
 table conditions
 family flow
 key snapshot_id, condition_id, fact_id
+check root_iff_stated: (stated AND root_id IS NOT NULL AND boundary_reason IS NULL) OR (NOT stated AND root_id IS NULL AND boundary_reason IS NOT NULL)
 @lctx.family=flow
 @lctx.table=conditions
 snapshot_id: FixedSizeBinary(16) NOT NULL
 fact_id: FixedSizeBinary(16) NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
+root_id: FixedSizeBinary(16) NULL
 encoding: Utf8 NOT NULL
 stated: Boolean NOT NULL
+display_truncated: Boolean NOT NULL
+boundary_reason: Utf8 NULL

@@ -5,17 +5,19 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use cpg_flow::{BindingKind, Input, ModuleFlow, RuntimeBindings, RuntimeContext, Sink, Span};
-use cpg_schema::condition::{Atom, Condition};
+use cpg_flow::{
+    BindingKind, Condition, Input, ModuleFlow, RuntimeBindings, RuntimeContext, Sink, Span,
+};
+use cpg_schema::condition::{Atom, Condition as LegacyCondition};
 
 /// These older behavioral assertions inspect readable labels. The pinned snapshot below retains
 /// the full identity-bearing encoding; dedicated cases assert identity itself.
 fn labels(c: &Condition) -> String {
-    match c {
-        Condition::OverBudget => "over_budget".to_owned(),
-        Condition::Dnf(parts) if parts.is_empty() => "false".to_owned(),
-        Condition::Dnf(parts) if parts.len() == 1 && parts[0].is_empty() => "true".to_owned(),
-        Condition::Dnf(parts) => parts
+    match c.legacy() {
+        LegacyCondition::OverBudget => "over_budget".to_owned(),
+        LegacyCondition::Dnf(parts) if parts.is_empty() => "false".to_owned(),
+        LegacyCondition::Dnf(parts) if parts.len() == 1 && parts[0].is_empty() => "true".to_owned(),
+        LegacyCondition::Dnf(parts) => parts
             .iter()
             .map(|conj| {
                 conj.iter()
@@ -105,6 +107,65 @@ fn flow() -> &'static ModuleFlow {
         assert_eq!(m.error, None);
         m
     })
+}
+
+#[test]
+fn test_leaves_keep_compound_operands_and_distinct_match_arms() {
+    let leaves = &flow().test_leaves;
+    let compound: Vec<_> = leaves
+        .iter()
+        .filter(|leaf| {
+            line(leaf.test_span.start) == line_of("if stateless is not None", "def alias_fallback")
+        })
+        .collect();
+    assert!(compound.iter().any(|leaf| leaf.atom.contains("stateless")));
+    assert!(
+        compound
+            .iter()
+            .any(|leaf| leaf.atom.contains("stateless_http"))
+    );
+
+    let matched: Vec<_> = leaves
+        .iter()
+        .filter(|leaf| line(leaf.test_span.start) == line_of("match command:", "def matched"))
+        .collect();
+    let keys: std::collections::BTreeSet<_> =
+        matched.iter().map(|leaf| &leaf.predicate_key).collect();
+    assert!(keys.len() >= 2, "match arms collapsed: {matched:?}");
+    assert!(
+        matched
+            .iter()
+            .all(|leaf| leaf.leaf_span.start == matched[0].leaf_span.start)
+    );
+}
+
+#[test]
+fn flow_producer_keeps_a_wide_predicate_after_dnf_budget() {
+    let text = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/python/flow_shapes/release/flowpkg/wide.py"),
+    )
+    .unwrap();
+    let flow = cpg_flow::index(
+        &[Input {
+            path: "flowpkg/wide.py".to_owned(),
+            text: text.clone(),
+            runtime: RuntimeBindings::default(),
+        }],
+        &RuntimeContext {
+            python_version: (3, 14, 7),
+            platform: "linux".to_owned(),
+        },
+    )
+    .pop()
+    .unwrap();
+    assert!(flow.error.is_none(), "{:?}", flow.error);
+    let at = text.find("return \"reachable\"").unwrap() as u32;
+    let region = flow.regions.iter().find(|r| r.span.start == at).unwrap();
+    assert_eq!(region.condition.legacy(), &LegacyCondition::OverBudget);
+    let diagram = region.condition.diagram().unwrap();
+    assert!(!diagram.is_false());
+    assert!(diagram.render_terms(16).unwrap().truncated);
 }
 
 fn line(byte: u32) -> usize {
@@ -541,6 +602,16 @@ fn a_context_manager_may_suppress_and_says_so() {
         .find(|x| x.0 == "1")
         .expect("the pre-with value survives a suppression");
     assert!(early.2.contains("suppresses"), "{r:?}");
+}
+
+#[test]
+fn admitted_ambiguous_paths_keep_approximation_provenance() {
+    let f = flow();
+    assert!(
+        f.reaching.iter().any(|r| r.condition.approximated())
+            || f.regions.iter().any(|r| r.condition.approximated()),
+        "the try/with fixture should exercise ty's ambiguous terminal"
+    );
 }
 
 #[test]

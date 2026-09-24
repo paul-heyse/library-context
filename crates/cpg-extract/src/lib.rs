@@ -34,14 +34,14 @@ use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
-    ConditionLiterals, Conditions, ContextDefinitions, ContextModules, Contexts, ContextsRow,
-    Coverage, CoverageRow, Declarations, Distributions, DistributionsRow, DocComponentAttributes,
-    DocComponents, DocLinks, Documents, ExportSyntax, Facts, FlowAttributeLoads, FlowDefinitions,
-    FlowReaching, FlowRegions, FlowTests, FlowUses, FlowValues, Mentions, ParameterDocs,
-    ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls,
-    PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions, References, Releases,
-    ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations,
-    TypeTermArgs, TypeTerms,
+    ConditionLiterals, ConditionNodes, Conditions, ContextDefinitions, ContextModules, Contexts,
+    ContextsRow, Coverage, CoverageRow, Declarations, Distributions, DistributionsRow,
+    DocComponentAttributes, DocComponents, DocLinks, Documents, ExportSyntax, Facts,
+    FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions, FlowTestLeaves, FlowTests,
+    FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax, Passages,
+    Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields,
+    ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles,
+    SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -1013,7 +1013,9 @@ fn run_release(
     dedup_by_fact(&mut flow_out.reaching, |r| r.fact_id);
     dedup_by_fact(&mut flow_out.values, |r| r.fact_id);
     dedup_by_fact(&mut flow_out.regions, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.test_leaves, |r| r.fact_id);
     dedup_by_fact(&mut flow_out.conditions, |r| r.fact_id);
+    dedup_by_fact(&mut flow_out.condition_nodes, |r| r.fact_id);
     dedup_by_fact(&mut flow_out.literals, |r| r.fact_id);
 
     let tables = vec![
@@ -1159,12 +1161,20 @@ fn run_release(
             FlowTests::to_sorted_batch(&flow_out.tests)?,
         ),
         (
+            FlowTestLeaves::NAME,
+            FlowTestLeaves::to_sorted_batch(&flow_out.test_leaves)?,
+        ),
+        (
             FlowAttributeLoads::NAME,
             FlowAttributeLoads::to_sorted_batch(&flow_out.attribute_loads)?,
         ),
         (
             Conditions::NAME,
             Conditions::to_sorted_batch(&flow_out.conditions)?,
+        ),
+        (
+            ConditionNodes::NAME,
+            ConditionNodes::to_sorted_batch(&flow_out.condition_nodes)?,
         ),
         (
             ConditionLiterals::NAME,

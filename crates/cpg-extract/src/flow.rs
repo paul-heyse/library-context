@@ -4,17 +4,21 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use cpg_flow::{Input, RuntimeBindings, RuntimeContext, Scope, Sink, SkipCounts, Span};
+use cpg_flow::{
+    Condition as FlowCondition, Input, RuntimeBindings, RuntimeContext, Scope, Sink, SkipCounts,
+    Span,
+};
 use cpg_schema::codebook::{
     ExportSyntaxKind, ExtractionMode, Fidelity, FlowSink, Modality, Origin,
 };
 use cpg_schema::condition::Condition;
+use cpg_schema::condition_kernel::DiagramNode;
 use cpg_schema::id::{Id, IdHasher};
 use cpg_schema::tables::{
-    ConditionLiterals, ConditionLiteralsRow, Conditions, ConditionsRow, ExportSyntaxRow,
-    FlowAttributeLoads, FlowAttributeLoadsRow, FlowDefinitions, FlowDefinitionsRow, FlowReaching,
-    FlowReachingRow, FlowRegions, FlowRegionsRow, FlowTests, FlowTestsRow, FlowUses, FlowUsesRow,
-    FlowValues, FlowValuesRow,
+    ConditionLiterals, ConditionLiteralsRow, ConditionNodes, ConditionNodesRow, Conditions,
+    ConditionsRow, ExportSyntaxRow, FlowAttributeLoads, FlowAttributeLoadsRow, FlowDefinitions,
+    FlowDefinitionsRow, FlowReaching, FlowReachingRow, FlowRegions, FlowRegionsRow, FlowTestLeaves,
+    FlowTestLeavesRow, FlowTests, FlowTestsRow, FlowUses, FlowUsesRow, FlowValues, FlowValuesRow,
 };
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
@@ -123,8 +127,10 @@ pub(crate) struct FlowOut {
     pub values: Vec<FlowValuesRow>,
     pub regions: Vec<FlowRegionsRow>,
     pub tests: Vec<FlowTestsRow>,
+    pub test_leaves: Vec<FlowTestLeavesRow>,
     pub attribute_loads: Vec<FlowAttributeLoadsRow>,
     pub conditions: Vec<ConditionsRow>,
+    pub condition_nodes: Vec<ConditionNodesRow>,
     pub literals: Vec<ConditionLiteralsRow>,
     /// Per module, why it has no flow facts (none: indexed).
     pub errors: BTreeMap<Id, String>,
@@ -185,8 +191,8 @@ pub(crate) fn run(
         .collect();
     let flows = cpg_flow::index(&inputs, context);
     let mut out = FlowOut::default();
-    let mut conditions: BTreeMap<Id, Condition> = BTreeMap::new();
-    let mut condition = |c: &Condition| -> Id {
+    let mut conditions: BTreeMap<Id, FlowCondition> = BTreeMap::new();
+    let mut condition = |c: &FlowCondition| -> Id {
         let id = c.id();
         conditions.entry(id).or_insert_with(|| c.clone());
         id
@@ -282,6 +288,7 @@ pub(crate) fn run(
                     use_id: use_ids[r.use_ix as usize],
                     definition_id: r.def_ix.map(|d| def_ids[d as usize]),
                     condition_id,
+                    approximated: r.condition.approximated(),
                     loop_carried: r.loop_carried,
                 }
             ));
@@ -303,6 +310,7 @@ pub(crate) fn run(
                     identity: v.identity,
                     through_call: v.through_call,
                     condition_id,
+                    approximated: v.condition.approximated() || v.through_call,
                 }
             ));
         }
@@ -323,6 +331,31 @@ pub(crate) fn run(
                     start_byte: i64::from(t.span.start),
                     end_byte: i64::from(t.span.end),
                     condition_id,
+                }
+            ));
+        }
+        for leaf in &flow.test_leaves {
+            let condition_id = condition(&leaf.condition);
+            let (scope_kind, scope_start_byte, scope_end_byte) = scope(leaf.scope);
+            out.test_leaves.push(fact_row!(
+                sink,
+                FlowTestLeaves,
+                provenance(),
+                FlowTestLeavesRow {
+                    snapshot_id: Id::ZERO,
+                    fact_id: Id::ZERO,
+                    module_node_id: module,
+                    scope_kind,
+                    scope_start_byte,
+                    scope_end_byte,
+                    predicate_key: leaf.predicate_key.clone(),
+                    test_start_byte: i64::from(leaf.test_span.start),
+                    test_end_byte: i64::from(leaf.test_span.end),
+                    condition_id,
+                    atom_id: IdHasher::new("bdd-atom").str(&leaf.atom).finish_id(),
+                    atom: leaf.atom.clone(),
+                    leaf_start_byte: i64::from(leaf.leaf_span.start),
+                    leaf_end_byte: i64::from(leaf.leaf_span.end),
                 }
             ));
         }
@@ -358,11 +391,54 @@ pub(crate) fn run(
                     start_byte: i64::from(r.span.start),
                     end_byte: i64::from(r.span.end),
                     condition_id,
+                    approximated: r.condition.approximated(),
                 }
             ));
         }
     }
+    let mut nodes: BTreeMap<Id, DiagramNode> = BTreeMap::new();
     for (condition_id, c) in conditions {
+        let (root_id, encoding, display_truncated, boundary_reason) = match c.diagram() {
+            Ok(diagram) => {
+                let (root, closure) = diagram.root_and_nodes();
+                for node in closure {
+                    nodes.entry(node.node_id).or_insert(node);
+                }
+                let (encoding, truncated) = match diagram.render_terms(16) {
+                    Ok(rendered) => {
+                        let text = if rendered.terms.is_empty() {
+                            "false".to_owned()
+                        } else {
+                            rendered
+                                .terms
+                                .iter()
+                                .map(|term| {
+                                    if term.is_empty() {
+                                        "true".to_owned()
+                                    } else {
+                                        term.iter()
+                                            .map(|(atom, positive)| {
+                                                format!(
+                                                    "{}{}",
+                                                    if *positive { "" } else { "!" },
+                                                    atom
+                                                )
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join(" & ")
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" | ")
+                        };
+                        (text, rendered.truncated)
+                    }
+                    Err(_) => ("<render budget>".to_owned(), true),
+                };
+                (Some(root), encoding, truncated, None)
+            }
+            Err(reason) => (None, c.encode(), false, Some(reason.code().to_owned())),
+        };
         out.conditions.push(fact_row!(
             sink,
             Conditions,
@@ -371,11 +447,14 @@ pub(crate) fn run(
                 snapshot_id: Id::ZERO,
                 fact_id: Id::ZERO,
                 condition_id,
-                encoding: c.encode(),
-                stated: c != Condition::OverBudget,
+                root_id,
+                encoding,
+                stated: root_id.is_some(),
+                display_truncated,
+                boundary_reason,
             }
         ));
-        if let Condition::Dnf(conjunctions) = &c {
+        if let Condition::Dnf(conjunctions) = c.legacy() {
             for (ci, conjunction) in conjunctions.iter().enumerate() {
                 for (li, l) in conjunction.iter().enumerate() {
                     out.literals.push(fact_row!(
@@ -397,6 +476,21 @@ pub(crate) fn run(
                 }
             }
         }
+    }
+    for node in nodes.into_values() {
+        out.condition_nodes.push(fact_row!(
+            sink,
+            ConditionNodes,
+            provenance(),
+            ConditionNodesRow {
+                snapshot_id: Id::ZERO,
+                fact_id: Id::ZERO,
+                node_id: node.node_id,
+                atom: node.atom,
+                low_id: node.low,
+                high_id: node.high,
+            }
+        ));
     }
     out
 }

@@ -101,7 +101,7 @@ T1–T9 carry over from the superseded plan. T5 is restated, and T10–T11 are n
 | T4 | Meaning comes from models, propagation from summaries | "Calls X, so can X" |
 | **T5** | **Conditions are Boolean functions over evaluation atoms, held in a decision-diagram kernel.** Propositional reasoning, plus a typed theory for primitive places, is allowed. **No theory solver** (§B10) | Merged evaluations drop feasible paths (X1); budget cuts lose structure (X4) |
 | T6 | Five verdicts, never a null; a negative verdict only inside complete coverage | Unsupported negatives |
-| T7 | Materialize at compile time; serve bounded selections | Serve-time semantics in Python |
+| T7 | Materialize source facts at compile time; run bounded semantic selections in the pinned Rust executor | A second, unproven serve-time condition semantics in Python |
 | T8 | Discovery nominates, definitions decide | Statistical membership |
 | T9 | Pre-registered behavioral question sets, plus mechanical known-answer fixtures | Circular evaluation |
 | **T10** | **Providers observe; our semantic layer concludes.** Provider facts are observations under the provider's model. What they justify is decided by our rules, which are stated and tested | Provider artefacts become claims |
@@ -168,8 +168,9 @@ stop ty deciding the name by spelling.
 - **Persistence:** lossless, as a node table over the atom table, with content ids from the
   canonical BDD. The DNF encoding is a rendering with a display budget. A node limit, not a DNF
   budget, is the only point where information is cut, and that is `unknown` (`budget_reached`).
-- **Normal-path factoring** becomes exact: "F given N" is the simplest G with G ∧ N ≡ F ∧ N,
-  checked by equivalence.
+- **Normal-path factoring** nominates a quotient with the bounded Stage 2 rule and accepts it only
+  after checking `F == N ∧ G` with the bounded diagram kernel. If the check cannot establish that
+  equality, F remains authoritative with `not_factored` (ADR-0024).
 
 **The approximation direction** is stated in ADR-0022 §Verdicts and in the tool descriptions:
 - positive verdicts are may-behavior the model admits (AMBIGUOUS read as true; calls assumed to
@@ -477,7 +478,7 @@ stage's output is read.
 | The runtime view follows resolution and Python's semantics | `flow_shapes` cases; the oracle, on the pinned interpreter | Pass | 2.9 |
 | Skipped rows are accounted for | Coverage counts asserted in `flow_shapes` | Counts by cause | 2.9 |
 | One condition, one id, whatever its construction | Kernel known answers; shuffle determinism | Identical ids | 3.0 |
-| Structure is not lost at extraction | Pilot `budget_reached` count, and the node limit's hits | Falls from 42; hits reported | 3.0 |
+| Structure is not lost at extraction | Pilot `budget_reached` count, and the node limit's hits | Falls from the current 66; hits reported | 3.0 |
 | Summaries resolve call transfers | Pilot `call_transfer` count; `behavior_shapes` part 2; the Pysa differential | Falls from 6,137; disagreements explained | 3 |
 | Models agree with the functions they model | CrossHair `diffbehavior` in an isolated worker | No counterexample, or a fixture | 3.1 |
 | No negative claim outside complete coverage | `semantic:refuted-needs-complete-region`, `refuted-not-overridden`, `premise-no-attribute-load` | Violations rejected | continuing |

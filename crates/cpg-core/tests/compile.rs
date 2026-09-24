@@ -90,7 +90,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        48 + 21 + 32,
+        50 + 21 + 32,
         "every raw, derived and analysis table"
     );
 
@@ -183,6 +183,35 @@ async fn derived_text(fixture: &str) -> (String, SessionContext, tempfile::TempD
         out.push_str(&format!("## {title}\n{}\n", text(&ctx, statement).await));
     }
     (out, ctx, root)
+}
+
+/// Publication and a generation load must reject a node changed after the Delta write. The
+/// session view is taken from the published, version-pinned Delta table before it is doctored.
+#[tokio::test(flavor = "multi_thread")]
+async fn published_condition_node_tamper_is_rejected() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([46; 16]);
+    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let doctored = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (atom), concat(atom, 'tampered') AS atom FROM condition_nodes",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("condition_nodes").unwrap();
+    ctx.register_table("condition_nodes", doctored).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "condition-graph-and-leaf-provenance"),
+        "{violations:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use cpg_schema::condition::{Atom, Condition, EvaluationIdentity, Value};
+use cpg_schema::condition::{Atom, EvaluationIdentity, Value};
 use cpg_schema::id::IdHasher;
 use ruff_db::parsed::ParsedModuleRef;
 use ruff_python_ast_ty::{self as ast, CmpOp, Expr};
@@ -27,7 +27,7 @@ use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
 use ty_python_core::{FileScopeId, UseDefMap};
 
 use crate::db::FlowDb;
-use crate::{RuntimeBindings, RuntimeContext, SENTINEL, Span};
+use crate::{Condition, RuntimeBindings, RuntimeContext, SENTINEL, Span};
 
 /// A predicate ty records but no test decides (an or-pattern's alternative, a star import).
 pub(crate) const UNDECIDED: &str = "<undecided by the flow provider>";
@@ -434,7 +434,7 @@ pub(crate) fn diagram(
     // iterable, a `with` exit). Verdicts state may-behavior, so it reads as `true` (ADR-0022
     // §Conditions; the Stage 2 review's F2).
     if id == ScopedReachabilityConstraintId::AMBIGUOUS {
-        return Condition::always();
+        return Condition::always().with_approximation();
     }
     if let Some(c) = memo.get(&id) {
         return c.clone();

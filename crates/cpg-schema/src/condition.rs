@@ -175,6 +175,15 @@ impl EvaluationIdentity {
 }
 
 impl Atom {
+    /// Parse one canonical atom encoding, without a polarity prefix.
+    pub fn parse_encoded(text: &str) -> Result<Self, String> {
+        let literal = parse_literal(text)?;
+        if !literal.positive {
+            return Err("an atom encoding cannot include a polarity prefix".to_owned());
+        }
+        Ok(literal.atom)
+    }
+
     pub fn evaluated(self, identity: EvaluationIdentity) -> Atom {
         Atom::Evaluated {
             atom: Box::new(self),

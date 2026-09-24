@@ -19,3 +19,4 @@ use_id: FixedSizeBinary(16) NOT NULL
 identity: Boolean NOT NULL
 through_call: Boolean NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
+approximated: Boolean NOT NULL

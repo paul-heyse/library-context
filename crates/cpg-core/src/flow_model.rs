@@ -29,6 +29,9 @@ use cpg_schema::codebook::{
     LexicalScopeKind, PremiseKind, ReadPhase, SourceRole, SyntaxField, SyntaxKind,
 };
 use cpg_schema::condition::Condition;
+use cpg_schema::condition_kernel::{
+    BoundedCondition as ModelCondition, Diagram, DiagramNode, KernelBoundary,
+};
 use cpg_schema::id::{Id, IdHasher};
 use datafusion::prelude::SessionContext;
 
@@ -88,7 +91,18 @@ cpg_schema::query_row! {
 cpg_schema::query_row! {
     struct ConditionRow {
         condition_id: Id,
+        root_id: Option<Id>,
         encoding: String,
+        boundary_reason: Option<String>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ConditionNodeRow {
+        node_id: Id,
+        atom: String,
+        low_id: Id,
+        high_id: Id,
     }
 }
 
@@ -312,7 +326,11 @@ cpg_schema::relations! {
             .to_owned();
     conditions = "flow_model_conditions",
         deps = ["conditions"],
-        sql = "SELECT DISTINCT condition_id, encoding FROM conditions ORDER BY condition_id"
+        sql = "SELECT DISTINCT condition_id, root_id, encoding, boundary_reason FROM conditions ORDER BY condition_id"
+            .to_owned();
+    condition_nodes = "flow_model_condition_nodes",
+        deps = ["condition_nodes"],
+        sql = "SELECT node_id, atom, low_id, high_id FROM condition_nodes ORDER BY node_id"
             .to_owned();
     regions = "flow_model_regions",
         deps = ["flow_regions", "declarations"],
@@ -524,9 +542,13 @@ pub struct FlowModelRows {
     pub tested: BTreeMap<(Id, String), BTreeSet<String>>,
     /// Each release call site's region condition (the statement's), when not `true`.
     pub call_condition: BTreeMap<Id, String>,
+    pub call_condition_ids: BTreeMap<Id, Id>,
     /// Declarations the runtime view cannot reach (their region, or an enclosing one's, is
     /// `false`).
     pub unreachable: BTreeSet<Id>,
+    /// Compile-local exact conditions for derived rows; display text is never parsed back into
+    /// the semantic authority by the behavior scan.
+    pub condition_models: HashMap<Id, ModelCondition>,
 }
 
 /// Where a value comes from: a parameter, or a field of a method's receiver read with no local
@@ -562,7 +584,7 @@ impl Transfer {
 struct Source {
     transfer: Transfer,
     captured: bool,
-    condition: Condition,
+    condition: ModelCondition,
 }
 
 type Sources = BTreeMap<(Origin, Transfer), Source>;
@@ -595,7 +617,7 @@ struct Model {
     /// Per use: each reaching definition, its condition, and whether it is loop-carried.
     reaching: HashMap<Id, Vec<(Option<Id>, Id, bool)>>,
     values: ValueSources,
-    conditions: HashMap<Id, Condition>,
+    conditions: HashMap<Id, ModelCondition>,
     captured: HashMap<(Id, i64, i64), Vec<Id>>,
     /// Receiver parameters: never an origin of their own.
     receivers: HashSet<Id>,
@@ -608,11 +630,11 @@ struct Model {
 }
 
 impl Model {
-    fn condition(&self, id: Id) -> Condition {
+    fn condition(&self, id: Id) -> ModelCondition {
         self.conditions
             .get(&id)
             .cloned()
-            .unwrap_or(Condition::OverBudget)
+            .unwrap_or_else(|| ModelCondition::unknown(KernelBoundary::SourceOverBudget))
     }
 
     /// The parameters reaching a use (see the module docs), with the shallowest depth of `stack`
@@ -670,7 +692,7 @@ impl Model {
                             Source {
                                 transfer: Transfer::Identity,
                                 captured: true,
-                                condition: Condition::always(),
+                                condition: ModelCondition::always(),
                             },
                         );
                     }
@@ -902,51 +924,31 @@ fn raised_name(text: &str) -> Option<&str> {
 
 /// Per function, each guard that raises: its statement's start and the normal path past it (the
 /// guard's condition negated).
-pub(crate) type RaiseGuards = BTreeMap<Id, Vec<(i64, Condition)>>;
+pub(crate) type ModelRaiseGuards = BTreeMap<Id, Vec<(i64, ModelCondition)>>;
 
-pub(crate) fn guards_of(raises: &[RaiseSitesRow]) -> RaiseGuards {
-    let mut out = RaiseGuards::new();
-    for r in raises {
-        // Only a raise that may leave its function is a guard; a budget cut states nothing (the
-        // Stage 2 end review's R6, R3).
-        if let Ok(c) = Condition::parse(&r.condition)
-            && r.escapes
-            && !c.is_always()
-            && c != Condition::OverBudget
-        {
-            out.entry(r.function_node_id)
-                .or_default()
-                .push((r.start_byte, c.not()));
-        }
-    }
-    out
-}
-
-/// A claim's condition on its function's normal path (ADR-0022 §Conditions): the guards that
-/// raise (other than the claim's own site) factored out where they are a factor
-/// (`Condition::given`), all of them together first (two guards' normal paths multiply), then
-/// each alone.
-pub(crate) fn normal_path(
-    guards: &RaiseGuards,
+/// The source guard diagrams are kept in memory through the flow-model and behavior passes;
+/// their display strings are not parsed.
+pub(crate) fn normal_path_model(
+    guards: &ModelRaiseGuards,
     function: Id,
-    condition: &Condition,
+    condition: &ModelCondition,
     site: Option<i64>,
-) -> Condition {
-    let normals: Vec<&Condition> = guards
+) -> ModelCondition {
+    let normals: Vec<&ModelCondition> = guards
         .get(&function)
         .into_iter()
         .flatten()
         .filter(|(start, _)| Some(*start) != site)
-        .map(|(_, n)| n)
+        .map(|(_, normal)| normal)
         .collect();
     let all = normals
         .iter()
-        .fold(Condition::always(), |acc, n| acc.and(n));
-    let mut c = condition.given(&all);
-    for n in normals {
-        c = c.given(n);
+        .fold(ModelCondition::always(), |acc, normal| acc.and(normal));
+    let mut result = condition.given(&all);
+    for normal in &normals {
+        result = result.given(normal);
     }
-    c
+    result
 }
 
 /// A sink's value sources: the use, how it reaches the value, and the selecting condition.
@@ -1018,6 +1020,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     let reaching_rows: Vec<ReachRow> = sql::fetch(ctx, &reaching(), p()).await?;
     let value_rows: Vec<ValueRow> = sql::fetch(ctx, &values(), p()).await?;
     let condition_rows: Vec<ConditionRow> = sql::fetch(ctx, &conditions(), p()).await?;
+    let node_rows: Vec<ConditionNodeRow> = sql::fetch(ctx, &condition_nodes(), p()).await?;
     let region_rows: Vec<RegionRow> = sql::fetch(ctx, &regions(), p()).await?;
     let argument_rows: Vec<ArgumentRow> = sql::fetch(ctx, &arguments(), p()).await?;
     let captured_rows: Vec<CapturedRow> = sql::fetch(ctx, &captured(), p()).await?;
@@ -1044,10 +1047,54 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         .map(|r| r.module_node_id)
         .collect();
 
+    let mut node_catalog = HashMap::new();
+    for node in node_rows {
+        let row = DiagramNode {
+            node_id: node.node_id,
+            atom: node.atom,
+            low: node.low_id,
+            high: node.high_id,
+        };
+        if node_catalog.insert(row.node_id, row).is_some() {
+            return Err(CoreError::Analysis(
+                "duplicate condition node id".to_owned(),
+            ));
+        }
+    }
     let mut conditions = HashMap::new();
     for r in condition_rows {
-        let c = Condition::parse(&r.encoding).map_err(CoreError::Analysis)?;
-        conditions.insert(r.condition_id, c);
+        let display = Condition::parse(&r.encoding).unwrap_or(Condition::OverBudget);
+        let diagram = match (r.root_id, r.boundary_reason.as_deref()) {
+            (Some(root), None) => {
+                let diagram = Diagram::from_catalog(root, &node_catalog).map_err(|e| {
+                    CoreError::Analysis(format!("invalid condition root {}: {e:?}", root.hex()))
+                })?;
+                if diagram.id() != r.condition_id {
+                    return Err(CoreError::Analysis(format!(
+                        "condition id differs from root {}",
+                        root.hex()
+                    )));
+                }
+                Ok(diagram)
+            }
+            (None, Some(code)) => Err(KernelBoundary::from_code(code).ok_or_else(|| {
+                CoreError::Analysis(format!("unknown condition boundary {code}"))
+            })?),
+            _ => {
+                return Err(CoreError::Analysis(
+                    "condition root/boundary mismatch".to_owned(),
+                ));
+            }
+        };
+        if conditions
+            .insert(r.condition_id, ModelCondition::from_parts(display, diagram))
+            .is_some()
+        {
+            return Err(CoreError::Analysis(format!(
+                "duplicate condition {}",
+                r.condition_id.hex()
+            )));
+        }
     }
     let mut reaching_map: HashMap<Id, Vec<(Option<Id>, Id, bool)>> = HashMap::new();
     for r in reaching_rows {
@@ -1158,7 +1205,11 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 .push(d);
         }
     }
-    let condition_text = |c: &Condition| -> (Id, String) { (c.id(), c.encode()) };
+    let mut condition_models = HashMap::new();
+    let mut condition_text = |c: &ModelCondition| -> (Id, String) {
+        condition_models.insert(c.id(), c.clone());
+        (c.id(), c.encode())
+    };
 
     // Declarations the runtime view cannot reach (ADR-0022 §Composed layers; the Stage 2 end
     // review's R2): the region of its own statement, or of an enclosing declaration's, is `false`.
@@ -1521,7 +1572,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         let condition = regions
             .at(module, start, end)
             .map(|c| model.condition(c))
-            .unwrap_or_else(Condition::always);
+            .unwrap_or_else(ModelCondition::always);
         let (condition_id, condition) = condition_text(&condition);
         out.field_accesses.push(FieldAccessesRow {
             snapshot_id,
@@ -1715,8 +1766,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             uses_in.entry(f).or_default().push(u);
         }
     }
-    let positive = |c: &Condition| -> Vec<String> {
-        match c {
+    let positive = |c: &ModelCondition| -> Vec<String> {
+        match c.legacy() {
             Condition::Dnf(d) => d
                 .iter()
                 .flatten()
@@ -1782,11 +1833,12 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
 
     // Raise sites: every `raise` with its region's condition, the parameters it tests, and whether
     // it may leave its function.
+    let mut model_guards = ModelRaiseGuards::new();
     for r in &raise_rows {
         let condition = regions
             .at(r.module_node_id, r.start_byte, r.end_byte)
             .map(|c| model.condition(c))
-            .unwrap_or_else(Condition::always);
+            .unwrap_or_else(ModelCondition::always);
         let tested: BTreeSet<String> = positive(&condition)
             .into_iter()
             .filter_map(|a| atom_reads.get(&(r.owner_node_id, a)))
@@ -1798,6 +1850,13 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             .unwrap_or_default()
             .trim()
             .to_owned();
+        let does_escape = escapes(r);
+        if does_escape && !condition.is_always() && condition.diagram().is_ok() {
+            model_guards
+                .entry(r.owner_node_id)
+                .or_default()
+                .push((r.start_byte, condition.not()));
+        }
         let (condition_id, condition) = condition_text(&condition);
         out.raise_sites.push(RaiseSitesRow {
             snapshot_id,
@@ -1810,7 +1869,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             condition_id,
             condition,
             parameters: tested.into_iter().collect(),
-            escapes: escapes(r),
+            escapes: does_escape,
         });
     }
 
@@ -1839,7 +1898,6 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         .collect();
 
     // Ambient reads: a place whose root resolves to a singleton, and the field after it.
-    let guards = guards_of(&out.raise_sites);
     for u in &uses {
         if !u.place.contains('.') || u.place.contains('[') {
             continue;
@@ -1890,19 +1948,20 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         let region = regions
             .at(u.module_node_id, u.start_byte, u.end_byte)
             .map(|c| model.condition(c))
-            .unwrap_or_else(Condition::always);
+            .unwrap_or_else(ModelCondition::always);
         // Inside a conditional expression or a boolean operand, the read happens only when the
         // expression selects it.
         let selected = values_by_use
             .get(&u.use_id)
             .map(|cs| {
-                cs.iter()
-                    .fold(Condition::never(), |acc, c| acc.or(&model.condition(*c)))
+                cs.iter().fold(ModelCondition::never(), |acc, c| {
+                    acc.or(&model.condition(*c))
+                })
             })
-            .unwrap_or_else(Condition::always);
+            .unwrap_or_else(ModelCondition::always);
         // Stated on the reader's normal path, as a fate is.
         let condition = match reader {
-            Some(r) => normal_path(&guards, r, &region.and(&selected), None),
+            Some(r) => normal_path_model(&model_guards, r, &region.and(&selected), None),
             None => region.and(&selected),
         };
         let (condition_id, condition) = condition_text(&condition);
@@ -1929,6 +1988,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             .map(|id| model.condition(id))
             .filter(|cond| !cond.is_always())
         {
+            out.call_condition_ids.insert(c.node_id, cond.id());
+            condition_models.insert(cond.id(), cond.clone());
             out.call_condition.insert(c.node_id, cond.encode());
         }
         if let Some(t) = text_of(
@@ -2294,5 +2355,6 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         }
     }
     out.premises = premises.into_values().collect();
+    out.condition_models = condition_models;
     Ok(out)
 }

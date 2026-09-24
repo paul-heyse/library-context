@@ -12,4 +12,5 @@ fact_id: FixedSizeBinary(16) NOT NULL
 use_id: FixedSizeBinary(16) NOT NULL
 definition_id: FixedSizeBinary(16) NULL
 condition_id: FixedSizeBinary(16) NOT NULL
+approximated: Boolean NOT NULL
 loop_carried: Boolean NOT NULL

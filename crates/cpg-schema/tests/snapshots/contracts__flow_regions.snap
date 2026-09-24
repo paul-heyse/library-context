@@ -17,3 +17,4 @@ scope_end_byte: Int64 NULL
 start_byte: Int64 NOT NULL
 end_byte: Int64 NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
+approximated: Boolean NOT NULL

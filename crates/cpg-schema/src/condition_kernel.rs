@@ -1,9 +1,9 @@
 //! Bounded Boolean condition questions over evaluation atoms (ADR-0024).
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use crate::condition::Condition;
+use crate::condition::{Atom, Condition};
 use crate::id::{Id, IdHasher};
-use biodivine_lib_bdd::{Bdd, BddPointer, BddVariableSet, op_function};
+use biodivine_lib_bdd::{Bdd, BddNode, BddPointer, BddVariableSet, op_function};
 
 // Stage 2 can retain 16 conjunctions of 8 distinct literals each.
 const MAX_ATOMS: usize = 128;
@@ -24,6 +24,31 @@ pub enum KernelBoundary {
     AtomNameCollision,
 }
 
+impl KernelBoundary {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::SourceOverBudget => "source_over_budget",
+            Self::AtomLimit => "atom_limit",
+            Self::WorkPreflight => "work_preflight",
+            Self::NodeLimit => "node_limit",
+            Self::TransferUnsupported => "transfer_unsupported",
+            Self::AtomNameCollision => "atom_name_collision",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        Some(match code {
+            "source_over_budget" => Self::SourceOverBudget,
+            "atom_limit" => Self::AtomLimit,
+            "work_preflight" => Self::WorkPreflight,
+            "node_limit" => Self::NodeLimit,
+            "transfer_unsupported" => Self::TransferUnsupported,
+            "atom_name_collision" => Self::AtomNameCollision,
+            _ => return None,
+        })
+    }
+}
+
 /// A content-addressed nonterminal. No library-local variable index or pointer is persisted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagramNode {
@@ -42,6 +67,9 @@ pub enum NodeValidationError {
     Unreduced,
     IdentityMismatch,
     Limit,
+    UnreachableNode,
+    AtomNameCollision,
+    InvalidBdd,
 }
 
 pub fn false_terminal() -> Id {
@@ -112,14 +140,19 @@ pub fn validate_nodes(root: Id, nodes: &[DiagramNode]) -> Result<(), NodeValidat
         visited.insert(id);
         Ok(())
     }
+    let mut visited = HashSet::new();
     visit(
         root,
         &by_id,
         &mut HashSet::new(),
-        &mut HashSet::new(),
+        &mut visited,
         &mut BTreeSet::new(),
         1,
-    )
+    )?;
+    if visited.len() != by_id.len() {
+        return Err(NodeValidationError::UnreachableNode);
+    }
+    Ok(())
 }
 
 fn atom_name(atom: &str) -> String {
@@ -166,6 +199,141 @@ pub struct FactorResult {
 }
 
 impl Diagram {
+    /// Select and validate one root's closure from a shared node catalog.
+    pub fn from_catalog(
+        root: Id,
+        catalog: &HashMap<Id, DiagramNode>,
+    ) -> Result<Self, NodeValidationError> {
+        fn gather(
+            id: Id,
+            catalog: &HashMap<Id, DiagramNode>,
+            seen: &mut HashSet<Id>,
+            out: &mut Vec<DiagramNode>,
+            depth: usize,
+        ) -> Result<(), NodeValidationError> {
+            if id == false_terminal() || id == true_terminal() || !seen.insert(id) {
+                return Ok(());
+            }
+            if out.len() >= MAX_NODES || depth > MAX_ATOMS {
+                return Err(NodeValidationError::Limit);
+            }
+            let node = catalog.get(&id).ok_or(NodeValidationError::MissingNode)?;
+            out.push(node.clone());
+            gather(node.low, catalog, seen, out, depth + 1)?;
+            gather(node.high, catalog, seen, out, depth + 1)?;
+            Ok(())
+        }
+        let mut closure = Vec::new();
+        gather(root, catalog, &mut HashSet::new(), &mut closure, 1)?;
+        Self::from_root_and_nodes(root, &closure)
+    }
+
+    /// Hydrate one exact persisted root closure after the shared publication/load validation.
+    pub fn from_root_and_nodes(
+        root: Id,
+        nodes: &[DiagramNode],
+    ) -> Result<Self, NodeValidationError> {
+        validate_nodes(root, nodes)?;
+        if root == false_terminal() {
+            return Ok(Self::never());
+        }
+        if root == true_terminal() {
+            return Ok(Self::always());
+        }
+        let support: Vec<String> = nodes
+            .iter()
+            .map(|node| node.atom.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let names: Vec<String> = support.iter().map(|atom| atom_name(atom)).collect();
+        if names.iter().collect::<BTreeSet<_>>().len() != names.len() {
+            return Err(NodeValidationError::AtomNameCollision);
+        }
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let ctx = BddVariableSet::new(&refs);
+        let count = u16::try_from(support.len()).map_err(|_| NodeValidationError::Limit)?;
+        let mut raw = vec![BddNode::mk_zero(count), BddNode::mk_one(count)];
+        let by_id: HashMap<Id, &DiagramNode> =
+            nodes.iter().map(|node| (node.node_id, node)).collect();
+        fn append(
+            id: Id,
+            by_id: &HashMap<Id, &DiagramNode>,
+            support: &[String],
+            raw: &mut Vec<BddNode>,
+            done: &mut HashMap<Id, BddPointer>,
+        ) -> Result<BddPointer, NodeValidationError> {
+            if id == false_terminal() {
+                return Ok(BddPointer::zero());
+            }
+            if id == true_terminal() {
+                return Ok(BddPointer::one());
+            }
+            if let Some(&pointer) = done.get(&id) {
+                return Ok(pointer);
+            }
+            let node = by_id.get(&id).ok_or(NodeValidationError::MissingNode)?;
+            let low = append(node.low, by_id, support, raw, done)?;
+            let high = append(node.high, by_id, support, raw, done)?;
+            let index = support
+                .binary_search(&node.atom)
+                .map_err(|_| NodeValidationError::InvalidBdd)?;
+            let pointer = BddPointer::from_index(raw.len());
+            raw.push(BddNode::mk_node(ctx_var(index), low, high));
+            done.insert(id, pointer);
+            Ok(pointer)
+        }
+        fn ctx_var(index: usize) -> biodivine_lib_bdd::BddVariable {
+            biodivine_lib_bdd::BddVariable::from_index(index)
+        }
+        append(root, &by_id, &support, &mut raw, &mut HashMap::new())?;
+        let bdd = Bdd::from_nodes(&raw).map_err(|_| NodeValidationError::InvalidBdd)?;
+        bdd.validate()
+            .map_err(|_| NodeValidationError::InvalidBdd)?;
+        let hydrated = Self { support, ctx, bdd };
+        if hydrated.root_and_nodes().0 != root {
+            return Err(NodeValidationError::IdentityMismatch);
+        }
+        Ok(hydrated)
+    }
+
+    /// A constant condition. These constructors do not pass through Stage 2's DNF budget.
+    pub fn always() -> Self {
+        let ctx = BddVariableSet::new(&[]);
+        let bdd = ctx.mk_true();
+        Self {
+            support: Vec::new(),
+            ctx,
+            bdd,
+        }
+    }
+
+    pub fn never() -> Self {
+        let ctx = BddVariableSet::new(&[]);
+        let bdd = ctx.mk_false();
+        Self {
+            support: Vec::new(),
+            ctx,
+            bdd,
+        }
+    }
+
+    /// Construct one evaluation atom directly, before DNF can discard the source expression.
+    pub fn from_atom(atom: &Atom) -> Result<Self, KernelBoundary> {
+        let encoded = atom.encode();
+        if encoded.len() > MAX_ATOM_BYTES {
+            return Err(KernelBoundary::WorkPreflight);
+        }
+        let name = atom_name(&encoded);
+        let ctx = BddVariableSet::new(&[name.as_str()]);
+        let bdd = ctx.mk_var(ctx.variables()[0]);
+        Ok(Self {
+            support: vec![encoded],
+            ctx,
+            bdd,
+        })
+    }
+
     pub fn from_condition(condition: &Condition) -> Result<Self, KernelBoundary> {
         let Condition::Dnf(terms) = condition else {
             return Err(KernelBoundary::SourceOverBudget);
@@ -226,6 +394,18 @@ impl Diagram {
 
     pub fn node_count(&self) -> usize {
         self.bdd.size()
+    }
+
+    pub fn support(&self) -> &[String] {
+        &self.support
+    }
+
+    pub fn is_false(&self) -> bool {
+        self.bdd.is_false()
+    }
+
+    pub fn is_true(&self) -> bool {
+        self.bdd.is_true()
     }
 
     /// Structural root plus its lossless, content-addressed nonterminal closure.
@@ -408,10 +588,178 @@ impl Diagram {
             .collect();
         let left = self.in_union(&union)?;
         let right = other.in_union(&union)?;
-        if right.size() > MAX_NODES {
-            return Err(KernelBoundary::NodeLimit);
+        Ok(apply(&left, &right, op_function::and_not)?.is_false())
+    }
+}
+
+/// A migration-safe condition value: the diagram decides, while Stage 2's normal form remains a
+/// bounded readable projection until every consumer uses persisted roots and nodes.
+#[derive(Clone)]
+pub struct BoundedCondition {
+    legacy: Condition,
+    diagram: Result<Diagram, KernelBoundary>,
+    approximated: bool,
+}
+
+impl std::fmt::Debug for BoundedCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BoundedCondition")
+            .field("legacy", &self.legacy)
+            .field("diagram", &self.diagram.as_ref().map(Diagram::id))
+            .field("approximated", &self.approximated)
+            .finish()
+    }
+}
+
+impl BoundedCondition {
+    pub fn always() -> Self {
+        Self {
+            legacy: Condition::always(),
+            diagram: Ok(Diagram::always()),
+            approximated: false,
         }
-        Ok(apply(&left, &right.not(), op_function::and)?.is_false())
+    }
+
+    pub fn never() -> Self {
+        Self {
+            legacy: Condition::never(),
+            diagram: Ok(Diagram::never()),
+            approximated: false,
+        }
+    }
+
+    pub fn atom(atom: Atom) -> Self {
+        let diagram = Diagram::from_atom(&atom);
+        Self {
+            legacy: Condition::atom(atom),
+            diagram,
+            approximated: false,
+        }
+    }
+
+    pub fn from_legacy(legacy: Condition) -> Self {
+        let diagram = Diagram::from_condition(&legacy);
+        Self {
+            legacy,
+            diagram,
+            approximated: false,
+        }
+    }
+
+    pub fn from_parts(legacy: Condition, diagram: Result<Diagram, KernelBoundary>) -> Self {
+        Self {
+            legacy,
+            diagram,
+            approximated: false,
+        }
+    }
+
+    pub fn unknown(reason: KernelBoundary) -> Self {
+        Self {
+            legacy: Condition::OverBudget,
+            diagram: Err(reason),
+            approximated: false,
+        }
+    }
+
+    pub fn and(&self, other: &Self) -> Self {
+        let diagram = match (&self.diagram, &other.diagram) {
+            (Ok(a), Ok(b)) => a.and(b),
+            (Err(e), _) | (_, Err(e)) => Err(*e),
+        };
+        Self {
+            legacy: self.legacy.and(&other.legacy),
+            diagram,
+            approximated: self.approximated || other.approximated,
+        }
+    }
+
+    pub fn or(&self, other: &Self) -> Self {
+        let diagram = match (&self.diagram, &other.diagram) {
+            (Ok(a), Ok(b)) => a.or(b),
+            (Err(e), _) | (_, Err(e)) => Err(*e),
+        };
+        Self {
+            legacy: self.legacy.or(&other.legacy),
+            diagram,
+            approximated: self.approximated || other.approximated,
+        }
+    }
+
+    pub fn not(&self) -> Self {
+        Self {
+            legacy: self.legacy.not(),
+            diagram: self.diagram.as_ref().map_err(|e| *e).and_then(Diagram::not),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn given(&self, factor: &Self) -> Self {
+        let proposed_legacy = self.legacy.given(&factor.legacy);
+        let Ok(original) = &self.diagram else {
+            return self.clone();
+        };
+        let Ok(divisor) = &factor.diagram else {
+            return self.clone();
+        };
+        let Ok(proposed) = Diagram::from_condition(&proposed_legacy) else {
+            return self.clone();
+        };
+        let factored = original.given(divisor, &proposed);
+        if factored.factored {
+            Self {
+                legacy: proposed_legacy,
+                diagram: Ok(factored.diagram),
+                approximated: self.approximated || factor.approximated,
+            }
+        } else {
+            self.clone()
+        }
+    }
+
+    pub fn is_never(&self) -> bool {
+        self.diagram.as_ref().is_ok_and(Diagram::is_false)
+    }
+
+    pub fn is_always(&self) -> bool {
+        self.diagram.as_ref().is_ok_and(Diagram::is_true)
+    }
+
+    pub fn encode(&self) -> String {
+        self.legacy.encode()
+    }
+
+    pub fn id(&self) -> Id {
+        match &self.diagram {
+            Ok(diagram) => diagram.id(),
+            Err(reason) => IdHasher::new("condition-bdd-boundary")
+                .str(&format!("{reason:?}"))
+                .str(&self.legacy.encode())
+                .finish_id(),
+        }
+    }
+
+    pub fn legacy(&self) -> &Condition {
+        &self.legacy
+    }
+
+    pub fn diagram(&self) -> Result<&Diagram, KernelBoundary> {
+        self.diagram.as_ref().map_err(|e| *e)
+    }
+
+    pub fn boundary(&self) -> Option<KernelBoundary> {
+        self.diagram.as_ref().err().copied()
+    }
+
+    /// An admitted may-path crossed a provider ambiguity or declared runtime assumption.
+    /// This provenance is row-local and does not change the Boolean function's identity.
+    pub fn approximated(&self) -> bool {
+        self.approximated
+    }
+
+    pub fn with_approximation(mut self) -> Self {
+        self.approximated = true;
+        self
     }
 }
 
@@ -551,6 +899,41 @@ mod tests {
         let rejected = product.given(&factor, &a);
         assert!(!rejected.factored);
         assert_eq!(rejected.diagram.id(), product.id());
+    }
+
+    #[test]
+    fn direct_atoms_keep_a_seventeen_way_disjunction_stated() {
+        let mut diagram = Diagram::never();
+        for index in 0..17 {
+            let atom = crate::condition::Atom::Truthy {
+                place: format!("option_{index}"),
+            };
+            diagram = diagram.or(&Diagram::from_atom(&atom).unwrap()).unwrap();
+        }
+        assert!(diagram.compatible(&Diagram::always()).unwrap());
+        assert_ne!(diagram.id(), Diagram::always().id());
+        assert!(diagram.render_terms(16).unwrap().truncated);
+        let (root, nodes) = diagram.root_and_nodes();
+        validate_nodes(root, &nodes).unwrap();
+        let hydrated = Diagram::from_root_and_nodes(root, &nodes).unwrap();
+        assert_eq!(hydrated.id(), diagram.id());
+        assert_eq!(
+            hydrated.render_terms(18).unwrap(),
+            diagram.render_terms(18).unwrap()
+        );
+        let mut with_extra = nodes.clone();
+        with_extra.extend(
+            Diagram::from_atom(&crate::condition::Atom::Truthy {
+                place: "unrelated".to_owned(),
+            })
+            .unwrap()
+            .root_and_nodes()
+            .1,
+        );
+        assert_eq!(
+            Diagram::from_root_and_nodes(root, &with_extra).err(),
+            Some(NodeValidationError::UnreachableNode)
+        );
     }
 
     #[test]

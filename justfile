@@ -72,8 +72,8 @@ fixtures-check:
 
 # The real-library oracle (ADR-0013): acquire the FastMCP pilot from libraries/fastmcp, then
 # extract, derive, validate and publish a snapshot into build/store. First run needs the network.
-pilot:
-    cargo run --release -p lctx -- compile fastmcp --store build/store --embedder fake | tee build/pilot.log
+pilot store="build/store":
+    cargo run --release -p lctx -- compile fastmcp --store {{store}} --embedder fake | tee build/pilot.log
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' build/pilot.log | cut -d' ' -f2)" --embedder fake
 
 # The same compile with live vectors: needs `just embed-serve` running (else `blocked`)

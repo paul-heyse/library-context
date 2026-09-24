@@ -1,8 +1,9 @@
 """Independent CPython admission checks for the flow translator (ADR-0022, X6).
 
 Only small generated programs in temporary files are executed. Analyzer fixtures and analyzed
-libraries are never run. CPython's monitoring API supplies observed lines and local writes/reads;
-the Rust developer command supplies modeled regions and reaching definitions.
+libraries are never run. CPython's monitoring API supplies observed lines, local writes/reads and
+identity-preserving returns; the Rust developer command supplies modeled regions, reaching
+definitions and value sources.
 """
 
 import json
@@ -39,6 +40,8 @@ code = compile(source, path, "exec")
 lines = set()
 accesses = []
 stores = {}
+loads = {}
+returns = []
 instructions = {}
 mon = sys.monitoring
 tool = mon.PROFILER_ID
@@ -64,18 +67,41 @@ def on_instruction(c, offset):
     position = [p.lineno, p.col_offset, p.end_lineno, p.end_col_offset]
     if i.opname.startswith("STORE_FAST"):
         stores[key] = position
-    elif key in stores:
-        accesses.append({"name": i.argval, "load": position, "store": stores[key]})
+    else:
+        if key in stores:
+            accesses.append({"name": i.argval, "load": position, "store": stores[key]})
+        if i.argval in frame.f_locals:
+            loads.setdefault(id(frame), []).append(
+                {"name": i.argval, "load": position, "value_id": id(frame.f_locals[i.argval])}
+            )
+
+def on_return(c, offset, value):
+    if c.co_filename != path:
+        return
+    frame = inspect.currentframe().f_back
+    candidates = loads.get(id(frame), [])
+    if c not in instructions:
+        instructions[c] = {i.offset: i for i in dis.get_instructions(c)}
+    returning = instructions[c].get(offset)
+    return_line = returning.positions.lineno if returning is not None else None
+    # The return value is a distinct object in the focused oracle case. An identity match is
+    # runtime evidence only; require that the load occurred in the return expression as well.
+    returns.extend(
+        {"name": item["name"], "load": item["load"]}
+        for item in candidates
+        if item["value_id"] == id(value) and item["load"][0] == return_line
+    )
 
 try:
     mon.register_callback(tool, mon.events.LINE, on_line)
     mon.register_callback(tool, mon.events.INSTRUCTION, on_instruction)
-    mon.set_events(tool, mon.events.LINE | mon.events.INSTRUCTION)
+    mon.register_callback(tool, mon.events.PY_RETURN, on_return)
+    mon.set_events(tool, mon.events.LINE | mon.events.INSTRUCTION | mon.events.PY_RETURN)
     exec(code, {"INPUT": json.loads(sys.argv[2])})
 finally:
     mon.set_events(tool, 0)
     mon.free_tool_id(tool)
-print(json.dumps({"lines": sorted(lines), "accesses": accesses}))
+print(json.dumps({"lines": sorted(lines), "accesses": accesses, "returns": returns}))
 """
 
 
@@ -148,6 +174,24 @@ def _assert_reaching(source: str, model: dict, observed: dict) -> int:
             "observed definition absent from reaching relation",
             access,
         )
+        matched += 1
+    return matched
+
+
+def _assert_return_value_flow(source: str, model: dict, observed: dict) -> int:
+    matched = 0
+    for returned in observed["returns"]:
+        use_span = _span(source, returned["load"])
+        uses = [
+            i
+            for i, row in enumerate(model["uses"])
+            if row["place"] == returned["name"] and row["span"] == use_span
+        ]
+        assert uses, ("returned local has no modeled use", returned, model)
+        assert any(
+            row["sink"] == "Return" and row["use_ix"] in uses and row["condition"] != "false"
+            for row in model["values"]
+        ), ("observed local-to-return flow absent", returned, model)
         matched += 1
     return matched
 
@@ -277,6 +321,23 @@ result = run(INPUT)
     model, observed = _flow(source, 2)
     _assert_admitted(source, model, observed)
     assert _assert_reaching(source, model, observed) > 0
+
+
+def test_observed_identity_return_is_admitted_by_value_sources() -> None:
+    source = """def run(flag):
+    left = object()
+    right = object()
+    selected = left if flag else right
+    return selected
+result = run(INPUT)
+"""
+    for flag in (False, True):
+        model, observed = _flow(source, flag)
+        _assert_admitted(source, model, observed)
+        assert _assert_return_value_flow(source, model, observed) > 0
+        missing = {**model, "values": [v for v in model["values"] if v["sink"] != "Return"]}
+        with pytest.raises(AssertionError, match="observed local-to-return flow absent"):
+            _assert_return_value_flow(source, missing, observed)
 
 
 def test_runtime_binding_spans_are_checked_before_the_oracle_runs() -> None:

@@ -26,6 +26,7 @@ use cpg_schema::codebook::{
     EmbeddingView, ExtractionMode, FindingKind, FlowSink, MemberRole, Modality, OperationFacet,
     ValueClass, Verdict,
 };
+use cpg_schema::condition_kernel::{BoundedCondition as ModelCondition, KernelBoundary};
 use cpg_schema::findings::{
     AnalysisInvocationsRow, FindingMembersRow, PublicPathsRow, recipe as findings,
 };
@@ -37,7 +38,7 @@ use serde::Serialize;
 
 use crate::CoreError;
 use crate::analyze::{Analysis, CompilerRun};
-use crate::flow_model::{guards_of, normal_path};
+use crate::flow_model::{ModelRaiseGuards, normal_path_model};
 use crate::sql;
 use cpg_schema::metrics::Stages;
 
@@ -184,7 +185,7 @@ fn v2_flows(
     stage1: &[ArgumentFlowsRow],
     reads: &[ParameterReadsRow],
     value_flows: &[cpg_schema::behavior::ValueFlowsRow],
-    stated: &dyn Fn(Id, &str) -> Option<String>,
+    stated: &dyn Fn(Id, Id) -> Option<String>,
 ) -> (Vec<ArgumentFlowsRow>, Vec<ParameterReadsRow>, HopConditions) {
     let mut sources: BTreeMap<Id, Vec<(Id, &cpg_schema::behavior::ValueFlowsRow)>> =
         BTreeMap::new();
@@ -203,7 +204,7 @@ fn v2_flows(
         for &(p, v) in found {
             // The flow IR's condition on the caller's normal path decides whether the call
             // passes the value only on some paths (it replaces Stage 1's syntactic flag).
-            let condition = stated(r.caller_node_id, &v.condition);
+            let condition = stated(r.caller_node_id, v.condition_id);
             let mut row = r.clone();
             row.source_parameter_node_id = Some(p);
             row.alias_name = None;
@@ -286,11 +287,22 @@ pub async fn run(
     // into release functions). Stage 2: an argument's source parameters are the flow IR's
     // (`value_flows`), each identity or derived under its condition, so a rebound fallback is
     // followed; Stage 1's value classes stand only where the flow IR names no source.
-    let guards = guards_of(&flow.raise_sites);
+    let mut guards = ModelRaiseGuards::new();
+    for r in flow.raise_sites.iter().filter(|r| r.escapes) {
+        if let Some(c) = flow.condition_models.get(&r.condition_id)
+            && c.diagram().is_ok()
+            && !c.is_always()
+        {
+            guards
+                .entry(r.function_node_id)
+                .or_default()
+                .push((r.start_byte, c.not()));
+        }
+    }
     // A stated condition on its function's normal path, or none for `true`.
-    let stated = |function: Id, text: &str| -> Option<String> {
-        let c = cpg_schema::condition::Condition::parse(text).ok()?;
-        let c = normal_path(&guards, function, &c, None);
+    let stated = |function: Id, id: Id| -> Option<String> {
+        let c = flow.condition_models.get(&id)?;
+        let c = normal_path_model(&guards, function, c, None);
         (!c.is_always()).then(|| c.encode())
     };
     let (flow_rows, read_rows, hop_conditions) = v2_flows(
@@ -464,10 +476,11 @@ pub async fn run(
                 .unwrap_or_default();
             for (k, h) in path.iter_mut().enumerate() {
                 h.conditional = conditional_sites.contains(&h.call_site);
+                // The flow-to-hop condition was already factored by the diagram kernel
+                // when `v2_flows` built this path.
                 h.condition = flow_path
                     .get(k)
-                    .and_then(|&i| hop_condition(&flows, &hop_conditions, i))
-                    .and_then(|c| stated(h.caller, &c));
+                    .and_then(|&i| hop_condition(&flows, &hop_conditions, i));
             }
             // A raise directly in the operation is Stage 2's raise sites' (the flow IR's region
             // conditions), not a syntactic guard.
@@ -622,7 +635,10 @@ pub async fn run(
     }
     for (&(op, callee, modality), &(site, n)) in &delegated {
         let reason = hop_reason(modality);
-        let condition = flow.call_condition.get(&site).and_then(|c| stated(op, c));
+        let condition = flow
+            .call_condition_ids
+            .get(&site)
+            .and_then(|id| stated(op, *id));
         let (verdict, value) = match (reason, &condition) {
             (None, None) => (Verdict::Established, None),
             (None, Some(_)) => (Verdict::Conditional, None),
@@ -777,16 +793,14 @@ pub async fn run(
         .iter()
         .flat_map(|(op, ps)| ps.iter().map(move |p| (p.node, (*op, p.name.clone()))))
         .collect();
-    let mut stage2: BTreeMap<Id, (BehaviorsRow, cpg_schema::condition::Condition, Id)> =
-        BTreeMap::new();
+    let mut stage2: BTreeMap<Id, (BehaviorsRow, ModelCondition, Id)> = BTreeMap::new();
     fn claim(
-        stage2: &mut BTreeMap<Id, (BehaviorsRow, cpg_schema::condition::Condition, Id)>,
+        stage2: &mut BTreeMap<Id, (BehaviorsRow, ModelCondition, Id)>,
         mut row: BehaviorsRow,
-        condition: &str,
+        condition: &ModelCondition,
         scope: Id,
     ) {
-        let c = cpg_schema::condition::Condition::parse(condition)
-            .unwrap_or(cpg_schema::condition::Condition::OverBudget);
+        let c = condition.clone();
         row.behavior_id = b::behavior_id(
             row.operation_node_id,
             row.kind,
@@ -911,7 +925,12 @@ pub async fn run(
             row.verdict = Verdict::Unknown;
             row.boundary_reason = Some(BoundaryReason::CallTransfer);
         }
-        claim(&mut stage2, row, &v.condition, v.function_node_id);
+        let condition = flow
+            .condition_models
+            .get(&v.condition_id)
+            .cloned()
+            .unwrap_or_else(|| ModelCondition::unknown(KernelBoundary::SourceOverBudget));
+        claim(&mut stage2, row, &condition, v.function_node_id);
     }
     // Only a raise that may leave its function is a `raises_when` fate (ADR-0022 §Conditions).
     for r in flow
@@ -935,7 +954,12 @@ pub async fn run(
             row.site_end_byte = Some(r.end_byte);
             row.site_line = Some(r.line);
             row.site_text = Some(r.text.clone());
-            claim(&mut stage2, row, &r.condition, r.function_node_id);
+            let condition = flow
+                .condition_models
+                .get(&r.condition_id)
+                .cloned()
+                .unwrap_or_else(|| ModelCondition::unknown(KernelBoundary::SourceOverBudget));
+            claim(&mut stage2, row, &condition, r.function_node_id);
         }
     }
     for a in flow.ambient_reads.iter() {
@@ -951,7 +975,12 @@ pub async fn run(
         row.site_end_byte = Some(a.end_byte);
         row.site_line = Some(a.line);
         row.site_text = Some(a.spelled.clone());
-        claim(&mut stage2, row, &a.condition, reader);
+        let condition = flow
+            .condition_models
+            .get(&a.condition_id)
+            .cloned()
+            .unwrap_or_else(|| ModelCondition::unknown(KernelBoundary::SourceOverBudget));
+        claim(&mut stage2, row, &condition, reader);
     }
     for p in flow
         .premises
@@ -979,7 +1008,7 @@ pub async fn run(
             p.boundary_reason.or(Some(BoundaryReason::MissingEvidence))
         };
         row.value = p.reason.clone();
-        claim(&mut stage2, row, "true", *op);
+        claim(&mut stage2, row, &ModelCondition::always(), *op);
     }
     // A parameter stored to its receiver's field, then read by any method of a relative: the
     // value's fate there, stated under the read's own condition (in that method's places).
@@ -1088,7 +1117,12 @@ pub async fn run(
                     row.verdict = Verdict::Unknown;
                     row.boundary_reason = Some(BoundaryReason::CallTransfer);
                 }
-                claim(&mut stage2, row, &v.condition, v.function_node_id);
+                let condition = flow
+                    .condition_models
+                    .get(&v.condition_id)
+                    .cloned()
+                    .unwrap_or_else(|| ModelCondition::unknown(KernelBoundary::SourceOverBudget));
+                claim(&mut stage2, row, &condition, v.function_node_id);
             }
         }
     }
@@ -1100,27 +1134,27 @@ pub async fn run(
                 row.parameter_node_id = Some(p.node);
                 row.parameter_name = Some(p.name.clone());
                 row.value = Some(literals.iter().cloned().collect::<Vec<_>>().join(" ; "));
-                claim(&mut stage2, row, "true", op);
+                claim(&mut stage2, row, &ModelCondition::always(), op);
             }
         }
     }
     for (_, (mut row, condition, scope)) in stage2 {
-        let condition = normal_path(&guards, scope, &condition, row.site_start_byte);
-        match &condition {
-            c if c.is_always() => {}
-            cpg_schema::condition::Condition::OverBudget => {
+        let condition = normal_path_model(&guards, scope, &condition, row.site_start_byte);
+        match condition.diagram() {
+            Ok(_) if condition.is_always() => {}
+            Err(_) => {
                 if row.verdict == Verdict::Established {
                     row.verdict = Verdict::Unknown;
                     row.boundary_reason = Some(BoundaryReason::BudgetReached);
                 }
             }
-            c => {
+            Ok(_) => {
                 // An `unknown` claim keeps the condition it would hold under.
                 if row.verdict == Verdict::Established {
                     row.verdict = Verdict::Conditional;
                 }
                 row.conditional = true;
-                row.condition = Some(c.encode());
+                row.condition = Some(condition.encode());
             }
         }
         out.behaviors.push(row);
