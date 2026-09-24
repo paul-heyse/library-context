@@ -67,3 +67,16 @@ native replay. If we need them, that is a new ADR.
   patterns cover them. Also (O2): a `[workspace.dependencies]` entry no crate uses pins nothing,
   so `just deps` runs `cargo shear`. `object_store` is held by `Cargo.lock` and the family check,
   and `parquet` became a real direct dependency (zstd writes).
+- 2026-09-24, the behavioral-model plan (ADR-0021, ADR-0022; decision D-9, deviation log B1):
+  **declared extra families.**
+  - One version each of Arrow, DataFusion, object_store, delta-rs, ruff, Pyrefly and blake3 stays
+    the rule for the core workspace.
+  - An extra family is allowed only when it is **declared** in `scripts/check_family.py`, with its
+    scope: the one crate that may hold it, or a separate workspace with its own lockfile and its
+    own family check. The declaration names what may cross the boundary, and that is never a type:
+    only byte ranges and our ids, or Arrow IPC files.
+  - The first candidate is a ruff 0.0.14 / `ty_python_core` 0.0.14 line in one crate, if the
+    Stage 2.1 spike chooses `ty`. It needs salsa pinned exactly at 0.28.2, because 0.28.3 and
+    0.28.4 break ruff 0.0.14 in a patch release.
+  - The second is a Lance/LanceDB workspace (Arrow 58, DataFusion 54, object_store 0.14), deferred
+    behind its trigger (DESIGN §13).

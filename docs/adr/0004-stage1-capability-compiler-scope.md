@@ -1,10 +1,10 @@
 ---
 id: ADR-0004
 title: Stage 1 is a capability compiler for a FastMCP pilot on a demand-driven CPG
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0021
 design: [§1.1, §1.2, §1.4, §1.5, §12]
 evidence: Proposed
 revisit: Increment 1 cannot produce one end-to-end brief for fm.register without facts outside the declared v1 slice, or the gold subsystem proves too broad for ~15-25 briefs.

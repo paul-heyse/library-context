@@ -100,3 +100,15 @@ margin, and none is added after the fact: that would tune the rule on the scores
   default. ADR-0011's revisit trigger ("a technique's ablation changes no published output after
   increment 3") did not fire: every technique changed published output. The keep rule's metric
   clause decided.
+
+## Amendments
+
+- 2026-09-24, ADR-0021 (the behavioral-model plan; decision D-8):
+  - **Brief retrieval no longer decides.** The keep rule judged techniques by brief retrieval
+    (§12(b)). Under ADR-0021 a technique is judged by its consumer in the served model, through
+    the pre-registered behavioral question sets.
+  - **This record stands as the brief default's decision.**
+  - **The holistic plan's planned deletion exit is paused.** Its Phase 4 re-registration would have
+    deleted a technique that fails the rule. Communities, FCA and kNN get new consumers (ADR-0011's
+    amendment), so they stay as variants.
+  - The record stays `proposed` until those consumers are evaluated.

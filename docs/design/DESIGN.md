@@ -22,27 +22,49 @@ maps every one of its sections to where it landed here, or why it did not.
 
 ### §1.1 Objective and the v1 promise
 
-**Proposed.** Source: IP L1650–1692, L2135–2143.
+**Proposed** (ADR-0021, 2026-09-24; the plan `docs/plans/behavioral-model-pivot-plan_2026-09-24.md`).
+Source: the behavioral-model review (`design_review_behavioral-model-pivot_2026-09-24.md`).
 
-The long-term aim is deep, evidence-backed insight into Python libraries for coding agents. Stage
-1 delivers a **capability compiler**. For one bounded library subsystem, it compiles current-release
-code facts and selected official evidence (docs, examples, tests) into a small set of searchable
-**capability briefs**. Each brief states one outcome anchored to a public operation (§10.3).
-Agents reach them through two operations:
+The long-term aim is deep, evidence-backed insight into Python libraries for coding agents. A
+pinned library compiles into an **evidence-carrying behavioral model of its whole public
+surface**:
+- which operations accept a value, pass it where, under which configuration, raising what, and
+  needing which lifecycle;
+- each claim with its evidence and derivation;
+- an exhaustive answer where the analysis is complete, a ranked candidate where only discovery
+  applies, and a named `unknown` where the analysis stopped (§3.9).
+
+**Briefs remain as one rendering,** for a curated subset (§10).
+
+The universe is `public_paths` (§9's opening). Every analysis runs per public callable, and a
+seed traversal becomes a query.
+
+Agents reach the model through these operations. The five behavioral tools are **Proposed**; they
+land by plan stage (§11.3):
 
 | Operation | Returns | Does not promise |
 |---|---|---|
-| `search_capabilities(library, query, limit)` | Published briefs relevant to a task, including ones whose API names differ from its wording | Exhaustive discovery of everything the library can do |
-| `get_capability(snapshot_id, capability_id)` | The full brief: public entry point, controls, applicable cases, usage pattern, limits, evidence | A newly synthesized solution for arbitrary combinations of requirements |
+| `search_capabilities(library, query, limit)` (**Implemented**) | Published briefs relevant to a task, including ones whose API names differ from its wording | Exhaustive discovery |
+| `get_capability(snapshot_id, capability_id)` (**Implemented**) | The full brief | A synthesized solution for arbitrary requirements |
+| `get_operation(snapshot_id, operation)` (Stage 1) | One public operation's record: paths, signature, each control's fate and verdict, behaviors with conditions, raises, callbacks, ambient reads, evidence, boundaries; its brief if one exists | Behavior the analysis did not reach, which is stated as `unknown` or `not_analyzed` |
+| `find_operations(library, where, limit, cursor)` (Stage 1) | **Exhaustive** matches over materialized rows, with `complete` and the operations whose answer is unknown; never vectors | Completeness where a boundary intervenes, which it names |
+| `search_operations(library, query, filters, limit)` (Stage 1) | **Ranked** discovery over operations, labelled as such | Exhaustiveness |
+| `lookup_concepts(text)` (Stage 4) | Candidate capability concepts with scope notes | A single interpretation of ambiguous wording |
+| `explain(snapshot_id, claim)` (Stage 4) | The derivation: rule, premises, source spans | Proof of runtime behavior beyond the stated model |
 
-All interpretation is precomputed at compile time. Nothing is synthesized, traversed or
-generated during a request. The calling agent adapts the brief to its own task.
+All interpretation is computed at compile time and materialized. A request selects and joins
+published rows under bounded operators. Nothing is synthesized, traversed or generated during a
+request (§11.3).
 
-> Decision: ADR-0004
+*Superseded (ADR-0004, 2026-09-22):* stage 1 was a capability compiler whose product was a small
+set of searchable briefs for one subsystem, reached by the first two operations only.
+
+> Decision: ADR-0021
 
 ### §1.2 Increments
 
-**Proposed.** Source: IP L3073–3085, reshaped by ADR-0004.
+**Proposed.** Source: IP L3073–3085, reshaped by ADR-0004 and ADR-0021. Every plan stage also ends
+with a `compact` review (ADR-0021).
 
 Each increment is a working vertical slice and ends with the review shown (ADR-0001 mechanics).
 
@@ -50,9 +72,14 @@ Each increment is a working vertical slice and ends with the review shown (ADR-0
 |---|---|---|
 | 1 | **One complete path.** Real FastMCP 4.0.5 (`libraries/fastmcp`, §4.0), with one hand-registered seed, `fastmcp.FastMCP.tool` (analytics config, §1.4), plus 2–4 distractor briefs for other public entry points. Families provenance, exports, signatures, calls, coverage, findings, embedding_cache. Pass A → increment-1 assertion kinds (§10.2) → brief → bundle → embeddings → hybrid search (BM25, exact cosine, RRF, exact-symbol promotion, degraded lexical-only mode; moved up from increment 4, ADR-0004 amendment) → hydration → both MCP tools | deep |
 | 2 | **Analytics families on synthetic fixtures.** Passes B and C with the `syntax` and `lexical` families; single-layer community detection with seed-consensus stability; `page_rank`; FCA within one structural scope (a community's membership is statistical, §9.6) | compact |
-| 3 | **Pilot corpus, ~15–25 reviewed briefs** (§10.4 manual review). Docs family; compile-time embeddings for doc links and labels; RCA and extra community layers, each kept only if the §9.8 ablation shows it changes published output; gold scoring (§12) | deep |
-| 4 | **Reliable serving.** The generation lifecycle (smoke query, atomic activation, byte-rebuild verify, manifest check at load) and serving reliability (degraded mode under embedder failure, measured latency). Hybrid retrieval itself is built in increment 1 (ADR-0004 amendment, 2026-09-23) | compact |
-| 5 | **Agent evaluation.** Held-out tasks, raw-vs-compiled comparison, and the decision on the LLM trigger (§B11) | deep |
+| 3 | **Pilot corpus and analytics** (done: slices 3.1–3.3, the holistic assessment's Phases 0–2), then **plan Stages 0–1: the whole public surface** (ADR-0021): the `behavior` family persisted, passes per public callable, the operation catalog, bundle `FORMAT` 3, `get_operation` / `find_operations` / `search_operations`, the source-body view, structured evaluation v0 | deep |
+| 4 | **Plan Stages 2–3: the flow IR and summaries** (ADR-0022): `flow` family, conditions, verdicts, `self` fields and ambient reads; transfer summaries and the models catalog | compact (+ compact per stage) |
+| 5 | **Plan Stages 4–5: concepts and frameworks**: the capability registry, `lookup_concepts` and `explain`; framework models and protocols; then the held-out structured evaluation and the decision on the LLM trigger (§B11) | deep |
+
+*Superseded rows (ADR-0004):* increment 3 was "~15–25 reviewed briefs"; increment 4 "reliable
+serving" (its generation lifecycle is built into §6.4 and §11.3; `claude mcp add` returns with the
+tools); increment 5 "agent evaluation" (replaced by the structured evaluation, operator
+2026-09-23).
 
 **CPG first** (operator decision, 2026-09-22; ADR-0004 amendment, ADR-0014). Increment 1's
 slices 1–3 built the extraction, derivation and publication path. Before its analytic path
@@ -70,20 +97,29 @@ slices 1–3 built the extraction, derivation and publication path. Before its a
 So `syntax` and `lexical` move up from increment 2, and `types` and `docs` from increment 3. The
 analytics that read them stay in their increments, and every family names its consumer.
 
-> Decision: ADR-0004, ADR-0014, ADR-0001, ADR-0013
+> Decision: ADR-0021, ADR-0014, ADR-0001, ADR-0013
 
 ### §1.3 Non-goals for stage 1
 
-**Proposed.** Source: IP L2073–2087, L1878–1882.
+**Proposed.** Source: IP L2073–2087, L1878–1882; revised by ADR-0021.
 
 - Analysis of the caller's own codebase.
 - Comparison across library versions.
 - Arbitrary composition planning.
-- Constraint solving over requirements such as "under 500 MB".
-- Query-time graph traversal.
+- Constraint solving over requirements such as "under 500 MB". Conditions are a closed language
+  with three-valued compatibility (§3.9), not a solver.
+- **Query-time graph traversal.** Paths are precomputed as summaries and witnesses. A request
+  selects and joins materialized rows under bounded operators (§11.3).
 - Native-extension bodies.
-- A domain-capability ontology beyond the briefs.
-- Python CFG, dataflow and alias analysis (§13).
+- **A general ontology, an RDF store or a reasoner.** The capability registry is a closed,
+  executable vocabulary in `cpg-schema` (§9.9).
+- **General alias analysis (points-to).** Flow is intraprocedural over bounded places (§3.9), and
+  summaries are interprocedural (§9.9).
+
+*Retired (ADR-0021):* "a domain-capability ontology beyond the briefs" and "Python CFG, dataflow
+and alias analysis". Both are now in scope, as stated above.
+
+> Decision: ADR-0021
 
 ### §1.4 Pilot, subsystem and gold reference
 
@@ -127,14 +163,34 @@ analytics that read them stay in their increments, and every family names its co
   reviewed claims are re-reviewed against it.
 - **Serving.** The agent interface runs on FastMCP from the project's own environment
   (ADR-0010), which today is also 4.0.5. That environment is never an analysis input.
+- **Unchanged by ADR-0021:** the pilot, the subsystem and analytics config, and the
+  evaluation-only gold.
 
-> Decision: ADR-0004, ADR-0013
+> Decision: ADR-0021, ADR-0013
 
 ### §1.5 Definition of done
 
-**Proposed.** Source: IP L2088–2131.
+**Proposed** (ADR-0021).
 
-Stage 1 is done when all three derivation families (delegation, configuration/restriction,
+**The behavioral model is done** when four things hold:
+- each plan stage's exit criterion has passed on the pilot:
+
+  | Stage | Exit criterion |
+  |---|---|
+  | 1 | Controls and handoffs answered for operations with no brief |
+  | 2 | `flow_shapes` and `behavior_shapes` known answers; eval Q4 and Q10 |
+  | 3 | Q1, Q3, Q5, Q9 |
+  | 4 | Concept queries |
+  | 5 | Q6, Q7, Q8, Q11, Q12 |
+
+- every stage's structured evaluation (`eval/behavior/`, targets pre-registered) has been assessed
+  and reviewed by the operator;
+- the held-out structured evaluation has run;
+- no answer states `refuted_under_model` outside complete coverage (§3.9).
+
+*Record, the capability compiler's definition of done (ADR-0004), kept as history:*
+
+Stage 1 was done when all three derivation families (delegation, configuration/restriction,
 handoff) each have an end-to-end example. Each example must show:
 - input facts;
 - the named method;
@@ -168,7 +224,7 @@ In addition:
   - `semantic:brief-cites-analysis` holds the label both ways. `semantic:documentation-only-has-outcome`
     requires that a documentation-only brief has a `documented` Outcome (slice 1.5 review F4).
 
-> Decision: ADR-0004
+> Decision: ADR-0021
 
 ---
 
@@ -244,16 +300,36 @@ rule can prove is stated in §8 (its edit guards counted apart).
   Passes A–C, direct usage and selection. Communities (leiden-rs), FCA, kNN, PageRank, RCA and
   the extra layers are variants, off by default; each is reachable with `lctx compile
   --analytics`.
+- **The flow and summary algorithms** (ADR-0011 amendment, 2026-09-24; **Proposed**):
+  - dominators by petgraph's `algo::dominators::simple_fast`;
+  - post-dominators by the same function over `Reversed`, from a virtual exit;
+  - dominance frontier and control dependence in our own code;
+  - transfer summaries bottom-up in `tarjan_scc` order (callees first), each SCC iterated to a
+    fixpoint over a finite domain, with widening to `unknown` (§9.9).
+
+  A Datalog engine (ascent) is a spike behind a trigger. The existing techniques gain consumers in
+  the served model (§9.9), and none of them writes concept membership.
 
 > Decision: ADR-0011, ADR-0020
 
 ### §B5 Python semantics are custom Rust passes
 
-**Proposed.**
+**Proposed** (ADR-0022, 2026-09-24).
 
 - Python-specific semantics are our own Rust code with stated abstractions: v1 recognizers
-  (§9.1–§9.3), and later CFG and dataflow (§13).
-- Pyrefly's inference graph is never relabelled as runtime dataflow.
+  (§9.1–§9.3), then the **flow IR** (§3.9), our stated **runtime** abstraction.
+  - It is statement-level control flow with exceptional exits, and reaching definitions over
+    bounded places.
+  - `TYPE_CHECKING` is false; `sys.version_info` and `sys.platform` tests follow the analyzed
+    context.
+- **The flow-IR provider** is decided by the Stage 2.1 spike and recorded in ADR-0022: either
+  `ty_python_core` 0.0.14 behind a range-parity rule, or our own builder over the Ruff AST.
+- **No provider's IR is the model.** Pyrefly's inference graph, and ty's use-def map as ty decides
+  it, are never relabelled as runtime dataflow. Pyrefly's binding graph is a parity oracle only.
+- **Meaning comes from models, propagation from summaries** (§9.9). A call alone never propagates a
+  capability.
+
+> Decision: ADR-0022
 
 ### §B6 Facts are first-class assertions with provenance
 
@@ -336,7 +412,11 @@ Excluded in stage 1:
 
 **Allowed:** text embeddings, and a *rebuildable* search projection of published briefs (§B12).
 
-> Decision: ADR-0005
+**Not a solver** (ADR-0022). The behavior model's closed condition language (§3.9) decides the
+compatibility of two conditions with a finite-domain evaluator: compatible, incompatible, or
+`unknown` whenever an opaque atom decides. A constraint solver stays excluded.
+
+> Decision: ADR-0005, ADR-0022
 
 ### §B11 Insight synthesis is programmatic; no LLM in the query path
 
@@ -368,9 +448,14 @@ Excluded in stage 1:
 
 **Interface-checked.**
 
-- The Python package `lctx_mcp` serves the two operations (§11.3) from one pinned serving
-  generation per process.
+- The Python package `lctx_mcp` serves the operations of §1.1 (§11.3) from one pinned serving
+  generation per process: the two brief tools now, the behavioral tools as their stages land
+  (ADR-0010 amendment, 2026-09-24; **Proposed**).
 - It reads files only: no Delta, no DataFusion, and no compiler code.
+- **Its executor** is pyarrow compute over **materialized** rows. No SQL string is built and
+  nothing recurses at serve time, results carry row caps, a `truncated` flag and cursors, and
+  predicate semantics are never re-implemented in Python. The condition evaluator's twin is held
+  to a shared known-answer corpus (§3.9).
 
 > Decision: ADR-0010
 
@@ -384,6 +469,12 @@ Excluded in stage 1:
 - Vectors are cached by `spec_hash + input_hash` in the canonical `embedding_cache` Delta table.
   Snapshots record the cache version they read, and bundles copy vectors from it. A cached vector
   is a run input.
+- **Views** (ADR-0010 amendment, 2026-09-24; **Proposed**):
+  - A spec is one model, one vector space.
+  - A view (signature and docstring, source body, and later others) is a template id and version
+    inside the input's identity, and a column of the served vectors.
+  - `semantic:one-embedding-spec` holds per model, and two views of one operation have distinct
+    keys.
 
 > Decision: ADR-0010
 
@@ -506,9 +597,19 @@ declaration, and an AST node is not an execution point.
 | `docs` | **Implemented and Tested (C5a, C5b).** A corpus run over the library's upstream tree at its pinned commit (§4.0), in the library's environment; its search path is the tree, then site-packages (the library run's search path), so a module both runs import is one file. Raw, parsed by markdown-rs 1.0 (MDX constructs and frontmatter; byte offsets, probe P5): `documents` (each selected file: path, digest, frontmatter title, whether it parsed; one that does not parse is `unavailable` with markdown-rs's message), `passages` (each root-level heading's section, whatever its depth, to the next, so a document's passages partition it, with level, heading and heading path; the text before the first heading is passage 0), `code_blocks` (fenced blocks at any depth, MDX components included: language, meta, code, digest; each in the passage its start falls in) and `doc_links` (URL, title, text). **Components (the holistic assessment's A3; Implemented and Tested, 2026-09-24):** `doc_components` holds each MDX JSX element, flow or text form (`component_form`), in pre-order with its parent ordinal and depth, its name (none for a fragment), its span, its inner span (first child to last; none when self-closing) and its lead (the first direct paragraph), in the passage its start falls in; `doc_component_attributes` holds its attributes in order, each by kind (`attribute_value_kind`: a literal's value as written; an expression's as source text, never evaluated; a bare name without a value; a spread without a name). Fenced and inline code never yield a component, and a heading inside one opens no passage. Components are span facts, not graph nodes. On the pilot: 1,250 components and 1,605 attributes (Measured, 2026-09-24). Consumers: §10.3's documented warnings and `<ParamField>` parameter descriptions. `mentions` (our recognizer, `lctx-docs`) against the library run's public names and declarations, two classes never merged: `exact` for inline code (or a dotted prose token) that is a public access path, an origin path or a public class's member (`FastMCP.tool`); `lexical` for inline code that is a bare public name of a class, function, method or module, or such a name in prose when it is distinctive (an underscore, or two capitals and a lower-case letter), one `candidate` per origin (re-exports collapse to the shortest access path). Embedding-based linking is §9.7's. Derived: `mention_targets` (→ the `export` node, or the member's release declaration by the seed rank). Consumers: exact doc links to APIs and extractive brief text, §9.4 co-mention. **The usage run (C5b)** is the same corpus run's code: the selected examples and tests, and every Python code block materialized as a module of its own (`_lctx_blocks/d_<document>/block_<n>.py`, named in `code_blocks.module_path`), with every code family but `exports`. The corpus names each installed file the release's distributions own by the library run's own site-relative `@path` (C5 review F2), so a usage call's target is the release's own declaration or synthetic callable (the same Pysa key, probe P4), a release class is one type term whichever run observes it, and an import of a library module targets the library's module node. A tree that holds its own copy of the package ahead of the installed one (a flat layout) would cut the usage code off the release, so it fails the compile, naming the module. Consumers: Pass C examples and tests, §10.3–§10.5 usage patterns, §9.4 co-use. Each usage module's text and role are in `source_files` (ADR-0015, closing C6 review F2), so a snippet and whether it is an example, a test or a doc block are read from Delta alone | C5 |
 | `findings` | ADR-0019 (contracts in `cpg_schema::findings`; provenance in-row, no `fact_id`; not a coverage unit; outside the `nodes`/`edges` catalogs): `analysis_invocations` (method, parameters as canonical JSON, projection digest, seed, diagnostics), `findings`, `finding_members`, `witnesses` (path steps keyed by node ids, `edge_id` as lineage), `evidence` (evidence_id → one of: fact, span, passage, example, fixture run, with resolved text), `assertions`, `assertion_support` (assertion → finding / evidence, role `support` or `scope`), `briefs` (with `review_state`, outside `brief_id`), `brief_assertions`, `brief_members`, `brief_documents`, `assertion_policy`; and `public_paths` (the holistic assessment's A1: every public path under the config's roots, own and inherited, with its export, kind, `own` and one `preferred` per node; §9's opening). A usage pattern is a `usage_pattern` assertion, not a table (D24) | 1 |
 
-Deferred: CFG, dataflow and alias tables (§1.3, §13). Type structure and `record_fields` are built in C4 (ADR-0014).
+**The behavior model's families** (ADR-0022, 2026-09-24; **Proposed**, landing by plan stage;
+the semantics are in §3.9):
 
-> Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019
+| Family | Tables | Stage |
+|---|---|---|
+| `behavior` | Derived: Stage C/D declared SQL, persisted, one coverage row per public callable. First today's in-session relations: `argument_flows`, `guards`, `parameter_reads` and `handoffs` (`cpg_schema::flows`); then `delegations` (depth-1 call arcs with modality) and `control_fates` (per public operation parameter: forwarded to which formal, transformed, literal, unfollowed with a reason, or no read). From Stage 2, generalized over the flow IR: `value_flows`, `field_writes`/`field_reads`, `guards` by control dependence, `raises`, `handlers`, `callbacks`, `resources`, `ambient_reads` | 1, then 2 |
+| `flow` | CPG-constructing, from the flow-IR provider (§B5): `flow_defs`, `flow_uses`, `flow_reaching` (use → reaching definition, with a condition), `flow_exits`, `flow_regions`, `conditions`, `condition_atoms` | 2 |
+
+*Superseded:* "Deferred: CFG, dataflow and alias tables (§1.3, §13)". Flow and bounded places are
+now in scope. General alias analysis stays out (§1.3). Type structure and `record_fields` are
+built in C4 (ADR-0014).
+
+> Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019, ADR-0022
 
 ### §3.3 Physical profiles
 
@@ -979,6 +1080,53 @@ rules are generated from (DM-52).
 - graph-local indices (§5).
 
 > Decision: ADR-0014
+
+### §3.9 Behavior model: places, conditions and verdicts
+
+**Proposed** (ADR-0022, 2026-09-24). Source: the behavioral-model review, §3 and §8.2.
+
+**Places.** What a definition or use names:
+- a local name;
+- `self.f` or `self.f.g` (at most two fields below `self`);
+- a module global, settings singletons included (`fastmcp.settings.<field>`);
+- a ContextVar object;
+- an attribute of a function object (`fn.__fastmcp__`).
+
+Anything deeper, or reached through a subscript or a computed name, is a boundary
+(`unsupported_unpacking`, `unresolved_target`), never a guess.
+
+**The runtime view.** `if TYPE_CHECKING:` is false; `sys.version_info` and `sys.platform` tests
+follow the analyzed context (§4.0). Our C3 static-branch marks (§4.2.4) identify these branches
+whichever provider builds the IR.
+
+**Conditions** are data in a closed language.
+- **Atoms over places:** `is None`, `is not None`, `== literal`, `in {literals}`, truthiness,
+  `isinstance(C)`. Any other test is an **opaque** atom that keeps its syntax id.
+- **A condition** is a conjunction of atoms in **normal form**: atoms normalized, conjuncts sorted
+  by a canonical encoding. Its id derives from that encoding (DM-15), so two conditions are equal
+  exactly when their normal forms are. That is syntactic equivalence, and it is declared.
+- **Compatibility** of two conditions is decided by a finite-domain evaluator: **compatible**,
+  **incompatible**, or **unknown** whenever an opaque atom decides. This is not a solver (§B10).
+- The Rust evaluator and its Python twin are held to `specs/serving/conditions.json`.
+
+**Verdicts** (codebook `verdict`, append-only). Every behavioral answer carries exactly one, never
+a null:
+
+| Verdict | Meaning |
+|---|---|
+| `established` | Derived under the stated model with no boundary in the region the predicate reads |
+| `conditional` | Established under a stated condition |
+| `refuted_under_model` | The region is `complete_under_stated_model` and holds no boundary of the kinds the predicate names. A rule rejects it anywhere else |
+| `unknown` | A boundary intervenes; its `boundary_reason` is named |
+| `not_analyzed` | Out of scope, not requested, or cut by a budget |
+
+Discovery results (FCA, communities, vectors) carry no verdict: they are `statistically_derived`
+nominations. A dynamic access that could reach a value (`getattr` by string, `importlib`, a
+module-level `__getattr__`) makes a negative claim about it `unknown`. For example,
+`Settings.get_setting(name)` makes "this setting is never read" unknowable statically (review §5,
+journey b).
+
+> Decision: ADR-0022
 
 ---
 
@@ -1701,8 +1849,19 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - The bundle is smoke-queried by the serving code's own test entry point.
   - Then the `generations/active` symlink is switched by atomic rename.
   - A running server keeps the generation it loaded; restarting it picks up the new one.
+- **`FORMAT` 3** (ADR-0010 amendment, 2026-09-24; **Proposed**) keeps every `FORMAT` 2 file and
+  adds:
+  - `operations`: each public operation's paths, signature, docstring summary and facets
+    (Stage 1);
+  - `behaviors`: the `behavior` family's rows for public operations, with evidence and verdicts
+    (Stage 1);
+  - `conditions`, `concepts`, `concept_members` and `vocabulary` (Stages 2–4);
+  - per-view `vectors`, whose rows carry their view.
 
-> Decision: ADR-0017 (superseding ADR-0009), ADR-0012, ADR-0019, ADR-0014
+  Derived search indexes (an FTS table, any ANN index) are rebuilt from the generation's Arrow
+  files, keyed by the generation key, outside the byte-identical manifest.
+
+> Decision: ADR-0017 (superseding ADR-0009), ADR-0012, ADR-0019, ADR-0014, ADR-0010
 
 ---
 
@@ -1817,7 +1976,8 @@ L2233–L2578. Scope extended by ADR-0005 to cover community detection, concept 
 embeddings.
 
 **Rules for every technique:**
-- it must have a **named consumer** in the brief;
+- it must have a **named consumer** in the served model: a tool's output or a brief (ADR-0021;
+  until 2026-09-24, "in the brief");
 - it must be **deterministic** for fixed inputs and parameters;
 - it must record its method, parameters, projection and diagnostics in `analysis_invocations`
   (ADR-0019);
@@ -1855,6 +2015,12 @@ and part of `content_digest`. The community and PageRank parameters, added after
 frozen (D21), are pre-registered code (`communities::Params`, `ranking::Params`; D28, D29): each
 invocation records them, the compiler digest includes them, and the gold freeze pins their digest
 beside the config's (ADR-0011 review F4). Defaults below are starting budgets, not measured optima.
+
+**Per public callable, not per seed** (ADR-0021; **Proposed**, plan Stage 1). The passes' relations
+are persisted as the `behavior` family (§3.2), and the control fates are computed for every public
+callable. Seed findings remain as the input to briefs.
+
+> Decision: ADR-0021, ADR-0022
 
 ### §9.1 Pass A — public entry point and delegation
 
@@ -2440,7 +2606,14 @@ review, the `+pagerank` variant's method:
   removed by ADR.
 - **Unbiased check.** Using the gold for this choice makes it a development set. The unbiased
   check is the increment-5 held-out evaluation.
-- **Agent-based evaluation** is reserved for the raw-vs-compiled comparison (§12).
+- **Agent-based evaluation** is reserved for the raw-vs-compiled comparison (§12). *Superseded
+  2026-09-23 by the operator:* there are no API-agent evaluations; see the structured evaluation
+  (§12).
+- **Under ADR-0021** (the ADR-0020 amendment, 2026-09-24):
+  - A technique is judged by its consumer in the served model, through the pre-registered
+    behavioral question sets. Brief retrieval (§12(b)) no longer decides.
+  - The holistic plan's deletion exit is paused. Communities, FCA and kNN stay as variants, with
+    new consumers in §9.9.
 
 **The ablation, Measured in slice 3.3** (2026-09-23; ADR-0020; deviation log D42, D43). Every
 variant was compiled at budget 20 with live vectors, scored by `scripts/score_gold.py --embedder
@@ -2488,6 +2661,57 @@ over all 44 gold aliases:
   evidence, briefs and documents, not invocations.
 
 > Decision: ADR-0011, ADR-0019, ADR-0005
+
+### §9.9 Summaries, models and the capability registry
+
+**Proposed** (ADR-0022, 2026-09-24; plan Stages 3–4).
+
+**Models** are committed data (`crates/cpg-schema/models/{external,frameworks}.toml`):
+- **What a model states:** the effects and roles of stdlib, dependency and framework callables, in
+  the summary access-path grammar below.
+- **Effects** come from an append-only codebook: `io.read`, `io.write`, `net`, `log`, `timeout`,
+  `thread_dispatch`, `compress(format)`, `serialize(format)`, `validate(schema)`,
+  `register(container)`, `invoke(callable)`.
+- **Framework models** cover pydantic `BaseModel` and `Field` (a generated `__init__` and a
+  validation effect), pydantic-settings (environment binding), ContextVar `get`/`set`,
+  `functools.partial` and `wraps`, anyio and asyncio, `contextlib` and logging.
+- **Provenance:** origin `synthetic_model`; each file's digest joins `compiler_digest`.
+- **Authorship:** the operator, from library source and docs. **Never from `.claude/skills/`.**
+
+**Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
+- **Output tables:**
+  - `summary_flows`: callable, input path, output path, kind (`value`, `transform`, `constant`),
+    condition, verdict;
+  - `summary_effects`: callable, effect, role bindings, condition;
+  - `summary_boundaries`: callable, reason, site.
+- **Paths:** `Parameter[name]`, `Parameter[self].Field[f]`, `ReturnValue`,
+  `Argument[formal]@Call[target]`, `Global[<module>.<name>]`, `Raise[T]`. The shape is CodeQL's
+  models-as-data, without its file format.
+- **Order and fixpoint:** the call graph's SCCs in `tarjan_scc` order (callees first), each SCC
+  iterated to a fixpoint over a finite domain: path depth ≤ k and condition size ≤ c.
+  - **Widening** yields `unknown` (`budget_reached`), and the invocation records its budgets.
+  - **Override-open calls** join their candidates and stay marked open (§3.6).
+  - **Exceptions** convert through `handlers`.
+  - **A call alone never propagates an effect.**
+- **Oracle:** Pysa's inferred TITO models on the pinned library, run offline. It is differential,
+  not truth.
+
+**The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
+- **A concept** has:
+  - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
+    scope note and facets;
+  - a **definition**: a conjunctive query with shared variables over the `behavior` family and the
+    summaries, written as a Rust enum AST, compiled to DataFusion SQL and digested.
+- **`concept_members`** is materialized: concept, operation, role bindings, condition, verdict,
+  witness.
+- **Rules:**
+  - every member cites a definition digest and a witness;
+  - SKOS integrity: one `prefLabel` per language; `broader` acyclic (a recursive CTE); `related`
+    disjoint from the `broader` closure.
+- **Discovery nominates, definitions decide.** FCA over behavioral attributes suggests facets;
+  communities serve navigation; vectors per view rank. None of them writes `concept_members`.
+
+> Decision: ADR-0022
 
 ---
 
@@ -2915,6 +3139,19 @@ thousand briefs, or ANN / managed FTS needed.
     (`test_the_server_speaks_only_the_protocol_on_stdout`).
   - Started as `python -m lctx_mcp --generation DIR --embedder vllm|fake|none`.
 
+**The behavioral tools** (ADR-0010 amendment, 2026-09-24; **Proposed**, by plan stage; §1.1):
+
+| Tool | Parameters | Output |
+|---|---|---|
+| `get_operation` (Stage 1) | snapshot_id, operation (a public path) | `Operation`: paths, signature, docstring summary, facets, each control's fate and verdict, behaviors with conditions and evidence, boundaries, the brief id if any. An unknown path is invalid params |
+| `find_operations` (Stage 1) | library, `where` (typed facet filters; concepts from Stage 4), limit (1–50), cursor | `OperationSet`: matches, `complete`, the operations whose answer is `unknown` or `not_analyzed`, `truncated`, next cursor. Never vectors |
+| `search_operations` (Stage 1) | library, query, filters, limit | `OperationHits`: ranked, per-view RRF, labelled `ranked_discovery` |
+| `lookup_concepts` (Stage 4) | text, limit | Candidate concepts with labels and scope notes |
+| `explain` (Stage 4) | snapshot_id, claim id | The rule id, premises and source spans |
+
+All return objects with read-only annotations, and follow the error contract above. The executor
+is pyarrow over materialized rows (§B13).
+
 > Decision: ADR-0010, ADR-0013
 
 ---
@@ -2966,7 +3203,24 @@ hit@1 9; (c) 5 of 157. 19 of the gold's 125 operations are outside the release (
 `mcp_types`, `fastmcp_tasks`, `pydantic`, `starlette`, `uncalled_for`), so no brief can name
 them; the scorer reports them apart, and they count against (a).
 
-**Agent evaluation** (increment 5).
+**The structured behavioral evaluation** (ADR-0021; operator decision 2026-09-23; **Proposed**).
+- **Question sets.** `eval/behavior/<library>-<release>.toml` holds representative questions. Each
+  question has target items: atomic claims cited to the library's source lines and docs, including
+  **negative** items that an answer must not state.
+- **Pre-registration.** A set is written from the library's own source and docs **before** any
+  output of the stage it judges is read, and committed first. It is append-only: a changed item is
+  a new item that `supersedes` the old one.
+- **Assessment.** Each stage produces a packet with the target, the tools' answers, the brief if
+  any, and mechanical marks where a check is mechanical. It is assessed per item as present /
+  partial / absent / incorrect / misleading, in
+  `docs/design_review/reviews/structured_eval_<date>.md`, and the operator reviews it.
+- **No API agents** evaluate content.
+- **Mechanical known answers:** the `flow_shapes` and `behavior_shapes` fixtures, and injected
+  violations for every new rule.
+- **The held-out check** is `eval/heldout/`, sealed until the end of increment 5.
+
+**Agent evaluation** (increment 5). *Superseded by the structured evaluation above (operator,
+2026-09-23; ADR-0021); kept as the record of what was planned:*
 - About 20 held-out task prompts and 5–10 usage fixtures.
 - Raw-evidence retrieval is compared against compiled briefs under similar context budgets.
 - Questions: was the right built-in capability found; did the agent discover the important
@@ -2977,7 +3231,7 @@ them; the scorer reports them apart, and they count against (a).
 If the increment-5 evaluation attributes failures to those slots, an ADR adds a local generation
 model under §10.4 grounding.
 
-> Decision: ADR-0004, ADR-0013, ADR-0020
+> Decision: ADR-0021, ADR-0013, ADR-0020
 
 ---
 
@@ -2987,17 +3241,19 @@ Each item returns by ADR when a consumer needs it.
 
 | Deferred | Where it is described | Trigger |
 |---|---|---|
-| Full ontology tables beyond the CPG families (the native type graph and `record_fields` are built in C4, §3.2) | IP L469–L717, L334–L409 | an analytic or brief needs the detail |
+| Full ontology tables beyond the CPG families (the native type graph and `record_fields` are built in C4, §3.2). *The capability registry (§9.9) is not this: it is a closed, executable vocabulary* | IP L469–L717, L334–L409 | an analytic or brief needs the detail |
 | Ruff semantic-model port | IP L99–L166 | binding kinds or typing-only context are needed |
 | Cross-references (Pyrefly's Glean collector, `report::glean::convert::glean(&Transaction, &Handle)`, reachable in-process today). Probe (2026-09-23): 42 xref targets on a fixture, including the typed attribute xref `self.helper()` → `pkg.mod.C.helper`, in `declarations.qualified_name` form. One target per use, flow-sensitive and pruned, so it complements `reference_resolutions` and never replaces it | IP L209–L231 | a consumer needs attribute cross-references (Pass C handoffs, §10 "see also") |
 | CinderX located types (narrowed, unnarrowed, contextual), TSP query surfaces | IP L290–L332, L410–L425 | narrowing or contextual types are needed |
-| Python CFG, dominance, dataflow, aliasing, summaries | IP L821–L884, L1505–L1563 | a pass needs path-sensitive facts |
+| General alias analysis (points-to). *CFG, dominance, flow over bounded places and summaries left this table on 2026-09-24: ADR-0022, §3.9, §9.9* | IP L821–L884, L1505–L1563 | a question needs aliasing beyond bounded places |
 | SCC condensation, dominators on projections: condensation from `kosaraju_scc` membership keeping every arc's evidence, never petgraph's `condensation` (it merges parallel edges; ADR-0011) | IP L1416–L1503 | a consumer beyond recursion labelling |
-| LanceDB, ANN indexes | IP L2766–L2965 | corpus size or managed FTS (§11.2) |
+| LanceDB / Lance, ANN indexes. When adopted: an isolated workspace with its own lockfile and family check (ADR-0002 amendment), Arrow IPC as the only interface, and a derived index keyed by the generation key outside the byte-identical manifest. Lance writes are not byte-reproducible: 1 of 10 files identical across identical writes (review probe, 2026-09-24) | IP L2766–L2965 | more than ~10⁵ vectors at 4,096-d, or filtered ANN with managed FTS |
+| A Datalog engine (ascent 0.8.1) for recursive rules | ADR-0011 amendment | three or more recursive rule families repeating the worklist shape |
+| Graph-FCA in the pipeline; on-demand RCA at serve time | the behavioral-model review, §8.3 | an offline experiment yields templates the structured evaluation rates useful; materialized membership proves too coarse |
 | LLM interpretation | IP L1886–L1966, L2580–L2637 | §12 gap metric (§B11) |
 | Graph embeddings, neural reranking, composition planning | IP L2073–L2087 | an ADR after increment 5 |
 
-> Decision: ADR-0012
+> Decision: ADR-0012, ADR-0021
 
 ---
 
@@ -3052,3 +3308,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 3.2: RCA (`+rca`) and the type, mention and kNN community layers as analytics variants, off by default (§9.4, §9.6, §9.7, §9.8) | ADR-0011; deviation log D41 |
 | 2026-09-23 | Increment-2 compact review fixes: direct usage as the default ranking and selection by it with a community cap (§9.4, §9.5; U1), the PageRank variant, one preferred path per callable (F4), FCA scopes keyed by node (F1), attributes from term structure (F2), the concept as a shared signature under Related with the Applicable-case slot absent (§9.6, §10.2, §10.3; U2), Stage E/F choices frozen (F7), the finding-kind-by-method rule; stale sentences fixed (F8) | ADR-0011 amendment; ADR-0019 amendment; deviation log D37–D40 |
 | 2026-09-24 | Holistic assessment A3 (with slice 3.4's warnings): `doc_components` and `doc_component_attributes` from markdown-rs's mdast (codebooks `component_form`, `attribute_value_kind`; four semantic rules, `docs-span-in-document` among them); documented warnings from `<Warning>` components, scoped to their `<ParamField>`; a top-level `<ParamField>` as a parameter's description after the docstring; `EXTRACTOR_OUTPUT_VERSION` 19, `TEMPLATE_VERSION` 16; zero of either on the pilot, Measured (§3.2, §9.2, §10.3) | Deviation log D44, D45 |
+| 2026-09-24 | The behavioral-model pivot, Stage 0. The product becomes a behavioral model of the whole public surface, with briefs as one rendering: §1.1–§1.5, §9 rules, §12, §13 (ADR-0021, superseding ADR-0004). The model's semantics: places, the runtime view, closed conditions, five verdicts, models as data (§B5, §B10, §3.2, new §3.9, new §9.9; ADR-0022). Serving tools, the executor, `FORMAT` 3 and embedding views (§B13, §B14, §6.4, §11.3; ADR-0010 amendment). Declared extra dependency families (ADR-0002 amendment). Flow and summary algorithms (§B4; ADR-0011 amendment). The keep rule under the new consumers, and the deletion exit paused (§9.8; ADR-0020 amendment). Source: `design_review_behavioral-model-pivot_2026-09-24.md` and the plan `docs/plans/behavioral-model-pivot-plan_2026-09-24.md` | ADR-0021, ADR-0022; deviation log B1 |

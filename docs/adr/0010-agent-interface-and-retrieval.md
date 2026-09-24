@@ -215,3 +215,28 @@ all passed):
     partly reflected the rejected set. The choice above rests on the rationale, not on that run.
   - Wording: "lexical text holds each distinct token once" means the **name** tokens. A brief's
     document text keeps its natural term frequency.
+- 2026-09-24, ADR-0021 (the behavioral-model plan; decisions D-4 and D-6):
+  - **Tools.** The server grows from two tools to the plan's five behavioral tools, alongside
+    `search_capabilities` and `get_capability`:
+
+    | Tool | Returns | Lands |
+    |---|---|---|
+    | `get_operation` | The whole record for one public operation | Stage 1 |
+    | `find_operations` | Exhaustive matches over materialized rows, with `complete` and the operations whose answer is unknown; never uses vectors | Stage 1 |
+    | `search_operations` | Ranked discovery, labelled as such | Stage 1 |
+    | `lookup_concepts` | Candidate concepts with scope notes | Stage 4 |
+    | `explain` | The derivation behind one claim | Stage 4 |
+
+    All take typed pydantic input, return objects, and carry read-only annotations.
+  - **Executor.** pyarrow compute over **materialized** rows. No SQL string is built at serve
+    time, and nothing recurses at serve time: paths are precomputed as summaries and witnesses.
+    Results have row caps, a `truncated` flag and cursors. The server still reads files only.
+    Predicate semantics are never re-implemented in Python; the condition evaluator's Python twin
+    is held to a shared known-answer corpus (ADR-0022).
+  - **Bundle `FORMAT` 3** adds `operations` and `behaviors` (Stage 1), then conditions, concepts,
+    members and vocabulary (later stages). It keeps every `FORMAT` 2 file. Briefs remain for the
+    curated subset.
+  - **Embedding views.** A spec is one model, one vector space. A **view** (signature and
+    docstring, source body, and later others) is a template id and version inside the input's
+    identity and a column of `vectors`. So `semantic:one-embedding-spec` holds per model, and two
+    views of one operation have distinct keys.

@@ -196,3 +196,19 @@ The header's `evidence: Interface-checked` is the record's floor: FCA is still o
   - **Names.** One preferred path per public callable, through its declaring class first (F4).
   - **Freeze.** These choices are `selection::Params`, frozen by digest beside the analytics
     parameters (F7).
+- 2026-09-24, ADR-0021 and ADR-0022 (the behavioral-model plan):
+  - **§B4 gains the flow and summary algorithms**, all petgraph 0.8.3 or our own code:
+    - dominators by `algo::dominators::simple_fast`;
+    - post-dominators by the same function over `Reversed`, from a virtual exit;
+    - dominance frontier and control dependence: our own ~40 lines;
+    - bottom-up transfer summaries in `tarjan_scc` order (callees first), each SCC iterated to a
+      fixpoint over a finite domain, with widening to `unknown`.
+  - A Datalog engine (ascent 0.8.1) is a spike behind a trigger: three or more recursive rule
+    families repeating the worklist shape.
+  - **The existing techniques gain consumers in the served model:**
+    - FCA over **behavioral** attributes as facet suggestions;
+    - communities for navigation;
+    - vectors per view for ranked discovery.
+
+    RCA, when it returns, runs over behavioral contexts at the declared least fixed point
+    (Euzenat 2025). None of them writes concept membership.

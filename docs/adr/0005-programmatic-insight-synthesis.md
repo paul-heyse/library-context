@@ -67,3 +67,15 @@ generation model is added only if a real gap remains.
 - **What we give up.** Some Outcome and usage text will be terse or `unresolved`. That is
   deliberate: those counts are the measurement that justifies, or rules out, adding a model.
 - **More analytic machinery to own.** leiden-rs, our own FCA/RCA and embedding kNN (ADR-0011).
+
+## Amendments
+
+- 2026-09-24, ADR-0021 and ADR-0022 (the behavioral-model plan):
+  - **A named consumer in the served model.** "Every technique needs a named consumer" now means
+    a consumer in the served model: a tool's output or a brief. A brief is no longer the only one.
+  - **§B10 is unchanged.** The closed condition language (ADR-0022) decides compatibility by a
+    finite-domain evaluator with `unknown` for opaque atoms. It is not a constraint solver, and a
+    solver stays excluded.
+  - **§B11 is unchanged.** No generative model runs in the pipeline or the query path.
+    Statistical output still never states a control, a limit or a behavioral claim. It nominates,
+    and definitions decide membership (ADR-0022).
