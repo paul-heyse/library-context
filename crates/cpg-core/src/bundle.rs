@@ -124,12 +124,13 @@ fn query(name: &str) -> Option<String> {
             "SELECT e.evidence_id, {kind} AS kind, e.node_id, COALESCE(sf.path, d.path) AS path, \
                     e.start_byte, e.end_byte, e.text \
              FROM evidence e \
-             LEFT JOIN (SELECT module_node_id, min(path) AS path FROM source_files \
+             LEFT JOIN (SELECT module_node_id, min(path) AS path FROM ({files}) \
                         GROUP BY module_node_id) sf ON sf.module_node_id = e.module_node_id \
              LEFT JOIN (SELECT node_id, min(path) AS path FROM documents GROUP BY node_id) d \
                ON d.node_id = e.module_node_id \
              ORDER BY e.evidence_id",
             kind = text_of::<EvidenceKind>("e.evidence_kind"),
+            files = cpg_schema::flows::display_files_sql(),
         ),
         "brief_members" => "SELECT brief_id, access_path, export_node_id, declaration_node_id \
                             FROM brief_members ORDER BY brief_id, access_path"

@@ -125,17 +125,24 @@ fn starred() -> String {
 /// compiler materialized it as (slice 2.2 review F5).
 pub fn usage_files_sql() -> String {
     format!(
-        "SELECT sf.module_node_id, sf.role, COALESCE(b.display, sf.path) AS path \
-         FROM source_files sf \
-         LEFT JOIN (SELECT cb.module_path, \
-                           min(dc.path || ', code block ' || CAST(cb.ordinal + 1 AS VARCHAR)) \
-                             AS display \
-                    FROM code_blocks cb JOIN documents dc ON dc.node_id = cb.document_node_id \
-                    WHERE cb.module_path IS NOT NULL GROUP BY cb.module_path) b \
-           ON b.module_path = sf.path \
-         WHERE sf.role IN ({usage})",
+        "SELECT module_node_id, role, path FROM ({files}) WHERE role IN ({usage})",
+        files = display_files_sql(),
         usage = codes(&[SourceRole::Example, SourceRole::Test, SourceRole::DocBlock]),
     )
+}
+
+/// Every source file with the path a reader can open: a doc block's is its document's path and
+/// its fence's number (its spans index the block's code), any other file's its own path.
+pub fn display_files_sql() -> String {
+    "SELECT sf.module_node_id, sf.role, COALESCE(b.display, sf.path) AS path \
+     FROM source_files sf \
+     LEFT JOIN (SELECT cb.module_path, \
+                       min(dc.path || ', code block ' || CAST(cb.ordinal + 1 AS VARCHAR)) \
+                         AS display \
+                FROM code_blocks cb JOIN documents dc ON dc.node_id = cb.document_node_id \
+                WHERE cb.module_path IS NOT NULL GROUP BY cb.module_path) b \
+       ON b.module_path = sf.path"
+        .to_owned()
 }
 
 /// The argument → formal join condition: formal `fm` (`parameter_syntax`) of the target takes
