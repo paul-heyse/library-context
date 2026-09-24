@@ -1121,9 +1121,10 @@ and **Tested** for the provider, the lowering and the encoding (`cpg-flow`, `flo
 - an attribute of a function object (`fn.__fastmcp__`).
 
 A place is known in two layers (ADR-0022 §Places):
-- **spelled**, as written in its scope: a condition's text. Where a scope tests a rebound place
-  at more than one value, a test of a rebound value is versioned, `place@line` (the latest
-  non-parameter binding reaching it), so tests on either side of a rebinding are two atoms;
+- **spelled**, as written in its scope: a condition's text. Every source test carries its
+  evaluation site in its atom identity. Reaching definitions remain separate facts; even the
+  same definition set does not prove a value stayed stable across an impure call. Same-line
+  bindings remain distinct;
 - **resolved**, the join key across scopes: `Parameter[…]`, `Local[…]`, `Field[C.f]` or
   `Global[module.name]`, then at most two segments (§9.9).
 
@@ -1151,24 +1152,32 @@ getattr family and its kin, `unresolved_target` otherwise. It is never a guess.
 **The runtime view.**
 - `TYPE_CHECKING` is false. ty decides it as true at index time, so before ty parses a module every
   `TYPE_CHECKING` **name token** is renamed to a sentinel of the same length. Strings and comments
-  keep their text. ty then keeps both branches, and our evaluator decides the predicate.
-- `sys.version_info` comparisons follow the context's Python version.
-- `sys.platform` and `os.name` follow its platform (§4.0).
+  keep their text. ty then keeps both branches. Our evaluator decides only a name resolved by our
+  lexical facts to `typing.TYPE_CHECKING` or `typing_extensions.TYPE_CHECKING`, aliases included,
+  or an attribute on an imported `typing` module. A parameter with that spelling remains ordinary.
+- `sys.version_info` comparisons follow full tuple ordering, only when the root resolves to the
+  stdlib `sys` module. The context knows its first three numeric fields; a literal tuple of up to
+  three fields can be compared because the runtime tuple has two more fields. Longer literals
+  remain undecided until release level and serial are modeled.
+- `sys.platform` and `os.name` follow its platform (§4.0), only under resolved stdlib roots.
 - C3's static-branch marks (§4.2.4) remain the checker view that the CPG layers keep.
 
 **Conditions** are data in a closed language, in disjunctive normal form (ADR-0022 §Conditions).
 - **Literals.** A literal is an atom with a polarity. The atoms (codebook `condition_atom`) are
-  `is_none(p)`, `equals(p,v)`, `member_of(p,{v…})`, `truthy(p)`, `isinstance(p,C)` and
+  `is_none(p)`, `is_value(p,v)`, `equals(p,v)`, `member_of(p,{v…})`, `truthy(p)`, `isinstance(p,C)` and
   `opaque("text")`.
 - **Literal values:** `None`, `True` and `False`; decimal integers; JSON strings. A test on any
   other literal is opaque.
-- **Canonical forms:**
-  - a single-value set is `equals`;
-  - `== None` is `is_none`;
-  - `is True` is `equals(p,True)`;
+- **Operators stay distinct:**
+  - a single-value set remains `member_of`;
+  - `== None` is `equals(p,None)`, distinct from `is_none`;
+  - `is True` is `is_value(p,True)`;
   - the literal is the second operand.
 - **Encoding.**
-  - A literal is written `[!]kind(place[,literal])`.
+  - A translated literal is `[!]kind(place[,literal])#module:source`, where the source is a byte
+    site or a synthetic predicate identity. The module key includes path and content. Text labels
+    are not identities; tests never share by spelling. A definition-set encoding is reserved for
+    a later rule that proves value stability across sites, but none is emitted now.
   - Conjunctions are sorted bytewise, deduplicated and joined by ` & `.
   - Disjunctions are sorted, deduplicated, absorbed and joined by ` | `.
   - `true` and `false` are the empty conjunction and the empty disjunction.
@@ -1182,6 +1191,13 @@ getattr family and its kin, `unresolved_target` otherwise. It is never a guess.
 - **Opaque text** is the test's source with comments removed and whitespace collapsed.
 - **Budget:** at most 16 conjunctions of 8 literals. A larger condition is not stated: its record
   is `unknown` (`budget_reached`).
+- **Skipped false branches** are counted in each module's flow coverage detail by ty false,
+  resolved runtime-view decisions and stable-atom contradictions. Value-source branch skips are
+  counted separately. The generated-program `sys.monitoring` oracle checks every observed line
+  and local reaching definition against the flow model. Its developer CLI receives explicit
+  resolved-name spans for runtime-view cases; the separate extractor integration test proves
+  lexical resolution supplies those spans. Neither check alone is an end-to-end import resolver
+  differential.
 - **Predicates we do not read as tests:**
   - calls are assumed to return (`NoReturn` is Stage 3's models);
   - ty's non-empty-iterable, context-manager-suppression and finally-path predicates are opaque.
@@ -1198,6 +1214,11 @@ a null, and a positive answer states **may**-behavior:
 | `refuted_under_model` | The claim's premise holds (`negative_premises`, below). A rule rejects it anywhere else |
 | `unknown` | A boundary intervenes; its `boundary_reason` is named, `budget_reached` included |
 | `not_analyzed` | Out of scope or not requested |
+
+`established` and `conditional` admit may-behavior under the model; they do not prove a concrete
+execution exists. AMBIGUOUS is admitted, calls are assumed to return, primitive operators,
+f-strings and containers are computed directly, and context managers other than recognized
+`suppress` are assumed not to suppress. A negative needs complete may-analysis and its premise.
 
 Discovery results (FCA, communities, vectors) carry no verdict: they are `statistically_derived`
 nominations.

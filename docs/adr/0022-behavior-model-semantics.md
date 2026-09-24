@@ -1,7 +1,7 @@
 ---
 id: ADR-0022
 title: The behavior model: a stated runtime flow abstraction, closed conditions, five verdicts, and models as data
-status: proposed
+status: accepted
 date: 2026-09-24
 supersedes: []
 superseded-by: null
@@ -94,10 +94,14 @@ semantics must close:
     strings and comments keep their text; a name in an f-string replacement field is renamed.
   - A module that already uses the sentinel as a name is refused, and its flow coverage is
     `failed`.
-  - The runtime view matches the sentinel as a name and as an attribute of a dotted name.
+  - The sentinel only stops ty deciding by spelling. The runtime view decides a reference only
+    when every candidate in our lexical resolution binds it to `typing.TYPE_CHECKING` or
+    `typing_extensions.TYPE_CHECKING`, including aliases, or binds an attribute's root to the
+    imported `typing` module.
   - Place text, literal values from our text, and opaque text are cut from the module **as
     written**, by range.
-  - `import TYPE_CHECKING as TC` leaves `TC` a `truthy` atom, as declared.
+  - A parameter called `TYPE_CHECKING` and an unrelated `config.TYPE_CHECKING` remain ordinary
+    atoms. An imported `TYPE_CHECKING as TC` is decided false.
   - ty decides no other test at index time that differs from runtime. Its literal folding covers
     `True`, `False`, `None`, integers, `...`, lambdas, generators and `not`.
 - **ty's exception model** is part of the stated model. Exceptions come only from operations ty's
@@ -141,6 +145,7 @@ semantics must close:
   an atom with a polarity: `is not None` is `!is_none`.
 - **Atom kinds** (codebook `condition_atom`, append-only):
   - `is_none(p)`;
+  - `is_value(p, v)` for `p is v` (code 6, appended in Stage 2.9);
   - `equals(p, v)`;
   - `member_of(p, {v…})`;
   - `truthy(p)`;
@@ -155,19 +160,26 @@ semantics must close:
   - strings as JSON strings, serialized by serde_json (non-ASCII characters kept as UTF-8).
 
   A test on any other literal is opaque.
-- **Canonical forms:**
-  - a single-value `member_of` is `equals`;
-  - `== None` is `is_none`;
-  - `is True` and `is False` are `equals` with `True` and `False`;
+- **Operators are preserved:**
+  - single-value `member_of` remains membership;
+  - `== None` is `equals(p, None)`, distinct from `is_none`;
+  - `is True`, `is False` and `is <literal>` are `is_value`;
   - the literal is always the second operand;
   - `in` takes a tuple, list or set of literals on the right, and anything else is opaque.
-- **Encoding.**
-  - A literal is `[!]kind(place[,value])`.
+- **Evaluation identity and encoding.** A predicate's text is a label, never its identity.
+  - A literal is `[!]kind(place[,value])#module:source`; the module key hashes the relative path
+    and source content. `source` is `s<start>-<end>` for a source evaluation site or
+    `p<predicate id>` for a provider synthetic predicate. The parser reserves `d<sorted
+    definition starts>` for a future proven-stable sharing rule, but the translator emits none.
+  - Every source test is per site. A complete reaching-definition set alone does not prove the
+    name's value is stable: a nested call can rebind a `nonlocal`, a global can change, and an
+    `isinstance` class expression can be rebound. Integer and string literal objects may also
+    have distinct identities at different sites. Synthetic predicates are per provider predicate.
   - A `member_of` set is sorted and deduplicated.
   - A conjunction is its literals sorted bytewise by encoding and deduplicated, joined by ` & `.
   - A disjunction is its conjunctions sorted and deduplicated, joined by ` | `.
   - `true` is the empty conjunction; `false` is the empty disjunction.
-  - The id is `H("condition", encoding)` (DM-15). Equality is syntactic, and that is declared.
+  - The id is `H("condition", encoding)` (DP-04). Equality is syntactic, and that is declared.
 - **Opaque text** is the test's source by its range (parentheses outside the range excluded), with
   comments removed and runs of whitespace collapsed to one space.
 - **The lowering from ty's diagrams**, one procedure:
@@ -210,9 +222,25 @@ semantics must close:
     alone. A guard past the budget factors nothing, and `given` states nothing about a condition
     past the budget (the review's R3).
 - **The runtime view** evaluates, before normalization:
-  - `TYPE_CHECKING` (the sentinel, as a name or an attribute of a dotted name) as false;
-  - `sys.version_info` comparisons against the context's Python version;
-  - `sys.platform` (`==`, `!=`, `startswith`) and `os.name` against its platform.
+  - references resolved to `typing.TYPE_CHECKING` (also `typing_extensions`, aliases and a
+    resolved module attribute) as false;
+  - `sys.version_info` comparisons only through a name resolved to the stdlib `sys` module, with
+    Python's full tuple ordering: the five-field runtime tuple is greater than an equal prefix
+    of at most three fields. A longer literal stays undecided because the context has no release
+    level or serial;
+  - `sys.platform` (`==`, `!=`, `startswith`) and `os.name` only through names resolved to those
+    stdlib modules.
+- **Counted skips.** The module's flow coverage detail reports candidate reaching rows whose
+  condition was `false`, categorized in precedence order as ty's root false, a diagram involving
+  a runtime-view decision, or a stable-atom contradiction. It also counts discarded candidate
+  value-source branches as runtime-view or contradiction. These diagnostics do not create rows.
+- **Runtime soundness checks.** An isolated generated-program test observes CPython 3.14.7 with
+  `sys.monitoring`, then requires every observed line's region and every observed local
+  store-to-load edge to be admitted. Ten seed shapes run deterministically; Hypothesis varies
+  their inputs. The developer `lctx flow` command accepts schema-checked resolved-name spans for
+  the runtime-view cases; a separate extractor integration test checks the lexical-resolution
+  to span join. The two checks cover separate boundaries and do not execute analyzed libraries
+  or `fixtures/python/`.
 - **ty predicates we do not read as tests:**
   - a call's `IsNonTerminalCall` is true: calls are assumed to return, and `NoReturn` callables
     are Stage 3's models;
@@ -232,16 +260,11 @@ semantics must close:
     - to a module global (`Global[module.name]`).
 
     At most two segments follow the root.
-- **A spelled place names a value, so a rebound place is versioned** (Stage 2's evaluation,
-  deviation B15). A place bound more than once in its scope can hold two values at two tests on one
-  path (`if x is None: x = d`, then `if x is None:`); as one atom, the two tests would contradict
-  and a feasible path would be dropped. A test's value is versioned by the line of the latest
-  binding other than a parameter reaching it (none: the value the scope received; ty's
-  loop-header bindings do not count as a second binding). Where one scope's tests of a place read
-  more than one version, each versioned test is spelled `place@line`; otherwise all of them are
-  spelled plainly, so versions appear only where they disambiguate. An opaque test reading a
-  versioned place carries the version too, encoded `opaque("…")@line` (the Stage 2 end review's
-  R4b). Two tests with the same spelling on one path read one value within an iteration. Around a
+- **Evaluation sites replace `place@line`.** A name rebound in a scope can hold different values
+  at two tests on one path; even identical reaching-definition sets can conceal a `nonlocal` or
+  global write through a call. The flow facts retain each use's reaching definitions, but all
+  source tests have distinct site identities until an effect-stability proof exists. A call may
+  also mutate an attribute or container without a rebinding. Around a
   loop's back edge a loop-carried definition's conditions are an earlier iteration's, spelled
   like this iteration's, so the flow model keeps only the use's side there: a sound
   over-approximation (R4a). A feasible flow is never stated under `false`
@@ -265,6 +288,14 @@ semantics must close:
   `conditional`, and the atom's source text is shown.
 - **A budget cut is `unknown`**, with `budget_reached`. `not_analyzed` means out of scope or not
   requested, and nothing else.
+- **Approximation direction.** `established` and `conditional` are may-behavior: a derivation
+  admits the behavior under the stated model without crossing a boundary, not a witness that a
+  concrete execution exists. ty's AMBIGUOUS terminal is admitted; calls are assumed to return;
+  operators, f-strings and containers are computed directly over primitive operands; context
+  managers other than recognized `suppress` are assumed not to suppress. A negative verdict needs
+  a complete may-analysis and its explicit premise. The runtime lane uses generated programs on
+  CPython 3.14.7 to check that observed execution is admitted; a finite pass is evidence, not a
+  proof of all inputs.
 - **Premises per place kind.** A negative claim ("never read", "never forwarded") is
   `refuted_under_model` only where its premise holds, in one relation `negative_premises`: the
   place key, the premise kind, whether it holds, and the reason if not.
@@ -323,7 +354,7 @@ semantics must close:
   - anything else is `per_call`.
 
   A read reached from module scope through calls is Stage 3's (summaries).
-- **Verdicts, modality and evidence status are three vocabularies** (ADDENDUM §3):
+- **Verdicts, modality and evidence status are three vocabularies** (binding §3):
   - `modality` (definite, candidate, potential) describes a call-graph input fact. A behavior that
     crosses a candidate or potential arc is at best `unknown`.
   - `evidence_status` is a brief assertion's. When a brief renders a behavior (F7, Stage 2.6):

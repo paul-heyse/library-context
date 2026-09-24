@@ -132,20 +132,21 @@ T1–T9 carry over from the superseded plan. T5 is restated, and T10–T11 are n
 - `x == None` is equality, not `is None`. `x is True` is an identity atom (a codebook append), not
   `== True`.
 
-**Sharing across sites** is allowed only where the observed value is provably stable:
-- an identity (`is None`, `is <literal>`) or `isinstance` test on a **name**, at the same
-  **definition set** (definition ids, not lines);
-- from Stage 3.0, an equality, membership or truthiness test on a name whose Pyrefly type, at
-  that use, is a builtin immutable scalar (`str`, `int`, `bool`, `None`, their literals and
-  unions).
+**Sharing across sites requires a proof of the same runtime value.** Stage 2.9 keeps all source
+tests per site. Its first definition-set rule was superseded by the compact review's executable
+counterexample: a nested call can rebind a `nonlocal` without changing the use-def set. Stage 3.0
+may share equality, membership or truthiness only when it also proves no intervening write or
+effect can change the name's value; a Pyrefly builtin immutable-scalar type at each use is
+necessary for the typed theory but insufficient for cross-site sharing.
 
-Everything else is per site:
+These remain per site unless that proof is added:
 - calls and other opaque tests;
 - attribute places (a call may mutate them);
 - object state such as a container's truthiness;
 - the synthetic predicates (non-empty iterable, context-manager suppression, finally, undecided).
 
-**Versions** are definition sets. `place@line` is retired, and the display may still show a line.
+`place@line` is retired. Reaching-definition sets remain flow facts, but are not atom identities
+without an effect-stability proof.
 
 **The runtime view** decides a test only where our reference resolution binds the name:
 - the `TYPE_CHECKING` sentinel, where the name resolves to `typing.TYPE_CHECKING` (aliases
@@ -153,8 +154,10 @@ Everything else is per site:
 - `sys.version_info`, `sys.platform` and `os.name`, where `sys` or `os` resolve to the stdlib
   modules.
 
-Elsewhere the name is an ordinary atom. Version tuples compare as Python compares them, so a
-proper prefix is less. The rename stays, only to stop ty deciding the name by spelling.
+Elsewhere the name is an ordinary atom. Version tuples compare as Python compares them: the
+five-field `sys.version_info` is greater than an equal prefix of up to three fields. A longer
+literal stays undecided until release level and serial are modeled. The rename stays, only to
+stop ty deciding the name by spelling.
 
 **The kernel** (Stage 3.0) is biodivine-lib-bdd 0.6.3.
 - **Variable order:** deterministic, with atoms sorted by identity.
