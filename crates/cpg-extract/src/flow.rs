@@ -9,7 +9,7 @@ use cpg_flow::{
     Span,
 };
 use cpg_schema::codebook::{
-    ExportSyntaxKind, ExtractionMode, Fidelity, FlowSink, Modality, Origin,
+    ExportSyntaxKind, ExtractionMode, Fidelity, FlowSink, Modality, Origin, TestTypeOrigin,
 };
 use cpg_schema::condition::Condition;
 use cpg_schema::condition_kernel::DiagramNode;
@@ -18,7 +18,8 @@ use cpg_schema::tables::{
     ConditionLiterals, ConditionLiteralsRow, ConditionNodes, ConditionNodesRow, Conditions,
     ConditionsRow, ExportSyntaxRow, FlowAttributeLoads, FlowAttributeLoadsRow, FlowDefinitions,
     FlowDefinitionsRow, FlowReaching, FlowReachingRow, FlowRegions, FlowRegionsRow, FlowTestLeaves,
-    FlowTestLeavesRow, FlowTests, FlowTestsRow, FlowUses, FlowUsesRow, FlowValues, FlowValuesRow,
+    FlowTestLeavesRow, FlowTestTypes, FlowTestTypesRow, FlowTests, FlowTestsRow, FlowUses,
+    FlowUsesRow, FlowValues, FlowValuesRow,
 };
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
@@ -128,6 +129,10 @@ pub(crate) struct FlowOut {
     pub regions: Vec<FlowRegionsRow>,
     pub tests: Vec<FlowTestsRow>,
     pub test_leaves: Vec<FlowTestLeavesRow>,
+    pub test_types: Vec<FlowTestTypesRow>,
+    pub test_type_candidates: Vec<TestTypeCandidate>,
+    pub test_type_unmapped: BTreeMap<Id, usize>,
+    pub test_type_trace_missing: BTreeMap<Id, usize>,
     pub attribute_loads: Vec<FlowAttributeLoadsRow>,
     pub conditions: Vec<ConditionsRow>,
     pub condition_nodes: Vec<ConditionNodesRow>,
@@ -139,6 +144,47 @@ pub(crate) struct FlowOut {
     pub skips: BTreeMap<Id, SkipCounts>,
     /// `TYPE_CHECKING` names renamed across the release.
     pub renamed: u32,
+}
+
+pub(crate) struct TestTypeCandidate {
+    pub module_node_id: Id,
+    pub leaf_fact_id: Id,
+    pub atom_id: Id,
+    pub use_id: Id,
+    pub use_fact_id: Id,
+    pub operand_start: i64,
+    pub operand_end: i64,
+    pub place: String,
+}
+
+pub(crate) fn add_test_type(
+    out: &mut FlowOut,
+    sink: &mut FactSink,
+    candidate: &TestTypeCandidate,
+    term_node_id: Id,
+    term_fact_id: Id,
+) {
+    out.test_types.push(fact_row!(
+        sink,
+        FlowTestTypes,
+        provenance(),
+        FlowTestTypesRow {
+            snapshot_id: Id::ZERO,
+            fact_id: Id::ZERO,
+            module_node_id: candidate.module_node_id,
+            leaf_fact_id: candidate.leaf_fact_id,
+            atom_id: candidate.atom_id,
+            use_id: candidate.use_id,
+            use_fact_id: candidate.use_fact_id,
+            operand_start_byte: candidate.operand_start,
+            operand_end_byte: candidate.operand_end,
+            role: "tested_place".to_owned(),
+            place: candidate.place.clone(),
+            term_node_id,
+            term_fact_id,
+            origin: TestTypeOrigin::PyreflyTrace,
+        }
+    ));
 }
 
 fn provenance() -> Provenance {
@@ -219,9 +265,10 @@ pub(crate) fn run(
                     .finish_id()
             })
             .collect();
+        let mut use_fact_ids = Vec::with_capacity(flow.uses.len());
         for (u, &use_id) in flow.uses.iter().zip(&use_ids) {
             let (scope_kind, scope_start_byte, scope_end_byte) = scope(u.scope);
-            out.uses.push(fact_row!(
+            let row = fact_row!(
                 sink,
                 FlowUses,
                 provenance(),
@@ -238,7 +285,9 @@ pub(crate) fn run(
                     end_byte: i64::from(u.span.end),
                     annotation: u.annotation,
                 }
-            ));
+            );
+            use_fact_ids.push(row.fact_id);
+            out.uses.push(row);
         }
         let def_ids: Vec<Id> = flow
             .defs
@@ -334,10 +383,11 @@ pub(crate) fn run(
                 }
             ));
         }
+        let mapped_before = out.test_type_candidates.len();
         for leaf in &flow.test_leaves {
             let condition_id = condition(&leaf.condition);
             let (scope_kind, scope_start_byte, scope_end_byte) = scope(leaf.scope);
-            out.test_leaves.push(fact_row!(
+            let row = fact_row!(
                 sink,
                 FlowTestLeaves,
                 provenance(),
@@ -357,8 +407,37 @@ pub(crate) fn run(
                     leaf_start_byte: i64::from(leaf.leaf_span.start),
                     leaf_end_byte: i64::from(leaf.leaf_span.end),
                 }
-            ));
+            );
+            if let Some(operand) = leaf.operand_span
+                && let Ok(atom) = cpg_schema::condition::Atom::parse_encoded(&leaf.atom)
+                && let Some(place) = atom.place()
+            {
+                let mut matches = flow.uses.iter().enumerate().filter(|(_, use_row)| {
+                    use_row.span == operand
+                        && use_row.scope == leaf.scope
+                        && use_row.place == place
+                        && !use_row.annotation
+                });
+                if let Some((ix, _)) = matches.next()
+                    && matches.next().is_none()
+                {
+                    out.test_type_candidates.push(TestTypeCandidate {
+                        module_node_id: module,
+                        leaf_fact_id: row.fact_id,
+                        atom_id: row.atom_id,
+                        use_id: use_ids[ix],
+                        use_fact_id: use_fact_ids[ix],
+                        operand_start: i64::from(operand.start),
+                        operand_end: i64::from(operand.end),
+                        place: place.to_owned(),
+                    });
+                }
+            }
+            out.test_leaves.push(row);
         }
+        let mapped = out.test_type_candidates.len() - mapped_before;
+        out.test_type_unmapped
+            .insert(module, flow.test_leaves.len().saturating_sub(mapped));
         for a in &flow.attribute_loads {
             out.attribute_loads.push(fact_row!(
                 sink,

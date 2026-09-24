@@ -9,8 +9,8 @@ use crate::codebook::{
     ExtractionMode, FactFamily, Fidelity, FlowSink, ImplicitReceiver, InvocationPhase,
     LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin, ParameterKind,
     PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind, ScopeKind,
-    SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TypeArgRole,
-    TypeRole, TypeTermKind,
+    SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TestTypeOrigin,
+    TypeArgRole, TypeRole, TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -931,6 +931,34 @@ table!(
 );
 
 table!(
+    /// Pyrefly's type at the structurally selected operand use of one provider test leaf.
+    /// This is an attributed observation, never an exact-runtime-class proof by itself.
+    FlowTestTypes, FlowTestTypesRow = "flow_test_types",
+    family = Flow,
+    key = [snapshot_id, module_node_id, leaf_fact_id, use_id, fact_id],
+    checks = [
+        ("operand_span_order", "operand_start_byte >= 0 AND operand_end_byte > operand_start_byte"),
+        ("tested_place_role", "role = 'tested_place'"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        leaf_fact_id: Id,
+        atom_id: Id,
+        use_id: Id,
+        use_fact_id: Id,
+        operand_start_byte: i64,
+        operand_end_byte: i64,
+        role: String,
+        place: String,
+        term_node_id: Id,
+        term_fact_id: Id,
+        origin: TestTypeOrigin,
+    }
+);
+
+table!(
     /// A condition's diagram root and bounded display (ADR-0024). The root/node closure is the
     /// authority; `encoding` is presentation only. An unstated condition has a named boundary.
     Conditions, ConditionsRow = "conditions",
@@ -1433,6 +1461,7 @@ macro_rules! for_each_table {
             $crate::tables::FlowRegions,
             $crate::tables::FlowTests,
             $crate::tables::FlowTestLeaves,
+            $crate::tables::FlowTestTypes,
             $crate::tables::FlowAttributeLoads,
             $crate::tables::Conditions,
             $crate::tables::ConditionNodes,

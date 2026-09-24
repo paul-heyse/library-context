@@ -57,3 +57,23 @@ fn flow_runtime_decisions_follow_lexical_imports() {
             && detail.contains("skipped_value_branches_runtime_view=")
     }));
 }
+
+#[test]
+fn test_type_rows_name_the_selected_operand_and_trace() {
+    let (_dir, out) = run("flow_shapes");
+    let source =
+        std::fs::read_to_string(fixture("flow_shapes").join("release/flowpkg/shapes.py")).unwrap();
+    let rows = out.table("flow_test_types").unwrap();
+    let test = source.find("if isinstance(x, C):").unwrap();
+    let x = test + "if isinstance(".len();
+    assert!((0..rows.num_rows()).any(|i| {
+        cell(rows, "place", i) == "x"
+            && cell(rows, "operand_start_byte", i) == x.to_string()
+            && cell(rows, "operand_end_byte", i) == (x + 1).to_string()
+            && cell(rows, "role", i) == "tested_place"
+    }));
+    // The sibling class expression is a use inside the test span, but it is not the tested place.
+    assert!(!(0..rows.num_rows()).any(|i| {
+        cell(rows, "operand_start_byte", i) == (x + 3).to_string() && cell(rows, "place", i) == "C"
+    }));
+}

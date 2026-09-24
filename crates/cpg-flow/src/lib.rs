@@ -193,6 +193,10 @@ pub struct TestLeaf {
     pub condition: Condition,
     pub atom: String,
     pub leaf_span: Span,
+    /// The structurally selected place operand of this leaf, when the translator can identify
+    /// one. A contained use is never chosen by proximity alone; synthetic patterns need their
+    /// separate subject bridge.
+    pub operand_span: Option<Span>,
 }
 
 /// An attribute load by name on any receiver (a place or not: `get_server()._worker`), or a
@@ -416,12 +420,12 @@ fn module(
         let fid = scope.file_scope_id(db);
         let Some(sc) = w.scope(fid) else { continue };
         for (predicate_id, p) in index.use_def_map(fid).predicates().iter_enumerated() {
-            let (span, condition) = match &p.node {
+            let (span, condition, test_expr) = match &p.node {
                 PredicateNode::Expression(x)
                 | PredicateNode::Condition(x)
                 | PredicateNode::ChainedComparisonCondition(x) => {
                     let e = x.node_ref(db).node(&parsed);
-                    (Span::from(e.range()), t.test(e))
+                    (Span::from(e.range()), t.test(e), Some(e))
                 }
                 PredicateNode::Pattern(pattern) => {
                     let subject = pattern.subject(db).node_ref(db).node(&parsed);
@@ -430,7 +434,7 @@ fn module(
                     if let Some(guard) = pattern.guard(db) {
                         c = c.and(&t.test(guard.node_ref(db).node(&parsed)));
                     }
-                    (Span::from(subject.range()), c)
+                    (Span::from(subject.range()), c, None)
                 }
                 _ => continue,
             };
@@ -442,7 +446,7 @@ fn module(
                 for encoded in diagram.support() {
                     let atom = Atom::parse_encoded(encoded)
                         .expect("the producer's atom encoding round-trips");
-                    let Atom::Evaluated { identity, .. } = atom else {
+                    let Atom::Evaluated { identity, .. } = &atom else {
                         continue;
                     };
                     // The path condition also contains earlier predicates. A leaf row belongs
@@ -450,12 +454,15 @@ fn module(
                     // synthetic predicate identity itself is this provider predicate.
                     let leaf_span = match identity {
                         EvaluationIdentity::Site { start, end, .. }
-                            if start >= span.start && end <= span.end =>
+                            if *start >= span.start && *end <= span.end =>
                         {
-                            Span { start, end }
+                            Span {
+                                start: *start,
+                                end: *end,
+                            }
                         }
                         EvaluationIdentity::Synthetic { predicate, .. }
-                            if predicate == predicate_key =>
+                            if predicate == &predicate_key =>
                         {
                             span
                         }
@@ -468,6 +475,7 @@ fn module(
                         condition: condition.clone(),
                         atom: encoded.clone(),
                         leaf_span,
+                        operand_span: test_expr.and_then(|e| t.tested_place_operand(e, &atom)),
                     });
                 }
             }

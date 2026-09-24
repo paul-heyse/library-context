@@ -787,6 +787,14 @@ codebook!(
 );
 
 codebook!(
+    /// What a test/operand type row warrants. A trace observation alone cannot prove the exact
+    /// runtime class or standard equality of the value it describes.
+    TestTypeOrigin = "test_type_origin" {
+        PyreflyTrace = 0 => "pyrefly_trace",
+    }
+);
+
+codebook!(
     /// How a mention names an API (C5, `mentions`; DESIGN §3.2 `docs`): the two classes are never
     /// merged.
     MentionClass = "mention_class" {
@@ -1378,6 +1386,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<TypeTermKind>(),
         CodebookEntry::of::<TypeArgRole>(),
         CodebookEntry::of::<TypeRole>(),
+        CodebookEntry::of::<TestTypeOrigin>(),
         CodebookEntry::of::<RecordKind>(),
         CodebookEntry::of::<MentionClass>(),
         CodebookEntry::of::<MentionSource>(),

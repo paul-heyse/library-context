@@ -1,0 +1,12 @@
+{
+  "tilelang_source_url": "https://files.pythonhosted.org/packages/6d/9a/5776adb5b6e03e141c8cff020e16c45b87c9b7a7a5bdfe83416d6cc23933/tilelang-0.1.12.tar.gz",
+  "tilelang_source_sha256": "595b39581d099a53f875bd8d553863e7e4f58998052b58764f5472cbfbb87043",
+  "wheel": "tilelang-0.1.12+z3.5.1-cp38-abi3-linux_x86_64.whl",
+  "wheel_sha256": "f2c88384b780f0235546131f18981477174034b1e6c6095366e812c9b7b28e68",
+  "z3_solver": "5.1.0.0",
+  "python": "3.14.7",
+  "cuda": "13.4",
+  "cython": "3.2.9",
+  "platform": "linux_x86_64",
+  "changes": "Local source build of TileLang 0.1.12 with matching Z3 5.1 headers/runtime; version labeled 0.1.12+z3.5.1."
+}

@@ -90,7 +90,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        50 + 21 + 32,
+        51 + 21 + 32,
         "every raw, derived and analysis table"
     );
 
@@ -210,6 +210,34 @@ async fn published_condition_node_tamper_is_rejected() {
         violations
             .iter()
             .any(|v| v.rule == "condition-graph-and-leaf-provenance"),
+        "{violations:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn published_test_type_link_tamper_is_rejected() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([47; 16]);
+    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert!(count(&ctx, "SELECT count(*) FROM flow_test_types").await > 0);
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let doctored = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (place), concat(place, '_tampered') AS place FROM flow_test_types",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("flow_test_types").unwrap();
+    ctx.register_table("flow_test_types", doctored).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "flow-test-type-proof-link"),
         "{violations:?}"
     );
 }

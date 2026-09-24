@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
+use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::{Id, IdHasher};
@@ -100,7 +101,135 @@ pub async fn validate_costed(
         costs.push(c);
     }
     violations.extend(validate_condition_graph(&cache).await?);
+    violations.extend(validate_test_type_links(&cache).await?);
     Ok((violations, costs))
+}
+
+cpg_schema::query_row! {
+    struct TestTypeLink {
+        fact_id: Id,
+        module_node_id: Id,
+        leaf_fact_id: Id,
+        atom_id: Id,
+        use_id: Id,
+        use_fact_id: Id,
+        operand_start_byte: i64,
+        operand_end_byte: i64,
+        role: String,
+        place: String,
+        term_node_id: Id,
+        term_fact_id: Id,
+        origin: i64,
+    }
+}
+cpg_schema::query_row! {
+    struct LinkLeaf {
+        fact_id: Id,
+        module_node_id: Id,
+        atom_id: Id,
+        atom: String,
+        leaf_start_byte: i64,
+        leaf_end_byte: i64,
+    }
+}
+cpg_schema::query_row! {
+    struct LinkUse {
+        fact_id: Id,
+        use_id: Id,
+        module_node_id: Id,
+        place: String,
+        start_byte: i64,
+        end_byte: i64,
+        annotation: bool,
+    }
+}
+cpg_schema::query_row! {
+    struct LinkTerm {
+        node_id: Id,
+        fact_id: Id,
+    }
+}
+cpg_schema::relations! {
+    inventory test_type_relations;
+    test_type_links = "validate_test_type_links", deps = ["flow_test_types"],
+        sql = "SELECT fact_id, module_node_id, leaf_fact_id, atom_id, use_id, use_fact_id, operand_start_byte, operand_end_byte, role, place, term_node_id, term_fact_id, CAST(origin AS BIGINT) AS origin FROM flow_test_types".to_owned();
+    test_type_leaves = "validate_test_type_leaves", deps = ["flow_test_leaves"],
+        sql = "SELECT fact_id, module_node_id, atom_id, atom, leaf_start_byte, leaf_end_byte FROM flow_test_leaves".to_owned();
+    test_type_uses = "validate_test_type_uses", deps = ["flow_uses"],
+        sql = "SELECT fact_id, use_id, module_node_id, place, start_byte, end_byte, annotation FROM flow_uses".to_owned();
+    test_type_terms = "validate_test_type_terms", deps = ["type_terms"],
+        sql = "SELECT node_id, fact_id FROM type_terms".to_owned();
+}
+
+async fn validate_test_type_links(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let links: Vec<TestTypeLink> = sql::fetch(ctx, &test_type_links(), sql::Params::new()).await?;
+    if links.is_empty() {
+        return Ok(Vec::new());
+    }
+    let leaves: Vec<LinkLeaf> = sql::fetch(ctx, &test_type_leaves(), sql::Params::new()).await?;
+    let uses: Vec<LinkUse> = sql::fetch(ctx, &test_type_uses(), sql::Params::new()).await?;
+    let terms: Vec<LinkTerm> = sql::fetch(ctx, &test_type_terms(), sql::Params::new()).await?;
+    let leaves: HashMap<Id, Vec<LinkLeaf>> =
+        leaves.into_iter().fold(HashMap::new(), |mut map, row| {
+            map.entry(row.fact_id).or_default().push(row);
+            map
+        });
+    let uses: HashMap<Id, Vec<LinkUse>> = uses.into_iter().fold(HashMap::new(), |mut map, row| {
+        map.entry(row.use_id).or_default().push(row);
+        map
+    });
+    let terms: HashSet<(Id, Id)> = terms.into_iter().map(|t| (t.node_id, t.fact_id)).collect();
+    let mut errors = Vec::new();
+    let mut seen = HashSet::new();
+    for link in links {
+        let leaf = leaves
+            .get(&link.leaf_fact_id)
+            .filter(|rows| rows.len() == 1)
+            .and_then(|rows| rows.first());
+        let use_row = uses
+            .get(&link.use_id)
+            .filter(|rows| rows.len() == 1)
+            .and_then(|rows| rows.first());
+        let valid = match (leaf, use_row) {
+            (Some(leaf), Some(use_row)) => {
+                let atom = Atom::parse_encoded(&leaf.atom).ok();
+                matches!(
+                    atom.as_ref(),
+                    Some(Atom::Evaluated {
+                        identity: EvaluationIdentity::Site { .. },
+                        ..
+                    })
+                ) && atom.as_ref().and_then(Atom::place) == Some(link.place.as_str())
+                    && leaf.module_node_id == link.module_node_id
+                    && leaf.atom_id == link.atom_id
+                    && leaf.leaf_start_byte <= link.operand_start_byte
+                    && link.operand_end_byte <= leaf.leaf_end_byte
+                    && use_row.module_node_id == link.module_node_id
+                    && use_row.fact_id == link.use_fact_id
+                    && use_row.start_byte == link.operand_start_byte
+                    && use_row.end_byte == link.operand_end_byte
+                    && use_row.place == link.place
+                    && !use_row.annotation
+                    && link.role == "tested_place"
+                    && link.origin
+                        == i64::from(cpg_schema::Codebook::code(TestTypeOrigin::PyreflyTrace))
+                    && terms.contains(&(link.term_node_id, link.term_fact_id))
+            }
+            _ => false,
+        };
+        if !valid || !seen.insert((link.leaf_fact_id, link.use_id)) {
+            errors.push(format!("invalid test type link {}", link.fact_id.hex()));
+        }
+    }
+    if errors.is_empty() {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "flow-test-type-proof-link".to_owned(),
+            rows: errors.len(),
+            sample: errors.into_iter().take(3).collect::<Vec<_>>().join("; "),
+        }])
+    }
 }
 
 cpg_schema::query_row! {

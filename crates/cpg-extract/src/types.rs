@@ -65,6 +65,7 @@ pub(crate) struct TypesOut {
     pub fields: Vec<RecordFieldsRow>,
     /// Terms already emitted in this run, with their display.
     emitted: HashMap<Id, String>,
+    term_fact_ids: HashMap<Id, Id>,
 }
 
 /// Something the provider does not give, or the walker's nodes do not carry: a boundary.
@@ -736,6 +737,7 @@ impl Builder<'_, '_> {
                 anchor_end: t.anchor.as_ref().map(|a| a.2),
             }
         );
+        self.out.term_fact_ids.insert(node_id, row.fact_id);
         self.out.terms.push(row);
         for a in t.args {
             let row = fact_row!(
@@ -777,6 +779,35 @@ impl Builder<'_, '_> {
         );
         self.out.observations.push(row);
     }
+}
+
+/// One exact expression-range trace, attached to a structurally selected flow operand.
+/// This is a Pyrefly observation; callers must not treat the term as an exact runtime class.
+pub(crate) fn trace_test_operand(
+    context: &ModuleContext<'_>,
+    refs: &ModuleRefs,
+    module_node_id: Id,
+    operand_start: i64,
+    operand_end: i64,
+    sink: &mut FactSink,
+    out: &mut TypesOut,
+) -> Option<(Id, Id)> {
+    let ty = context
+        .answers_context
+        .answers
+        .get_type_trace(range(operand_start, operand_end))?;
+    let walk = WalkOut::default();
+    let m = ModuleTypes {
+        context,
+        solutions: None,
+        refs,
+        module_node_id,
+        walk: &walk,
+    };
+    let mut builder = Builder { m: &m, sink, out };
+    let term_node_id = builder.term(&ty, 0);
+    let term_fact_id = *builder.out.term_fact_ids.get(&term_node_id)?;
+    Some((term_node_id, term_fact_id))
 }
 
 /// The `types` family for one module; returns what the walker's nodes could not carry.

@@ -90,6 +90,8 @@ key:flow_tests
   SELECT snapshot_id, module_node_id, start_byte, end_byte, fact_id, count(*) AS n FROM flow_tests GROUP BY snapshot_id, module_node_id, start_byte, end_byte, fact_id HAVING count(*) > 1
 key:flow_test_leaves
   SELECT snapshot_id, module_node_id, predicate_key, atom_id, fact_id, count(*) AS n FROM flow_test_leaves GROUP BY snapshot_id, module_node_id, predicate_key, atom_id, fact_id HAVING count(*) > 1
+key:flow_test_types
+  SELECT snapshot_id, module_node_id, leaf_fact_id, use_id, fact_id, count(*) AS n FROM flow_test_types GROUP BY snapshot_id, module_node_id, leaf_fact_id, use_id, fact_id HAVING count(*) > 1
 key:flow_attribute_loads
   SELECT snapshot_id, module_node_id, start_byte, end_byte, name, fact_id, count(*) AS n FROM flow_attribute_loads GROUP BY snapshot_id, module_node_id, start_byte, end_byte, name, fact_id HAVING count(*) > 1
 key:conditions
@@ -480,6 +482,10 @@ fact:flow_test_leaves
   SELECT t.fact_id FROM flow_test_leaves t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_test_leaves'
 fact-payload:flow_test_leaves
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_test_leaves t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_test_leaves'
+fact:flow_test_types
+  SELECT t.fact_id FROM flow_test_types t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_test_types'
+fact-payload:flow_test_types
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_test_types t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_test_types'
 fact:flow_attribute_loads
   SELECT t.fact_id FROM flow_attribute_loads t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_attribute_loads'
 fact-payload:flow_attribute_loads
@@ -501,7 +507,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -590,6 +596,8 @@ codebook:flow_tests.scope_kind
   SELECT scope_kind FROM flow_tests WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
 codebook:flow_test_leaves.scope_kind
   SELECT scope_kind FROM flow_test_leaves WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
+codebook:flow_test_types.origin
+  SELECT origin FROM flow_test_types WHERE origin IS NOT NULL AND origin NOT IN (0)
 codebook:condition_literals.atom
   SELECT atom FROM condition_literals WHERE atom IS NOT NULL AND atom NOT IN (0, 1, 2, 3, 4, 5, 6)
 codebook:coverage.scope_kind

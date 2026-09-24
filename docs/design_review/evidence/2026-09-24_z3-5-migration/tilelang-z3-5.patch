@@ -1,0 +1,33 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -41,7 +41,7 @@
+     "setuptools; platform_system == 'Darwin'",
+     "tqdm>=4.62.3",
+     "typing-extensions>=4.10.0",
+-    "z3-solver>=4.13.0,<4.15.5",
++    "z3-solver==5.1.0.0",
+ ]
+ 
+ [project.optional-dependencies]
+@@ -76,7 +76,7 @@
+ requires = [
+     "cython>=3.1.0",
+     "scikit-build-core",
+-    "z3-solver>=4.13.0,<4.15.5",
++    "z3-solver==5.1.0.0",
+     # Not for auditwheel, explicitly add patchelf for repairing libz3.so.
+     # See tvm's CMakeLists.txt for more information.
+     "patchelf>=0.17.2; platform_system == 'Linux'",
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -10,4 +10,4 @@
+ torch>=2.7; platform_system == 'Darwin'
+ tqdm>=4.62.3
+ typing-extensions>=4.10.0
+-z3-solver>=4.13.0,<4.15.5
++z3-solver==5.1.0.0
+--- a/VERSION
++++ b/VERSION
+@@ -1 +1 @@
+-0.1.12
++0.1.12+z3.5.1

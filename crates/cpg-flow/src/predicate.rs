@@ -192,6 +192,80 @@ impl Translator<'_> {
         Some(out)
     }
 
+    /// The exact operand whose value a modeled leaf tests. This follows only expression forms
+    /// `test` lowers recursively, and never selects an arbitrary use inside a containing span.
+    pub(crate) fn tested_place_operand(&self, e: &Expr, leaf: &Atom) -> Option<Span> {
+        let Atom::Evaluated {
+            atom,
+            identity: EvaluationIdentity::Site { start, end, .. },
+        } = leaf
+        else {
+            return None;
+        };
+        self.find_tested_place(
+            e,
+            Span {
+                start: *start,
+                end: *end,
+            },
+            atom,
+        )
+    }
+
+    fn find_tested_place(&self, e: &Expr, site: Span, atom: &Atom) -> Option<Span> {
+        if Span::from(e.range()) == site {
+            let place = atom.place()?;
+            return match (atom, e) {
+                (Atom::Truthy { .. }, _) if self.place(e).as_deref() == Some(place) => {
+                    Some(Span::from(e.range()))
+                }
+                (
+                    Atom::IsNone { .. }
+                    | Atom::IsValue { .. }
+                    | Atom::Equals { .. }
+                    | Atom::MemberOf { .. },
+                    Expr::Compare(c),
+                ) if c.ops.len() == 1 => {
+                    let left = &c.operands[0];
+                    let right = &c.operands[1];
+                    let left_is_place = self.place(left).as_deref() == Some(place)
+                        && (literal(right).is_some() || literal_set(right).is_some());
+                    let right_is_place =
+                        self.place(right).as_deref() == Some(place) && literal(left).is_some();
+                    match (left_is_place, right_is_place) {
+                        (true, false) => Some(Span::from(left.range())),
+                        (false, true) => Some(Span::from(right.range())),
+                        _ => None,
+                    }
+                }
+                (Atom::IsInstance { .. }, Expr::Call(call))
+                    if matches!(call.func.as_ref(), Expr::Name(f) if f.id.as_str() == "isinstance")
+                        && call.arguments.args.len() == 2
+                        && call.arguments.keywords.is_empty()
+                        && self.place(&call.arguments.args[0]).as_deref() == Some(place) =>
+                {
+                    Some(Span::from(call.arguments.args[0].range()))
+                }
+                _ => None,
+            };
+        }
+        match e {
+            Expr::BoolOp(b) => b
+                .values
+                .iter()
+                .find_map(|value| self.find_tested_place(value, site, atom)),
+            Expr::UnaryOp(u) if u.op == ast::UnaryOp::Not => {
+                self.find_tested_place(&u.operand, site, atom)
+            }
+            Expr::If(i) => self
+                .find_tested_place(&i.test, site, atom)
+                .or_else(|| self.find_tested_place(&i.body, site, atom))
+                .or_else(|| self.find_tested_place(&i.orelse, site, atom)),
+            Expr::Named(n) => self.find_tested_place(&n.target, site, atom),
+            _ => None,
+        }
+    }
+
     /// A test the runtime view decides (`TYPE_CHECKING`, `sys.version_info`, `sys.platform`,
     /// `os.name`); `None` for any other.
     fn runtime(&self, e: &Expr) -> Option<bool> {

@@ -124,6 +124,31 @@ fn test_leaves_keep_compound_operands_and_distinct_match_arms() {
             .iter()
             .any(|leaf| leaf.atom.contains("stateless_http"))
     );
+    for leaf in &compound {
+        let atom = Atom::parse_encoded(&leaf.atom).unwrap();
+        if let Some(place) = atom.place() {
+            let operand = leaf.operand_span.expect("modeled place has one operand");
+            assert_eq!(slice(operand.start, operand.end), place);
+            assert!(
+                flow()
+                    .uses
+                    .iter()
+                    .any(|u| { u.span == operand && u.place == place && !u.annotation })
+            );
+        }
+    }
+
+    let instance = leaves
+        .iter()
+        .find(|leaf| {
+            line(leaf.test_span.start)
+                == line_of("if isinstance(x, C):", "def rebound_isinstance_class")
+                && leaf.atom.contains("isinstance(")
+        })
+        .expect("isinstance test leaf");
+    let operand = instance.operand_span.expect("first argument is tested");
+    assert_eq!(slice(operand.start, operand.end), "x");
+    assert!(slice(instance.test_span.start, instance.test_span.end).contains("C"));
 
     let matched: Vec<_> = leaves
         .iter()
@@ -137,6 +162,7 @@ fn test_leaves_keep_compound_operands_and_distinct_match_arms() {
             .iter()
             .all(|leaf| leaf.leaf_span.start == matched[0].leaf_span.start)
     );
+    assert!(matched.iter().all(|leaf| leaf.operand_span.is_none()));
 }
 
 #[test]

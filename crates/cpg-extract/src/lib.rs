@@ -37,11 +37,11 @@ use cpg_schema::tables::{
     ConditionLiterals, ConditionNodes, Conditions, ContextDefinitions, ContextModules, Contexts,
     ContextsRow, Coverage, CoverageRow, Declarations, Distributions, DistributionsRow,
     DocComponentAttributes, DocComponents, DocLinks, Documents, ExportSyntax, Facts,
-    FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions, FlowTestLeaves, FlowTests,
-    FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax, Passages,
-    Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields,
-    ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles,
-    SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
+    FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions, FlowTestLeaves, FlowTestTypes,
+    FlowTests, FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax,
+    Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
+    RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes,
+    SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -837,11 +837,54 @@ fn run_release(
                 platform: input.python_platform.clone(),
             },
         );
+        let test_candidates = std::mem::take(&mut flow_out.test_type_candidates);
+        let trace_clock = Instant::now();
+        for m in &modules {
+            let mut candidates = test_candidates
+                .iter()
+                .filter(|candidate| candidate.module_node_id == m.node_id)
+                .peekable();
+            if candidates.peek().is_none() {
+                continue;
+            }
+            let resolver = PysaResolver::new(&txn, module_ids, m.handle.clone());
+            let context = ModuleContext {
+                answers_context: ModuleAnswersContext::create(m.handle.clone(), &txn, module_ids),
+                resolver: &resolver,
+            };
+            for candidate in candidates {
+                if let Some((term_node_id, term_fact_id)) = types::trace_test_operand(
+                    &context,
+                    &refs,
+                    m.node_id,
+                    candidate.operand_start,
+                    candidate.operand_end,
+                    &mut sink,
+                    &mut types_out,
+                ) {
+                    flow::add_test_type(
+                        &mut flow_out,
+                        &mut sink,
+                        candidate,
+                        term_node_id,
+                        term_fact_id,
+                    );
+                } else {
+                    *flow_out
+                        .test_type_trace_missing
+                        .entry(m.node_id)
+                        .or_default() += 1;
+                }
+            }
+        }
+        stages.push("extract:   flow test type traces", trace_clock.elapsed());
         for m in &flow_modules {
             let skip_detail = flow_out.skips.get(&m.node_id).map(|s| format!(
-                "skipped_reaching_ty_false={};skipped_reaching_runtime_view={};skipped_reaching_stable_contradiction={};skipped_value_branches_runtime_view={};skipped_value_branches_stable_contradiction={}",
+                "skipped_reaching_ty_false={};skipped_reaching_runtime_view={};skipped_reaching_stable_contradiction={};skipped_value_branches_runtime_view={};skipped_value_branches_stable_contradiction={};test_type_unmapped={};test_type_trace_missing={}",
                 s.reaching_ty_false, s.reaching_runtime_view, s.reaching_stable_contradiction,
                 s.values_runtime_view, s.values_stable_contradiction,
+                flow_out.test_type_unmapped.get(&m.node_id).copied().unwrap_or_default(),
+                flow_out.test_type_trace_missing.get(&m.node_id).copied().unwrap_or_default(),
             ));
             let (status, reason, detail) = match (
                 flow_out.errors.get(&m.node_id),
@@ -1163,6 +1206,10 @@ fn run_release(
         (
             FlowTestLeaves::NAME,
             FlowTestLeaves::to_sorted_batch(&flow_out.test_leaves)?,
+        ),
+        (
+            FlowTestTypes::NAME,
+            FlowTestTypes::to_sorted_batch(&flow_out.test_types)?,
         ),
         (
             FlowAttributeLoads::NAME,

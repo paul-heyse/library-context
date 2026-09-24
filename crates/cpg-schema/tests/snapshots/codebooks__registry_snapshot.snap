@@ -454,6 +454,8 @@ type_role
   2 call_result
   3 argument
   4 raised
+test_type_origin
+  0 pyrefly_trace
 record_kind
   0 dataclass
   1 attrs

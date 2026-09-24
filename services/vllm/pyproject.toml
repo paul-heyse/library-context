@@ -3,7 +3,16 @@ name = "lctx-vllm-service"
 version = "0.0.0"
 description = "The embedding service (DESIGN §11.1, ADR-0010 amendment): vLLM 0.30.0 serving Qwen3-Embedding-8B, locked so torch and CUDA are pinned with it. Never a dependency of the compiler or the server."
 requires-python = "==3.14.*"
-dependencies = ["vllm==0.30.0"]
+dependencies = [
+    "vllm==0.30.0",
+    "tilelang==0.1.12+z3.5.1",
+    "z3-solver==5.1.0.0",
+]
 
 [tool.uv]
 package = false
+# The local TileLang wheel is qualified for this Linux NVIDIA service.
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[tool.uv.sources]
+tilelang = { path = "../../docs/design_review/evidence/2026-09-24_z3-5-migration/tilelang-0.1.12+z3.5.1-cp38-abi3-linux_x86_64.whl" }
