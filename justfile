@@ -86,6 +86,11 @@ embed-conformance url="http://127.0.0.1:8000":
     LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
     uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
 
+# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0010 amendment). Exits 2 when
+# `vllm` was asked for and any alias degraded (`blocked`)
+score generation embedder="none":
+    uv run python scripts/score_gold.py {{generation}} --embedder {{embedder}} --json build/score-$(basename {{generation}})-{{embedder}}.json
+
 # The §1.5 retrieval check over a generation (ADR-0010 amendment): exits 1 on a miss. Only
 # `--embedder vllm` (with `just embed-serve` running) makes a hybrid result evidence
 ranking-check generation embedder="none":

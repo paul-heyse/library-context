@@ -2929,7 +2929,12 @@ strings. (b) searches every task alias, and a hit is a returned brief whose seed
 family's node set. (c) is unchanged. All three are counted over all gold units (22 families, 44
 aliases, 157 spans). Lexical text holds each distinct token once, promotion matches any public
 spelling of the seed, and each score records `matcher_version`. Version 1 compared access-path
-strings; the scores below are version 1's.
+strings; the scores below are version 1's. **Implemented** (2026-09-24): `scripts/gold_match.py`,
+shared by `score_gold.py` and `ranking_check.py`, reads the served `public_paths` (bundle
+`FORMAT` 2); each alias records its mode, degraded reason and ranked hits, and a live run with a
+degraded alias is `blocked` (exit 2); `just score <generation> [embedder]`. Tested over
+constructed rows (`tests/scripts/test_gold_match.py`: an inherited spelling, a class operation,
+unresolved operations, a degraded live run).
 
 **Ablation** (§9.8). Diff the published output with each technique disabled, apply the keep
 rule, and record the result in the increment-3 review. **Done in slice 3.3** (2026-09-23): the

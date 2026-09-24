@@ -5,7 +5,8 @@ Usage: ranking_check.py GENERATION [--embedder vllm|fake|none] [--embed-url URL]
 
 Prints each alias with the seed brief's rank and the mode (hybrid or lexical-only), then a summary,
 and exits 1 unless the seed ranks first for every alias (increment-1 deep review F2). A fake-vector
-run is labelled as such; only real vectors make a hybrid result evidence.
+run is labelled as such; only real vectors make a hybrid result evidence. The seed's brief is the
+one whose seed is the seed path's node, by the gold matcher (`gold_match`, version 2).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import json
 import tomllib
 from pathlib import Path
 
+from gold_match import MATCHER_VERSION, node_of
 from lctx_mcp.embedder import FakeEmbedder, HttpEmbedder
 from lctx_mcp.generation import load
 from lctx_mcp.server import search, serve
@@ -36,11 +38,16 @@ async def check(generation: Path, embedder_name: str, url: str, family_id: str) 
     seeds = tomllib.loads(CONFIG.read_text())["seeds"]
     target = seeds["primary"][0]
     family = next(f for f in json.loads(GOLD.read_text())["families"] if f["id"] == family_id)
+    node = node_of(gen.tables["public_paths"].to_pylist(), target)
+    if node is None:
+        raise SystemExit(f"{target} is not a public path of this generation")
+    seeds = {b: r["seed_node_id"] for b, r in gen.briefs.items()}
     first = 0
     for alias in family["task_aliases"]:
         result = await search(served, gen.library, alias, limit=10)
         order = [h.title for h in result.hits]
-        rank = order.index(target) + 1 if target in order else None
+        nodes = [seeds[bytes.fromhex(h.capability_id)] for h in result.hits]
+        rank = nodes.index(node) + 1 if node in nodes else None
         first += rank == 1
         print(f"{result.mode:12} rank {rank}  {alias!r}  {order}")
         if result.degraded_reason:
@@ -48,7 +55,8 @@ async def check(generation: Path, embedder_name: str, url: str, family_id: str) 
     label = " (fake vectors: not evidence)" if embedder_name == "fake" else ""
     print(
         f"ranking: {target} first for {first} of {len(family['task_aliases'])} "
-        f"{family_id} aliases against {len(gen.briefs) - 1} distractors{label}"
+        f"{family_id} aliases against {len(gen.briefs) - 1} distractors{label} "
+        f"(matcher {MATCHER_VERSION})"
     )
     return 0 if first == len(family["task_aliases"]) else 1
 
