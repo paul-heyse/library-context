@@ -65,3 +65,26 @@ fn every_known_normal_form_holds() {
     }
     assert!(Condition::parse("self._x.y | settings.debug").is_err());
 }
+
+/// One input in two conjunction orders has one encoding (the Stage 2 end review's R9).
+#[test]
+fn a_normal_form_does_not_depend_on_conjunction_order() {
+    let a = "!truthy(b) | !truthy(c) & truthy(a) & !truthy(d) | truthy(a) & truthy(b) & truthy(c) \
+             | !truthy(d) & !truthy(a)";
+    let b = "!truthy(d) & !truthy(a) | truthy(a) & truthy(b) & truthy(c) | !truthy(b) \
+             | !truthy(c) & truthy(a) & !truthy(d)";
+    let (x, y) = (Condition::parse(a).unwrap(), Condition::parse(b).unwrap());
+    assert_eq!(x.encode(), y.encode());
+    assert_eq!(x.id(), y.id());
+}
+
+/// A budget cut states nothing, so nothing is factored out of it (the Stage 2 end review's R3).
+#[test]
+fn nothing_factors_out_of_a_budget_cut() {
+    let over = Condition::OverBudget;
+    assert_eq!(over.given(&over), Condition::OverBudget);
+    let x = Condition::parse("truthy(x)").unwrap();
+    assert_eq!(over.given(&x), Condition::OverBudget);
+    assert_eq!(x.given(&over), x);
+    assert!(x.given(&x).is_always());
+}

@@ -59,8 +59,22 @@ impl Translator<'_> {
         &self.original[usize::from(range.start())..usize::from(range.end())]
     }
 
+    /// An untranslatable test, as its text, versioned by the latest rebinding of a place it reads
+    /// where its scope tests that place at more than one value (the Stage 2 end review's R4b).
     fn opaque(&self, e: &Expr) -> Condition {
-        Condition::atom(Atom::opaque(&strip_comments(self.source(e.range()))))
+        let version = places_in(e)
+            .into_iter()
+            .filter_map(|x| {
+                let plain = self.plain(x)?;
+                let line = self.version(x)?;
+                let fid = self.index.try_expression_scope_id(x)?;
+                (self.versions_tested(fid, &plain) > 1).then_some(line)
+            })
+            .max();
+        Condition::atom(Atom::opaque_at(
+            &strip_comments(self.source(e.range())),
+            version,
+        ))
     }
 
     /// The place an expression names, as ty spells it, when it has at most two attribute
@@ -378,9 +392,9 @@ impl Translator<'_> {
         if p.is_positive { c } else { c.not() }
     }
 
-    fn pattern(&self, subject: &Expr, kind: &PatternPredicateKind) -> Condition {
+    pub(crate) fn pattern(&self, subject: &Expr, kind: &PatternPredicateKind) -> Condition {
         let Some(place) = self.place(subject) else {
-            return Condition::atom(Atom::opaque(&strip_comments(self.source(subject.range()))));
+            return self.opaque(subject);
         };
         match kind {
             PatternPredicateKind::Singleton(ast::Singleton::None) => {
@@ -418,7 +432,7 @@ impl Translator<'_> {
                 Condition::always()
             }
             PatternPredicateKind::Mapping(_) | PatternPredicateKind::Sequence(_) => {
-                Condition::atom(Atom::opaque(&strip_comments(self.source(subject.range()))))
+                self.opaque(subject)
                     .and(&Condition::atom(Atom::opaque(UNDECIDED)))
             }
         }

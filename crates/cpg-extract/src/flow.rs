@@ -9,9 +9,10 @@ use cpg_schema::codebook::{ExtractionMode, Fidelity, FlowSink, Modality, Origin}
 use cpg_schema::condition::Condition;
 use cpg_schema::id::{Id, IdHasher};
 use cpg_schema::tables::{
-    ConditionLiterals, ConditionLiteralsRow, Conditions, ConditionsRow, FlowDefinitions,
-    FlowDefinitionsRow, FlowReaching, FlowReachingRow, FlowRegions, FlowRegionsRow, FlowUses,
-    FlowUsesRow, FlowValues, FlowValuesRow,
+    ConditionLiterals, ConditionLiteralsRow, Conditions, ConditionsRow, FlowAttributeLoads,
+    FlowAttributeLoadsRow, FlowDefinitions, FlowDefinitionsRow, FlowReaching, FlowReachingRow,
+    FlowRegions, FlowRegionsRow, FlowTests, FlowTestsRow, FlowUses, FlowUsesRow, FlowValues,
+    FlowValuesRow,
 };
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
@@ -30,6 +31,8 @@ pub(crate) struct FlowOut {
     pub reaching: Vec<FlowReachingRow>,
     pub values: Vec<FlowValuesRow>,
     pub regions: Vec<FlowRegionsRow>,
+    pub tests: Vec<FlowTestsRow>,
+    pub attribute_loads: Vec<FlowAttributeLoadsRow>,
     pub conditions: Vec<ConditionsRow>,
     pub literals: Vec<ConditionLiteralsRow>,
     /// Per module, why it has no flow facts (none: indexed).
@@ -206,6 +209,41 @@ pub(crate) fn run(
                     identity: v.identity,
                     through_call: v.through_call,
                     condition_id,
+                }
+            ));
+        }
+        for t in &flow.tests {
+            let condition_id = condition(&t.condition);
+            let (scope_kind, scope_start_byte, scope_end_byte) = scope(t.scope);
+            out.tests.push(fact_row!(
+                sink,
+                FlowTests,
+                provenance(),
+                FlowTestsRow {
+                    snapshot_id: Id::ZERO,
+                    fact_id: Id::ZERO,
+                    module_node_id: module,
+                    scope_kind,
+                    scope_start_byte,
+                    scope_end_byte,
+                    start_byte: i64::from(t.span.start),
+                    end_byte: i64::from(t.span.end),
+                    condition_id,
+                }
+            ));
+        }
+        for a in &flow.attribute_loads {
+            out.attribute_loads.push(fact_row!(
+                sink,
+                FlowAttributeLoads,
+                provenance(),
+                FlowAttributeLoadsRow {
+                    snapshot_id: Id::ZERO,
+                    fact_id: Id::ZERO,
+                    module_node_id: module,
+                    start_byte: i64::from(a.span.start),
+                    end_byte: i64::from(a.span.end),
+                    name: a.name.clone(),
                 }
             ));
         }

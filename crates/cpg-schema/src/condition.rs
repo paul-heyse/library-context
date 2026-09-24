@@ -81,9 +81,12 @@ pub enum Atom {
         place: String,
         class: String,
     },
-    /// Any other test, as its source text with whitespace runs collapsed.
+    /// Any other test, as its source text with whitespace runs collapsed. `version`: the line of
+    /// the latest rebinding of a place it reads, where its scope tests that place at more than
+    /// one value (as a versioned place's `@line`; ADR-0022 §Places), encoded `opaque("…")@line`.
     Opaque {
         text: String,
+        version: Option<usize>,
     },
 }
 
@@ -106,8 +109,14 @@ impl Atom {
 
     /// An opaque atom over `text`, whitespace runs collapsed to one space.
     pub fn opaque(text: &str) -> Atom {
+        Atom::opaque_at(text, None)
+    }
+
+    /// An opaque atom reading a rebound place's value as of `version` (see [`Atom::Opaque`]).
+    pub fn opaque_at(text: &str, version: Option<usize>) -> Atom {
         Atom::Opaque {
             text: text.split_whitespace().collect::<Vec<_>>().join(" "),
+            version,
         }
     }
 
@@ -149,14 +158,25 @@ impl Atom {
                     .join(",")
             )),
             Atom::IsInstance { class, .. } => Some(class.clone()),
-            Atom::Opaque { text } => {
-                Some(serde_json::to_string(text).expect("a string serializes"))
+            Atom::Opaque { text, version } => {
+                let text = serde_json::to_string(text).expect("a string serializes");
+                Some(match version {
+                    Some(v) => format!("{text}@{v}"),
+                    None => text,
+                })
             }
         }
     }
 
     pub fn encode(&self) -> String {
         let kind = crate::Codebook::text(self.kind());
+        if let Atom::Opaque { text, version } = self {
+            let text = serde_json::to_string(text).expect("a string serializes");
+            return match version {
+                Some(v) => format!("{kind}({text})@{v}"),
+                None => format!("{kind}({text})"),
+            };
+        }
         match (self.place(), self.argument()) {
             (Some(p), Some(a)) => format!("{kind}({p},{a})"),
             (Some(p), None) => format!("{kind}({p})"),
@@ -254,6 +274,10 @@ impl Condition {
             }
             conjunctions.push(c);
         }
+        // Resolution below is order-sensitive, so it runs over the sorted, deduplicated
+        // conjunctions: one input, in any order, has one encoding (the Stage 2 end review's R9).
+        conjunctions.sort_by_cached_key(|c| encode_conjunction(c));
+        conjunctions.dedup();
         // `x | !x` is `true`: a literal and its negation each standing alone.
         let alone: BTreeSet<String> = conjunctions
             .iter()
@@ -379,12 +403,14 @@ impl Condition {
     /// remainder; otherwise the condition unchanged. It factors out a function's normal path (the
     /// negation of a guard that raises) from what a fate is stated under.
     pub fn given(&self, factor: &Condition) -> Condition {
-        if self == factor {
-            return Condition::always();
-        }
+        // A condition past the budget states nothing, so nothing factors out of it (the Stage 2
+        // end review's R3): `OverBudget` given `OverBudget` stays `OverBudget`.
         let (Condition::Dnf(c), Condition::Dnf(f)) = (self, factor) else {
             return self.clone();
         };
+        if c == f {
+            return Condition::always();
+        }
         if f.is_empty() || f.iter().any(Vec::is_empty) {
             return self.clone();
         }
@@ -530,6 +556,15 @@ fn parse_literal(text: &str) -> Result<Literal, String> {
     };
     let open = rest.find('(').ok_or_else(|| format!("no `(` in {text}"))?;
     let kind = &rest[..open];
+    // A versioned opaque atom: `opaque("…")@line`.
+    let (rest, version) = match (kind, rest.rsplit_once(")@")) {
+        ("opaque", Some((head, v))) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
+            let head = format!("{head})");
+            (head, Some(v.parse::<usize>().map_err(|e| format!("{text}: {e}"))?))
+        }
+        _ => (rest.to_owned(), None),
+    };
+    let rest = rest.as_str();
     let inner = rest[open + 1..]
         .strip_suffix(')')
         .ok_or_else(|| format!("no `)` in {text}"))?;
@@ -558,8 +593,9 @@ fn parse_literal(text: &str) -> Result<Literal, String> {
                 .collect::<Result<Vec<_>, _>>()?;
             Atom::member_of(place(), values)
         }
-        "opaque" => Atom::opaque(
+        "opaque" => Atom::opaque_at(
             &serde_json::from_str::<String>(inner).map_err(|e| format!("{inner}: {e}"))?,
+            version,
         ),
         other => return Err(format!("unknown atom kind {other}")),
     };

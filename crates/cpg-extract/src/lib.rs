@@ -37,7 +37,7 @@ use cpg_schema::tables::{
     ConditionLiterals, Conditions, ContextDefinitions, ContextModules, Contexts, ContextsRow,
     Coverage, CoverageRow, Declarations, Distributions, DistributionsRow, DocComponentAttributes,
     DocComponents, DocLinks, Documents, ExportSyntax, Facts, FlowDefinitions, FlowReaching,
-    FlowRegions, FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics,
+    FlowAttributeLoads, FlowRegions, FlowTests, FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics,
     ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses,
     PysaFunctions, RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs,
     RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs,
@@ -1147,6 +1147,14 @@ fn run_release(
         (
             FlowRegions::NAME,
             FlowRegions::to_sorted_batch(&flow_out.regions)?,
+        ),
+        (
+            FlowTests::NAME,
+            FlowTests::to_sorted_batch(&flow_out.tests)?,
+        ),
+        (
+            FlowAttributeLoads::NAME,
+            FlowAttributeLoads::to_sorted_batch(&flow_out.attribute_loads)?,
         ),
         (
             Conditions::NAME,

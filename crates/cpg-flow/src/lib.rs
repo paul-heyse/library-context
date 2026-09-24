@@ -40,6 +40,7 @@ use ruff_text_size_ty::{Ranged, TextRange};
 use ty_python_core::ast_ids::HasScopedUseId;
 use ty_python_core::definition::{Definition, DefinitionKind, DefinitionState};
 use ty_python_core::place::PlaceExpr;
+use ty_python_core::predicate::PredicateNode;
 use ty_python_core::program::{Program, ProgramSettings};
 use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
 use ty_python_core::scope::{NodeWithScopeKind, NodeWithScopeRef};
@@ -157,6 +158,25 @@ pub struct Region {
     pub condition: Condition,
 }
 
+/// A test ty records as a predicate (an `if`/`elif`/`while`/`assert` test, a conditional
+/// expression's or boolean operand's, a `match` subject with its pattern): its span and its
+/// condition. The uses inside the span are what the test reads (the Stage 2 end review's R8).
+#[derive(Debug, Clone)]
+pub struct Test {
+    pub scope: Scope,
+    pub span: Span,
+    pub condition: Condition,
+}
+
+/// An attribute load by name on any receiver (a place or not: `get_server()._worker`), or a
+/// `getattr`/`hasattr` with a literal name. Outside annotations. The field and global premises
+/// count these (the Stage 2 end review's R7).
+#[derive(Debug, Clone)]
+pub struct AttributeLoad {
+    pub span: Span,
+    pub name: String,
+}
+
 /// One module's flow facts, or why there are none.
 #[derive(Debug, Clone, Default)]
 pub struct ModuleFlow {
@@ -166,6 +186,8 @@ pub struct ModuleFlow {
     pub reaching: Vec<Reach>,
     pub values: Vec<ValueSource>,
     pub regions: Vec<Region>,
+    pub tests: Vec<Test>,
+    pub attribute_loads: Vec<AttributeLoad>,
     /// `TYPE_CHECKING` words renamed.
     pub renamed: u32,
     /// Syntax errors ty's parser recovered from: the facts come from a recovered tree, as every
@@ -308,6 +330,39 @@ fn module(
     for stmt in parsed.suite() {
         v.visit_stmt(stmt);
     }
+    // Every test ty records, by scope, once per span.
+    let mut seen: HashSet<Span> = HashSet::new();
+    for scope in index.scope_ids() {
+        let fid = scope.file_scope_id(db);
+        let Some(sc) = w.scope(fid) else { continue };
+        for p in index.use_def_map(fid).predicates().iter() {
+            let (span, condition) = match &p.node {
+                PredicateNode::Expression(x)
+                | PredicateNode::Condition(x)
+                | PredicateNode::ChainedComparisonCondition(x) => {
+                    let e = x.node_ref(db).node(&parsed);
+                    (Span::from(e.range()), t.test(e))
+                }
+                PredicateNode::Pattern(pattern) => {
+                    let subject = pattern.subject(db).node_ref(db).node(&parsed);
+                    let mut c = t.pattern(subject, pattern.kind(db));
+                    if let Some(guard) = pattern.guard(db) {
+                        c = c.and(&t.test(guard.node_ref(db).node(&parsed)));
+                    }
+                    (Span::from(subject.range()), c)
+                }
+                _ => continue,
+            };
+            if seen.insert(span) {
+                w.flow.tests.push(Test {
+                    scope: sc,
+                    span,
+                    condition,
+                });
+            }
+        }
+    }
+    w.flow.tests.sort_by_key(|t| (t.span.start, t.span.end));
     Ok(ModuleFlow {
         syntax_errors,
         ..w.flow
@@ -884,6 +939,29 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
 
     fn visit_expr(&mut self, e: &'ast Expr) {
         source_order::walk_expr(self, e);
+        if !self.w.in_annotation {
+            match e {
+                Expr::Attribute(a) if matches!(a.ctx, ExprContext::Load) => {
+                    self.w.flow.attribute_loads.push(AttributeLoad {
+                        span: Span::from(e.range()),
+                        name: a.attr.id.to_string(),
+                    });
+                }
+                // `getattr(x, "f")` and `hasattr(x, "f")` load `f` by a literal name.
+                Expr::Call(call) => {
+                    if let Expr::Name(f) = &*call.func
+                        && matches!(f.id.as_str(), "getattr" | "hasattr")
+                        && let Some(Expr::StringLiteral(name)) = call.arguments.args.get(1)
+                    {
+                        self.w.flow.attribute_loads.push(AttributeLoad {
+                            span: Span::from(e.range()),
+                            name: name.value.to_str().to_owned(),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
         // A `del` target is an unbinding in our model (`bindings` kind `del`), not a read.
         let is_use = match e {
             Expr::Name(n) => matches!(n.ctx, ExprContext::Load),

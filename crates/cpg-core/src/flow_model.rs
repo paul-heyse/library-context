@@ -68,6 +68,7 @@ cpg_schema::query_row! {
         use_id: Id,
         definition_id: Option<Id>,
         condition_id: Id,
+        loop_carried: bool,
     }
 }
 
@@ -258,8 +259,8 @@ cpg_schema::relations! {
         );
     reaching = "flow_model_reaching",
         deps = ["flow_reaching"],
-        sql = "SELECT use_id, definition_id, condition_id FROM flow_reaching \
-               ORDER BY use_id, definition_id, condition_id"
+        sql = "SELECT use_id, definition_id, condition_id, loop_carried FROM flow_reaching \
+               ORDER BY use_id, definition_id, condition_id, loop_carried"
             .to_owned();
     values = "flow_model_values",
         deps = ["flow_values"],
@@ -500,7 +501,8 @@ fn plain(kind: BindingKind) -> bool {
 struct Model {
     uses: HashMap<Id, UseRow>,
     defs: HashMap<Id, DefRow>,
-    reaching: HashMap<Id, Vec<(Option<Id>, Id)>>,
+    /// Per use: each reaching definition, its condition, and whether it is loop-carried.
+    reaching: HashMap<Id, Vec<(Option<Id>, Id, bool)>>,
     values: ValueSources,
     conditions: HashMap<Id, Condition>,
     captured: HashMap<(Id, i64, i64), Vec<Id>>,
@@ -522,18 +524,24 @@ impl Model {
             .unwrap_or(Condition::OverBudget)
     }
 
-    /// The parameters reaching a use (see the module docs).
-    fn reach(&mut self, u: Id, visiting: &mut HashSet<Id>) -> Rc<Sources> {
+    /// The parameters reaching a use (see the module docs), with the shallowest depth of `stack`
+    /// at which a cycle was cut below it (`usize::MAX`: none). A result computed while a cycle
+    /// through a use above it was cut lacks that use's sources, so it is not memoized; the use
+    /// the cycle closes at is complete (the Stage 2 end review's R5; Tarjan's lowlink).
+    fn reach(&mut self, u: Id, stack: &mut Vec<Id>) -> (Rc<Sources>, usize) {
         if let Some(s) = self.memo.get(&(u, self.keep_receivers)) {
-            return s.clone();
+            return (s.clone(), usize::MAX);
         }
-        if !visiting.insert(u) {
-            return Rc::new(Sources::new());
+        if let Some(depth) = stack.iter().position(|&v| v == u) {
+            return (Rc::new(Sources::new()), depth);
         }
+        let depth = stack.len();
+        stack.push(u);
+        let mut low = usize::MAX;
         let mut out = Sources::new();
         let rows = self.reaching.get(&u).cloned().unwrap_or_default();
         let this = self.uses.get(&u).cloned();
-        for (def, condition_id) in rows {
+        for (def, condition_id, carried) in rows {
             let at = self.condition(condition_id);
             let Some(def) = def else {
                 // A receiver's field with no local definition: the field is the origin.
@@ -610,25 +618,36 @@ impl Model {
                 Transfer::Derived
             };
             for (u2, transfer, c2) in inner {
-                let selected = at.and(&self.condition(c2));
-                let sources = self.reach(u2, visiting);
+                let (sources, below) = self.reach(u2, stack);
+                low = low.min(below);
                 for ((o, t3), s) in sources.iter() {
+                    // Around a loop's back edge the definition's conditions are an earlier
+                    // iteration's, and its tests are spelled like this iteration's: only the use's
+                    // side is kept, a sound over-approximation (the Stage 2 end review's R4a).
+                    let condition = if carried {
+                        at.clone()
+                    } else {
+                        at.and(&self.condition(c2)).and(&s.condition)
+                    };
                     merge(
                         &mut out,
                         o.clone(),
                         Source {
                             transfer: transfer.max(*t3).max(bound),
                             captured: s.captured,
-                            condition: selected.and(&s.condition),
+                            condition,
                         },
                     );
                 }
             }
         }
-        visiting.remove(&u);
+        stack.pop();
         let out = Rc::new(out);
-        self.memo.insert((u, self.keep_receivers), out.clone());
-        out
+        if low >= depth {
+            self.memo.insert((u, self.keep_receivers), out.clone());
+            low = usize::MAX;
+        }
+        (out, low)
     }
 
     /// The parameters reaching a sink: the union over the uses its value reads.
@@ -636,7 +655,7 @@ impl Model {
         let mut out = Sources::new();
         for (u, transfer, c) in self.values.get(&key).cloned().unwrap_or_default() {
             let selected = self.condition(c);
-            let sources = self.reach(u, &mut HashSet::new());
+            let (sources, _) = self.reach(u, &mut Vec::new());
             for ((o, t2), s) in sources.iter() {
                 merge(
                     &mut out,
@@ -844,12 +863,13 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         let c = Condition::parse(&r.encoding).map_err(CoreError::Analysis)?;
         conditions.insert(r.condition_id, c);
     }
-    let mut reaching_map: HashMap<Id, Vec<(Option<Id>, Id)>> = HashMap::new();
+    let mut reaching_map: HashMap<Id, Vec<(Option<Id>, Id, bool)>> = HashMap::new();
     for r in reaching_rows {
-        reaching_map
-            .entry(r.use_id)
-            .or_default()
-            .push((r.definition_id, r.condition_id));
+        reaching_map.entry(r.use_id).or_default().push((
+            r.definition_id,
+            r.condition_id,
+            r.loop_carried,
+        ));
     }
     let mut values_map: ValueSources = HashMap::new();
     for r in &value_rows {
@@ -1311,7 +1331,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     // A versioned place (`p@line`) still names `p`: the value it reads may be the
                     // parameter's.
                     (Some(place), _) => vec![place.split(['.', '@']).next().unwrap_or(place)],
-                    (None, cpg_schema::condition::Atom::Opaque { text }) => root_names(text),
+                    (None, cpg_schema::condition::Atom::Opaque { text, .. }) => root_names(text),
                     (None, _) => Vec::new(),
                 };
                 for root in spelled {
@@ -1460,7 +1480,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     (Some(place), _) => {
                         vec![place.split(['.', '@']).next().unwrap_or(place).to_owned()]
                     }
-                    (None, cpg_schema::condition::Atom::Opaque { text }) => {
+                    (None, cpg_schema::condition::Atom::Opaque { text, .. }) => {
                         root_names(text).into_iter().map(str::to_owned).collect()
                     }
                     (None, _) => Vec::new(),

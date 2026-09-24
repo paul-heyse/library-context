@@ -859,6 +859,46 @@ table!(
 );
 
 table!(
+    /// A test the flow provider records as a predicate (an `if`/`elif`/`while`/`assert` test, a
+    /// conditional expression's or boolean operand's test, a `match` subject with its pattern):
+    /// its span and its condition. The flow uses inside the span are what the test reads, so which
+    /// parameters a test reads comes from the flow IR (the Stage 2 end review's R8).
+    FlowTests, FlowTestsRow = "flow_tests",
+    family = Flow,
+    key = [snapshot_id, module_node_id, start_byte, end_byte, fact_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        scope_kind: LexicalScopeKind,
+        scope_start_byte: Option<i64>,
+        scope_end_byte: Option<i64>,
+        start_byte: i64,
+        end_byte: i64,
+        condition_id: Id,
+    }
+);
+
+table!(
+    /// An attribute load by name on any receiver, a place or not (`get_server()._worker`,
+    /// `x[k].f`), or a `getattr`/`hasattr` with a literal name; outside annotations. The field and
+    /// global premises count these (ADR-0022 §Verdicts; the Stage 2 end review's R7).
+    FlowAttributeLoads, FlowAttributeLoadsRow = "flow_attribute_loads",
+    family = Flow,
+    key = [snapshot_id, module_node_id, start_byte, end_byte, name, fact_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        name: String,
+    }
+);
+
+table!(
     /// A condition in normal form (ADR-0022 §Conditions; `cpg_schema::condition`): its canonical
     /// encoding, which its id hashes. `stated` is false past the budget.
     Conditions, ConditionsRow = "conditions",
@@ -1338,6 +1378,8 @@ macro_rules! for_each_table {
             $crate::tables::FlowReaching,
             $crate::tables::FlowValues,
             $crate::tables::FlowRegions,
+            $crate::tables::FlowTests,
+            $crate::tables::FlowAttributeLoads,
             $crate::tables::Conditions,
             $crate::tables::ConditionLiterals,
             $crate::tables::Coverage,
