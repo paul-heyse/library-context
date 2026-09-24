@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table delegations
+family findings
+key snapshot_id, caller_node_id, edge_id
+@lctx.family=findings
+@lctx.table=delegations
+snapshot_id: FixedSizeBinary(16) NOT NULL
+caller_node_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+edge_id: FixedSizeBinary(16) NOT NULL
+modality: Int16 NOT NULL [lctx.codebook=modality]
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]

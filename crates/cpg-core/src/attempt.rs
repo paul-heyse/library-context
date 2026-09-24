@@ -476,6 +476,42 @@ async fn finish(
     )
     .await?;
 
+    // The behavior model's Stage 1 (ADR-0021, ADR-0022): the whole public surface, before Stage E.
+    let behavior = match analysis {
+        Some((a, compiler)) => {
+            crate::behavior::run(
+                &ctx,
+                root,
+                snapshot_id,
+                a,
+                compiler,
+                &public,
+                &mut written.stages,
+            )
+            .await?
+        }
+        None => crate::behavior::BehaviorRows::default(),
+    };
+    {
+        use cpg_schema::behavior::{
+            ArgumentFlows, Behaviors, Delegations, Guards, Handoffs, OperationDocuments,
+            OperationFacets, Operations, ParameterReads,
+        };
+        let w = &mut written;
+        write_analysis::<ArgumentFlows>(&ctx, root, snapshot_id, &behavior.argument_flows, w)
+            .await?;
+        write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
+        write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
+            .await?;
+        write_analysis::<Handoffs>(&ctx, root, snapshot_id, &behavior.handoffs, w).await?;
+        write_analysis::<Delegations>(&ctx, root, snapshot_id, &behavior.delegations, w).await?;
+        write_analysis::<Operations>(&ctx, root, snapshot_id, &behavior.operations, w).await?;
+        write_analysis::<OperationFacets>(&ctx, root, snapshot_id, &behavior.facets, w).await?;
+        write_analysis::<Behaviors>(&ctx, root, snapshot_id, &behavior.behaviors, w).await?;
+        write_analysis::<OperationDocuments>(&ctx, root, snapshot_id, &behavior.documents, w)
+            .await?;
+    }
+
     // Stage E (ADR-0019): the analyses read the session, and their rows are written like any
     // other table's, one commit each.
     // Each technique marks its own stage (the holistic assessment's D1).
@@ -494,6 +530,11 @@ async fn finish(
         }
         None => AnalysisRows::default(),
     };
+    let mut found = found;
+    found.invocations.extend(behavior.invocations);
+    found.embedded_keys.extend(behavior.embedded_keys);
+    found.embedded_keys.sort();
+    found.embedded_keys.dedup();
     use cpg_schema::findings::{AnalysisInvocations, FindingMembers, Findings, Witnesses};
     write_analysis::<AnalysisInvocations>(
         &ctx,

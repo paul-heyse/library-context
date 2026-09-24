@@ -1,0 +1,21 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table parameter_reads
+family findings
+key snapshot_id, edge_id, argument_node_id, parameter_node_id
+@lctx.family=findings
+@lctx.table=parameter_reads
+snapshot_id: FixedSizeBinary(16) NOT NULL
+caller_node_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+edge_id: FixedSizeBinary(16) NOT NULL
+modality: Int16 NOT NULL [lctx.codebook=modality]
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
+argument_node_id: FixedSizeBinary(16) NOT NULL
+parameter_node_id: FixedSizeBinary(16) NOT NULL
+rebound: Boolean NOT NULL
+bare: Boolean NOT NULL
+unpacked: Boolean NOT NULL

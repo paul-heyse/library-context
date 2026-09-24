@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table operations
+family findings
+key snapshot_id, node_id
+@lctx.family=findings
+@lctx.table=operations
+snapshot_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+access_path: Utf8 NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=declaration_kind]
+is_method: Boolean NOT NULL
+qualified_name: Utf8 NOT NULL
+module: Utf8 NOT NULL
+docstring_summary: Utf8 NULL
+behavior_status: Int16 NOT NULL [lctx.codebook=verdict]

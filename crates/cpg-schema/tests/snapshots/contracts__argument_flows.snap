@@ -1,0 +1,26 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table argument_flows
+family findings
+key snapshot_id, edge_id, argument_node_id, formal_node_id
+@lctx.family=findings
+@lctx.table=argument_flows
+snapshot_id: FixedSizeBinary(16) NOT NULL
+caller_node_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+edge_id: FixedSizeBinary(16) NOT NULL
+modality: Int16 NOT NULL [lctx.codebook=modality]
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
+argument_node_id: FixedSizeBinary(16) NOT NULL
+formal_node_id: FixedSizeBinary(16) NOT NULL
+formal_name: Utf8 NOT NULL
+value_class: Int16 NOT NULL [lctx.codebook=value_class]
+source_parameter_node_id: FixedSizeBinary(16) NULL
+alias_name: Utf8 NULL
+value_text: Utf8 NULL
+may_catch: Boolean NOT NULL
+conditional: Boolean NOT NULL
+value_tested: Boolean NOT NULL

@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table guards
+family findings
+key snapshot_id, if_node_id, raise_node_id, parameter_node_id
+@lctx.family=findings
+@lctx.table=guards
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+if_node_id: FixedSizeBinary(16) NOT NULL
+test_node_id: FixedSizeBinary(16) NOT NULL
+raise_node_id: FixedSizeBinary(16) NOT NULL
+parameter_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+test_start_byte: Int64 NOT NULL
+test_end_byte: Int64 NOT NULL
+raise_start_byte: Int64 NOT NULL
+raise_end_byte: Int64 NOT NULL

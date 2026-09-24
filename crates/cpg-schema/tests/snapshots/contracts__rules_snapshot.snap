@@ -124,6 +124,24 @@ key:edge_kinds
   SELECT snapshot_id, edge_kind, count(*) AS n FROM edge_kinds GROUP BY snapshot_id, edge_kind HAVING count(*) > 1
 key:public_paths
   SELECT snapshot_id, node_id, access_path, count(*) AS n FROM public_paths GROUP BY snapshot_id, node_id, access_path HAVING count(*) > 1
+key:argument_flows
+  SELECT snapshot_id, edge_id, argument_node_id, formal_node_id, count(*) AS n FROM argument_flows GROUP BY snapshot_id, edge_id, argument_node_id, formal_node_id HAVING count(*) > 1
+key:guards
+  SELECT snapshot_id, if_node_id, raise_node_id, parameter_node_id, count(*) AS n FROM guards GROUP BY snapshot_id, if_node_id, raise_node_id, parameter_node_id HAVING count(*) > 1
+key:parameter_reads
+  SELECT snapshot_id, edge_id, argument_node_id, parameter_node_id, count(*) AS n FROM parameter_reads GROUP BY snapshot_id, edge_id, argument_node_id, parameter_node_id HAVING count(*) > 1
+key:handoffs
+  SELECT snapshot_id, consumer_site_node_id, consumer_node_id, producer_site_node_id, producer_node_id, formal_node_id, count(*) AS n FROM handoffs GROUP BY snapshot_id, consumer_site_node_id, consumer_node_id, producer_site_node_id, producer_node_id, formal_node_id HAVING count(*) > 1
+key:delegations
+  SELECT snapshot_id, caller_node_id, edge_id, count(*) AS n FROM delegations GROUP BY snapshot_id, caller_node_id, edge_id HAVING count(*) > 1
+key:operations
+  SELECT snapshot_id, node_id, count(*) AS n FROM operations GROUP BY snapshot_id, node_id HAVING count(*) > 1
+key:operation_facets
+  SELECT snapshot_id, node_id, facet, value, count(*) AS n FROM operation_facets GROUP BY snapshot_id, node_id, facet, value HAVING count(*) > 1
+key:behaviors
+  SELECT snapshot_id, behavior_id, count(*) AS n FROM behaviors GROUP BY snapshot_id, behavior_id HAVING count(*) > 1
+key:operation_documents
+  SELECT snapshot_id, node_id, embedding_view, chunk, count(*) AS n FROM operation_documents GROUP BY snapshot_id, node_id, embedding_view, chunk HAVING count(*) > 1
 key:analysis_invocations
   SELECT snapshot_id, invocation_id, count(*) AS n FROM analysis_invocations GROUP BY snapshot_id, invocation_id HAVING count(*) > 1
 key:findings
@@ -544,10 +562,40 @@ codebook:edge_kinds.derivation
   SELECT derivation FROM edge_kinds WHERE derivation IS NOT NULL AND derivation NOT IN (0, 1, 2, 3)
 codebook:public_paths.kind
   SELECT kind FROM public_paths WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
+codebook:argument_flows.modality
+  SELECT modality FROM argument_flows WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:argument_flows.phase
+  SELECT phase FROM argument_flows WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
+codebook:argument_flows.value_class
+  SELECT value_class FROM argument_flows WHERE value_class IS NOT NULL AND value_class NOT IN (0, 1, 2, 3)
+codebook:parameter_reads.modality
+  SELECT modality FROM parameter_reads WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:parameter_reads.phase
+  SELECT phase FROM parameter_reads WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
+codebook:handoffs.role
+  SELECT role FROM handoffs WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3)
+codebook:handoffs.consumer_modality
+  SELECT consumer_modality FROM handoffs WHERE consumer_modality IS NOT NULL AND consumer_modality NOT IN (0, 1, 2)
+codebook:delegations.modality
+  SELECT modality FROM delegations WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:delegations.phase
+  SELECT phase FROM delegations WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
+codebook:operations.kind
+  SELECT kind FROM operations WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
+codebook:operations.behavior_status
+  SELECT behavior_status FROM operations WHERE behavior_status IS NOT NULL AND behavior_status NOT IN (0, 1, 2, 3, 4)
+codebook:operation_facets.facet
+  SELECT facet FROM operation_facets WHERE facet IS NOT NULL AND facet NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+codebook:behaviors.kind
+  SELECT kind FROM behaviors WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6)
+codebook:behaviors.verdict
+  SELECT verdict FROM behaviors WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
+codebook:operation_documents.embedding_view
+  SELECT embedding_view FROM operation_documents WHERE embedding_view IS NOT NULL AND embedding_view NOT IN (0, 1)
 codebook:analysis_invocations.extraction_mode
   SELECT extraction_mode FROM analysis_invocations WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:analysis_invocations.method
-  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+  SELECT method FROM analysis_invocations WHERE method IS NOT NULL AND method NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 codebook:analysis_invocations.completion
   SELECT completion FROM analysis_invocations WHERE completion IS NOT NULL AND completion NOT IN (0, 1, 2, 3, 4)
 codebook:analysis_invocations.stop_reason
@@ -660,6 +708,12 @@ semantic:evidence-text-bytes
   SELECT evidence_id FROM evidence WHERE text IS NOT NULL AND start_byte IS NOT NULL AND end_byte IS NOT NULL AND octet_length(text) <> end_byte - start_byte
 semantic:public-path-exported
   SELECT p.node_id, p.access_path FROM public_paths p LEFT ANTI JOIN (SELECT q.node_id, q.access_path FROM public_paths q JOIN declarations d ON d.node_id = q.node_id AND d.kind = q.kind JOIN exports e ON e.export_node_id = q.export_node_id AND (q.access_path = e.access_path OR q.access_path = e.access_path || '.' || d.name)) ok ON ok.node_id = p.node_id AND ok.access_path = p.access_path
+semantic:behavior-covers-public
+  SELECT p.node_id FROM (SELECT DISTINCT node_id FROM public_paths) p LEFT JOIN operations o ON o.node_id = p.node_id WHERE o.node_id IS NULL OR (o.kind = 2) <> (o.behavior_status = 4)
+semantic:behavior-of-an-operation
+  SELECT b.operation_node_id AS node_id FROM behaviors b LEFT ANTI JOIN operations o ON o.node_id = b.operation_node_id UNION ALL SELECT f.node_id FROM operation_facets f LEFT ANTI JOIN operations o ON o.node_id = f.node_id
+semantic:refuted-needs-complete-region
+  SELECT b.behavior_id FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id WHERE b.verdict = 2 AND o.behavior_status <> 0
 semantic:public-path-one-node
   SELECT access_path FROM public_paths GROUP BY access_path HAVING count(DISTINCT node_id) > 1
 semantic:public-path-preferred

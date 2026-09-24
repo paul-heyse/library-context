@@ -1756,6 +1756,9 @@ async fn all_techniques_guard() {
         .unwrap();
     }
     let digest = cpg_schema::id::content_digest(text.as_bytes()).hex();
-    const GUARD: &str = "342b9d8805b618ae9e9087235ee36d8fdd1ff5304015bf726d03938037cbea13";
+    // Moved by a declared migration (the behavioral-model plan, Stage 1; ADR-0021): nine
+    // behavior tables and the `pass_b_surface` invocation joined the analysis tables. The analysis
+    // ledger (Stage E/F's own output) did not move.
+    const GUARD: &str = "d8648d293b7b1d576907ba35a9595e78c066bba45fc123d1181a87beff02db4d";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }

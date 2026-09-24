@@ -1,0 +1,13 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table operation_facets
+family findings
+key snapshot_id, node_id, facet, value
+@lctx.family=findings
+@lctx.table=operation_facets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+facet: Int16 NOT NULL [lctx.codebook=operation_facet]
+value: Utf8 NOT NULL

@@ -100,7 +100,7 @@ pub(crate) fn call_targets() -> String {
 }
 
 /// The call targets with their enclosing caller (`encloses_call`).
-fn arcs() -> String {
+pub(crate) fn arcs() -> String {
     format!(
         "SELECT ec.src_node_id AS caller_node_id, t.call_site_node_id, t.target_node_id, \
                 t.edge_id, t.modality, t.phase, t.receiver \

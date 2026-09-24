@@ -1,0 +1,17 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table operation_documents
+family findings
+key snapshot_id, node_id, embedding_view, chunk
+check chunk_nonnegative: chunk >= 0
+@lctx.family=findings
+@lctx.table=operation_documents
+snapshot_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+embedding_view: Int16 NOT NULL [lctx.codebook=embedding_view]
+chunk: Int64 NOT NULL
+text: Utf8 NOT NULL
+spec_hash: FixedSizeBinary(32) NULL
+input_hash: FixedSizeBinary(32) NULL

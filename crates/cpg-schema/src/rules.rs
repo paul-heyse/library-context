@@ -11,7 +11,8 @@
 //! The queries read tables registered under their own names and filtered to one snapshot.
 
 use crate::codebook::{
-    AssertionKind, Codebook, EvidenceStatus, FactFamily, SourceRole, SupportRole, registry,
+    AssertionKind, Codebook, DeclarationKind, EvidenceStatus, FactFamily, SourceRole, SupportRole,
+    Verdict, registry,
 };
 use crate::column::CODEBOOK_KEY;
 use crate::table::Table;
@@ -620,6 +621,43 @@ fn semantic() -> Vec<Rule> {
                       OR q.access_path = e.access_path || '.' || d.name)) ok \
                ON ok.node_id = p.node_id AND ok.access_path = p.access_path"
                 .to_owned(),
+        ),
+        (
+            // The behavioral-model plan, Stage 1 (ADR-0021): every public node is an operation,
+            // and its behavior scan ran, or it says why not. Only a class is `not_analyzed`: its
+            // controls are its `__init__`'s.
+            "semantic:behavior-covers-public",
+            format!(
+                "SELECT p.node_id FROM (SELECT DISTINCT node_id FROM public_paths) p \
+                 LEFT JOIN operations o ON o.node_id = p.node_id \
+                 WHERE o.node_id IS NULL \
+                    OR (o.kind = {class}) <> (o.behavior_status = {not_analyzed})",
+                class = DeclarationKind::Class.code(),
+                not_analyzed = Verdict::NotAnalyzed.code(),
+            ),
+        ),
+        (
+            // Stage 1: what a behavior or a facet describes is an operation.
+            "semantic:behavior-of-an-operation",
+            "SELECT b.operation_node_id AS node_id FROM behaviors b \
+             LEFT ANTI JOIN operations o ON o.node_id = b.operation_node_id \
+             UNION ALL \
+             SELECT f.node_id FROM operation_facets f \
+             LEFT ANTI JOIN operations o ON o.node_id = f.node_id"
+                .to_owned(),
+        ),
+        (
+            // ADR-0022, §3.9: a refutation holds only where the analysis was complete. Stage 1's
+            // premise is the operation's own scan (`behavior_status` established); Stage 2 adds
+            // the region's boundaries.
+            "semantic:refuted-needs-complete-region",
+            format!(
+                "SELECT b.behavior_id FROM behaviors b \
+                 JOIN operations o ON o.node_id = b.operation_node_id \
+                 WHERE b.verdict = {refuted} AND o.behavior_status <> {established}",
+                refuted = Verdict::RefutedUnderModel.code(),
+                established = Verdict::Established.code(),
+            ),
         ),
         (
             // R2 F3: one path names one node. Seed resolution, the gold matcher and promotion

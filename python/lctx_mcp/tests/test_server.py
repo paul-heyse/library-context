@@ -60,7 +60,8 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         # Passes A, B and C for each of 5 configured seeds (the fixture has no usage code, so
         # selection adds none: the increment-2 review's U1), the direct-usage count and the
         # selection. Communities, FCA and kNN are off by default (ADR-0020).
-        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 17}
+        # 18 since Stage 1 (ADR-0021): the behavior scan (`pass_b_surface`) is one more invocation.
+        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 18}
         assert 1 <= len(result["hits"]) <= 5
         tool = next(h for h in result["hits"] if h["title"] == "pkg.Server.tool")
         brief = await client.call_tool(

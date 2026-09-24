@@ -1312,6 +1312,9 @@ async fn the_analysis_rules_reject_their_violations() {
         "brief_documents",
         "embedding_specs",
         "embedding_cache",
+        "operations",
+        "operation_facets",
+        "behaviors",
     ] {
         let published = ctx.table(table).await.unwrap();
         ctx.register_table(format!("{table}_published").as_str(), published.into_view())
@@ -1456,6 +1459,31 @@ async fn the_analysis_rules_reject_their_violations() {
             "public_paths",
             "SELECT snapshot_id, node_id, access_path || '_elsewhere' AS access_path, \
                     export_node_id, kind, own, preferred FROM public_paths_published",
+        ),
+        (
+            "semantic:behavior-covers-public",
+            "operations",
+            "SELECT * FROM operations_published \
+             WHERE node_id <> (SELECT min(node_id) FROM operations_published)",
+        ),
+        (
+            "semantic:behavior-of-an-operation",
+            "operations",
+            "SELECT * FROM operations_published \
+             WHERE node_id NOT IN (SELECT operation_node_id FROM behaviors_published)",
+        ),
+        (
+            "semantic:refuted-needs-complete-region",
+            "behaviors",
+            "SELECT * FROM behaviors_published \
+             UNION ALL \
+             SELECT b.snapshot_id, b.operation_node_id AS behavior_id, c.node_id AS operation_node_id, \
+                    b.kind, b.parameter_node_id, b.parameter_name, b.callee_node_id, \
+                    b.target_node_id, b.target_name, b.value, b.depth, b.conditional, \
+                    CAST(2 AS SMALLINT) AS verdict, b.site_node_id, b.occurrences, b.invocation_id \
+             FROM (SELECT * FROM behaviors_published LIMIT 1) b \
+             CROSS JOIN (SELECT min(node_id) AS node_id FROM operations_published \
+                         WHERE behavior_status <> 0) c",
         ),
         (
             "semantic:public-path-one-node",
@@ -1648,4 +1676,64 @@ async fn the_analysis_rules_reject_their_violations() {
         ctx.register_table(table, original).unwrap();
     }
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+}
+
+/// The behavior model covers the whole public surface, not the subsystem (ADR-0021, the ADR set's
+/// standard review F1): `pkg.Catalog.remove` lies in `pkg.registry`, outside the config's module
+/// prefixes, yet its guard is a `raises_when` behavior, its class is an operation that says why it
+/// was not scanned, and its facets are served.
+#[tokio::test(flavor = "multi_thread")]
+async fn behaviors_cover_public_callables_outside_the_subsystem() {
+    let (ctx, _dir) = analyzed("one", false).await;
+    let rendered = sql::render(
+        &ctx,
+        "SELECT o.access_path, b.kind, b.parameter_name, b.verdict FROM behaviors b \
+         JOIN operations o ON o.node_id = b.operation_node_id \
+         WHERE o.access_path IN ('pkg.Catalog.remove', 'pkg.Catalog.load') \
+         ORDER BY o.access_path, b.kind, b.parameter_name",
+    )
+    .await
+    .unwrap();
+    // kind 2 = raises_when, verdict 1 = conditional.
+    assert!(
+        rendered.contains("| pkg.Catalog.load   | 2    | path           | 1       |"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("| pkg.Catalog.remove | 2    | key            | 1       |"),
+        "{rendered}"
+    );
+    let status = sql::render(
+        &ctx,
+        "SELECT access_path, behavior_status FROM operations \
+         WHERE access_path IN ('pkg.Catalog', 'pkg.Catalog.remove') ORDER BY access_path",
+    )
+    .await
+    .unwrap();
+    // A class is not_analyzed (4); a scanned callable is established (0).
+    assert!(
+        status.contains("| pkg.Catalog        | 4               |"),
+        "{status}"
+    );
+    assert!(
+        status.contains("| pkg.Catalog.remove | 0               |"),
+        "{status}"
+    );
+    let facets = sql::render(
+        &ctx,
+        "SELECT f.facet, f.value FROM operation_facets f \
+         JOIN operations o ON o.node_id = f.node_id \
+         WHERE o.access_path = 'pkg.Catalog.remove' ORDER BY f.facet, f.value",
+    )
+    .await
+    .unwrap();
+    // parameter (0) key, parameter_type (1) int, returns (2) bool, raises (3) KeyError.
+    for want in [
+        "| 0     | key",
+        "| 1     | int",
+        "| 2     | bool",
+        "| 3     | KeyError",
+    ] {
+        assert!(facets.contains(want), "{want} in {facets}");
+    }
 }

@@ -480,6 +480,15 @@ macro_rules! for_each_analysis_table {
     ($mac:ident) => {
         $mac!(
             $crate::findings::PublicPaths,
+            $crate::behavior::ArgumentFlows,
+            $crate::behavior::Guards,
+            $crate::behavior::ParameterReads,
+            $crate::behavior::Handoffs,
+            $crate::behavior::Delegations,
+            $crate::behavior::Operations,
+            $crate::behavior::OperationFacets,
+            $crate::behavior::Behaviors,
+            $crate::behavior::OperationDocuments,
             $crate::findings::AnalysisInvocations,
             $crate::findings::Findings,
             $crate::findings::FindingMembers,

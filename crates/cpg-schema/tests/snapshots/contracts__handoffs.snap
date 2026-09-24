@@ -1,0 +1,21 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table handoffs
+family findings
+key snapshot_id, consumer_site_node_id, consumer_node_id, producer_site_node_id, producer_node_id, formal_node_id
+@lctx.family=findings
+@lctx.table=handoffs
+snapshot_id: FixedSizeBinary(16) NOT NULL
+consumer_node_id: FixedSizeBinary(16) NOT NULL
+producer_node_id: FixedSizeBinary(16) NOT NULL
+formal_node_id: FixedSizeBinary(16) NOT NULL
+formal_name: Utf8 NOT NULL
+path: Utf8 NOT NULL
+role: Int16 NOT NULL [lctx.codebook=source_role]
+consumer_start_byte: Int64 NOT NULL
+consumer_site_node_id: FixedSizeBinary(16) NOT NULL
+producer_site_node_id: FixedSizeBinary(16) NOT NULL
+named: Boolean NOT NULL
+consumer_modality: Int16 NOT NULL [lctx.codebook=modality]

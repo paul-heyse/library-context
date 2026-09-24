@@ -3,6 +3,7 @@
 
 pub mod analyze;
 pub mod attempt;
+pub mod behavior;
 pub mod bundle;
 pub mod delta;
 pub mod derive;

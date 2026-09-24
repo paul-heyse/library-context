@@ -476,7 +476,7 @@ cpg_schema::query_row! {
 
 /// Each seed's parameters, the receiver aside (`cpg_schema::flows::receivers_sql`: decided by
 /// the method's kind, never by the parameter's name; slice 2.1 review F8).
-async fn seed_parameters(
+pub(crate) async fn seed_parameters(
     ctx: &SessionContext,
     seeds: &[Id],
 ) -> Result<BTreeMap<Id, Vec<SeedParameter>>, CoreError> {
@@ -496,6 +496,27 @@ async fn seed_parameters(
             });
     }
     Ok(out)
+}
+
+/// Each callable's FCA attributes (`cpg_schema::concepts::attributes_sql`, their one
+/// authority), as `(node, attribute)` pairs: the behavior model's facets read them (Stage 1).
+pub(crate) async fn collect_attributes(
+    ctx: &SessionContext,
+    callables: &[Id],
+) -> Result<Vec<(Id, String)>, CoreError> {
+    let by = concepts::attributes_of(
+        &collect(
+            ctx,
+            &cpg_schema::concepts::attributes_sql(callables),
+            &cpg_schema::concepts::schemas::attributes(),
+        )
+        .await?,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    Ok(by
+        .into_iter()
+        .flat_map(|(n, set)| set.into_iter().map(move |a| (n, a)))
+        .collect())
 }
 
 /// Build a declared projection from the session.

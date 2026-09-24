@@ -854,6 +854,9 @@ codebook!(
         /// Each public API's direct official-usage calls, counted over the usage projection
         /// (§9.5; the increment-2 review's U1).
         UsageCount = 9 => "usage_count",
+        /// Pass B's worklist over every public callable of the release (the behavioral-model plan,
+        /// Stage 1; ADR-0021): the control fates of the `behaviors` table, never brief findings.
+        PassBSurface = 10 => "pass_b_surface",
     }
 );
 
@@ -1126,6 +1129,101 @@ codebook!(
     }
 );
 
+codebook!(
+    /// How an argument's value arises in Pass B's argument flows (§9.2; `cpg_schema::flows`),
+    /// persisted in the `argument_flows` table (the behavioral-model plan, Stage 1). The codes are
+    /// `flows::value_class`'s.
+    ValueClass = "value_class" {
+        /// A name bound, once in its scope, by a parameter of the caller.
+        Parameter = 0 => "parameter",
+        /// A name bound once, directly in the caller's body, from such a parameter.
+        Alias = 1 => "alias",
+        /// A string, number, boolean or `None` literal, as written.
+        Literal = 2 => "literal",
+        /// Anything else, never followed.
+        Other = 3 => "other",
+    }
+);
+
+codebook!(
+    /// What a `behaviors` row states about a public operation (ADR-0021, ADR-0022; DESIGN §3.2).
+    BehaviorKind = "behavior_kind" {
+        /// A parameter reaches a callee's formal unchanged, directly or through one identity alias.
+        Forwards = 0 => "forwards",
+        /// The operation supplies a callee's formal with a literal.
+        SuppliesLiteral = 1 => "supplies_literal",
+        /// A reached callable raises in a branch that tests a formal the parameter reaches.
+        RaisesWhen = 2 => "raises_when",
+        /// A parameter is read at a call in a form the analysis does not follow.
+        Unfollowed = 3 => "unfollowed",
+        /// The operation calls a release function (a depth-1 call arc).
+        Delegates = 4 => "delegates",
+        /// Official usage passes the operation's result directly to another public operation.
+        HandsOffTo = 5 => "hands_off_to",
+        /// Official usage passes another public operation's result directly to this one.
+        TakesFrom = 6 => "takes_from",
+    }
+);
+
+codebook!(
+    /// The verdict every behavioral answer carries (ADR-0022; DESIGN §3.9): never a null.
+    Verdict = "verdict" {
+        /// Derived under the stated model, with no boundary in the region the predicate reads.
+        Established = 0 => "established",
+        /// Established under a stated condition.
+        Conditional = 1 => "conditional",
+        /// Only in a region complete under the stated model with no boundary of the kinds the
+        /// predicate names (a rule rejects it anywhere else).
+        RefutedUnderModel = 2 => "refuted_under_model",
+        /// A boundary intervenes; its reason is named.
+        Unknown = 3 => "unknown",
+        /// Out of scope, not requested, or cut by a budget.
+        NotAnalyzed = 4 => "not_analyzed",
+    }
+);
+
+codebook!(
+    /// A facet of a public operation, for `find_operations` (ADR-0021; DESIGN §11.3).
+    OperationFacet = "operation_facet" {
+        /// A parameter's name (`*NAME`, `**NAME` for the catch-alls), the receiver aside.
+        Parameter = 0 => "parameter",
+        /// A parameter's declared type, as Pyrefly displays it.
+        ParameterType = 1 => "parameter_type",
+        /// The declared return type.
+        Returns = 2 => "returns",
+        /// An exception class a `raise` directly in the body raises.
+        Raises = 3 => "raises",
+        /// A decorator, as written (its trailing name).
+        Decorator = 4 => "decorator",
+        /// `true` for an `async def`.
+        Async = 5 => "async",
+        /// A release callable the operation calls directly (its preferred public path, else its
+        /// qualified name).
+        DelegatesTo = 6 => "delegates_to",
+        /// A callee a parameter of the operation reaches unchanged.
+        ForwardsTo = 7 => "forwards_to",
+        /// A public operation official usage passes this one's result to.
+        HandsOffTo = 8 => "hands_off_to",
+        /// A public operation whose result official usage passes to this one.
+        TakesFrom = 9 => "takes_from",
+        /// The module that declares the operation.
+        Module = 10 => "module",
+        /// The operation's kind: `function`, `method` or `class`.
+        Kind = 11 => "kind",
+    }
+);
+
+codebook!(
+    /// A view of a public operation embedded for `search_operations` (ADR-0010 amendment,
+    /// 2026-09-24): the view is a column, and every view shares one spec (one vector space).
+    EmbeddingView = "embedding_view" {
+        /// The preferred path with its parameters, then the docstring (§9.7's API text).
+        SignatureDoc = 0 => "signature_doc",
+        /// The declaration's source, cut into windows at line ends.
+        SourceBody = 1 => "source_body",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1183,6 +1281,11 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ComponentForm>(),
         CodebookEntry::of::<AttributeValueKind>(),
         CodebookEntry::of::<UnfollowedReason>(),
+        CodebookEntry::of::<ValueClass>(),
+        CodebookEntry::of::<BehaviorKind>(),
+        CodebookEntry::of::<Verdict>(),
+        CodebookEntry::of::<OperationFacet>(),
+        CodebookEntry::of::<EmbeddingView>(),
     ]
 }
 

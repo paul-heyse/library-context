@@ -1,0 +1,26 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table behaviors
+family findings
+key snapshot_id, behavior_id
+check depth_nonnegative: depth >= 0
+@lctx.family=findings
+@lctx.table=behaviors
+snapshot_id: FixedSizeBinary(16) NOT NULL
+behavior_id: FixedSizeBinary(16) NOT NULL
+operation_node_id: FixedSizeBinary(16) NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=behavior_kind]
+parameter_node_id: FixedSizeBinary(16) NULL
+parameter_name: Utf8 NULL
+callee_node_id: FixedSizeBinary(16) NULL
+target_node_id: FixedSizeBinary(16) NULL
+target_name: Utf8 NULL
+value: Utf8 NULL
+depth: Int64 NOT NULL
+conditional: Boolean NOT NULL
+verdict: Int16 NOT NULL [lctx.codebook=verdict]
+site_node_id: FixedSizeBinary(16) NULL
+occurrences: Int64 NOT NULL
+invocation_id: FixedSizeBinary(16) NULL
