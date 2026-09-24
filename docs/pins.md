@@ -112,6 +112,7 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | ruff | 0.16.7 (uv dev group) | 2026-09-22 | `uv run ruff --version` |
 | pyrefly | 1.3.1 (uv dev group) | 2026-09-22 | `uv run pyrefly --version` |
 | pytest | 9.1.1 (`uv.lock`) | 2026-09-22 | `uv sync` |
+| Hypothesis | 6.168.1 (uv dev group; runtime soundness oracle only) | 2026-09-24 | `uv add --dev 'hypothesis==6.168.1'`; `uv.lock` resolves sortedcontainers 2.4.0; generated programs execute under CPython 3.14.7 in an isolated worker |
 | cargo-nextest | 0.9.144 | 2026-09-22 | `just doctor` |
 | cargo-insta | 1.48.0 | 2026-09-22 | `just doctor` |
 | cargo-deny | 0.20.2 (does not see dev-only duplicates; see ADR-0002) | 2026-09-22 | tested with a synthetic duplicate |

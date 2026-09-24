@@ -136,6 +136,90 @@ enum Cmd {
         unpublished: bool,
         sql: String,
     },
+    /// Inspect one generated Python file's flow facts as JSON (runtime oracle input).
+    Flow {
+        file: PathBuf,
+        /// Analyzed Python interpreter version, MAJOR.MINOR.MICRO.
+        #[arg(long, default_value = "3.14.7")]
+        python: String,
+        #[arg(long, default_value = "linux")]
+        platform: String,
+        /// Optional resolved name-load spans, for the runtime differential oracle.
+        #[arg(long)]
+        runtime_bindings: Option<PathBuf>,
+    },
+}
+
+fn flow_file(
+    file: &Path,
+    python: &str,
+    platform: &str,
+    runtime_bindings: Option<&Path>,
+) -> anyhow::Result<()> {
+    let parts: Vec<u32> = python
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .with_context(|| format!("invalid Python version {python:?}"))?;
+    let [major, minor, micro] = parts.as_slice() else {
+        return Err(anyhow::anyhow!("Python version must be MAJOR.MINOR.MICRO"));
+    };
+    let text = fs_err::read_to_string(file)?;
+    let path = file
+        .file_name()
+        .context("flow file has no name")?
+        .to_string_lossy()
+        .into_owned();
+    let runtime = if let Some(path) = runtime_bindings {
+        serde_json::from_slice::<cpg_flow::RuntimeBindings>(&fs_err::read(path)?)?
+    } else {
+        Default::default()
+    };
+    for span in runtime
+        .checking_names
+        .iter()
+        .chain(&runtime.typing_modules)
+        .chain(&runtime.sys_modules)
+        .chain(&runtime.os_modules)
+    {
+        let name = text
+            .get(span.start as usize..span.end as usize)
+            .filter(|name| !name.is_empty())
+            .context("runtime binding span lies outside the source or crosses a codepoint")?;
+        if !name.chars().all(|c| c == '_' || c.is_alphanumeric()) {
+            return Err(anyhow::anyhow!(
+                "runtime binding span does not cover a name: {span:?}"
+            ));
+        }
+    }
+    let input = cpg_flow::Input {
+        path,
+        text,
+        runtime,
+    };
+    let flow = cpg_flow::index(
+        &[input],
+        &cpg_flow::RuntimeContext {
+            python_version: (*major, *minor, *micro),
+            platform: platform.to_owned(),
+        },
+    )
+    .pop()
+    .context("flow provider returned no module")?;
+    if let Some(error) = flow.error {
+        return Err(anyhow::anyhow!(error));
+    }
+    let span = |s: cpg_flow::Span| serde_json::json!([s.start, s.end]);
+    let result = serde_json::json!({
+        "uses": flow.uses.iter().map(|u| serde_json::json!({"place": u.place, "span": span(u.span)})).collect::<Vec<_>>(),
+        "definitions": flow.defs.iter().map(|d| serde_json::json!({"place": d.place, "kind": format!("{:?}", d.kind), "target": span(d.target), "value": d.value.map(&span)})).collect::<Vec<_>>(),
+        "reaching": flow.reaching.iter().map(|r| serde_json::json!({"use_ix": r.use_ix, "def_ix": r.def_ix, "condition": r.condition.encode(), "loop_carried": r.loop_carried})).collect::<Vec<_>>(),
+        "regions": flow.regions.iter().map(|r| serde_json::json!({"span": span(r.span), "condition": r.condition.encode()})).collect::<Vec<_>>(),
+        "skips": {"reaching_ty_false": flow.skips.reaching_ty_false, "reaching_runtime_view": flow.skips.reaching_runtime_view, "reaching_stable_contradiction": flow.skips.reaching_stable_contradiction,
+            "values_runtime_view": flow.skips.values_runtime_view, "values_stable_contradiction": flow.skips.values_stable_contradiction},
+    });
+    println!("{}", serde_json::to_string(&result)?);
+    Ok(())
 }
 
 /// The embedder a compile uses (DESIGN §11.1).
@@ -575,6 +659,12 @@ fn run() -> anyhow::Result<()> {
             unpublished,
             sql,
         } => query(&absolute(&store)?, snapshot, &sql, unpublished),
+        Cmd::Flow {
+            file,
+            python,
+            platform,
+            runtime_bindings,
+        } => flow_file(&file, &python, &platform, runtime_bindings.as_deref()),
         Cmd::Diff {
             store,
             from,

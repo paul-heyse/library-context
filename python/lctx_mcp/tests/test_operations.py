@@ -29,7 +29,8 @@ def test_an_operation_reads_whole_with_fates_verdicts_and_lines(generation: Path
     assert raises[0].line is not None and raises[0].path is not None
     # Stage 2: the site is the raise; its guard is the condition, in the operation's places.
     assert raises[0].site_text == "raise KeyError(key)"
-    assert raises[0].condition == 'opaque("key < 0")'
+    assert raises[0].condition is not None
+    assert raises[0].condition.startswith('opaque("key < 0")#')
 
 
 def test_a_parameter_never_read_is_refuted_only_under_its_premise(generation: Path) -> None:
@@ -221,5 +222,6 @@ def test_a_fate_states_its_condition_in_the_operations_places(generation: Path) 
     op = ops.get_operation(gen, gen.snapshot_id, "pkg.Catalog.load")
     path = next(p for p in op.parameters if p.name == "path")
     raises = [f for f in path.fates if f.kind == "raises_when"]
-    assert raises and raises[0].condition == "!truthy(path)"
+    assert raises and raises[0].condition is not None
+    assert raises[0].condition.startswith("!truthy(path)#")
     assert all(f.verdict != "established" for f in path.fates if f.condition)

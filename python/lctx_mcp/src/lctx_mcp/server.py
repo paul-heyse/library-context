@@ -40,6 +40,8 @@ INSTRUCTIONS = (
     "to or hands off to), saying whether the answer is complete; search_operations ranks "
     "operations for a task; get_operation reads one whole, each fate with its verdict and source "
     "line. Capability briefs cover a curated subset: search_capabilities, get_capability. "
+    "'established' and 'conditional' admit may-behavior under the stated model; they do not "
+    "prove that an execution exists. A negative verdict needs complete may-analysis. "
     "'unknown' and 'not_analyzed' are never 'no'. A relevance score ranks; it is not proof."
 )
 
@@ -351,7 +353,9 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
     ) -> ops.Operation:
         """One public operation, whole, by any public spelling (or its id): its paths, facets,
         each parameter's fates (forwarded, literal, raises-when, unfollowed) with verdicts and
-        source lines, its delegations and official-usage handoffs, and its brief if one exists."""
+        source lines, its delegations and official-usage handoffs, and its brief if one exists.
+        Established and conditional fates are may-behavior admitted by the model, not concrete
+        execution witnesses. A negative fate requires complete coverage under the model."""
         try:
             return ops.get_operation(
                 ctx.lifespan_context["served"].generation, snapshot_id, operation
@@ -371,7 +375,8 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         optional kind and path prefix. Exhaustive over this generation; `complete` is false when
         some operation that does not match has incomplete rows for a facet you used (a class
         without a public constructor, a behavior scan that met a boundary, a facet that is never
-        complete such as `raises`), and those operations are listed in `unknown`. No negation."""
+        complete such as `raises`), and those operations are listed in `unknown`. Positive
+        behavior facets are may-behavior under the model. No negation."""
         served = ctx.lifespan_context["served"]
         _check(served, library)
         try:
