@@ -1,0 +1,20 @@
+# Which layers of the design standard apply in this repository.
+# Read by the design-review skills; paths are relative to this file.
+
+[core]
+version = "2.0"
+principles = "core/design-principles.md"
+template = "core/design-review-template.md"
+
+[[profiles]]
+name = "code-intelligence"
+version = "1.0"
+prefix = "CI"
+principles = "profiles/code-intelligence/principles.md"
+review = "profiles/code-intelligence/review.md"
+skill = "design-review-code-intelligence"
+
+[binding]
+name = "library-context"
+path = "binding/library-context.md"
+reviews = "../reviews"

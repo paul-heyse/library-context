@@ -1,5 +1,7 @@
 # Agent directive: data model–based design
 
+> **Superseded 2026-09-24** by the [core design principles](core/design-principles.md) and the `design-review` skill. Retained for historical reference.
+
 Use `DATA_MODEL_DESIGN_CHARTER.md` as the normative reference for architecture, implementation, and refactoring. Refer to stable principle IDs in your findings. Apply the principles to the task’s actual scope; do not build an unnecessary platform to satisfy a checklist.
 
 ## Governing objective

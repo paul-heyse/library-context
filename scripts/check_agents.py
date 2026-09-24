@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PROCESS_SKILLS = ("adr", "design-review", "handoff", "pin-check")
+PROCESS_SKILLS = ("adr", "design-review", "design-review-code-intelligence", "handoff", "pin-check")
 LINK_RE = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
 TICK_RE = re.compile(r"`([^`\s]+)`")
 JUST_RE = re.compile(r"`just ([a-z][a-z0-9-]*)")

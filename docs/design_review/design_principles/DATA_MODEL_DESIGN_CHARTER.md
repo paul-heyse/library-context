@@ -1,5 +1,7 @@
 # Data Model–Based Design Charter
 
+> **Superseded 2026-09-24** by the layered design standard: [core design principles](core/design-principles.md), the [code-intelligence profile](profiles/code-intelligence/principles.md) and the [library-context binding](binding/library-context.md). Retained so ADRs and reviews citing `DM-nn`, charter §D and charter §H stay readable; core principles §I maps every ID.
+
 **Version 1.0 · September 13, 2026**  
 **Purpose:** A technology-neutral design and review framework for systems that make explicit data models the source of structure, behavior, constraints, and execution intent.
 

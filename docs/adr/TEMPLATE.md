@@ -12,7 +12,7 @@ evidence: Proposed
 ## Context
 
 What forces this decision now. Cite DESIGN.md sections and, only where they carry
-the argument, charter DM IDs.
+the argument, principle IDs (`DP-nn`, `CI-nn`).
 
 ## Options
 

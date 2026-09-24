@@ -19,6 +19,7 @@ __pycache__/
 !/.claude/skills/README.md
 !/.claude/skills/adr/
 !/.claude/skills/design-review/
+!/.claude/skills/design-review-code-intelligence/
 !/.claude/skills/handoff/
 !/.claude/skills/pin-check/
 

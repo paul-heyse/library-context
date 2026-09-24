@@ -7,7 +7,7 @@ than shifting `§3.3`. There is no line budget: the detail the design needs come
 (operator, 2026-09-22; ADR-0004 amendment). Column-level contracts live in
 `cpg-schema` and are snapshot-tested; they are not repeated here.
 
-**Labels.** Every claim carries a charter §D label (`Proposed`, `Interface-checked`,
+**Labels.** Every claim carries a principles §D label (`Proposed`, `Interface-checked`,
 `Implemented`, `Tested`, `Measured`, `Formally established`). A section's label applies unless a
 line says otherwise. `Interface-checked` means the named library surface was read at the pinned
 version (skill brief, probe or pinned source), not that our code uses it yet.
@@ -242,8 +242,11 @@ handoff) each have an end-to-end example. Each example must show:
 
 ## §2 Binding decisions
 
-These are the load-bearing choices. `ADDENDUM.md` maps each one to charter principles and gates.
-Changing one needs an ADR and a `standard` review.
+These are the load-bearing choices. The library-context binding
+(`docs/design_review/design_principles/binding/library-context.md` §1) maps each one to the design
+principles and gates. Changing one needs an ADR and a `standard` review.
+
+> Decision: ADR-0023
 
 ### §B1 Ruff and Pyrefly are the only semantic front ends
 
@@ -687,7 +690,7 @@ snapshot (`extractor_id_recipes_snapshot`, **Tested** 2026-09-22).
 
 **Encoding.** `BLAKE3("lctx-id/v1" ‖ len‖kind_tag ‖ len‖field …)`. Lengths are u64
 little-endian. IDs are the first 16 bytes; digests are all 32. A version bump in the tag is a
-migration (DM-51).
+migration (DP-24).
 
 | ID | Derived from | Scope |
 |---|---|---|
@@ -702,7 +705,7 @@ migration (DM-51).
 | `condition_id` (ADR-0022 §Conditions) | `H("condition", encoding)`, the canonical DNF encoding | content |
 | `edge_id` (C1, **Implemented** and **Tested**: `the_catalogs_hold_every_graph_shape`, `the_catalogs_are_the_same_across_runs_order_and_location`; byte-identical on a pilot rerun and relocation, C6 review 2026-09-23) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
 | Role and derived node ids (C1, C3, C4, C5 **Implemented**) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, kind, detail, class pair and type-variable identity, then each child's role, ordinal, id, parameter name, kind and requiredness; a variable's is its identity alone, a display-only kind's includes its display (Rust; a Merkle id with no SQL form, so no `id:` rule). It is producer-scoped like syntax and external-symbol ids: it hashes Pyrefly's detail text, Pysa class keys and anchor byte offsets, so a Pyrefly bump or an edit earlier in a module renames it. Field (C4): `field`, class node, name (Rust; `id:record_fields`). Document (C5): `document`, release, path. Passage and code block (C5): `passage` or `code_block`, document node, ordinal (Rust; `id:documents`, `id:passages`, `id:code_blocks`) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
-| `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
+| `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DP-04) |
 | `content_digest` | sorted `run_id`s (each carrying its `release_id`, and the lock and environment through its context; the `lctx-compiler` run carries the analytics-config digest), compiler digest, embedding spec hash, and a digest of the sorted `(spec_hash, input_hash)` keys the snapshot used. Never the shared `embedding_cache` version, which another library's compile can move (ADR-0017 amendment). Slice 2 has the first two (**Implemented**; equal across a pilot rerun and relocation, C6 review 2026-09-23) | compares reruns |
 | `compiler_digest` | the locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs and its kernel, read from `Cargo.lock` by `cpg-core`'s build script) and analysis libraries (`lctx_analytics::LIBRARIES`), a hand-bumped compiler output version, the UDF version, the synthesis template version (`synth::TEMPLATE_VERSION`, which stands for Stage F's queries and templates; the analysis ledger test fails any output change made without bumping it; increment-1 deep review F1), every derivation query, declared projection digest and Pass B relation digest, the public-path relation, every table contract and every validation rule; and (the holistic assessment's A2(e), 2026-09-24) a digest of every `.rs` file of `cpg-core`, `lctx-analytics` and `cpg-schema`, computed by the same build script, so a code change no version names still moves run and producer ids (`every_compiler_source_is_hashed`). `TEMPLATE_VERSION` stays the published lineage and the ledger the alarm. Stored on every `snapshots` row (**Implemented**, **Tested** by a unit test on each input) | per build |
 
@@ -888,7 +891,7 @@ C6 review, 2026-09-23).
     since C3, and kept as a published table for the next family with such rows (review O2).
 
   A projection's spec (§5) states which of them it accepts. A non-finding outside that coverage
-  is never read as absence (guidelines §7).
+  is never read as absence (CI-04, CI-08).
 
 > Decision: ADR-0014
 
@@ -920,12 +923,12 @@ fails; an empty glob is refused; each C5 rule rejects an injected violation,
 `the_corpus_rules_reject_their_violations`). This
 is how
 the typed family tables
-become a graph without a second authority, following the operator's guidelines
-(`docs/design_review/design_principles/rust_code_intelligence_data_graph_guidelines.md` §2–§4,
-§10–§12).
+become a graph without a second authority, following the code-intelligence profile
+(`docs/design_review/design_principles/profiles/code-intelligence/principles.md` CI-01–CI-05,
+CI-09; formerly the operator's graph guidelines §2–§4, §10–§12).
 
 **The registry** (`cpg_schema::graph`) is the one declaration the catalogs, references and graph
-rules are generated from (DM-52).
+rules are generated from (DP-16).
 - **Per node kind:** its **existence source**, a relation independent of every column that
   references the node. Its `node_id` column, `module_node_id` and existence `fact_id` column.
 - **Per edge kind:**
@@ -1098,7 +1101,7 @@ rules are generated from (DM-52).
 - two runs give one `content_digest`.
 
 **What the catalogs never hold:**
-- transitive closures, paths or all-pairs results (guidelines §7);
+- transitive closures, paths or all-pairs results (CI-08);
 - a merged "best" target in place of a candidate set;
 - graph-local indices (§5).
 
@@ -1169,7 +1172,7 @@ getattr family and its kin, `unresolved_target` otherwise. It is never a guess.
   - Conjunctions are sorted bytewise, deduplicated and joined by ` & `.
   - Disjunctions are sorted, deduplicated, absorbed and joined by ` | `.
   - `true` and `false` are the empty conjunction and the empty disjunction.
-  - The id is `H("condition", encoding)` (DM-15). Equality is syntactic, and that is declared.
+  - The id is `H("condition", encoding)` (DP-04). Equality is syntactic, and that is declared.
 - **The lowering from ty's diagrams**, one procedure:
   1. Follow only `if_true` and `if_false`.
   2. Read ty's **ambiguous** terminal as `true`, because verdicts state **may**-behavior.
@@ -1239,7 +1242,7 @@ nominations.
 
 A read reached from module scope through calls is Stage 3's.
 
-**Three vocabularies** (ADDENDUM §3).
+**Three vocabularies** (binding §3).
 - `modality` is a call-graph input: a behavior across a candidate or potential arc is at best
   `unknown`.
 - `evidence_status` is a brief assertion's. When a brief renders a behavior:
@@ -1660,7 +1663,7 @@ kept (log cleanup off, verified at open), and a selected file that is gone fails
 than returning fewer rows (**Tested**: `a_pinned_read_opens_only_its_commits_files`). The
 `snapshot_id` filter stays as the row predicate.
 
-**Metrics** (C1, **Implemented**; guidelines §12; `cpg_schema::metrics`).
+**Metrics** (C1, **Implemented**; DP-22; `cpg_schema::metrics`).
 - `lctx compile` reports, per stage, wall time and the process's peak RSS so far (`VmHWM`, which
   the kernel updates lazily, so it only grows approximately; it includes allocator retention,
   §4.3 Measured): acquire, Stage A, the Pyrefly check, per-module extraction (with its Ruff walk and
@@ -2544,8 +2547,7 @@ by the increment-2 review** (U1; ADR-0011 amendment; deviation log D37):
 - **Method (the `+pagerank` variant, kept for the §9.8 ablation).** Our own weighted power
   iteration (about 40 lines) over the usage projection in canonical order. The edge weights are
   the usage counts from examples and tests (a named weight policy), with dangling-mass
-  redistribution. It records iterations, the final L1 residual and a converged flag (guidelines
-  §8). petgraph's `page_rank` is rejected (the library-leverage review, D1). The input projection
+  redistribution. It records iterations, the final L1 residual and a converged flag (CI-09). petgraph's `page_rank` is rejected (the library-leverage review, D1). The input projection
   and the damping, tolerance, iteration budget and dangling target are pre-registered code (D29),
   frozen by digest in `eval/gold/analytics-freeze.json`. The dangling target is uniform, so
   `leiden_rs::compute_flow` (weighted, directed, uniform teleport) is the reference oracle.
@@ -3538,3 +3540,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Increment-2 compact review fixes: direct usage as the default ranking and selection by it with a community cap (§9.4, §9.5; U1), the PageRank variant, one preferred path per callable (F4), FCA scopes keyed by node (F1), attributes from term structure (F2), the concept as a shared signature under Related with the Applicable-case slot absent (§9.6, §10.2, §10.3; U2), Stage E/F choices frozen (F7), the finding-kind-by-method rule; stale sentences fixed (F8) | ADR-0011 amendment; ADR-0019 amendment; deviation log D37–D40 |
 | 2026-09-24 | Holistic assessment A3 (with slice 3.4's warnings): `doc_components` and `doc_component_attributes` from markdown-rs's mdast (codebooks `component_form`, `attribute_value_kind`; four semantic rules, `docs-span-in-document` among them); documented warnings from `<Warning>` components, scoped to their `<ParamField>`; a top-level `<ParamField>` as a parameter's description after the docstring; `EXTRACTOR_OUTPUT_VERSION` 19, `TEMPLATE_VERSION` 16; zero of either on the pilot, Measured (§3.2, §9.2, §10.3) | Deviation log D44, D45 |
 | 2026-09-24 | The behavioral-model pivot, Stage 0. The product becomes a behavioral model of the whole public surface, with briefs as one rendering: §1.1–§1.5, §9 rules, §12, §13 (ADR-0021, superseding ADR-0004). The model's semantics: places, the runtime view, closed conditions, five verdicts, models as data (§B5, §B10, §3.2, new §3.9, new §9.9; ADR-0022). Serving tools, the executor, `FORMAT` 3 and embedding views (§B13, §B14, §6.4, §11.3; ADR-0010 amendment). Declared extra dependency families (ADR-0002 amendment). Flow and summary algorithms (§B4; ADR-0011 amendment). The keep rule under the new consumers, and the deletion exit paused (§9.8; ADR-0020 amendment). Source: `design_review_behavioral-model-pivot_2026-09-24.md` and the plan `docs/plans/behavioral-model-pivot-plan_2026-09-24.md` | ADR-0021, ADR-0022; deviation log B1 |
+| 2026-09-24 | The review standard: §2's pointer moves from `ADDENDUM.md` to the library-context binding; charter and graph-guideline citations re-keyed to DP and CI IDs | ADR-0023 |

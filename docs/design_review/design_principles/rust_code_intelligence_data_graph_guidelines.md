@@ -1,5 +1,7 @@
 # Rust Code Intelligence: Columnar, Relational, and Graph Execution Guidelines
 
+> **Superseded 2026-09-24.** The domain rules now live in the [code-intelligence profile](profiles/code-intelligence/principles.md) (CI-01–CI-13) and the core principles; library specifics belong to the `rust-graphs`, `datafusion` and `deltalake` skills. The [library-context binding](binding/library-context.md) §8 maps each section. Retained so citations of `guidelines §n` stay readable.
+
 ## Scope and interpretation
 
 Agent handoff for a Rust code-intelligence / code-property-graph (CPG) system. Preserve typed, provenance-backed relational facts; use graph representations only where the computation benefits from topology-aware algorithms. Minimize bespoke code without forcing one physical representation or execution strategy onto every operation.

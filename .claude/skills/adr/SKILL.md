@@ -26,7 +26,7 @@ read it first when asked "why".
 3. `design:` lists the DESIGN.md `§` sections it governs. Amend those sections **in the same
    commit** and end each with `> Decision: ADR-NNNN`; add a Revision history row. Never
    renumber sections — insert `§3.2.1`.
-4. `evidence:` is a charter §D label at the strength actually established (`Proposed` until
+4. `evidence:` is a principles §D label at the strength actually established (`Proposed` until
    something ran). `revisit:` is the trigger to reconsider; prefix `$ ` if a command decides it.
 5. `status: proposed` while unproven; `accepted` once the decision is in force. Accepted records
    are immutable except `status`/`superseded-by` — `just adr lint` diffs them against `HEAD`.

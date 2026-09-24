@@ -1,5 +1,7 @@
 # Charter addendum — library-context
 
+> **Superseded 2026-09-24** by the [library-context binding](binding/library-context.md), which carries §1–§3 and §5 forward re-keyed to the new IDs. Retained so reviews citing `ADDENDUM §n` stay readable; the binding's §8 maps each section.
+
 The charter, the directive and the review template are technology-neutral and are carried here
 **verbatim**, so a `DM-nn` or `Gn` citation means the same thing here as anywhere else the charter
 is used. This file is the only repository-specific layer, and it covers four things:

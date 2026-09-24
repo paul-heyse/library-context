@@ -36,7 +36,7 @@ real consumer.
 |---|---|
 | `docs/design/DESIGN.md` | Current design. §2 holds the binding decisions §B1–§B14 |
 | `docs/adr/` | Decision records, a generated index, and `TEMPLATE.md` |
-| `docs/design_review/design_principles/` | Charter (DM-01–60, gates G1–G7), with the repo layer in `ADDENDUM.md` |
+| `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: core principles (DP-01–24, gates G1–G8), the code-intelligence profile (CI-01–13, gates CI-G1–G3) and the repo layer in `binding/library-context.md` (ADR-0023) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
 | `docs/pins.md` | Every pin, with dated verification |
 | `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0014); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0012) |
@@ -107,7 +107,7 @@ capability is absent.
 - Report outcomes as `passed`, `failed`, `blocked` (name the missing prerequisite) or `not_run`,
   and give the command that produced each. A mocked provider is never `passed`. Never turn
   outcomes into a percentage.
-- Design claims carry a charter §D label (`Proposed` … `Tested` … `Measured`). An unlabelled
+- Design claims carry a principles §D label (`Proposed` … `Tested` … `Measured`). An unlabelled
   claim is a defect; `Proposed` is not.
 - Date every "verified" claim.
 
@@ -116,13 +116,14 @@ capability is absent.
 - **Write an ADR** (the `adr` skill) when a change alters a §B decision, chooses between real
   alternatives, or would surprise a future session. Amend DESIGN.md in the same commit. To pivot,
   supersede the old ADR; accepted ADRs are immutable.
-- **Design reviews** use the `design-review` skill, usually through the `design-reviewer`
-  subagent:
+- **Design reviews** use the `design-review` skill with its `design-review-code-intelligence`
+  profile, usually through the `design-reviewer` subagent:
   - `compact` at the end of a slice that adds or changes a fact family, extractor, projection or
     analytic
   - `standard` for an ADR that changes a §B decision
   - at increment ends: `deep` after increments 1, 3 and 5, `compact` after 2 and 4 (ADR-0021, carried over from ADR-0004)
-- **Findings** become an ADR, a test or `rules/` entry, or a Deferred row in the review.
+- **Findings** that are acted on become an ADR, a test or `rules/` entry, or a Deferred row in the
+  review (binding §4). Naming a check in a finding is optional: add one where it pays for itself.
 
 ## Git
 
@@ -131,5 +132,5 @@ capability is absent.
 - Use `git worktree` for exploratory spikes.
 - Never force-push or `reset --hard`.
 - `.claude/skills/*` is gitignored except the process skills: `adr`, `design-review`,
-  `handoff`, `pin-check`.
+  `design-review-code-intelligence`, `handoff`, `pin-check`.
 - At the end of a session that changed what's true, run the `handoff` skill.

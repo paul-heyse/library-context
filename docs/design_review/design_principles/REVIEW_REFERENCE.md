@@ -1,5 +1,7 @@
 # Design Review — Reference
 
+> **Superseded 2026-09-24.** Lenses and calibration moved to the `design-review` skill's `REFERENCE.md`; the repository appendix (§5) moved to the [library-context binding](binding/library-context.md) §6. Retained for historical reference.
+
 Companion to `.claude/skills/design-review/SKILL.md`. §1 is a lookup table. Everything after it is a set of lenses and calibration examples — angles that have turned up real defects before, offered because they are useful, not because the review owes them. The normative standard is [`DATA_MODEL_DESIGN_CHARTER.md`](DATA_MODEL_DESIGN_CHARTER.md); the repo-specific mapping is [`ADDENDUM.md`](ADDENDUM.md), whose §5 also routes the operator's graph guidelines ([`rust_code_intelligence_data_graph_guidelines.md`](rust_code_intelligence_data_graph_guidelines.md)) onto the design.
 
 ---

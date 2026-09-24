@@ -74,3 +74,6 @@ an oracle (test, rule or `just` check), not a hook that blocks edits.
   operator's request, not private as first written. The process is otherwise unchanged.
 - 2026-09-22: pointer only. ADR-0004 now records the review cadence for the capability-compiler
   increments and the DESIGN.md budget.
+- 2026-09-24: pointer only. ADR-0023 now records the review standard (a layered core, the
+  code-intelligence profile and the library-context binding, replacing the charter and
+  `ADDENDUM.md`) and makes naming a check in every finding optional.
