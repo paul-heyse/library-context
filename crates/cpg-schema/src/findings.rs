@@ -385,6 +385,12 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
         BriefSection::Limits,
         &[EvidenceStatus::StructurallyObserved],
     ),
+    // A doc's own warning (slice 3.4): documentation, stated with where it is.
+    (
+        AssertionKind::DocumentedWarning,
+        BriefSection::Limits,
+        &[EvidenceStatus::Documented],
+    ),
     // Reserved for an input or mode source (the increment-2 review's U2): nothing fills it in v1.
     (
         AssertionKind::ApplicableCase,

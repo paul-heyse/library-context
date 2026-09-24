@@ -2,4 +2,4 @@
 source: crates/cpg-core/tests/syntax.rs
 expression: knn
 ---
-{"knn":{"k":3,"min_similarity":0.5,"window_bytes":4096,"text_version":1},"spec_hash":"e5a66b55c806cad0f8a583d2ab7da6577da7b7f223999ff38cb199d73954968b"} | 16 | {"apis":4,"passages":4,"api_windows":4,"passage_windows":4,"doc_links":9,"apis_linked":4,"communities":0,"labelled":0}
+{"knn":{"k":3,"min_similarity":0.5,"window_bytes":4096,"text_version":1},"spec_hash":"e5a66b55c806cad0f8a583d2ab7da6577da7b7f223999ff38cb199d73954968b"} | 20 | {"apis":4,"passages":5,"api_windows":4,"passage_windows":5,"doc_links":11,"apis_linked":4,"communities":0,"labelled":0}

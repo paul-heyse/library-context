@@ -1017,6 +1017,9 @@ codebook!(
         /// The public APIs of the seed's own scope that share its signature: the FCA concept
         /// holding it with the most (other API, shared attribute) pairs (FCA `applicable_case`).
         SharedSignature = 15 => "shared_signature",
+        /// A `<Warning>` component of a doc passage that exactly mentions the operation, verbatim
+        /// (§10.3 Limits; slice 3.4).
+        DocumentedWarning = 16 => "documented_warning",
     }
 );
 

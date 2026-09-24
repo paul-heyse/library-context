@@ -539,6 +539,7 @@ assertion_kind
   13 implication
   14 doc_link
   15 shared_signature
+  16 documented_warning
 brief_section
   0 outcome
   1 public_access

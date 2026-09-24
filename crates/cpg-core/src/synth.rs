@@ -50,8 +50,8 @@ use crate::{CoreError, sql};
 /// concept as a shared signature under Related from the seed's own scope, never the Applicable
 /// case; attributes as what an API does, each with its scope; Related by direct usage. 14: RCA's
 /// relational attributes (`calls`, handoffs) in the shared-signature and implication texts
-/// (slice 3.2).
-pub const TEMPLATE_VERSION: i64 = 14;
+/// (slice 3.2). 15: documented warnings in Limits (slice 3.4).
+pub const TEMPLATE_VERSION: i64 = 15;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -156,6 +156,28 @@ fn hex_list(ids: impl IntoIterator<Item = Id>) -> String {
 /// space: an extracted sentence as it reads rendered. Its evidence keeps the source bytes.
 fn normalized(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The `<Warning>` components of a passage (slice 3.4): each one's inner text as a byte span,
+/// trimmed. An unclosed component is not one.
+pub fn warnings(passage: &str) -> Vec<(usize, usize)> {
+    const OPEN: &str = "<Warning>";
+    const CLOSE: &str = "</Warning>";
+    let mut out = Vec::new();
+    let mut at = 0;
+    while let Some(open) = passage[at..].find(OPEN).map(|i| at + i + OPEN.len()) {
+        let Some(close) = passage[open..].find(CLOSE).map(|i| open + i) else {
+            break;
+        };
+        let inner = &passage[open..close];
+        let lead = inner.len() - inner.trim_start().len();
+        let body = inner.trim();
+        if !body.is_empty() {
+            out.push((open + lead, open + lead + body.len()));
+        }
+        at = close + CLOSE.len();
+    }
+    out
 }
 
 /// The first sentence (UAX #29) of `text[start..end]`, as bytes of `text`. It is found on a view
@@ -641,7 +663,7 @@ pub async fn run(
         .collect();
     let mention_sql = format!(
         "SELECT t.target_node_id, p.node_id AS passage_node_id, p.document_node_id, \
-                p.start_byte, p.text, d.path, p.ordinal, \
+                p.start_byte, p.text, d.path, p.ordinal, p.heading, \
                 m.start_byte AS mention_start, m.end_byte AS mention_end \
          FROM mention_targets t JOIN mentions m ON m.fact_id = t.mention_fact_id \
          JOIN passages p ON p.node_id = m.passage_node_id \
@@ -658,6 +680,8 @@ pub async fn run(
         text: String,
         /// The mention, passage-relative.
         mention: (usize, usize),
+        /// Where it is: the document's path and the passage's heading.
+        place: String,
     }
     let mut passages: BTreeMap<Id, Vec<Passage>> = BTreeMap::new();
     for (b, i) in Table::read(
@@ -671,6 +695,7 @@ pub async fn run(
             ("text", DataType::Utf8),
             ("path", DataType::Utf8),
             ("ordinal", DataType::Int64),
+            ("heading", DataType::Utf8),
             ("mention_start", DataType::Int64),
             ("mention_end", DataType::Int64),
         ],
@@ -687,9 +712,14 @@ pub async fn run(
         ) else {
             continue;
         };
-        if text(b, "path", i).is_some_and(|p| is_changelog(&p)) {
+        let path = text(b, "path", i).unwrap_or_default();
+        if is_changelog(&path) {
             continue;
         }
+        let place = match text(b, "heading", i) {
+            Some(h) => format!("`{path}` § {h}"),
+            None => format!("`{path}`"),
+        };
         let (Some(ms), Some(me)) = (int(b, "mention_start", i), int(b, "mention_end", i)) else {
             continue;
         };
@@ -706,6 +736,7 @@ pub async fn run(
                 start,
                 text: body,
                 mention,
+                place,
             });
         }
     }
@@ -1877,6 +1908,45 @@ pub async fn run(
             drafts.push(Draft::new(AssertionKind::Handoff, text).citing(f));
         }
 
+        // Documented warnings (§10.3 Limits; slice 3.4): every `<Warning>` of a passage that
+        // exactly mentions the seed, verbatim, with where it is; never dropped for length (§10.4).
+        let mut warned: BTreeSet<Id> = BTreeSet::new();
+        for p in passages.get(&seed).into_iter().flatten() {
+            if !warned.insert(p.node) {
+                continue;
+            }
+            for (a, z) in warnings(&p.text) {
+                let verbatim = p.text[a..z].to_owned();
+                let (start, end) = (p.start + a as i64, p.start + z as i64);
+                let ev = add_evidence(EvidenceRow {
+                    snapshot_id,
+                    evidence_id: recipe::evidence(
+                        EvidenceKind::Passage.code(),
+                        Some(p.node),
+                        Some(p.document),
+                        Some((start, end)),
+                        Some(&verbatim),
+                    ),
+                    evidence_kind: EvidenceKind::Passage,
+                    cited_fact_id: None,
+                    node_id: Some(p.node),
+                    module_node_id: Some(p.document),
+                    start_byte: Some(start),
+                    end_byte: Some(end),
+                    text: Some(verbatim.clone()),
+                });
+                drafts.push(Draft {
+                    kind: AssertionKind::DocumentedWarning,
+                    text: Some(format!(
+                        "The documentation warns, in {} (which mentions `{seed_label}`): {verbatim}",
+                        p.place
+                    )),
+                    findings: Vec::new(),
+                    evidence: vec![(ev, EvidenceKind::Passage)],
+                });
+            }
+        }
+
         // Limits: where the analysis stopped, one entry per reason, and apart for what the seed
         // calls itself and what the callables it reaches call (slice 1.5 review F3).
         // A boundary whose final arc is override-open is one the code may call (increment-1 deep
@@ -2188,6 +2258,20 @@ pub async fn run(
 
 #[cfg(test)]
 mod tests {
+
+    /// Slice 3.4: a passage's `<Warning>` components, each inner text trimmed; an unclosed one is
+    /// none.
+    #[test]
+    fn warnings_are_the_warning_components_inner_text() {
+        let p = "Intro.\n<Warning>\n  Mind `x`.\n</Warning>\n<Note>n</Note>\n<Warning>b</Warning>\n<Warning>open";
+        let got: Vec<&str> = super::warnings(p)
+            .into_iter()
+            .map(|(a, z)| &p[a..z])
+            .collect();
+        assert_eq!(got, vec!["Mind `x`.", "b"]);
+        assert!(super::warnings("<Warning>  </Warning>").is_empty());
+    }
+
     use super::*;
 
     /// §11.1 and slice 2.5: an over-long document is split at whole parts, each chunk under the

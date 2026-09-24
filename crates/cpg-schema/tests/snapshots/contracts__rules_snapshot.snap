@@ -551,7 +551,7 @@ codebook:evidence.evidence_kind
 codebook:assertions.extraction_mode
   SELECT extraction_mode FROM assertions WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:assertions.assertion_kind
-  SELECT assertion_kind FROM assertions WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+  SELECT assertion_kind FROM assertions WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
 codebook:assertions.evidence_status
   SELECT evidence_status FROM assertions WHERE evidence_status IS NOT NULL AND evidence_status NOT IN (0, 1, 2, 3, 4)
 codebook:assertion_support.role
@@ -559,7 +559,7 @@ codebook:assertion_support.role
 codebook:briefs.review_state
   SELECT review_state FROM briefs WHERE review_state IS NOT NULL AND review_state NOT IN (0, 1, 2, 3)
 codebook:assertion_policy.assertion_kind
-  SELECT assertion_kind FROM assertion_policy WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+  SELECT assertion_kind FROM assertion_policy WHERE assertion_kind IS NOT NULL AND assertion_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
 codebook:assertion_policy.brief_section
   SELECT brief_section FROM assertion_policy WHERE brief_section IS NOT NULL AND brief_section NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:assertion_policy.evidence_status
@@ -619,7 +619,7 @@ semantic:embedding-dimensions
 semantic:assertion-policy
   SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN assertion_policy p ON p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status
 semantic:assertion-policy-published
-  WITH v AS (SELECT * FROM (VALUES (0, 0, 1), (0, 0, 4), (1, 1, 0), (2, 1, 0), (3, 3, 0), (3, 3, 1), (4, 5, 0), (5, 7, 2), (6, 3, 0), (7, 3, 0), (8, 5, 0), (11, 5, 0), (12, 2, 0), (15, 7, 0), (13, 3, 0), (14, 7, 2), (9, 4, 1), (9, 4, 3), (10, 4, 0)) AS v(k, s, st)) SELECT p.assertion_kind FROM assertion_policy p LEFT ANTI JOIN v ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status UNION ALL SELECT v.k FROM v LEFT ANTI JOIN assertion_policy p ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status
+  WITH v AS (SELECT * FROM (VALUES (0, 0, 1), (0, 0, 4), (1, 1, 0), (2, 1, 0), (3, 3, 0), (3, 3, 1), (4, 5, 0), (5, 7, 2), (6, 3, 0), (7, 3, 0), (8, 5, 0), (11, 5, 0), (16, 5, 1), (12, 2, 0), (15, 7, 0), (13, 3, 0), (14, 7, 2), (9, 4, 1), (9, 4, 3), (10, 4, 0)) AS v(k, s, st)) SELECT p.assertion_kind FROM assertion_policy p LEFT ANTI JOIN v ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status UNION ALL SELECT v.k FROM v LEFT ANTI JOIN assertion_policy p ON v.k = p.assertion_kind AND v.s = p.brief_section AND v.st = p.evidence_status
 semantic:assertion-status-derived
   WITH x AS ( SELECT s.assertion_id, s.role, f.evidence_status AS st FROM assertion_support s JOIN findings f ON f.finding_id = s.finding_id UNION ALL SELECT s.assertion_id, s.role, CASE e.evidence_kind WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 1 WHEN 3 THEN 1 WHEN 4 THEN 3 END AS st FROM assertion_support s JOIN evidence e ON e.evidence_id = s.evidence_id), d AS ( SELECT a.assertion_id, a.evidence_status, CASE WHEN count(CASE WHEN x.role = 0 THEN 1 END) = 0 THEN 4 WHEN bool_or(x.role = 0 AND x.st = 4) THEN 4 WHEN bool_or(x.st = 2) THEN 2 ELSE CASE max(CASE WHEN x.role = 0 THEN CASE x.st WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 3 THEN 2 END END) WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 3 END END AS derived FROM assertions a LEFT JOIN x ON x.assertion_id = a.assertion_id GROUP BY a.assertion_id, a.evidence_status) SELECT assertion_id FROM d WHERE derived IS NULL OR derived <> evidence_status
 semantic:assertion-text-iff-resolved

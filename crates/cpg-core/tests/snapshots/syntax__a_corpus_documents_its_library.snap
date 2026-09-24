@@ -9,7 +9,8 @@ docs/quickstart.mdx | Quickstart | true
 0 | 0 | - |  | 27-95
 1 | 2 | Install |  | 95-358
 2 | 3 | Details | Install | 358-572
-3 | 1 | Next |  | 572-594
+3 | 1 | Next |  | 572-595
+4 | 2 | Limits | Next | 595-727
 ## code blocks: passage | language | code
 Install | python | from pkg import Server /  / server = Server()
 ## links: passage | url | text
@@ -22,6 +23,8 @@ Install | exact | code | `Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Ser
 Install | exact | code | `pkg.Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Server.tool
 Details | exact | code | `pkg.core.Server` | pkg.core.Server | 0 | pkg.core.Server
 Details | lexical | prose | make_server | pkg.make_server | 1 | pkg.make_server
+Limits | exact | code | `pkg.Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Server.tool
+Limits | exact | code | `pkg.Server.tool` | pkg.core.Server.tool | 0 | pkg.core.Server.tool
 ## modules: path | role (ADR-0015)
 _lctx_blocks/d_docs_quickstart_mdx_45e57600/block_0.py | 3
 examples/serve.py | 1

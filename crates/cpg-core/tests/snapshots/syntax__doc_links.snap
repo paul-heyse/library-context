@@ -6,8 +6,10 @@ pkg.core.Server.run | docs/quickstart.mdx § Details | 0.567
 pkg.core.Server.run | docs/quickstart.mdx § Install | 0.513
 pkg.core.Server.stop | docs/quickstart.mdx § Details | 0.57
 pkg.core.Server.stop | docs/quickstart.mdx | 0.564
-pkg.core.Server.stop | docs/quickstart.mdx § Install | 0.526
+pkg.core.Server.stop | docs/quickstart.mdx § Limits | 0.532
 pkg.core.Server.tool | docs/quickstart.mdx § Install | 0.77
+pkg.core.Server.tool | docs/quickstart.mdx § Limits | 0.679
 pkg.core.Server.tool | docs/quickstart.mdx § Details | 0.655
+pkg.core.make_server | docs/quickstart.mdx § Limits | 0.588
 pkg.core.make_server | docs/quickstart.mdx § Install | 0.513
 pkg.core.make_server | docs/quickstart.mdx § Details | 0.504

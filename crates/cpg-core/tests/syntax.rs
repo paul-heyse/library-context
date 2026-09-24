@@ -951,6 +951,7 @@ budget = 2
          from its name.\n"
     );
     // Each passage evidence is the bytes of its passage at its span; one crosses a line break.
+    // Two are Outcomes, and one is the Limits section's warning (slice 3.4).
     let rows = batches(
         &ctx,
         "SELECT e.start_byte - p.start_byte AS at, e.end_byte - e.start_byte AS len, e.text, \
@@ -980,7 +981,7 @@ budget = 2
             checked.push(text.value(i).to_owned());
         }
     }
-    assert_eq!(checked.len(), 2, "{checked:?}");
+    assert_eq!(checked.len(), 3, "{checked:?}");
     assert!(checked.iter().any(|t| t.contains('\n')), "{checked:?}");
 }
 
@@ -1246,6 +1247,38 @@ async fn doc_links_come_from_embedding_similarity() {
         briefs.contains("pkg.Server.tool | 2 | Documentation near this operation"),
         "{briefs}"
     );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+}
+
+/// Slice 3.4: a `<Warning>` in a passage that exactly mentions the seed is a Limits assertion,
+/// `documented`, verbatim with where it is, citing the warning's own bytes; it enters the brief
+/// document as one of the capability's own limits.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_documented_warning_is_a_limit() {
+    let (ctx, _dir) = docs_shapes_analyzed("warn", false).await;
+    let warned = lines(
+        &ctx,
+        "SELECT b.title, a.evidence_status, a.text, e.text FROM briefs b \
+         JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         JOIN assertion_support s ON s.assertion_id = a.assertion_id \
+         JOIN evidence e ON e.evidence_id = s.evidence_id \
+         WHERE a.assertion_kind = 16 ORDER BY 1, 3",
+    )
+    .await;
+    assert_eq!(
+        warned,
+        "pkg.Server.tool | 1 | The documentation warns, in `docs/quickstart.mdx` § Limits (which \
+         mentions `pkg.Server.tool`): `pkg.Server.tool` does not validate `fn`. | \
+         `pkg.Server.tool` does not validate `fn`.\n"
+    );
+    let document = lines(
+        &ctx,
+        "SELECT d.text FROM brief_documents d JOIN briefs b \
+         ON b.brief_id = d.brief_id WHERE b.title = 'pkg.Server.tool'",
+    )
+    .await;
+    assert!(document.contains("does not validate"), "{document}");
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
 
