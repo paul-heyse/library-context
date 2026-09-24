@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch, StringArray};
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::SchemaRef;
 use cpg_schema::codebook::{
     AnalyticMethod, Codebook, CoverageStatus, DeclarationKind, ExtractionMode, FindingKind,
     MemberRole, NodeKind, SourceRole,
@@ -240,22 +240,6 @@ async fn collect(
         .collect()
 }
 
-fn hex_list(ids: impl IntoIterator<Item = Id>) -> String {
-    ids.into_iter()
-        .map(|i| format!("X'{}'", i.hex()))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn quoted(names: impl IntoIterator<Item = String>) -> String {
-    // Every name was checked to be a dotted Python identifier (the config refuses anything else).
-    names
-        .into_iter()
-        .map(|n| format!("'{n}'"))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 fn id_col(batch: &RecordBatch, name: &str) -> Result<Vec<Id>, CoreError> {
     let a = batch
         .column_by_name(name)
@@ -275,15 +259,6 @@ fn str_col<'a>(batch: &'a RecordBatch, name: &str) -> Result<&'a StringArray, Co
         .column_by_name(name)
         .and_then(|c| c.as_any().downcast_ref::<StringArray>())
         .ok_or_else(|| CoreError::Analysis(format!("column {name}")))
-}
-
-fn schema(fields: &[(&str, DataType)]) -> SchemaRef {
-    std::sync::Arc::new(Schema::new(
-        fields
-            .iter()
-            .map(|(n, t)| Field::new(*n, t.clone(), true))
-            .collect::<Vec<_>>(),
-    ))
 }
 
 /// Each seed resolved to its declaration and the access paths that name it (DESIGN §9.1 step 1):
@@ -433,40 +408,92 @@ struct PassBParameters<'a> {
     public_roots: &'a [String],
 }
 
+// Stage E's own relations (the holistic assessment's A4, B2): values bound, rows typed (A8).
+cpg_schema::relations! {
+    inventory relations;
+    /// Each function's parameters, the receiver aside.
+    parameters_relation = "stage_e_parameters",
+        deps = ["parameter_syntax", "provider_node_map", "pysa_functions"],
+        sql = format!(
+            "SELECT ps.function_node_id, ps.node_id, ps.name FROM parameter_syntax ps \
+             LEFT ANTI JOIN ({receivers}) r ON r.parameter_node_id = ps.node_id \
+             WHERE array_has($ids, ps.function_node_id) \
+             ORDER BY ps.function_node_id, ps.ordinal",
+            receivers = cpg_schema::flows::receivers_sql(),
+        );
+    /// Declarations with a docstring, their module texts.
+    docstrings_relation = "stage_e_docstrings",
+        deps = ["declarations", "source_files"],
+        sql = "SELECT d.node_id, d.docstring_start_byte, d.docstring_end_byte, s.text \
+               FROM declarations d JOIN source_files s ON s.module_node_id = d.module_node_id \
+               WHERE d.docstring_start_byte IS NOT NULL AND array_has($ids, d.node_id) \
+               ORDER BY d.node_id"
+            .to_owned();
+    /// Modules by name (`$names`).
+    modules_relation = "stage_e_modules",
+        deps = ["source_files"],
+        sql = "SELECT module_name, module_node_id FROM source_files \
+               WHERE array_has($names, module_name) ORDER BY module_name, module_node_id"
+            .to_owned();
+    /// Declarations' qualified names.
+    qualified_names_relation = "stage_e_qualified_names",
+        deps = ["declarations"],
+        sql = "SELECT node_id, qualified_name FROM declarations \
+               WHERE array_has($ids, node_id) ORDER BY node_id"
+            .to_owned();
+}
+
+cpg_schema::query_row! {
+    struct ParameterRow {
+        function_node_id: Id,
+        node_id: Id,
+        name: String,
+    }
+}
+
+cpg_schema::query_row! {
+    struct DocstringRow {
+        node_id: Id,
+        docstring_start_byte: i64,
+        docstring_end_byte: i64,
+        text: Option<String>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ModuleRow {
+        module_name: String,
+        module_node_id: Id,
+    }
+}
+
+cpg_schema::query_row! {
+    struct QualifiedRow {
+        node_id: Id,
+        qualified_name: String,
+    }
+}
+
 /// Each seed's parameters, the receiver aside (`cpg_schema::flows::receivers_sql`: decided by
 /// the method's kind, never by the parameter's name; slice 2.1 review F8).
 async fn seed_parameters(
     ctx: &SessionContext,
     seeds: &[Id],
 ) -> Result<BTreeMap<Id, Vec<SeedParameter>>, CoreError> {
-    let batches = collect(
-        ctx,
-        &format!(
-            "SELECT ps.function_node_id, ps.node_id, ps.name FROM parameter_syntax ps \
-             LEFT ANTI JOIN ({receivers}) r ON r.parameter_node_id = ps.node_id \
-             WHERE ps.function_node_id IN ({seeds}) \
-             ORDER BY ps.function_node_id, ps.ordinal",
-            receivers = cpg_schema::flows::receivers_sql(),
-            seeds = hex_list(seeds.iter().copied())
-        ),
-        &schema(&[
-            ("function_node_id", DataType::FixedSizeBinary(16)),
-            ("node_id", DataType::FixedSizeBinary(16)),
-            ("name", DataType::Utf8),
-        ]),
-    )
-    .await?;
     let mut out: BTreeMap<Id, Vec<SeedParameter>> = BTreeMap::new();
-    for batch in &batches {
-        let functions = id_col(batch, "function_node_id")?;
-        let nodes = id_col(batch, "node_id")?;
-        let names = str_col(batch, "name")?;
-        for i in 0..batch.num_rows() {
-            out.entry(functions[i]).or_default().push(SeedParameter {
-                node: nodes[i],
-                name: names.value(i).to_owned(),
+    for r in sql::fetch::<ParameterRow>(
+        ctx,
+        &parameters_relation(),
+        sql::Params::new().ids("ids", seeds.iter().copied()),
+    )
+    .await?
+    {
+        out.entry(r.function_node_id)
+            .or_default()
+            .push(SeedParameter {
+                node: r.node_id,
+                name: r.name,
             });
-        }
     }
     Ok(out)
 }
@@ -963,43 +990,22 @@ pub async fn run(
     let called: Vec<Id> = usage.counts.keys().copied().collect();
     let mut eligible: Vec<Id> = Vec::new();
     if !called.is_empty() {
-        for b in collect(
+        for r in sql::fetch::<DocstringRow>(
             ctx,
-            &format!(
-                "SELECT d.node_id, d.docstring_start_byte, d.docstring_end_byte, s.text \
-                 FROM declarations d JOIN source_files s ON s.module_node_id = d.module_node_id \
-                 WHERE d.docstring_start_byte IS NOT NULL AND d.node_id IN ({}) \
-                 ORDER BY d.node_id",
-                hex_list(called.iter().copied())
-            ),
-            &schema(&[
-                ("node_id", DataType::FixedSizeBinary(16)),
-                ("docstring_start_byte", DataType::Int64),
-                ("docstring_end_byte", DataType::Int64),
-                ("text", DataType::Utf8),
-            ]),
+            &docstrings_relation(),
+            sql::Params::new().ids("ids", called.iter().copied()),
         )
         .await?
         {
-            let nodes = id_col(&b, "node_id")?;
-            let text = str_col(&b, "text")?;
-            let int = |name: &str| {
-                b.column_by_name(name)
-                    .and_then(|c| c.as_any().downcast_ref::<arrow_array::Int64Array>())
-                    .ok_or_else(|| CoreError::Analysis(format!("column {name}")))
-            };
-            let (start, end) = (int("docstring_start_byte")?, int("docstring_end_byte")?);
-            for (i, node) in nodes.into_iter().enumerate() {
-                if !text.is_null(i)
-                    && crate::synth::summary_span(
-                        text.value(i),
-                        start.value(i) as usize,
-                        end.value(i) as usize,
-                    )
-                    .is_some()
-                {
-                    eligible.push(node);
-                }
+            if let Some(text) = &r.text
+                && crate::synth::summary_span(
+                    text,
+                    r.docstring_start_byte as usize,
+                    r.docstring_end_byte as usize,
+                )
+                .is_some()
+            {
+                eligible.push(r.node_id);
             }
         }
     }
@@ -1319,26 +1325,14 @@ pub async fn run(
         .map(|r| (r.access_path.clone(), r.node_id))
         .collect();
     // A namespace no export names (a package's own path) is its module.
-    for b in collect(
+    for r in sql::fetch::<ModuleRow>(
         ctx,
-        &format!(
-            "SELECT module_name AS access_path, module_node_id AS declaration_node_id \
-             FROM source_files WHERE module_name IN ({}) ORDER BY module_name, module_node_id",
-            quoted(containers.iter().cloned())
-        ),
-        &schema(&[
-            ("access_path", DataType::Utf8),
-            ("declaration_node_id", DataType::FixedSizeBinary(16)),
-        ]),
+        &modules_relation(),
+        sql::Params::new().texts("names", containers.iter()),
     )
     .await?
     {
-        let access = str_col(&b, "access_path")?;
-        for (i, node) in id_col(&b, "declaration_node_id")?.into_iter().enumerate() {
-            scope_nodes
-                .entry(access.value(i).to_owned())
-                .or_insert(node);
-        }
+        scope_nodes.entry(r.module_name).or_insert(r.module_node_id);
     }
     let mut names: BTreeMap<Id, std::collections::BTreeSet<String>> = BTreeMap::new();
     for (container, node) in &scope_nodes {
@@ -1433,24 +1427,14 @@ pub async fn run(
             .filter(|n| !names.contains_key(n))
             .collect();
         if !unnamed.is_empty() {
-            for b in collect(
+            for r in sql::fetch::<QualifiedRow>(
                 ctx,
-                &format!(
-                    "SELECT node_id, qualified_name FROM declarations WHERE node_id IN ({}) \
-                     ORDER BY node_id",
-                    hex_list(unnamed.iter().copied())
-                ),
-                &schema(&[
-                    ("node_id", DataType::FixedSizeBinary(16)),
-                    ("qualified_name", DataType::Utf8),
-                ]),
+                &qualified_names_relation(),
+                sql::Params::new().ids("ids", unnamed.iter().copied()),
             )
             .await?
             {
-                let name = str_col(&b, "qualified_name")?;
-                for (i, node) in id_col(&b, "node_id")?.into_iter().enumerate() {
-                    names.insert(node, name.value(i).to_owned());
-                }
+                names.insert(r.node_id, r.qualified_name);
             }
         }
         for (node, extra) in concepts::relational(&all, &calls, &passed, &names) {
