@@ -2934,8 +2934,9 @@ fuzzy fallback, and a class operation matches only a brief seeded by that class.
 Jaccard, where a brief contributes its seed and unresolved operations stay in the union as
 strings. (b) searches every task alias, and a hit is a returned brief whose seed is in the
 family's node set. (c) is unchanged. All three are counted over all gold units (22 families, 44
-aliases, 157 spans). Lexical text holds each distinct token once, promotion matches any public
-spelling of the seed, and each score records `matcher_version`. Version 1 compared access-path
+aliases, 157 spans). A brief's lexical text names its seed's **own** spellings, each distinct
+**name** token once (R2 F1, registered 2026-09-24 before any score); promotion matches any public
+spelling of the seed; and each score records `matcher_version`. Version 1 compared access-path
 strings; the scores below are version 1's. **Implemented** (2026-09-24): `scripts/gold_match.py`,
 shared by `score_gold.py` and `ranking_check.py`, reads the served `public_paths` (bundle
 `FORMAT` 2); each alias records its mode, degraded reason and ranked hits, and a live run with a

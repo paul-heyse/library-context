@@ -195,3 +195,23 @@ all passed):
     makes the run `blocked`.
   - Nothing else about retrieval changes with this amendment. Fusion, the brief-document
     template and every parameter stay as registered in the entry above.
+- 2026-09-24, the R2 review's F1 (`design_review_holistic-phase2-r2_2026-09-24.md`).
+  **Pre-registered before any score.** The amendment above registered "each distinct name token
+  once" and promotion by any spelling, but it did not fix **which** spellings a brief's lexical
+  text names. `FORMAT` 2's first build used every spelling, own and inherited. That was
+  unregistered, and it contradicted "Nothing else about retrieval changes".
+  - **The names part of a brief's lexical text is its seed's own public spellings only**, the
+    paths whose export declares the seed (`public_paths.own`), each distinct token once. Its
+    inherited spellings still **promote** the brief (`symbol_map`), because an exact query names
+    one node.
+  - **The rationale does not depend on the gold.** The own set depends only on the node, never on
+    which spelling named the seed (unlike `FORMAT` 1's container set). It matches the brief's own
+    "Public access" text. It also keeps the number of subclasses that inherit a name out of
+    document frequency. Under every spelling, a word shared by many subclasses (`proxy`) reaches
+    all 20 pilot briefs and stops discriminating, and `Provider.disable`'s name tokens grow from 6
+    to 62 (the review's measurement, disclosed here).
+  - **Exposure, disclosed:** the author ran the scorers once on fake vectors over the
+    every-spelling text (deviation log D52). That run's lexical leg was real BM25, so its (b)
+    partly reflected the rejected set. The choice above rests on the rationale, not on that run.
+  - Wording: "lexical text holds each distinct token once" means the **name** tokens. A brief's
+    document text keeps its natural term frequency.
