@@ -34,8 +34,9 @@ use arrow_ipc::writer::{FileWriter, IpcWriteOptions};
 use arrow_schema::{DataType, Field, FieldRef, SchemaRef};
 use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
-    AssertionKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind, EvidenceKind,
-    EvidenceStatus, FactFamily, FindingKind, ReviewState, ScopeKind, SupportRole,
+    AssertionKind, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
+    EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily, FindingKind, OperationFacet,
+    ReviewState, ScopeKind, SupportRole, Verdict,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -46,7 +47,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 2;
+pub const FORMAT: u64 = 3;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -150,6 +151,45 @@ fn query(name: &str) -> Option<String> {
         "embedding_spec" => {
             "SELECT spec_hash, spec FROM embedding_specs ORDER BY spec_hash".to_owned()
         }
+        "operations" => format!(
+            "SELECT o.node_id, o.access_path, {kind} AS kind, o.is_method, o.qualified_name, \
+                    o.module, o.docstring_summary, {status} AS behavior_status, o.status_reason, \
+                    b.brief_id \
+             FROM operations o \
+             LEFT JOIN (SELECT seed_node_id, min(brief_id) AS brief_id FROM briefs \
+                        GROUP BY seed_node_id) b ON b.seed_node_id = o.node_id \
+             ORDER BY o.node_id",
+            kind = text_of::<DeclarationKind>("o.kind"),
+            status = text_of::<Verdict>("o.behavior_status"),
+        ),
+        "operation_facets" => format!(
+            "SELECT node_id, {facet} AS facet, value FROM operation_facets \
+             ORDER BY node_id, facet, value",
+            facet = text_of::<OperationFacet>("operation_facets.facet"),
+        ),
+        "behaviors" => format!(
+            "SELECT b.behavior_id, b.operation_node_id, {kind} AS kind, b.parameter_name, \
+                    b.callee_node_id, COALESCE(o.access_path, d.qualified_name) AS callee, \
+                    b.target_name, b.value, b.depth, b.conditional, {verdict} AS verdict, \
+                    b.occurrences, df.path, b.site_line AS line, b.site_text \
+             FROM behaviors b \
+             LEFT JOIN operations o ON o.node_id = b.callee_node_id \
+             LEFT JOIN (SELECT node_id, min(qualified_name) AS qualified_name FROM declarations \
+                        GROUP BY node_id) d ON d.node_id = b.callee_node_id \
+             LEFT JOIN (SELECT module_node_id, min(path) AS path FROM ({files}) \
+                        GROUP BY module_node_id) df ON df.module_node_id = b.site_module_node_id \
+             ORDER BY b.behavior_id",
+            kind = text_of::<BehaviorKind>("b.kind"),
+            verdict = text_of::<Verdict>("b.verdict"),
+            files = cpg_schema::flows::display_files_sql(),
+        ),
+        "operation_vectors" => format!(
+            "SELECT d.node_id, {view} AS embedding_view, d.chunk, d.input_hash, c.vector \
+             FROM operation_documents d JOIN embedding_cache c \
+               ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash \
+             ORDER BY d.node_id, embedding_view, d.chunk",
+            view = text_of::<EmbeddingView>("d.embedding_view"),
+        ),
         "vectors" => "SELECT d.brief_id, d.chunk, d.input_hash, c.vector FROM brief_documents d \
                       JOIN embedding_cache c \
                         ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash \
@@ -333,6 +373,70 @@ async fn lexical(ctx: &SessionContext, schema: &SchemaRef) -> Result<RecordBatch
     )?)
 }
 
+/// `operation_text`: each public operation's docstring summary, its parameters' names, and the
+/// distinct name tokens of all its public spellings (`cpg_schema::bundle::name_tokens`), for
+/// `search_operations`' BM25 (ADR-0021).
+async fn operation_text(
+    ctx: &SessionContext,
+    schema: &SchemaRef,
+) -> Result<RecordBatch, CoreError> {
+    let rows = normalized(
+        ctx,
+        &format!(
+            "SELECT o.node_id, o.docstring_summary, p.access_path, f.value AS parameter \
+             FROM operations o \
+             LEFT JOIN public_paths p ON p.node_id = o.node_id \
+             LEFT JOIN operation_facets f ON f.node_id = o.node_id AND f.facet = {parameter} \
+             ORDER BY o.node_id, p.access_path, f.value",
+            parameter = OperationFacet::Parameter.code(),
+        ),
+        &Arc::new(arrow_schema::Schema::new(vec![
+            Field::new("node_id", DataType::FixedSizeBinary(16), false),
+            Field::new("docstring_summary", DataType::Utf8, true),
+            Field::new("access_path", DataType::Utf8, true),
+            Field::new("parameter", DataType::Utf8, true),
+        ])),
+    )
+    .await?;
+    let ids = rows.column(0).as_fixed_size_binary();
+    let summaries = rows.column(1).as_string::<i32>();
+    let paths = rows.column(2).as_string::<i32>();
+    let parameters = rows.column(3).as_string::<i32>();
+    /// An operation's summary, parameter names and name tokens.
+    type Text = (Option<String>, Vec<String>, Vec<String>);
+    let mut per: BTreeMap<Vec<u8>, Text> = BTreeMap::new();
+    for i in 0..rows.num_rows() {
+        let e = per.entry(ids.value(i).to_vec()).or_default();
+        if e.0.is_none() && !summaries.is_null(i) {
+            e.0 = Some(summaries.value(i).to_owned());
+        }
+        if !parameters.is_null(i) {
+            let p = parameters.value(i).trim_start_matches('*').to_owned();
+            if !e.1.contains(&p) {
+                e.1.push(p);
+            }
+        }
+        if !paths.is_null(i) {
+            cpg_schema::bundle::name_tokens(paths.value(i), &mut e.2);
+        }
+    }
+    let mut id_b = FixedSizeBinaryBuilder::with_capacity(per.len(), 16);
+    let mut text_b = StringBuilder::new();
+    for (id, (summary, parameters, words)) in &per {
+        id_b.append_value(id)?;
+        text_b.append_value(format!(
+            "{}\n{}\n{}",
+            summary.as_deref().unwrap_or_default(),
+            parameters.join(" "),
+            words.join(" ")
+        ));
+    }
+    Ok(RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(id_b.finish()), Arc::new(text_b.finish())],
+    )?)
+}
+
 /// One batch as an Arrow IPC file's bytes (V5, 64-byte alignment, uncompressed).
 fn ipc_bytes(batch: &RecordBatch) -> Result<Vec<u8>, CoreError> {
     let options = IpcWriteOptions::try_new(64, false, MetadataVersion::V5)?;
@@ -508,7 +612,9 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     .await?;
     let documents = counted(
         ctx,
-        "SELECT encode(CAST(spec_hash AS BYTEA), 'hex'), count(*) FROM brief_documents \
+        "SELECT encode(CAST(spec_hash AS BYTEA), 'hex'), count(*) FROM ( \
+           SELECT spec_hash FROM brief_documents UNION ALL \
+           SELECT spec_hash FROM operation_documents) \
          WHERE spec_hash IS NOT NULL GROUP BY 1 ORDER BY 1",
     )
     .await?;
@@ -534,9 +640,10 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     let served: Vec<ServingFile> = files(dimensions);
     let mut built: Vec<(&'static str, Vec<u8>, usize, String)> = Vec::new();
     for file in &served {
-        let batch = match query(file.name) {
-            Some(q) => normalized(ctx, &q, &file.schema).await?,
-            None => lexical(ctx, &file.schema).await?,
+        let batch = match (query(file.name), file.name) {
+            (Some(q), _) => normalized(ctx, &q, &file.schema).await?,
+            (None, "operation_text") => operation_text(ctx, &file.schema).await?,
+            (None, _) => lexical(ctx, &file.schema).await?,
         };
         let digest = schema_digest(&file.schema).map_err(bad)?;
         built.push((file.name, ipc_bytes(&batch)?, batch.num_rows(), digest));

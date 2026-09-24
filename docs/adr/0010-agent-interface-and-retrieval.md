@@ -256,3 +256,9 @@ all passed):
     query instruction until a trigger justifies a per-tool one.
   - **No Python condition evaluator.** This corrects the amendment above. No tool takes a
     condition.
+- 2026-09-24, the ADR set's compact re-review (R1, R4); this corrects the lines above.
+  - **`complete`** is true only for facets read from the declaration and its annotations. `raises`
+    and the behavioral facets are never complete in Stage 1. `unknown` lists the operations known
+    to hide possible matches (status `unknown`: a depth cut or open call sites; or an `unknown` row
+    of the facet's kind).
+  - **A view is a column**, not part of the cache key. Identical texts share one vector.

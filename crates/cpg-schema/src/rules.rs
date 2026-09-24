@@ -647,16 +647,13 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
-            // ADR-0022, §3.9: a refutation holds only where the analysis was complete. Stage 1's
-            // premise is the operation's own scan (`behavior_status` established); Stage 2 adds
-            // the region's boundaries.
+            // ADR-0022, §3.9: a refutation holds only where the analysis was complete.
             "semantic:refuted-needs-complete-region",
+            // Stage 1 has no region a refutation could rest on (the ADR set's re-review R2):
+            // every `refuted_under_model` row is rejected until Stage 2 defines regions.
             format!(
-                "SELECT b.behavior_id FROM behaviors b \
-                 JOIN operations o ON o.node_id = b.operation_node_id \
-                 WHERE b.verdict = {refuted} AND o.behavior_status <> {established}",
+                "SELECT b.behavior_id FROM behaviors b WHERE b.verdict = {refuted}",
                 refuted = Verdict::RefutedUnderModel.code(),
-                established = Verdict::Established.code(),
             ),
         ),
         (

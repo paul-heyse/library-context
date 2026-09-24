@@ -1480,7 +1480,9 @@ async fn the_analysis_rules_reject_their_violations() {
              SELECT b.snapshot_id, b.operation_node_id AS behavior_id, c.node_id AS operation_node_id, \
                     b.kind, b.parameter_node_id, b.parameter_name, b.callee_node_id, \
                     b.target_node_id, b.target_name, b.value, b.depth, b.conditional, \
-                    CAST(2 AS SMALLINT) AS verdict, b.site_node_id, b.occurrences, b.invocation_id \
+                    CAST(2 AS SMALLINT) AS verdict, b.site_node_id, b.site_module_node_id, \
+                    b.site_start_byte, b.site_end_byte, b.site_line, b.site_text, b.occurrences, \
+                    b.invocation_id \
              FROM (SELECT * FROM behaviors_published LIMIT 1) b \
              CROSS JOIN (SELECT min(node_id) AS node_id FROM operations_published \
                          WHERE behavior_status <> 0) c",
@@ -1702,6 +1704,23 @@ async fn behaviors_cover_public_callables_outside_the_subsystem() {
     assert!(
         rendered.contains("| pkg.Catalog.remove | 2    | key            | 1       |"),
         "{rendered}"
+    );
+    // A forward at depth 1 from outside the prefixes into another function outside them (R5): the
+    // seed passes' subsystem limit would drop it.
+    let relay = sql::render(
+        &ctx,
+        "SELECT o.access_path, b.kind, b.parameter_name, b.target_name, c.access_path AS callee \
+         FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id \
+         JOIN operations c ON c.node_id = b.callee_node_id \
+         WHERE o.access_path = 'pkg.relay.relay' AND b.kind = 0",
+    )
+    .await
+    .unwrap();
+    assert!(
+        relay.contains(
+            "| pkg.relay.relay | 0    | path           | path        | pkg.Catalog.load |"
+        ),
+        "{relay}"
     );
     let status = sql::render(
         &ctx,

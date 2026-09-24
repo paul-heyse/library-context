@@ -6,6 +6,9 @@
   embedder, no vectors, or the service down) it answers lexically and says so.
 - `get_capability` and the `capability://{snapshot_id}/{capability_id}` resource hydrate one
   brief by id, never by a second search.
+- The behavioral tools (ADR-0021; §11.3) serve the whole public surface: `get_operation` by
+  lookup, `find_operations` exhaustively over materialized facets, `search_operations` as ranked
+  discovery (`lctx_mcp.operations`).
 - One domain exception, `CapabilityError`, is FastMCP's `ValidationError` (the holistic
   assessment's A7): a tool returns it as an error result, and the resource answers it as invalid
   params (-32602), never as an internal error. Anything else is masked (`mask_error_details=True`).
@@ -25,15 +28,19 @@ from fastmcp.exceptions import ValidationError
 from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
+from lctx_mcp import operations as ops
 from lctx_mcp.embedder import Embedder, EmbedderError
 from lctx_mcp.generation import Generation, load
 from lctx_mcp.retrieval import Lexical, RankSource, fuse, ranks, vector_scores
 
 INSTRUCTIONS = (
-    "Capability briefs of one pinned Python library, compiled from its code, docs, examples and "
-    "tests. Search with a coding task (search_capabilities), then read a brief whole "
-    "(get_capability). Every statement carries its evidence status; 'unresolved' means the "
-    "evidence could not fill it. A relevance score ranks briefs; it is not proof of task fit."
+    "A behavioral model of one pinned Python library's whole public surface, compiled from its "
+    "code, docs, examples and tests. find_operations answers exhaustively over typed facets "
+    "(parameters, types, direct raises, decorators, and what an operation forwards to, delegates "
+    "to or hands off to), saying whether the answer is complete; search_operations ranks "
+    "operations for a task; get_operation reads one whole, each fate with its verdict and source "
+    "line. Capability briefs cover a curated subset: search_capabilities, get_capability. "
+    "'unknown' and 'not_analyzed' are never 'no'. A relevance score ranks; it is not proof."
 )
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False)
@@ -125,6 +132,7 @@ class Served:
     supports: dict[bytes, list[dict]]
     evidence: dict[bytes, dict]
     members: dict[bytes, list[str]]
+    operations: ops.OperationIndex
 
 
 def _hex(b: bytes | None) -> str | None:
@@ -152,6 +160,7 @@ def serve(generation: Generation, embedder: Embedder | None) -> Served:
         supports=supports,
         evidence={r["evidence_id"]: r for r in generation.tables["evidence"].to_pylist()},
         members=members,
+        operations=ops.OperationIndex(generation),
     )
 
 
@@ -327,6 +336,63 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         """One capability brief, whole: every section's statements with their evidence status,
         their supports, and the verbatim evidence they cite."""
         return hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id)
+
+    def _check(served: Served, library: str) -> None:
+        if library != served.generation.library:
+            raise CapabilityError(
+                f"this server serves {served.generation.library!r}, not {library!r}"
+            )
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_operation(
+        snapshot_id: str,
+        operation: Annotated[str, Field(min_length=1, max_length=500)],
+        ctx: Context,
+    ) -> ops.Operation:
+        """One public operation, whole, by any public spelling (or its id): its paths, facets,
+        each parameter's fates (forwarded, literal, raises-when, unfollowed) with verdicts and
+        source lines, its delegations and official-usage handoffs, and its brief if one exists."""
+        try:
+            return ops.get_operation(
+                ctx.lifespan_context["served"].generation, snapshot_id, operation
+            )
+        except ops.OperationError as e:
+            raise CapabilityError(str(e)) from e
+
+    @mcp.tool(annotations=READ_ONLY)
+    def find_operations(
+        library: str,
+        where: ops.Where,
+        ctx: Context,
+        limit: Annotated[int, Field(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> ops.OperationSet:
+        """Every public operation matching all the given facet terms (exact values), plus
+        optional kind and path prefix. Exhaustive over this generation; `complete` is false when
+        an operation's behavior is unknown for a behavioral facet you used, and those operations
+        are listed. No negation."""
+        served = ctx.lifespan_context["served"]
+        _check(served, library)
+        try:
+            return ops.find_operations(served.generation, where, limit, cursor)
+        except ops.OperationError as e:
+            raise CapabilityError(str(e)) from e
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def search_operations(
+        library: str,
+        query: Annotated[str, Field(min_length=1, max_length=4000)],
+        ctx: Context,
+        where: ops.Where | None = None,
+        limit: Annotated[int, Field(ge=1, le=10)] = 5,
+    ) -> ops.OperationHits:
+        """Public operations ranked for a coding task (lexical and vector views, fused), within
+        an optional facet filter. Ranked discovery, not exhaustive: confirm with get_operation."""
+        served = ctx.lifespan_context["served"]
+        _check(served, library)
+        return await ops.search_operations(
+            served.generation, served.operations, served.embedder, query, where, limit
+        )
 
     @mcp.resource("capability://{snapshot_id}/{capability_id}", mime_type="text/markdown")
     def capability(snapshot_id: str, capability_id: str, ctx: Context) -> str:

@@ -44,7 +44,13 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
     async with Client(build_server(generation, FakeEmbedder()), mode=mode) as client:
         assert client.protocol_version == protocol
         tools = {t.name: t for t in await client.list_tools()}
-        assert set(tools) == {"search_capabilities", "get_capability"}
+        assert set(tools) == {
+            "search_capabilities",
+            "get_capability",
+            "get_operation",
+            "find_operations",
+            "search_operations",
+        }
         for t in tools.values():
             a = t.annotations
             assert a is not None
@@ -60,8 +66,12 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         # Passes A, B and C for each of 5 configured seeds (the fixture has no usage code, so
         # selection adds none: the increment-2 review's U1), the direct-usage count and the
         # selection. Communities, FCA and kNN are off by default (ADR-0020).
-        # 18 since Stage 1 (ADR-0021): the behavior scan (`pass_b_surface`) is one more invocation.
-        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 18}
+        # Since Stage 1 (ADR-0021) the behavior scan (`pass_b_surface`) is one more invocation, and
+        # `partial` when any operation's scan stopped at the depth bound (the re-review R1).
+        assert result["coverage"]["invocations"] == {
+            "complete_under_stated_model": 17,
+            "partial": 1,
+        }
         assert 1 <= len(result["hits"]) <= 5
         tool = next(h for h in result["hits"] if h["title"] == "pkg.Server.tool")
         brief = await client.call_tool(

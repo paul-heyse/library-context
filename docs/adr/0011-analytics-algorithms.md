@@ -217,3 +217,6 @@ The header's `evidence: Interface-checked` is the record's floor: FCA is still o
   - They stay an off-by-default variant under ADR-0021's criterion and exit.
   - FCA over behavioral attributes (facet suggestions) and vectors per view (ranking) are the named
     consumers.
+- 2026-09-24, the ADR set's compact re-review (R6): **kNN has no tool consumer either.**
+  `search_operations` ranks by embedded operation views, not by the kNN technique's output. FCA
+  over behavioral attributes is the only named consumer among the variants.

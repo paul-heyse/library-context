@@ -713,7 +713,7 @@ semantic:behavior-covers-public
 semantic:behavior-of-an-operation
   SELECT b.operation_node_id AS node_id FROM behaviors b LEFT ANTI JOIN operations o ON o.node_id = b.operation_node_id UNION ALL SELECT f.node_id FROM operation_facets f LEFT ANTI JOIN operations o ON o.node_id = f.node_id
 semantic:refuted-needs-complete-region
-  SELECT b.behavior_id FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id WHERE b.verdict = 2 AND o.behavior_status <> 0
+  SELECT b.behavior_id FROM behaviors b WHERE b.verdict = 2
 semantic:public-path-one-node
   SELECT access_path FROM public_paths GROUP BY access_path HAVING count(DISTINCT node_id) > 1
 semantic:public-path-preferred

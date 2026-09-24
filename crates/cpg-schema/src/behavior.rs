@@ -167,9 +167,13 @@ table!(
         module: String,
         /// The docstring's first paragraph, whitespace collapsed; none without a docstring.
         docstring_summary: Option<String>,
-        /// Whether the behavior scan analyzed this node: `established` for a callable the scan
-        /// ran from, `not_analyzed` for a class (its controls are its `__init__`'s).
+        /// What the behavior scan's rows can support: `established` when the scan from this
+        /// callable met no boundary; `unknown` when it stopped at the depth bound or the callable
+        /// has call sites resolution leaves open (then negative answers about it are unknown);
+        /// `not_analyzed` for a class (its controls are its `__init__`'s).
         behavior_status: Verdict,
+        /// Why the status is not `established`, in words.
+        status_reason: Option<String>,
     }
 );
 
@@ -216,8 +220,14 @@ table!(
         /// A call on the path is made only on some paths of its caller.
         conditional: bool,
         verdict: Verdict,
-        /// The syntax node that shows it: the last call site, the `raise`, or the usage site.
+        /// The syntax node that shows it: the last call site, the `if` test, or the usage site.
         site_node_id: Option<Id>,
+        /// Where the site is: its module, byte span, 1-based line and verbatim text.
+        site_module_node_id: Option<Id>,
+        site_start_byte: Option<i64>,
+        site_end_byte: Option<i64>,
+        site_line: Option<i64>,
+        site_text: Option<String>,
         /// How many occurrences stand behind a handoff row (1 otherwise).
         occurrences: i64,
         invocation_id: Option<Id>,
@@ -332,6 +342,32 @@ crate::relations! {
         );
 }
 
+crate::relations! {
+    inventory boundaries;
+
+    /// Each caller's call sites that resolution leaves open: unresolved, partial, or with an
+    /// unresolved remainder (§3.6).
+    open_sites = "behavior:open_sites",
+        deps = ["edges", "resolutions"],
+        sql = format!(
+            "SELECT ec.src_node_id AS node_id, count(*) AS sites FROM edges ec \
+             JOIN resolutions r ON r.call_site_node_id = ec.dst_node_id \
+             WHERE ec.edge_kind = {encloses} \
+               AND (r.status <> {resolved} OR r.has_unresolved_remainder) \
+             GROUP BY ec.src_node_id ORDER BY ec.src_node_id",
+            encloses = crate::codebook::EdgeKind::EnclosesCall.code(),
+            resolved = crate::codebook::ResolutionStatus::Resolved.code(),
+        );
+}
+
+crate::query_row! {
+    /// A caller with call sites resolution leaves open.
+    pub struct OpenSitesRow {
+        node_id: Id,
+        sites: i64,
+    }
+}
+
 crate::query_row! {
     /// A public node with what `operations` and the embedded views are built from.
     pub struct OperationSourceRow {
@@ -364,7 +400,7 @@ pub fn docstring_summary(docstring: &str) -> Option<String> {
 /// The relations' identity, for the compiler digest and the behavior scan's invocation.
 pub fn digest() -> Digest {
     let mut h = IdHasher::new("behavior-relations");
-    for r in all() {
+    for r in all().into_iter().chain(boundaries()) {
         h.str(r.name).str(&r.sql);
     }
     h.finish_digest()

@@ -1,12 +1,12 @@
 ---
 id: ADR-0021
 title: The product is an evidence-carrying behavioral model of a pinned library's whole public surface; briefs are one rendering
-status: proposed
+status: accepted
 date: 2026-09-24
 supersedes: [ADR-0004]
 superseded-by: null
 design: [§1.1, §1.2, §1.3, §1.4, §1.5, §9, §12, §13]
-evidence: Proposed
+evidence: Implemented
 revisit: A stage's exit criterion (plan §6) fails twice in a row, or the Stage 1 structured evaluation shows the whole-surface tools answer no question the briefs could not.
 ---
 

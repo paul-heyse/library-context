@@ -96,14 +96,35 @@ cpg_schema::relations! {
         sql = "SELECT node_id, qualified_name FROM declarations \
                WHERE array_has($ids, node_id) ORDER BY node_id"
             .to_owned();
-    /// The release modules' texts (`$ids`).
+    /// Modules' texts (`$ids`), release and usage alike.
     module_texts = "behavior_module_texts",
         deps = ["source_files"],
-        sql = format!(
-            "SELECT DISTINCT module_node_id, text FROM source_files \
-             WHERE role = {release} AND array_has($ids, module_node_id) ORDER BY module_node_id",
-            release = cpg_schema::codebook::SourceRole::Release.code(),
-        );
+        sql = "SELECT DISTINCT module_node_id, text FROM source_files \
+               WHERE array_has($ids, module_node_id) ORDER BY module_node_id"
+            .to_owned();
+    /// Syntax nodes' spans (`$ids`).
+    site_spans = "behavior_site_spans",
+        deps = ["syntax_nodes"],
+        sql = "SELECT DISTINCT node_id, module_node_id, start_byte, end_byte FROM syntax_nodes \
+               WHERE array_has($ids, node_id) ORDER BY node_id"
+            .to_owned();
+}
+
+cpg_schema::query_row! {
+    struct SpanRow {
+        node_id: Id,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+    }
+}
+
+/// The 1-based line of a byte offset in `text`.
+fn line_of(text: &str, byte: usize) -> i64 {
+    1 + text.as_bytes()[..byte.min(text.len())]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count() as i64
 }
 
 /// The digest of what the behavior scan reads: its declared relations and this module's own.
@@ -199,7 +220,9 @@ pub async fn run(
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
         states += result.states_examined;
         examined += result.flows_examined;
-        if result.completion != CoverageStatus::CompleteUnderStatedModel {
+        if result.completion != CoverageStatus::CompleteUnderStatedModel
+            || result.stop_reason.is_some()
+        {
             partial.insert(node);
         }
         let mut members: BTreeMap<Id, Vec<&FindingMembersRow>> = BTreeMap::new();
@@ -297,6 +320,11 @@ pub async fn run(
                 conditional,
                 verdict,
                 site_node_id: site,
+                site_module_node_id: None,
+                site_start_byte: None,
+                site_end_byte: None,
+                site_line: None,
+                site_text: None,
                 occurrences: 1,
                 invocation_id: Some(invocation_id),
             });
@@ -327,7 +355,7 @@ pub async fn run(
         } else {
             CoverageStatus::Partial
         },
-        stop_reason: None,
+        stop_reason: (!partial.is_empty()).then_some(cpg_schema::codebook::StopReason::DepthLimit),
         diagnostics: None,
     });
     stages.mark("behavior: Pass B from every public callable");
@@ -369,6 +397,11 @@ pub async fn run(
             conditional: false,
             verdict,
             site_node_id: Some(site),
+            site_module_node_id: None,
+            site_start_byte: None,
+            site_end_byte: None,
+            site_line: None,
+            site_text: None,
             occurrences: n,
             invocation_id: None,
         });
@@ -426,6 +459,11 @@ pub async fn run(
                 conditional: false,
                 verdict: Verdict::Established,
                 site_node_id: Some(*site),
+                site_module_node_id: None,
+                site_start_byte: None,
+                site_end_byte: None,
+                site_line: None,
+                site_text: None,
                 occurrences: *n,
                 invocation_id: None,
             });
@@ -433,6 +471,46 @@ pub async fn run(
     }
     out.behaviors.sort_by_key(|r| r.behavior_id);
     out.behaviors.dedup_by_key(|r| r.behavior_id);
+
+    // Where each behavior is shown: its site's module, span, line and verbatim text.
+    let sites: BTreeSet<Id> = out
+        .behaviors
+        .iter()
+        .filter_map(|r| r.site_node_id)
+        .collect();
+    let spans: BTreeMap<Id, SpanRow> = sql::fetch::<SpanRow>(
+        ctx,
+        &site_spans(),
+        sql::Params::new().ids("ids", sites.iter().copied()),
+    )
+    .await?
+    .into_iter()
+    .map(|r| (r.node_id, r))
+    .collect();
+    let site_modules: BTreeSet<Id> = spans.values().map(|r| r.module_node_id).collect();
+    let site_texts: BTreeMap<Id, String> = sql::fetch::<TextRow>(
+        ctx,
+        &module_texts(),
+        sql::Params::new().ids("ids", site_modules.iter().copied()),
+    )
+    .await?
+    .into_iter()
+    .filter_map(|r| r.text.map(|t| (r.module_node_id, t)))
+    .collect();
+    for r in &mut out.behaviors {
+        let Some(span) = r.site_node_id.and_then(|s| spans.get(&s)) else {
+            continue;
+        };
+        r.site_module_node_id = Some(span.module_node_id);
+        r.site_start_byte = Some(span.start_byte);
+        r.site_end_byte = Some(span.end_byte);
+        if let Some(text) = site_texts.get(&span.module_node_id) {
+            r.site_line = Some(line_of(text, span.start_byte as usize));
+            r.site_text = text
+                .get(span.start_byte as usize..span.end_byte as usize)
+                .map(str::to_owned);
+        }
+    }
 
     // Names for partners outside the public surface: their qualified names.
     let partners: BTreeSet<Id> = out
@@ -457,14 +535,31 @@ pub async fn run(
             .or_else(|| qualified.get(&n).cloned())
     };
 
-    // Operations.
+    // Operations: a scan cut at the depth bound, or call sites resolution leaves open, make
+    // negative answers about the operation unknown (the ADR set's re-review R1).
+    let open: BTreeMap<Id, i64> =
+        sql::fetch::<b::OpenSitesRow>(ctx, &b::open_sites(), sql::Params::new())
+            .await?
+            .into_iter()
+            .map(|r| (r.node_id, r.sites))
+            .collect();
     for s in &sources {
-        let status = if s.kind == DeclarationKind::Class {
-            Verdict::NotAnalyzed
-        } else if partial.contains(&s.node_id) {
-            Verdict::Unknown
+        let mut reasons = Vec::new();
+        if partial.contains(&s.node_id) {
+            reasons.push(format!("the scan stopped at the depth bound ({max_depth})"));
+        }
+        if let Some(n) = open.get(&s.node_id) {
+            reasons.push(format!("{n} call site(s) resolution leaves open"));
+        }
+        let (status, status_reason) = if s.kind == DeclarationKind::Class {
+            (
+                Verdict::NotAnalyzed,
+                Some("a class: its controls are its __init__'s".to_owned()),
+            )
+        } else if reasons.is_empty() {
+            (Verdict::Established, None)
         } else {
-            Verdict::Established
+            (Verdict::Unknown, Some(reasons.join("; ")))
         };
         out.operations.push(OperationsRow {
             snapshot_id,
@@ -476,6 +571,7 @@ pub async fn run(
             module: s.module.clone(),
             docstring_summary: s.docstring.as_deref().and_then(b::docstring_summary),
             behavior_status: status,
+            status_reason,
         });
     }
 

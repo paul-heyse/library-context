@@ -158,6 +158,69 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             ],
             &["brief_id", "chunk"],
         ),
+        // FORMAT 3 (ADR-0021; the behavioral-model plan's Stage 1): the whole public surface.
+        file(
+            "operations",
+            vec![
+                id("node_id", false),
+                utf8("access_path", false),
+                utf8("kind", false),
+                Field::new("is_method", DataType::Boolean, false),
+                utf8("qualified_name", false),
+                utf8("module", false),
+                utf8("docstring_summary", true),
+                utf8("behavior_status", false),
+                utf8("status_reason", true),
+                id("brief_id", true),
+            ],
+            &["node_id"],
+        ),
+        file(
+            "operation_facets",
+            vec![
+                id("node_id", false),
+                utf8("facet", false),
+                utf8("value", false),
+            ],
+            &["node_id", "facet", "value"],
+        ),
+        file(
+            "behaviors",
+            vec![
+                id("behavior_id", false),
+                id("operation_node_id", false),
+                utf8("kind", false),
+                utf8("parameter_name", true),
+                id("callee_node_id", true),
+                utf8("callee", true),
+                utf8("target_name", true),
+                utf8("value", true),
+                int("depth", false),
+                Field::new("conditional", DataType::Boolean, false),
+                utf8("verdict", false),
+                int("occurrences", false),
+                utf8("path", true),
+                int("line", true),
+                utf8("site_text", true),
+            ],
+            &["behavior_id"],
+        ),
+        file(
+            "operation_text",
+            vec![id("node_id", false), utf8("text", false)],
+            &["node_id"],
+        ),
+        file(
+            "operation_vectors",
+            vec![
+                id("node_id", false),
+                utf8("embedding_view", false),
+                int("chunk", false),
+                digest("input_hash", false),
+                Field::new("vector", vector_type(dimensions), false),
+            ],
+            &["node_id", "embedding_view", "chunk"],
+        ),
     ]
 }
 

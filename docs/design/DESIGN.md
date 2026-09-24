@@ -484,11 +484,11 @@ compatibility of two conditions with a finite-domain evaluator: compatible, inco
   is a run input.
 - **Views** (ADR-0010 amendment, 2026-09-24; **Proposed**):
   - A spec is one model, one vector space.
-  - A view (signature and docstring, source body, and later others) is a template id and version
-    inside the input's identity, and a column of the served vectors.
-  - `semantic:one-embedding-spec` holds as written, one spec per snapshot. The view is a column
-    of `operation_documents`. Two views with the same text share a vector, correctly, because one
-    text has one vector per spec.
+  - A view (signature and docstring, source body, and later others) is a **column**
+    (`operation_documents.embedding_view`, `operation_vectors.embedding_view`). It is **not** part of
+    the cache key, which stays the request text's hash (the re-review R4).
+  - Two views with the same text share one vector, correctly, because one text has one vector per
+    spec. `semantic:one-embedding-spec` holds as written: one spec per snapshot.
 
 > Decision: ADR-0010
 
@@ -611,7 +611,8 @@ declaration, and an AST node is not an execution point.
 | `docs` | **Implemented and Tested (C5a, C5b).** A corpus run over the library's upstream tree at its pinned commit (§4.0), in the library's environment; its search path is the tree, then site-packages (the library run's search path), so a module both runs import is one file. Raw, parsed by markdown-rs 1.0 (MDX constructs and frontmatter; byte offsets, probe P5): `documents` (each selected file: path, digest, frontmatter title, whether it parsed; one that does not parse is `unavailable` with markdown-rs's message), `passages` (each root-level heading's section, whatever its depth, to the next, so a document's passages partition it, with level, heading and heading path; the text before the first heading is passage 0), `code_blocks` (fenced blocks at any depth, MDX components included: language, meta, code, digest; each in the passage its start falls in) and `doc_links` (URL, title, text). **Components (the holistic assessment's A3; Implemented and Tested, 2026-09-24):** `doc_components` holds each MDX JSX element, flow or text form (`component_form`), in pre-order with its parent ordinal and depth, its name (none for a fragment), its span, its inner span (first child to last; none when self-closing) and its lead (the first direct paragraph), in the passage its start falls in; `doc_component_attributes` holds its attributes in order, each by kind (`attribute_value_kind`: a literal's value as written; an expression's as source text, never evaluated; a bare name without a value; a spread without a name). Fenced and inline code never yield a component, and a heading inside one opens no passage. Components are span facts, not graph nodes. On the pilot: 1,250 components and 1,605 attributes (Measured, 2026-09-24). Consumers: §10.3's documented warnings and `<ParamField>` parameter descriptions. `mentions` (our recognizer, `lctx-docs`) against the library run's public names and declarations, two classes never merged: `exact` for inline code (or a dotted prose token) that is a public access path, an origin path or a public class's member (`FastMCP.tool`); `lexical` for inline code that is a bare public name of a class, function, method or module, or such a name in prose when it is distinctive (an underscore, or two capitals and a lower-case letter), one `candidate` per origin (re-exports collapse to the shortest access path). Embedding-based linking is §9.7's. Derived: `mention_targets` (→ the `export` node, or the member's release declaration by the seed rank). Consumers: exact doc links to APIs and extractive brief text, §9.4 co-mention. **The usage run (C5b)** is the same corpus run's code: the selected examples and tests, and every Python code block materialized as a module of its own (`_lctx_blocks/d_<document>/block_<n>.py`, named in `code_blocks.module_path`), with every code family but `exports`. The corpus names each installed file the release's distributions own by the library run's own site-relative `@path` (C5 review F2), so a usage call's target is the release's own declaration or synthetic callable (the same Pysa key, probe P4), a release class is one type term whichever run observes it, and an import of a library module targets the library's module node. A tree that holds its own copy of the package ahead of the installed one (a flat layout) would cut the usage code off the release, so it fails the compile, naming the module. Consumers: Pass C examples and tests, §10.3–§10.5 usage patterns, §9.4 co-use. Each usage module's text and role are in `source_files` (ADR-0015, closing C6 review F2), so a snippet and whether it is an example, a test or a doc block are read from Delta alone | C5 |
 | `findings` | ADR-0019 (contracts in `cpg_schema::findings`; provenance in-row, no `fact_id`; not a coverage unit; outside the `nodes`/`edges` catalogs): `analysis_invocations` (method, parameters as canonical JSON, projection digest, seed, diagnostics), `findings`, `finding_members`, `witnesses` (path steps keyed by node ids, `edge_id` as lineage), `evidence` (evidence_id → one of: fact, span, passage, example, fixture run, with resolved text), `assertions`, `assertion_support` (assertion → finding / evidence, role `support` or `scope`), `briefs` (with `review_state`, outside `brief_id`), `brief_assertions`, `brief_members`, `brief_documents`, `assertion_policy`; and `public_paths` (the holistic assessment's A1: every public path under the config's roots, own and inherited, with its export, kind, `own` and one `preferred` per node; §9's opening). A usage pattern is a `usage_pattern` assertion, not a table (D24) | 1 |
 
-**The behavior model's families** (ADR-0022, 2026-09-24; **Proposed**, landing by plan stage;
+**The behavior model's families** (ADR-0022, 2026-09-24; landing by plan stage; Stage 1's tables
+**Implemented** as analysis tables (deviation log B6) and **Tested**, the rest **Proposed**;
 the semantics are in §3.9):
 
 | Family | Tables | Stage |
@@ -1873,7 +1874,9 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - The bundle is smoke-queried by the serving code's own test entry point.
   - Then the `generations/active` symlink is switched by atomic rename.
   - A running server keeps the generation it loaded; restarting it picks up the new one.
-- **`FORMAT` 3** (ADR-0010 amendment, 2026-09-24; **Proposed**) keeps every `FORMAT` 2 file and
+- **`FORMAT` 3** (ADR-0010 amendment, 2026-09-24; Stage 1's files **Implemented** and **Tested** by
+  `a_generation_rebuilds_to_the_same_bytes` and the shared schema digests; later files **Proposed**)
+  keeps every `FORMAT` 2 file and
   adds:
   - `operations`: each public operation's paths, signature, docstring summary and facets
     (Stage 1);
@@ -2040,9 +2043,20 @@ frozen (D21), are pre-registered code (`communities::Params`, `ranking::Params`;
 invocation records them, the compiler digest includes them, and the gold freeze pins their digest
 beside the config's (ADR-0011 review F4). Defaults below are starting budgets, not measured optima.
 
-**Per public callable, not per seed** (ADR-0021; **Proposed**, plan Stage 1). The passes' relations
-are persisted as the `behavior` family (§3.2), and the control fates are computed for every public
-callable. Seed findings remain as the input to briefs.
+**Per public callable, not per seed** (ADR-0021; **Implemented** in plan Stage 1, 2026-09-24).
+- **Persistence.** The passes' relations are persisted as the `behavior` tables (§3.2).
+- **The behavior scan** (`pass_b_surface`, one invocation) runs Pass B's worklist from **every**
+  public callable. It follows parameters into **any release function**, not only subsystem callees.
+  - On the pilot, 305 operations outside the subsystem have 1,036 forwards into callees outside it
+    (the re-review, 2026-09-24).
+  - Test: `behaviors_cover_public_callables_outside_the_subsystem`, where `pkg.relay.relay`
+    forwards `path` to `pkg.Catalog.load` from outside the fixture's prefixes.
+- **An operation's `behavior_status`** is `established` only when its scan met no boundary. It is
+  `unknown` when the scan stopped at the depth bound, or when the operation has call sites
+  resolution leaves open, with the reason in `status_reason`.
+- **Seed findings remain the input to briefs, and differ in mask** (the ADR review's F7, deferred to
+  Stage 2.6). The seed passes follow subsystem callees only, and briefs state that stop as a limit.
+  So a seed's brief and its behavior rows can differ past the subsystem edge.
 
 > Decision: ADR-0021, ADR-0022
 
@@ -2157,7 +2171,8 @@ deviation log D17, D18, D26):
     declaration's kind and never by the parameter's name (review F8; the seed parameters and the
     brief's parameter list both use it).
 - **Worklist.** `lctx_analytics::pass_b`, keyed by `(callable, formal, source parameter)` and
-  bounded by Pass A's depth. It follows parameters and aliases into subsystem callees only.
+  bounded by Pass A's depth. For briefs (the seed passes) it follows parameters and aliases into
+  subsystem callees only. The behavior scan follows them into any release function (§9's opening).
   - It reports `forwarding`, `transformed_argument` (a literal the seed itself supplies),
     `conditional_raise` and `unfollowed_argument` (reason `rebound`, `computed` or `unmapped`).
   - A call its caller makes only on some paths is a `conditional_call` member of each finding
@@ -2645,9 +2660,10 @@ review, the `+pagerank` variant's method:
   - **The exit.** A variant with no tool consumer by the end of increment 5, or that fails the
     criterion at two consecutive stages, is deleted by ADR, with its tests and frozen
     parameters.
-  - **Named consumers today:** FCA over behavioral attributes (facet suggestions, Stage 4) and
-    kNN vectors (`search_operations`' ranking, Stage 1, as views). **Communities have none**; no
-    tool takes or returns them.
+  - **Named consumers today:** FCA over behavioral attributes (facet suggestions, Stage 4) only.
+    **kNN and communities have none** (the re-review R6). The operation vectors `search_operations`
+    ranks by are `operation_documents` embedded through the cache, not the kNN technique's output,
+    and no tool takes or returns communities.
 
 **The ablation, Measured in slice 3.3** (2026-09-23; ADR-0020; deviation log D42, D43). Every
 variant was compiled at budget 20 with live vectors, scored by `scripts/score_gold.py --embedder
@@ -3187,7 +3203,10 @@ workspace (the ADR-0002 amendment).
     (`test_the_server_speaks_only_the_protocol_on_stdout`).
   - Started as `python -m lctx_mcp --generation DIR --embedder vllm|fake|none`.
 
-**The behavioral tools** (ADR-0010 amendment, 2026-09-24; **Proposed**, by plan stage; §1.1):
+**The behavioral tools** (ADR-0010 amendment, 2026-09-24; by plan stage; §1.1). The three Stage 1
+tools are **Implemented** and **Tested** (2026-09-24, `python/lctx_mcp/tests/test_operations.py`,
+9 tests over the fixture generation, both protocol eras in `test_server.py`); the Stage 4 tools
+are **Proposed**.
 
 | Tool | Parameters | Output |
 |---|---|---|
@@ -3210,19 +3229,17 @@ is pyarrow over materialized rows (§B13).
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
 claims. Unknown facets and values are invalid params, and the error names the valid ones.
 
-**Two facet classes**, which decide what `complete` means:
-- **Declared facets** are stated by the release's text: `parameter`, `parameter_type`, `returns`,
-  `decorator`, `async`, `kind`, `module`, and `raises`, which means a `raise` directly in the body.
-  They are complete under the stated model, so a result over declared facets alone has
-  `complete = true`.
-- **Behavioral facets** are `forwards_to`, `delegates_to`, `hands_off_to` and `takes_from`. They
-  are found by bounded analysis. A result that filters on one has `complete = true` only when no
-  operation in the queried universe has an `unknown` row of that facet's kind:
-  - an unfollowed read, for `forwards_to`;
-  - a candidate (override-open) arc, for `delegates_to`.
-
-  The operations that break completeness are returned as `unknown`, capped at 50 with a count and
-  a flag.
+**Two facet classes**, which decide what `complete` means (the re-review R1):
+- **Declared facets** are read from the declaration and its annotations: `parameter`,
+  `parameter_type`, `returns`, `decorator`, `async`, `kind`, `module`. They are complete under the
+  stated model, so a result over declared facets alone has `complete = true`.
+- **Every other facet is never complete in Stage 1:** `raises` (a typed `raise` directly in the
+  body, which Pyrefly types) and the behavioral facets `forwards_to`, `delegates_to`,
+  `hands_off_to` and `takes_from`. A depth cut, a call site resolution leaves open, or an untyped
+  raise can hide a match.
+  - `unknown` lists the operations known to hide possible matches: those whose `behavior_status`
+    is `unknown`, or which hold an `unknown` row of the facet's kind.
+  - It is capped at 50, with a count and a flag. It is evidence, not a bound.
 
 **`complete` is never "not truncated".** Truncation has its own flag.
 

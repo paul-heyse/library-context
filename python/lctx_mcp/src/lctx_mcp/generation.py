@@ -20,7 +20,7 @@ import pyarrow.ipc as ipc
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 2
+FORMAT = 3
 
 
 class GenerationError(RuntimeError):
@@ -123,6 +123,51 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 pa.field("vector", vector, nullable=False),
             ]
         ),
+        # FORMAT 3 (ADR-0021): the whole public surface.
+        "operations": pa.schema(
+            [
+                _id("node_id"),
+                _utf8("access_path"),
+                _utf8("kind"),
+                pa.field("is_method", pa.bool_(), nullable=False),
+                _utf8("qualified_name"),
+                _utf8("module"),
+                _utf8("docstring_summary", True),
+                _utf8("behavior_status"),
+                _utf8("status_reason", True),
+                _id("brief_id", True),
+            ]
+        ),
+        "operation_facets": pa.schema([_id("node_id"), _utf8("facet"), _utf8("value")]),
+        "behaviors": pa.schema(
+            [
+                _id("behavior_id"),
+                _id("operation_node_id"),
+                _utf8("kind"),
+                _utf8("parameter_name", True),
+                _id("callee_node_id", True),
+                _utf8("callee", True),
+                _utf8("target_name", True),
+                _utf8("value", True),
+                _int("depth"),
+                pa.field("conditional", pa.bool_(), nullable=False),
+                _utf8("verdict"),
+                _int("occurrences"),
+                _utf8("path", True),
+                _int("line", True),
+                _utf8("site_text", True),
+            ]
+        ),
+        "operation_text": pa.schema([_id("node_id"), _utf8("text")]),
+        "operation_vectors": pa.schema(
+            [
+                _id("node_id"),
+                _utf8("embedding_view"),
+                _int("chunk"),
+                pa.field("input_hash", pa.binary(32), nullable=False),
+                pa.field("vector", vector, nullable=False),
+            ]
+        ),
     }
 
 
@@ -147,6 +192,16 @@ class Generation:
     spec_hash: str | None
     vectors: np.ndarray | None
     vector_rows: list[bytes] = field(default_factory=list)
+    # FORMAT 3: the public surface (ADR-0021).
+    op_ids: list[bytes] = field(default_factory=list)
+    operations: dict[bytes, dict] = field(default_factory=dict)
+    op_text: list[str] = field(default_factory=list)
+    paths: dict[str, bytes] = field(default_factory=dict)
+    spellings: dict[bytes, list[tuple[str, bool]]] = field(default_factory=dict)
+    facets: dict[bytes, list[tuple[str, str]]] = field(default_factory=dict)
+    by_facet: dict[tuple[str, str], set[bytes]] = field(default_factory=dict)
+    behaviors: dict[bytes, list[dict]] = field(default_factory=dict)
+    op_vectors: dict[str, tuple[np.ndarray, list[bytes]]] = field(default_factory=dict)
 
     @property
     def snapshot_id(self) -> str:
@@ -223,6 +278,35 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         if not np.all(np.isfinite(vectors)) or np.any(np.abs(norms - 1.0) > 1e-3):
             raise GenerationError("the vectors are not finite unit vectors")
         vector_rows = tables["vectors"].column("brief_id").to_pylist()
+    op_rows = tables["operations"].to_pylist()
+    op_ids = [r["node_id"] for r in op_rows]
+    op_text_of = {r["node_id"]: r["text"] for r in tables["operation_text"].to_pylist()}
+    paths: dict[str, bytes] = {}
+    spellings: dict[bytes, list[tuple[str, bool]]] = {}
+    for r in tables["public_paths"].to_pylist():
+        paths[r["access_path"]] = r["node_id"]
+        spellings.setdefault(r["node_id"], []).append((r["access_path"], r["own"]))
+    facets: dict[bytes, list[tuple[str, str]]] = {}
+    by_facet: dict[tuple[str, str], set[bytes]] = {}
+    for r in tables["operation_facets"].to_pylist():
+        facets.setdefault(r["node_id"], []).append((r["facet"], r["value"]))
+        by_facet.setdefault((r["facet"], r["value"]), set()).add(r["node_id"])
+    behaviors: dict[bytes, list[dict]] = {}
+    for r in tables["behaviors"].to_pylist():
+        behaviors.setdefault(r["operation_node_id"], []).append(r)
+    op_vectors: dict[str, tuple[np.ndarray, list[bytes]]] = {}
+    ov = tables["operation_vectors"]
+    if ov.num_rows:
+        matrix = ov.column("vector").combine_chunks().flatten().to_numpy()
+        matrix = matrix.reshape(-1, dimensions).astype(np.float32)
+        norms = np.linalg.norm(matrix.astype(np.float64), axis=1)
+        if not np.all(np.isfinite(matrix)) or np.any(np.abs(norms - 1.0) > 1e-3):
+            raise GenerationError("the operation vectors are not finite unit vectors")
+        views = ov.column("embedding_view").to_pylist()
+        nodes = ov.column("node_id").to_pylist()
+        for view in sorted(set(views)):
+            rows = [i for i, v in enumerate(views) if v == view]
+            op_vectors[view] = (matrix[rows], [nodes[i] for i in rows])
     return Generation(
         root=root,
         manifest=manifest,
@@ -234,4 +318,13 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         spec_hash=spec_hash,
         vectors=vectors,
         vector_rows=vector_rows,
+        op_ids=op_ids,
+        operations={r["node_id"]: r for r in op_rows},
+        op_text=[op_text_of.get(n, "") for n in op_ids],
+        paths=paths,
+        spellings=spellings,
+        facets=facets,
+        by_facet=by_facet,
+        behaviors=behaviors,
+        op_vectors=op_vectors,
     )

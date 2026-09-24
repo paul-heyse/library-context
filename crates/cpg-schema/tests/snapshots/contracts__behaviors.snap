@@ -22,5 +22,10 @@ depth: Int64 NOT NULL
 conditional: Boolean NOT NULL
 verdict: Int16 NOT NULL [lctx.codebook=verdict]
 site_node_id: FixedSizeBinary(16) NULL
+site_module_node_id: FixedSizeBinary(16) NULL
+site_start_byte: Int64 NULL
+site_end_byte: Int64 NULL
+site_line: Int64 NULL
+site_text: Utf8 NULL
 occurrences: Int64 NOT NULL
 invocation_id: FixedSizeBinary(16) NULL
