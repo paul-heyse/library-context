@@ -1249,6 +1249,80 @@ async fn doc_links_come_from_embedding_similarity() {
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
 
+/// Slice 3.2's layers on a corpus: `+mention-layer` pairs what one passage names exactly, and
+/// `+knn-layer` each API with its nearest APIs by embedding; both are recorded in the consensus's
+/// diagnostics. The kNN layer without an embedder is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn mention_and_knn_layers_come_from_the_corpus() {
+    let (ctx, _dir) = docs_shapes_variant(
+        "layers",
+        Some(std::sync::Arc::new(WordsEmbedder::new())),
+        cpg_core::analyze::Techniques::parse("+mention-layer,+knn-layer").unwrap(),
+    )
+    .await
+    .unwrap();
+    let consensus = lines(
+        &ctx,
+        "SELECT diagnostics FROM analysis_invocations WHERE method = 4",
+    )
+    .await;
+    insta::assert_snapshot!("docs_shapes_layers", consensus);
+    assert!(consensus.contains("[\"mention\","), "{consensus}");
+    assert!(consensus.contains("[\"knn\","), "{consensus}");
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let refused = docs_shapes_variant(
+        "refused",
+        None,
+        cpg_core::analyze::Techniques::parse("+knn-layer").unwrap(),
+    )
+    .await;
+    assert!(
+        refused
+            .err()
+            .is_some_and(|e| e.to_string().contains("needs an embedder"))
+    );
+}
+
+/// `docs_shapes` compiled with an analytics variant (slice 3.2).
+async fn docs_shapes_variant(
+    sub: &str,
+    embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
+    techniques: cpg_core::analyze::Techniques,
+) -> Result<(SessionContext, tempfile::TempDir), cpg_core::CoreError> {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join(sub);
+    std::fs::create_dir_all(&base).unwrap();
+    let s = Id([7; 16]);
+    let out = extract(&corpus_input(&base, s, &[("usage", "examples")])).unwrap();
+    let analysis = cpg_core::analyze::Analysis {
+        config: lctx_analytics::config::AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["pkg.core"]
+public_roots = ["pkg"]
+[seeds]
+primary = ["pkg.Server.tool"]
+distractors = ["pkg.make_server", "pkg.Server.stop"]
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 3
+"#,
+        )
+        .unwrap(),
+        embedder,
+        techniques,
+    };
+    let store = base.join("store");
+    cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis)).await?;
+    let (_, ctx) = published(&store, s).await.unwrap().unwrap();
+    Ok((ctx, dir))
+}
+
 /// Direct usage and seed selection (DESIGN §9.5; the increment-2 review's U1 and F6(a)): each public
 /// API the official usage code calls is counted, one per definite call site; with room in the
 /// budget, the most called eligible API (one with a docstring summary) becomes a seed, named by its

@@ -239,6 +239,44 @@ pub struct Outcome {
 }
 
 /// Each function's attributes from `cpg_schema::concepts::attributes_sql`'s rows.
+/// RCA's relational scaling (DESIGN §9.6; slice 3.2, the `+rca` variant): one ∃-scaling step, as
+/// attributes of the same FCA.
+pub const RCA_POLICY: &str = "rca: one existential-scaling step over each object's relations: \
+                              'calls X' for each call arc (definite or candidate) to a subsystem \
+                              function X; 'hands off to X' and 'takes from X' for each handoff \
+                              the official usage code shows (the Pass C relation); X named by \
+                              its preferred public path, else its qualified name";
+
+/// The relational attributes of `objects` ([`RCA_POLICY`]): `calls` are `(caller, callee)`
+/// pairs, `handoffs` `(producer, consumer)` pairs; a partner `names` lacks gives none.
+pub fn relational(
+    objects: &[Id],
+    calls: &[(Id, Id)],
+    handoffs: &[(Id, Id)],
+    names: &BTreeMap<Id, String>,
+) -> BTreeMap<Id, BTreeSet<String>> {
+    let wanted: BTreeSet<&Id> = objects.iter().collect();
+    let mut out: BTreeMap<Id, BTreeSet<String>> = BTreeMap::new();
+    let mut add = |object: Id, relation: &str, partner: Id| {
+        if wanted.contains(&object)
+            && object != partner
+            && let Some(name) = names.get(&partner)
+        {
+            out.entry(object)
+                .or_default()
+                .insert(format!("{relation} {name}"));
+        }
+    };
+    for &(caller, callee) in calls {
+        add(caller, "calls", callee);
+    }
+    for &(producer, consumer) in handoffs {
+        add(producer, "hands off to", consumer);
+        add(consumer, "takes from", producer);
+    }
+    out
+}
+
 pub fn attributes_of(
     batches: &[RecordBatch],
 ) -> Result<BTreeMap<Id, BTreeSet<String>>, AnalyticsError> {
@@ -653,6 +691,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// RCA's scaling (slice 3.2): calls and both ends of a handoff become attributes of the
+    /// objects in scope only, named by the partner's name; a nameless partner or a self-call gives
+    /// none.
+    #[test]
+    fn relations_become_attributes_of_the_objects_in_scope() {
+        let id = |k: u8| Id([k; 16]);
+        let names: BTreeMap<Id, String> =
+            [(id(2), "pkg.b".to_owned()), (id(3), "pkg.c".to_owned())]
+                .into_iter()
+                .collect();
+        let got = relational(
+            &[id(1), id(2)],
+            &[
+                (id(1), id(2)),
+                (id(1), id(3)),
+                (id(1), id(9)),
+                (id(2), id(2)),
+                (id(3), id(2)),
+            ],
+            &[(id(3), id(1)), (id(2), id(3))],
+            &names,
+        );
+        let expected: BTreeMap<Id, BTreeSet<String>> = [
+            (
+                id(1),
+                ["calls pkg.b", "calls pkg.c", "takes from pkg.c"]
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect(),
+            ),
+            (
+                id(2),
+                ["hands off to pkg.c"]
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(got, expected);
     }
 
     #[test]

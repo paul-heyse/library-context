@@ -1,0 +1,9 @@
+---
+source: crates/cpg-core/tests/analysis.rs
+expression: relational
+---
++---------------------------+
+| label                     |
++---------------------------+
+| calls pkg.helpers.prepare |
++---------------------------+

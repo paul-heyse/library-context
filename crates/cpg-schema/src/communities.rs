@@ -16,8 +16,10 @@
 //!   never named through a subclass it would bind differently), then the fewest segments, then
 //!   the least. Exactly one path per callable is `preferred`.
 
-use crate::codebook::{AncestryRelation, Codebook, DeclarationKind, EdgeKind, SourceRole};
-use crate::flows::{call_targets, codes};
+use crate::codebook::{
+    AncestryRelation, Codebook, DeclarationKind, EdgeKind, MentionClass, SourceRole, TypeRole,
+};
+use crate::flows::{call_targets, codes, receivers_sql};
 use crate::id::{Digest, IdHasher};
 
 /// The co-use occurrences, ordered by `(scope, target, call site)`.
@@ -100,6 +102,60 @@ pub fn public_callables_sql(public_roots: &[String]) -> String {
     )
 }
 
+/// The type layer's relation (slice 3.2, the `+type-layer` variant): each function with each
+/// release class its declared parameter types name anywhere in their structure (the receiver
+/// aside), ordered by `(function, class)`. Two functions taking one class are a pair, 1 per class.
+pub fn shared_types_sql() -> String {
+    format!(
+        "WITH RECURSIVE receivers AS ({receivers}), \
+         declared AS ( \
+           SELECT ps.function_node_id, o.term_node_id FROM parameter_syntax ps \
+           JOIN type_observations o ON o.subject_node_id = ps.node_id \
+             AND o.role = {parameter} AND o.declared \
+           LEFT ANTI JOIN receivers r ON r.parameter_node_id = ps.node_id), \
+         reach(function_node_id, term_node_id) AS ( \
+           SELECT function_node_id, term_node_id FROM declared \
+           UNION ALL \
+           SELECT r.function_node_id, a.child_node_id FROM reach r \
+           JOIN type_term_args a ON a.parent_node_id = r.term_node_id) \
+         SELECT DISTINCT r.function_node_id AS target_node_id, \
+                t.class_node_id AS scope_node_id \
+         FROM reach r JOIN type_class_targets t ON t.term_node_id = r.term_node_id \
+         JOIN declarations c ON c.node_id = t.class_node_id \
+         ORDER BY scope_node_id, target_node_id",
+        receivers = receivers_sql(),
+        parameter = TypeRole::Parameter.code(),
+    )
+}
+
+/// The mention layer's relation (slice 3.2, the `+mention-layer` variant; C5 O1): each doc
+/// passage with each declaration an exact mention in it names, ordered by `(passage, target)`.
+/// Two functions one passage names are a pair, 1 per passage.
+pub fn co_mention_sql() -> String {
+    format!(
+        "SELECT DISTINCT t.passage_node_id AS scope_node_id, t.target_node_id \
+         FROM mention_targets t JOIN mentions m ON m.fact_id = t.mention_fact_id \
+         WHERE m.class = {exact} AND t.target_node_id IS NOT NULL \
+         ORDER BY scope_node_id, target_node_id",
+        exact = MentionClass::Exact.code(),
+    )
+}
+
+/// The extra layers' identity, joined to the community relations' when a variant enables them.
+pub fn extra_digest(base: Digest, layers: &[&str]) -> Digest {
+    let mut h = IdHasher::new("community-extra-layers");
+    h.digest_field(base);
+    for layer in layers {
+        h.str(layer);
+        match *layer {
+            "type" => h.str(&shared_types_sql()),
+            "mention" => h.str(&co_mention_sql()),
+            _ => &mut h,
+        };
+    }
+    h.finish_digest()
+}
+
 /// The relations' identity: theirs and the invocation projection's, whose arcs the invocation
 /// layer counts (ADR-0011 review F3). The public-callables query with no roots stands for its
 /// form.
@@ -132,6 +188,11 @@ pub mod schemas {
             id("target_node_id"),
             id("call_site_node_id"),
         ]))
+    }
+
+    /// The extra layers' `(scope, target)` relations (slice 3.2).
+    pub fn scope_targets() -> SchemaRef {
+        Arc::new(Schema::new(vec![id("scope_node_id"), id("target_node_id")]))
     }
 
     pub fn public_callables() -> SchemaRef {

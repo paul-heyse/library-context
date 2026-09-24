@@ -48,8 +48,10 @@ use crate::{CoreError, sql};
 /// split into chunks (slice 2.5). 11: Related from communities and centrality (slice 2.6). 12: doc
 /// links and community labels from embeddings (slice 3.1). 13: the increment-2 review: the
 /// concept as a shared signature under Related from the seed's own scope, never the Applicable
-/// case; attributes as what an API does, each with its scope; Related by direct usage.
-pub const TEMPLATE_VERSION: i64 = 13;
+/// case; attributes as what an API does, each with its scope; Related by direct usage. 14: RCA's
+/// relational attributes (`calls`, handoffs) in the shared-signature and implication texts
+/// (slice 3.2).
+pub const TEMPLATE_VERSION: i64 = 14;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -404,12 +406,21 @@ fn listed(items: &[String]) -> String {
 
 /// FCA attributes as what an API does, each with its scope (the increment-2 review's F2): it
 /// declares parameters and parameter types, declares a return type, raises an exception class
-/// directly in its body, is decorated (§9.6's attribute forms, `cpg_schema::concepts`).
+/// directly in its body, is decorated (§9.6's attribute forms, `cpg_schema::concepts`); and, in
+/// the `+rca` variant, calls a subsystem function, or has its result passed on or takes another's
+/// in official usage (`lctx_analytics::concepts::RCA_POLICY`).
 fn attributes_text(attributes: &[String]) -> String {
     let (mut params, mut types, mut returns, mut raises, mut decorators) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut calls, mut hands, mut takes) = (Vec::new(), Vec::new(), Vec::new());
     for a in attributes {
-        if let Some(t) = a.strip_prefix("parameter type ") {
+        if let Some(x) = a.strip_prefix("calls ") {
+            calls.push(format!("`{x}`"));
+        } else if let Some(x) = a.strip_prefix("hands off to ") {
+            hands.push(format!("`{x}`"));
+        } else if let Some(x) = a.strip_prefix("takes from ") {
+            takes.push(format!("`{x}`"));
+        } else if let Some(t) = a.strip_prefix("parameter type ") {
             types.push(format!("a parameter typed `{t}`"));
         } else if let Some(n) = a.strip_prefix("parameter ") {
             params.push(format!("`{n}`"));
@@ -440,6 +451,21 @@ fn attributes_text(attributes: &[String]) -> String {
     }
     if !decorators.is_empty() {
         parts.push(format!("is decorated with {}", listed(&decorators)));
+    }
+    if !calls.is_empty() {
+        parts.push(format!("calls {}", listed(&calls)));
+    }
+    if !hands.is_empty() {
+        parts.push(format!(
+            "has its result passed to {} in official usage",
+            listed(&hands)
+        ));
+    }
+    if !takes.is_empty() {
+        parts.push(format!(
+            "takes the result of {} in official usage",
+            listed(&takes)
+        ));
     }
     listed(&parts)
 }
@@ -908,17 +934,9 @@ pub async fn run(
         }
     }
     let patterns = crate::usage::patterns(ctx, &seeds, &preferred).await?;
-    // Each seed's FCA attributes (the declared relation's rows), for the implications it meets.
-    let seed_attributes: BTreeMap<Id, BTreeSet<String>> = lctx_analytics::concepts::attributes_of(
-        &Table::read(
-            ctx,
-            &cpg_schema::concepts::attributes_sql(&seeds),
-            &[("function_node_id", ID), ("attribute", DataType::Utf8)],
-        )
-        .await?
-        .batches,
-    )
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    // Each seed's FCA attributes, as Stage E's context held them (RCA's included), for the
+    // implications it meets.
+    let seed_attributes = &found.seed_attributes;
 
     let mut evidence: BTreeMap<Id, EvidenceRow> = BTreeMap::new();
     let mut add_evidence = |row: EvidenceRow| -> Id {

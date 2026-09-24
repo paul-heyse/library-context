@@ -752,6 +752,72 @@ async fn fca_scopes_are_nodes_and_state_only_their_own_apis() {
     assert!(stated.contains("add_gadget"), "{stated}");
 }
 
+/// Slice 3.2's variants (§9.6, §9.4, §9.8): `+rca` adds relational attributes to the same FCA and
+/// `+type-layer,+mention-layer` add community layers, each recorded in its invocation's parameters
+/// and diagnostics. A variant's snapshot is another content (its label joins the config digest),
+/// while a finding the variant does not touch keeps its id, so an ablation diff is a join.
+#[tokio::test(flavor = "multi_thread")]
+async fn variants_add_relational_attributes_and_layers() {
+    let (default, dd) = compile_config("default", CONFIG, "linux").await;
+    let (variant, dv) = compile_variant(
+        "variant",
+        CONFIG,
+        "linux",
+        Techniques::parse("+rca,+type-layer,+mention-layer").unwrap(),
+    )
+    .await;
+    let (default, variant) = (default.unwrap(), variant.unwrap());
+    assert_ne!(default.content_digest, variant.content_digest);
+    let (_, a) = published(&dd.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, b) = published(&dv.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    // Pass A is untouched: identical finding ids.
+    let pass_a = "SELECT finding_id FROM findings WHERE finding_kind <= 5 ORDER BY 1";
+    assert_eq!(text(&a, pass_a).await, text(&b, pass_a).await);
+    let fca = text(
+        &b,
+        "SELECT parameters, diagnostics FROM analysis_invocations WHERE method = 6 \
+         ORDER BY parameters",
+    )
+    .await;
+    assert!(
+        fca.contains("\"rca\":\"rca: one existential-scaling step"),
+        "{fca}"
+    );
+    let relational = text(
+        &b,
+        "SELECT DISTINCT label FROM finding_members WHERE role IN (12, 13, 14) \
+           AND (starts_with(label, 'calls ') OR starts_with(label, 'hands off to ') \
+                OR starts_with(label, 'takes from ')) ORDER BY label",
+    )
+    .await;
+    insta::assert_snapshot!("rca_attributes", relational);
+    let consensus = text(
+        &b,
+        "SELECT diagnostics FROM analysis_invocations WHERE method = 4",
+    )
+    .await;
+    assert!(
+        consensus.contains("\"extra_layers\":[[\"type\","),
+        "{consensus}"
+    );
+    assert!(consensus.contains("[\"mention\",0,"), "{consensus}");
+    assert!(
+        !text(
+            &a,
+            "SELECT diagnostics FROM analysis_invocations WHERE method = 4"
+        )
+        .await
+        .contains("extra_layers")
+    );
+    assert!(cpg_core::validate::validate(&b).await.unwrap().is_empty());
+}
+
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is
 /// `partial` with its stop reason, and Stage F states it as a limit of the brief.
 #[tokio::test(flavor = "multi_thread")]
@@ -1033,6 +1099,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             15,
             13,
             "bc3a98ff16fbcb0a3a355db8e827e7859dea812b3a2d84abc6ce4bbfd2a41bb8",
+        ),
+        (
+            15,
+            14,
+            "80eea5dfd50a644872fe345833563c7d4658604d2a7544f3629c17c8ed72d20a",
         ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).

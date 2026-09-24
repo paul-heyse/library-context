@@ -142,6 +142,22 @@ pub fn nearest(queries: &[Item], targets: &[Item], k: usize, min: f64) -> Vec<Ve
         .collect()
 }
 
+/// The kNN layer's pairs (slice 3.2, the `+knn-layer` variant): each API with its `k` nearest
+/// other APIs at or above `min`, as `(api, neighbour)`; a pair found from both ends is listed
+/// twice, and a layer counts each finding once.
+pub fn api_neighbours(apis: &[Item], k: usize, min: f64) -> Vec<(Id, Id)> {
+    nearest(apis, apis, k + 1, min)
+        .into_iter()
+        .enumerate()
+        .flat_map(|(q, hits)| {
+            hits.into_iter()
+                .filter(move |(t, _)| *t != q)
+                .take(k)
+                .map(move |(t, _)| (apis[q].node, apis[t].node))
+        })
+        .collect()
+}
+
 /// The normalized mean of the items' window vectors, as a one-window item.
 pub fn centroid(node: Id, items: &[&Item]) -> Option<Item> {
     let dims = items.iter().flat_map(|i| i.vectors.first()).next()?.len();

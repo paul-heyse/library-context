@@ -210,6 +210,8 @@ pub struct AnalysisRows {
     /// Each seed's FCA scope: its node and label (the increment-2 review's F1). Stage F states
     /// only that scope's concepts and implications for the seed.
     pub seed_scopes: BTreeMap<Id, (Id, String)>,
+    /// Each seed's FCA attributes, as the context held them (RCA's included).
+    pub seed_attributes: BTreeMap<Id, std::collections::BTreeSet<String>>,
 }
 
 async fn collect(
@@ -552,6 +554,9 @@ struct UsageParameters<'a> {
 struct ConceptParameters<'a> {
     fca: &'a concepts::Params,
     scope: &'a str,
+    /// RCA's relational scaling (slice 3.2, `+rca`); absent in the default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rca: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -567,6 +572,12 @@ struct CommunityParameters<'a> {
     communities: &'a communities::Params,
     module_prefixes: &'a [String],
     public_roots: &'a [String],
+    /// A variant's extra layers and their weight rule (slice 3.2); absent in the default, so its
+    /// parameters, and so its invocation ids, are unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    extra_layers: Vec<(&'a str, &'a str)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    weight_rule: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -666,7 +677,137 @@ pub async fn run(
     let preferred = lctx_analytics::communities::preferred_paths(&public)
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let techniques = analysis.techniques;
+    // E0 (§9.7; slice 3.1): the corpus passages and the subsystem's public APIs embedded through
+    // the cache, in windows under the document cap, when kNN or the kNN layer reads them.
+    let knn = neighbours::Params::preregistered();
+    if techniques.knn_layer && analysis.embedder.is_none() {
+        return Err(CoreError::Analysis(
+            "the kNN community layer needs an embedder".to_owned(),
+        ));
+    }
+    let mut embedded = None;
+    if let (true, Some(embedder)) = (techniques.knn || techniques.knn_layer, &analysis.embedder) {
+        let mut texts: Vec<String> = Vec::new();
+        // (node, label, first window, window count)
+        let mut passage_spans: Vec<(Id, String, usize, usize)> = Vec::new();
+        for b in collect(
+            ctx,
+            &cpg_schema::neighbours::passages_sql(),
+            &cpg_schema::neighbours::schemas::passages(),
+        )
+        .await?
+        {
+            let nodes = id_col(&b, "node_id")?;
+            let heading = str_col(&b, "heading")?;
+            let path = str_col(&b, "path")?;
+            let text = str_col(&b, "text")?;
+            for (i, node) in nodes.into_iter().enumerate() {
+                let label = if heading.is_null(i) {
+                    path.value(i).to_owned()
+                } else {
+                    format!("{} § {}", path.value(i), heading.value(i))
+                };
+                let w = neighbours::windows(text.value(i), knn.window_bytes);
+                passage_spans.push((node, label, texts.len(), w.len()));
+                texts.extend(w);
+            }
+        }
+        let api_nodes: Vec<Id> = preferred
+            .keys()
+            .copied()
+            .filter(|n| {
+                p.dense(*n).is_some_and(|d| {
+                    p.kinds[d as usize] == NodeKind::Function && subsystem.contains(d as usize)
+                })
+            })
+            .collect();
+        let mut api_spans: Vec<(Id, usize, usize)> = Vec::new();
+        if !api_nodes.is_empty() {
+            for b in collect(
+                ctx,
+                &cpg_schema::neighbours::api_texts_sql(&api_nodes),
+                &cpg_schema::neighbours::schemas::api_texts(),
+            )
+            .await?
+            {
+                let nodes = id_col(&b, "node_id")?;
+                let docstring = str_col(&b, "docstring")?;
+                let parameters = str_col(&b, "parameters")?;
+                for (i, node) in nodes.into_iter().enumerate() {
+                    let text = neighbours::api_text(
+                        &preferred[&node],
+                        (!parameters.is_null(i)).then(|| parameters.value(i)),
+                        (!docstring.is_null(i)).then(|| docstring.value(i)),
+                    );
+                    let w = neighbours::windows(&text, knn.window_bytes);
+                    api_spans.push((node, texts.len(), w.len()));
+                    texts.extend(w);
+                }
+            }
+        }
+        let (vectors, keys, _) =
+            crate::embed::embed_texts(root, snapshot_id, embedder.as_ref(), &texts).await?;
+        rows.embedded_keys = keys;
+        let item = |node: Id, first: usize, count: usize| neighbours::Item {
+            node,
+            vectors: vectors[first..first + count].to_vec(),
+        };
+        let apis: Vec<neighbours::Item> = api_spans
+            .iter()
+            .map(|&(n, first, count)| item(n, first, count))
+            .collect();
+        let passages: Vec<neighbours::Passage> = passage_spans
+            .iter()
+            .map(|(n, label, first, count)| neighbours::Passage {
+                item: item(*n, *first, *count),
+                label: label.clone(),
+            })
+            .collect();
+        embedded = Some((embedder, apis, passages));
+    }
     if techniques.communities {
+        // A variant's extra layers (slice 3.2; §9.4): shared declared parameter types, doc
+        // co-mentions (C5 O1) and API–API embedding neighbours.
+        let mut extra: Vec<communities::ExtraLayer> = Vec::new();
+        for (on, name, policy, sql) in [
+            (
+                techniques.type_layer,
+                "type",
+                communities::TYPE_LAYER_POLICY,
+                cpg_schema::communities::shared_types_sql(),
+            ),
+            (
+                techniques.mention_layer,
+                "mention",
+                communities::MENTION_LAYER_POLICY,
+                cpg_schema::communities::co_mention_sql(),
+            ),
+        ] {
+            if on {
+                let rows = collect(
+                    ctx,
+                    &sql,
+                    &cpg_schema::communities::schemas::scope_targets(),
+                )
+                .await?;
+                extra.push(communities::ExtraLayer {
+                    name,
+                    policy,
+                    pairs: communities::scope_pairs(&rows, |_| true)
+                        .map_err(|e| CoreError::Analysis(e.to_string()))?,
+                });
+            }
+        }
+        if let (true, Some((_, apis, _))) = (techniques.knn_layer, &embedded) {
+            extra.push(communities::ExtraLayer {
+                name: "knn",
+                policy: communities::KNN_LAYER_POLICY,
+                pairs: neighbours::api_neighbours(apis, knn.k, knn.min_similarity)
+                    .into_iter()
+                    .map(|(a, b)| (a, b, a.max(b)))
+                    .collect(),
+            });
+        }
         let input = communities::Input::build(
             &p,
             &subsystem,
@@ -677,13 +818,22 @@ pub async fn run(
             )
             .await?,
             &public,
+            &extra,
         )
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        let layer_names: Vec<&str> = extra.iter().map(|l| l.name).collect();
+        let community_digest = if extra.is_empty() {
+            community_digest
+        } else {
+            cpg_schema::communities::extra_digest(community_digest, &layer_names)
+        };
         let params = communities::Params::preregistered();
         let parameters = serde_json::to_string(&CommunityParameters {
             communities: &params,
             module_prefixes: &config.subsystem.module_prefixes,
             public_roots: &config.subsystem.public_roots,
+            extra_layers: extra.iter().map(|l| (l.name, l.policy)).collect(),
+            weight_rule: (!extra.is_empty()).then_some(communities::EXTRA_WEIGHT_RULE),
         })
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
         let parameters_digest = content_digest(parameters.as_bytes());
@@ -862,87 +1012,9 @@ pub async fn run(
         });
         rows.findings.extend(ranked.findings);
     }
-    // Embeddings in analytics (§9.7; slice 3.1): E0 embeds the corpus passages and the subsystem's
-    // public APIs through the cache, in windows under the document cap; exact kNN links each API
-    // to its nearest passages and labels each community by its centroid's nearest heading.
-    if let (true, Some(embedder)) = (techniques.knn, &analysis.embedder) {
-        let knn = neighbours::Params::preregistered();
-        let mut texts: Vec<String> = Vec::new();
-        // (node, label, first window, window count)
-        let mut passage_spans: Vec<(Id, String, usize, usize)> = Vec::new();
-        for b in collect(
-            ctx,
-            &cpg_schema::neighbours::passages_sql(),
-            &cpg_schema::neighbours::schemas::passages(),
-        )
-        .await?
-        {
-            let nodes = id_col(&b, "node_id")?;
-            let heading = str_col(&b, "heading")?;
-            let path = str_col(&b, "path")?;
-            let text = str_col(&b, "text")?;
-            for (i, node) in nodes.into_iter().enumerate() {
-                let label = if heading.is_null(i) {
-                    path.value(i).to_owned()
-                } else {
-                    format!("{} § {}", path.value(i), heading.value(i))
-                };
-                let w = neighbours::windows(text.value(i), knn.window_bytes);
-                passage_spans.push((node, label, texts.len(), w.len()));
-                texts.extend(w);
-            }
-        }
-        let api_nodes: Vec<Id> = preferred
-            .keys()
-            .copied()
-            .filter(|n| {
-                p.dense(*n).is_some_and(|d| {
-                    p.kinds[d as usize] == NodeKind::Function && subsystem.contains(d as usize)
-                })
-            })
-            .collect();
-        let mut api_spans: Vec<(Id, usize, usize)> = Vec::new();
-        if !api_nodes.is_empty() {
-            for b in collect(
-                ctx,
-                &cpg_schema::neighbours::api_texts_sql(&api_nodes),
-                &cpg_schema::neighbours::schemas::api_texts(),
-            )
-            .await?
-            {
-                let nodes = id_col(&b, "node_id")?;
-                let docstring = str_col(&b, "docstring")?;
-                let parameters = str_col(&b, "parameters")?;
-                for (i, node) in nodes.into_iter().enumerate() {
-                    let text = neighbours::api_text(
-                        &preferred[&node],
-                        (!parameters.is_null(i)).then(|| parameters.value(i)),
-                        (!docstring.is_null(i)).then(|| docstring.value(i)),
-                    );
-                    let w = neighbours::windows(&text, knn.window_bytes);
-                    api_spans.push((node, texts.len(), w.len()));
-                    texts.extend(w);
-                }
-            }
-        }
-        let (vectors, keys, _) =
-            crate::embed::embed_texts(root, snapshot_id, embedder.as_ref(), &texts).await?;
-        rows.embedded_keys = keys;
-        let item = |node: Id, first: usize, count: usize| neighbours::Item {
-            node,
-            vectors: vectors[first..first + count].to_vec(),
-        };
-        let apis: Vec<neighbours::Item> = api_spans
-            .iter()
-            .map(|&(n, first, count)| item(n, first, count))
-            .collect();
-        let passages: Vec<neighbours::Passage> = passage_spans
-            .iter()
-            .map(|(n, label, first, count)| neighbours::Passage {
-                item: item(*n, *first, *count),
-                label: label.clone(),
-            })
-            .collect();
+    // kNN (§9.7; slice 3.1): exact kNN links each API to its nearest passages and labels each
+    // community by its centroid's nearest heading.
+    if let (true, Some((embedder, apis, passages))) = (techniques.knn, &embedded) {
         let groups: Vec<(Id, Vec<Id>)> = rows
             .findings
             .iter()
@@ -974,7 +1046,7 @@ pub async fn run(
             None,
             None,
         );
-        let found = neighbours::run(&apis, &passages, &groups, &knn, snapshot_id, invocation_id)
+        let found = neighbours::run(apis, passages, &groups, &knn, snapshot_id, invocation_id)
             .map_err(|e| CoreError::Analysis(e.to_string()))?;
         rows.invocations.push(AnalysisInvocationsRow {
             snapshot_id,
@@ -1465,7 +1537,7 @@ pub async fn run(
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
-    let attributes = concepts::attributes_of(
+    let mut attributes = concepts::attributes_of(
         &collect(
             ctx,
             &cpg_schema::concepts::attributes_sql(&all),
@@ -1475,11 +1547,82 @@ pub async fn run(
     )
     .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let fca_params = concepts::Params::preregistered();
-    let fca_digest = cpg_schema::concepts::digest();
+    let mut fca_digest = cpg_schema::concepts::digest();
+    // RCA (§9.6; slice 3.2, `+rca`): each object's calls into the subsystem and the handoffs
+    // official usage shows, as attributes of the same FCA.
+    if techniques.rca {
+        let wanted: std::collections::BTreeSet<Id> = all.iter().copied().collect();
+        let calls: Vec<(Id, Id)> = p
+            .arcs
+            .iter()
+            .filter(|a| {
+                a.arc_kind == cpg_schema::codebook::ArcKind::Call
+                    && wanted.contains(&p.ids[a.src as usize])
+                    && p.kinds[a.dst as usize] == NodeKind::Function
+                    && subsystem.contains(a.dst as usize)
+            })
+            .map(|a| (p.ids[a.src as usize], p.ids[a.dst as usize]))
+            .collect();
+        let passed: Vec<(Id, Id)> = handoffs
+            .rows
+            .iter()
+            .map(|h| (h.producer, h.consumer))
+            .collect();
+        let partners: std::collections::BTreeSet<Id> = calls
+            .iter()
+            .map(|c| c.1)
+            .chain(passed.iter().flat_map(|(a, b)| [*a, *b]))
+            .collect();
+        let mut names: BTreeMap<Id, String> = partners
+            .iter()
+            .filter_map(|n| preferred.get(n).map(|path| (*n, path.clone())))
+            .collect();
+        let unnamed: Vec<Id> = partners
+            .iter()
+            .copied()
+            .filter(|n| !names.contains_key(n))
+            .collect();
+        if !unnamed.is_empty() {
+            for b in collect(
+                ctx,
+                &format!(
+                    "SELECT node_id, qualified_name FROM declarations WHERE node_id IN ({}) \
+                     ORDER BY node_id",
+                    hex_list(unnamed.iter().copied())
+                ),
+                &schema(&[
+                    ("node_id", DataType::FixedSizeBinary(16)),
+                    ("qualified_name", DataType::Utf8),
+                ]),
+            )
+            .await?
+            {
+                let name = str_col(&b, "qualified_name")?;
+                for (i, node) in id_col(&b, "node_id")?.into_iter().enumerate() {
+                    names.insert(node, name.value(i).to_owned());
+                }
+            }
+        }
+        for (node, extra) in concepts::relational(&all, &calls, &passed, &names) {
+            attributes.entry(node).or_default().extend(extra);
+        }
+        fca_digest = cpg_schema::id::IdHasher::new("concept-attributes-rca")
+            .digest_field(fca_digest)
+            .str(concepts::RCA_POLICY)
+            .finish_digest();
+    }
+    if techniques.fca {
+        for (_, seed) in &rows.seeds {
+            if let Some(own) = attributes.get(seed) {
+                rows.seed_attributes.insert(*seed, own.clone());
+            }
+        }
+    }
     for scope in scopes.iter().filter(|_| techniques.fca) {
         let parameters = serde_json::to_string(&ConceptParameters {
             fca: &fca_params,
             scope: &scope.label,
+            rca: techniques.rca.then_some(concepts::RCA_POLICY),
         })
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
         let parameters_digest = content_digest(parameters.as_bytes());

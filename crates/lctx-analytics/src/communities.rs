@@ -152,8 +152,90 @@ pub struct Input {
     pub vertices: Vec<Id>,
     pub invocation: Layer,
     pub co_use: Layer,
+    /// A variant's extra layers (slice 3.2), by name.
+    pub extra: Vec<(&'static str, Layer)>,
     /// The public APIs among all subsystem functions, with their access paths.
     pub public: BTreeMap<Id, String>,
+}
+
+/// What the type layer counts (slice 3.2, `+type-layer`).
+pub const TYPE_LAYER_POLICY: &str = "every release class two distinct subsystem functions name in \
+                                     their declared parameter types (anywhere in the type's \
+                                     structure, the receiver aside), 1 per class";
+
+/// What the mention layer counts (slice 3.2, `+mention-layer`; C5 O1).
+pub const MENTION_LAYER_POLICY: &str = "every doc passage whose exact mentions name two distinct \
+                                        subsystem functions, 1 per passage";
+
+/// What the kNN layer counts (slice 3.2, `+knn-layer`).
+pub const KNN_LAYER_POLICY: &str = "each subsystem public API's k nearest other public APIs by \
+                                    embedding cosine at or above the kNN floor (the kNN \
+                                    parameters), 1 per direction found";
+
+/// With extra layers, every layer weighs the same (slice 3.2's variants; the default's two layers
+/// keep `Params`' weights, which are equal too).
+pub const EXTRA_WEIGHT_RULE: &str = "with extra layers, every layer weighs 1 / (number of layers)";
+
+/// The variants' policies (slice 3.2) as canonical JSON, frozen by digest with the analytics
+/// parameters before the 3.3 ablation scores them.
+pub fn variant_policies() -> String {
+    // A struct, not a `json!` map: a map's key order follows serde_json's `preserve_order`
+    // feature, which feature unification can turn on in one build and not another.
+    #[derive(Serialize)]
+    struct Policies {
+        rca: &'static str,
+        type_layer: &'static str,
+        mention_layer: &'static str,
+        knn_layer: &'static str,
+        extra_weight_rule: &'static str,
+    }
+    serde_json::to_string(&Policies {
+        rca: crate::concepts::RCA_POLICY,
+        type_layer: TYPE_LAYER_POLICY,
+        mention_layer: MENTION_LAYER_POLICY,
+        knn_layer: KNN_LAYER_POLICY,
+        extra_weight_rule: EXTRA_WEIGHT_RULE,
+    })
+    .expect("policies serialize")
+}
+
+/// A layer's raw pairs by id, each with the site or scope behind it.
+pub type Pairs = Vec<(Id, Id, Id)>;
+
+/// A variant's extra layer (slice 3.2): its name, what it counts, and its raw pairs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraLayer {
+    pub name: &'static str,
+    pub policy: &'static str,
+    pub pairs: Pairs,
+}
+
+/// Pairs from a `(scope_node_id, target_node_id)` relation: two distinct kept targets of one scope
+/// are a pair, the scope its site (the co-use layer's shape, shared by the extra layers).
+pub fn scope_pairs(
+    rows: &[RecordBatch],
+    keep: impl Fn(Id) -> bool,
+) -> Result<Pairs, AnalyticsError> {
+    let mut scopes: BTreeMap<Id, BTreeSet<Id>> = BTreeMap::new();
+    for b in rows {
+        let (scope, target) = (ids(b, "scope_node_id")?, ids(b, "target_node_id")?);
+        for i in 0..b.num_rows() {
+            let t = id_at(target, i);
+            if keep(t) {
+                scopes.entry(id_at(scope, i)).or_default().insert(t);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (scope, targets) in &scopes {
+        let targets: Vec<&Id> = targets.iter().collect();
+        for (k, a) in targets.iter().enumerate() {
+            for b in &targets[k + 1..] {
+                out.push((**a, **b, *scope));
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Each public callable's preferred path (`cpg_schema::communities::public_callables_sql`'s
@@ -204,6 +286,7 @@ impl Input {
         subsystem: &FixedBitSet,
         co_use: &[RecordBatch],
         public: &[RecordBatch],
+        extra: &[ExtraLayer],
     ) -> Result<Self, AnalyticsError> {
         let function =
             |i: usize| projection.kinds[i] == NodeKind::Function && subsystem.contains(i);
@@ -215,28 +298,25 @@ impl Input {
                 invocation.push((projection.ids[s], projection.ids[d], arc.call_site));
             }
         }
-        let mut scopes: BTreeMap<Id, BTreeSet<Id>> = BTreeMap::new();
-        for b in co_use {
-            let (scope, target) = (ids(b, "scope_node_id")?, ids(b, "target_node_id")?);
-            for i in 0..b.num_rows() {
-                let t = id_at(target, i);
-                if projection.dense(t).is_some_and(|d| function(d as usize)) {
-                    scopes.entry(id_at(scope, i)).or_default().insert(t);
-                }
-            }
-        }
-        let mut co: Vec<(Id, Id, Id)> = Vec::new();
-        for (scope, targets) in &scopes {
-            let targets: Vec<&Id> = targets.iter().collect();
-            for (k, a) in targets.iter().enumerate() {
-                for b in &targets[k + 1..] {
-                    co.push((**a, **b, *scope));
-                }
-            }
-        }
+        let kept = |t: Id| projection.dense(t).is_some_and(|d| function(d as usize));
+        let co = scope_pairs(co_use, kept)?;
+        let extra: Vec<(&'static str, Pairs)> = extra
+            .iter()
+            .map(|l| {
+                (
+                    l.name,
+                    l.pairs
+                        .iter()
+                        .copied()
+                        .filter(|(a, b, _)| a != b && kept(*a) && kept(*b))
+                        .collect(),
+                )
+            })
+            .collect();
         let vertices: Vec<Id> = invocation
             .iter()
             .chain(&co)
+            .chain(extra.iter().flat_map(|(_, pairs)| pairs))
             .flat_map(|(a, b, _)| [*a, *b])
             .collect::<BTreeSet<Id>>()
             .into_iter()
@@ -252,25 +332,44 @@ impl Input {
         for (a, b, scope) in &co {
             out.co_use.add(dense(a), dense(b), *scope);
         }
+        for (name, pairs) in &extra {
+            let mut layer = Layer::default();
+            for (a, b, site) in pairs {
+                layer.add(dense(a), dense(b), *site);
+            }
+            out.extra.push((name, layer));
+        }
         out.public = preferred_paths(public)?;
         Ok(out)
     }
 
-    /// The combined weights in canonical pair order, and each layer's hub threshold.
-    pub fn combined(&self, params: &Params) -> (BTreeMap<(u32, u32), f64>, [f64; 2]) {
+    /// Every layer with its name, the default's two first.
+    pub fn layers(&self) -> Vec<(&'static str, &Layer)> {
+        let mut out = vec![("invocation", &self.invocation), ("co_use", &self.co_use)];
+        out.extend(self.extra.iter().map(|(n, l)| (*n, l)));
+        out
+    }
+
+    /// The combined weights in canonical pair order, and each layer's hub threshold (in
+    /// [`Input::layers`] order).
+    pub fn combined(&self, params: &Params) -> (BTreeMap<(u32, u32), f64>, Vec<f64>) {
         let n = self.vertices.len();
-        let (inv, t_inv) = self.invocation.weights(n, params.hub_percentile);
-        let (co, t_co) = self.co_use.weights(n, params.hub_percentile);
+        let layers = self.layers();
+        let weights: Vec<f64> = if self.extra.is_empty() {
+            vec![params.invocation_weight, params.co_use_weight]
+        } else {
+            vec![1.0 / layers.len() as f64; layers.len()]
+        };
         let mut combined: BTreeMap<(u32, u32), f64> = BTreeMap::new();
-        for (layer, weight) in [
-            (&inv, params.invocation_weight),
-            (&co, params.co_use_weight),
-        ] {
-            for (&pair, &w) in layer {
+        let mut thresholds = Vec::new();
+        for ((_, layer), weight) in layers.iter().zip(weights) {
+            let (normalized, threshold) = layer.weights(n, params.hub_percentile);
+            thresholds.push(threshold);
+            for (&pair, &w) in &normalized {
                 *combined.entry(pair).or_insert(0.0) += weight * w;
             }
         }
-        (combined, [t_inv, t_co])
+        (combined, thresholds)
     }
 }
 
@@ -479,6 +578,9 @@ struct Diagnostics<'a> {
     reported: usize,
     below_agreement: usize,
     too_few_public: usize,
+    /// A variant's extra layers: name, pairs and hub threshold (slice 3.2).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    extra_layers: Vec<(&'a str, usize, f64)>,
 }
 
 /// The communities' results: every run's record, the consensus's diagnostics, and the findings.
@@ -566,7 +668,7 @@ pub fn run(
             .map(|(_, id, path, s)| (MemberRole::CommunityMember, *id, (*path).clone(), Some(*s)))
             .collect();
         for (pair, _) in pairs.iter().take(params.max_supporting) {
-            for (layer, name) in [(&input.invocation, "invocation"), (&input.co_use, "co_use")] {
+            for (name, layer) in input.layers() {
                 if let Some((_, site)) = layer.counts.get(pair) {
                     rows.push((MemberRole::SupportingSite, *site, name.to_owned(), None));
                 }
@@ -636,6 +738,12 @@ pub fn run(
         reported: findings.len(),
         below_agreement: below,
         too_few_public: few,
+        extra_layers: input
+            .extra
+            .iter()
+            .zip(thresholds.iter().skip(2))
+            .map(|((name, layer), t)| (*name, layer.counts.len(), *t))
+            .collect(),
     })
     .expect("diagnostics serialize");
     Ok(Outcome {
@@ -804,6 +912,10 @@ mod tests {
                     .hex()
                     .as_str()
             )
+        );
+        assert_eq!(
+            freeze["variant_policies"].as_str(),
+            Some(content_digest(variant_policies().as_bytes()).hex().as_str())
         );
         assert_eq!(
             freeze["selection_parameters"].as_str(),

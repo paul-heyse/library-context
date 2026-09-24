@@ -2060,6 +2060,29 @@ log D24, D25, D30):
   walk skips unresolved or outside ancestors and class-level rebindings, where §9.1's `member()`
   refuses. No pilot instance.
 
+**Extra layers, Implemented and Tested in slice 3.2** as variants, off by default (2026-09-23;
+D41):
+- **`+type-layer`** (`cpg_schema::communities::shared_types_sql`): two subsystem functions that
+  name one release class anywhere in their declared parameter types (a recursive walk of
+  `type_term_args`, the receiver aside) are a pair, 1 per class.
+- **`+mention-layer`** (`co_mention_sql`; C5 O1): two subsystem functions that one doc passage's
+  exact mentions name, 1 per passage.
+- **`+knn-layer`**: each subsystem public API with its three nearest other APIs by embedding cosine
+  at or above the kNN floor (§9.7's parameters), 1 per direction found.
+- **Combination.** With extra layers, every layer weighs 1 / (number of layers)
+  (`EXTRA_WEIGHT_RULE`); each layer keeps its own hub down-weighting and normalization. The
+  default's two layers keep `Params`' 0.5/0.5. The consensus records the layers, their policies
+  and the rule, and its diagnostics give each extra layer's pairs and hub threshold. The layers'
+  SQL joins the community relations' digest (`extra_digest`). A supporting site names its layer.
+- **Tests:** `variants_add_relational_attributes_and_layers` (type and mention layers on
+  `analysis_shapes`; the default's diagnostics unchanged) and
+  `mention_and_knn_layers_come_from_the_corpus` (`docs_shapes` with the words embedder; the kNN
+  layer without an embedder is refused).
+- **Pilot (Measured, 2026-09-23, snapshot `904d86eb`, fake vectors).** The type layer has 4,068
+  pairs (hub threshold 126), the mention layer 7 and the kNN layer 0: fake vectors clear no
+  floor. 536 vertices; 27 communities are reported, against 29 by default. The 3.3 ablation
+  judges each layer with live vectors.
+
 **The consumers, Implemented and Tested in slice 2.6** (2026-09-23; deviation log D34), **revised
 by the increment-2 review** (U1; ADR-0011 amendment; deviation log D37):
 - **Seed selection** (`lctx_analytics::selection`). Communities and direct usage (§9.5) run
@@ -2193,6 +2216,19 @@ review, the `+pagerank` variant's method:
 - **RCA (increment 3).** Adds one relational-scaling step (∃-scaling over calls and handoffs), a
   DataFusion join that adds attribute columns to the same FCA.
   It is kept only if the ablation shows it changes published output.
+  **Implemented and Tested in slice 3.2** as the `+rca` variant (2026-09-23; D41):
+  `lctx_analytics::concepts::relational` adds, for each object of a scope, `calls X` for each
+  call arc (definite or candidate) into a subsystem function, and `hands off to X` / `takes from
+  X` for each handoff the Pass C relation holds. X is the partner's preferred public path, else its
+  qualified name. The pairs come from the in-memory projection and Pass C's relation, so no new
+  SQL is needed; `RCA_POLICY` joins the FCA invocations' parameters and relation digest. Stage F
+  reads each seed's attributes as the context held them (`AnalysisRows.seed_attributes`), and
+  the templates say "calls `X`", "has its result passed to `X` in official usage". Tested by
+  `relations_become_attributes_of_the_objects_in_scope` and
+  `variants_add_relational_attributes_and_layers`. **Pilot (Measured, 2026-09-23, fake vectors,
+  snapshot `904d86eb`, `+rca,+type-layer,+mention-layer,+knn-layer`):** the `fastmcp.FastMCP`
+  scope grows from 193 to 363 attributes, 95 to 111 concepts and 104 to 131 implications; 16
+  relational attributes appear in concepts or implications.
 - **Output.**
   - Concepts become `applicable_case` findings (the kind's name is historical: a brief states one
     as a **shared signature** under Related, not as the Applicable case; the increment-2 review's
@@ -2297,7 +2333,8 @@ review, the `+pagerank` variant's method:
 - **Stage F.** A `doc_link` assertion (section Related) lists the operation's nearest
   documentation with its cosines; the Related line names its community's label. Neither feeds the
   Outcome.
-- **Not yet built:** kNN as a community layer, left to 3.2 under the §9.8 keep rule.
+- **kNN as a community layer:** the `+knn-layer` variant (slice 3.2, §9.4). E0 now runs before
+  the communities whenever kNN or the kNN layer reads its vectors.
 - **Tests.** `neighbours::tests`: windows never drop text; exact search, the floor and node-order
   ties; a community labelled by its centroid's nearest heading.
   `doc_links_come_from_embedding_similarity` runs `docs_shapes` end to end with a bag-of-words
@@ -2327,6 +2364,18 @@ review, the `+pagerank` variant's method:
 - **Unbiased check.** Using the gold for this choice makes it a development set. The unbiased
   check is the increment-5 held-out evaluation.
 - **Agent-based evaluation** is reserved for the raw-vs-compiled comparison (§12).
+
+**Variants, Implemented in slices 3.2 and 3.3 groundwork** (2026-09-23; deviation log D41):
+- `lctx compile --analytics <variant>`: `default`, or changes to it by name, `+name`/`-name`
+  (`cpg_core::analyze::Techniques`). On by default: `communities`, `fca`, `knn`. Off by
+  default: `pagerank` (the increment-2 review's U1), `rca`, `type-layer`, `mention-layer` and
+  `knn-layer`. A community layer needs `communities`, and the kNN layer needs an embedder.
+- A variant's canonical label (`-knn,+rca`) joins the compiler run's config digest, so a variant
+  snapshot never shares a content digest with the default's. Its invocations record what it
+  changed (`rca` in the FCA parameters; `extra_layers` and the weight rule in the consensus's),
+  and the default's parameters, and so its invocation ids, are unchanged. A finding the variant
+  does not touch keeps its id, so an ablation diff is a join
+  (`variants_add_relational_attributes_and_layers`).
 
 > Decision: ADR-0011, ADR-0019, ADR-0005
 
@@ -2806,4 +2855,5 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 2.5: FCA (`cpg_schema::concepts`, `lctx_analytics::concepts`: NextClosure concepts and the Duquenne–Guigues basis), `applicable_case` and `implication` findings and assertions, the applicable case in the brief document, over-cap documents split into chunks (§9.6, §10.2, §10.3) | ADR-0011; deviation log D32 |
 | 2026-09-23 | Slice 2.6: seed selection within the brief budget (`lctx_analytics::selection`, a `seed_selection` invocation), Related from communities and centrality, the statistical-policy cases (§9.4, §10.3) | ADR-0011; deviation log D34 |
 | 2026-09-23 | Slice 3.1: embeddings in analytics: E0 through the cache (`embed_texts`), exact kNN (`lctx_analytics::neighbours`), `doc_link` and `community_label` findings, the doc-link assertion and the Related label (§9.7) | ADR-0011; deviation log D35 |
+| 2026-09-23 | Slice 3.2: RCA (`+rca`) and the type, mention and kNN community layers as analytics variants, off by default (§9.4, §9.6, §9.7, §9.8) | ADR-0011; deviation log D41 |
 | 2026-09-23 | Increment-2 compact review fixes: direct usage as the default ranking and selection by it with a community cap (§9.4, §9.5; U1), the PageRank variant, one preferred path per callable (F4), FCA scopes keyed by node (F1), attributes from term structure (F2), the concept as a shared signature under Related with the Applicable-case slot absent (§9.6, §10.2, §10.3; U2), Stage E/F choices frozen (F7), the finding-kind-by-method rule; stale sentences fixed (F8) | ADR-0011 amendment; ADR-0019 amendment; deviation log D37–D40 |
