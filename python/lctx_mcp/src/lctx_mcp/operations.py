@@ -136,6 +136,8 @@ class Operation(BaseModel):
     parameters: list[ParameterRecord]
     delegates: list[Fate]
     handoffs: list[Fate]
+    # A class's controls are its constructor's: the `__init__` record, when one is public.
+    constructor: Operation | None = None
 
 
 class OperationRef(BaseModel):
@@ -236,7 +238,11 @@ def get_operation(gen: Generation, snapshot_id: str, operation: str) -> Operatio
     """§11.3 `get_operation`: one operation's record, by deterministic lookup."""
     if snapshot_id != gen.snapshot_id:
         raise OperationError(f"this server serves snapshot {gen.snapshot_id}, not {snapshot_id}")
-    node = resolve(gen, operation)
+    return _record(gen, resolve(gen, operation), operation.strip())
+
+
+def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
+    """One operation's record; a class also carries its constructor's."""
     o = gen.operations[node]
     facets: dict[str, list[str]] = {}
     for facet, value in gen.facets.get(node, []):
@@ -279,7 +285,22 @@ def get_operation(gen: Generation, snapshot_id: str, operation: str) -> Operatio
         parameters=parameters,
         delegates=[_fate(r) for r in rows if r["kind"] == "delegates"] + supplies,
         handoffs=[_fate(r) for r in rows if r["kind"] in ("hands_off_to", "takes_from")],
+        constructor=_constructor(gen, node, spelling),
     )
+
+
+def _constructor(gen: Generation, node: bytes, spelling: str) -> Operation | None:
+    """A class's `__init__` record, by the spelling asked for, else by any of its paths."""
+    if gen.operations[node]["kind"] != "class":
+        return None
+    for path in [spelling] + [p for p, _ in gen.spellings.get(node, [])]:
+        init = gen.paths.get(f"{path}.__init__")
+        if init is not None and init in gen.operations:
+            return _record(gen, init, f"{path}.__init__")
+    return None
+
+
+Operation.model_rebuild()
 
 
 def _universe(gen: Generation, where: Where) -> list[bytes]:

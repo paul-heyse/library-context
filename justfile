@@ -39,6 +39,10 @@ py-check: py-fixture
     uv run pytest
     uv run pyrefly check --summary=none
 
+# The structured evaluation's packet for one stage (ADR-0021; DESIGN §12): targets beside answers
+structured-eval generation stage:
+    uv run python scripts/structured_eval.py {{generation}} eval/behavior/fastmcp-4.0.5.toml --stage {{stage}} --out build/structured/stage{{stage}}.md
+
 # The generation the lctx_mcp tests serve: analysis_shapes with fake vectors, into build/py-fixture
 py-fixture:
     LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail

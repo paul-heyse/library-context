@@ -1,0 +1,16 @@
+id: no-string-sql-in-lctx-mcp
+valid:
+  - |
+    import pyarrow.compute as pc
+    mask = pc.equal(table["facet"], "raises")
+  - |
+    matched = [n for n in universe if n in by_facet[(facet, value)]]
+invalid:
+  - |
+    con.execute(f"SELECT * FROM operations WHERE facet = '{facet}'")
+  - |
+    ctx.sql("SELECT node_id FROM behaviors")
+  - |
+    rows = duckdb.query("SELECT 1")
+  - |
+    db = sqlite3.connect(":memory:")

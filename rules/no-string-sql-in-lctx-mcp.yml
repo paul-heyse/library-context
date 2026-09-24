@@ -1,0 +1,17 @@
+# The ADR set's standard review F11 (the behavioral-model plan, Stage 1.6): the server executes no
+# SQL built from strings. Its executor is pyarrow compute over materialized rows (DESIGN §B13,
+# §11.3); a query text assembled from a request would reopen injection and serve-time semantics.
+id: no-string-sql-in-lctx-mcp
+language: python
+severity: error
+message: the server builds no SQL from strings; filter materialized rows with pyarrow or Python
+note: DESIGN §B13, §11.3 (ADR-0010 amendment 2026-09-24). Serve-time recursion and SQL are out.
+rule:
+  any:
+    - pattern: $X.execute($$$ARGS)
+    - pattern: $X.executemany($$$ARGS)
+    - pattern: $X.sql($$$ARGS)
+    - pattern: duckdb.query($$$ARGS)
+    - pattern: sqlite3.connect($$$ARGS)
+files:
+  - python/lctx_mcp/src/**/*.py

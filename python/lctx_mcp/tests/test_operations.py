@@ -137,3 +137,13 @@ async def test_the_behavioral_tools_round_trip(generation: Path) -> None:
             await client.call_tool(
                 "get_operation", {"snapshot_id": snapshot, "operation": "pkg.Nope"}
             )
+
+
+def test_a_class_carries_its_constructor(generation: Path) -> None:
+    gen = load(generation, None)
+    inits = sorted(p for p in gen.paths if p.endswith(".__init__"))
+    assert inits, "the fixture has a public constructor"
+    cls = inits[0].removesuffix(".__init__")
+    op = ops.get_operation(gen, gen.snapshot_id, cls)
+    assert op.kind == "class" and op.behavior_status == "not_analyzed"
+    assert op.constructor is not None and op.constructor.access_path.endswith("__init__")
