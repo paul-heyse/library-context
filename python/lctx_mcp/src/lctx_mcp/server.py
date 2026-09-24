@@ -6,8 +6,9 @@
   embedder, no vectors, or the service down) it answers lexically and says so.
 - `get_capability` and the `capability://{snapshot_id}/{capability_id}` resource hydrate one
   brief by id, never by a second search.
-- One domain exception, `CapabilityError`, becomes `ToolError` in a tool and `ResourceError` in the
-  resource; anything else is masked (`mask_error_details=True`).
+- One domain exception, `CapabilityError`, is FastMCP's `ValidationError` (the holistic
+  assessment's A7): a tool returns it as an error result, and the resource answers it as invalid
+  params (-32602), never as an internal error. Anything else is masked (`mask_error_details=True`).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from typing import Annotated, Literal
 
 import numpy as np
 from fastmcp import Context, FastMCP
-from fastmcp.exceptions import ResourceError, ToolError
+from fastmcp.exceptions import ValidationError
 from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
@@ -40,8 +41,9 @@ READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_worl
 NOTE = "Relevance only ranks briefs. Read a brief's statuses and limits before relying on it."
 
 
-class CapabilityError(Exception):
-    """A request this generation cannot answer: an unknown library, snapshot or capability."""
+class CapabilityError(ValidationError):
+    """A request this generation cannot answer: an unknown library, snapshot or capability. A
+    client's bad input, so FastMCP answers it as invalid params in every component."""
 
 
 class Hit(BaseModel):
@@ -318,26 +320,17 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
     ) -> SearchResult:
         """Find capability briefs for a coding task in a library: ranked hits with their outcome
         and its evidence status. Read a hit whole with get_capability."""
-        try:
-            return await search(ctx.lifespan_context["served"], library, query, limit)
-        except CapabilityError as e:
-            raise ToolError(str(e)) from e
+        return await search(ctx.lifespan_context["served"], library, query, limit)
 
     @mcp.tool(annotations=READ_ONLY)
     def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> Capability:
         """One capability brief, whole: every section's statements with their evidence status,
         their supports, and the verbatim evidence they cite."""
-        try:
-            return hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id)
-        except CapabilityError as e:
-            raise ToolError(str(e)) from e
+        return hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id)
 
     @mcp.resource("capability://{snapshot_id}/{capability_id}", mime_type="text/markdown")
     def capability(snapshot_id: str, capability_id: str, ctx: Context) -> str:
         """A capability brief as Markdown."""
-        try:
-            return markdown(hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id))
-        except CapabilityError as e:
-            raise ResourceError(str(e)) from e
+        return markdown(hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id))
 
     return mcp

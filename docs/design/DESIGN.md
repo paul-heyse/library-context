@@ -2788,7 +2788,11 @@ template, dimensions, output dtype and normalization.
   SHA-256 is the spec hash (`cpg_core::embed::Spec`; `the_committed_spec_is_its_canonical_form`).
 - **The Rust client** (`lctx-embed`) builds its request bodies with `serde_json` and is held to
   `specs/embedding/request_bodies.json` for the shared conformance inputs, which the Python
-  client is held to as well; every rejection fires (`every_rejection_fires`); a stub service
+  client is held to as well; every rejection fires (`every_rejection_fires`). Both clients judge
+  a response alike, Rust by its serde types and Python by pydantic strict models (the holistic
+  assessment's A7: a JSON boolean is never an index or a component), held to one corpus of 25
+  bodies, `specs/embedding/responses.json` (`responses_are_judged_as_the_shared_corpus_says` in
+  both suites); a stub service
   exercises the real HTTP path; an unreachable service is `blocked`, never fake. It uses the
   `reqwest` 0.12.28 already in the lock, without TLS (the service is local).
 - **Token counts** come from the service's `/tokenize`; an over-cap document fails the compile.
@@ -2880,8 +2884,10 @@ thousand briefs, or ANN / managed FTS needed.
   `just py-fixture` generation):
   - The round trip in both eras (`test_the_tools_round_trip_in_both_protocol_eras`).
   - Promotion, and degraded mode.
-  - `ToolError` for an unknown library, snapshot or id, and for out-of-bounds arguments.
-  - The resource as Markdown, with `ResourceError` for an unknown id.
+  - A tool error for an unknown library, snapshot or id, and for out-of-bounds arguments.
+  - The resource as Markdown. An unknown id is invalid params, −32602, because `CapabilityError`
+    is FastMCP's `ValidationError` (the holistic assessment's A7; it was `ResourceError`, which
+    reached the wire as an internal error, −32603).
   - A schema digest, spec or key mismatch fails at load and at connect
     (`test_a_mismatched_generation_fails_at_connect`).
   - Byte-identical request bodies (`test_request_bodies_are_byte_identical_to_rusts`), and the

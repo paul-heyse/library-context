@@ -123,3 +123,22 @@ async def test_the_http_client_sends_the_exact_bytes_and_reports_a_down_service(
     down = HttpEmbedder("http://embed.invalid", transport=httpx.MockTransport(refuse))
     with pytest.raises(EmbedderError, match="no embedding service"):
         await down.embed([text])
+
+
+def test_responses_are_judged_as_the_shared_corpus_says() -> None:
+    """The holistic assessment's A7: Python's strict parse accepts or rejects each body of the
+    shared corpus as Rust's serde parse does (a boolean is never an index or a component)."""
+    corpus = json.loads((SPECS / "responses.json").read_text(encoding="utf-8"))
+    fields = {
+        **Spec.packaged(QWEN).fields,
+        "model": corpus["model"],
+        "dimensions": corpus["dimensions"],
+    }
+    spec = Spec.from_json(json.dumps(fields))
+    for case in corpus["cases"]:
+        try:
+            parse_embeddings(spec, case["inputs"], case["body"].encode())
+            accepted = True
+        except EmbedderError:
+            accepted = False
+        assert accepted == case["accept"], case["name"]

@@ -1,0 +1,157 @@
+{
+ "_about": "Embedding-response known answers (the holistic assessment's A7): lctx_embed::parse_embeddings (Rust, serde) and lctx_mcp.embedder.parse_embeddings (Python, pydantic strict) accept or reject each body alike, under a spec whose model and dimensions are these.",
+ "model": "m",
+ "dimensions": 2,
+ "cases": [
+  {
+   "name": "one unit vector",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[0.6,0.8]}]}",
+   "accept": true
+  },
+  {
+   "name": "two, out of order",
+   "inputs": 2,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":1,\"embedding\":[0.0,1.0]},{\"index\":0,\"embedding\":[1,0]}]}",
+   "accept": true
+  },
+  {
+   "name": "integer components are numbers",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[0,1]}]}",
+   "accept": true
+  },
+  {
+   "name": "unknown fields are ignored (vLLM's object, usage)",
+   "inputs": 1,
+   "body": "{\"object\":\"list\",\"model\":\"m\",\"data\":[{\"object\":\"embedding\",\"index\":0,\"embedding\":[0.6,0.8]}],\"usage\":{\"prompt_tokens\":3}}",
+   "accept": true
+  },
+  {
+   "name": "another model",
+   "inputs": 1,
+   "body": "{\"model\":\"other\",\"data\":[{\"index\":0,\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "no model",
+   "inputs": 1,
+   "body": "{\"data\":[{\"index\":0,\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "fewer vectors than inputs",
+   "inputs": 2,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "an index answered twice",
+   "inputs": 2,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[0.6,0.8]},{\"index\":0,\"embedding\":[0.8,0.6]}]}",
+   "accept": false
+  },
+  {
+   "name": "an index out of range",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":1,\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "a negative index",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":-1,\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "a boolean index",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":true,\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "a float index",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0.0,\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "a string index",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":\"0\",\"embedding\":[0.6,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "a boolean component",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[true,0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "a string component",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[\"0.6\",0.8]}]}",
+   "accept": false
+  },
+  {
+   "name": "a null component",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[null,1.0]}]}",
+   "accept": false
+  },
+  {
+   "name": "a NaN component",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[NaN,1.0]}]}",
+   "accept": false
+  },
+  {
+   "name": "too few dimensions",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[1.0]}]}",
+   "accept": false
+  },
+  {
+   "name": "too many dimensions",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[0.6,0.8,0.0]}]}",
+   "accept": false
+  },
+  {
+   "name": "not a unit vector",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":[0.6,0.6]}]}",
+   "accept": false
+  },
+  {
+   "name": "an embedding that is an object",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":[{\"index\":0,\"embedding\":{\"x\":1}}]}",
+   "accept": false
+  },
+  {
+   "name": "data that is not a list",
+   "inputs": 1,
+   "body": "{\"model\":\"m\",\"data\":{\"0\":[0.6,0.8]}}",
+   "accept": false
+  },
+  {
+   "name": "a top-level list",
+   "inputs": 1,
+   "body": "[{\"index\":0,\"embedding\":[0.6,0.8]}]",
+   "accept": false
+  },
+  {
+   "name": "an empty body",
+   "inputs": 1,
+   "body": "",
+   "accept": false
+  },
+  {
+   "name": "not JSON",
+   "inputs": 1,
+   "body": "<html>502</html>",
+   "accept": false
+  }
+ ]
+}

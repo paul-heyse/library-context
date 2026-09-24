@@ -152,10 +152,13 @@ async def test_the_resource_is_the_brief_as_markdown(generation: Path) -> None:
         text = getattr(content, "text", "")
         assert text.startswith("# pkg.Server.route\n")
         assert "Register a handler at `path`. [documented]" in text
-        with pytest.raises(Exception, match="no capability"):
+        # The holistic assessment's A7: an unknown id is the client's bad input, invalid params
+        # (-32602), never an internal error (-32603).
+        with pytest.raises(Exception, match="no capability") as err:
             await client.read_resource(
                 f"capability://{structured(found)['snapshot_id']}/{'ff' * 16}"
             )
+        assert getattr(err.value, "code", None) == -32602
 
 
 def tampered(generation: Path, tmp: Path, edit) -> Path:

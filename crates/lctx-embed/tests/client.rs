@@ -266,3 +266,23 @@ async fn live_conformance_vectors() {
     }
     std::fs::write(out, serde_json::to_string(&vectors).unwrap()).unwrap();
 }
+
+/// The holistic assessment's A7: Rust's parse accepts or rejects each body of the shared corpus
+/// (`specs/embedding/responses.json`) as Python's does.
+#[test]
+fn responses_are_judged_as_the_shared_corpus_says() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../specs/embedding/responses.json");
+    let corpus: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut spec = qwen_spec();
+    spec.model = corpus["model"].as_str().unwrap().to_owned();
+    spec.dimensions = corpus["dimensions"].as_u64().unwrap() as u32;
+    for case in corpus["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let inputs = case["inputs"].as_u64().unwrap() as usize;
+        let body = case["body"].as_str().unwrap().as_bytes();
+        let accepted = parse_embeddings(&spec, inputs, body).is_ok();
+        assert_eq!(accepted, case["accept"].as_bool().unwrap(), "{name}");
+    }
+}

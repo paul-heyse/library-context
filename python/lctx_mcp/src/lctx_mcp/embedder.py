@@ -17,6 +17,8 @@ from typing import Protocol
 
 import httpx
 import numpy as np
+from pydantic import BaseModel, ConfigDict
+from pydantic import ValidationError as PydanticValidationError
 
 MASK = (1 << 64) - 1
 
@@ -89,40 +91,43 @@ def check_vector(v: list[float], dimensions: int) -> None:
         raise EmbedderError(f"norm {norm}, not 1")
 
 
+class _Datum(BaseModel):
+    """One answered input: strict, so a boolean is never an index or a component (A7)."""
+
+    model_config = ConfigDict(strict=True)
+    index: int
+    embedding: list[float]
+
+
+class _Embeddings(BaseModel):
+    """An embeddings response as Rust's serde reads it: unknown fields ignored, types strict."""
+
+    model_config = ConfigDict(strict=True)
+    model: str
+    data: list[_Datum]
+
+
 def parse_embeddings(spec: Spec, n: int, body: bytes) -> np.ndarray:
-    """Parse and check an embeddings response for `n` inputs (§11.1's rejections). Any answer of
-    another shape is a rejection too, as Rust's typed parse makes it (increment-1 deep review F7).
+    """Parse and check an embeddings response for `n` inputs (§11.1's rejections). The shape is a
+    pydantic strict model, as Rust's is a serde type, and both are held to one corpus
+    (`specs/embedding/responses.json`; the holistic assessment's A7).
     """
     try:
-        return _parse(spec, n, body)
-    except EmbedderError:
-        raise
-    except (KeyError, TypeError, AttributeError, ValueError, IndexError) as e:
-        raise EmbedderError(f"a malformed response: {e!r}") from e
-
-
-def _parse(spec: Spec, n: int, body: bytes) -> np.ndarray:
-    try:
-        parsed = json.loads(body)
-    except ValueError as e:
-        raise EmbedderError(f"unreadable response: {e}") from e
-    if parsed.get("model") != spec.model:
-        raise EmbedderError(f"the service answered with model {parsed.get('model')}")
-    data = parsed["data"]
-    if len(data) != n:
-        raise EmbedderError(f"{len(data)} vectors for {n} inputs")
+        parsed = _Embeddings.model_validate_json(body)
+    except PydanticValidationError as e:
+        raise EmbedderError(f"a malformed response: {e.error_count()} errors") from e
+    if parsed.model != spec.model:
+        raise EmbedderError(f"the service answered with model {parsed.model}")
+    if len(parsed.data) != n:
+        raise EmbedderError(f"{len(parsed.data)} vectors for {n} inputs")
     out: list[list[float] | None] = [None] * n
-    for d in data:
-        i = d["index"]
-        if not isinstance(i, int) or not 0 <= i < n:
-            raise EmbedderError(f"index {i} out of range")
-        if out[i] is not None:
-            raise EmbedderError(f"index {i} answered twice")
-        vector = d["embedding"]
-        if not isinstance(vector, list) or not all(isinstance(x, (int, float)) for x in vector):
-            raise EmbedderError("an embedding that is not a list of numbers")
-        check_vector(vector, spec.dimensions)
-        out[i] = vector
+    for d in parsed.data:
+        if not 0 <= d.index < n:
+            raise EmbedderError(f"index {d.index} out of range")
+        if out[d.index] is not None:
+            raise EmbedderError(f"index {d.index} answered twice")
+        check_vector(d.embedding, spec.dimensions)
+        out[d.index] = d.embedding
     return np.asarray(out, dtype=np.float32)
 
 

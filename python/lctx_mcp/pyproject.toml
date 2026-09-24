@@ -9,6 +9,9 @@ dependencies = [
     "numpy==2.4.6",
     "httpx==0.28.1",
     "bm25s==0.3.11",
+    # Used directly (the holistic assessment's A7), and locked through fastmcp.
+    "pydantic==2.13.5",
+    "mcp-types==2.2.0",
 ]
 
 [project.scripts]
