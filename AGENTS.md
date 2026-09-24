@@ -78,8 +78,9 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   listed in `docs/pins.md`
 - `ty-flow` (the ty 0.0.14 / ruff_db / salsa =0.28.2 line that `cpg-flow` links: use-def maps,
   reachability and narrowing, module resolution, the salsa pin trap)
-- `rust-reasoning` (biodivine-lib-bdd, OxiDD, z3 on the system libz3, ascent, datafrog, fcars:
-  the condition kernel, SMT escalation, Datalog fixpoints and the FCA oracle)
+- `rust-reasoning` (biodivine-lib-bdd, OxiDD, z3 0.21.1 on Z3 5.1.0, ascent, datafrog, fcars: the
+  condition kernel, full z3 capability coverage incl. what needs raw z3-sys, Datalog fixpoints and
+  the FCA oracle)
 - `python-oracles` (Pysa, CrossHair, Hypothesis with `sys.monitoring`, bytecode: independent
   cross-checks of the facts)
 - `rust-code-model`
