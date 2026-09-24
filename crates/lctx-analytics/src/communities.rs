@@ -776,5 +776,14 @@ mod tests {
                     .as_str()
             )
         );
+        assert_eq!(
+            freeze["fca_parameters"].as_str(),
+            Some(
+                crate::concepts::Params::preregistered()
+                    .digest()
+                    .hex()
+                    .as_str()
+            )
+        );
     }
 }

@@ -24,7 +24,7 @@ use lctx_analytics::graph::Projection;
 use lctx_analytics::pass_a::{self, Budgets, Seed};
 use lctx_analytics::pass_b::{self, Flows, SeedParameter};
 use lctx_analytics::pass_c::{self, Handoffs};
-use lctx_analytics::{communities, ranking};
+use lctx_analytics::{communities, concepts, ranking};
 use serde::Serialize;
 
 use crate::delta::to_schema;
@@ -416,6 +416,12 @@ struct PassAParameters<'a> {
 struct PassCParameters<'a> {
     seed: &'a str,
     max_occurrences: u32,
+}
+
+#[derive(Serialize)]
+struct ConceptParameters<'a> {
+    fca: &'a concepts::Params,
+    scope: &'a str,
 }
 
 #[derive(Serialize)]
@@ -875,6 +881,145 @@ pub async fn run(
         diagnostics: Some(ranked.diagnostics),
     });
     rows.findings.extend(ranked.findings);
+    // Concepts (§9.6): FCA of each seed's structural scope, the public APIs of the exported class
+    // or module namespace that its access path names (`fastmcp.FastMCP` for
+    // `fastmcp.FastMCP.tool`).
+    let mut paths: Vec<(Id, String)> = Vec::new();
+    for b in &public {
+        let nodes = id_col(b, "node_id")?;
+        let access = str_col(b, "access_path")?;
+        for (i, node) in nodes.into_iter().enumerate() {
+            paths.push((node, access.value(i).to_owned()));
+        }
+    }
+    let containers: std::collections::BTreeSet<String> = rows
+        .seeds
+        .iter()
+        .filter_map(|(name, _)| name.rsplit_once('.').map(|(c, _)| c.to_owned()))
+        .collect();
+    let mut scope_nodes: BTreeMap<String, Id> = BTreeMap::new();
+    for b in collect(
+        ctx,
+        &format!(
+            "SELECT access_path, declaration_node_id FROM exports WHERE access_path IN ({}) \
+             ORDER BY access_path, declaration_node_id",
+            quoted(containers.iter().cloned())
+        ),
+        &schema(&[
+            ("access_path", DataType::Utf8),
+            ("declaration_node_id", DataType::FixedSizeBinary(16)),
+        ]),
+    )
+    .await?
+    {
+        let access = str_col(&b, "access_path")?;
+        for (i, node) in id_col(&b, "declaration_node_id")?.into_iter().enumerate() {
+            scope_nodes
+                .entry(access.value(i).to_owned())
+                .or_insert(node);
+        }
+    }
+    // A namespace no export names (a package's own path) is its module.
+    for b in collect(
+        ctx,
+        &format!(
+            "SELECT module_name AS access_path, module_node_id AS declaration_node_id \
+             FROM source_files WHERE module_name IN ({}) ORDER BY module_name, module_node_id",
+            quoted(containers.iter().cloned())
+        ),
+        &schema(&[
+            ("access_path", DataType::Utf8),
+            ("declaration_node_id", DataType::FixedSizeBinary(16)),
+        ]),
+    )
+    .await?
+    {
+        let access = str_col(&b, "access_path")?;
+        for (i, node) in id_col(&b, "declaration_node_id")?.into_iter().enumerate() {
+            scope_nodes
+                .entry(access.value(i).to_owned())
+                .or_insert(node);
+        }
+    }
+    let mut scopes: Vec<concepts::Scope> = Vec::new();
+    for container in &containers {
+        let Some(&node) = scope_nodes.get(container) else {
+            continue;
+        };
+        let mut objects: BTreeMap<Id, String> = BTreeMap::new();
+        for (id, path) in &paths {
+            if path.rsplit_once('.').is_some_and(|(c, _)| c == container) {
+                objects.entry(*id).or_insert_with(|| path.clone());
+            }
+        }
+        if objects.len() >= 2 {
+            scopes.push(concepts::Scope {
+                node,
+                label: container.clone(),
+                objects: objects.into_iter().collect(),
+            });
+        }
+    }
+    let all: Vec<Id> = scopes
+        .iter()
+        .flat_map(|s| s.objects.iter().map(|(id, _)| *id))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let attributes = concepts::attributes_of(
+        &collect(
+            ctx,
+            &cpg_schema::concepts::attributes_sql(&all),
+            &cpg_schema::concepts::schemas::attributes(),
+        )
+        .await?,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let fca_params = concepts::Params::preregistered();
+    let fca_digest = cpg_schema::concepts::digest();
+    for scope in &scopes {
+        let parameters = serde_json::to_string(&ConceptParameters {
+            fca: &fca_params,
+            scope: &scope.label,
+        })
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        let parameters_digest = content_digest(parameters.as_bytes());
+        let invocation_id = findings::invocation(
+            AnalyticMethod::Fca.code(),
+            parameters_digest,
+            Some(fca_digest),
+            Some(scope.node),
+            None,
+        );
+        let result = concepts::run(scope, &attributes, &fca_params, snapshot_id, invocation_id)
+            .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        rows.invocations.push(AnalysisInvocationsRow {
+            snapshot_id,
+            invocation_id,
+            run_id: compiler.run_id,
+            model_id: compiler.model("fca"),
+            extraction_mode: ExtractionMode::GraphAnalysis,
+            method: AnalyticMethod::Fca,
+            parameters,
+            parameters_digest,
+            projection_digest: Some(fca_digest),
+            library_versions: lctx_analytics::libraries(),
+            subject_node_id: Some(scope.node),
+            seed: None,
+            iterations: None,
+            residual: None,
+            converged: None,
+            quality_history: Vec::new(),
+            candidate_set_size: Some(result.objects as i64),
+            vertices_examined: Some(result.examined as i64),
+            arcs_examined: Some(result.attributes as i64),
+            completion: result.completion,
+            stop_reason: result.stop_reason,
+            diagnostics: Some(result.diagnostics),
+        });
+        rows.findings.extend(result.findings);
+        rows.members.extend(result.members);
+    }
     // Two seeds may reach the same finding only with different subjects, so ids are unique; the
     // key rules check it.
     Ok(rows)

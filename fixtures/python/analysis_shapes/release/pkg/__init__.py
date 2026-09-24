@@ -2,7 +2,8 @@
 
 from pkg.controls import configure
 from pkg.helpers import describe, helper
+from pkg.registry import Catalog
 from pkg.server import Server
 from pkg.shadow import Aliased, Shadowed
 
-__all__ = ["Aliased", "Server", "Shadowed", "configure", "describe", "helper"]
+__all__ = ["Aliased", "Catalog", "Server", "Shadowed", "configure", "describe", "helper"]

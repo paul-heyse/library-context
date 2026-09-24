@@ -385,6 +385,17 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
         BriefSection::Limits,
         &[EvidenceStatus::StructurallyObserved],
     ),
+    // FCA (§9.6): exact over the scope's extracted attributes, the scope stated.
+    (
+        AssertionKind::ApplicableCase,
+        BriefSection::ApplicableCase,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    (
+        AssertionKind::Implication,
+        BriefSection::Controls,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
     // Pass C and §10.5: a pattern is official usage code (documented), or an executed fixture.
     (
         AssertionKind::UsagePattern,
@@ -513,6 +524,15 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
     (
         FindingKind::Centrality,
         EvidenceStatus::StatisticallyDerived,
+    ),
+    // Exact over the extracted attributes of a structural scope (§9.6).
+    (
+        FindingKind::ApplicableCase,
+        EvidenceStatus::StructurallyObserved,
+    ),
+    (
+        FindingKind::Implication,
+        EvidenceStatus::StructurallyObserved,
     ),
 ];
 

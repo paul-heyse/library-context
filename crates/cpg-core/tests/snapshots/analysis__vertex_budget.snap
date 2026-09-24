@@ -1,23 +1,26 @@
 ---
 source: crates/cpg-core/tests/analysis.rs
-expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \\\n                 FROM analysis_invocations i {} ORDER BY seed, i.method\",\nlabelled(\"i.subject_node_id\"))).await"
+expression: "text(&ctx,\n&format!(\"SELECT {LABEL} AS seed, i.completion, i.stop_reason, i.vertices_examined \\\n                 FROM analysis_invocations i {} WHERE i.method <= 2 \\\n                 ORDER BY seed, i.method\",\nlabelled(\"i.subject_node_id\"))).await"
 ---
-+-------------------------+------------+-------------+-------------------+
-| seed                    | completion | stop_reason | vertices_examined |
-+-------------------------+------------+-------------+-------------------+
-| pkg.controls.configure  | 1          | 1           | 1                 |
-| pkg.controls.configure  | 0          | 0           | 25                |
-| pkg.controls.configure  | 0          |             |                   |
-| pkg.helpers.describe    | 0          |             | 1                 |
-| pkg.helpers.describe    | 0          |             | 0                 |
-| pkg.helpers.describe    | 0          |             |                   |
-| pkg.helpers.helper      | 1          | 1           | 1                 |
-| pkg.helpers.helper      | 0          |             | 3                 |
-| pkg.helpers.helper      | 0          |             |                   |
-| pkg.server.Server.route | 1          | 1           | 1                 |
-| pkg.server.Server.route | 0          |             | 1                 |
-| pkg.server.Server.route | 0          |             |                   |
-| pkg.server.Server.tool  | 1          | 1           | 1                 |
-| pkg.server.Server.tool  | 0          |             | 4                 |
-| pkg.server.Server.tool  | 0          |             |                   |
-+-------------------------+------------+-------------+-------------------+
++-------------------------------+------------+-------------+-------------------+
+| seed                          | completion | stop_reason | vertices_examined |
++-------------------------------+------------+-------------+-------------------+
+| pkg.controls.configure        | 1          | 1           | 1                 |
+| pkg.controls.configure        | 0          | 0           | 25                |
+| pkg.controls.configure        | 0          |             |                   |
+| pkg.helpers.describe          | 0          |             | 1                 |
+| pkg.helpers.describe          | 0          |             | 0                 |
+| pkg.helpers.describe          | 0          |             |                   |
+| pkg.helpers.helper            | 1          | 1           | 1                 |
+| pkg.helpers.helper            | 0          |             | 3                 |
+| pkg.helpers.helper            | 0          |             |                   |
+| pkg.registry.Catalog.add_tool | 0          |             | 1                 |
+| pkg.registry.Catalog.add_tool | 0          |             | 4                 |
+| pkg.registry.Catalog.add_tool | 0          |             |                   |
+| pkg.server.Server.route       | 1          | 1           | 1                 |
+| pkg.server.Server.route       | 0          |             | 1                 |
+| pkg.server.Server.route       | 0          |             |                   |
+| pkg.server.Server.tool        | 1          | 1           | 1                 |
+| pkg.server.Server.tool        | 0          |             | 4                 |
+| pkg.server.Server.tool        | 0          |             |                   |
++-------------------------------+------------+-------------+-------------------+

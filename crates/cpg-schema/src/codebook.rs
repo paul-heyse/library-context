@@ -817,6 +817,9 @@ codebook!(
         CommunityConsensus = 4 => "community_consensus",
         /// Our weighted power iteration over the usage projection (§9.5).
         PageRank = 5 => "pagerank",
+        /// Formal concept analysis of one structural scope: our own NextClosure, concepts and the
+        /// Duquenne–Guigues basis over a support threshold (§9.6).
+        Fca = 6 => "fca_next_closure",
     }
 );
 
@@ -862,6 +865,13 @@ codebook!(
         /// A public API's rank in the usage projection (§9.5): the score is its PageRank.
         /// Statistical: it orders seeds and Related entries, never states behaviour.
         Centrality = 12 => "centrality",
+        /// A formal concept of one structural scope (§9.6): public APIs (its extent) sharing
+        /// attributes (its intent). The subject is the scope; the score its extent's size.
+        ApplicableCase = 13 => "applicable_case",
+        /// An implication of the scope's Duquenne–Guigues basis, with confidence 1 over the support
+        /// threshold: every API with the premise's attributes has the conclusion's. The score is
+        /// its support.
+        Implication = 14 => "implication",
     }
 );
 
@@ -884,6 +894,8 @@ codebook!(
         SyntheticBoundary = 6 => "synthetic_boundary",
         /// The call site has no target, or an unresolved remainder.
         UnresolvedSite = 7 => "unresolved_site",
+        /// FCA's closed-set budget: more concepts and implications may exist.
+        ConceptBudget = 8 => "concept_budget",
     }
 );
 
@@ -915,6 +927,14 @@ codebook!(
         /// A call site or usage scope behind one of a community's strongest pairs: the lineage an
         /// aggregated pair keeps (H1 review F9). The label names the layer.
         SupportingSite = 10 => "supporting_site",
+        /// A concept's object: a public API (its access path as label).
+        ExtentMember = 11 => "extent_member",
+        /// A concept's attribute (the attribute as label).
+        IntentAttribute = 12 => "intent_attribute",
+        /// An implication's premise attribute.
+        Premise = 13 => "premise",
+        /// An implication's conclusion attribute.
+        Conclusion = 14 => "conclusion",
     }
 );
 
@@ -960,6 +980,11 @@ codebook!(
         /// A parameter that reaches a callee in a form the analysis does not follow (Pass B
         /// `unfollowed_argument`).
         UnfollowedControl = 11 => "unfollowed_control",
+        /// The seed's most specific shared concept: the public APIs of its scope that share the
+        /// most attributes with it (FCA `applicable_case`).
+        ApplicableCase = 12 => "applicable_case",
+        /// An implication of the seed's scope that the seed satisfies (FCA `implication`).
+        Implication = 13 => "implication",
     }
 );
 

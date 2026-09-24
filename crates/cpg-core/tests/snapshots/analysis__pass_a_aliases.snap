@@ -1,76 +1,139 @@
 ---
 source: crates/cpg-core/tests/analysis.rs
-expression: "text(&ctx, \"SELECT m.label FROM finding_members m ORDER BY m.label\").await"
+expression: "text(&ctx,\n\"SELECT m.label FROM finding_members m \\\n             JOIN findings f ON f.finding_id = m.finding_id \\\n             WHERE f.finding_kind <> 11 ORDER BY m.label\").await"
 ---
-+-------------------------+
-| label                   |
-+-------------------------+
-| 2                       |
-| True                    |
-| alias                   |
-| alias                   |
-| capacity                |
-| computed                |
-| conditional             |
-| conditional             |
-| conditional             |
-| count                   |
-| extra                   |
-| fn                      |
-| fn                      |
-| fn                      |
-| fn                      |
-| fn                      |
-| fn                      |
-| item                    |
-| label                   |
-| label                   |
-| label                   |
-| mode                    |
-| mode                    |
-| mode                    |
-| mode                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| name                    |
-| note                    |
-| options                 |
-| pkg.Server.route        |
-| pkg.Server.tool         |
-| pkg.configure           |
-| pkg.controls.configure  |
-| pkg.describe            |
-| pkg.helper              |
-| pkg.helpers.describe    |
-| pkg.helpers.helper      |
-| pkg.server.Server.route |
-| pkg.server.Server.tool  |
-| rebound                 |
-| size                    |
-| size                    |
-| size                    |
-| size                    |
-| size                    |
-| size                    |
-| size                    |
-| size                    |
-| size                    |
-| text                    |
-| unmapped                |
-| unmapped                |
-| unmapped                |
-+-------------------------+
++--------------------------------+
+| label                          |
++--------------------------------+
+| 2                              |
+| True                           |
+| alias                          |
+| alias                          |
+| capacity                       |
+| computed                       |
+| conditional                    |
+| conditional                    |
+| conditional                    |
+| count                          |
+| extra                          |
+| fn                             |
+| fn                             |
+| fn                             |
+| fn                             |
+| fn                             |
+| fn                             |
+| item                           |
+| label                          |
+| label                          |
+| label                          |
+| mode                           |
+| mode                           |
+| mode                           |
+| mode                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| name                           |
+| note                           |
+| options                        |
+| parameter fn                   |
+| parameter fn                   |
+| parameter fn                   |
+| parameter fn                   |
+| parameter fn                   |
+| parameter fn                   |
+| parameter fn                   |
+| parameter fn                   |
+| parameter fn                   |
+| parameter name                 |
+| parameter name                 |
+| parameter name                 |
+| parameter name                 |
+| parameter name                 |
+| parameter name                 |
+| parameter name                 |
+| parameter name                 |
+| parameter name                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter tags                 |
+| parameter title                |
+| parameter title                |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type set[str] | None |
+| parameter type str | None      |
+| parameter type str | None      |
+| parameter type str | None      |
+| parameter type str | None      |
+| parameter type str | None      |
+| parameter type str | None      |
+| parameter type str | None      |
+| parameter type str | None      |
+| parameter type str | None      |
+| pkg.Catalog.add_prompt         |
+| pkg.Catalog.add_prompt         |
+| pkg.Catalog.add_resource       |
+| pkg.Catalog.add_tool           |
+| pkg.Catalog.add_tool           |
+| pkg.Catalog.add_tool           |
+| pkg.Server.route               |
+| pkg.Server.tool                |
+| pkg.configure                  |
+| pkg.controls.configure         |
+| pkg.describe                   |
+| pkg.helper                     |
+| pkg.helpers.describe           |
+| pkg.helpers.helper             |
+| pkg.registry.Catalog.add_tool  |
+| pkg.server.Server.route        |
+| pkg.server.Server.tool         |
+| rebound                        |
+| returns None                   |
+| returns None                   |
+| returns None                   |
+| returns None                   |
+| returns None                   |
+| returns None                   |
+| returns None                   |
+| returns None                   |
+| returns None                   |
+| size                           |
+| size                           |
+| size                           |
+| size                           |
+| size                           |
+| size                           |
+| size                           |
+| size                           |
+| size                           |
+| text                           |
+| unmapped                       |
+| unmapped                       |
+| unmapped                       |
++--------------------------------+

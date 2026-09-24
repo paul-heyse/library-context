@@ -472,6 +472,7 @@ analytic_method
   3 leiden
   4 community_consensus
   5 pagerank
+  6 fca_next_closure
 finding_kind
   0 public_alias
   1 direct_delegation
@@ -486,6 +487,8 @@ finding_kind
   10 unfollowed_argument
   11 community
   12 centrality
+  13 applicable_case
+  14 implication
 stop_reason
   0 depth_limit
   1 vertex_budget
@@ -495,6 +498,7 @@ stop_reason
   5 external_boundary
   6 synthetic_boundary
   7 unresolved_site
+  8 concept_budget
 member_role
   0 access_path
   1 source_parameter
@@ -507,6 +511,10 @@ member_role
   8 reason
   9 community_member
   10 supporting_site
+  11 extent_member
+  12 intent_attribute
+  13 premise
+  14 conclusion
 assertion_kind
   0 outcome
   1 public_access
@@ -520,6 +528,8 @@ assertion_kind
   9 usage_pattern
   10 handoff
   11 unfollowed_control
+  12 applicable_case
+  13 implication
 brief_section
   0 outcome
   1 public_access

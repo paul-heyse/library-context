@@ -43,12 +43,15 @@ use crate::{CoreError, sql};
 /// override-open final arc, a definition claims nothing more (increment-1 deep review F5). 7: usage
 /// patterns and handoffs, and the pattern's code in the brief document (slice 2.2). 8: one
 /// path-qualifier rule for Pass B's templates, and unfollowed controls (slice 2.1 review F1, F4).
-/// 9: a usage pattern cites only a handoff it shows (slice 2.2 review F3).
-pub const TEMPLATE_VERSION: i64 = 9;
+/// 9: a usage pattern cites only a handoff it shows (slice 2.2 review F3). 10: applicable cases
+/// and implications from FCA, the applicable case in the brief document, and over-cap documents
+/// split into chunks (slice 2.5).
+pub const TEMPLATE_VERSION: i64 = 10;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
-/// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. In increment 1 an
-/// over-cap brief fails the compile (applicable cases, which split it, arrive in 2.5).
+/// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
+/// document is split into chunks of whole parts under its header (slice 2.5); a single part over
+/// the cap fails the compile.
 pub const DOCUMENT_BYTE_CAP: usize = 4 * 2048;
 
 /// The rows Stage F produces.
@@ -367,6 +370,68 @@ fn hop_note(caller: &str, callee: &str, w: &WitnessesRow) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Whole items packed in order into chunks of at most `cap` bytes, each opening with `header`
+/// and never cutting an item; `Err(size)` names an item that cannot fit even alone.
+fn chunked(header: &str, items: &[String], cap: usize) -> Result<Vec<String>, usize> {
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current = header.to_owned();
+    for item in items {
+        if header.len() + 1 + item.len() > cap {
+            return Err(item.len());
+        }
+        if current.len() + 1 + item.len() > cap {
+            chunks.push(std::mem::replace(&mut current, header.to_owned()));
+        }
+        current += &format!("\n{item}");
+    }
+    chunks.push(current);
+    Ok(chunks)
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn listed(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [init @ .., last] => format!("{} and {last}", init.join(", ")),
+    }
+}
+
+/// FCA attributes as noun phrases: the parameter names, each declared parameter type, then the
+/// return, raised and decorator attributes (§9.6's attribute forms, `cpg_schema::concepts`).
+fn attributes_text(attributes: &[String]) -> String {
+    let (mut params, mut types, mut returns, mut raises, mut decorators) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for a in attributes {
+        if let Some(t) = a.strip_prefix("parameter type ") {
+            types.push(format!("a parameter typed `{t}`"));
+        } else if let Some(n) = a.strip_prefix("parameter ") {
+            params.push(format!("`{n}`"));
+        } else if let Some(t) = a.strip_prefix("returns ") {
+            returns.push(format!("the return type `{t}`"));
+        } else if let Some(e) = a.strip_prefix("raises ") {
+            raises.push(format!("the raised type `{e}`"));
+        } else if let Some(d) = a.strip_prefix("decorator ") {
+            decorators.push(format!("`@{d}`"));
+        }
+    }
+    let mut parts = Vec::new();
+    match params.len() {
+        0 => {}
+        1 => parts.push(format!("the parameter {}", params[0])),
+        _ => parts.push(format!("the parameters {}", listed(&params))),
+    }
+    parts.extend(types);
+    parts.extend(returns);
+    parts.extend(raises);
+    match decorators.len() {
+        0 => {}
+        1 => parts.push(format!("the decorator {}", decorators[0])),
+        _ => parts.push(format!("the decorators {}", listed(&decorators))),
+    }
+    listed(&parts)
 }
 
 /// The kind policy as published rows (DESIGN §10.2).
@@ -833,6 +898,17 @@ pub async fn run(
         }
     }
     let patterns = crate::usage::patterns(ctx, &seeds, &preferred).await?;
+    // Each seed's FCA attributes (the declared relation's rows), for the implications it meets.
+    let seed_attributes: BTreeMap<Id, BTreeSet<String>> = lctx_analytics::concepts::attributes_of(
+        &Table::read(
+            ctx,
+            &cpg_schema::concepts::attributes_sql(&seeds),
+            &[("function_node_id", ID), ("attribute", DataType::Utf8)],
+        )
+        .await?
+        .batches,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
 
     let mut evidence: BTreeMap<Id, EvidenceRow> = BTreeMap::new();
     let mut add_evidence = |row: EvidenceRow| -> Id {
@@ -1427,6 +1503,128 @@ pub async fn run(
             drafts.push(draft);
         }
 
+        // Applicable case (§9.6): among the concepts of the seed's scope that hold it with another
+        // public API and share at least two attributes (one is closer to coincidence), the one with
+        // the most (other API, shared attribute) pairs, |intent| · (|extent| − 1), then the larger
+        // intent, then the finding id (pre-registered; D32).
+        let scope_label = access_path
+            .rsplit_once('.')
+            .map_or(access_path.as_str(), |(c, _)| c);
+        let concept_rows = |f: &FindingsRow, role: MemberRole| -> Vec<&FindingMembersRow> {
+            let mut rows: Vec<&FindingMembersRow> = found
+                .members
+                .iter()
+                .filter(|m| m.finding_id == f.finding_id && m.role == role)
+                .collect();
+            rows.sort_by_key(|m| m.ordinal);
+            rows
+        };
+        let holding: Vec<&FindingsRow> = found
+            .findings
+            .iter()
+            .filter(|f| {
+                f.finding_kind == FindingKind::ApplicableCase
+                    && concept_rows(f, MemberRole::ExtentMember)
+                        .iter()
+                        .any(|m| m.node_id == Some(seed))
+            })
+            .collect();
+        let chosen = holding
+            .iter()
+            .map(|f| {
+                let extent = concept_rows(f, MemberRole::ExtentMember).len();
+                let intent = concept_rows(f, MemberRole::IntentAttribute).len();
+                (intent * extent.saturating_sub(1), intent, *f)
+            })
+            .filter(|(pairs, intent, _)| *pairs > 0 && *intent >= 2)
+            .max_by(|a, b| {
+                (a.0, a.1)
+                    .cmp(&(b.0, b.1))
+                    .then(b.2.finding_id.cmp(&a.2.finding_id))
+            })
+            .map(|(_, _, f)| f);
+        if let Some(f) = chosen {
+            let mut others: Vec<String> = concept_rows(f, MemberRole::ExtentMember)
+                .iter()
+                .filter(|m| m.node_id != Some(seed))
+                .filter_map(|m| m.label.clone())
+                .map(|l| format!("`{l}`"))
+                .collect();
+            let count = others.len();
+            // At most five named; the rest counted (the finding lists them all).
+            if count > 5 {
+                others.truncate(5);
+                others.push(format!("{} more", count - 5));
+            }
+            let intent: Vec<String> = concept_rows(f, MemberRole::IntentAttribute)
+                .iter()
+                .filter_map(|m| m.label.clone())
+                .collect();
+            drafts.push(
+                Draft::new(
+                    AssertionKind::ApplicableCase,
+                    format!(
+                        "`{seed_label}` belongs with {} ({} public APIs of `{scope_label}`): each \
+                         has {}.",
+                        listed(&others),
+                        count + 1,
+                        attributes_text(&intent)
+                    ),
+                )
+                .citing(f),
+            );
+        }
+        // Implications of the seed's scope it satisfies: its attributes hold every premise
+        // attribute, so it has the conclusion's too. The three best supported.
+        if let (Some(scope), Some(own)) = (
+            holding.first().map(|f| f.subject_node_id),
+            seed_attributes.get(&seed),
+        ) {
+            let mut met: Vec<(&FindingsRow, Vec<String>, Vec<String>)> = found
+                .findings
+                .iter()
+                .filter(|f| {
+                    f.finding_kind == FindingKind::Implication && f.subject_node_id == scope
+                })
+                .filter_map(|f| {
+                    let premise: Vec<String> = concept_rows(f, MemberRole::Premise)
+                        .iter()
+                        .filter_map(|m| m.label.clone())
+                        .collect();
+                    let conclusion: Vec<String> = concept_rows(f, MemberRole::Conclusion)
+                        .iter()
+                        .filter_map(|m| m.label.clone())
+                        .collect();
+                    (!premise.is_empty()
+                        && !conclusion.is_empty()
+                        && premise.iter().all(|a| own.contains(a)))
+                    .then_some((f, premise, conclusion))
+                })
+                .collect();
+            met.sort_by(|a, b| {
+                b.0.score
+                    .unwrap_or_default()
+                    .total_cmp(&a.0.score.unwrap_or_default())
+                    .then(a.1.len().cmp(&b.1.len()))
+                    .then(a.0.finding_id.cmp(&b.0.finding_id))
+            });
+            for (f, premise, conclusion) in met.into_iter().take(3) {
+                drafts.push(
+                    Draft::new(
+                        AssertionKind::Implication,
+                        format!(
+                            "Among the public APIs of `{scope_label}`, every one that has {} also \
+                             has {} ({} APIs).",
+                            attributes_text(&premise),
+                            attributes_text(&conclusion),
+                            f.score.unwrap_or_default() as i64
+                        ),
+                    )
+                    .citing(f),
+                );
+            }
+        }
+
         // Usage pattern (§10.5): official code using the operation, with its setup, verbatim.
         if let Some(pattern) = patterns.get(&seed) {
             let mut draft = Draft::new(
@@ -1794,30 +1992,54 @@ pub async fn run(
             })
             .filter_map(|a| a.text.clone())
             .collect();
-        let mut document =
-            format!("Outcome: {outcome}\nPublic APIs: {apis}\nBuilt-in controls: {controls}");
+        // §11.1's projection: outcome, applicable case, public APIs, controls, usage description
+        // and limits.
+        let mut header = format!("Outcome: {outcome}");
+        if let Some(case) = texts(AssertionKind::ApplicableCase).into_iter().next() {
+            header += &format!("\nApplicable case: {case}");
+        }
+        header += &format!("\nPublic APIs: {apis}");
+        let mut items = vec![format!("Built-in controls: {controls}")];
         // The usage description (§11.1): the pattern's code.
         if let Some(pattern) = patterns.get(&seed) {
-            document += &format!("\nUsage:\n{}", pattern.code);
+            items.push(format!("Usage:\n{}", pattern.code));
         }
-        if !limits.is_empty() {
-            document += &format!("\nConditions and limitations: {}", limits.join(" "));
+        let whole = if limits.is_empty() {
+            None
+        } else {
+            Some(format!("Conditions and limitations: {}", limits.join(" ")))
+        };
+        let mut document = format!("{header}\n{}", items.join("\n"));
+        if let Some(l) = &whole {
+            document += &format!("\n{l}");
         }
-        if document.len() > DOCUMENT_BYTE_CAP {
-            return Err(CoreError::Analysis(format!(
-                "the brief for {access_path} is {} bytes, over the {DOCUMENT_BYTE_CAP}-byte cap \
-                 (2,048 tokens); splitting by applicable case arrives in increment 2",
-                document.len()
-            )));
+        let chunks = if document.len() <= DOCUMENT_BYTE_CAP {
+            vec![document]
+        } else {
+            // Over the cap: whole items packed into chunks, each under the header (the outcome
+            // and applicable case), never truncated (§11.1; slice 2.5).
+            items.extend(
+                limits
+                    .iter()
+                    .map(|l| format!("Conditions and limitations: {l}")),
+            );
+            chunked(&header, &items, DOCUMENT_BYTE_CAP).map_err(|size| {
+                CoreError::Analysis(format!(
+                    "the brief for {access_path} has one part of {size} bytes, over the \
+                     {DOCUMENT_BYTE_CAP}-byte cap (2,048 tokens) with its header"
+                ))
+            })?
+        };
+        for (chunk, text) in chunks.into_iter().enumerate() {
+            out.brief_documents.push(BriefDocumentsRow {
+                snapshot_id,
+                brief_id,
+                chunk: chunk as i64,
+                text,
+                spec_hash: None,
+                input_hash: None,
+            });
         }
-        out.brief_documents.push(BriefDocumentsRow {
-            snapshot_id,
-            brief_id,
-            chunk: 0,
-            text: document,
-            spec_hash: None,
-            input_hash: None,
-        });
     }
     out.evidence = evidence.into_values().collect();
     Ok(out)
@@ -1826,6 +2048,18 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// §11.1 and slice 2.5: an over-long document is split at whole parts, each chunk under the
+    /// header, never truncated; a part too long for any chunk is refused.
+    #[test]
+    fn an_over_long_document_is_split_at_whole_parts() {
+        let items = ["aaaa".to_owned(), "bbbbbb".to_owned(), "cc".to_owned()];
+        let chunks = chunked("H", &items, 9).unwrap();
+        assert_eq!(chunks, ["H\naaaa", "H\nbbbbbb", "H\ncc"]);
+        assert!(chunks.iter().all(|c| c.len() <= 9));
+        assert_eq!(chunked("H", &items, 20).unwrap(), ["H\naaaa\nbbbbbb\ncc"]);
+        assert_eq!(chunked("H", &items, 6), Err(6));
+    }
 
     #[test]
     fn a_summary_span_is_the_first_sentence_of_the_first_paragraph() {

@@ -2127,6 +2127,42 @@ log D24, D25, D30):
   - Both are `structurally_observed`, because they are exact over the extracted attributes, with
     the attribute scope stated.
 
+**Implemented** and **Tested** in slice 2.5 (2026-09-23; deviation log D32):
+- **Scope.** Each seed's structural scope is the public namespace its access path names: the
+  public APIs `container.x` of the exported class or module `container` (`fastmcp.FastMCP` for
+  `fastmcp.FastMCP.tool`: its public methods, declared or inherited; a package's own module when
+  no export names it). One FCA invocation runs per distinct scope with at least two APIs.
+- **Attributes** (`cpg_schema::concepts::attributes_sql`, digested): `parameter NAME` (`*`/`**`
+  for the catch-alls; the receiver aside by the method's kind), `parameter type T` (declared),
+  `returns T` (declared), `raises E` (the typed `raise`s directly in the body; a bare re-raise has
+  no type, C4 review O4) and `decorator D`.
+- **Kernel** (`lctx_analytics::concepts`): our own NextClosure over `fixedbitset` enumerating every
+  set closed under the implications found so far, so one pass gives the frequent concepts and the
+  frequent Duquenne–Guigues basis. Pruning infrequent candidates is exact: a larger set never has
+  a larger extent. Parameters (pre-registered code, frozen with the others): support 2 APIs,
+  budget 20,000 closed sets (a budget stop is `concept_budget`, completion `partial`).
+- **Findings.** Each frequent concept with a non-empty intent is an `applicable_case` finding
+  (`extent_member` APIs, `intent_attribute`s; score = extent size); each basis implication an
+  `implication` finding (`premise`, `conclusion`; score = support). The subject is the scope.
+- **Stage F.** A seed's `applicable_case` assertion (section Applicable case) is the concept of its
+  scope that holds it with another API, shares at least two attributes, and has the most (other
+  API, shared attribute) pairs, |intent| · (|extent| − 1), then the larger intent. Up to three `implication` assertions
+  (section Important controls) are the best-supported implications whose premise the seed meets.
+  Both are `structurally_observed`, and the scope is named in the text. The applicable case
+  enters the brief document (§11.1).
+- **Tests** (`concepts::tests`): the hand-computed context of §12 (seven concepts; the basis
+  `b → a`, `c → a`, `{a,d} → {b,c}`); fcars 0.2.2 agreeing on random contexts at supports 0, 2
+  and 4; the basis sound and complete (closing every subset under it gives its Galois closure);
+  the budget stop. `concepts_come_from_each_seeds_structural_scope` on `analysis_shapes`
+  (`pkg.Catalog`: a registration family and an unrelated method).
+- **Pilot (Measured, 2026-09-23, snapshot `57039be8`).** One scope, `fastmcp.FastMCP`: 51 public
+  APIs, 195 attributes, 97 frequent concepts and 107 implications from 205 closed sets, far under
+  the budget. `tool`, `resource` and `prompt` share an applicable case of eight parameters
+  (`auth`, `description`, `icons`, `meta`, `name`, `tags`, `title`, `version`) and six declared
+  parameter types; `mount`'s is five APIs sharing a `str | None` parameter and raising
+  `ValueError`. Every seed has an applicable case, so the slot is no longer absent, and 1–3
+  implications. The longest brief document is 1,429 bytes: none is split on the pilot.
+
 ### §9.7 Embeddings in analytics
 
 - **Consumers:**
@@ -2308,9 +2344,11 @@ a.evidence_status = 4 GROUP BY p.brief_section ORDER BY 1`.
   callables, release code outside the subsystem, unresolved sites). What the seed calls itself
   is kept apart from what the callables it reaches call. Plus the depth bound or a budget
   truncation, citing Pass A's `traversal_stop` finding.
-- **The brief document** (§11.1): outcome, public APIs, control names and limits. Over
-  2,048 tokens (a declared proxy of 4 bytes per token until the embedder counts, slice 1.6) it
-  fails the compile in increment 1; applicable cases split it from increment 2.
+- **The brief document** (§11.1): outcome, applicable case (slice 2.5), public APIs, control names,
+  usage and limits. Over 2,048 tokens (a declared proxy of 4 bytes per token) it is split into
+  chunks of whole parts, each under the outcome and applicable case, never truncated; a part too
+  long for any chunk fails the compile (slice 2.5, `chunked`). Retrieval scores a brief by its
+  best chunk.
 - A template or extractive-rule change bumps `synth::TEMPLATE_VERSION`; the analysis output is
   pinned to the versions in a test ledger (ADR-0019 review O4).
 
@@ -2618,3 +2656,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 2.4: centrality (`lctx_analytics::ranking`, weighted PageRank over the usage projection) (§9.5) | ADR-0011; deviation log D29 |
 | 2026-09-23 | Slice 2.2 compact review fixes: release handoff endpoints, one-target producers, the narrowed receiver rule, doc blocks by document, self-contained usage patterns (block and free-name checks), citations of shown handoffs only; two rules; §10.2 rows for `usage_pattern` and `handoff`; §3.2, §9.3, §10.4, §10.5 (§3.2, §9.3, §10.2, §10.4, §10.5) | ADR-0019 (dated amendment); deviation log D30 |
 | 2026-09-23 | ADR-0011 standard review fixes and ADR-0011 accepted: γ = 1 fixed with a recorded profile, named layer policies, the invocation projection in the community digest, the public co-assignment score, the parameters in the gold freeze (§9, §9.4) | ADR-0011 (accepted); ADR-0004 (amended); deviation log D31 |
+| 2026-09-23 | Slice 2.5: FCA (`cpg_schema::concepts`, `lctx_analytics::concepts`: NextClosure concepts and the Duquenne–Guigues basis), `applicable_case` and `implication` findings and assertions, the applicable case in the brief document, over-cap documents split into chunks (§9.6, §10.2, §10.3) | ADR-0011; deviation log D32 |

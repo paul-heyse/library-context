@@ -1,0 +1,11 @@
+---
+source: crates/cpg-core/tests/analysis.rs
+expression: "text(&ctx,\n\"SELECT parameters, completion, stop_reason, diagnostics \\\n             FROM analysis_invocations WHERE method = 6 ORDER BY parameters\",).await"
+---
++----------------------------------------------------------------+------------+-------------+--------------------------------------------------------------------------------------------------+
+| parameters                                                     | completion | stop_reason | diagnostics                                                                                      |
++----------------------------------------------------------------+------------+-------------+--------------------------------------------------------------------------------------------------+
+| {"fca":{"min_support":2,"budget":20000},"scope":"pkg"}         | 0          |             | {"objects":3,"attributes":8,"concepts":0,"implications":0,"examined":1,"budget_reached":false}   |
+| {"fca":{"min_support":2,"budget":20000},"scope":"pkg.Catalog"} | 0          |             | {"objects":4,"attributes":13,"concepts":2,"implications":7,"examined":10,"budget_reached":false} |
+| {"fca":{"min_support":2,"budget":20000},"scope":"pkg.Server"}  | 0          |             | {"objects":5,"attributes":6,"concepts":0,"implications":0,"examined":1,"budget_reached":false}   |
++----------------------------------------------------------------+------------+-------------+--------------------------------------------------------------------------------------------------+

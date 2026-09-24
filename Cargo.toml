@@ -29,6 +29,9 @@ fixedbitset = "=0.5.7"
 # Communities (DESIGN §9.4; ADR-0011): sequential Leiden, no features (not its petgraph adapter,
 # not rayon); its RNG is rand 0.9, already in the graph.
 leiden-rs = { version = "=0.8.1", default-features = false }
+# FCA's oracle (ADR-0011): dev-only, never linked into the compiler.
+fcars = "=0.2.2"
+bitvec = "=1.0.1"
 # Stage F's lead sentences (DESIGN §10.3): UAX #29 sentence boundaries with byte offsets, already
 # in the graph at this version (arrow-cast -> comfy-table).
 unicode-segmentation = "=1.13.3"

@@ -28,7 +28,7 @@ module_prefixes = ["pkg.server", "pkg.helpers", "pkg.handlers", "pkg.boot", "pkg
 public_roots = ["pkg"]
 [seeds]
 primary = ["pkg.Server.tool"]
-distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure"]
+distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure", "pkg.Catalog.add_tool"]
 [pass_a]
 max_depth = 2
 max_vertices = 128
@@ -334,7 +334,7 @@ async fn a_seed_that_could_name_another_method_is_refused() {
         ("pkg.Aliased.tool", "assignment"),
     ] {
         let config = CONFIG.replace(
-            r#"distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure"]"#,
+            r#"distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure", "pkg.Catalog.add_tool"]"#,
             &format!(r#"distractors = ["{seed}"]"#),
         );
         let err = compile_config("refuse", &config, "linux")
@@ -568,6 +568,48 @@ async fn public_apis_are_ranked_over_the_usage_projection() {
                  ORDER BY f.score DESC, api LIMIT 8",
                 labelled("f.subject_node_id")
             )
+        )
+        .await
+    );
+}
+
+/// Formal concept analysis (DESIGN §9.6): one invocation per seed scope (the exported class or
+/// namespace its access path names), its concepts and implications as findings, and the seed's
+/// applicable case and the implications it meets as assertions.
+#[tokio::test(flavor = "multi_thread")]
+async fn concepts_come_from_each_seeds_structural_scope() {
+    let (ctx, _dir) = analyzed("one", false).await;
+    insta::assert_snapshot!(
+        "fca_invocations",
+        text(
+            &ctx,
+            "SELECT parameters, completion, stop_reason, diagnostics \
+             FROM analysis_invocations WHERE method = 6 ORDER BY parameters",
+        )
+        .await
+    );
+    insta::assert_snapshot!(
+        "fca_concepts",
+        text(
+            &ctx,
+            "SELECT f.finding_kind, CAST(f.score AS BIGINT) AS score, \
+                    (SELECT string_agg(m.label, ', ' ORDER BY m.ordinal) FROM finding_members m \
+                     WHERE m.finding_id = f.finding_id AND m.role IN (11, 13)) AS objects_or_premise, \
+                    (SELECT string_agg(m.label, ', ' ORDER BY m.ordinal) FROM finding_members m \
+                     WHERE m.finding_id = f.finding_id AND m.role IN (12, 14)) AS intent_or_conclusion \
+             FROM findings f WHERE f.finding_kind IN (13, 14) \
+             ORDER BY f.finding_kind, objects_or_premise, intent_or_conclusion",
+        )
+        .await
+    );
+    insta::assert_snapshot!(
+        "fca_assertions",
+        text(
+            &ctx,
+            "SELECT b.title, a.assertion_kind, a.evidence_status, a.text FROM briefs b \
+             JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+             JOIN assertions a ON a.assertion_id = ba.assertion_id \
+             WHERE a.assertion_kind IN (12, 13) ORDER BY b.title, ba.ordinal",
         )
         .await
     );
@@ -834,6 +876,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             11,
             9,
             "cd3ea8534cc3db47dc97be8727bbb4510fc3e4fa9a235cfe9aec2ff7b0c2c1af",
+        ),
+        (
+            12,
+            10,
+            "982bc3a8b44d4c4fe033b665edaf19081a44e1926b43f19287e5583e12974b1f",
         ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
