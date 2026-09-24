@@ -9,6 +9,7 @@ pub mod codebook;
 pub mod column;
 pub mod communities;
 pub mod concepts;
+pub mod condition;
 pub mod derived;
 pub mod embedding;
 pub mod findings;

@@ -7,7 +7,7 @@ supersedes: []
 superseded-by: null
 design: [§B5, §B10, §3.2, §3.9, §9, §9.9]
 evidence: Proposed
-revisit: The Stage 2.1 spike decides the flow-IR provider (record it here as an amendment), or the structured evaluation finds a question class that the closed condition language cannot express.
+revisit: The structured evaluation finds a question class the closed condition language cannot express; or a ty upgrade breaks range parity or decides a test at index time that differs from runtime.
 ---
 
 ## Context
@@ -38,42 +38,26 @@ semantics must close:
 
 ## Decision
 
-- **The flow IR is our stated runtime abstraction (§B5).**
-  - A statement-level control flow with exceptional exits.
-  - Reaching definitions over **places**. A place is a local name; `self.f` or `self.f.g`
-    (k ≤ 2); a module global, settings singletons included; a ContextVar object; or an attribute
-    of a function object.
-  - **The runtime view of static branches:** `TYPE_CHECKING` is false; `sys.version_info` and
-    `sys.platform` tests follow the analyzed context.
-  - **The provider** is decided by the Stage 2.1 spike: `ty_python_core` 0.0.14 behind a range
-    parity rule, or our own builder. It is recorded here by amendment. Pyrefly's binding graph is
-    a parity oracle only.
-- **Conditions are data in a closed language.**
-  - **Places:** ContextVar places land with Stage 5's framework models, which read them, not in
-    Stage 2 (the standard review's F14).
-  - **Atoms over places:** `is None`, `is not None`, `== literal`, `in {literals}`, truthiness,
-    `isinstance(C)`. Anything else is an **opaque** atom.
-  - **Normal form:** sorted conjuncts of normalized atoms. Two conditions are equal when their
-    normal forms are equal. That is syntactic, not semantic, equivalence (DM-15).
-  - **Compatibility of two conditions** is decided by a finite-domain evaluator as
-    **compatible**, **incompatible** or **unknown**. It is unknown whenever an opaque atom
-    decides.
-  - This is not a constraint solver (§B10 unchanged).
-  - **The evaluator is Rust and runs at compile time only.** There is no Python twin (the standard
-    review's F12): no tool takes a condition, and compatibility that a question needs is
-    materialized. A serve-time condition filter would need its own ADR.
+- **The flow IR is our stated runtime abstraction (§B5).** It is reaching definitions over
+  **places** with the conditions under which they reach, statement reachability, and value
+  sources. `ty_python_core` builds its raw material (§The flow provider). Pyrefly's binding graph
+  is a parity oracle only.
+- **Conditions are data in a closed language** (§Conditions). There is no Python twin (the first
+  standard review's F12), and no serve-time condition filter without its own ADR. Compatibility of
+  two conditions waits for its first question, Stage 3's Q9 (the Stage 2 review's F11).
 - **Five verdicts, never a null.** Codebook `verdict`, append-only:
 
   | Verdict | When |
   |---|---|
-  | `established` | No boundary in the region |
+  | `established` | No boundary in the region the claim reads |
   | `conditional` | Established under a stated condition |
-  | `refuted_under_model` | **Only** in a `complete_under_stated_model` region with no named boundary; a rule rejects any other |
-  | `unknown` | A `boundary_reason` is named |
-  | `not_analyzed` | Out of scope, not requested, or cut by a budget |
+  | `refuted_under_model` | **Only** where the claim's premise (§Verdicts) holds; a rule rejects any other |
+  | `unknown` | A `boundary_reason` is named, `budget_reached` included |
+  | `not_analyzed` | Out of scope or not requested |
 
-  Discovery results (FCA, communities, vectors) carry no verdict. They are `statistically_derived`
-  nominations and never write membership.
+  **Verdicts state may-behavior**: a positive record says the behavior can happen on some
+  execution the model admits, under its condition. Discovery results (FCA, communities, vectors)
+  carry no verdict. They are `statistically_derived` nominations and never write membership.
 - **Meaning comes from models, propagation from summaries.**
   - Effects and roles of stdlib, dependency and framework callables are committed data
     (`crates/cpg-schema/models/*.toml`, origin `synthetic_model`, append-only ids), digested into
@@ -83,17 +67,224 @@ semantics must close:
 - **Materialized at compile time.** Every predicate, summary and concept membership is computed in
   the compile, in DataFusion or in `lctx-analytics` kernels, before publication. The server never
   re-implements a semantic decision.
-- **Open until the start of Stage 2** (the standard review's F5, F6, F9, F11). They are decided
-  after the provider spike, with a `standard` review, and this ADR stays `proposed` until then:
-  - polarity and disjunction in the normal form, and the encoding of places and literals;
-  - whether a budget cut is `unknown` or `not_analyzed`, and a record's verdict under an opaque
-    condition;
-  - the refutation premise's region, and a `boundary_reason` for dynamic access;
-  - the relation of verdicts to `modality` and `evidence_status`;
-  - the flow provider's revision and settings in `producer_id` and `context_id`, and the
-    registry's labels in identity;
-  - the runtime view of the CPG layers the IR composes with (the exports seed and Pysa's call
-    graph).
+- **Decided at Stage 2.1.** The first standard review's F5, F6, F9 and F11 are decided here, after
+  the provider spike (deviation log B11). They were then revised by the Stage 2 review
+  (`design_review_behavior-semantics-stage2_2026-09-24.md`, F1–F11).
+
+### The flow provider (D-2)
+
+- **`ty_python_core` 0.0.14** builds the IR's raw material in one crate, `cpg-flow`:
+  - the use-def map: reaching definitions per use, each binding's reachability a decision diagram
+    over predicates;
+  - every statement's reachability.
+
+  Its pins are ruff 0.0.14 and salsa exactly 0.28.2, a declared extra family (ADR-0002
+  amendment, `check_family.py`).
+- **What crosses the boundary:** byte ranges, place text and our condition data. No ruff 0.0.14
+  or ty type leaves `cpg-flow` (ADR-0012 amendment).
+- **Normalized before use:**
+  - ty's synthetic loop-header definitions become the loop-body bindings they stand for, marked
+    `loop_carried`;
+  - an import alias's target becomes the bound name, which is where our bindings put it;
+  - an augmented assignment's target is both a use and a definition.
+- **The runtime override** (the Stage 2 review's F7). ty's builder decides `TYPE_CHECKING` as true
+  at index time.
+  - Before ty parses a module, every **name token** `TYPE_CHECKING` is renamed to a sentinel of the
+    same length, `TYPE_CHECKIN_`. The tokens come from ruff 0.0.14's lexer over the module, so
+    strings and comments keep their text; a name in an f-string replacement field is renamed.
+  - A module that already uses the sentinel as a name is refused, and its flow coverage is
+    `failed`.
+  - The runtime view matches the sentinel as a name and as an attribute of a dotted name.
+  - Place text, literal values from our text, and opaque text are cut from the module **as
+    written**, by range.
+  - `import TYPE_CHECKING as TC` leaves `TC` a `truthy` atom, as declared.
+  - ty decides no other test at index time that differs from runtime. Its literal folding covers
+    `True`, `False`, `None`, integers, `...`, lambdas, generators and `not`.
+- **ty's exception model** is part of the stated model. Exceptions come only from operations ty's
+  model says can raise. A `try` suite whose statements cannot raise, in its model, has unreachable
+  handlers. Ambient exceptions (`KeyboardInterrupt`, `MemoryError`) are outside it.
+- **Regions are relative to their scope's entry.** A statement inside a function is reached under
+  its region's condition **and** the `def` statement's region in the enclosing scope.
+- **Panics abort the extraction**, as for every analyzer (ADR-0012 §Panics). The rule
+  `no-catch-unwind-in-extractor` covers `cpg-flow`.
+- **Parity, both ways** (the Stage 2 review's F5). The rules:
+  - every flow use joins a `references` row by module and range, and every reference has a flow
+    use;
+  - every flow definition of a name joins a `bindings` row, and every binding has a flow
+    definition;
+  - `semantic:flow-reaching-within-candidates`: ty's reaching definitions of a use lie within our
+    candidate bindings for it (the spike's exit test, kept).
+
+  The declared residue is names inside annotations: ty indexes them, and `references` does not
+  model annotations as reads (§3.2). It is counted per run.
+- **The spike's measurements** on FastMCP 4.0.5's 275 release modules (2026-09-24, *Measured*):
+  - 213 ms and 47 MiB peak;
+  - every one of our 39,986 references is a ty use, once augmented-assignment targets are read as
+    uses;
+  - ty's reaching definitions fall within our candidate bindings for 27,782 uses (2,319 strictly
+    narrower);
+  - 251 fall outside, all from the two focus conventions normalized above;
+  - 11,917 uses have no local definition (builtins or enclosing scopes).
+
+  `cpg-flow`'s tests pin the fixture's conditions for `try`, `with`, `for`, `match`, `elif` and
+  the static branches (`flow_shapes`).
+
+### Conditions (F5; the Stage 2 review's F2 and F10)
+
+- **Normal form: DNF.** A condition is a disjunction of conjunctions of **literals**. A literal is
+  an atom with a polarity: `is not None` is `!is_none`.
+- **Atom kinds** (codebook `condition_atom`, append-only):
+  - `is_none(p)`;
+  - `equals(p, v)`;
+  - `member_of(p, {v…})`;
+  - `truthy(p)`;
+  - `isinstance(p, C)`, with `C` as written;
+  - `opaque("text")`, for any other test.
+- **Places in conditions** are written as spelled in the record's scope: a root name, then at most
+  two attribute segments, with no subscript. The record carries its scope. The **join key** for
+  places across scopes is the resolved place (§Places).
+- **Literals:**
+  - `None`, `True` and `False` as written;
+  - integers in decimal, a negative one included;
+  - strings as JSON strings, serialized by serde_json (non-ASCII characters kept as UTF-8).
+
+  A test on any other literal is opaque.
+- **Canonical forms:**
+  - a single-value `member_of` is `equals`;
+  - `== None` is `is_none`;
+  - `is True` and `is False` are `equals` with `True` and `False`;
+  - the literal is always the second operand;
+  - `in` takes a tuple, list or set of literals on the right, and anything else is opaque.
+- **Encoding.**
+  - A literal is `[!]kind(place[,value])`.
+  - A `member_of` set is sorted and deduplicated.
+  - A conjunction is its literals sorted bytewise by encoding and deduplicated, joined by ` & `.
+  - A disjunction is its conjunctions sorted and deduplicated, joined by ` | `.
+  - `true` is the empty conjunction; `false` is the empty disjunction.
+  - The id is `H("condition", encoding)` (DM-15). Equality is syntactic, and that is declared.
+- **Opaque text** is the test's source by its range (parentheses outside the range excluded), with
+  comments removed and runs of whitespace collapsed to one space.
+- **The lowering from ty's diagrams**, one procedure:
+  1. Enumerate the diagram's paths to the true terminal, following only `if_true` and `if_false`,
+     because every atom is two-valued at runtime.
+  2. ty's **ambiguous** terminal (reachability it leaves undecided: a `try` body, a loop over an
+     unknown iterable, a `with` exit) reads as `true`, because verdicts state may-behavior.
+  3. Map each predicate to a condition, evaluating the runtime view first, and expanding `and`,
+     `or`, `not` and conditional expressions in tests.
+  4. Simplify:
+     - drop a conjunction holding a literal and its negation;
+     - drop `!x` from a conjunction when `x` alone is a disjunct, to a fixpoint;
+     - absorb (drop a conjunction that contains another).
+- **Budget:** at most 16 conjunctions of at most 8 literals. A larger condition is not stated, and
+  its record is `unknown` with `budget_reached`. ty's own saturation (512K diagram nodes per scope)
+  is not observable through its API. The pilot's largest scope is reported per run.
+- **The runtime view** evaluates, before normalization:
+  - `TYPE_CHECKING` (the sentinel, as a name or an attribute of a dotted name) as false;
+  - `sys.version_info` comparisons against the context's Python version;
+  - `sys.platform` (`==`, `!=`, `startswith`) and `os.name` against its platform.
+- **ty predicates we do not read as tests:**
+  - a call's `IsNonTerminalCall` is true: calls are assumed to return, and `NoReturn` callables
+    are Stage 3's models;
+  - `IsNonEmptyIterable` (a `for` over `range(...)`), `ContextManagerSuppresses` and
+    `FinallyNormalPathImpossible` become opaque atoms with fixed text;
+  - or-pattern alternatives, subject-element patterns and star-import placeholders are opaque
+    with the fixed text `<undecided by the flow provider>`.
+
+### Places (the Stage 2 review's F4)
+
+- **Two layers.**
+  - The **spelled** place is a condition's text: syntactic, and scope-relative.
+  - The **resolved** place is the join key for `value_flows`, field reads, premises and summaries.
+    Its root is resolved through our reference resolutions or the flow IR's reaching definitions:
+    - to a parameter or local binding (`Parameter[name]`, `Local[name]` of a declaration);
+    - to a class's field (`Field[C.f]`, where `C` is the class whose method binds `self`);
+    - to a module global (`Global[module.name]`).
+
+    At most two segments follow the root.
+- **§9.9's `Parameter[…]`, `Field[…]` and `Global[…]` are this key's written form.** A singleton
+  read as `settings.X` in one module and as `fastmcp.settings.X` in another is one place,
+  `Global[fastmcp.settings].X`.
+
+### Verdicts (F6; the Stage 2 review's F1, F3, F8, F9)
+
+- **An opaque condition is still stated.** A record under a condition with an opaque atom is
+  `conditional`, and the atom's source text is shown.
+- **A budget cut is `unknown`**, with `budget_reached`. `not_analyzed` means out of scope or not
+  requested, and nothing else.
+- **Premises per place kind.** A negative claim ("never read", "never forwarded") is
+  `refuted_under_model` only where its premise holds, in one relation `negative_premises`: the
+  place key, the premise kind, whether it holds, and the reason if not.
+
+  | Place kind | The premise holds when |
+  |---|---|
+  | A parameter or local | No reference resolves to the binding, closures included; the module has flow IR |
+  | A field `f` of `C` | Across the release, no attribute load named `f` on **any** receiver; every release module has flow IR; no dynamic access reaches `C` |
+  | A module global | No read of the resolved place anywhere in the release; every release module has flow IR; no dynamic access reaches the module |
+  | A forward chain | The operation's `behavior_status` is `established` (the scan met no boundary in its region) |
+
+  - The field premise is name-based on purpose: it covers mixins and bases without types. Its
+    precision cost is that a common field name blocks refutation.
+  - **External readers are outside the model.** "Never read" means never read by release code.
+    Framework serializers, such as pydantic's, may read fields the release never names.
+  - The rule `semantic:refuted-needs-complete-region` joins every `refuted_under_model` row to its
+    premise.
+  - A constructor parameter's claims attach to the class's `__init__` operation.
+- **Dynamic access** gets `boundary_reason` `dynamic_access`.
+  - **The getattr family** (`getattr`, `setattr`, `hasattr`, `delattr` with a non-literal name,
+    `vars()`, `__dict__`) reaches class `C`'s fields when its receiver's reaching definitions,
+    through local copies, include any of these:
+    - `self` in a method of `C`, a subclass, a base or a mixin;
+    - a module global bound to an instance of `C`;
+    - a value Pyrefly types as `C`, a subclass, a base or a mixin.
+
+    `settings = self; getattr(settings, name)` is the first kind.
+  - **Any other receiver** is outside the model, and every negative answer names that assumption.
+  - `importlib.import_module` and `__import__` with a non-literal name reach module objects only.
+  - A module-level `__getattr__` supplies names the module does not bind, so it reaches no bound
+    place.
+  - `exec` and `eval` reach every place.
+- **Override dispatch** gets `boundary_reason` `override_dispatch`: a call through a `candidate`
+  arc (`self.m(...)`, which a subclass may override). A behavior whose path crosses such an arc is
+  `unknown`, as the delegation over it is (increment 3's deep review, F1).
+- **The read phase** of a read is decided by the reading site's scope:
+  - a module or class body is `import`;
+  - `__init__` or `__post_init__` is `construction`, and a `snapshot` when the value is stored to
+    a field;
+  - anything else is `per_call`.
+
+  A read reached from module scope through calls is Stage 3's (summaries).
+- **Verdicts, modality and evidence status are three vocabularies** (ADDENDUM §3):
+  - `modality` (definite, candidate, potential) describes a call-graph input fact. A behavior that
+    crosses a candidate or potential arc is at best `unknown`.
+  - `evidence_status` is a brief assertion's. When a brief renders a behavior (F7, Stage 2.6):
+    - `established` and `conditional` become `structurally_observed`;
+    - `unknown` becomes `unresolved`;
+    - `refuted_under_model` and `not_analyzed` are not rendered as assertions.
+
+### Identity (F9)
+
+- **Provider identity.** The flow provider runs inside the extractor, so its identity is part of
+  the extractor's `producers.revision`: `ty_python_core 0.0.14 (ruff 0.0.14, salsa 0.28.2)`.
+  - A change to `cpg-flow`'s output bumps `EXTRACTOR_OUTPUT_VERSION`, which is the one counter
+    (the Stage 2 review's O5). `flow_shapes`' facts are pinned by a snapshot, so an unbumped change
+    shows.
+  - The context is unchanged: `contexts` already carries the Python version and platform that the
+    runtime view reads.
+- **Registry labels are data, never identity.** A concept's id is `H("concept", key)`, where the key
+  is its stable key. Labels and definitions are digested into the registry digest and so into
+  `compiler_digest`. A membership's id is `H(concept, operation, basis)`.
+
+### Composed layers (F11; the Stage 2 review's F9)
+
+- **The CPG layers keep Pyrefly's checker view** (§B1), as labelled.
+- **A behavior takes the runtime view at its site.**
+  - A site that the runtime view finds unreachable yields no behavior, for example inside
+    `if TYPE_CHECKING:`.
+  - A site in code Pyrefly prunes but the runtime reaches (the `else` of `if TYPE_CHECKING:`) has
+    no call facts. A behavior that needs them is `unknown` with `outside_provider_model`.
+- **An operation whose seed declaration the runtime cannot reach** is `unknown`, with the reason
+  `runtime_unreachable` (appended). That holds whether or not a runtime definition of the name
+  exists. `unreachable_in_context` keeps its meaning: the checker never binds it.
 
 ## Consequences
 
@@ -101,7 +292,8 @@ semantics must close:
   access (`getattr` by string, `importlib`) could reach the value.
 - **More to maintain:** a flow family, a verdict codebook, an effect codebook, models files, and
   two fixtures (`flow_shapes`, `behavior_shapes`).
-- **If D-2 chooses `ty`:** a second ruff line (0.0.14) enters the lockfile under a declared family
-  exception (the ADR-0002 amendment), with salsa pinned exactly at 0.28.2.
-- **Revisit:** at the spike's outcome, or when the structured evaluation needs a condition the
-  closed language cannot express.
+- **D-2 chose `ty`:** a second ruff line (0.0.14) enters the lockfile under a declared family
+  exception (the ADR-0002 amendment), confined to `cpg-flow`, with salsa pinned exactly at 0.28.2.
+  A ty upgrade is a pin change with a parity rerun; the TYPE_CHECKING rename is ours to keep.
+- **Revisit:** when the structured evaluation needs a condition the closed language cannot
+  express, or when a ty upgrade breaks two-way parity or decides a test at index time.

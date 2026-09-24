@@ -1,0 +1,202 @@
+---
+source: crates/cpg-flow/tests/flow_shapes.rs
+expression: out
+---
+use 7:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
+use 14:sys sys <- sys [import] if true
+use 14:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 19:object object <- <unbound> [unbound] if true
+use 23:timeout timeout <- timeout [parameter] if !is_none(timeout)
+use 23:timeout timeout <- timeout [parameter] if true
+use 24:timeout timeout <- timeout if timeout is not None else 30 [assignment] if true
+use 28:host host <- host [parameter] if true
+use 29:settings settings <- <unbound> [unbound] if is_none(host)
+use 29:settings.host settings.host <- <unbound> [unbound] if is_none(host)
+use 30:host host <- host [parameter] if !is_none(host); settings.host [assignment] if is_none(host)
+use 34:path path <- path [parameter] if true
+use 35:ValueError ValueError <- <unbound> [unbound] if !truthy(path)
+use 36:strict strict <- strict [parameter] if truthy(path)
+use 37:path path <- path [parameter] if truthy(path) & truthy(strict)
+use 37:path.upper path.upper <- <unbound> [unbound] if truthy(path) & truthy(strict)
+use 38:path path <- path [parameter] if !truthy(strict) & truthy(path)
+use 42:a a <- a [parameter] if true
+use 42:b b <- b [parameter] if !truthy(a)
+use 46:len len <- <unbound> [unbound] if true
+use 46:items items <- items [parameter] if true
+use 47:n n <- len(items) [walrus] if opaque("(n := len(items)) > 3")
+use 52:prefix prefix <- <unbound> [unbound] if true
+use 52:n n <- names [comprehension_target] if true
+use 52:names names <- names [parameter] if true
+use 57:values values <- values [parameter] if true
+use 58:v v <- values [for_target] if true
+use 60:v v <- values [for_target] if !is_none(v)
+use 62:total total <- 0 [assignment] if !equals(v,"stop") & !is_none(v); total + v [assignment, loop-carried] if !equals(v,"stop") & !is_none(v)
+use 62:v v <- values [for_target] if !equals(v,"stop") & !is_none(v)
+use 65:total total <- -1 [assignment] if true; 0 [assignment] if !is_none(v) & equals(v,"stop"); total + v [assignment, loop-carried] if !is_none(v) & equals(v,"stop")
+use 71:fn fn <- fn [parameter] if true
+use 72:KeyError KeyError <- <unbound> [unbound] if true
+use 73:error error <- error [except_handler] if true
+use 76:result result <- error [assignment] if true; fn() [assignment] if true
+use 76:cleanup cleanup <- True [assignment] if true
+use 81:cm cm <- cm [parameter] if true
+use 82:compute compute <- compute [parameter] if true
+use 83:value value <- 1 [assignment] if opaque("<the context manager suppresses the exception>"); compute() [assignment] if true
+use 87:command command <- command [parameter] if true
+use 94:state state <- -1 [assignment] if !equals(command,"start") & !is_none(command); 0 [assignment] if !equals(command,"start") & is_none(command); 1 [assignment] if equals(command,"start")
+use 102:counter counter <- <unbound> [unbound] if true
+use 103:counter counter <- counter + 1 [assignment] if true
+use 111:level level <- <unbound> [unbound] if true
+use 112:level level <- level + 1 [assignment] if true
+use 114:inner inner <- inner [function_def] if true
+use 118:data data <- data [parameter] if true
+use 119:copy copy <- data [assignment] if true
+use 120:data data <- data [parameter] if true
+use 124:transport transport <- transport [parameter] if true
+use 125:host host <- host [parameter] if member_of(transport,{"http","sse"})
+use 130:TYPE_CHECKING TYPE_CHECKING <- <unbound> [unbound] if true
+use 132:value value <- value [parameter] if true
+use 136:n n <- n [parameter] if true
+use 137:n n <- 1 [aug_assignment] if true
+use 141:os os <- <unbound> [unbound] if true
+use 141:os.name os.name <- <unbound> [unbound] if true
+use 149:item item <- 
+use 150:last last <- None [assignment] if true
+use 154:mode mode <- mode [parameter] if true
+use 156:mode mode <- mode [parameter] if !equals(mode,"a")
+use 160:result result <- 1 [assignment] if equals(mode,"a"); 2 [assignment] if !equals(mode,"a") & equals(mode,"b"); 3 [assignment] if !equals(mode,"a") & !equals(mode,"b")
+use 167:KeyboardInterrupt KeyboardInterrupt <- 
+use 169:marker_value marker_value <- 1 [assignment] if true
+use 172:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
+use 174:int int <- 
+use 174:int int <- 
+use 179:x x <- x [parameter] if true
+use 183:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
+use 187:flag flag <- flag [parameter] if true
+use 193:a a <- a [parameter] if true
+use 194:b b <- b [parameter] if true
+use 195:a a <- a [parameter] if opaque("a > b")
+use 196:b b <- b [parameter] if !opaque("a > b")
+region 1 """One function per shape; each test in `cpg-flow` names its function and line.""" if true
+region 3 import os if true
+region 4 import sys if true
+region 5 from typing import TYPE_CHECKING if true
+region 7 if TYPE_CHECKING: if true
+region 8 from collections.abc import Callable if false
+region 10 marker = "checker" if false
+region 12 marker = "runtime" if true
+region 14 if sys.version_info >= (3, 12): if true
+region 15 version_branch = "new" if true
+region 17 version_branch = "old" if false
+region 19 settings = object() if true
+region 22 def fallback(timeout=None): if true
+region 23 timeout = timeout if timeout is not None else 30 if true
+region 24 return timeout if true
+region 27 def settings_fallback(host=None): if true
+region 28 if host is None: if true
+region 29 host = settings.host if is_none(host)
+region 30 return host if true
+region 33 def guarded(path, strict=False): if true
+region 34 if not path: if true
+region 35 raise ValueError("empty") if !truthy(path)
+region 36 if strict: if truthy(path)
+region 37 return path.upper() if truthy(path) & truthy(strict)
+region 38 return path if !truthy(strict) & truthy(path)
+region 41 def either(a, b): if true
+region 42 return a or b if true
+region 45 def walrus(items): if true
+region 46 if (n := len(items)) > 3: if true
+region 47 return n if opaque("(n := len(items)) > 3")
+region 48 return 0 if !opaque("(n := len(items)) > 3")
+region 51 def comprehension(prefix, names): if true
+region 52 return [prefix + n for n in names] if true
+region 55 def loop(values): if true
+region 56 total = 0 if true
+region 57 for v in values: if true
+region 58 if v is None: if true
+region 59 continue if is_none(v)
+region 60 if v == "stop": if !is_none(v)
+region 61 break if !is_none(v) & equals(v,"stop")
+region 62 total = total + v if !equals(v,"stop") & !is_none(v)
+region 64 total = -1 if true
+region 65 return total if true
+region 68 def handled(fn): if true
+region 69 result = None if true
+region 70 try: if true
+region 71 result = fn() if true
+region 73 result = error if true
+region 75 cleanup = True if true
+region 76 return result, cleanup if true
+region 79 def suppressed(cm, compute): if true
+region 80 value = 1 if true
+region 81 with cm: if true
+region 82 value = compute() if true
+region 83 return value if true
+region 86 def matched(command): if true
+region 87 match command: if true
+region 89 state = 1 if equals(command,"start")
+region 91 state = 0 if !equals(command,"start") & is_none(command)
+region 93 state = -1 if !equals(command,"start") & !is_none(command)
+region 94 return state if true
+region 97 counter = 0 if true
+region 100 def bump(): if true
+region 101 global counter if true
+region 102 counter = counter + 1 if true
+region 103 return counter if true
+region 106 def outer(): if true
+region 107 level = 1 if true
+region 109 def inner(): if true
+region 110 nonlocal level if true
+region 111 level = level + 1 if true
+region 112 return level if true
+region 114 return inner if true
+region 117 def deleted(data): if true
+region 118 copy = data if true
+region 119 del copy if true
+region 120 return data if true
+region 123 def modes(transport, host=None): if true
+region 124 if transport in ("http", "sse"): if true
+region 125 return host if member_of(transport,{"http","sse"})
+region 126 return None if !member_of(transport,{"http","sse"})
+region 129 def type_checking_flag(value): if true
+region 130 if TYPE_CHECKING: if true
+region 131 value = "checker" if false
+region 132 return value if true
+region 135 def augmented(n): if true
+region 136 n += 1 if true
+region 137 return n if true
+region 140 def platform_branch(): if true
+region 141 if os.name == "nt": if true
+region 142 return "windows" if false
+region 143 return "posix" if true
+region 146 def empty_loop(): if true
+region 147 last = None if true
+region 148 for item in []: if true
+region 149 last = item if false
+region 150 return last if true
+region 153 def elif_chain(mode): if true
+region 154 if mode == "a": if true
+region 155 result = 1 if equals(mode,"a")
+region 157 result = 2 if !equals(mode,"a") & equals(mode,"b")
+region 159 result = 3 if !equals(mode,"a") & !equals(mode,"b")
+region 160 return result if true
+region 163 def safe_try(): if true
+region 164 marker_value = 0 if true
+region 165 try: if true
+region 166 marker_value = 1 if true
+region 168 marker_value = 2 if false
+region 169 return marker_value if true
+region 172 if TYPE_CHECKING: if true
+region 174 def both(x: int) -> int: ... if false
+region 174 ... if true
+region 178 def both(x): if true
+region 179 return x if true
+region 182 TEXT_WITH_WORD = "TYPE_CHECKING" if true
+region 183 F_TEXT = f"{TYPE_CHECKING}" if true
+region 186 def string_mode(flag): if true
+region 187 if flag == "TYPE_CHECKING":  # a comment if true
+region 188 return 1 if equals(flag,"TYPE_CHECKING")
+region 189 return 0 if !equals(flag,"TYPE_CHECKING")
+region 192 def commented(a, b): if true
+region 193 if (a  # first if true
+region 195 return a if opaque("a > b")
+region 196 return b if !opaque("a > b")

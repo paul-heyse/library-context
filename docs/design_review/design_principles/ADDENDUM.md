@@ -21,7 +21,7 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a `
 
 | ID | Binding decision (DESIGN.md is authoritative) | DESIGN | Bears on |
 |---|---|---|---|
-| §B1 | Pyrefly (in-process, pinned patched fork) for semantics and Ruff 0.0.11 crates for syntax, both over one parse; our own recognizer for binding history; no second parser or type checker | §2, §4.2 | DM-02, DM-04, DM-41, DM-57, DM-58 · G1, G7 |
+| §B1 | Pyrefly (in-process, pinned patched fork) for semantics and Ruff 0.0.11 crates for syntax, both over one parse; our own recognizer for binding history; no second parser or type checker, except `cpg-flow`'s flow facts from ty over a second parse, joined by range under two-way parity rules (ADR-0012 amendment) | §2, §4.2 | DM-02, DM-04, DM-41, DM-57, DM-58 · G1, G7 |
 | §B2 | Arrow schemas in `cpg-schema` are the authoritative data contract; codebooks are append-only; nothing is inferred | §2, §3 | DM-02, DM-06, DM-09, DM-51, DM-52 · G1, G2 |
 | §B3 | DataFusion constructs and validates relations; one query per rule, shared by tests and publication | §2, §4, §8 | DM-07, DM-20, DM-22, DM-53 · G3 |
 | §B4 | Graph algorithms have named owners (petgraph traversal and SCCs, our own weighted PageRank, leiden-rs communities on a normalized input, own FCA/RCA; ADR-0011 as amended), each with a named consumer | §2, §5, §9 | DM-34, DM-38, DM-40, DM-46 · G6 |
@@ -70,7 +70,7 @@ sink a gate.
 
 ---
 
-## 3. Four vocabularies, kept distinct
+## 3. Five vocabularies, kept distinct
 
 | Vocabulary | Grades… | Values | Defined in |
 |---|---|---|---|
@@ -78,6 +78,7 @@ sink a gate.
 | **Check outcomes** | the result of **running a check** (`just` recipe, test) | `passed` · `failed` · `blocked` · `not_run` | `AGENTS.md` |
 | **Fact-graph data vocabularies** | **data inside the product**, not claims about the design | `origin`, `fidelity`, `modality`, coverage status, type role | DESIGN §3.5 |
 | **Assertion evidence status** | the **support behind one brief assertion**, as published to agents | `structurally_observed` · `documented` · `statistically_derived` · `fixture_checked` · `unresolved` | DESIGN §10.2 |
+| **Behavior verdict** | **one behavioral answer in the product** (a fate, a delegation, a negative claim), under the stated runtime model | `established` · `conditional` · `refuted_under_model` · `unknown` · `not_analyzed` | DESIGN §3.9, ADR-0022 |
 
 These are never interchangeable:
 - A check outcome is never `Measured`, and a design claim is never `not_run`.
@@ -85,6 +86,9 @@ These are never interchangeable:
 - An assertion's `evidence_status` grades that assertion's support inside the product. It is not a
   §D label: a `fixture_checked` assertion says nothing about how well the design is established,
   and a `Tested` design claim says nothing about any one brief.
+- A behavior verdict grades one answer under the stated model. `established` is not `Tested`, and
+  `refuted_under_model` is not a proof of absence outside the model. A brief rendering a behavior
+  maps it to an evidence status (DESIGN §3.9); `modality` stays the call graph's input fact.
 - A check is `passed` only when a command ran and its output was read. A missing tool is
   `blocked`, with the prerequisite named.
 - A mocked provider is never a pass.

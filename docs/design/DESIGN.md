@@ -258,8 +258,10 @@ Changing one needs an ADR and a `standard` review.
 - **Binding history** comes from our own scope-aware recognizer over the Ruff AST (§4.2.4).
   Pyrefly's binding IR drops statically decided branches, so it is not conservative enough for
   this, and Ruff's semantic model has no public driver.
-- **No second parser or type checker.** Gaps are closed with adapters, normalization and our own
-  analyses.
+- **No second parser or type checker**, with one declared exception: `cpg-flow`'s flow facts come
+  from ty's semantic index over a second parse (ruff 0.0.14), joined to ours by byte range under
+  two-way parity rules (ADR-0012 amendment, ADR-0022 §The flow provider). Every other fact comes
+  from the one parse. Otherwise, gaps are closed with adapters, normalization and our own analyses.
 
 > Decision: ADR-0012
 
@@ -333,8 +335,8 @@ rule can prove is stated in §8 (its edit guards counted apart).
     bounded places.
   - `TYPE_CHECKING` is false; `sys.version_info` and `sys.platform` tests follow the analyzed
     context.
-- **The flow-IR provider** is decided by the Stage 2.1 spike and recorded in ADR-0022: either
-  `ty_python_core` 0.0.14 behind a range-parity rule, or our own builder over the Ruff AST.
+- **The flow-IR provider** is `ty_python_core` 0.0.14 in `cpg-flow` (ADR-0022 §The flow provider,
+  decided by the Stage 2.1 spike), behind two-way parity rules and our runtime override.
 - **No provider's IR is the model.** Pyrefly's inference graph, and ty's use-def map as ty decides
   it, are never relabelled as runtime dataflow. Pyrefly's binding graph is a parity oracle only.
 - **Meaning comes from models, propagation from summaries** (§9.9). A call alone never propagates a
@@ -1098,7 +1100,9 @@ rules are generated from (DM-52).
 
 ### §3.9 Behavior model: places, conditions and verdicts
 
-**Proposed** (ADR-0022, 2026-09-24). Source: the behavioral-model review, §3 and §8.2.
+**Proposed** (ADR-0022, 2026-09-24; revised by the Stage 2 review the same day). **Implemented**
+and **Tested** for the provider, the lowering and the encoding (`cpg-flow`, `flow_shapes`,
+`cpg_schema::condition`). Source: the behavioral-model review, §3 and §8.2.
 
 **Places.** What a definition or use names:
 - a local name;
@@ -1107,49 +1111,147 @@ rules are generated from (DM-52).
 - a ContextVar object (from Stage 5, with the framework models that read it; the ADR review's F14);
 - an attribute of a function object (`fn.__fastmcp__`).
 
-Anything deeper, or reached through a subscript or a computed name, is a boundary
-(`unsupported_unpacking`, `unresolved_target`), never a guess.
+A place is known in two layers (ADR-0022 §Places):
+- **spelled**, as written in its scope: a condition's text;
+- **resolved**, the join key across scopes: `Parameter[…]`, `Local[…]`, `Field[C.f]` or
+  `Global[module.name]`, then at most two segments (§9.9).
 
-**The runtime view.** `if TYPE_CHECKING:` is false; `sys.version_info` and `sys.platform` tests
-follow the analyzed context (§4.0). Our C3 static-branch marks (§4.2.4) identify these branches
-whichever provider builds the IR.
+Anything deeper, or reached through a computed name, is a boundary: `dynamic_access` for the
+getattr family and its kin, `unresolved_target` otherwise. It is never a guess.
 
-**Conditions** are data in a closed language.
-- **Atoms over places:** `is None`, `is not None`, `== literal`, `in {literals}`, truthiness,
-  `isinstance(C)`. Any other test is an **opaque** atom that keeps its syntax id.
-- **A condition** is a conjunction of atoms in **normal form**: atoms normalized, conjuncts sorted
-  by a canonical encoding. Its id derives from that encoding (DM-15), so two conditions are equal
-  exactly when their normal forms are. That is syntactic equivalence, and it is declared.
-- **Compatibility** of two conditions is decided by a finite-domain evaluator: **compatible**,
-  **incompatible**, or **unknown** whenever an opaque atom decides. This is not a solver (§B10).
-- The evaluator is Rust, and it runs at compile time only. Known answers live in a Rust test and in
-  `specs/serving/conditions.json` for the day a serve-time consumer exists. There is no Python twin
-  (the ADR review's F12).
-- **Open until Stage 2's review** (ADR-0022 stays `proposed`; the ADR review's F5, F6, F9, F11):
-  - polarity and disjunction in the normal form, and the encoding of places and literals;
-  - whether a budget cut is `unknown` or `not_analyzed`, and a record's verdict under an opaque
-    condition;
-  - the refutation premise's region, and a `boundary_reason` for dynamic access;
-  - the relation of verdicts to `modality` and `evidence_status`;
-  - the flow provider's identity;
-  - the runtime view of the CPG layers the IR composes with.
+**The flow provider** (ADR-0022, D-2).
+- **What ty supplies.** `ty_python_core` 0.0.14, in the crate `cpg-flow`, builds the use-def map:
+  reaching definitions per use, each with its reachability as a decision diagram over predicates.
+  It also gives every statement's reachability, relative to its scope's entry.
+- **What crosses the boundary:** byte ranges, place text and our condition data (ADR-0012
+  amendment).
+- **Normalizations:**
+  - loop-header definitions become the body bindings they stand for (`loop_carried`);
+  - an import alias's target becomes the bound name;
+  - an augmented assignment's target is a use and a definition.
+- **Parity, both ways.** Every flow use joins a `references` row and every reference a flow use;
+  likewise for definitions and `bindings`. ty's reaching definitions stay within our candidates.
+  The residue is names inside annotations, which `references` does not model as reads. It is
+  counted per run.
+- **ty's exception model is part of the stated model.** Ambient exceptions (`KeyboardInterrupt`)
+  are outside it.
+- **Panics abort the extraction.**
+
+**The runtime view.**
+- `TYPE_CHECKING` is false. ty decides it as true at index time, so before ty parses a module every
+  `TYPE_CHECKING` **name token** is renamed to a sentinel of the same length. Strings and comments
+  keep their text. ty then keeps both branches, and our evaluator decides the predicate.
+- `sys.version_info` comparisons follow the context's Python version.
+- `sys.platform` and `os.name` follow its platform (§4.0).
+- C3's static-branch marks (§4.2.4) remain the checker view that the CPG layers keep.
+
+**Conditions** are data in a closed language, in disjunctive normal form (ADR-0022 §Conditions).
+- **Literals.** A literal is an atom with a polarity. The atoms (codebook `condition_atom`) are
+  `is_none(p)`, `equals(p,v)`, `member_of(p,{v…})`, `truthy(p)`, `isinstance(p,C)` and
+  `opaque("text")`.
+- **Literal values:** `None`, `True` and `False`; decimal integers; JSON strings. A test on any
+  other literal is opaque.
+- **Canonical forms:**
+  - a single-value set is `equals`;
+  - `== None` is `is_none`;
+  - `is True` is `equals(p,True)`;
+  - the literal is the second operand.
+- **Encoding.**
+  - A literal is written `[!]kind(place[,literal])`.
+  - Conjunctions are sorted bytewise, deduplicated and joined by ` & `.
+  - Disjunctions are sorted, deduplicated, absorbed and joined by ` | `.
+  - `true` and `false` are the empty conjunction and the empty disjunction.
+  - The id is `H("condition", encoding)` (DM-15). Equality is syntactic, and that is declared.
+- **The lowering from ty's diagrams**, one procedure:
+  1. Follow only `if_true` and `if_false`.
+  2. Read ty's **ambiguous** terminal as `true`, because verdicts state **may**-behavior.
+  3. Map the predicates, evaluating the runtime view first.
+  4. Drop contradictions; drop `!x` beside a lone `x`; absorb.
+- **Opaque text** is the test's source with comments removed and whitespace collapsed.
+- **Budget:** at most 16 conjunctions of 8 literals. A larger condition is not stated: its record
+  is `unknown` (`budget_reached`).
+- **Predicates we do not read as tests:**
+  - calls are assumed to return (`NoReturn` is Stage 3's models);
+  - ty's non-empty-iterable, context-manager-suppression and finally-path predicates are opaque.
+- **Compatibility** of two conditions waits for its first question, Stage 3's Q9 (the Stage 2
+  review's F11). This is not a solver (§B10), and there is no Python twin (the ADR review's F12).
 
 **Verdicts** (codebook `verdict`, append-only). Every behavioral answer carries exactly one, never
-a null:
+a null, and a positive answer states **may**-behavior:
 
 | Verdict | Meaning |
 |---|---|
-| `established` | Derived under the stated model with no boundary in the region the predicate reads |
+| `established` | Derived under the stated model with no boundary in the region the claim reads |
 | `conditional` | Established under a stated condition |
-| `refuted_under_model` | The region is `complete_under_stated_model` and holds no boundary of the kinds the predicate names. A rule rejects it anywhere else |
-| `unknown` | A boundary intervenes; its `boundary_reason` is named |
-| `not_analyzed` | Out of scope, not requested, or cut by a budget |
+| `refuted_under_model` | The claim's premise holds (`negative_premises`, below). A rule rejects it anywhere else |
+| `unknown` | A boundary intervenes; its `boundary_reason` is named, `budget_reached` included |
+| `not_analyzed` | Out of scope or not requested |
 
 Discovery results (FCA, communities, vectors) carry no verdict: they are `statistically_derived`
-nominations. A dynamic access that could reach a value (`getattr` by string, `importlib`, a
-module-level `__getattr__`) makes a negative claim about it `unknown`. For example,
-`Settings.get_setting(name)` makes "this setting is never read" unknowable statically (review §5,
-journey b).
+nominations.
+
+**An opaque condition is still stated.** Its record is `conditional`, and the opaque text is shown.
+
+**Premises per place kind** (`negative_premises`; ADR-0022 §Verdicts).
+
+| Place kind | The negative claim's premise |
+|---|---|
+| Parameter or local | No reference resolves to the binding, closures included |
+| Field `f` of `C` | No attribute load named `f` on any receiver anywhere in the release; no dynamic access reaches `C` |
+| Module global | No read of the resolved place anywhere in the release; no dynamic access reaches the module |
+| Forward chain | The operation's `behavior_status` is `established` |
+
+- Every premise also needs flow IR for the modules it reads.
+- External readers, such as serializers, are outside the model: "never read" means never read by
+  release code.
+- The rule `semantic:refuted-needs-complete-region` joins each `refuted_under_model` row to its
+  premise.
+
+**Boundary reasons the behavior model adds:**
+- `dynamic_access`: the getattr family (a non-literal name), `vars()`, `__dict__`,
+  `importlib.import_module` and `__import__` (module objects only), `exec` and `eval` (every
+  place).
+  - It reaches class `C`'s fields when the receiver's reaching definitions, through local copies,
+    include `self` in `C` or a relative, a module global bound to an instance of `C`, or a value
+    Pyrefly types as `C` or a relative.
+  - `Settings.get_setting`'s `settings = self; getattr(settings, name)` is the first kind, so "this
+    setting is never read" is `unknown` (review §5, journey b).
+  - A module `__getattr__` reaches no bound place.
+  - An untyped receiver is outside the model, and every negative answer names that assumption.
+- `override_dispatch`: a path through a `candidate` arc (`self.m(...)` that a subclass may
+  override) is `unknown`, as the delegation over it is.
+- `runtime_unreachable`: an operation whose seed declaration the runtime cannot reach.
+
+**The read phase** of a read comes from its site's scope:
+- a module or class body is `import`;
+- `__init__` or `__post_init__` is `construction`, and a `snapshot` when the value is stored to a
+  field;
+- anything else is `per_call`.
+
+A read reached from module scope through calls is Stage 3's.
+
+**Three vocabularies** (ADDENDUM §3).
+- `modality` is a call-graph input: a behavior across a candidate or potential arc is at best
+  `unknown`.
+- `evidence_status` is a brief assertion's. When a brief renders a behavior:
+  - `established` and `conditional` become `structurally_observed`;
+  - `unknown` becomes `unresolved`;
+  - refuted and not-analyzed records are not rendered.
+
+**Identity (F9).**
+- The flow provider is part of the extractor's `producers.revision`, and so of `producer_id`.
+- A change to `cpg-flow`'s output bumps `EXTRACTOR_OUTPUT_VERSION`.
+- A registry concept's id is `H("concept", key)`. Its labels are data, digested into the registry
+  digest.
+
+**Composed layers (F11).**
+- The CPG layers keep the checker view.
+- A behavior takes the runtime view at its site:
+  - an unreachable site yields no behavior;
+  - a site that Pyrefly prunes but the runtime reaches yields `unknown`
+    (`outside_provider_model`).
+- The exports seed stays the checker view. An operation whose declaration the runtime cannot reach
+  is `unknown` (`runtime_unreachable`).
 
 > Decision: ADR-0022
 
@@ -2736,7 +2838,8 @@ over all 44 gold aliases:
   - `summary_boundaries`: callable, reason, site.
 - **Paths:** `Parameter[name]`, `Parameter[self].Field[f]`, `ReturnValue`,
   `Argument[formal]@Call[target]`, `Global[<module>.<name>]`, `Raise[T]`. The shape is CodeQL's
-  models-as-data, without its file format.
+  models-as-data, without its file format. These are the **resolved** place key's written form
+  (§3.9's two layers; ADR-0022 §Places), never a third grammar.
 - **Order and fixpoint:** the call graph's SCCs in `tarjan_scc` order (callees first), each SCC
   iterated to a fixpoint over a finite domain: path depth ≤ k and condition size ≤ c.
   - **Widening** yields `unknown` (`budget_reached`), and the invocation records its budgets.

@@ -145,3 +145,18 @@ author decisions on 2026-09-22. The Decision below includes its corrections:
   ADR's trigger. Earlier branches stay published.
 - 2026-09-23: correction to the line above (the H1 review, F7). The patch's diffstat is 42
   insertions and 12 deletions, 54 changed lines, still within the trigger.
+- 2026-09-24: **a second parser line, confined to one crate** (ADR-0022 §The flow provider; the
+  behavioral-model plan's D-2; ADR-0002's declared extra families).
+  - `cpg-flow` links `ty_python_core`, `ty_module_resolver`, `ty_vendored` and `ruff_db` at
+    0.0.14, with ruff's own crates at 0.0.14 and salsa exactly at 0.28.2. It parses each release
+    module a second time, from the text Pyrefly read with every `TYPE_CHECKING` name token renamed
+    to a same-length sentinel, so no byte range moves (ADR-0022 §The flow provider).
+  - **Pyrefly's parse stays the parse of record.** Every syntax id, span and fact outside the
+    `flow` family comes from it. The ty parse contributes only flow facts, which are joined to ours
+    by module and byte range under a parity rule.
+  - **What crosses the crate boundary:** byte ranges, place text and our condition data. No ruff
+    0.0.14 or ty type appears in `cpg-flow`'s API.
+  - **Identity.** The provider and its runtime-view version are part of the extractor's
+    `producers.revision`, so they are part of `producer_id` (ADR-0022, F9).
+  - **Measured by the Stage 2.1 spike** on FastMCP 4.0.5's release, 2026-09-24: 213 ms and 47 MiB
+    peak for 275 modules.

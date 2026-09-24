@@ -1,0 +1,24 @@
+[package]
+name = "cpg-flow"
+description = "The flow provider: ty's use-def map as our runtime flow facts (ADR-0022, ADR-0012 amendment)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+cpg-schema = { path = "../cpg-schema" }
+ty_python_core.workspace = true
+ty_module_resolver.workspace = true
+ty_vendored.workspace = true
+ruff_db.workspace = true
+ruff_python_ast_ty.workspace = true
+ruff_text_size_ty.workspace = true
+ruff_python_parser_ty.workspace = true
+salsa.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true

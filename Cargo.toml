@@ -52,6 +52,18 @@ ruff_python_parser = "=0.0.11"
 ruff_python_stdlib = "=0.0.11"
 ruff_source_file = "=0.0.11"
 ruff_text_size = "=0.0.11"
+# The flow provider (ADR-0022 §The flow provider, ADR-0012 amendment; docs/pins.md): ty's
+# semantic index and the ruff 0.0.14 line it compiles against, confined to `cpg-flow` by the
+# declared extra family in scripts/check_family.py. salsa, salsa-macros and salsa-macro-rules are
+# held at exactly 0.28.2 in Cargo.lock: 0.28.3 and 0.28.4 break ruff 0.0.14.
+ty_python_core = "=0.0.14"
+ty_module_resolver = "=0.0.14"
+ty_vendored = "=0.0.14"
+ruff_db = { version = "=0.0.14", default-features = false }
+ruff_python_ast_ty = { package = "ruff_python_ast", version = "=0.0.14" }
+ruff_text_size_ty = { package = "ruff_text_size", version = "=0.0.14" }
+ruff_python_parser_ty = { package = "ruff_python_parser", version = "=0.0.14" }
+salsa = { version = "=0.28.2", default-features = false, features = ["compact_str", "macros", "salsa_unstable", "inventory", "ordermap"] }
 # Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.
 blake3 = "=1.8.6"
 serde_json = "=1.0.151"

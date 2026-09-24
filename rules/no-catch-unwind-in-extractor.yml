@@ -1,11 +1,13 @@
 # Review F1 (ADR-0012): Pyrefly treats its state as unsupported after any panic, so the extractor
 # must abort the attempt rather than catch a panic and continue with the next module. Slice-1
 # review O2: a scoped thread per module catches a panic the same way, so it is flagged too.
+# The Stage 2 review's O3: the flow provider (ty, salsa) runs inside the extraction under the same
+# policy.
 id: no-catch-unwind-in-extractor
 language: rust
 severity: error
 message: catch_unwind in the extractor would continue after a Pyrefly panic
-note: Any panic in Pyrefly-touching code aborts the extraction (DESIGN §4.2.5).
+note: Any panic in analyzer-touching code (Pyrefly, ty) aborts the extraction (DESIGN §4.2.5).
 rule:
   any:
     - pattern: catch_unwind($$$ARGS)
@@ -15,3 +17,4 @@ rule:
     - pattern: std::thread::scope($$$ARGS)
 files:
   - crates/cpg-extract/src/**/*.rs
+  - crates/cpg-flow/src/**/*.rs

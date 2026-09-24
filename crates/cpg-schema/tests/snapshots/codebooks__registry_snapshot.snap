@@ -69,6 +69,9 @@ boundary_reason
   13 no_source_declaration
   14 unreachable_in_context
   15 variable_origin
+  16 dynamic_access
+  17 override_dispatch
+  18 runtime_unreachable
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
@@ -104,6 +107,7 @@ fact_family
   10 docs
   11 findings
   12 embedding_cache
+  13 flow
 scope_kind
   0 release
   1 module
@@ -614,3 +618,10 @@ operation_facet
 embedding_view
   0 signature_doc
   1 source_body
+condition_atom
+  0 is_none
+  1 equals
+  2 member_of
+  3 truthy
+  4 isinstance
+  5 opaque

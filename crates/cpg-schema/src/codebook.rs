@@ -160,6 +160,15 @@ codebook!(
         /// An export whose origin is a variable, not a `def` or `class` (until the lexical family
         /// gives it a binding node; DESIGN §3.2).
         VariableOrigin = 15 => "variable_origin",
+        /// A name- or string-driven access (`getattr` by a non-literal name, `vars()`,
+        /// `__dict__`, `importlib`, `exec`/`eval`, a module `__getattr__`) that could reach a place
+        /// a negative claim names (ADR-0022 §Verdicts).
+        DynamicAccess = 16 => "dynamic_access",
+        /// A `self.m(...)` call a subclass may override (ADR-0022 §Verdicts).
+        OverrideDispatch = 17 => "override_dispatch",
+        /// An operation whose seed declaration the runtime view cannot reach (ADR-0022 §Composed
+        /// layers); `unreachable_in_context` is the checker's never-bound.
+        RuntimeUnreachable = 18 => "runtime_unreachable",
     }
 );
 
@@ -218,6 +227,9 @@ codebook!(
         Findings = 11 => "findings",
         /// The global embedding cache (DESIGN §3.2, §11.1): not snapshot-qualified.
         EmbeddingCache = 12 => "embedding_cache",
+        /// The flow IR (ADR-0022 §The flow provider): definitions, uses, reaching definitions,
+        /// statement regions, value sources and their conditions, from `cpg-flow`.
+        Flow = 13 => "flow",
     }
 );
 
@@ -1224,6 +1236,24 @@ codebook!(
     }
 );
 
+codebook!(
+    /// The atoms of the closed condition language (ADR-0022 §Conditions; `cpg_schema::condition`).
+    ConditionAtom = "condition_atom" {
+        /// `p is None` (negated: `p is not None`).
+        IsNone = 0 => "is_none",
+        /// `p == v` for a literal `v`.
+        Equals = 1 => "equals",
+        /// `p in {v, …}` for literals.
+        MemberOf = 2 => "member_of",
+        /// The truthiness of `p`.
+        Truthy = 3 => "truthy",
+        /// `isinstance(p, C)`, `C` as written.
+        IsInstance = 4 => "isinstance",
+        /// Any other test, as its source text.
+        Opaque = 5 => "opaque",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1286,6 +1316,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<Verdict>(),
         CodebookEntry::of::<OperationFacet>(),
         CodebookEntry::of::<EmbeddingView>(),
+        CodebookEntry::of::<ConditionAtom>(),
     ]
 }
 
