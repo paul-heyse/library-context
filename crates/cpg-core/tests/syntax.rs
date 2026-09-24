@@ -1344,13 +1344,15 @@ async fn a_documented_warning_is_a_limit() {
         "SELECT b.title, a.evidence_status, a.text, e.text FROM briefs b \
          JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
          JOIN assertions a ON a.assertion_id = ba.assertion_id \
-         JOIN assertion_support s ON s.assertion_id = a.assertion_id \
+         JOIN assertion_support s ON s.assertion_id = a.assertion_id AND s.role = 0 \
          JOIN evidence e ON e.evidence_id = s.evidence_id \
          WHERE a.assertion_kind = 16 ORDER BY 1, 3",
     )
     .await;
     // The titled warning shows its title; the one inside `<ParamField body="timeout">` is about
-    // that parameter. The fenced and inline-code `<Warning>`s are not components.
+    // that parameter. The fenced and inline-code `<Warning>`s are not components. Skipped (R1 F2):
+    // the one under `force` (no parameter), the one under `backoff` (the nearest field, though
+    // the outer `retries` is a parameter), and the one in a passage that mentions no seed.
     assert_eq!(
         warned,
         "pkg.Server.stop | 1 | The documentation warns (“Heads up”), in `docs/quickstart.mdx` § \
@@ -1365,7 +1367,9 @@ async fn a_documented_warning_is_a_limit() {
     );
     // A3's second Controls source: `timeout` has no docstring description, so its top-level
     // `<ParamField>` describes it, citing the field's lead paragraph; `drain`'s docstring comes
-    // first. The nested `grace` and the stray `force` describe nothing.
+    // first. `retries`' field sits in a `<Card>`, not a `<ParamField>`, so it describes it (R1 F3);
+    // `mode`'s only field is nested in `force`'s (under an `<Expandable>`), so `mode` stays
+    // undescribed (R1 F2). Each description cites its anchor as `scope` (R1 F1).
     let parameters = lines(
         &ctx,
         "SELECT a.evidence_status, a.text, e.evidence_kind, e.text FROM briefs b \
@@ -1377,6 +1381,18 @@ async fn a_documented_warning_is_a_limit() {
     )
     .await;
     insta::assert_snapshot!("docs_shapes_fielded_parameters", parameters);
+    // Every warning and field description cites the exact mention that anchors it (R1 F1).
+    let unanchored = lines(
+        &ctx,
+        "SELECT a.text FROM assertions a WHERE (a.assertion_kind = 16 OR (a.assertion_kind = 3 \
+           AND EXISTS (SELECT 1 FROM assertion_support s \
+             JOIN evidence e ON e.evidence_id = s.evidence_id \
+             WHERE s.assertion_id = a.assertion_id AND e.evidence_kind = 2 AND s.role = 0))) \
+         AND NOT EXISTS (SELECT 1 FROM assertion_support s \
+           WHERE s.assertion_id = a.assertion_id AND s.role = 1)",
+    )
+    .await;
+    assert_eq!(unanchored, "");
     let document = lines(
         &ctx,
         "SELECT d.text FROM brief_documents d JOIN briefs b \
@@ -1608,4 +1624,81 @@ async fn public_rows(ctx: &SessionContext) -> Vec<cpg_schema::findings::PublicPa
     )
     .await
     .unwrap()
+}
+
+/// R1 F1: what places a documentation statement on its seed is cited and checked. Each doctored
+/// view of an analyzed `docs_shapes` snapshot fails the named rule: a warning or `<ParamField>`
+/// description with no scope anchor; a warning quoting bytes that are no `<Warning>`'s inner span;
+/// a field-scoped warning whose nearest field names no parameter of the seed; a description from a
+/// field that has a `<ParamField>` ancestor.
+#[tokio::test(flavor = "multi_thread")]
+async fn documentation_statements_are_anchored_to_their_seed() {
+    let (ctx, _dir) = docs_shapes_analyzed("anchored", false).await;
+    for table in [
+        "assertion_support",
+        "evidence",
+        "doc_components",
+        "doc_component_attributes",
+    ] {
+        let published = ctx.table(table).await.unwrap();
+        ctx.register_table(format!("{table}_published").as_str(), published.into_view())
+            .unwrap();
+    }
+    let cases = [
+        (
+            "semantic:documented-warning-anchored",
+            "assertion_support",
+            "SELECT * FROM assertion_support_published WHERE role <> 1",
+        ),
+        (
+            "semantic:documented-parameter-cites-its-doc",
+            "assertion_support",
+            "SELECT * FROM assertion_support_published WHERE role <> 1",
+        ),
+        (
+            "semantic:documented-warning-anchored",
+            "evidence",
+            "SELECT snapshot_id, evidence_id, evidence_kind, cited_fact_id, node_id, \
+                    module_node_id, CASE WHEN evidence_kind = 2 THEN start_byte + 1 \
+                    ELSE start_byte END AS start_byte, end_byte, text \
+             FROM evidence_published",
+        ),
+        (
+            "semantic:documented-warning-anchored",
+            "doc_component_attributes",
+            "SELECT snapshot_id, fact_id, document_node_id, component_ordinal, ordinal, name, \
+                    CASE WHEN value = 'timeout' THEN 'nothing' ELSE value END AS value, value_kind \
+             FROM doc_component_attributes_published",
+        ),
+        (
+            "semantic:documented-parameter-cites-its-doc",
+            "doc_components",
+            "SELECT snapshot_id, fact_id, document_node_id, passage_node_id, ordinal, \
+                    parent_ordinal, depth, \
+                    CASE WHEN name = 'Card' THEN 'ParamField' ELSE name END AS name, form, \
+                    start_byte, end_byte, inner_start, inner_end, lead_start, lead_end \
+             FROM doc_components_published",
+        ),
+    ];
+    let rules = cpg_schema::rules::rules();
+    for (rule, table, view) in cases {
+        let doctored = sql::query(&ctx, view).await.unwrap().into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, doctored).unwrap();
+        let query = &rules.iter().find(|r| r.name == rule).expect(rule).sql;
+        let rows: usize = batches(&ctx, query)
+            .await
+            .iter()
+            .map(RecordBatch::num_rows)
+            .sum();
+        assert!(rows > 0, "{rule} accepted its violation ({table})");
+        let original = ctx
+            .table(format!("{table}_published").as_str())
+            .await
+            .unwrap()
+            .into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, original).unwrap();
+    }
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }

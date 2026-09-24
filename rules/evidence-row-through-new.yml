@@ -1,0 +1,14 @@
+# R1 F6 (the holistic assessment's plan, Phase 1): an evidence row's id is a function of its
+# columns only because every row is built by `EvidenceRow::new`, which derives it. A struct
+# literal elsewhere could hash values other than those it writes.
+id: evidence-row-through-new
+language: rust
+severity: error
+message: build an evidence row with EvidenceRow::new, which derives its id from its columns
+note: The only literal is inside `EvidenceRow::new` (cpg-schema/src/findings.rs).
+rule:
+  pattern: EvidenceRow { $$$FIELDS }
+files:
+  - crates/*/src/**/*.rs
+ignores:
+  - crates/cpg-schema/src/findings.rs

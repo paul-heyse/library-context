@@ -1,0 +1,16 @@
+# R1 F5 (the holistic assessment's plan, Phase 1): which MDX components Stage F reads, and the
+# attribute naming a parameter, are declared once in `cpg_schema::mdx`, read by Stage F and by the
+# rules that check it, so the two cannot drift apart.
+id: mdx-names-declared
+language: rust
+severity: error
+message: name an MDX component or attribute through cpg_schema::mdx, not a string literal
+note: Stage F's component policy and its validation rules read one declaration (cpg-schema/src/mdx.rs).
+rule:
+  any:
+    - pattern: '"Warning"'
+    - pattern: '"ParamField"'
+    - pattern: '"body"'
+files:
+  - crates/cpg-core/src/**/*.rs
+  - crates/cpg-schema/src/rules.rs

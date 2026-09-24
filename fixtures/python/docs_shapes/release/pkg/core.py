@@ -10,7 +10,7 @@ class Server:
     def run(self):
         """Runs."""
 
-    def stop(self, timeout=None, drain=False):
+    def stop(self, timeout=None, drain=False, mode=None, retries=0):
         """Stop the server.
 
         Args:

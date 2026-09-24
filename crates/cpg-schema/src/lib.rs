@@ -15,6 +15,7 @@ pub mod flows;
 pub mod graph;
 pub mod hash;
 pub mod id;
+pub mod mdx;
 pub mod metrics;
 pub mod neighbours;
 pub mod projection;

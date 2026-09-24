@@ -1,0 +1,6 @@
+id: mdx-names-declared
+valid:
+  - "fn f(c: &C) -> bool { c.name.as_deref() == Some(mdx::WARNING) }"
+invalid:
+  - "fn f(c: &C) -> bool { c.name.as_deref() == Some(\"Warning\") }"
+  - "fn f(c: &C) -> Option<&String> { c.literal.get(\"body\") }"

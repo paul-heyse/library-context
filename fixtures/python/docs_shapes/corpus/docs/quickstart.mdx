@@ -73,3 +73,37 @@ Inline `<Warning>` code is not a component either.
 <Warning title="Heads up">
 `pkg.Server.stop` may block.
 </Warning>
+
+<Card title="Retry options">
+<ParamField body="retries" type="int">
+How many times to retry stopping.
+
+<ParamField body="backoff">
+A field of the retry policy, not a parameter.
+
+<Warning>
+A warning under `backoff` is about no parameter of the operation.
+</Warning>
+</ParamField>
+</ParamField>
+</Card>
+
+<ParamField body="force">
+Still not a parameter.
+
+<Warning>
+A warning under `force` is skipped.
+</Warning>
+
+<Expandable title="Options">
+<ParamField body="mode">
+A nested field describes its parent's value, never the parameter `mode`.
+</ParamField>
+</Expandable>
+</ParamField>
+
+## Elsewhere
+
+<Warning>
+A passage that mentions no operation holds this warning.
+</Warning>

@@ -11,7 +11,8 @@ docs/quickstart.mdx | Quickstart | true
 2 | 3 | Details | Install | 358-572
 3 | 1 | Next |  | 572-595
 4 | 2 | Limits | Next | 595-728
-5 | 2 | Stopping | Next | 728-1494
+5 | 2 | Stopping | Next | 728-2075
+6 | 2 | Elsewhere | Next | 2075-2167
 ## code blocks: passage | language | code
 Install | python | from pkg import Server /  / server = Server()
 Stopping | text | <Warning>A fence is not a component.</Warning>
@@ -29,6 +30,15 @@ docs/quickstart.mdx | 7 | - | 0 | VersionBadge | 0 | Stopping | - | - | version=
 docs/quickstart.mdx | 8 | - | 0 | Badge | 1 | Stopping | - | - | label=x:0
 docs/quickstart.mdx | 9 | - | 0 | Tip | 1 | Stopping | a tip | - | level=1 + 1:1 ...=...rest:3 open=:2
 docs/quickstart.mdx | 10 | - | 0 | Warning | 0 | Stopping | `pkg.Server.stop` may block. | `pkg.Server.stop` may block. | title=Heads up:0
+docs/quickstart.mdx | 11 | - | 0 | Card | 0 | Stopping | <ParamField body="retries" type="int"> / How many times to retry stopping. /  / <ParamField body="backoff"> / A field of the retry policy, not a parameter. /  / <Warning> / A warning under `backoff` is about no parameter of the operation. / </Warning> / </ParamField> / </ParamField> | - | title=Retry options:0
+docs/quickstart.mdx | 12 | 11 | 1 | ParamField | 0 | Stopping | How many times to retry stopping. /  / <ParamField body="backoff"> / A field of the retry policy, not a parameter. /  / <Warning> / A warning under `backoff` is about no parameter of the operation. / </Warning> / </ParamField> | How many times to retry stopping. | body=retries:0 type=int:0
+docs/quickstart.mdx | 13 | 12 | 2 | ParamField | 0 | Stopping | A field of the retry policy, not a parameter. /  / <Warning> / A warning under `backoff` is about no parameter of the operation. / </Warning> | A field of the retry policy, not a parameter. | body=backoff:0
+docs/quickstart.mdx | 14 | 13 | 3 | Warning | 0 | Stopping | A warning under `backoff` is about no parameter of the operation. | A warning under `backoff` is about no parameter of the operation. | 
+docs/quickstart.mdx | 15 | - | 0 | ParamField | 0 | Stopping | Still not a parameter. /  / <Warning> / A warning under `force` is skipped. / </Warning> /  / <Expandable title="Options"> / <ParamField body="mode"> / A nested field describes its parent's value, never the parameter `mode`. / </ParamField> / </Expandable> | Still not a parameter. | body=force:0
+docs/quickstart.mdx | 16 | 15 | 1 | Warning | 0 | Stopping | A warning under `force` is skipped. | A warning under `force` is skipped. | 
+docs/quickstart.mdx | 17 | 15 | 1 | Expandable | 0 | Stopping | <ParamField body="mode"> / A nested field describes its parent's value, never the parameter `mode`. / </ParamField> | - | title=Options:0
+docs/quickstart.mdx | 18 | 17 | 2 | ParamField | 0 | Stopping | A nested field describes its parent's value, never the parameter `mode`. | A nested field describes its parent's value, never the parameter `mode`. | body=mode:0
+docs/quickstart.mdx | 19 | - | 0 | Warning | 0 | Elsewhere | A passage that mentions no operation holds this warning. | A passage that mentions no operation holds this warning. | 
 ## mentions: passage | class | source | form | target | modality | edge target
 (preamble) | exact | code | `pkg.Server` | pkg.Server | 0 | pkg.Server
 (preamble) | lexical | code | `Server` | pkg.Server | 1 | pkg.Server

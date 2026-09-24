@@ -307,10 +307,14 @@ fn semantic() -> Vec<Rule> {
         (
             // Increment-1 deep review O7 (fired by 2.1): a `documented` parameter cites its own
             // parameter's description, not any documentation of its operation, nor another
-            // parameter's (slice 2.1 review F3: keyed by the parameter the evidence names).
+            // parameter's (slice 2.1 review F3: keyed by the parameter the evidence names). A
+            // `<ParamField>` description (A3; R1 F1) cites the lead of a field with no
+            // `<ParamField>` ancestor whose literal name is the parameter's, in a passage the
+            // assertion's scope anchor ties to its brief's seed.
             "semantic:documented-parameter-cites-its-doc",
             format!(
-                "SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( \
+                "WITH anchored AS ({anchored}) \
+                 SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN ( \
                    SELECT s.assertion_id FROM assertion_support s \
                    JOIN evidence e ON e.evidence_id = s.evidence_id \
                    JOIN parameter_syntax ps ON ps.node_id = e.node_id \
@@ -321,22 +325,91 @@ fn semantic() -> Vec<Rule> {
                    UNION \
                    SELECT s.assertion_id FROM assertion_support s \
                    JOIN evidence e ON e.evidence_id = s.evidence_id AND e.evidence_kind = {passage} \
-                   JOIN doc_components c ON c.document_node_id = e.module_node_id \
+                   JOIN doc_components c ON c.passage_node_id = e.node_id \
                      AND c.lead_start = e.start_byte AND c.lead_end = e.end_byte \
-                     AND c.name = 'ParamField' \
+                     AND c.name = '{param_field}' \
                    JOIN doc_component_attributes at ON at.document_node_id = c.document_node_id \
-                     AND at.component_ordinal = c.ordinal AND at.name = 'body' \
+                     AND at.component_ordinal = c.ordinal AND at.name = '{param_name}' \
                      AND at.value_kind = {literal} \
+                   JOIN anchored n ON n.assertion_id = s.assertion_id \
+                     AND n.passage_node_id = e.node_id \
                    JOIN assertion_support s2 ON s2.assertion_id = s.assertion_id \
                    JOIN evidence e2 ON e2.evidence_id = s2.evidence_id \
                    JOIN parameter_syntax ps ON ps.node_id = e2.node_id AND ps.name = at.value \
+                   LEFT ANTI JOIN doc_components f ON f.document_node_id = c.document_node_id \
+                     AND f.name = '{param_field}' AND f.depth < c.depth \
+                     AND f.start_byte <= c.start_byte AND c.end_byte <= f.end_byte \
                  ) own ON own.assertion_id = a.assertion_id \
                  WHERE a.assertion_kind = {parameter} AND a.evidence_status = {documented}",
+                anchored = anchored_sql(),
                 span = crate::codebook::EvidenceKind::Span.code(),
                 passage = crate::codebook::EvidenceKind::Passage.code(),
                 literal = crate::codebook::AttributeValueKind::Literal.code(),
+                param_field = crate::mdx::PARAM_FIELD,
+                param_name = crate::mdx::PARAM_NAME,
                 parameter = AssertionKind::Parameter.code(),
                 documented = EvidenceStatus::Documented.code()
+            ),
+        ),
+        (
+            // Slice 3.4 and A3 (R1 F1): a documented warning quotes the inner bytes of a
+            // `<Warning>` component of a passage its scope anchor ties to its brief's seed; inside
+            // a `<ParamField>`, the nearest such field names a parameter of the seed (not its
+            // receiver).
+            "semantic:documented-warning-anchored",
+            format!(
+                "WITH anchored AS ({anchored}), \
+                 receivers AS ({receivers}), \
+                 warned AS ( \
+                   SELECT a.assertion_id, b.seed_node_id, c.document_node_id, c.depth, \
+                          c.start_byte, c.end_byte \
+                   FROM assertions a \
+                   JOIN assertion_support s ON s.assertion_id = a.assertion_id \
+                     AND s.role = {support} \
+                   JOIN evidence e ON e.evidence_id = s.evidence_id \
+                     AND e.evidence_kind = {passage} \
+                   JOIN doc_components c ON c.passage_node_id = e.node_id \
+                     AND c.name = '{warning}' \
+                     AND c.inner_start = e.start_byte AND c.inner_end = e.end_byte \
+                   JOIN anchored n ON n.assertion_id = a.assertion_id \
+                     AND n.passage_node_id = e.node_id \
+                   JOIN brief_assertions ba ON ba.assertion_id = a.assertion_id \
+                   JOIN briefs b ON b.brief_id = ba.brief_id \
+                   WHERE a.assertion_kind = {warning_kind}), \
+                 fields AS ( \
+                   SELECT w.assertion_id, f.depth, v.value AS body FROM warned w \
+                   JOIN doc_components f ON f.document_node_id = w.document_node_id \
+                     AND f.name = '{param_field}' AND f.depth < w.depth \
+                     AND f.start_byte <= w.start_byte AND w.end_byte <= f.end_byte \
+                   LEFT JOIN doc_component_attributes v \
+                     ON v.document_node_id = f.document_node_id \
+                     AND v.component_ordinal = f.ordinal AND v.name = '{param_name}' \
+                     AND v.value_kind = {literal}), \
+                 nearest AS ( \
+                   SELECT assertion_id, body FROM ( \
+                     SELECT *, row_number() OVER (PARTITION BY assertion_id ORDER BY depth DESC) \
+                       AS r FROM fields) WHERE r = 1), \
+                 params AS ( \
+                   SELECT p.signature_node_id, ps.name FROM parameters p \
+                   JOIN parameter_syntax ps ON ps.fact_id = p.syntax_fact_id \
+                   LEFT ANTI JOIN receivers r ON r.parameter_node_id = ps.node_id), \
+                 ok AS ( \
+                   SELECT w.assertion_id FROM warned w \
+                   LEFT JOIN nearest n ON n.assertion_id = w.assertion_id \
+                   LEFT JOIN params q ON q.signature_node_id = w.seed_node_id AND q.name = n.body \
+                   WHERE n.assertion_id IS NULL OR q.name IS NOT NULL) \
+                 SELECT a.assertion_id FROM assertions a \
+                 LEFT ANTI JOIN ok ON ok.assertion_id = a.assertion_id \
+                 WHERE a.assertion_kind = {warning_kind}",
+                anchored = anchored_sql(),
+                receivers = crate::flows::receivers_sql(),
+                support = SupportRole::Support.code(),
+                passage = crate::codebook::EvidenceKind::Passage.code(),
+                literal = crate::codebook::AttributeValueKind::Literal.code(),
+                warning = crate::mdx::WARNING,
+                param_field = crate::mdx::PARAM_FIELD,
+                param_name = crate::mdx::PARAM_NAME,
+                warning_kind = AssertionKind::DocumentedWarning.code(),
             ),
         ),
         (
@@ -894,4 +967,26 @@ pub fn rules() -> Vec<Rule> {
     out.extend(semantic());
     out.extend(crate::graph::rules());
     out
+}
+
+/// Each assertion's scope anchors (R1 F1): a `scope`-cited Fact evidence row that is an exact
+/// mention, in its passage, of the assertion's brief's seed (by its declaration, or an export
+/// whose target it is), as `(assertion_id, passage_node_id)`.
+fn anchored_sql() -> String {
+    format!(
+        "SELECT DISTINCT s.assertion_id, m.passage_node_id FROM assertion_support s \
+         JOIN evidence e ON e.evidence_id = s.evidence_id AND e.evidence_kind = {fact} \
+         JOIN mentions m ON m.fact_id = e.cited_fact_id AND m.class = {exact} \
+           AND m.passage_node_id = e.node_id \
+         JOIN mention_targets t ON t.mention_fact_id = m.fact_id \
+         JOIN brief_assertions ba ON ba.assertion_id = s.assertion_id \
+         JOIN briefs b ON b.brief_id = ba.brief_id \
+         LEFT JOIN (SELECT DISTINCT export_node_id, target_node_id FROM exports) x \
+           ON x.export_node_id = t.target_node_id \
+         WHERE s.role = {scope} \
+           AND (t.target_node_id = b.seed_node_id OR x.target_node_id = b.seed_node_id)",
+        fact = crate::codebook::EvidenceKind::Fact.code(),
+        exact = crate::codebook::MentionClass::Exact.code(),
+        scope = SupportRole::Scope.code(),
+    )
 }

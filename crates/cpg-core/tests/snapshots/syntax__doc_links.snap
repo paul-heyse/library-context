@@ -4,8 +4,8 @@ expression: links
 ---
 pkg.core.Server.run | docs/quickstart.mdx § Details | 0.567
 pkg.core.Server.run | docs/quickstart.mdx § Install | 0.513
-pkg.core.Server.stop | docs/quickstart.mdx | 0.617
-pkg.core.Server.stop | docs/quickstart.mdx § Details | 0.533
+pkg.core.Server.stop | docs/quickstart.mdx | 0.576
+pkg.core.Server.stop | docs/quickstart.mdx § Details | 0.52
 pkg.core.Server.tool | docs/quickstart.mdx § Install | 0.77
 pkg.core.Server.tool | docs/quickstart.mdx § Limits | 0.679
 pkg.core.Server.tool | docs/quickstart.mdx § Details | 0.655

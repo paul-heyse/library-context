@@ -29,6 +29,7 @@ use cpg_schema::findings::{
     FindingMembersRow, FindingsRow, WitnessesRow, derive_status, evidence_status, section_of,
 };
 use cpg_schema::id::Id;
+use cpg_schema::mdx;
 use datafusion::prelude::SessionContext;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -55,8 +56,9 @@ use crate::{CoreError, sql};
 /// relational attributes (`calls`, handoffs) in the shared-signature and implication texts
 /// (slice 3.2). 15: documented warnings in Limits (slice 3.4). 16: warnings from `<Warning>`
 /// components, scoped to their `<ParamField>` and titled, and a top-level `<ParamField>` as a
-/// parameter's description when the docstring gives none (the holistic assessment's A3).
-pub const TEMPLATE_VERSION: i64 = 16;
+/// parameter's description when the docstring gives none (the holistic assessment's A3). 17: both
+/// cite the exact mention that anchors them as `scope` evidence (R1 F1).
+pub const TEMPLATE_VERSION: i64 = 17;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -344,6 +346,9 @@ struct Draft {
     findings: Vec<(SupportRole, Id, EvidenceStatus, FindingKind)>,
     /// Evidence supports (id, kind).
     evidence: Vec<(Id, EvidenceKind)>,
+    /// Evidence cited as `scope`: what places the assertion on its seed (R1 F1: the anchoring
+    /// mention of a documented warning or a `<ParamField>` description). It never sets the status.
+    scoped: Vec<Id>,
 }
 
 impl Draft {
@@ -353,6 +358,7 @@ impl Draft {
             text: Some(text),
             findings: Vec::new(),
             evidence: Vec::new(),
+            scoped: Vec::new(),
         }
     }
 
@@ -655,7 +661,7 @@ pub async fn run(
     let mention_sql = format!(
         "SELECT t.target_node_id, p.node_id AS passage_node_id, p.document_node_id, \
                 p.start_byte, p.text, d.path, p.ordinal, p.heading, \
-                m.start_byte AS mention_start, m.end_byte AS mention_end \
+                m.start_byte AS mention_start, m.end_byte AS mention_end, t.mention_fact_id \
          FROM mention_targets t JOIN mentions m ON m.fact_id = t.mention_fact_id \
          JOIN passages p ON p.node_id = m.passage_node_id \
          JOIN documents d ON d.node_id = p.document_node_id \
@@ -669,8 +675,9 @@ pub async fn run(
         document: Id,
         start: i64,
         text: String,
-        /// The mention, passage-relative.
+        /// The mention, passage-relative, and its fact: the passage's anchor to the seed.
         mention: (usize, usize),
+        mention_fact: Id,
         /// Where it is: the document's path and the passage's heading.
         place: String,
     }
@@ -689,6 +696,7 @@ pub async fn run(
             ("heading", DataType::Utf8),
             ("mention_start", DataType::Int64),
             ("mention_end", DataType::Int64),
+            ("mention_fact_id", ID),
         ],
     )
     .await?
@@ -711,7 +719,11 @@ pub async fn run(
             Some(h) => format!("`{path}` § {h}"),
             None => format!("`{path}`"),
         };
-        let (Some(ms), Some(me)) = (int(b, "mention_start", i), int(b, "mention_end", i)) else {
+        let (Some(ms), Some(me), Some(mention_fact)) = (
+            int(b, "mention_start", i),
+            int(b, "mention_end", i),
+            id(b, "mention_fact_id", i),
+        ) else {
             continue;
         };
         let mention = ((ms - start) as usize, (me - start) as usize);
@@ -727,6 +739,7 @@ pub async fn run(
                 start,
                 text: body,
                 mention,
+                mention_fact,
                 place,
             });
         }
@@ -805,8 +818,8 @@ pub async fn run(
         let mut at = components.get(&(document, ordinal))?.parent;
         while let Some(o) = at {
             let c = components.get(&(document, o))?;
-            if c.name.as_deref() == Some("ParamField") {
-                return Some(c.literal.get("body").cloned());
+            if c.name.as_deref() == Some(mdx::PARAM_FIELD) {
+                return Some(c.literal.get(mdx::PARAM_NAME).cloned());
             }
             at = c.parent;
         }
@@ -1047,6 +1060,20 @@ pub async fn run(
         evidence.entry(id).or_insert(row);
         id
     };
+    // A passage's anchor to its seed (R1 F1): the exact mention's bytes, citing the mention fact,
+    // so what places a documentation statement on its seed is published and checked.
+    let anchor = |p: &Passage| -> EvidenceRow {
+        let (a, z) = p.mention;
+        EvidenceRow::new(
+            snapshot_id,
+            EvidenceKind::Fact,
+            Some(p.node),
+            Some(p.document),
+            Some((p.start + a as i64, p.start + z as i64)),
+            Some(p.text[a..z].to_owned()),
+            Some(p.mention_fact),
+        )
+    };
 
     for (access_path, seed) in &found.seeds {
         let seed = *seed;
@@ -1066,6 +1093,7 @@ pub async fn run(
             text: None,
             findings: Vec::new(),
             evidence: Vec::new(),
+            scoped: Vec::new(),
         };
         if let Some(decl) = decls.get(&seed)
             && let (Some((s, e)), Some(source)) = (decl.docstring, decl.text.as_deref())
@@ -1339,8 +1367,8 @@ pub async fn run(
                             break;
                         }
                         if c.passage != m.node
-                            || c.name.as_deref() != Some("ParamField")
-                            || c.literal.get("body") != Some(&p.name)
+                            || c.name.as_deref() != Some(mdx::PARAM_FIELD)
+                            || c.literal.get(mdx::PARAM_NAME) != Some(&p.name)
                             || param_field(*document, *ordinal).is_some()
                         {
                             continue;
@@ -1355,11 +1383,15 @@ pub async fn run(
                         else {
                             continue;
                         };
-                        fields.push((normalized(&verbatim), (m.node, m.document, a, z, verbatim)));
+                        fields.push((
+                            normalized(&verbatim),
+                            (m.node, m.document, a, z, verbatim, anchor(m)),
+                        ));
                     }
                 }
                 agreed(fields)
             };
+            let mut scoped = Vec::new();
             let text = match described {
                 Some((doc, a, z, verbatim)) => {
                     evidence.push((
@@ -1377,7 +1409,8 @@ pub async fn run(
                     format!("`{}` ({}): {}", p.name, parts.join("; "), sentence(&doc))
                 }
                 None => match fielded() {
-                    Some((doc, (passage, document, a, z, verbatim))) => {
+                    Some((doc, (passage, document, a, z, verbatim, anchored))) => {
+                        scoped.push(add_evidence(anchored));
                         evidence.push((
                             add_evidence(EvidenceRow::new(
                                 snapshot_id,
@@ -1400,6 +1433,7 @@ pub async fn run(
                 text: Some(text),
                 findings: Vec::new(),
                 evidence,
+                scoped,
             });
         }
 
@@ -1997,7 +2031,7 @@ pub async fn run(
                 if *document != p.document {
                     break;
                 }
-                if c.passage != p.node || c.name.as_deref() != Some("Warning") {
+                if c.passage != p.node || c.name.as_deref() != Some(mdx::WARNING) {
                     continue;
                 }
                 let about = match param_field(*document, *ordinal) {
@@ -2019,7 +2053,7 @@ pub async fn run(
                 };
                 let titled = c
                     .literal
-                    .get("title")
+                    .get(mdx::TITLE)
                     .map(|t| format!(" (“{t}”)"))
                     .unwrap_or_default();
                 let ev = add_evidence(EvidenceRow::new(
@@ -2040,6 +2074,7 @@ pub async fn run(
                     )),
                     findings: Vec::new(),
                     evidence: vec![(ev, EvidenceKind::Passage)],
+                    scoped: vec![add_evidence(anchor(p))],
                 });
             }
         }
@@ -2168,6 +2203,11 @@ pub async fn run(
                     d.evidence
                         .iter()
                         .map(|(e, _)| (SupportRole::Support.code(), None, Some(*e))),
+                )
+                .chain(
+                    d.scoped
+                        .iter()
+                        .map(|e| (SupportRole::Scope.code(), None, Some(*e))),
                 )
                 .collect();
             uses_analysis |= d

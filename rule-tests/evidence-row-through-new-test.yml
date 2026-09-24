@@ -1,0 +1,5 @@
+id: evidence-row-through-new
+valid:
+  - "fn f(s: Id) -> EvidenceRow { EvidenceRow::new(s, EvidenceKind::Fact, None, None, None, None, None) }"
+invalid:
+  - "fn f(s: Id, e: Id) -> EvidenceRow { EvidenceRow { snapshot_id: s, evidence_id: e, evidence_kind: EvidenceKind::Fact, cited_fact_id: None, node_id: None, module_node_id: None, start_byte: None, end_byte: None, text: None } }"

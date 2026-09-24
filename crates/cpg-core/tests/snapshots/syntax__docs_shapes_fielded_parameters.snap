@@ -5,6 +5,13 @@ expression: parameters
 1 | `drain` (positional or keyword; default `False`; optional): Finish the calls in flight first. | 0 | drain=False
 1 | `drain` (positional or keyword; default `False`; optional): Finish the calls in flight first. | 0 | optional
 1 | `drain` (positional or keyword; default `False`; optional): Finish the calls in flight first. | 1 | Finish the calls in flight first.
+0 | `mode`: positional or keyword; default `None`; optional. | 0 | mode=None
+0 | `mode`: positional or keyword; default `None`; optional. | 0 | optional
+1 | `retries` (positional or keyword; default `0`; optional): How many times to retry stopping. | 0 | `pkg.Server.stop`
+1 | `retries` (positional or keyword; default `0`; optional): How many times to retry stopping. | 0 | optional
+1 | `retries` (positional or keyword; default `0`; optional): How many times to retry stopping. | 0 | retries=0
+1 | `retries` (positional or keyword; default `0`; optional): How many times to retry stopping. | 2 | How many times to retry stopping.
+1 | `timeout` (positional or keyword; default `None`; optional): Seconds to wait before stopping. | 0 | `pkg.Server.stop`
 1 | `timeout` (positional or keyword; default `None`; optional): Seconds to wait before stopping. | 0 | optional
 1 | `timeout` (positional or keyword; default `None`; optional): Seconds to wait before stopping. | 0 | timeout=None
 1 | `timeout` (positional or keyword; default `None`; optional): Seconds to wait before stopping. | 2 | Seconds to wait before stopping.
