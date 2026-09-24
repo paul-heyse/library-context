@@ -1,0 +1,15 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table singletons
+family findings
+key snapshot_id, global
+@lctx.family=findings
+@lctx.table=singletons
+snapshot_id: FixedSizeBinary(16) NOT NULL
+global: Utf8 NOT NULL
+class_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL

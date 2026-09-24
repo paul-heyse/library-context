@@ -756,12 +756,13 @@ fn semantic() -> Vec<Rule> {
             ),
         ),
         (
-            // ADR-0022, §3.9: a refutation holds only where the analysis was complete.
+            // ADR-0022 §Verdicts: a refutation holds only where its place's premise holds
+            // (`negative_premises`); any other `refuted_under_model` row is rejected.
             "semantic:refuted-needs-complete-region",
-            // Stage 1 has no region a refutation could rest on (the ADR set's re-review R2):
-            // every `refuted_under_model` row is rejected until Stage 2 defines regions.
             format!(
-                "SELECT b.behavior_id FROM behaviors b WHERE b.verdict = {refuted}",
+                "SELECT b.behavior_id FROM behaviors b \
+                 LEFT JOIN negative_premises p ON p.place_key = b.premise_key \
+                 WHERE b.verdict = {refuted} AND (p.place_key IS NULL OR NOT p.holds)",
                 refuted = Verdict::RefutedUnderModel.code(),
             ),
         ),

@@ -295,6 +295,10 @@ pub struct PassBResult {
     pub findings: Vec<FindingsRow>,
     pub members: Vec<FindingMembersRow>,
     pub witnesses: Vec<WitnessesRow>,
+    /// Each finding's path as indices into [`Flows::flows`] (its witness path's flows, hop by
+    /// hop; empty for a read or guard that no flow reaches), for callers that need a hop's
+    /// argument and source parameter (the behavior scan's per-hop conditions).
+    pub flow_paths: BTreeMap<Id, Vec<usize>>,
 }
 
 struct Draft {
@@ -302,6 +306,7 @@ struct Draft {
     related: Id,
     condition: Option<Id>,
     path: Vec<Step>,
+    flows: Vec<usize>,
     members: Vec<(MemberRole, Option<Id>, String)>,
 }
 
@@ -395,6 +400,7 @@ pub fn run(
                 related: f.formal,
                 condition: None,
                 path: steps,
+                flows: to.clone(),
                 members,
             });
             visited.insert(next, to);
@@ -423,6 +429,7 @@ pub fn run(
                 related: f.formal,
                 condition: None,
                 path: steps,
+                flows: vec![i],
                 members,
             });
         }
@@ -469,6 +476,7 @@ pub fn run(
                     related: guard.raise,
                     condition: Some(guard.test),
                     path: steps,
+                    flows: path.clone(),
                     members,
                 });
             }
@@ -522,6 +530,7 @@ pub fn run(
                 related: read.target,
                 condition: None,
                 path: steps,
+                flows: path.clone(),
                 members,
             });
         }
@@ -530,6 +539,7 @@ pub fn run(
     let mut findings = Vec::new();
     let mut members = Vec::new();
     let mut witnesses = Vec::new();
+    let mut flow_paths = BTreeMap::new();
     for d in drafts {
         let steps: Vec<StepKey> = d
             .path
@@ -578,6 +588,7 @@ pub fn run(
             members: &member_keys,
         }
         .id();
+        flow_paths.insert(finding_id, d.flows.clone());
         for (ordinal, (role, node, label)) in d.members.iter().enumerate() {
             members.push(FindingMembersRow {
                 snapshot_id,
@@ -628,5 +639,6 @@ pub fn run(
         findings,
         members,
         witnesses,
+        flow_paths,
     })
 }

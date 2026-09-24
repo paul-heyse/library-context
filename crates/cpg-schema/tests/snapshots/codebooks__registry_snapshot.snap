@@ -596,6 +596,11 @@ behavior_kind
   4 delegates
   5 hands_off_to
   6 takes_from
+  7 derives
+  8 stores
+  9 reads_setting
+  10 is_read
+  11 returns
 verdict
   0 established
   1 conditional
@@ -615,6 +620,7 @@ operation_facet
   9 takes_from
   10 module
   11 kind
+  12 reads_setting
 embedding_view
   0 signature_doc
   1 source_body
@@ -631,3 +637,24 @@ flow_sink
   2 return
   3 yield
   4 raise
+read_phase
+  0 import
+  1 construction
+  2 snapshot
+  3 per_call
+dynamic_kind
+  0 getattr
+  1 setattr
+  2 hasattr
+  3 delattr
+  4 vars
+  5 __dict__
+  6 import_module
+  7 __import__
+  8 exec
+  9 eval
+premise_kind
+  0 parameter
+  1 field
+  2 global
+  3 forward_chain

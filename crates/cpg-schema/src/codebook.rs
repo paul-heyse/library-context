@@ -1174,6 +1174,18 @@ codebook!(
         HandsOffTo = 5 => "hands_off_to",
         /// Official usage passes another public operation's result directly to this one.
         TakesFrom = 6 => "takes_from",
+        /// A parameter's value is computed into a call's argument (the flow IR's derived value
+        /// source; Stage 2): the callee named as written when it is outside the release.
+        Derives = 7 => "derives",
+        /// A parameter is stored: to a field (`self.f`) or a dict entry (`d["k"]`).
+        Stores = 8 => "stores",
+        /// The operation reads a setting of a module-global singleton, in a read phase.
+        ReadsSetting = 9 => "reads_setting",
+        /// The claim "the parameter is read": established when read, refuted under the model when
+        /// its premise holds (ADR-0022 §Verdicts), unknown otherwise.
+        IsRead = 10 => "is_read",
+        /// A parameter is returned (identity or derived).
+        Returns = 11 => "returns",
     }
 );
 
@@ -1222,6 +1234,8 @@ codebook!(
         Module = 10 => "module",
         /// The operation's kind: `function`, `method` or `class`.
         Kind = 11 => "kind",
+        /// A setting the operation reads in its own body (`module.global.field`; Stage 2).
+        ReadsSetting = 12 => "reads_setting",
     }
 );
 
@@ -1266,6 +1280,47 @@ codebook!(
         Yield = 3 => "yield",
         /// A `raise`'s exception or its cause.
         Raise = 4 => "raise",
+    }
+);
+
+codebook!(
+    /// When a setting is read (ADR-0022 §Verdicts, the Stage 2 review's F8): decided by the
+    /// reading site's scope.
+    ReadPhase = "read_phase" {
+        /// A module or class body.
+        Import = 0 => "import",
+        /// `__init__` or `__post_init__`.
+        Construction = 1 => "construction",
+        /// At construction, and the value is stored to a field.
+        Snapshot = 2 => "snapshot",
+        /// Any other function.
+        PerCall = 3 => "per_call",
+    }
+);
+
+codebook!(
+    /// A name- or string-driven access (ADR-0022 §Verdicts, `dynamic_access`).
+    DynamicKind = "dynamic_kind" {
+        Getattr = 0 => "getattr",
+        Setattr = 1 => "setattr",
+        Hasattr = 2 => "hasattr",
+        Delattr = 3 => "delattr",
+        Vars = 4 => "vars",
+        Dict = 5 => "__dict__",
+        ImportModule = 6 => "import_module",
+        DunderImport = 7 => "__import__",
+        Exec = 8 => "exec",
+        Eval = 9 => "eval",
+    }
+);
+
+codebook!(
+    /// The place kind a negative claim's premise is about (ADR-0022 §Verdicts).
+    PremiseKind = "premise_kind" {
+        Parameter = 0 => "parameter",
+        Field = 1 => "field",
+        Global = 2 => "global",
+        ForwardChain = 3 => "forward_chain",
     }
 );
 
@@ -1333,6 +1388,9 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<EmbeddingView>(),
         CodebookEntry::of::<ConditionAtom>(),
         CodebookEntry::of::<FlowSink>(),
+        CodebookEntry::of::<ReadPhase>(),
+        CodebookEntry::of::<DynamicKind>(),
+        CodebookEntry::of::<PremiseKind>(),
     ]
 }
 

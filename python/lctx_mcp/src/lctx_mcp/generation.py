@@ -20,7 +20,7 @@ import pyarrow.ipc as ipc
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 4
+FORMAT = 5
 
 
 class GenerationError(RuntimeError):
@@ -161,10 +161,41 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 pa.field("conditional", pa.bool_(), nullable=False),
                 _utf8("verdict"),
                 _utf8("boundary_reason", True),
+                # FORMAT 5 (Stage 2; ADR-0022).
+                _utf8("condition", True),
+                _utf8("callee_text", True),
+                _utf8("phase", True),
+                _utf8("premise_key", True),
                 _int("occurrences"),
                 _utf8("path", True),
                 _int("line", True),
                 _utf8("site_text", True),
+            ]
+        ),
+        # FORMAT 5 (Stage 2): singletons, their fields' reads, and field and setting claims.
+        "singletons": pa.schema([_utf8("global"), _id("class_node_id")]),
+        "ambient_reads": pa.schema(
+            [
+                _utf8("global"),
+                _utf8("field"),
+                _id("reader_node_id", True),
+                _utf8("reader", True),
+                _utf8("phase"),
+                _utf8("path", True),
+                _int("line"),
+                _int("start_byte"),
+                _utf8("spelled"),
+                _utf8("condition", True),
+            ]
+        ),
+        "place_claims": pa.schema(
+            [
+                _utf8("place_key"),
+                _utf8("kind"),
+                _id("subject_node_id", True),
+                pa.field("holds", pa.bool_(), nullable=False),
+                _utf8("boundary_reason", True),
+                _utf8("reason", True),
             ]
         ),
         "operation_text": pa.schema([_id("node_id"), _utf8("text")]),
@@ -214,6 +245,10 @@ class Generation:
     # Per operation and facet, `(verdict, reason)`: `established` when its rows are complete.
     facet_status: dict[bytes, dict[str, tuple[str, str | None]]] = field(default_factory=dict)
     behaviors: dict[bytes, list[dict]] = field(default_factory=dict)
+    # FORMAT 5: a singleton global's class, its fields' reads, and place claims by key.
+    singletons: dict[str, bytes] = field(default_factory=dict)
+    ambient: dict[str, list[dict]] = field(default_factory=dict)
+    claims: dict[str, dict] = field(default_factory=dict)
     op_vectors: dict[str, tuple[np.ndarray, list[bytes]]] = field(default_factory=dict)
 
     @property
@@ -310,6 +345,11 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     behaviors: dict[bytes, list[dict]] = {}
     for r in tables["behaviors"].to_pylist():
         behaviors.setdefault(r["operation_node_id"], []).append(r)
+    singletons = {r["global"]: r["class_node_id"] for r in tables["singletons"].to_pylist()}
+    ambient: dict[str, list[dict]] = {}
+    for r in tables["ambient_reads"].to_pylist():
+        ambient.setdefault(r["global"], []).append(r)
+    claims = {r["place_key"]: r for r in tables["place_claims"].to_pylist()}
     op_vectors: dict[str, tuple[np.ndarray, list[bytes]]] = {}
     ov = tables["operation_vectors"]
     if ov.num_rows:
@@ -343,5 +383,8 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         by_facet=by_facet,
         facet_status=facet_status,
         behaviors=behaviors,
+        singletons=singletons,
+        ambient=ambient,
+        claims=claims,
         op_vectors=op_vectors,
     )

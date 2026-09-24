@@ -215,12 +215,53 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                 utf8("verdict", false),
                 // FORMAT 4 (F1): why a row is unknown.
                 utf8("boundary_reason", true),
+                // FORMAT 5 (Stage 2): the condition, a callee outside the release, the read
+                // phase, the premise a negative claim rests on.
+                utf8("condition", true),
+                utf8("callee_text", true),
+                utf8("phase", true),
+                utf8("premise_key", true),
                 int("occurrences", false),
                 utf8("path", true),
                 int("line", true),
                 utf8("site_text", true),
             ],
             &["behavior_id"],
+        ),
+        // FORMAT 5 (Stage 2; ADR-0022): module-global singletons, their fields' reads at the
+        // resolved key, and the field and setting claims with their premises.
+        file(
+            "singletons",
+            vec![utf8("global", false), id("class_node_id", false)],
+            &["global"],
+        ),
+        file(
+            "ambient_reads",
+            vec![
+                utf8("global", false),
+                utf8("field", false),
+                id("reader_node_id", true),
+                utf8("reader", true),
+                utf8("phase", false),
+                utf8("path", true),
+                int("line", false),
+                int("start_byte", false),
+                utf8("spelled", false),
+                utf8("condition", true),
+            ],
+            &["global", "field", "path", "start_byte"],
+        ),
+        file(
+            "place_claims",
+            vec![
+                utf8("place_key", false),
+                utf8("kind", false),
+                id("subject_node_id", true),
+                Field::new("holds", DataType::Boolean, false),
+                utf8("boundary_reason", true),
+                utf8("reason", true),
+            ],
+            &["place_key"],
         ),
         file(
             "operation_text",

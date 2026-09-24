@@ -8,7 +8,7 @@ diff 07070707070707070707070707070707 -> 08080808080808080808080808080808
   evidence         only in from      0, only in to      0, common     52
   briefs           only in from      1, only in to      1, common      5
   brief_documents  only in from      0, only in to      0, common      6
-  behaviors        only in from      0, only in to      0, common     98
+  behaviors        only in from      0, only in to      0, common    160
   operations       only in from      0, only in to      0, common     57
 ~ brief pkg.Catalog.add_tool
     - [implication/structurally_observed] Among the public APIs of `pkg.Catalog`, every one that declares the parameter `name` also declares the parameters `fn` and `tags`, a parameter typed `set[str] | None`, a parameter typed `str | None` and the return type `None` (3 APIs).

@@ -1488,6 +1488,7 @@ async fn the_analysis_rules_reject_their_violations() {
                     b.kind, b.parameter_node_id, b.parameter_name, b.callee_node_id, \
                     b.target_node_id, b.target_name, b.value, b.depth, b.conditional, \
                     CAST(2 AS SMALLINT) AS verdict, CAST(NULL AS SMALLINT) AS boundary_reason, \
+                    b.condition, b.callee_text, b.phase, b.premise_key, \
                     b.site_node_id, b.site_module_node_id, \
                     b.site_start_byte, b.site_end_byte, b.site_line, b.site_text, b.occurrences, \
                     b.invocation_id \
@@ -1505,7 +1506,7 @@ async fn the_analysis_rules_reject_their_violations() {
              SELECT b.snapshot_id, b.behavior_id, 99 AS step, b.operation_node_id AS caller_node_id, \
                     b.operation_node_id AS call_site_node_id, \
                     b.operation_node_id AS callee_node_id, CAST(1 AS SMALLINT) AS modality, \
-                    false AS conditional \
+                    false AS conditional, CAST(NULL AS VARCHAR) AS condition \
              FROM (SELECT * FROM behaviors_published WHERE verdict = 0 \
                    ORDER BY behavior_id LIMIT 1) b",
         ),

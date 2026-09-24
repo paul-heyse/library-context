@@ -16,3 +16,4 @@ call_site_node_id: FixedSizeBinary(16) NOT NULL
 callee_node_id: FixedSizeBinary(16) NOT NULL
 modality: Int16 NOT NULL [lctx.codebook=modality]
 conditional: Boolean NOT NULL
+condition: Utf8 NULL

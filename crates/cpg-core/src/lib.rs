@@ -9,6 +9,7 @@ pub mod delta;
 pub mod derive;
 pub mod diff;
 pub mod embed;
+pub mod flow_model;
 pub mod snapshot;
 pub mod sql;
 pub mod synth;

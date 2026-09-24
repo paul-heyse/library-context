@@ -144,13 +144,16 @@ async fn one_arc_has_one_verdict_and_the_region_decides_the_status() {
 #[tokio::test]
 async fn every_forward_carries_its_path_hop_by_hop() {
     let (ctx, _dir) = compiled().await;
-    // F6: a row at depth d has exactly d steps, numbered from 0.
+    // F6: a row at depth d has exactly d steps, numbered from 0 (a call outside the release and
+    // a stored field's later read have no arc to step through).
     let bad = table(
         &ctx,
         "SELECT count(*) AS bad FROM behaviors b \
          LEFT JOIN (SELECT behavior_id, count(*) AS n, max(step) AS last FROM behavior_steps \
                     GROUP BY behavior_id) s ON s.behavior_id = b.behavior_id \
-         WHERE b.kind IN (0, 1, 4) AND (COALESCE(s.n, 0) <> b.depth OR s.last <> b.depth - 1)",
+         WHERE b.kind IN (0, 1, 4) AND b.callee_text IS NULL \
+           AND (b.value IS NULL OR b.value NOT LIKE 'via %') \
+           AND (COALESCE(s.n, 0) <> b.depth OR s.last <> b.depth - 1)",
     )
     .await;
     assert!(
@@ -193,4 +196,116 @@ async fn class_facets_and_their_completeness_are_data() {
     .await;
     assert!(point.contains("| 0     | 4       |"), "{point}");
     assert!(point.contains("| 4     | 0       |"), "{point}");
+}
+
+/// One operation's behaviors as `kind | parameter | target | callee text | value | verdict |
+/// reason | condition | phase` lines.
+async fn behaviors_of(ctx: &SessionContext, path: &str) -> String {
+    table(
+        ctx,
+        &format!(
+            "SELECT b.kind, b.parameter_name, b.target_name, b.callee_text, b.value, b.verdict, \
+                    b.boundary_reason, b.condition, b.phase \
+             FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id \
+             WHERE o.access_path = '{path}' ORDER BY 1, 2, 3, 5"
+        ),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn the_flow_ir_follows_fallbacks_settings_and_fields() {
+    let (ctx, _dir) = compiled().await;
+    // A rebound fallback is followed: `host` reaches `_bind` unchanged when it is not None and the
+    // transport is http or sse (Stage 1 declined it as "rebound").
+    let serve = behaviors_of(&ctx, "bpkg.serve").await;
+    assert!(
+        serve.contains(
+            "| 0    | host           | host                      |             |                 \
+             | 1       |                 | !is_none(host) & member_of(transport,{\"http\",\"sse\"}) |"
+        ) || serve.contains("!is_none(host) & member_of(transport,{\"http\",\"sse\"})"),
+        "{serve}"
+    );
+    // The setting it falls back to is read per call (phase 3), only when `host` is None.
+    assert!(
+        serve.contains("| bpkg.config.settings.host |") && serve.contains("| is_none(host)"),
+        "{serve}"
+    );
+    // One setting, two spellings, one resolved key.
+    let debug = behaviors_of(&ctx, "bpkg.debug_enabled").await;
+    assert!(debug.contains("bpkg.config.settings.debug"), "{debug}");
+    let reads = table(
+        &ctx,
+        "SELECT field, phase FROM ambient_reads WHERE global = 'bpkg.config.settings' ORDER BY 1",
+    )
+    .await;
+    assert!(
+        reads.contains("| log_level | 0     |"),
+        "an import-time read: {reads}"
+    );
+    // A constructor parameter stored to a field reaches what another method does with it.
+    let session = behaviors_of(&ctx, "bpkg.Session.__init__").await;
+    assert!(
+        session.contains("via self.name in bpkg.service.Session.call, into logger.info"),
+        "{session}"
+    );
+    assert!(
+        session.contains("via self._prior in bpkg.service.Session.adopt")
+            && session.contains("equals(self._mode,\"pinned\")"),
+        "{session}"
+    );
+    // A log-only parameter derives into the logging call, and nothing else.
+    let start = behaviors_of(&ctx, "bpkg.start").await;
+    assert!(
+        start.contains("| 7    | stateless") && start.contains("logger.info"),
+        "{start}"
+    );
+    // `**kwargs` raises when truthy.
+    let make = behaviors_of(&ctx, "bpkg.make").await;
+    assert!(
+        make.contains("| 2    | kwargs") && make.contains("truthy(kwargs)"),
+        "{make}"
+    );
+}
+
+#[tokio::test]
+async fn a_negative_claim_is_refuted_only_where_its_premise_holds() {
+    let (ctx, _dir) = compiled().await;
+    // `ignore(a, b)` never reads `b`: refuted under the model (2), on a premise that holds.
+    let ignore = table(
+        &ctx,
+        "SELECT b.parameter_name, b.verdict, p.holds FROM behaviors b \
+         JOIN operations o ON o.node_id = b.operation_node_id \
+         JOIN negative_premises p ON p.place_key = b.premise_key \
+         WHERE o.access_path = 'bpkg.ignore' AND b.kind = 10",
+    )
+    .await;
+    assert!(
+        ignore.contains("| b              | 2       | true  |"),
+        "{ignore}"
+    );
+    let premises = table(
+        &ctx,
+        "SELECT place_key, holds, boundary_reason FROM negative_premises \
+         WHERE place_key IN ('Field[bpkg.config.Plain.never_read]', \
+                             'Global[bpkg.config.settings].unused_option') ORDER BY 1",
+    )
+    .await;
+    // No load named `never_read` anywhere and no dynamic access reaches `Plain`: the premise
+    // holds.
+    let line = |key: &str, rest: &str| {
+        premises
+            .lines()
+            .any(|l| l.contains(key) && l.contains(rest))
+    };
+    assert!(
+        line("Field[bpkg.config.Plain.never_read]", "| true"),
+        "{premises}"
+    );
+    // `get_setting` reads by name through `settings = self` (the aliasing shape): unknown,
+    // `dynamic_access` (16).
+    assert!(
+        line("Global[bpkg.config.settings].unused_option", "| false | 16"),
+        "{premises}"
+    );
 }

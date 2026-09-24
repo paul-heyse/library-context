@@ -12,6 +12,7 @@
     "hands_off_to",
     "takes_from",
     "module",
-    "kind"
+    "kind",
+    "reads_setting"
   ]
 }

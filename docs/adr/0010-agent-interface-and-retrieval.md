@@ -262,3 +262,13 @@ all passed):
     to hide possible matches (status `unknown`: a depth cut or open call sites; or an `unknown` row
     of the facet's kind).
   - **A view is a column**, not part of the cache key. Identical texts share one vector.
+- 2026-09-24, increment 3's deep review (F3, F4) and Stage 2.6 (ADR-0022):
+  - **Bundle `FORMAT` 4** serves `operation_facet_status`; `complete` and `unknown` are read from it,
+    not decided in Python (this replaces the "`complete` is true only for declared facets" line
+    above). Only `established` and `conditional` facet rows match. The facet names are held to the
+    codebook by `specs/serving/facets.json`.
+  - **Bundle `FORMAT` 5** adds each behavior's `condition`, `callee_text`, `phase` and
+    `premise_key`, and three files: `singletons`, `ambient_reads` (every read of a singleton's
+    field, at its resolved key, with its phase and condition) and `place_claims` (field and setting
+    claims with their premises). `get_operation` resolves a singleton's global name to its class and
+    shows its fields.

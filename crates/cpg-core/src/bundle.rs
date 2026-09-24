@@ -47,7 +47,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 4;
+pub const FORMAT: u64 = 5;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -179,8 +179,8 @@ fn query(name: &str) -> Option<String> {
             "SELECT b.behavior_id, b.operation_node_id, {kind} AS kind, b.parameter_name, \
                     b.callee_node_id, COALESCE(o.access_path, d.qualified_name) AS callee, \
                     b.target_name, b.value, b.depth, b.conditional, {verdict} AS verdict, \
-                    {reason} AS boundary_reason, b.occurrences, df.path, b.site_line AS line, \
-                    b.site_text \
+                    {reason} AS boundary_reason, b.condition, b.callee_text, {phase} AS phase, \
+                    b.premise_key, b.occurrences, df.path, b.site_line AS line, b.site_text \
              FROM behaviors b \
              LEFT JOIN operations o ON o.node_id = b.callee_node_id \
              LEFT JOIN (SELECT node_id, min(qualified_name) AS qualified_name FROM declarations \
@@ -191,7 +191,33 @@ fn query(name: &str) -> Option<String> {
             kind = text_of::<BehaviorKind>("b.kind"),
             verdict = text_of::<Verdict>("b.verdict"),
             reason = text_of::<BoundaryReason>("b.boundary_reason"),
+            phase = text_of::<cpg_schema::codebook::ReadPhase>("b.phase"),
             files = cpg_schema::flows::display_files_sql(),
+        ),
+        "singletons" => "SELECT global, class_node_id FROM singletons ORDER BY global".to_owned(),
+        "ambient_reads" => format!(
+            "SELECT a.global, a.field, a.reader_node_id, \
+                    COALESCE(o.access_path, d.qualified_name) AS reader, {phase} AS phase, \
+                    df.path, a.line, a.start_byte, a.spelled, \
+                    CASE WHEN a.condition = 'true' THEN NULL ELSE a.condition END AS condition \
+             FROM ambient_reads a \
+             LEFT JOIN operations o ON o.node_id = a.reader_node_id \
+             LEFT JOIN (SELECT node_id, min(qualified_name) AS qualified_name FROM declarations \
+                        GROUP BY node_id) d ON d.node_id = a.reader_node_id \
+             LEFT JOIN (SELECT module_node_id, min(path) AS path FROM ({files}) \
+                        GROUP BY module_node_id) df ON df.module_node_id = a.module_node_id \
+             ORDER BY a.global, a.field, df.path, a.start_byte",
+            phase = text_of::<cpg_schema::codebook::ReadPhase>("a.phase"),
+            files = cpg_schema::flows::display_files_sql(),
+        ),
+        "place_claims" => format!(
+            "SELECT place_key, {kind} AS kind, subject_node_id, holds, \
+                    {reason} AS boundary_reason, reason \
+             FROM negative_premises WHERE kind IN ({field}, {global}) ORDER BY place_key",
+            kind = text_of::<cpg_schema::codebook::PremiseKind>("kind"),
+            reason = text_of::<BoundaryReason>("boundary_reason"),
+            field = cpg_schema::codebook::PremiseKind::Field.code(),
+            global = cpg_schema::codebook::PremiseKind::Global.code(),
         ),
         "operation_vectors" => format!(
             "SELECT d.node_id, {view} AS embedding_view, d.chunk, d.input_hash, c.vector \

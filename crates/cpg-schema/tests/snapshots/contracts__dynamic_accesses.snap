@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table dynamic_accesses
+family findings
+key snapshot_id, call_site_node_id
+@lctx.family=findings
+@lctx.table=dynamic_accesses
+snapshot_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=dynamic_kind]
+function_node_id: FixedSizeBinary(16) NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+reaches_class_node_id: FixedSizeBinary(16) NULL
+reaches_modules: Boolean NOT NULL
+reaches_all: Boolean NOT NULL

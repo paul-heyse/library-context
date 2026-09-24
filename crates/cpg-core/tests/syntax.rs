@@ -1760,8 +1760,9 @@ async fn all_techniques_guard() {
     // tables, their site columns and status reasons, the `pass_b_surface` invocation), then
     // increment 3's deep review (one verdict per arc, the status over the region, class facets,
     // `operation_facet_status` and `behavior_steps`), then Stage 2.3 (the `flow` family moves the
-    // producer, and so the run-scoped fact ids evidence cites). The analysis ledger (Stage E/F's
-    // own output) did not move.
-    const GUARD: &str = "b37824b5a08aa9b98e8d44ddabd19de8e357bc17bc5c95fbe08e8819f6de3a0d";
+    // producer, and so the run-scoped fact ids evidence cites), then Stage 2.6 (the flow model's
+    // seven tables, Stage 2 behaviors, conditions). The analysis ledger (Stage E/F's own output)
+    // did not move.
+    const GUARD: &str = "f4ec42a9ed3c5d28588e2db6ee1a2b629288740887b5d68211bb9add7534f770";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }

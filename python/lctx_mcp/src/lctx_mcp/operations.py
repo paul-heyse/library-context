@@ -39,6 +39,7 @@ FacetName = Literal[
     "takes_from",
     "module",
     "kind",
+    "reads_setting",
 ]
 UNKNOWN_CAP = 50
 # Rows whose verdict lets them match; an `unknown` row puts its operation in `unknown` instead.
@@ -88,8 +89,16 @@ class Fate(BaseModel):
     conditional: bool
     verdict: str
     # Why the verdict is `unknown`: `override_dispatch`, `ambiguous_binding`,
-    # `outside_provider_model`; none when established or conditional.
+    # `outside_provider_model`, `dynamic_access`; none when established or conditional.
     boundary_reason: str | None
+    # The condition it holds under, in the operation's own places (none: always).
+    condition: str | None
+    # A callee outside the release, as written.
+    callee_text: str | None
+    # When a setting is read: `import`, `construction`, `snapshot` or `per_call`.
+    phase: str | None
+    # The premise a negative claim rests on (`place_claims` / `negative_premises`).
+    premise_key: str | None
     occurrences: int
     path: str | None
     line: int | None
@@ -97,11 +106,32 @@ class Fate(BaseModel):
 
 
 class ParameterRecord(BaseModel):
-    """A parameter's fates; with none, its other channels are not analyzed (never "unused")."""
+    """A parameter's fates. With none, it is "never read" only if an `is_read` fate says
+    `refuted_under_model`; otherwise its other channels are not analyzed."""
 
     name: str
     fates: list[Fate]
     note: str | None
+
+
+class SettingRead(BaseModel):
+    """One read of a singleton's field, at its resolved key."""
+
+    reader: str | None
+    phase: str
+    path: str | None
+    line: int
+    spelled: str
+    condition: str | None
+
+
+class FieldRecord(BaseModel):
+    """A singleton's field: where it is read, and whether "never read" is refuted."""
+
+    name: str
+    reads: list[SettingRead]
+    # The claim "never read" (none: the field is read, or no claim is made about it).
+    never_read: str | None
 
 
 class Operation(BaseModel):
@@ -128,8 +158,13 @@ class Operation(BaseModel):
     parameters: list[ParameterRecord]
     delegates: list[Fate]
     handoffs: list[Fate]
+    # Settings the operation reads in its own body (Stage 2), each with its phase and condition.
+    reads: list[Fate] = Field(default_factory=list)
     # A class's controls are its constructor's: the `__init__` record, when one is public.
     constructor: Operation | None = None
+    # A module-global singleton this class backs (`fastmcp.settings`), and its fields.
+    singleton_of: str | None = None
+    fields: list[FieldRecord] = Field(default_factory=list)
 
 
 class OperationRef(BaseModel):
@@ -204,6 +239,10 @@ def _fate(r: dict) -> Fate:
         conditional=r["conditional"],
         verdict=r["verdict"],
         boundary_reason=r["boundary_reason"],
+        condition=r["condition"],
+        callee_text=r["callee_text"],
+        phase=r["phase"],
+        premise_key=r["premise_key"],
         occurrences=r["occurrences"],
         path=r["path"],
         line=r["line"],
@@ -212,8 +251,11 @@ def _fate(r: dict) -> Fate:
 
 
 def resolve(gen: Generation, operation: str) -> bytes:
-    """An operation by any public spelling or by its hex id."""
+    """An operation by any public spelling or by its hex id; a module-global singleton's name
+    resolves to its class."""
     node = gen.paths.get(operation.strip())
+    if node is None:
+        node = gen.singletons.get(operation.strip())
     if node is None:
         try:
             raw = bytes.fromhex(operation.strip())
@@ -249,8 +291,17 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
     per_parameter: dict[str, list[Fate]] = {
         name: [] for name in facets.get("parameter", []) if not name.startswith("*")
     }
+    fated = (
+        "forwards",
+        "raises_when",
+        "unfollowed",
+        "derives",
+        "stores",
+        "returns",
+        "is_read",
+    )
     for r in rows:
-        if r["kind"] in ("forwards", "raises_when", "unfollowed") and r["parameter_name"]:
+        if r["kind"] in fated and r["parameter_name"]:
             per_parameter.setdefault(r["parameter_name"], []).append(_fate(r))
     parameters = [
         ParameterRecord(
@@ -258,11 +309,13 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
             fates=fates,
             note=None
             if fates
-            else "no fate found: Stage 1 sees reads at call arguments only; stores, returns "
-            "and tests are not analyzed (never read this as unused)",
+            else "no fate found: reads the flow IR could not attribute (a dynamic or unpacked "
+            "use) are not shown; never read this as unused",
         )
         for name, fates in per_parameter.items()
     ]
+    singleton_of = next((g for g, c in gen.singletons.items() if c == node), None)
+    fields = _fields(gen, singleton_of) if singleton_of else []
     supplies = [_fate(r) for r in rows if r["kind"] == "supplies_literal"]
     return Operation(
         snapshot_id=gen.snapshot_id,
@@ -285,8 +338,42 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
         parameters=parameters,
         delegates=[_fate(r) for r in rows if r["kind"] == "delegates"] + supplies,
         handoffs=[_fate(r) for r in rows if r["kind"] in ("hands_off_to", "takes_from")],
+        reads=[_fate(r) for r in rows if r["kind"] == "reads_setting"],
         constructor=_constructor(gen, node, spelling),
+        singleton_of=singleton_of,
+        fields=fields,
     )
+
+
+def _fields(gen: Generation, global_: str) -> list[FieldRecord]:
+    """A singleton's fields: those read at its resolved key, and those a claim is made about."""
+    reads: dict[str, list[SettingRead]] = {}
+    for r in gen.ambient.get(global_, []):
+        reads.setdefault(r["field"], []).append(
+            SettingRead(
+                reader=r["reader"],
+                phase=r["phase"],
+                path=r["path"],
+                line=r["line"],
+                spelled=r["spelled"],
+                condition=r["condition"],
+            )
+        )
+    prefix = f"Global[{global_}]."
+    claims = {k[len(prefix) :]: c for k, c in gen.claims.items() if k.startswith(prefix)}
+    out = []
+    for name in sorted(set(reads) | set(claims)):
+        c = claims.get(name)
+        never = None
+        if name not in reads and c is not None:
+            never = (
+                "refuted_under_model: no read of the field anywhere in the release, and no "
+                "name-driven access reaches it (external readers are outside the model)"
+                if c["holds"]
+                else f"unknown ({c['boundary_reason'] or 'not refuted'}): {c['reason']}"
+            )
+        out.append(FieldRecord(name=name, reads=reads.get(name, []), never_read=never))
+    return out
 
 
 def _constructor(gen: Generation, node: bytes, spelling: str) -> Operation | None:

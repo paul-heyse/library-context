@@ -23,7 +23,8 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     AnalyticMethod, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
-    EmbeddingView, ExtractionMode, FindingKind, MemberRole, Modality, OperationFacet, Verdict,
+    EmbeddingView, ExtractionMode, FindingKind, FlowSink, MemberRole, Modality, OperationFacet,
+    ValueClass, Verdict,
 };
 use cpg_schema::findings::{
     AnalysisInvocationsRow, FindingMembersRow, PublicPathsRow, recipe as findings,
@@ -151,19 +152,87 @@ fn reason_rank(r: BoundaryReason) -> u8 {
 }
 
 /// One step of a behavior's path before its id is known.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Hop {
     caller: Id,
     call_site: Id,
     callee: Id,
     modality: Modality,
     conditional: bool,
+    condition: Option<String>,
+}
+
+/// A hop's condition, when its flow is one the flow IR attributes (`true` is none).
+fn hop_condition(flows: &Flows, conditions: &HopConditions, index: usize) -> Option<String> {
+    let f = flows.flows.get(index)?;
+    conditions
+        .get(&(f.call_site, f.formal, f.source_parameter?))
+        .filter(|c| c.as_str() != "true")
+        .cloned()
+}
+
+/// The condition a hop's value reaches its callee under, by (call site, formal, source parameter).
+type HopConditions = BTreeMap<(Id, Id, Id), String>;
+
+/// Stage 2's argument flows: each Stage 1 arc row, its value's source parameters replaced by the
+/// flow IR's (identity rows are followed, derived rows are `other`); a read the flow IR attributes
+/// is no longer "unfollowed".
+fn v2_flows(
+    stage1: &[ArgumentFlowsRow],
+    reads: &[ParameterReadsRow],
+    value_flows: &[cpg_schema::behavior::ValueFlowsRow],
+) -> (Vec<ArgumentFlowsRow>, Vec<ParameterReadsRow>, HopConditions) {
+    let mut sources: BTreeMap<Id, Vec<(Id, &cpg_schema::behavior::ValueFlowsRow)>> =
+        BTreeMap::new();
+    for v in value_flows {
+        if let (Some(a), Some(p)) = (v.argument_node_id, v.parameter_node_id) {
+            sources.entry(a).or_default().push((p, v));
+        }
+    }
+    let mut rows = Vec::new();
+    let mut conditions = HopConditions::new();
+    for r in stage1 {
+        let Some(found) = sources.get(&r.argument_node_id) else {
+            rows.push(r.clone());
+            continue;
+        };
+        for &(p, v) in found {
+            let conditional = v.condition != "true";
+            let mut row = r.clone();
+            row.source_parameter_node_id = Some(p);
+            row.alias_name = None;
+            row.value_class = if v.identity {
+                ValueClass::Parameter
+            } else {
+                ValueClass::Other
+            };
+            row.conditional = r.conditional || conditional;
+            if v.identity {
+                conditions.insert(
+                    (r.call_site_node_id, r.formal_node_id, p),
+                    v.condition.clone(),
+                );
+            }
+            rows.push(row);
+        }
+    }
+    let attributed: BTreeSet<(Id, Id)> = value_flows
+        .iter()
+        .filter_map(|v| Some((v.argument_node_id?, v.parameter_node_id?)))
+        .collect();
+    let reads = reads
+        .iter()
+        .filter(|r| !attributed.contains(&(r.argument_node_id, r.parameter_node_id)))
+        .cloned()
+        .collect();
+    (rows, reads, conditions)
 }
 
 /// The digest of what the behavior scan reads: its declared relations and this module's own.
 pub fn digest() -> Digest {
     let mut h = cpg_schema::id::IdHasher::new("behavior-scan");
     h.digest_field(b::digest());
+    h.digest_field(crate::flow_model::digest());
     for r in relations() {
         h.str(r.name).str(&r.sql);
     }
@@ -171,6 +240,10 @@ pub fn digest() -> Digest {
 }
 
 /// Stage 1 for one attempt.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the attempt's context, the analysis, the compiler run, and the two inputs it reads"
+)]
 pub async fn run(
     ctx: &SessionContext,
     root: &std::path::Path,
@@ -178,6 +251,7 @@ pub async fn run(
     analysis: &Analysis,
     compiler: CompilerRun,
     public: &[PublicPathsRow],
+    flow: &crate::flow_model::FlowModelRows,
     stages: &mut Stages,
 ) -> Result<BehaviorRows, CoreError> {
     let mut out = BehaviorRows {
@@ -204,11 +278,15 @@ pub async fn run(
         .collect();
 
     // Pass B from every public callable, into any release function (the flows hold only arcs
-    // into release functions).
+    // into release functions). Stage 2: an argument's source parameters are the flow IR's
+    // (`value_flows`), each identity or derived under its condition, so a rebound fallback is
+    // followed; Stage 1's value classes stand only where the flow IR names no source.
+    let (flow_rows, read_rows, hop_conditions) =
+        v2_flows(&out.argument_flows, &out.parameter_reads, &flow.value_flows);
     let flows = Flows::build(
-        &[ArgumentFlows::to_sorted_batch(&out.argument_flows)?],
+        &[ArgumentFlows::to_sorted_batch(&flow_rows)?],
         &[Guards::to_sorted_batch(&out.guards)?],
-        &[ParameterReads::to_sorted_batch(&out.parameter_reads)?],
+        &[ParameterReads::to_sorted_batch(&read_rows)?],
     )
     .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let parameters_of = crate::analyze::seed_parameters(ctx, &callables).await?;
@@ -304,6 +382,7 @@ pub async fn run(
                     callee: w.callee_node_id,
                     modality: w.modality,
                     conditional: false,
+                    condition: None,
                 },
             ));
         }
@@ -362,9 +441,24 @@ pub async fn run(
                     p.into_iter().map(|(_, h)| h).collect()
                 })
                 .unwrap_or_default();
-            for h in &mut path {
+            let flow_path = result
+                .flow_paths
+                .get(&f.finding_id)
+                .cloned()
+                .unwrap_or_default();
+            for (k, h) in path.iter_mut().enumerate() {
                 h.conditional = conditional_sites.contains(&h.call_site);
+                h.condition = flow_path
+                    .get(k)
+                    .and_then(|&i| hop_condition(&flows, &hop_conditions, i));
             }
+            // A raise directly in the operation is Stage 2's raise sites' (the flow IR's region
+            // conditions), not a syntactic guard.
+            if f.finding_kind == FindingKind::ConditionalRaise && path.is_empty() {
+                continue;
+            }
+            let row_condition = path.first().and_then(|h| h.condition.clone());
+            let conditional = conditional || path.iter().any(|h| h.condition.is_some());
             let (callee, site) = path
                 .last()
                 .map(|h| (Some(h.callee), Some(h.call_site)))
@@ -455,6 +549,10 @@ pub async fn run(
                 conditional,
                 verdict,
                 boundary_reason: reason,
+                condition: row_condition,
+                callee_text: None,
+                phase: None,
+                premise_key: None,
                 site_node_id: site,
                 site_module_node_id: None,
                 site_start_byte: None,
@@ -535,6 +633,7 @@ pub async fn run(
                 callee,
                 modality,
                 conditional: false,
+                condition: None,
             }],
         );
         out.behaviors.push(BehaviorsRow {
@@ -552,6 +651,10 @@ pub async fn run(
             conditional: false,
             verdict,
             boundary_reason: reason,
+            condition: None,
+            callee_text: None,
+            phase: None,
+            premise_key: None,
             site_node_id: Some(site),
             site_module_node_id: None,
             site_start_byte: None,
@@ -615,6 +718,10 @@ pub async fn run(
                 conditional: false,
                 verdict: Verdict::Established,
                 boundary_reason: None,
+                condition: None,
+                callee_text: None,
+                phase: None,
+                premise_key: None,
                 site_node_id: Some(*site),
                 site_module_node_id: None,
                 site_start_byte: None,
@@ -626,6 +733,318 @@ pub async fn run(
             });
         }
     }
+    // Stage 2 (ADR-0022): what the flow IR says about each public callable's own body. Rows
+    // with one id are one claim: their conditions are joined by `or`.
+    let own: BTreeSet<Id> = callables.iter().copied().collect();
+    let mut release_target: BTreeMap<Id, (Id, String)> = BTreeMap::new();
+    for r in &out.argument_flows {
+        release_target
+            .entry(r.argument_node_id)
+            .or_insert((r.target_node_id, r.formal_name.clone()));
+    }
+    let name_of_parameter: BTreeMap<Id, (Id, String)> = parameters_of
+        .iter()
+        .flat_map(|(op, ps)| ps.iter().map(move |p| (p.node, (*op, p.name.clone()))))
+        .collect();
+    let mut stage2: BTreeMap<Id, (BehaviorsRow, cpg_schema::condition::Condition)> =
+        BTreeMap::new();
+    fn claim(
+        stage2: &mut BTreeMap<Id, (BehaviorsRow, cpg_schema::condition::Condition)>,
+        mut row: BehaviorsRow,
+        condition: &str,
+    ) {
+        let c = cpg_schema::condition::Condition::parse(condition)
+            .unwrap_or(cpg_schema::condition::Condition::OverBudget);
+        row.behavior_id = b::behavior_id(
+            row.operation_node_id,
+            row.kind,
+            row.parameter_node_id,
+            row.callee_node_id,
+            row.target_node_id,
+            row.value.as_deref(),
+            row.site_node_id,
+        );
+        match stage2.get_mut(&row.behavior_id) {
+            Some((_, e)) => *e = e.or(&c),
+            None => {
+                stage2.insert(row.behavior_id, (row, c));
+            }
+        }
+    }
+    let blank = |op: Id, kind: BehaviorKind| BehaviorsRow {
+        snapshot_id,
+        behavior_id: Id::ZERO,
+        operation_node_id: op,
+        kind,
+        parameter_node_id: None,
+        parameter_name: None,
+        callee_node_id: None,
+        target_node_id: None,
+        target_name: None,
+        value: None,
+        depth: 0,
+        conditional: false,
+        verdict: Verdict::Established,
+        boundary_reason: None,
+        condition: None,
+        callee_text: None,
+        phase: None,
+        premise_key: None,
+        site_node_id: None,
+        site_module_node_id: None,
+        site_start_byte: None,
+        site_end_byte: None,
+        site_line: None,
+        site_text: None,
+        occurrences: 1,
+        invocation_id: Some(invocation_id),
+    };
+    for v in flow
+        .value_flows
+        .iter()
+        .filter(|v| own.contains(&v.function_node_id) && v.parameter_node_id.is_some())
+    {
+        let site_at = |row: &mut BehaviorsRow| {
+            row.site_module_node_id = Some(v.module_node_id);
+            row.site_start_byte = Some(v.sink_start_byte);
+            row.site_end_byte = Some(v.sink_end_byte);
+        };
+        let mut row = blank(v.function_node_id, BehaviorKind::Forwards);
+        row.parameter_node_id = v.parameter_node_id;
+        row.parameter_name = Some(v.source_name.clone());
+        row.depth = 1;
+        match v.sink {
+            FlowSink::Argument => {
+                let target = v.argument_node_id.and_then(|a| release_target.get(&a));
+                let text = v
+                    .call_site_node_id
+                    .and_then(|c| flow.callee_text.get(&c))
+                    .cloned();
+                if v.identity && target.is_some() {
+                    // A release callee: Pass B's forward, with its condition.
+                    continue;
+                }
+                row.kind = if v.identity {
+                    BehaviorKind::Forwards
+                } else {
+                    BehaviorKind::Derives
+                };
+                if let Some((t, formal)) = target {
+                    row.callee_node_id = Some(*t);
+                    row.target_name = Some(formal.clone());
+                } else {
+                    row.callee_text = text.clone();
+                    row.value = text;
+                }
+                row.site_node_id = v.call_site_node_id;
+                site_at(&mut row);
+            }
+            FlowSink::Definition => {
+                row.kind = BehaviorKind::Stores;
+                row.target_name = v.place.clone();
+                row.value = Some(if v.identity { "unchanged" } else { "computed" }.to_owned());
+                site_at(&mut row);
+                // One claim per stored place, wherever the store is.
+                row.site_start_byte = None;
+                row.site_end_byte = None;
+                row.value = Some(format!(
+                    "{}:{}",
+                    row.value.take().unwrap_or_default(),
+                    v.sink_start_byte
+                ));
+            }
+            FlowSink::Return | FlowSink::Yield => {
+                row.kind = BehaviorKind::Returns;
+                row.value = Some(if v.identity { "unchanged" } else { "computed" }.to_owned());
+                row.depth = 0;
+                site_at(&mut row);
+                row.value = Some(format!(
+                    "{}:{}",
+                    row.value.take().unwrap_or_default(),
+                    v.sink_start_byte
+                ));
+            }
+            FlowSink::Raise => continue,
+        }
+        claim(&mut stage2, row, &v.condition);
+    }
+    for r in flow
+        .raise_sites
+        .iter()
+        .filter(|r| own.contains(&r.function_node_id))
+    {
+        for name in &r.parameters {
+            let Some(p) = parameters_of
+                .get(&r.function_node_id)
+                .and_then(|ps| ps.iter().find(|p| &p.name == name))
+            else {
+                continue;
+            };
+            let mut row = blank(r.function_node_id, BehaviorKind::RaisesWhen);
+            row.parameter_node_id = Some(p.node);
+            row.parameter_name = Some(name.clone());
+            row.value = Some(format!("{}:{}", r.text, r.start_byte));
+            row.site_module_node_id = Some(r.module_node_id);
+            row.site_start_byte = Some(r.start_byte);
+            row.site_end_byte = Some(r.end_byte);
+            row.site_line = Some(r.line);
+            row.site_text = Some(r.text.clone());
+            claim(&mut stage2, row, &r.condition);
+        }
+    }
+    for a in flow.ambient_reads.iter() {
+        let Some(reader) = a.reader_node_id.filter(|r| own.contains(r)) else {
+            continue;
+        };
+        let mut row = blank(reader, BehaviorKind::ReadsSetting);
+        row.target_name = Some(format!("{}.{}", a.global, a.field));
+        row.value = Some(format!("{}:{}", a.spelled, a.start_byte));
+        row.phase = Some(a.phase);
+        row.site_module_node_id = Some(a.module_node_id);
+        row.site_start_byte = Some(a.start_byte);
+        row.site_end_byte = Some(a.end_byte);
+        row.site_line = Some(a.line);
+        row.site_text = Some(a.spelled.clone());
+        claim(&mut stage2, row, &a.condition);
+    }
+    for p in flow
+        .premises
+        .iter()
+        .filter(|p| p.kind == cpg_schema::codebook::PremiseKind::Parameter)
+    {
+        let Some((op, name)) = p.subject_node_id.and_then(|n| name_of_parameter.get(&n)) else {
+            continue;
+        };
+        if !own.contains(op) {
+            continue;
+        }
+        let mut row = blank(*op, BehaviorKind::IsRead);
+        row.parameter_node_id = p.subject_node_id;
+        row.parameter_name = Some(name.clone());
+        row.premise_key = Some(p.place_key.clone());
+        row.verdict = if p.holds {
+            Verdict::RefutedUnderModel
+        } else {
+            Verdict::Unknown
+        };
+        row.boundary_reason = if p.holds {
+            None
+        } else {
+            p.boundary_reason.or(Some(BoundaryReason::MissingEvidence))
+        };
+        row.value = p.reason.clone();
+        claim(&mut stage2, row, "true");
+    }
+    // A parameter stored to its receiver's field, then read by any method of a relative: the
+    // value's fate there, stated under the read's own condition (in that method's places).
+    let mut field_origins: BTreeMap<(Id, String), Vec<&cpg_schema::behavior::ValueFlowsRow>> =
+        BTreeMap::new();
+    for v in &flow.value_flows {
+        if let (Some(c), None) = (v.class_node_id, v.parameter_node_id) {
+            field_origins
+                .entry((c, v.source_name.clone()))
+                .or_default()
+                .push(v);
+        }
+    }
+    let stores: Vec<BehaviorsRow> = stage2
+        .values()
+        .filter(|(r, _)| r.kind == BehaviorKind::Stores)
+        .map(|(r, _)| r.clone())
+        .collect();
+    for store in stores {
+        let (Some(class), Some(place)) = (
+            flow.method_class.get(&store.operation_node_id),
+            store.target_name.as_deref(),
+        ) else {
+            continue;
+        };
+        let Some((_, field)) = place.split_once('.') else {
+            continue;
+        };
+        if field.contains('.') || field.contains('[') {
+            continue;
+        }
+        let family: BTreeSet<Id> = std::iter::once(*class)
+            .chain(flow.relatives.get(class).into_iter().flatten().copied())
+            .collect();
+        for c in &family {
+            for v in field_origins
+                .get(&(*c, field.to_owned()))
+                .into_iter()
+                .flatten()
+            {
+                let via = flow
+                    .qualified
+                    .get(&v.function_node_id)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut row = store.clone();
+                row.depth = 2;
+                row.site_node_id = None;
+                row.site_module_node_id = Some(v.module_node_id);
+                row.site_start_byte = Some(v.sink_start_byte);
+                row.site_end_byte = Some(v.sink_end_byte);
+                row.site_line = None;
+                row.site_text = None;
+                row.target_name = None;
+                row.callee_node_id = None;
+                row.callee_text = None;
+                match v.sink {
+                    FlowSink::Argument => {
+                        let target = v.argument_node_id.and_then(|a| release_target.get(&a));
+                        row.kind = if v.identity {
+                            BehaviorKind::Forwards
+                        } else {
+                            BehaviorKind::Derives
+                        };
+                        if let Some((t, formal)) = target {
+                            row.callee_node_id = Some(*t);
+                            row.target_name = Some(formal.clone());
+                        } else {
+                            row.callee_text = v
+                                .call_site_node_id
+                                .and_then(|c| flow.callee_text.get(&c))
+                                .cloned();
+                        }
+                    }
+                    FlowSink::Return | FlowSink::Yield => row.kind = BehaviorKind::Returns,
+                    FlowSink::Definition => {
+                        row.kind = BehaviorKind::Stores;
+                        row.target_name = v.place.clone();
+                    }
+                    FlowSink::Raise => row.kind = BehaviorKind::RaisesWhen,
+                }
+                row.value = Some(format!(
+                    "via {place} in {via}{}:{}",
+                    row.callee_text
+                        .as_deref()
+                        .map(|t| format!(", into {t}"))
+                        .unwrap_or_default(),
+                    v.sink_start_byte
+                ));
+                claim(&mut stage2, row, &v.condition);
+            }
+        }
+    }
+    for (_, (mut row, condition)) in stage2 {
+        if row.verdict == Verdict::Established {
+            match &condition {
+                c if c.is_always() => {}
+                cpg_schema::condition::Condition::OverBudget => {
+                    row.verdict = Verdict::Unknown;
+                    row.boundary_reason = Some(BoundaryReason::BudgetReached);
+                }
+                c => {
+                    row.verdict = Verdict::Conditional;
+                    row.conditional = true;
+                    row.condition = Some(c.encode());
+                }
+            }
+        }
+        out.behaviors.push(row);
+    }
+
     // A behavior id names one claim; two rows under one id are a defect, never merged (§3.4.1;
     // increment 3's deep review, F8).
     out.behaviors.sort_by_key(|r| r.behavior_id);
@@ -650,6 +1069,7 @@ pub async fn run(
                 callee_node_id: h.callee,
                 modality: h.modality,
                 conditional: h.conditional,
+                condition: h.condition.clone(),
             });
         }
     }
@@ -679,7 +1099,31 @@ pub async fn run(
     .into_iter()
     .filter_map(|r| r.text.map(|t| (r.module_node_id, t)))
     .collect();
+    let direct_modules: BTreeSet<Id> = out
+        .behaviors
+        .iter()
+        .filter(|r| r.site_line.is_none())
+        .filter_map(|r| r.site_module_node_id)
+        .collect();
+    let direct_texts: BTreeMap<Id, String> = sql::fetch::<TextRow>(
+        ctx,
+        &module_texts(),
+        sql::Params::new().ids("ids", direct_modules.iter().copied()),
+    )
+    .await?
+    .into_iter()
+    .filter_map(|r| r.text.map(|t| (r.module_node_id, t)))
+    .collect();
     for r in &mut out.behaviors {
+        if r.site_line.is_none()
+            && let (Some(m), Some(s)) = (r.site_module_node_id, r.site_start_byte)
+            && let Some(text) = direct_texts.get(&m)
+        {
+            r.site_line = Some(line_of(text, s as usize));
+            if let Some(e) = r.site_end_byte {
+                r.site_text = text.get(s as usize..e as usize).map(str::to_owned);
+            }
+        }
         let Some(span) = r.site_node_id.and_then(|s| spans.get(&s)) else {
             continue;
         };
@@ -857,6 +1301,17 @@ pub async fn run(
         }
     }
     for r in &out.behaviors {
+        if r.kind == BehaviorKind::ReadsSetting
+            && let Some(setting) = &r.target_name
+        {
+            put(
+                r.operation_node_id,
+                OperationFacet::ReadsSetting,
+                setting.clone(),
+                r.verdict,
+            );
+            continue;
+        }
         let facet = match r.kind {
             BehaviorKind::Delegates => OperationFacet::DelegatesTo,
             BehaviorKind::Forwards => OperationFacet::ForwardsTo,
@@ -927,6 +1382,14 @@ pub async fn run(
                 OperationFacet::HandsOffTo | OperationFacet::TakesFrom => (
                     Verdict::Unknown,
                     Some("official usage is read in two handoff shapes only".to_owned()),
+                ),
+                OperationFacet::ReadsSetting if class => (
+                    Verdict::NotAnalyzed,
+                    Some("a class: its reads are its constructor's".to_owned()),
+                ),
+                OperationFacet::ReadsSetting => (
+                    Verdict::Unknown,
+                    Some("reads in its own body only: reads in callees are Stage 3's".to_owned()),
                 ),
             };
             out.facet_status.push(OperationFacetStatusRow {

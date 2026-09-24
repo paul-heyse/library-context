@@ -27,15 +27,24 @@ def test_an_operation_reads_whole_with_fates_verdicts_and_lines(generation: Path
     raises = [f for f in key.fates if f.kind == "raises_when"]
     assert raises and raises[0].verdict == "conditional"
     assert raises[0].line is not None and raises[0].path is not None
-    assert raises[0].site_text == "key < 0"
+    # Stage 2: the site is the raise; its guard is the condition, in the operation's places.
+    assert raises[0].site_text == "raise KeyError(key)"
+    assert raises[0].condition == 'opaque("key < 0")'
 
 
-def test_a_parameter_without_a_fate_is_not_called_unused(generation: Path) -> None:
+def test_a_parameter_never_read_is_refuted_only_under_its_premise(generation: Path) -> None:
+    """`add_tool`'s body is its docstring: its parameters are never read, and the claim "read"
+    is refuted under the model, citing the premise (ADR-0022 §Verdicts)."""
     gen = load(generation, None)
     op = ops.get_operation(gen, gen.snapshot_id, "pkg.Catalog.add_tool")
-    silent = [p for p in op.parameters if not p.fates]
-    assert silent, "add_tool's parameters are stored nowhere a call shows"
-    assert all(p.note and "never read this as unused" in p.note for p in silent)
+    for p in op.parameters:
+        claims = [f for f in p.fates if f.kind == "is_read"]
+        assert claims, p.name
+        assert claims[0].verdict == "refuted_under_model"
+        assert claims[0].premise_key and claims[0].premise_key.startswith("Parameter[")
+    # A parameter with no fate at all is never called unused.
+    for q in ops.get_operation(gen, gen.snapshot_id, "pkg.Catalog.remove").parameters:
+        assert q.fates or (q.note and "never read this as unused" in q.note)
 
 
 def test_an_unknown_operation_names_near_spellings(generation: Path) -> None:
@@ -196,3 +205,13 @@ def test_a_value_on_unknown_rows_only_is_open_not_absent(generation: Path) -> No
     term = ops.FacetTerm.model_validate({"facet": facet, "value": value})
     found = ops.find_operations(gen, ops.Where(facets=[term]), limit=5, cursor=None)
     assert found.total == 0 and not found.complete and found.unknown_total >= 1
+
+
+def test_a_fate_states_its_condition_in_the_operations_places(generation: Path) -> None:
+    """Stage 2: a raise is stated under its guard, and a conditional fate says so."""
+    gen = load(generation, None)
+    op = ops.get_operation(gen, gen.snapshot_id, "pkg.Catalog.load")
+    path = next(p for p in op.parameters if p.name == "path")
+    raises = [f for f in path.fates if f.kind == "raises_when"]
+    assert raises and raises[0].condition == "!truthy(path)"
+    assert all(f.verdict != "established" for f in path.fates if f.condition)

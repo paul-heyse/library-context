@@ -28,8 +28,9 @@
 //! (`semantic:behavior-covers-public`).
 
 use crate::codebook::{
-    BehaviorKind, BoundaryReason, Codebook, DeclarationKind, EmbeddingView, InvocationPhase,
-    Modality, OperationFacet, SourceRole, ValueClass, Verdict,
+    BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView, FlowSink,
+    InvocationPhase, Modality, OperationFacet, PremiseKind, ReadPhase, SourceRole, ValueClass,
+    Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -259,8 +260,18 @@ table!(
         verdict: Verdict,
         /// Why the verdict is `unknown`: `override_dispatch` (a hop through a candidate arc),
         /// `ambiguous_binding` (a potential arc), `outside_provider_model` (a read in a form not
-        /// followed). Null when established or conditional.
+        /// followed), `dynamic_access` or `missing_evidence` (a negative claim's premise fails).
+        /// Null when established or conditional.
         boundary_reason: Option<BoundaryReason>,
+        /// The condition it holds under, in the operation's own places (Stage 2; the first hop's
+        /// for a path); null for `true`.
+        condition: Option<String>,
+        /// A call's callee as written, when it is outside the release (`logger.info`).
+        callee_text: Option<String>,
+        /// When a setting is read (`reads_setting`).
+        phase: Option<ReadPhase>,
+        /// The negative premise a refuted or unknown `is_read` rests on (`negative_premises`).
+        premise_key: Option<String>,
         /// The syntax node that shows it: the last call site, the `if` test, or the usage site.
         site_node_id: Option<Id>,
         /// Where the site is: its module, byte span, 1-based line and verbatim text.
@@ -292,6 +303,184 @@ table!(
         modality: Modality,
         /// The caller makes this call only on some of its paths.
         conditional: bool,
+        /// The condition this hop's value reaches its callee under, in its caller's places.
+        condition: Option<String>,
+    }
+);
+
+table!(
+    /// Where a function's parameter goes (Stage 2.6; ADR-0022): per sink (a call argument, a
+    /// `return`, a `raise`, a stored field or dict entry), the parameter whose value reaches it
+    /// through the flow IR's reaching definitions and value sources, **identity** (unchanged) or
+    /// derived, under the condition it does so (a path condition in the function's own places).
+    /// A read of an enclosing function's parameter inside a lambda or comprehension is followed
+    /// through our resolution, flow-insensitively (`captured`).
+    ValueFlows, ValueFlowsRow = "value_flows",
+    family = Findings,
+    key = [snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity],
+    checks = [("sink_span_order", "sink_end_byte >= sink_start_byte")],
+    {
+        snapshot_id: Id,
+        /// The function the sink is in (for a field source, the reading method).
+        function_node_id: Id,
+        /// `Parameter[<node>]` or `Field[<class>.<field>]` (a method's read of its receiver's
+        /// field with no local definition: the value stored there by any method of a relative).
+        source_key: String,
+        parameter_node_id: Option<Id>,
+        /// The parameter's name, or the field's.
+        source_name: String,
+        class_node_id: Option<Id>,
+        sink: FlowSink,
+        module_node_id: Id,
+        sink_start_byte: i64,
+        sink_end_byte: i64,
+        identity: bool,
+        captured: bool,
+        condition_id: Id,
+        condition: String,
+        /// For an argument: its node and call site; for a stored value: the place written.
+        argument_node_id: Option<Id>,
+        call_site_node_id: Option<Id>,
+        place: Option<String>,
+    }
+);
+
+table!(
+    /// Field accesses (Stage 2.6): every `x.f` definition (a write) or load (a read) in the
+    /// release, by the field's name. `class_node_id` is the method's class when the receiver is
+    /// the method's own (`self`); the premise for "never read" is name-based, whatever the
+    /// receiver (ADR-0022 §Verdicts).
+    FieldAccesses, FieldAccessesRow = "field_accesses",
+    family = Findings,
+    key = [snapshot_id, module_node_id, start_byte, end_byte, write],
+    checks = [("span_order", "end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        field: String,
+        write: bool,
+        receiver_self: bool,
+        class_node_id: Option<Id>,
+        function_node_id: Option<Id>,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        place: String,
+        condition_id: Id,
+        condition: String,
+    }
+);
+
+table!(
+    /// Reads of a module-global singleton's fields (Stage 2.6; ADR-0022 §Places and the read
+    /// phase): each read at its resolved key (`Global[module.name]`, the field), whatever its
+    /// spelling, with the reading site's phase and the condition it is read under.
+    AmbientReads, AmbientReadsRow = "ambient_reads",
+    family = Findings,
+    key = [snapshot_id, module_node_id, start_byte, end_byte],
+    checks = [("span_order", "end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        /// `module.name` of the global the read resolves to.
+        global: String,
+        class_node_id: Id,
+        field: String,
+        /// The reading function; null for a module or class body.
+        reader_node_id: Option<Id>,
+        phase: ReadPhase,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        line: i64,
+        spelled: String,
+        condition_id: Id,
+        condition: String,
+    }
+);
+
+table!(
+    /// Name- or string-driven accesses (ADR-0022 §Verdicts, `dynamic_access`) and what they
+    /// reach under the stated model: a class through a receiver whose reaching definitions,
+    /// through local copies, include a method's own receiver or a global bound to an instance;
+    /// modules for `import_module`/`__import__` with a computed name; every place for `exec`
+    /// and `eval`. `reaches_class_node_id` and `reaches_all` are both unset when the receiver is
+    /// outside the model (named in every negative answer).
+    DynamicAccesses, DynamicAccessesRow = "dynamic_accesses",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        kind: DynamicKind,
+        function_node_id: Option<Id>,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        reaches_class_node_id: Option<Id>,
+        reaches_modules: bool,
+        reaches_all: bool,
+    }
+);
+
+table!(
+    /// Every `raise` statement in a release function, with the condition it is reached under
+    /// (its region, relative to the function's entry) and the function's parameters that
+    /// condition tests (Stage 2.6: guards by the flow IR's reachability, not by syntax).
+    RaiseSites, RaiseSitesRow = "raise_sites",
+    family = Findings,
+    key = [snapshot_id, module_node_id, start_byte, end_byte],
+    checks = [("span_order", "end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        line: i64,
+        /// The statement's first line, as written.
+        text: String,
+        condition_id: Id,
+        condition: String,
+        /// The function's parameters the condition's places are rooted at, sorted.
+        parameters: Vec<String>,
+    }
+);
+
+table!(
+    /// Module-global singletons (Stage 2.6; ADR-0022 §Places): a module-level `N = C(...)` of a
+    /// release class, the key its fields' reads resolve to.
+    Singletons, SingletonsRow = "singletons",
+    family = Findings,
+    key = [snapshot_id, global],
+    checks = [],
+    {
+        snapshot_id: Id,
+        /// `module.name`.
+        global: String,
+        class_node_id: Id,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+    }
+);
+
+table!(
+    /// Whether a negative claim about a place can be refuted under the model (ADR-0022
+    /// §Verdicts): one row per place a claim is made about, with the premise's kind, whether it
+    /// holds, and why not.
+    NegativePremises, NegativePremisesRow = "negative_premises",
+    family = Findings,
+    key = [snapshot_id, place_key],
+    checks = [],
+    {
+        snapshot_id: Id,
+        /// `Parameter[<node>]`, `Field[<class>.<field>]` or `Global[<module>.<name>].<field>`.
+        place_key: String,
+        kind: PremiseKind,
+        subject_node_id: Option<Id>,
+        holds: bool,
+        boundary_reason: Option<BoundaryReason>,
+        reason: Option<String>,
     }
 );
 

@@ -33,6 +33,8 @@ def _fate_line(f: ops.Fate) -> str:
     parts = [f"`{f.kind}`"]
     if f.callee:
         parts.append(f"→ `{f.callee}`")
+    elif f.callee_text:
+        parts.append(f"→ `{f.callee_text}` (outside the release)")
     if f.target:
         parts.append(f"formal `{f.target}`")
     if f.value:
@@ -40,6 +42,10 @@ def _fate_line(f: ops.Fate) -> str:
     parts.append(f"verdict **{f.verdict}**")
     if f.boundary_reason:
         parts.append(f"({f.boundary_reason})")
+    if f.condition:
+        parts.append(f"when `{f.condition}`")
+    if f.phase:
+        parts.append(f"phase {f.phase}")
     if f.conditional:
         parts.append("(on some paths)")
     if f.occurrences > 1:
@@ -80,6 +86,23 @@ def _render(gen: Generation, op: ops.Operation, spelling: str | None = None) -> 
     if op.handoffs:
         out.append(f"  - handoffs ({len(op.handoffs)}):")
         out.extend(f"    - {_fate_line(f)}" for f in op.handoffs)
+    if op.reads:
+        out.append(f"  - settings read ({len(op.reads)}):")
+        out.extend(f"    - `{f.target}` {_fate_line(f)}" for f in op.reads)
+    if op.singleton_of:
+        out.append(f"  - the singleton `{op.singleton_of}`'s fields:")
+        for fr in op.fields:
+            reads = "; ".join(
+                f"{r.reader or 'module body'} ({r.phase}"
+                + (f", when `{r.condition}`" if r.condition else "")
+                + f") {r.path}:{r.line}"
+                for r in fr.reads
+            )
+            out.append(
+                f"    - `{fr.name}`: "
+                + (reads or "no read")
+                + (f" — {fr.never_read}" if fr.never_read else "")
+            )
     if op.constructor is not None:
         out.append(f"  - constructor `{op.constructor.access_path}`:")
         out.extend("  " + line for line in _render(gen, op.constructor))

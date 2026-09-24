@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table raise_sites
+family findings
+key snapshot_id, module_node_id, start_byte, end_byte
+check span_order: end_byte >= start_byte
+@lctx.family=findings
+@lctx.table=raise_sites
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+line: Int64 NOT NULL
+text: Utf8 NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+condition: Utf8 NOT NULL
+parameters: List(non-null Utf8) NOT NULL

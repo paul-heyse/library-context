@@ -1,0 +1,23 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table ambient_reads
+family findings
+key snapshot_id, module_node_id, start_byte, end_byte
+check span_order: end_byte >= start_byte
+@lctx.family=findings
+@lctx.table=ambient_reads
+snapshot_id: FixedSizeBinary(16) NOT NULL
+global: Utf8 NOT NULL
+class_node_id: FixedSizeBinary(16) NOT NULL
+field: Utf8 NOT NULL
+reader_node_id: FixedSizeBinary(16) NULL
+phase: Int16 NOT NULL [lctx.codebook=read_phase]
+module_node_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+line: Int64 NOT NULL
+spelled: Utf8 NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+condition: Utf8 NOT NULL

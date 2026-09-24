@@ -476,6 +476,16 @@ async fn finish(
     )
     .await?;
 
+    // Stage 2.6 (ADR-0022): what the flow IR says about the release, before the behavior scan
+    // reads it.
+    let flow_model = match analysis {
+        Some(_) => {
+            let rows = crate::flow_model::run(&ctx, snapshot_id).await?;
+            written.stages.mark("behavior: the flow model");
+            rows
+        }
+        None => crate::flow_model::FlowModelRows::default(),
+    };
     // The behavior model's Stage 1 (ADR-0021, ADR-0022): the whole public surface, before Stage E.
     let behavior = match analysis {
         Some((a, compiler)) => {
@@ -486,6 +496,7 @@ async fn finish(
                 a,
                 compiler,
                 &public,
+                &flow_model,
                 &mut written.stages,
             )
             .await?
@@ -494,10 +505,20 @@ async fn finish(
     };
     {
         use cpg_schema::behavior::{
-            ArgumentFlows, BehaviorSteps, Behaviors, Delegations, Guards, Handoffs,
-            OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
+            AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
+            FieldAccesses, Guards, Handoffs, NegativePremises, OperationDocuments,
+            OperationFacetStatus, OperationFacets, Operations, ParameterReads, RaiseSites,
+            Singletons, ValueFlows,
         };
         let w = &mut written;
+        let m = &flow_model;
+        write_analysis::<ValueFlows>(&ctx, root, snapshot_id, &m.value_flows, w).await?;
+        write_analysis::<FieldAccesses>(&ctx, root, snapshot_id, &m.field_accesses, w).await?;
+        write_analysis::<AmbientReads>(&ctx, root, snapshot_id, &m.ambient_reads, w).await?;
+        write_analysis::<DynamicAccesses>(&ctx, root, snapshot_id, &m.dynamic_accesses, w).await?;
+        write_analysis::<RaiseSites>(&ctx, root, snapshot_id, &m.raise_sites, w).await?;
+        write_analysis::<Singletons>(&ctx, root, snapshot_id, &m.singletons, w).await?;
+        write_analysis::<NegativePremises>(&ctx, root, snapshot_id, &m.premises, w).await?;
         write_analysis::<ArgumentFlows>(&ctx, root, snapshot_id, &behavior.argument_flows, w)
             .await?;
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;

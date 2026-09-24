@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table negative_premises
+family findings
+key snapshot_id, place_key
+@lctx.family=findings
+@lctx.table=negative_premises
+snapshot_id: FixedSizeBinary(16) NOT NULL
+place_key: Utf8 NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=premise_kind]
+subject_node_id: FixedSizeBinary(16) NULL
+holds: Boolean NOT NULL
+boundary_reason: Int16 NULL [lctx.codebook=boundary_reason]
+reason: Utf8 NULL

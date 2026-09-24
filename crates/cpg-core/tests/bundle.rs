@@ -179,6 +179,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
     assert_eq!(
         names,
         [
+            "ambient_reads",
             "assertions",
             "behaviors",
             "brief_members",
@@ -191,7 +192,9 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "operation_text",
             "operation_vectors",
             "operations",
+            "place_claims",
             "public_paths",
+            "singletons",
             "supports",
             "symbol_map",
             "vectors"

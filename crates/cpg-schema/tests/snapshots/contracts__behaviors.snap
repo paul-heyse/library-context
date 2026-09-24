@@ -22,6 +22,10 @@ depth: Int64 NOT NULL
 conditional: Boolean NOT NULL
 verdict: Int16 NOT NULL [lctx.codebook=verdict]
 boundary_reason: Int16 NULL [lctx.codebook=boundary_reason]
+condition: Utf8 NULL
+callee_text: Utf8 NULL
+phase: Int16 NULL [lctx.codebook=read_phase]
+premise_key: Utf8 NULL
 site_node_id: FixedSizeBinary(16) NULL
 site_module_node_id: FixedSizeBinary(16) NULL
 site_start_byte: Int64 NULL
