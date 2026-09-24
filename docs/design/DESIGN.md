@@ -1650,13 +1650,19 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - `assertions`, one row per (brief, ordinal), with kind, section and status;
   - `supports`, each assertion's findings (by kind) and evidence, by role and ordinal;
   - `evidence`, with its resolved text and its file's or document's path;
-  - `brief_members`, and `symbol_map` (exact public access path → brief). Since the holistic
-    assessment's A1 (2026-09-24) the store's `brief_members` holds every public path of a brief's
-    seed, own and inherited, with `own` (`semantic:brief-member-public`); bundle `FORMAT` 1
-    serves the seed's aliases (its `public_alias` members), as before, until `FORMAT` 2 serves
-    every spelling;
-  - `lexical_text`: each brief's documents, then the words of its public names (split at dots,
-    underscores and case changes), for BM25 (§11.2);
+  - `brief_members`, and `symbol_map` (exact public access path → brief). **`FORMAT` 2** (the
+    holistic assessment's A1, 2026-09-24; pre-registered in ADR-0010's amendment): every public
+    path of a brief's seed, own and inherited, with `own` (`semantic:brief-member-public`), so any
+    public spelling promotes the brief (`fastmcp.FastMCP.http_app` promotes
+    `TransportMixin.http_app`'s). The server shows a brief by its own paths. `FORMAT` 1 served
+    the seed's aliases only;
+  - `public_paths`: the whole public surface (node, path, kind, `own`, `preferred`), what a
+    query's or a gold operation's spelling resolves against;
+  - `lexical_text`: each brief's documents, then the **distinct tokens** of its public names, each
+    once however many spellings or splits produce it (the path, its segments and their words at
+    underscores and case changes; `cpg_schema::bundle::name_tokens`), for BM25 (§11.2). The
+    tokenizer is Unicode lower-casing, then ASCII letter-and-digit runs, identical in Rust and
+    Python, with shared known answers in `specs/serving/tokens.json`;
   - `embedding_spec` and `vectors` (§11.1), whose vector type is `fixed_size_list(float32 not null
     "item", D)`, `D` the spec's dimensions. The spec comes from the snapshot's `embedding_specs`
     row, and each document's key is `(spec_hash, input_hash)` (slice 1.7).

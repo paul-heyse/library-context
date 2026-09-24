@@ -34,8 +34,8 @@ use arrow_ipc::writer::{FileWriter, IpcWriteOptions};
 use arrow_schema::{DataType, Field, FieldRef, SchemaRef};
 use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
-    AssertionKind, BoundaryReason, Codebook, CoverageStatus, EvidenceKind, EvidenceStatus,
-    FactFamily, FindingKind, ReviewState, ScopeKind, SupportRole,
+    AssertionKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind, EvidenceKind,
+    EvidenceStatus, FactFamily, FindingKind, ReviewState, ScopeKind, SupportRole,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -46,7 +46,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 1;
+pub const FORMAT: u64 = 2;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -132,17 +132,20 @@ fn query(name: &str) -> Option<String> {
             kind = text_of::<EvidenceKind>("e.evidence_kind"),
             files = cpg_schema::flows::display_files_sql(),
         ),
-        // FORMAT 1 serves the members it always served: the seed's aliases, its `public_alias`
-        // finding's members. FORMAT 2 serves every public spelling (the holistic assessment's A1).
-        "brief_members" => format!(
-            "SELECT m.brief_id, m.access_path, m.export_node_id, m.declaration_node_id \
-             FROM ({aliased}) m ORDER BY m.brief_id, m.access_path",
-            aliased = format_1_members()
-        ),
-        "symbol_map" => format!(
-            "SELECT DISTINCT access_path AS symbol, brief_id FROM ({aliased}) m \
-             ORDER BY symbol, brief_id",
-            aliased = format_1_members()
+        // FORMAT 2 (the holistic assessment's A1): every public spelling of each brief's seed,
+        // own and inherited; `own` says which the export declares.
+        "brief_members" => {
+            "SELECT brief_id, access_path, export_node_id, declaration_node_id, own \
+                            FROM brief_members ORDER BY brief_id, access_path"
+                .to_owned()
+        }
+        "symbol_map" => "SELECT DISTINCT access_path AS symbol, brief_id FROM brief_members \
+                         ORDER BY symbol, brief_id"
+            .to_owned(),
+        "public_paths" => format!(
+            "SELECT node_id, access_path, {kind} AS kind, own, preferred FROM public_paths \
+             ORDER BY node_id, access_path",
+            kind = text_of::<DeclarationKind>("kind"),
         ),
         "embedding_spec" => {
             "SELECT spec_hash, spec FROM embedding_specs ORDER BY spec_hash".to_owned()
@@ -284,65 +287,14 @@ async fn normalized(
     Ok(RecordBatch::try_new(schema.clone(), columns)?)
 }
 
-/// A public name split for lexical search: the path, its segments, and each segment's words (at
-/// underscores and case changes), each once, in first-seen order.
-fn name_words(path: &str, out: &mut Vec<String>) {
-    let mut push = |w: &str| {
-        if !w.is_empty() && !out.iter().any(|x| x == w) {
-            out.push(w.to_owned());
-        }
-    };
-    push(path);
-    for segment in path.split('.') {
-        push(segment);
-        let parts: Vec<&str> = segment.split('_').collect();
-        for part in &parts {
-            if parts.len() > 1 {
-                push(part);
-            }
-            let chars: Vec<char> = part.chars().collect();
-            let mut start = 0;
-            for i in 1..chars.len() {
-                let (a, b) = (chars[i - 1], chars[i]);
-                let next_lower = chars.get(i + 1).is_some_and(|c| c.is_lowercase());
-                if (a.is_lowercase() && b.is_uppercase())
-                    || (a.is_uppercase() && b.is_uppercase() && next_lower)
-                    || (a.is_alphabetic() != b.is_alphabetic())
-                {
-                    push(&chars[start..i].iter().collect::<String>());
-                    start = i;
-                }
-            }
-            if start > 0 {
-                push(&chars[start..].iter().collect::<String>());
-            }
-        }
-    }
-}
-
-/// The members bundle `FORMAT` 1 serves: each brief's members that its seed's `public_alias`
-/// finding names (the seed's aliases, as before the holistic assessment's A1).
-fn format_1_members() -> String {
-    format!(
-        "SELECT m.* FROM brief_members m JOIN briefs b ON b.brief_id = m.brief_id \
-         WHERE EXISTS (SELECT 1 FROM findings f \
-           JOIN finding_members fm ON fm.finding_id = f.finding_id \
-           WHERE f.subject_node_id = b.seed_node_id AND f.finding_kind = {public_alias} \
-             AND fm.label = m.access_path)",
-        public_alias = FindingKind::PublicAlias.code()
-    )
-}
-
-/// `lexical_text`: each brief's documents, then the words of its public names (§11.2).
+/// `lexical_text`: each brief's documents, then the distinct tokens of its public names, each
+/// once however many spellings or splits produce it (§11.2; the holistic assessment's A1(c)).
 async fn lexical(ctx: &SessionContext, schema: &SchemaRef) -> Result<RecordBatch, CoreError> {
     let docs = normalized(
         ctx,
-        &format!(
-            "SELECT d.brief_id, d.chunk, d.text, m.access_path FROM brief_documents d \
-             LEFT JOIN ({aliased}) m ON m.brief_id = d.brief_id \
-             ORDER BY d.brief_id, d.chunk, m.access_path",
-            aliased = format_1_members()
-        ),
+        "SELECT d.brief_id, d.chunk, d.text, m.access_path FROM brief_documents d \
+         LEFT JOIN brief_members m ON m.brief_id = d.brief_id \
+         ORDER BY d.brief_id, d.chunk, m.access_path",
         &Arc::new(arrow_schema::Schema::new(vec![
             Field::new("brief_id", DataType::FixedSizeBinary(16), false),
             Field::new("chunk", DataType::Int64, false),
@@ -355,7 +307,7 @@ async fn lexical(ctx: &SessionContext, schema: &SchemaRef) -> Result<RecordBatch
     let chunks = docs.column(1).as_primitive::<Int64Type>();
     let texts = docs.column(2).as_string::<i32>();
     let paths = docs.column(3).as_string::<i32>();
-    /// A brief's document chunks and the words of its public names.
+    /// A brief's document chunks and the tokens of its public names.
     type Lexical = (Vec<(i64, String)>, Vec<String>);
     let mut per: BTreeMap<Vec<u8>, Lexical> = BTreeMap::new();
     for i in 0..docs.num_rows() {
@@ -364,7 +316,7 @@ async fn lexical(ctx: &SessionContext, schema: &SchemaRef) -> Result<RecordBatch
             entry.0.push((chunks.value(i), texts.value(i).to_owned()));
         }
         if !paths.is_null(i) {
-            name_words(paths.value(i), &mut entry.1);
+            cpg_schema::bundle::name_tokens(paths.value(i), &mut entry.1);
         }
     }
     let mut id_b = FixedSizeBinaryBuilder::with_capacity(per.len(), 16);
@@ -705,28 +657,4 @@ pub fn verify(dir: &Path) -> Result<Value, CoreError> {
         )));
     }
     Ok(manifest)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn public_names_split_into_words() {
-        let mut words = Vec::new();
-        name_words("fastmcp.FastMCP.custom_route", &mut words);
-        assert_eq!(
-            words,
-            [
-                "fastmcp.FastMCP.custom_route",
-                "fastmcp",
-                "FastMCP",
-                "Fast",
-                "MCP",
-                "custom_route",
-                "custom",
-                "route"
-            ]
-        );
-    }
 }

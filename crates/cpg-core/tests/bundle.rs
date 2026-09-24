@@ -145,6 +145,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "embedding_spec",
             "evidence",
             "lexical_text",
+            "public_paths",
             "supports",
             "symbol_map",
             "vectors"

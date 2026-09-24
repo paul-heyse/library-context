@@ -16,12 +16,16 @@
     "digest": "8b60372c177de45d700b29eb343bc5215b2e332d1dd6da100218c08f0f0b21aa"
   },
   "brief_members": {
-    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"access_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"export_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"declaration_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
-    "digest": "529131880ed9084b89a2d00561b078425576514e87770cd21a2d12416bb9f9da"
+    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"access_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"export_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"declaration_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"own\",\"nullable\":false,\"type\":\"bool\"}]",
+    "digest": "c330f351472c0bb17d69e706d5b85109adf0d9608d7675b6fef784c8dea345a7"
   },
   "symbol_map": {
     "form": "[{\"metadata\":[],\"name\":\"symbol\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
     "digest": "97d82fcfa1aafe8b6d50487cbb97592d990b409ea0cddb27be7009d985da5bbf"
+  },
+  "public_paths": {
+    "form": "[{\"metadata\":[],\"name\":\"node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"access_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"own\",\"nullable\":false,\"type\":\"bool\"},{\"metadata\":[],\"name\":\"preferred\",\"nullable\":false,\"type\":\"bool\"}]",
+    "digest": "abf8b30a92b205c88eda95cc0711af04bd093d7e5c98fb06df855d0b1d19065c"
   },
   "lexical_text": {
     "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"text\",\"nullable\":false,\"type\":\"utf8\"}]",

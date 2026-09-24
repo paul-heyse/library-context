@@ -20,7 +20,7 @@ import pyarrow.ipc as ipc
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 1
+FORMAT = 2
 
 
 class GenerationError(RuntimeError):
@@ -98,9 +98,19 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _utf8("access_path"),
                 _id("export_node_id"),
                 _id("declaration_node_id"),
+                pa.field("own", pa.bool_(), nullable=False),
             ]
         ),
         "symbol_map": pa.schema([_utf8("symbol"), _id("brief_id")]),
+        "public_paths": pa.schema(
+            [
+                _id("node_id"),
+                _utf8("access_path"),
+                _utf8("kind"),
+                pa.field("own", pa.bool_(), nullable=False),
+                pa.field("preferred", pa.bool_(), nullable=False),
+            ]
+        ),
         "lexical_text": pa.schema([_id("brief_id"), _utf8("text")]),
         "embedding_spec": pa.schema(
             [pa.field("spec_hash", pa.binary(32), nullable=False), _utf8("spec")]

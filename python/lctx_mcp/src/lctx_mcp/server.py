@@ -137,9 +137,11 @@ def serve(generation: Generation, embedder: Embedder | None) -> Served:
     supports: dict[bytes, list[dict]] = {}
     for r in generation.tables["supports"].to_pylist():
         supports.setdefault(r["assertion_id"], []).append(r)
+    # A brief is shown by its own public paths; the inherited ones only promote (FORMAT 2).
     members: dict[bytes, list[str]] = {}
     for r in generation.tables["brief_members"].to_pylist():
-        members.setdefault(r["brief_id"], []).append(r["access_path"])
+        if r["own"]:
+            members.setdefault(r["brief_id"], []).append(r["access_path"])
     return Served(
         generation=generation,
         lexical=Lexical(generation.lexical),

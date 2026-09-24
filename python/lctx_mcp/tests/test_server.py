@@ -94,6 +94,19 @@ async def test_a_public_path_is_promoted(generation: Path) -> None:
         assert hit["rank_source"] == "exact_symbol"
 
 
+async def test_an_inherited_spelling_is_promoted(generation: Path) -> None:
+    """FORMAT 2 (the holistic assessment's A1): `pkg.Alpha.tool` names `Server.tool`'s node through
+    a public subclass, so it promotes that brief, as `fastmcp.FastMCP.http_app` promotes
+    `TransportMixin.http_app`'s."""
+    async with Client(build_server(generation, FakeEmbedder())) as client:
+        found = await client.call_tool(
+            "search_capabilities", {"library": LIBRARY, "query": "pkg.Alpha.tool", "limit": 1}
+        )
+        (hit,) = structured(found)["hits"]
+        assert hit["title"] == "pkg.Server.tool" and hit["promoted"]
+        assert hit["rank_source"] == "exact_symbol"
+
+
 async def test_a_down_embedder_degrades_to_lexical_and_says_so(generation: Path) -> None:
     async with Client(build_server(generation, Down())) as client:
         found = await client.call_tool(

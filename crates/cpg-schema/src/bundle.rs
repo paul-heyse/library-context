@@ -116,6 +116,7 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                 utf8("access_path", false),
                 id("export_node_id", false),
                 id("declaration_node_id", false),
+                Field::new("own", DataType::Boolean, false),
             ],
             &["brief_id", "access_path"],
         ),
@@ -123,6 +124,19 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             "symbol_map",
             vec![utf8("symbol", false), id("brief_id", false)],
             &["symbol", "brief_id"],
+        ),
+        // FORMAT 2 (the holistic assessment's A1): every public path of the release, the surface
+        // a gold operation or a query spelling resolves against.
+        file(
+            "public_paths",
+            vec![
+                id("node_id", false),
+                utf8("access_path", false),
+                utf8("kind", false),
+                Field::new("own", DataType::Boolean, false),
+                Field::new("preferred", DataType::Boolean, false),
+            ],
+            &["node_id", "access_path"],
         ),
         file(
             "lexical_text",
@@ -205,6 +219,52 @@ pub fn schema_digest(schema: &Schema) -> Result<String, String> {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect())
+}
+
+/// The serving tokenizer, which Python's `retrieval.tokenize` equals (known answers in
+/// `specs/serving/tokens.json`): the text lower-cased (Unicode), then its runs of ASCII letters
+/// and digits. `custom_route` is `custom route`; a non-ASCII letter separates tokens.
+pub fn tokens(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A public name's distinct tokens for lexical search, each once in first-seen order (the
+/// holistic assessment's A1(c); `FORMAT` 2): the tokens of the path, of each segment, and of each
+/// segment's words split at underscores and case changes (`FastMCP` is `fast` and `mcp` too).
+pub fn name_tokens(path: &str, out: &mut Vec<String>) {
+    let mut push = |w: &str| {
+        for t in tokens(w) {
+            if !out.contains(&t) {
+                out.push(t);
+            }
+        }
+    };
+    push(path);
+    for segment in path.split('.') {
+        push(segment);
+        for part in segment.split('_') {
+            let chars: Vec<char> = part.chars().collect();
+            let mut start = 0;
+            for i in 1..chars.len() {
+                let (a, b) = (chars[i - 1], chars[i]);
+                let next_lower = chars.get(i + 1).is_some_and(|c| c.is_lowercase());
+                if (a.is_lowercase() && b.is_uppercase())
+                    || (a.is_uppercase() && b.is_uppercase() && next_lower)
+                    || (a.is_alphabetic() != b.is_alphabetic())
+                {
+                    push(&chars[start..i].iter().collect::<String>());
+                    start = i;
+                }
+            }
+            if start > 0 {
+                push(&chars[start..].iter().collect::<String>());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
