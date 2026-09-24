@@ -2855,6 +2855,17 @@ thousand briefs, or ANN / managed FTS needed.
   **development metric** for the §9.8 keep rule, never for parameter tuning;
 - (c) recall of gold static-evidence spans by compiled evidence.
 
+**The matcher, version 2** (pre-registered 2026-09-24 in ADR-0010's amendment, before any rescore;
+the holistic assessment's A1, the ADR-0020 review's F1 and F9). Identity is the declaration node:
+a gold operation resolves by exact path equality against the served `public_paths`, with no
+fuzzy fallback, and a class operation matches only a brief seeded by that class. (a) is node
+Jaccard, where a brief contributes its seed and unresolved operations stay in the union as
+strings. (b) searches every task alias, and a hit is a returned brief whose seed is in the
+family's node set. (c) is unchanged. All three are counted over all gold units (22 families, 44
+aliases, 157 spans). Lexical text holds each distinct token once, promotion matches any public
+spelling of the seed, and each score records `matcher_version`. Version 1 compared access-path
+strings; the scores below are version 1's.
+
 **Ablation** (§9.8). Diff the published output with each technique disabled, apply the keep
 rule, and record the result in the increment-3 review. **Done in slice 3.3** (2026-09-23): the
 table and the keep decisions are in §9.8 and ADR-0020.

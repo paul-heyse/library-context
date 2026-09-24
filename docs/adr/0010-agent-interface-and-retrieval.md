@@ -154,3 +154,44 @@ all passed):
     family. `just ranking-check <generation> vllm` exits 0 then, and 1 on any miss.
   - **D14 recorded:** the §11.1 brief document leaves out `analysis_boundary` text (slice 1.9,
     measured with live vectors on one query).
+- 2026-09-24, the holistic assessment's A1 and the ADR-0020 review's F1 and F9 (plan Phase 2,
+  step 1). **Pre-registered before any rescore and before the code that implements it.** The
+  review found the direction this moves: under node identity, `+type-layer` improves §12(b) (16
+  against 14 hits@5 on the old default's generation) and communities lose on all three metrics
+  (Measured by the reviewer, 2026-09-23). The rationale below does not depend on the gold: a
+  public name is a spelling of a declaration, and two spellings of one declaration are one
+  object (`FastMCP.http_app is TransportMixin.http_app`).
+  - **Identity is the declaration node.** A gold operation resolves by exact equality of its
+    path with a served `public_paths` row (the one public-path relation: own and inherited
+    spellings, exported classes included). There is no fuzzy or suffix fallback. A family's
+    **node set** is its resolved operations' nodes.
+  - **Classes.** An operation that resolves to a class matches only a brief whose seed is that
+    class. Its methods and constructor are other nodes.
+  - **Unresolved operations** are listed apart in two groups: those under the release's public
+    root that resolve to nothing, and those outside it (another distribution's names). Both stay
+    in the family's Jaccard union as strings, so a family is never scored as smaller than the
+    gold states.
+  - **Metrics.**
+    - (a) is node Jaccard: per family, the best over briefs of
+      `|F ∩ {seed}| / |F ∪ {seed}|`, where `F` is the node set plus the unresolved strings. A
+      brief contributes its seed node, not its spellings.
+    - (b) searches **every** task alias (44 in `fastmcp-4.0.5`) with `limit = 5`. A hit is a
+      returned brief whose seed node is in the family's node set. A family with no such brief
+      is searched and counts as misses.
+    - (c) is unchanged: a gold span is recalled when a served evidence span of that file
+      overlaps it.
+    - **Units (F9):** all three are counted over all gold units (22 families, 44 aliases, 157
+      spans), never over touched families, and a decision is reported only if it holds under that
+      one convention.
+  - **Tokenization.** A brief's lexical text holds each distinct name token once, however many
+    spellings or splits produce it. BM25 term frequency then reflects the document, not how many
+    aliases a name has. Rust and Python share known answers in `specs/serving/tokens.json`.
+  - **Promotion.** Exact-symbol promotion matches any public spelling of a brief's seed
+    (`symbol_map` from `public_paths`), so `fastmcp.FastMCP.http_app` promotes the
+    `TransportMixin.http_app` brief.
+  - **One matcher.** `scripts/score_gold.py` and `scripts/ranking_check.py` share one matching
+    function. Every score JSON records `matcher_version` 2 (string equality of access paths was
+    1), and each alias's mode. An alias that degrades to lexical-only under `--embedder vllm`
+    makes the run `blocked`.
+  - Nothing else about retrieval changes with this amendment. Fusion, the brief-document
+    template and every parameter stay as registered in the entry above.

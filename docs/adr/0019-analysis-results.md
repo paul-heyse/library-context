@@ -277,3 +277,10 @@ After acceptance (2026-09-23), amendments are appended here, dated. Those above 
   - **A finding kind has one method** (`findings::FINDING_METHOD`); the rule
     `semantic:finding-kind-by-method` checks each finding's invocation against it, with an
     injected case.
+- 2026-09-24 (the holistic assessment's plan, Phase 2):
+  - **Config-scoped relations publish with the analysis group.** A table computed from the
+    snapshot's facts and the analytics config alone (the first is `public_paths`, from the release
+    root and the export facts) is an analysis table like any other: written in Stage E, in the
+    same commit, with the analysis group's lineage. It is never a `facts` row, because the config
+    changes it.
+  - Appended values: slice 3.4, `assertion_kind` `documented_warning`.
