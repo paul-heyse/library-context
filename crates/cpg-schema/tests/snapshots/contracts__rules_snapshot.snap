@@ -664,8 +664,8 @@ semantic:public-path-preferred
   SELECT node_id FROM public_paths GROUP BY node_id HAVING sum(CASE WHEN preferred THEN 1 ELSE 0 END) <> 1
 semantic:public-path-own
   SELECT p.node_id, p.access_path FROM public_paths p JOIN declarations d ON d.node_id = p.node_id JOIN (SELECT DISTINCT export_node_id, declaration_node_id FROM exports) e ON e.export_node_id = p.export_node_id WHERE p.own <> COALESCE(e.declaration_node_id = p.node_id OR e.declaration_node_id = d.parent_node_id, false)
-semantic:brief-member-exported
-  SELECT m.brief_id, m.access_path FROM brief_members m JOIN declarations d ON d.node_id = m.declaration_node_id LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id AND (m.access_path = e.access_path OR (starts_with(m.access_path, e.access_path || '.') AND ends_with(m.access_path, '.' || d.name)))
+semantic:brief-member-public
+  SELECT m.brief_id, m.access_path FROM brief_members m JOIN briefs b ON b.brief_id = m.brief_id LEFT ANTI JOIN public_paths p ON p.node_id = b.seed_node_id AND p.node_id = m.declaration_node_id AND p.access_path = m.access_path AND p.export_node_id = m.export_node_id AND p.own = m.own UNION ALL SELECT b.brief_id, p.access_path FROM briefs b JOIN public_paths p ON p.node_id = b.seed_node_id LEFT ANTI JOIN brief_members m ON m.brief_id = b.brief_id AND m.access_path = p.access_path
 semantic:brief-cites-analysis
   SELECT b.brief_id FROM briefs b LEFT JOIN ( SELECT DISTINCT ba.brief_id FROM brief_assertions ba JOIN assertion_support s ON s.assertion_id = ba.assertion_id JOIN findings f ON f.finding_id = s.finding_id WHERE f.finding_kind IN (1, 2, 3, 6, 7, 8, 9)) x ON x.brief_id = b.brief_id WHERE b.documentation_only = (x.brief_id IS NOT NULL)
 semantic:documentation-only-has-outcome

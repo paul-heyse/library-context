@@ -57,8 +57,9 @@ use crate::{CoreError, sql};
 /// (slice 3.2). 15: documented warnings in Limits (slice 3.4). 16: warnings from `<Warning>`
 /// components, scoped to their `<ParamField>` and titled, and a top-level `<ParamField>` as a
 /// parameter's description when the docstring gives none (the holistic assessment's A3). 17: both
-/// cite the exact mention that anchors them as `scope` evidence (R1 F1).
-pub const TEMPLATE_VERSION: i64 = 17;
+/// cite the exact mention that anchors them as `scope` evidence (R1 F1). 18: a brief's members
+/// are every public path of its seed, own and inherited, with `own` (the holistic assessment's A1).
+pub const TEMPLATE_VERSION: i64 = 18;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -510,6 +511,7 @@ pub async fn run(
     snapshot_id: Id,
     compiler: CompilerRun,
     found: &AnalysisRows,
+    public: &[cpg_schema::findings::PublicPathsRow],
 ) -> Result<SynthRows, CoreError> {
     let mut out = SynthRows {
         policy: policy_rows(snapshot_id),
@@ -2274,13 +2276,15 @@ pub async fn run(
                 assertion_id: *a,
             });
         }
-        for (export, path) in &aliases {
+        // Every public path of the seed, own and inherited (the holistic assessment's A1).
+        for r in public.iter().filter(|r| r.node_id == seed) {
             out.brief_members.push(BriefMembersRow {
                 snapshot_id,
                 brief_id,
-                access_path: path.clone(),
-                export_node_id: *export,
+                access_path: r.access_path.clone(),
+                export_node_id: r.export_node_id,
                 declaration_node_id: seed,
+                own: r.own,
             });
         }
         out.briefs.push(BriefsRow {

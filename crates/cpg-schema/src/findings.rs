@@ -282,7 +282,8 @@ table!(
 );
 
 table!(
-    /// The public access paths a brief is about: `symbol_map` (§6.4) is built from them.
+    /// The public access paths a brief is about: every `public_paths` row of its seed, own and
+    /// inherited (the holistic assessment's A1). `symbol_map` (§6.4) is built from them.
     BriefMembers, BriefMembersRow = "brief_members",
     family = Findings,
     key = [snapshot_id, brief_id, access_path],
@@ -294,6 +295,8 @@ table!(
         /// The export node whose access path the member's path extends.
         export_node_id: Id,
         declaration_node_id: Id,
+        /// The export's declaration declares the seed (`public_paths.own`).
+        own: bool,
     }
 );
 

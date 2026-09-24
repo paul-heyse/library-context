@@ -1239,6 +1239,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             17,
             "f5ffbc46253fa37731e7d752ea3091591b4576f9c3e2bfc0bc016af34ba02ce2",
         ),
+        (
+            16,
+            18,
+            "2e8c9be4c961e42a4a860b3b08fc81b89d41fd0787ed9ba6d1eb86522bd40259",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -1451,22 +1456,25 @@ async fn the_analysis_rules_reject_their_violations() {
             "SELECT snapshot_id, node_id, access_path, export_node_id, kind, NOT own AS own, \
                     preferred FROM public_paths_published",
         ),
+        // A member path that is no public path of the seed; one whose `own` flag is wrong; and
+        // a seed's public path missing from its brief (the holistic assessment's A1).
         (
-            "semantic:brief-member-exported",
+            "semantic:brief-member-public",
             "brief_members",
             "SELECT snapshot_id, brief_id, 'elsewhere.' || access_path AS access_path, \
-                    export_node_id, declaration_node_id \
+                    export_node_id, declaration_node_id, own \
              FROM brief_members_published",
         ),
-        // Slice 1.5 review O3: a member path naming another member of an exported class.
         (
-            "semantic:brief-member-exported",
+            "semantic:brief-member-public",
             "brief_members",
-            "SELECT DISTINCT m.snapshot_id, m.brief_id, \
-                    CASE WHEN m.access_path = e.access_path THEN m.access_path \
-                         ELSE m.access_path || '_elsewhere' END AS access_path, \
-                    m.export_node_id, m.declaration_node_id \
-             FROM brief_members_published m JOIN exports e ON e.export_node_id = m.export_node_id",
+            "SELECT snapshot_id, brief_id, access_path, export_node_id, declaration_node_id, \
+                    NOT own AS own FROM brief_members_published",
+        ),
+        (
+            "semantic:brief-member-public",
+            "brief_members",
+            "SELECT * FROM brief_members_published WHERE own",
         ),
         // An analysis-backed brief whose finding supports are gone.
         (

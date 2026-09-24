@@ -1649,7 +1649,11 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - `assertions`, one row per (brief, ordinal), with kind, section and status;
   - `supports`, each assertion's findings (by kind) and evidence, by role and ordinal;
   - `evidence`, with its resolved text and its file's or document's path;
-  - `brief_members`, and `symbol_map` (exact public access path → brief);
+  - `brief_members`, and `symbol_map` (exact public access path → brief). Since the holistic
+    assessment's A1 (2026-09-24) the store's `brief_members` holds every public path of a brief's
+    seed, own and inherited, with `own` (`semantic:brief-member-public`); bundle `FORMAT` 1
+    serves the seed's aliases (its `public_alias` members), as before, until `FORMAT` 2 serves
+    every spelling;
   - `lexical_text`: each brief's documents, then the words of its public names (split at dots,
     underscores and case changes), for BM25 (§11.2);
   - `embedding_spec` and `vectors` (§11.1), whose vector type is `fixed_size_list(float32 not null

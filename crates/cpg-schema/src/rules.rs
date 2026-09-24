@@ -641,15 +641,20 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
-            // §10.4: every public symbol a brief names is an export's access path, or extends one
-            // with the declaration's own name (slice 1.5 review O3).
-            "semantic:brief-member-exported",
+            // §10.4 (slice 1.5 review O3; the holistic assessment's A1): a brief's members are
+            // exactly its seed's public paths, each with the path's export and `own` flag, and
+            // `semantic:public-path-exported` holds each of those to an export.
+            "semantic:brief-member-public",
             "SELECT m.brief_id, m.access_path FROM brief_members m \
-             JOIN declarations d ON d.node_id = m.declaration_node_id \
-             LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id \
-               AND (m.access_path = e.access_path \
-                    OR (starts_with(m.access_path, e.access_path || '.') \
-                        AND ends_with(m.access_path, '.' || d.name)))"
+             JOIN briefs b ON b.brief_id = m.brief_id \
+             LEFT ANTI JOIN public_paths p ON p.node_id = b.seed_node_id \
+               AND p.node_id = m.declaration_node_id AND p.access_path = m.access_path \
+               AND p.export_node_id = m.export_node_id AND p.own = m.own \
+             UNION ALL \
+             SELECT b.brief_id, p.access_path FROM briefs b \
+             JOIN public_paths p ON p.node_id = b.seed_node_id \
+             LEFT ANTI JOIN brief_members m ON m.brief_id = b.brief_id \
+               AND m.access_path = p.access_path"
                 .to_owned(),
         ),
         (

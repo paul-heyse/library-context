@@ -503,7 +503,9 @@ async fn finish(
 
     // Stage F (DESIGN §10): assertions and briefs from the findings, written the same way.
     let mut made = match analysis {
-        Some((_, compiler)) => crate::synth::run(&ctx, snapshot_id, compiler, &found).await?,
+        Some((_, compiler)) => {
+            crate::synth::run(&ctx, snapshot_id, compiler, &found, &public).await?
+        }
         None => crate::synth::SynthRows {
             policy: crate::synth::policy_rows(snapshot_id),
             ..Default::default()

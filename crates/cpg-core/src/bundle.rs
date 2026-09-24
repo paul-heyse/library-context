@@ -132,12 +132,18 @@ fn query(name: &str) -> Option<String> {
             kind = text_of::<EvidenceKind>("e.evidence_kind"),
             files = cpg_schema::flows::display_files_sql(),
         ),
-        "brief_members" => "SELECT brief_id, access_path, export_node_id, declaration_node_id \
-                            FROM brief_members ORDER BY brief_id, access_path"
-            .to_owned(),
-        "symbol_map" => "SELECT DISTINCT access_path AS symbol, brief_id FROM brief_members \
-                         ORDER BY symbol, brief_id"
-            .to_owned(),
+        // FORMAT 1 serves the members it always served: the seed's aliases, its `public_alias`
+        // finding's members. FORMAT 2 serves every public spelling (the holistic assessment's A1).
+        "brief_members" => format!(
+            "SELECT m.brief_id, m.access_path, m.export_node_id, m.declaration_node_id \
+             FROM ({aliased}) m ORDER BY m.brief_id, m.access_path",
+            aliased = format_1_members()
+        ),
+        "symbol_map" => format!(
+            "SELECT DISTINCT access_path AS symbol, brief_id FROM ({aliased}) m \
+             ORDER BY symbol, brief_id",
+            aliased = format_1_members()
+        ),
         "embedding_spec" => {
             "SELECT spec_hash, spec FROM embedding_specs ORDER BY spec_hash".to_owned()
         }
@@ -314,13 +320,29 @@ fn name_words(path: &str, out: &mut Vec<String>) {
     }
 }
 
+/// The members bundle `FORMAT` 1 serves: each brief's members that its seed's `public_alias`
+/// finding names (the seed's aliases, as before the holistic assessment's A1).
+fn format_1_members() -> String {
+    format!(
+        "SELECT m.* FROM brief_members m JOIN briefs b ON b.brief_id = m.brief_id \
+         WHERE EXISTS (SELECT 1 FROM findings f \
+           JOIN finding_members fm ON fm.finding_id = f.finding_id \
+           WHERE f.subject_node_id = b.seed_node_id AND f.finding_kind = {public_alias} \
+             AND fm.label = m.access_path)",
+        public_alias = FindingKind::PublicAlias.code()
+    )
+}
+
 /// `lexical_text`: each brief's documents, then the words of its public names (§11.2).
 async fn lexical(ctx: &SessionContext, schema: &SchemaRef) -> Result<RecordBatch, CoreError> {
     let docs = normalized(
         ctx,
-        "SELECT d.brief_id, d.chunk, d.text, m.access_path FROM brief_documents d \
-         LEFT JOIN brief_members m ON m.brief_id = d.brief_id \
-         ORDER BY d.brief_id, d.chunk, m.access_path",
+        &format!(
+            "SELECT d.brief_id, d.chunk, d.text, m.access_path FROM brief_documents d \
+             LEFT JOIN ({aliased}) m ON m.brief_id = d.brief_id \
+             ORDER BY d.brief_id, d.chunk, m.access_path",
+            aliased = format_1_members()
+        ),
         &Arc::new(arrow_schema::Schema::new(vec![
             Field::new("brief_id", DataType::FixedSizeBinary(16), false),
             Field::new("chunk", DataType::Int64, false),
