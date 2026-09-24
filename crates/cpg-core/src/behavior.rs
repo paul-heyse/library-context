@@ -913,10 +913,11 @@ pub async fn run(
         }
         claim(&mut stage2, row, &v.condition, v.function_node_id);
     }
+    // Only a raise that may leave its function is a `raises_when` fate (ADR-0022 §Conditions).
     for r in flow
         .raise_sites
         .iter()
-        .filter(|r| own.contains(&r.function_node_id))
+        .filter(|r| own.contains(&r.function_node_id) && r.escapes)
     {
         for name in &r.parameters {
             let Some(p) = parameters_of
@@ -1127,6 +1128,13 @@ pub async fn run(
 
     // A behavior id names one claim; two rows under one id are a defect, never merged (§3.4.1;
     // increment 3's deep review, F8).
+    // An operation the runtime cannot reach states nothing it does (ADR-0022 §Composed layers).
+    for r in &mut out.behaviors {
+        if flow.unreachable.contains(&r.operation_node_id) {
+            r.verdict = Verdict::Unknown;
+            r.boundary_reason = Some(BoundaryReason::RuntimeUnreachable);
+        }
+    }
     out.behaviors.sort_by_key(|r| r.behavior_id);
     if let Some(w) = out
         .behaviors
@@ -1263,6 +1271,12 @@ pub async fn run(
                 Verdict::NotAnalyzed,
                 None,
                 Some("a class: its controls are its __init__'s".to_owned()),
+            )
+        } else if flow.unreachable.contains(&s.node_id) {
+            (
+                Verdict::Unknown,
+                Some(BoundaryReason::RuntimeUnreachable),
+                Some("its declaration is unreachable at runtime".to_owned()),
             )
         } else if let Some(met) = met.filter(|m| !m.is_empty()) {
             (

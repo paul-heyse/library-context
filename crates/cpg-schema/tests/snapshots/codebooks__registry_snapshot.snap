@@ -73,6 +73,7 @@ boundary_reason
   17 override_dispatch
   18 runtime_unreachable
   19 call_transfer
+  20 abstract_body
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget

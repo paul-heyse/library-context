@@ -11,8 +11,8 @@
 //! The queries read tables registered under their own names and filtered to one snapshot.
 
 use crate::codebook::{
-    AssertionKind, Codebook, DeclarationKind, EvidenceStatus, FactFamily, SourceRole, SupportRole,
-    Verdict, registry,
+    AssertionKind, BehaviorKind, Codebook, DeclarationKind, EdgeKind, EvidenceStatus, FactFamily,
+    PremiseKind, SourceRole, SupportRole, Verdict, registry,
 };
 use crate::column::CODEBOOK_KEY;
 use crate::table::Table;
@@ -764,6 +764,56 @@ fn semantic() -> Vec<Rule> {
                  LEFT JOIN negative_premises p ON p.place_key = b.premise_key \
                  WHERE b.verdict = {refuted} AND (p.place_key IS NULL OR NOT p.holds)",
                 refuted = Verdict::RefutedUnderModel.code(),
+            ),
+        ),
+        (
+            // ADR-0022 §Places (the Stage 2 end review's R4): a feasible flow is never stated under
+            // `false`; one that is has two values read as one atom.
+            "semantic:condition-not-false",
+            "SELECT 1 AS violation FROM behaviors WHERE condition = 'false' \
+             UNION ALL SELECT 1 AS violation FROM value_flows WHERE condition = 'false'"
+                .to_owned(),
+        ),
+        (
+            // ADR-0022 §Verdicts (the Stage 2 end review's R7): a field's or a setting's premise
+            // holds only if no attribute load of that name exists, on any receiver.
+            "semantic:premise-no-attribute-load",
+            format!(
+                "SELECT p.place_key FROM negative_premises p \
+                 JOIN flow_attribute_loads a \
+                   ON a.name = regexp_replace(p.place_key, '^.*\\.([^.\\]]*)\\]?$', '\\1') \
+                 WHERE p.holds AND p.kind IN ({field}, {global})",
+                field = PremiseKind::Field.code(),
+                global = PremiseKind::Global.code(),
+            ),
+        ),
+        (
+            // ADR-0022 §Verdicts (the Stage 2 end review's R1): "never read" is not refuted on a
+            // method a release subclass defines again; the override may read it.
+            "semantic:refuted-not-overridden",
+            format!(
+                "SELECT b.behavior_id FROM behaviors b \
+                 JOIN declarations m ON m.node_id = b.operation_node_id \
+                 JOIN edges e ON e.edge_kind = {mro} AND e.dst_node_id = m.parent_node_id \
+                   AND e.src_node_id <> m.parent_node_id \
+                 JOIN declarations o ON o.parent_node_id = e.src_node_id AND o.name = m.name \
+                 WHERE b.kind = {is_read} AND b.verdict = {refuted}",
+                mro = EdgeKind::MroEntry.code(),
+                is_read = BehaviorKind::IsRead.code(),
+                refuted = Verdict::RefutedUnderModel.code(),
+            ),
+        ),
+        (
+            // ADR-0022 §Composed layers (the Stage 2 end review's R2): an operation whose
+            // declaration lies in a region the runtime view never reaches is not established.
+            "semantic:unreachable-not-established",
+            format!(
+                "SELECT o.node_id FROM operations o JOIN declarations d ON d.node_id = o.node_id \
+                 JOIN flow_regions r ON r.module_node_id = d.module_node_id \
+                   AND r.start_byte <= d.name_start_byte AND d.name_end_byte <= r.end_byte \
+                 JOIN conditions c ON c.condition_id = r.condition_id \
+                 WHERE o.behavior_status = {established} AND c.encoding = 'false'",
+                established = Verdict::Established.code(),
             ),
         ),
         (

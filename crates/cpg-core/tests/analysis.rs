@@ -1322,6 +1322,8 @@ async fn the_analysis_rules_reject_their_violations() {
         "operation_facet_status",
         "behaviors",
         "behavior_steps",
+        "negative_premises",
+        "conditions",
     ] {
         let published = ctx.table(table).await.unwrap();
         ctx.register_table(format!("{table}_published").as_str(), published.into_view())
@@ -1495,6 +1497,65 @@ async fn the_analysis_rules_reject_their_violations() {
              FROM (SELECT * FROM behaviors_published LIMIT 1) b \
              CROSS JOIN (SELECT min(node_id) AS node_id FROM operations_published \
                          WHERE behavior_status <> 0) c",
+        ),
+        // The Stage 2 end review (R4, R7, R1, R2): a behavior under `false`; a field premise that
+        // holds although a load of its name exists; a refutation on an overridden method
+        // (`pkg.Handler.handle`, which `Special` defines again); an established operation in a
+        // region the runtime never reaches (every `true` region made `false`).
+        (
+            "semantic:condition-not-false",
+            "behaviors",
+            "SELECT snapshot_id, behavior_id, operation_node_id, kind, parameter_node_id, \
+                    parameter_name, callee_node_id, target_node_id, target_name, value, depth, \
+                    conditional, verdict, boundary_reason, 'false' AS condition, callee_text, \
+                    phase, premise_key, site_node_id, site_module_node_id, site_start_byte, \
+                    site_end_byte, site_line, site_text, occurrences, invocation_id \
+             FROM behaviors_published",
+        ),
+        (
+            "semantic:premise-no-attribute-load",
+            "negative_premises",
+            "SELECT * FROM negative_premises_published \
+             UNION ALL \
+             SELECT p.snapshot_id, 'Field[pkg.Injected.' || a.name || ']' AS place_key, \
+                    CAST(1 AS SMALLINT) AS kind, p.subject_node_id, true AS holds, \
+                    CAST(NULL AS SMALLINT) AS boundary_reason, CAST(NULL AS VARCHAR) AS reason \
+             FROM (SELECT * FROM negative_premises_published LIMIT 1) p \
+             CROSS JOIN (SELECT min(name) AS name FROM flow_attribute_loads) a",
+        ),
+        (
+            "semantic:refuted-not-overridden",
+            "behaviors",
+            "SELECT * FROM behaviors_published \
+             UNION ALL \
+             SELECT b.snapshot_id, b.behavior_id, m.node_id AS operation_node_id, \
+                    CAST(10 AS SMALLINT) AS kind, b.parameter_node_id, b.parameter_name, \
+                    b.callee_node_id, b.target_node_id, b.target_name, b.value, b.depth, \
+                    b.conditional, CAST(2 AS SMALLINT) AS verdict, \
+                    CAST(NULL AS SMALLINT) AS boundary_reason, b.condition, b.callee_text, \
+                    b.phase, b.premise_key, b.site_node_id, b.site_module_node_id, \
+                    b.site_start_byte, b.site_end_byte, b.site_line, b.site_text, b.occurrences, \
+                    b.invocation_id \
+             FROM (SELECT * FROM behaviors_published LIMIT 1) b \
+             CROSS JOIN (SELECT min(m.node_id) AS node_id FROM declarations m \
+                         JOIN edges e ON e.edge_kind = 10 AND e.dst_node_id = m.parent_node_id \
+                           AND e.src_node_id <> m.parent_node_id \
+                         JOIN declarations o ON o.parent_node_id = e.src_node_id \
+                           AND o.name = m.name) m",
+        ),
+        (
+            "semantic:unreachable-not-established",
+            "conditions",
+            "SELECT snapshot_id, fact_id, condition_id, \
+                    CASE WHEN encoding = 'true' THEN 'false' ELSE encoding END AS encoding, stated \
+             FROM conditions_published",
+        ),
+        // The Stage 2 end review's O5: a refutation whose premise exists but does not hold.
+        (
+            "semantic:refuted-needs-complete-region",
+            "negative_premises",
+            "SELECT snapshot_id, place_key, kind, subject_node_id, false AS holds, \
+                    boundary_reason, reason FROM negative_premises_published",
         ),
         // Increment 3's deep review, F1: an established behavior whose path crosses a candidate
         // (override-open) arc.

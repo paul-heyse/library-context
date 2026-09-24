@@ -14,3 +14,7 @@ rule:
 files:
   - crates/cpg-core/src/**/*.rs
   - crates/cpg-schema/src/rules.rs
+# The flow model names Python's builtin exception classes (`Warning` among them), not MDX
+# components; Stage F never reads it.
+ignores:
+  - crates/cpg-core/src/flow_model.rs

@@ -26,7 +26,7 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     BindingKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EdgeKind, FlowSink,
-    LexicalScopeKind, PremiseKind, ReadPhase, SourceRole, SyntaxKind,
+    LexicalScopeKind, PremiseKind, ReadPhase, SourceRole, SyntaxField, SyntaxKind,
 };
 use cpg_schema::condition::Condition;
 use cpg_schema::id::{Id, IdHasher};
@@ -139,6 +139,48 @@ cpg_schema::query_row! {
         kind: DeclarationKind,
         parent_node_id: Option<Id>,
         parent_kind: Option<DeclarationKind>,
+        name_start_byte: i64,
+        name_end_byte: i64,
+    }
+}
+
+cpg_schema::query_row! {
+    struct TestRow {
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        condition_id: Id,
+        function_node_id: Option<Id>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct NameRow {
+        name: String,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ClauseRow {
+        parent_node_id: Id,
+        parent_kind: SyntaxKind,
+        owner_node_id: Option<Id>,
+        module_node_id: Id,
+        node_id: Id,
+        field: SyntaxField,
+        start_byte: i64,
+        end_byte: i64,
+    }
+}
+
+cpg_schema::query_row! {
+    struct BodyRow {
+        function_node_id: Id,
+        module_node_id: Id,
+        kind: SyntaxKind,
+        field: SyntaxField,
+        start_byte: i64,
+        end_byte: i64,
     }
 }
 
@@ -313,10 +355,56 @@ cpg_schema::relations! {
     functions = "flow_model_functions",
         deps = ["declarations"],
         sql = "SELECT d.node_id, d.module_node_id, d.name, d.qualified_name, d.kind, \
-                      d.parent_node_id, p.kind AS parent_kind \
+                      d.parent_node_id, p.kind AS parent_kind, d.name_start_byte, \
+                      d.name_end_byte \
                FROM declarations d LEFT JOIN declarations p ON p.node_id = d.parent_node_id \
                ORDER BY d.node_id"
             .to_owned();
+    /// The flow provider's tests, with the function naming their scope.
+    tests = "flow_model_tests",
+        deps = ["flow_tests", "declarations"],
+        sql = format!(
+            "SELECT t.module_node_id, t.start_byte, t.end_byte, t.condition_id, \
+                    sd.node_id AS function_node_id \
+             FROM flow_tests t {join} ORDER BY 1, 2, 3",
+            join = scope_join("t"),
+        );
+    /// Every attribute name the release loads, on any receiver.
+    attribute_names = "flow_model_attribute_names",
+        deps = ["flow_attribute_loads", "source_files"],
+        sql = format!(
+            "SELECT DISTINCT a.name FROM flow_attribute_loads a \
+             JOIN ({release}) m ON m.module_node_id = a.module_node_id ORDER BY 1",
+            release = release_modules(),
+        );
+    /// The clauses of release `try` and `with` statements and `except` handlers: a `try`'s body
+    /// statements and handlers, a handler's type, a `with`'s items and body.
+    clauses = "flow_model_clauses",
+        deps = ["syntax_nodes", "source_files"],
+        sql = format!(
+            "SELECT p.node_id AS parent_node_id, p.kind AS parent_kind, p.owner_node_id, \
+                    p.module_node_id, c.node_id, c.field, c.start_byte, c.end_byte \
+             FROM syntax_nodes p JOIN ({release}) m ON m.module_node_id = p.module_node_id \
+             JOIN syntax_nodes c ON c.parent_node_id = p.node_id \
+             WHERE p.kind IN ({try_}, {with}, {handler}) ORDER BY 1, 5",
+            release = release_modules(),
+            try_ = SyntaxKind::StmtTry.code(),
+            with = SyntaxKind::StmtWith.code(),
+            handler = SyntaxKind::ExceptHandlerExceptHandler.code(),
+        );
+    /// Each release function's body statements and decorators.
+    bodies = "flow_model_bodies",
+        deps = ["syntax_nodes", "declarations"],
+        sql = format!(
+            "SELECT c.parent_node_id AS function_node_id, c.module_node_id, c.kind, c.field, \
+                    c.start_byte, c.end_byte \
+             FROM syntax_nodes c JOIN declarations d ON d.node_id = c.parent_node_id \
+             WHERE c.field IN ({body}, {decorator}) AND d.kind <> {class} \
+             ORDER BY 1, 5, 6",
+            body = SyntaxField::Body.code(),
+            decorator = SyntaxField::Decorator.code(),
+            class = DeclarationKind::Class.code(),
+        );
     receivers = "flow_model_receivers",
         deps = ["parameter_syntax", "provider_node_map", "pysa_functions"],
         sql = cpg_schema::flows::receivers_sql();
@@ -436,6 +524,9 @@ pub struct FlowModelRows {
     pub tested: BTreeMap<(Id, String), BTreeSet<String>>,
     /// Each release call site's region condition (the statement's), when not `true`.
     pub call_condition: BTreeMap<Id, String>,
+    /// Declarations the runtime view cannot reach (their region, or an enclosing one's, is
+    /// `false`).
+    pub unreachable: BTreeSet<Id>,
 }
 
 /// Where a value comes from: a parameter, or a field of a method's receiver read with no local
@@ -684,44 +775,129 @@ impl Model {
 
 /// A sink: its module, kind and span.
 type SinkKey = (Id, FlowSink, i64, i64);
-/// The root names an opaque test's text spells: identifiers outside string literals, neither an
-/// attribute (after a `.`) nor a string prefix (`f"…"`). `"log_level" not in kwargs` names only
-/// `kwargs`; `isinstance(self.transport, T)` names `isinstance`, `self` and `T`.
-fn root_names(text: &str) -> Vec<&str> {
-    let bytes = text.as_bytes();
-    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80;
+/// Where a raise may be caught in its function: (module, owner, body span, handler types, `None`
+/// being a bare `except` or a suppressing `with`).
+type Frame = (Id, Option<Id>, (i64, i64), Vec<Option<String>>);
+
+/// Python's builtin exception classes with their base (3.14): a raise of one is caught by a
+/// handler naming it or an ancestor.
+const BUILTIN_EXCEPTIONS: &[(&str, &str)] = &[
+    ("BaseException", ""),
+    ("BaseExceptionGroup", "BaseException"),
+    ("GeneratorExit", "BaseException"),
+    ("KeyboardInterrupt", "BaseException"),
+    ("SystemExit", "BaseException"),
+    ("Exception", "BaseException"),
+    ("ArithmeticError", "Exception"),
+    ("FloatingPointError", "ArithmeticError"),
+    ("OverflowError", "ArithmeticError"),
+    ("ZeroDivisionError", "ArithmeticError"),
+    ("AssertionError", "Exception"),
+    ("AttributeError", "Exception"),
+    ("BufferError", "Exception"),
+    ("EOFError", "Exception"),
+    ("ExceptionGroup", "Exception"),
+    ("ImportError", "Exception"),
+    ("ModuleNotFoundError", "ImportError"),
+    ("LookupError", "Exception"),
+    ("IndexError", "LookupError"),
+    ("KeyError", "LookupError"),
+    ("MemoryError", "Exception"),
+    ("NameError", "Exception"),
+    ("UnboundLocalError", "NameError"),
+    ("OSError", "Exception"),
+    ("IOError", "Exception"),
+    ("EnvironmentError", "Exception"),
+    ("BlockingIOError", "OSError"),
+    ("ChildProcessError", "OSError"),
+    ("ConnectionError", "OSError"),
+    ("BrokenPipeError", "ConnectionError"),
+    ("ConnectionAbortedError", "ConnectionError"),
+    ("ConnectionRefusedError", "ConnectionError"),
+    ("ConnectionResetError", "ConnectionError"),
+    ("FileExistsError", "OSError"),
+    ("FileNotFoundError", "OSError"),
+    ("InterruptedError", "OSError"),
+    ("IsADirectoryError", "OSError"),
+    ("NotADirectoryError", "OSError"),
+    ("PermissionError", "OSError"),
+    ("ProcessLookupError", "OSError"),
+    ("TimeoutError", "OSError"),
+    ("ReferenceError", "Exception"),
+    ("RuntimeError", "Exception"),
+    ("NotImplementedError", "RuntimeError"),
+    ("PythonFinalizationError", "RuntimeError"),
+    ("RecursionError", "RuntimeError"),
+    ("StopAsyncIteration", "Exception"),
+    ("StopIteration", "Exception"),
+    ("SyntaxError", "Exception"),
+    ("IndentationError", "SyntaxError"),
+    ("TabError", "IndentationError"),
+    ("SystemError", "Exception"),
+    ("TypeError", "Exception"),
+    ("ValueError", "Exception"),
+    ("UnicodeError", "ValueError"),
+    ("UnicodeDecodeError", "UnicodeError"),
+    ("UnicodeEncodeError", "UnicodeError"),
+    ("UnicodeTranslateError", "UnicodeError"),
+    ("Warning", "Exception"),
+    ("BytesWarning", "Warning"),
+    ("DeprecationWarning", "Warning"),
+    ("EncodingWarning", "Warning"),
+    ("FutureWarning", "Warning"),
+    ("ImportWarning", "Warning"),
+    ("PendingDeprecationWarning", "Warning"),
+    ("ResourceWarning", "Warning"),
+    ("RuntimeWarning", "Warning"),
+    ("SyntaxWarning", "Warning"),
+    ("UnicodeWarning", "Warning"),
+    ("UserWarning", "Warning"),
+];
+
+fn is_builtin_exception(name: &str) -> bool {
+    BUILTIN_EXCEPTIONS.iter().any(|(n, _)| *n == name)
+}
+
+/// A builtin exception's ancestors (itself aside), or `None` for a name that is not one.
+fn builtin_ancestors(name: &str) -> Option<Vec<&'static str>> {
+    let mut at = BUILTIN_EXCEPTIONS.iter().find(|(n, _)| *n == name)?.1;
     let mut out = Vec::new();
-    let mut quote: Option<u8> = None;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if let Some(q) = quote {
-            if b == b'\\' {
-                i += 2;
-                continue;
-            }
-            if b == q {
-                quote = None;
-            }
-            i += 1;
-        } else if b == b'"' || b == b'\'' {
-            quote = Some(b);
-            i += 1;
-        } else if word(b) && !b.is_ascii_digit() {
-            let start = i;
-            while i < bytes.len() && word(bytes[i]) {
-                i += 1;
-            }
-            let attribute = text[..start].trim_end().ends_with('.');
-            let prefix = matches!(bytes.get(i), Some(b'"' | b'\''));
-            if !attribute && !prefix {
-                out.push(&text[start..i]);
-            }
-        } else {
-            i += 1;
-        }
+    while !at.is_empty() {
+        out.push(at);
+        at = BUILTIN_EXCEPTIONS
+            .iter()
+            .find(|(n, _)| *n == at)
+            .map_or("", |(_, p)| *p);
     }
-    out
+    Some(out)
+}
+
+/// The simple names a handler's type names (`except (a.B, C):`), or `None` when it is not a
+/// name or a tuple of names (then it may catch anything).
+fn handler_names(text: &str) -> Option<Vec<String>> {
+    let inner = text.trim().trim_start_matches('(').trim_end_matches(')');
+    inner
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            let ok = t
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.');
+            ok.then(|| t.rsplit('.').next().unwrap_or(t).to_owned())
+        })
+        .collect()
+}
+
+/// The simple name of the class a `raise` statement raises (`raise a.B(...)` is `B`); `None` for a
+/// bare re-raise or anything but a name.
+fn raised_name(text: &str) -> Option<&str> {
+    let rest = text.trim_start().strip_prefix("raise")?.trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+        .unwrap_or(rest.len());
+    let name = rest[..end].rsplit('.').next()?;
+    (!name.is_empty()).then_some(name)
 }
 
 /// Per function, each guard that raises: its statement's start and the normal path past it (the
@@ -731,8 +907,12 @@ pub(crate) type RaiseGuards = BTreeMap<Id, Vec<(i64, Condition)>>;
 pub(crate) fn guards_of(raises: &[RaiseSitesRow]) -> RaiseGuards {
     let mut out = RaiseGuards::new();
     for r in raises {
+        // Only a raise that may leave its function is a guard; a budget cut states nothing (the
+        // Stage 2 end review's R6, R3).
         if let Ok(c) = Condition::parse(&r.condition)
+            && r.escapes
             && !c.is_always()
+            && c != Condition::OverBudget
         {
             out.entry(r.function_node_id)
                 .or_default()
@@ -769,8 +949,6 @@ pub(crate) fn normal_path(
     c
 }
 
-/// A statement region: its module, span, condition and enclosing function.
-type RegionKept = (Id, (i64, i64), Id, Option<Id>);
 /// A sink's value sources: the use, how it reaches the value, and the selecting condition.
 type ValueSources = HashMap<SinkKey, Vec<(Id, Transfer, Id)>>;
 
@@ -852,6 +1030,14 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     let ancestry_rows: Vec<AncestryRow> = sql::fetch(ctx, &ancestry(), p()).await?;
     let unread_rows: Vec<UnreadRow> = sql::fetch(ctx, &unread(), p()).await?;
     let raise_rows: Vec<RaiseRow> = sql::fetch(ctx, &raises(), p()).await?;
+    let test_rows: Vec<TestRow> = sql::fetch(ctx, &tests(), p()).await?;
+    let attribute_names: BTreeSet<String> = sql::fetch::<NameRow>(ctx, &attribute_names(), p())
+        .await?
+        .into_iter()
+        .map(|r| r.name)
+        .collect();
+    let clause_rows: Vec<ClauseRow> = sql::fetch(ctx, &clauses(), p()).await?;
+    let body_rows: Vec<BodyRow> = sql::fetch(ctx, &bodies(), p()).await?;
     let complete: BTreeSet<Id> = sql::fetch::<CoveredRow>(ctx, &flow_complete(), p())
         .await?
         .into_iter()
@@ -932,17 +1118,6 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         memo: HashMap::new(),
         keep_receivers: false,
     };
-    let region_rows_kept: Vec<RegionKept> = region_rows
-        .iter()
-        .map(|r| {
-            (
-                r.module_node_id,
-                (r.start_byte, r.end_byte),
-                r.condition_id,
-                r.function_node_id,
-            )
-        })
-        .collect();
     let mut region_map: HashMap<Id, Vec<(i64, i64, Id)>> = HashMap::new();
     for r in region_rows {
         region_map.entry(r.module_node_id).or_default().push((
@@ -985,6 +1160,218 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     }
     let condition_text = |c: &Condition| -> (Id, String) { (c.id(), c.encode()) };
 
+    // Declarations the runtime view cannot reach (ADR-0022 §Composed layers; the Stage 2 end
+    // review's R2): the region of its own statement, or of an enclosing declaration's, is `false`.
+    let mut unreachable: BTreeSet<Id> = BTreeSet::new();
+    for f in &function_rows {
+        let mut at = Some(f);
+        while let Some(d) = at {
+            if regions
+                .at(d.module_node_id, d.name_start_byte, d.name_end_byte)
+                .is_some_and(|c| model.condition(c).is_never())
+            {
+                unreachable.insert(f.node_id);
+                break;
+            }
+            at = d.parent_node_id.and_then(|p| function.get(&p).copied());
+        }
+    }
+
+    // A class's MRO (our edges, the class itself aside), and the release classes by simple name.
+    let mro: HashMap<Id, BTreeSet<Id>> = ancestry_rows.iter().fold(HashMap::new(), |mut m, r| {
+        if r.ancestor_node_id != r.class_node_id {
+            m.entry(r.class_node_id)
+                .or_default()
+                .insert(r.ancestor_node_id);
+        }
+        m
+    });
+    let mut classes_named: HashMap<&str, Vec<Id>> = HashMap::new();
+    for f in function_rows
+        .iter()
+        .filter(|f| f.kind == DeclarationKind::Class)
+    {
+        classes_named
+            .entry(f.name.as_str())
+            .or_default()
+            .push(f.node_id);
+    }
+
+    // Where a raise may be caught inside its own function (ADR-0022 §Conditions; the Stage 2 end
+    // review's R6): the body of a `try` with a handler that may catch it, or of a `with` over
+    // `suppress(...)`. Other context managers are assumed not to suppress (Stage 3's models).
+    let mut clauses_of: BTreeMap<Id, Vec<&ClauseRow>> = BTreeMap::new();
+    for c in &clause_rows {
+        clauses_of.entry(c.parent_node_id).or_default().push(c);
+    }
+    let span_of = |cs: &[&ClauseRow], field: SyntaxField| -> Option<(i64, i64)> {
+        cs.iter().filter(|c| c.field == field).fold(None, |acc, c| {
+            Some(
+                acc.map_or((c.start_byte, c.end_byte), |(s, e): (i64, i64)| {
+                    (s.min(c.start_byte), e.max(c.end_byte))
+                }),
+            )
+        })
+    };
+    let mut frames: Vec<Frame> = Vec::new();
+    for cs in clauses_of.values() {
+        let first = cs[0];
+        let Some(body) = span_of(cs, SyntaxField::Body) else {
+            continue;
+        };
+        match first.parent_kind {
+            SyntaxKind::StmtTry => {
+                let handlers: Vec<Option<String>> = cs
+                    .iter()
+                    .filter(|c| c.field == SyntaxField::Handler)
+                    .map(|h| {
+                        clauses_of
+                            .get(&h.node_id)
+                            .and_then(|hc| hc.iter().find(|c| c.field == SyntaxField::Test))
+                            .and_then(|t| {
+                                text_of(&texts, t.module_node_id, t.start_byte, t.end_byte)
+                            })
+                            .map(str::to_owned)
+                    })
+                    .collect();
+                if !handlers.is_empty() {
+                    frames.push((first.module_node_id, first.owner_node_id, body, handlers));
+                }
+            }
+            SyntaxKind::StmtWith => {
+                let suppresses = cs.iter().filter(|c| c.field == SyntaxField::Item).any(|i| {
+                    text_of(&texts, i.module_node_id, i.start_byte, i.end_byte)
+                        .is_some_and(|t| t.contains("suppress("))
+                });
+                if suppresses {
+                    frames.push((first.module_node_id, first.owner_node_id, body, vec![None]));
+                }
+            }
+            _ => {}
+        }
+    }
+    let release_class = |n: &str| classes_named.contains_key(n);
+    let may_catch = |handler: &Option<String>, raised: Option<&str>| -> bool {
+        let Some(text) = handler else { return true };
+        let Some(names) = handler_names(text) else {
+            return true;
+        };
+        let Some(n) = raised else { return true };
+        names.iter().any(|h| {
+            if h == "Exception" || h == "BaseException" || h == n {
+                return true;
+            }
+            if let Some(chain) = builtin_ancestors(n) {
+                // A builtin is caught by a builtin ancestor; an unknown name may alias one.
+                return chain.contains(&h.as_str())
+                    || (!is_builtin_exception(h) && !release_class(h));
+            }
+            match classes_named.get(n).map(Vec::as_slice) {
+                Some([id]) => {
+                    let ancestor = mro
+                        .get(id)
+                        .into_iter()
+                        .flatten()
+                        .any(|a| function.get(a).is_some_and(|f| f.name == *h));
+                    // A release class not in its MRO cannot catch it; a builtin or unknown one
+                    // may, through a base outside the release.
+                    ancestor || !release_class(h)
+                }
+                _ => true,
+            }
+        })
+    };
+    let escapes = |r: &RaiseRow| -> bool {
+        let raised =
+            text_of(&texts, r.module_node_id, r.start_byte, r.end_byte).and_then(raised_name);
+        !frames.iter().any(|(module, owner, (s, e), handlers)| {
+            *module == r.module_node_id
+                && *owner == Some(r.owner_node_id)
+                && *s <= r.start_byte
+                && r.end_byte <= *e
+                && handlers.iter().any(|h| may_catch(h, raised))
+        })
+    };
+
+    // A body the operation's callers may not run (the Stage 2 end review's R1): abstract, a stub
+    // (only `pass`, `...` or a docstring), or one that only raises.
+    let mut body_of: HashMap<Id, Vec<&BodyRow>> = HashMap::new();
+    for b in &body_rows {
+        body_of.entry(b.function_node_id).or_default().push(b);
+    }
+    let not_behavior = |f: Id| -> Option<&'static str> {
+        let rows = body_of.get(&f)?;
+        let text = |r: &BodyRow| text_of(&texts, r.module_node_id, r.start_byte, r.end_byte);
+        if rows
+            .iter()
+            .filter(|r| r.field == SyntaxField::Decorator)
+            .any(|r| {
+                text(r).is_some_and(|t| {
+                    t.trim()
+                        .trim_start_matches('@')
+                        .rsplit('.')
+                        .next()
+                        .map(str::trim)
+                        == Some("abstractmethod")
+                })
+            })
+        {
+            return Some("an abstract method");
+        }
+        let body: Vec<&BodyRow> = rows
+            .iter()
+            .filter(|r| r.field == SyntaxField::Body)
+            .copied()
+            .collect();
+        let inert = |r: &BodyRow| {
+            r.kind == SyntaxKind::StmtPass
+                || (r.kind == SyntaxKind::StmtExpr
+                    && text(r).is_some_and(|t| {
+                        let t = t.trim().trim_start_matches(['r', 'R', 'b', 'B', 'u', 'U']);
+                        t == "..." || t.starts_with('"') || t.starts_with('\'')
+                    }))
+        };
+        if body.is_empty() {
+            None
+        } else if body.iter().all(|r| inert(r)) {
+            Some("a stub body")
+        } else if body.iter().any(|r| r.kind == SyntaxKind::StmtRaise)
+            && body
+                .iter()
+                .all(|r| r.kind == SyntaxKind::StmtRaise || inert(r))
+        {
+            Some("a body that only raises")
+        } else {
+            None
+        }
+    };
+    // Methods a release class that inherits them defines again.
+    let mut methods_of: HashMap<Id, HashMap<&str, Id>> = HashMap::new();
+    for f in function_rows
+        .iter()
+        .filter(|f| f.parent_kind == Some(DeclarationKind::Class))
+    {
+        if let Some(c) = f.parent_node_id {
+            methods_of
+                .entry(c)
+                .or_default()
+                .insert(f.name.as_str(), f.node_id);
+        }
+    }
+    let mut overridden: BTreeSet<Id> = BTreeSet::new();
+    for (sub, ancestors) in &mro {
+        let Some(own) = methods_of.get(sub) else {
+            continue;
+        };
+        for a in ancestors {
+            for name in own.keys() {
+                if let Some(&m) = methods_of.get(a).and_then(|ms| ms.get(name)) {
+                    overridden.insert(m);
+                }
+            }
+        }
+    }
+
     let mut values_by_use: HashMap<Id, Vec<Id>> = HashMap::new();
     for r in &value_rows {
         values_by_use
@@ -1002,7 +1389,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         }
     }
     // Value flows.
-    let mut out = FlowModelRows::default();
+    let mut out = FlowModelRows {
+        unreachable: unreachable.clone(),
+        ..FlowModelRows::default()
+    };
     let mut sinks: BTreeSet<(Id, FlowSink, i64, i64)> = BTreeSet::new();
     for r in &value_rows {
         sinks.insert((r.module_node_id, r.sink, r.sink_start_byte, r.sink_end_byte));
@@ -1091,7 +1481,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             .then_some(f.parent_node_id)
             .flatten()
     };
-    let mut field_reads: HashMap<String, usize> = HashMap::new();
+    // Every attribute load by name, on any receiver (the Stage 2 end review's R7), then the
+    // place loads below.
+    let mut field_reads: HashMap<String, usize> =
+        attribute_names.iter().map(|n| (n.clone(), 1)).collect();
     for (write, module, place, start, end, func) in uses
         .iter()
         .map(|u| {
@@ -1306,41 +1699,100 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     singleton_rows.dedup_by(|a, b| a.global == b.global);
     out.singletons = singleton_rows;
 
-    // Raise sites: every `raise` with its region's condition and the parameters it tests.
-    let mut parameters_of: HashMap<Id, Vec<&str>> = HashMap::new();
-    for p in &parameter_rows {
-        parameters_of
-            .entry(p.function_node_id)
-            .or_default()
-            .push(p.name.as_str());
+    // What each test reads (the Stage 2 end review's R8): the parameters whose value reaches a use
+    // inside its span, unchanged or computed but not only through a call, through the flow IR's
+    // reaching definitions. Per use, its innermost test's literals are a `tests` fate of those
+    // parameters; every test's atoms name what a raise under them tests.
+    let mut tests_of: HashMap<Id, Vec<&TestRow>> = HashMap::new();
+    for t in &test_rows {
+        if let Some(f) = t.function_node_id {
+            tests_of.entry(f).or_default().push(t);
+        }
     }
+    let mut uses_in: HashMap<Id, Vec<&UseRow>> = HashMap::new();
+    for u in &uses {
+        if let Some(f) = u.function_node_id {
+            uses_in.entry(f).or_default().push(u);
+        }
+    }
+    let positive = |c: &Condition| -> Vec<String> {
+        match c {
+            Condition::Dnf(d) => d
+                .iter()
+                .flatten()
+                .map(|l| {
+                    let mut l = l.clone();
+                    l.positive = true;
+                    l.encode()
+                })
+                .collect(),
+            Condition::OverBudget => Vec::new(),
+        }
+    };
+    let mut atom_reads: HashMap<(Id, String), BTreeSet<String>> = HashMap::new();
+    for (f, ts) in &tests_of {
+        for u in uses_in.get(f).into_iter().flatten() {
+            let containing: Vec<&&TestRow> = ts
+                .iter()
+                .filter(|t| {
+                    t.module_node_id == u.module_node_id
+                        && t.start_byte <= u.start_byte
+                        && u.end_byte <= t.end_byte
+                })
+                .collect();
+            let Some(innermost) = containing.iter().min_by_key(|t| t.end_byte - t.start_byte)
+            else {
+                continue;
+            };
+            // A value that reaches the use only through a call is the callee's question (the
+            // `call_transfer` rule), so it names no parameter here.
+            let (sources, _) = model.reach(u.use_id, &mut Vec::new());
+            let names: BTreeSet<String> = sources
+                .keys()
+                .filter(|(_, t)| *t != Transfer::Call)
+                .filter_map(|(o, _)| match o {
+                    Origin::Parameter(p) => parameter
+                        .get(p)
+                        .filter(|pr| pr.function_node_id == *f)
+                        .map(|pr| pr.name.clone()),
+                    Origin::Field(..) => None,
+                })
+                .collect();
+            if names.is_empty() {
+                continue;
+            }
+            for t in &containing {
+                for atom in positive(&model.condition(t.condition_id)) {
+                    atom_reads
+                        .entry((*f, atom))
+                        .or_default()
+                        .extend(names.iter().cloned());
+                }
+            }
+            for atom in positive(&model.condition(innermost.condition_id)) {
+                for n in &names {
+                    out.tested
+                        .entry((*f, n.clone()))
+                        .or_default()
+                        .insert(atom.clone());
+                }
+            }
+        }
+    }
+
+    // Raise sites: every `raise` with its region's condition, the parameters it tests, and whether
+    // it may leave its function.
     for r in &raise_rows {
         let condition = regions
             .at(r.module_node_id, r.start_byte, r.end_byte)
             .map(|c| model.condition(c))
             .unwrap_or_else(Condition::always);
-        let names = parameters_of
-            .get(&r.owner_node_id)
+        let tested: BTreeSet<String> = positive(&condition)
+            .into_iter()
+            .filter_map(|a| atom_reads.get(&(r.owner_node_id, a)))
+            .flatten()
             .cloned()
-            .unwrap_or_default();
-        let mut tested: BTreeSet<String> = BTreeSet::new();
-        if let Condition::Dnf(d) = &condition {
-            for l in d.iter().flatten() {
-                // A place's root, or any name an opaque test's text spells.
-                let spelled: Vec<&str> = match (l.atom.place(), &l.atom) {
-                    // A versioned place (`p@line`) still names `p`: the value it reads may be the
-                    // parameter's.
-                    (Some(place), _) => vec![place.split(['.', '@']).next().unwrap_or(place)],
-                    (None, cpg_schema::condition::Atom::Opaque { text, .. }) => root_names(text),
-                    (None, _) => Vec::new(),
-                };
-                for root in spelled {
-                    if names.contains(&root) {
-                        tested.insert(root.to_owned());
-                    }
-                }
-            }
-        }
+            .collect();
         let text = text_of(&texts, r.module_node_id, r.start_byte, r.end_byte)
             .and_then(|t| t.lines().next())
             .unwrap_or_default()
@@ -1358,6 +1810,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             condition_id,
             condition,
             parameters: tested.into_iter().collect(),
+            escapes: escapes(r),
         });
     }
 
@@ -1470,34 +1923,6 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         });
     }
 
-    // What each function's branches test: the literals over each parameter.
-    for r in &region_rows_kept {
-        let Some(f) = r.3 else { continue };
-        let names = parameters_of.get(&f).cloned().unwrap_or_default();
-        if let Condition::Dnf(d) = model.condition(r.2) {
-            for l in d.iter().flatten() {
-                let spelled: Vec<String> = match (l.atom.place(), &l.atom) {
-                    (Some(place), _) => {
-                        vec![place.split(['.', '@']).next().unwrap_or(place).to_owned()]
-                    }
-                    (None, cpg_schema::condition::Atom::Opaque { text, .. }) => {
-                        root_names(text).into_iter().map(str::to_owned).collect()
-                    }
-                    (None, _) => Vec::new(),
-                };
-                for root in spelled {
-                    if names.contains(&root.as_str()) {
-                        let mut lit = l.clone();
-                        lit.positive = true;
-                        out.tested
-                            .entry((f, root))
-                            .or_default()
-                            .insert(lit.encode());
-                    }
-                }
-            }
-        }
-    }
     for c in &call_rows {
         if let Some(cond) = regions
             .at(c.module_node_id, c.start_byte, c.end_byte)
@@ -1637,6 +2062,49 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             reaches_all: matches!(kind, DynamicKind::Exec | DynamicKind::Eval),
         });
     }
+    // `x.__dict__` loads (the Stage 2 end review's R10): the receiver's class under the same model,
+    // through local copies of `self`, or a singleton global. The site is the flow use.
+    let use_at: HashMap<(Id, i64, &str), Id> = uses
+        .iter()
+        .map(|u| ((u.module_node_id, u.start_byte, u.place.as_str()), u.use_id))
+        .collect();
+    for u in uses.iter().filter(|u| u.place.ends_with(".__dict__")) {
+        let prefix = &u.place[..u.place.len() - ".__dict__".len()];
+        let func = u.function_node_id;
+        let own = func.and_then(|f| receiver_of.get(&f).copied());
+        let mut reaches_class = None;
+        if let Some(receiver_use) = use_at.get(&(u.module_node_id, u.start_byte, prefix)) {
+            model.keep_receivers = true;
+            let (sources, _) = model.reach(*receiver_use, &mut Vec::new());
+            model.keep_receivers = false;
+            if own.is_some_and(|r| {
+                sources
+                    .keys()
+                    .any(|(o, t)| *o == Origin::Parameter(r) && *t == Transfer::Identity)
+            }) {
+                reaches_class = class_of(func);
+            }
+        }
+        if reaches_class.is_none()
+            && let Some((Root::Global(m, n), rest)) =
+                resolve_dotted(u.module_node_id, u.start_byte, prefix)
+            && rest.is_empty()
+        {
+            reaches_class = singletons.get(&(m, n)).copied();
+        }
+        out.dynamic_accesses.push(DynamicAccessesRow {
+            snapshot_id,
+            call_site_node_id: u.use_id,
+            kind: DynamicKind::Dict,
+            function_node_id: func,
+            module_node_id: u.module_node_id,
+            start_byte: u.start_byte,
+            end_byte: u.end_byte,
+            reaches_class_node_id: reaches_class,
+            reaches_modules: false,
+            reaches_all: false,
+        });
+    }
 
     out.method_class = class_of_function.iter().map(|(f, c)| (*f, *c)).collect();
     out.qualified = function_rows
@@ -1691,6 +2159,26 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 false,
                 Some(BoundaryReason::DynamicAccess),
                 Some("`exec` or `eval` in the release".to_owned()),
+            )
+        } else if unreachable.contains(&u.function_node_id) {
+            (
+                false,
+                Some(BoundaryReason::RuntimeUnreachable),
+                Some("its declaration is unreachable at runtime".to_owned()),
+            )
+        } else if let Some(why) = not_behavior(u.function_node_id) {
+            (
+                false,
+                Some(BoundaryReason::AbstractBody),
+                Some(format!(
+                    "{why}: an override or caller supplies the behavior"
+                )),
+            )
+        } else if overridden.contains(&u.function_node_id) {
+            (
+                false,
+                Some(BoundaryReason::OverrideDispatch),
+                Some("a release subclass overrides the method".to_owned()),
             )
         } else {
             (true, None, None)
@@ -1807,32 +2295,4 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     }
     out.premises = premises.into_values().collect();
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::root_names;
-
-    #[test]
-    fn an_opaque_test_names_only_its_roots() {
-        assert_eq!(
-            root_names("\"log_level\" not in config_kwargs"),
-            vec!["not", "in", "config_kwargs"]
-        );
-        assert_eq!(
-            root_names("isinstance(self.transport, StreamableHttpTransport | SSETransport)"),
-            vec![
-                "isinstance",
-                "self",
-                "StreamableHttpTransport",
-                "SSETransport"
-            ]
-        );
-        assert_eq!(
-            root_names("f\"{x}\" == y and 'a\\'b' in z"),
-            vec!["y", "and", "in", "z"]
-        );
-        assert_eq!(root_names("size <= 0"), vec!["size"]);
-        assert_eq!(root_names("é.x > 1"), vec!["é"]);
-    }
 }

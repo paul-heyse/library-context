@@ -4,6 +4,22 @@ from bpkg.deep import top
 from bpkg.dispatch import Base, Derived
 from bpkg.config import Settings, settings
 from bpkg.open import forward_open, own_open
+from bpkg.probes import (
+    Config,
+    Handler,
+    Holder,
+    Job,
+    LoudHandler,
+    Snapshot,
+    accumulate,
+    caught,
+    cycle,
+    opaque_rebind,
+    overwrite,
+    reader,
+    suppressed,
+    typed_rebind,
+)
 from bpkg.records import Configured, Plain, Point
 from bpkg.service import (
     Session,
@@ -19,6 +35,20 @@ from bpkg.service import (
 )
 
 __all__ = [
+    "Config",
+    "Handler",
+    "Holder",
+    "Job",
+    "LoudHandler",
+    "Snapshot",
+    "accumulate",
+    "caught",
+    "cycle",
+    "opaque_rebind",
+    "overwrite",
+    "reader",
+    "suppressed",
+    "typed_rebind",
     "Base",
     "Configured",
     "Derived",

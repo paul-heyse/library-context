@@ -33,15 +33,23 @@ def test_an_operation_reads_whole_with_fates_verdicts_and_lines(generation: Path
 
 
 def test_a_parameter_never_read_is_refuted_only_under_its_premise(generation: Path) -> None:
-    """`add_tool`'s body is its docstring: its parameters are never read, and the claim "read"
-    is refuted under the model, citing the premise (ADR-0022 §Verdicts)."""
+    """`add_tool`'s body is its docstring, a stub whose behavior an override or caller supplies:
+    "never read" is `unknown` (`abstract_body`), not refuted (ADR-0022 §Verdicts; the Stage 2 end
+    review's R1). Every refutation served cites its parameter premise."""
     gen = load(generation, None)
     op = ops.get_operation(gen, gen.snapshot_id, "pkg.Catalog.add_tool")
     for p in op.parameters:
         claims = [f for f in p.fates if f.kind == "is_read"]
         assert claims, p.name
-        assert claims[0].verdict == "refuted_under_model"
-        assert claims[0].premise_key and claims[0].premise_key.startswith("Parameter[")
+        assert (claims[0].verdict, claims[0].boundary_reason) == ("unknown", "abstract_body")
+    refuted = [
+        r
+        for rows in gen.behaviors.values()
+        for r in rows
+        if r["kind"] == "is_read" and r["verdict"] == "refuted_under_model"
+    ]
+    assert refuted
+    assert all(r["premise_key"] and r["premise_key"].startswith("Parameter[") for r in refuted)
     # A parameter with no fate at all is never called unused.
     for q in ops.get_operation(gen, gen.snapshot_id, "pkg.Catalog.remove").parameters:
         assert q.fates or (q.note and "never read this as unused" in q.note)

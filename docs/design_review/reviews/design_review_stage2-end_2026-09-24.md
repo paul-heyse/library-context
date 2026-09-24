@@ -314,3 +314,41 @@ nothing, ADR-0001's revisit trigger fires; this review did not find nothing.
   enforced, but the premise does not mean what an agent reads it to mean.
 - **Extension paths:** clear for atoms and reasons. They are not yet clear for a new test form,
   which would widen R8.
+
+## 12. Disposition (author, 2026-09-24)
+
+The review's simpler viable alternative (§8) is adopted: the same provider, conditions and tables,
+with the four rules changed, plus the other fixes. ADR-0022 was amended in place (it is
+`proposed`); DESIGN §3.2, §3.9 and §11.3 were brought up to date. Measured on the pilot, snapshot
+`162bda5a0fe39cc1cedadbfaa8efd1f9` (2026-09-24, `just pilot` passed, 40.4 s, smoke 20/20).
+
+| # | Disposition | Oracle | Pilot |
+|---|---|---|---|
+| R1 | **Fixed.** The parameter premise also needs a runtime-reachable declaration, a body that is not abstract, a stub or raise-only (`abstract_body`, boundary reason 20, appended), and no release class that inherits the method defining it again (`override_dispatch`). "Never read" is about this body (ADR §Verdicts) | `semantic:refuted-not-overridden` (injected case: `pkg.Handler.handle`, which `Special` defines again); `the_stage2_end_review_probes_get_their_answers` (`Handler.on_message`, `render`, `Job.run`; `concrete` still refuted) | Refutations 63 → 19; `Prompt.render`'s `arguments` and `AuthProvider.verify_token`'s `token` `unknown` (`abstract_body`) |
+| R2 | **Fixed.** A declaration whose statement's region, or an enclosing declaration's, is `false` is unreachable; its operation and every claim about it are `unknown` (`runtime_unreachable`) and its premises do not hold | `semantic:unreachable-not-established` (injected case); the probe `Config.__init__` | `MCPServerConfig.__init__` `unknown` (18), its `data` `unknown` (18) |
+| R3 | **Fixed.** `given` returns `self` unless both sides are within budget; `guards_of` skips a guard past the budget | `nothing_factors_out_of_a_budget_cut` (`conditions.rs`) | `budget_reached` 32 → 42; `read_resource`'s `uri` claims now carry their conditions |
+| R4 | **Fixed.** (a) At a loop-carried step only the use's side is kept. (b) An opaque test reading a versioned place carries the version (`opaque("…")@line`). (c) A condition `false` is rejected | `semantic:condition-not-false` (injected case); probes `accumulate` (`!is_none(cur)`), `opaque_rebind` (`default → sink`) | 0 behaviors and 0 value flows under `false` |
+| R5 | **Fixed.** `reach` memoizes a result only once its cycle closes (a lowlink over the stack) | Probe `cycle` (`p → g` `call_transfer`) | — |
+| R6 | **Fixed.** A guard is a raise that may leave its function; `raise_sites.escapes`; a handler may catch by the builtin exception tree, the release's MRO, or anything unresolved; `with suppress(...)` suppresses, other context managers are assumed not to (Stage 3's models) | Probes `caught`, `suppressed` (`y → sink` under `!is_none(x)`, no `raises_when`) | 35 of 790 raises may be caught |
+| R7 | **Fixed.** The flow family records every attribute load by name, on any receiver, and `getattr`/`hasattr` with a literal name (`flow_attribute_loads`); the field and setting premises count them | `semantic:premise-no-attribute-load` (injected case); probe `reader` (`Holder._token` does not hold) | `FastMCP._worker` and every `model_config` premise do not hold |
+| R8 | **Fixed.** `root_names` is deleted. The flow family records every test ty records (`flow_tests`); a test reads the parameters reaching the uses inside its span | Probes `overwrite` (`tests other`, not `mode`), `typed_rebind` (the raise tests `name` and `default`) | 6,148 tests |
+| R9 | **Fixed** for order: resolution runs over sorted conjunctions. The ADR says equality stays syntactic across different inputs | `a_normal_form_does_not_depend_on_conjunction_order` | — |
+| R10 | **`__dict__` built**; Pyrefly-typed receivers, the per-run largest-scope report and the residue count relabelled **Proposed** in the ADR and DESIGN | Probe `Snapshot.dump` (`Snapshot.a` does not hold, `dynamic_access`) | — |
+| R11 | **Fixed:** DESIGN §3.2 (B17's unchanged-only composition, B18's `tests`, the premise, `runtime_unreachable`, the new tables and counts), §11.3 (`tests`); ADR §Places (B19, with its import-order assumption) | Prose | — |
+| O5 | **Fixed:** an injected case where the premise exists and does not hold | `the_analysis_rules_reject_their_violations` | — |
+
+**Deferred**, each with its trigger (the review's §10 and the observations):
+
+| Item | Why not now | Reopen when |
+|---|---|---|
+| O1: a read inside a lambda or comprehension gets phase `import` | 0 on the pilot | A pilot or fixture row appears |
+| O2: an inherited method of a singleton's class counts as a field read | Over-counts reads (sound direction) | A setting answer lists a method |
+| O3, O4: the strongest-transfer filter; decorators and lambdas | Precision only | Stage 3's summaries touch transfers |
+| O6: an unmapped argument at a multi-callee site | 0 on the pilot | A pilot or fixture row appears |
+| A per-iteration unrolled loop model | R4(a)'s over-approximation is sound | An evaluation item graded `partial` for a loop condition |
+| Pyrefly-typed receivers; the largest-scope and residue reports (R10) | Proposed; the name-based premises cover the pilot | A refutation on a field read through a typed non-`self` receiver, or a report consumer |
+
+**Checks (2026-09-24):** `cargo nextest run --workspace` passed 262/262; the all-techniques guard
+moved as a declared migration (`flow_tests`, `flow_attribute_loads`, `raise_sites.escapes`,
+`abstract_body`, `EXTRACTOR_OUTPUT_VERSION` 22); the analysis ledger did not move. A `compact`
+re-review of R1–R8 follows before ADR-0022 is accepted.

@@ -183,18 +183,32 @@ semantics must close:
      - self-subsuming resolution, to a fixpoint: drop `!y` from a conjunction when another
        conjunction holds `y` and otherwise only literals the first holds too
        (`a & r & !y | r & y` is `a & r | r & y`; `x | !x & r` is `x | r` is the case with nothing
-       else). Stage 2's evaluation added it (deviation B15): one normal path met in two
-       differently nested forms must normalize to one encoding before `Condition::given` can
-       factor it out;
+       else). Stage 2's evaluation added it (deviation B15), so a normal path met in two nested
+       forms normalizes alike and `Condition::given` can factor it out. Resolution runs over the
+       sorted, deduplicated conjunctions, so one input in any order has one encoding (the Stage 2
+       end review's R9). Two different inputs with one meaning may still differ: equality stays
+       syntactic, as declared;
      - absorb (drop a conjunction that contains another).
 - **Budget:** at most 16 conjunctions of at most 8 literals. A larger condition is not stated, and
   its record is `unknown` with `budget_reached`. ty's own saturation (512K diagram nodes per scope)
-  is not observable through its API. The pilot's largest scope is reported per run.
+  is not observable through its API. Reporting the pilot's largest scope per run is
+  **Proposed**, not built (the Stage 2 end review's R10).
 - **Fates are stated on the normal path** (Stage 2.6). A statement past a guard that raises
   (`if x is None: raise …`) is reached under the guard's negation, which says only that no error
   was raised. Each fate's condition has every such factor removed where it is one
   (`Condition::given`: all conjunctions share it and the remainders agree); the guard itself is
   its own `raises_when` fate.
+  - **A guard is a raise that may leave its function** (the Stage 2 end review's R6). It is not
+    inside the body of a `try` of the same function with a handler that may catch it, and not
+    inside a `with` over `suppress(...)`. A handler may catch it when it is bare, names
+    `Exception` or `BaseException`, names its class or a known ancestor (Python's builtin
+    exception tree; the release's MRO), or names anything we cannot resolve. Other context
+    managers are assumed not to suppress (Stage 3's models). `raise_sites.escapes` records it; a
+    raise that may be caught is neither a guard nor a `raises_when` fate.
+  - **The normal path is function-wide:** a fate holds on the executions that raise at no guard.
+    The guards are factored out together first (two guards' normal paths multiply), then each
+    alone. A guard past the budget factors nothing, and `given` states nothing about a condition
+    past the budget (the review's R3).
 - **The runtime view** evaluates, before normalization:
   - `TYPE_CHECKING` (the sentinel, as a name or an attribute of a dotted name) as false;
   - `sys.version_info` comparisons against the context's Python version;
@@ -225,10 +239,22 @@ semantics must close:
   binding other than a parameter reaching it (none: the value the scope received; ty's
   loop-header bindings do not count as a second binding). Where one scope's tests of a place read
   more than one version, each versioned test is spelled `place@line`; otherwise all of them are
-  spelled plainly, so versions appear only where they disambiguate. Two tests with the same
-  spelling on one path read one value, except around a loop's back edge, where ty's diagrams do
-  not unroll either. A versioned place still names its root for matching a parameter (the value
-  may be the parameter's).
+  spelled plainly, so versions appear only where they disambiguate. An opaque test reading a
+  versioned place carries the version too, encoded `opaque("…")@line` (the Stage 2 end review's
+  R4b). Two tests with the same spelling on one path read one value within an iteration. Around a
+  loop's back edge a loop-carried definition's conditions are an earlier iteration's, spelled
+  like this iteration's, so the flow model keeps only the use's side there: a sound
+  over-approximation (R4a). A feasible flow is never stated under `false`
+  (`semantic:condition-not-false`).
+- **Which parameters a test reads comes from the flow IR** (the review's R8): the uses inside
+  the test's span (`flow_tests`, every test ty records as a predicate), followed through reaching
+  definitions to parameters. A `tests` fate carries the innermost test's literals; a raise's
+  parameters are those the tests of its condition's atoms read.
+- **A module's own global binding shadows a submodule of the same name** (deviation B19): a
+  dotted root resolves to it first (`fastmcp.settings` is the `Settings()` instance, not
+  `fastmcp/settings.py`), as the runtime sees it once the package binds the name after importing
+  the submodule. A library that binds the name first and imports the submodule later would resolve
+  wrongly; that import order is assumed, not checked.
 - **§9.9's `Parameter[…]`, `Field[…]` and `Global[…]` are this key's written form.** A singleton
   read as `settings.X` in one module and as `fastmcp.settings.X` in another is one place,
   `Global[fastmcp.settings].X`.
@@ -245,8 +271,8 @@ semantics must close:
 
   | Place kind | The premise holds when |
   |---|---|
-  | A parameter or local | No reference resolves to the binding, closures included; the module has flow IR |
-  | A field `f` of `C` | Across the release, no attribute load named `f` on **any** receiver; every release module has flow IR; no dynamic access reaches `C` |
+  | A parameter or local | No reference resolves to the binding, closures included; the module has flow IR; the declaration is runtime-reachable; the body is not abstract, a stub (only `pass`, `...` or a docstring) or raise-only (else `abstract_body`, appended); no release class that inherits the method defines it again (else `override_dispatch`) |
+  | A field `f` of `C` | Across the release, no attribute load named `f` on **any** receiver, a place or not (`get_server()._worker`), and no `getattr`/`hasattr` with the literal name (`flow_attribute_loads`); every release module has flow IR; no dynamic access reaches `C` |
   | A module global | No read of the resolved place anywhere in the release; every release module has flow IR; no dynamic access reaches the module |
   | A forward chain | The operation's `behavior_status` is `established` (the scan met no boundary in its region) |
 
@@ -254,8 +280,12 @@ semantics must close:
     precision cost is that a common field name blocks refutation.
   - **External readers are outside the model.** "Never read" means never read by release code.
     Framework serializers, such as pydantic's, may read fields the release never names.
+  - **"Never read" is about this body** (the Stage 2 end review's R1): an override a user writes
+    is outside the model, and one the release writes blocks the refutation.
   - The rule `semantic:refuted-needs-complete-region` joins every `refuted_under_model` row to its
-    premise.
+    premise; `semantic:refuted-not-overridden` rejects a refutation on a method a release subclass
+    defines again; `semantic:premise-no-attribute-load` rejects a holding field or setting premise
+    whose name some attribute load spells.
   - A constructor parameter's claims attach to the class's `__init__` operation.
 - **Dynamic access** gets `boundary_reason` `dynamic_access`.
   - **The getattr family** (`getattr`, `setattr`, `hasattr`, `delattr` with a non-literal name,
@@ -263,7 +293,10 @@ semantics must close:
     through local copies, include any of these:
     - `self` in a method of `C`, a subclass, a base or a mixin;
     - a module global bound to an instance of `C`;
-    - a value Pyrefly types as `C`, a subclass, a base or a mixin.
+    - a value Pyrefly types as `C`, a subclass, a base or a mixin: **Proposed**, not built (the
+      Stage 2 end review's R10); the name-based field premise covers the pilot's cases.
+
+    A `x.__dict__` load is resolved the same way (R10, built).
 
     `settings = self; getattr(settings, name)` is the first kind.
   - **Any other receiver** is outside the model, and every negative answer names that assumption.
@@ -322,6 +355,10 @@ semantics must close:
 - **An operation whose seed declaration the runtime cannot reach** is `unknown`, with the reason
   `runtime_unreachable` (appended). That holds whether or not a runtime definition of the name
   exists. `unreachable_in_context` keeps its meaning: the checker never binds it.
+  - **Built** after the Stage 2 end review's R2: a declaration is unreachable when the region of
+    its own statement, or of an enclosing declaration's, is `false`. Its operation and every claim
+    about it are `unknown` (`runtime_unreachable`), and its parameters' premises do not hold.
+    `semantic:unreachable-not-established` rejects an established operation in a `false` region.
 
 ## Consequences
 

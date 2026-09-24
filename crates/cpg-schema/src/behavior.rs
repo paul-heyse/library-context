@@ -416,6 +416,7 @@ table!(
     checks = [],
     {
         snapshot_id: Id,
+        /// The call's site id; for a `__dict__` load, the flow use's id.
         call_site_node_id: Id,
         kind: DynamicKind,
         function_node_id: Option<Id>,
@@ -447,8 +448,13 @@ table!(
         text: String,
         condition_id: Id,
         condition: String,
-        /// The function's parameters the condition's places are rooted at, sorted.
+        /// The function's parameters whose value reaches a use inside a test of the condition
+        /// (through the flow IR's reaching definitions), sorted.
         parameters: Vec<String>,
+        /// Whether the raise may leave its function: no enclosing `try` of the same function has
+        /// a handler that may catch it, and no enclosing `with` is over `suppress(...)`. Only an
+        /// escaping raise is a guard or a `raises_when` fate (ADR-0022 §Conditions).
+        escapes: bool,
     }
 );
 

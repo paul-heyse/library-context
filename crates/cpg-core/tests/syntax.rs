@@ -1763,8 +1763,9 @@ async fn all_techniques_guard() {
     // producer, and so the run-scoped fact ids evidence cites), then Stage 2.6 (the flow model's
     // seven tables, Stage 2 behaviors, conditions, then the normal path, `tests` and conditional
     // delegations), then Stage 2's evaluation (deviation B15: `flow_values.through_call` and
-    // `value_flows.through_call`, `call_transfer`, the extractor output version). The analysis
-    // ledger (Stage E/F's own output) did not move.
-    const GUARD: &str = "768049417b07bbac461b7814856db0bfed168f81aefc8d28407de8f75a00bf58";
+    // `value_flows.through_call`, `call_transfer`, the extractor output version), then the Stage 2
+    // end review (`flow_tests`, `flow_attribute_loads`, `raise_sites.escapes`, `abstract_body`,
+    // the extractor output version). The analysis ledger (Stage E/F's own output) did not move.
+    const GUARD: &str = "f55cbc210471d7e5a33423bd31c001ca5a0f1f5a2d702985ee5d006b18adcc85";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }

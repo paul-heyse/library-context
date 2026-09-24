@@ -438,3 +438,132 @@ async fn an_unmapped_argument_names_its_release_callee() {
         "{rows}"
     );
 }
+
+/// Rows of an operation's behaviors as cells: kind, parameter, target, callee text, value,
+/// verdict, reason, condition, phase (see `behaviors_of`).
+async fn rows_of(ctx: &SessionContext, path: &str) -> (String, Vec<Vec<String>>) {
+    let t = behaviors_of(ctx, path).await;
+    let rows = cells(&t)
+        .into_iter()
+        .filter(|r| r.len() > 9 && r[1] != "kind")
+        .collect();
+    (t, rows)
+}
+
+/// The Stage 2 end review's probes (`bpkg/probes.py`), each with the answer it must get.
+#[tokio::test]
+async fn the_stage2_end_review_probes_get_their_answers() {
+    let (ctx, _dir) = compiled().await;
+
+    // R4a: around a loop's back edge only the use's side is kept, so `p` reaches `sink` under a
+    // satisfiable condition, not `false`.
+    let (t, rows) = rows_of(&ctx, "bpkg.accumulate").await;
+    assert!(
+        rows.iter()
+            .any(|r| r[1] == "0" && r[2] == "p" && r[8] != "false"),
+        "{t}"
+    );
+    assert!(rows.iter().all(|r| r[8] != "false"), "{t}");
+
+    // R4b: an opaque test after a rebinding is versioned, so `default` reaches `sink`.
+    let (t, rows) = rows_of(&ctx, "bpkg.opaque_rebind").await;
+    assert!(
+        rows.iter()
+            .any(|r| r[2] == "default" && r[8].contains("opaque(")),
+        "{t}"
+    );
+
+    // R8: the raise after `name = default` tests both parameters, through the flow IR.
+    let (t, rows) = rows_of(&ctx, "bpkg.typed_rebind").await;
+    for p in ["name", "default"] {
+        assert!(rows.iter().any(|r| r[1] == "2" && r[2] == p), "{p}: {t}");
+    }
+
+    // R5: `p` reaches `g`'s argument through `y = h(x)`, whatever order sinks were computed in.
+    let (t, rows) = rows_of(&ctx, "bpkg.cycle").await;
+    assert!(
+        rows.iter()
+            .any(|r| r[1] == "7" && r[2] == "p" && r[3] == "value" && r[7] == "19"),
+        "{t}"
+    );
+
+    // R6: a raise the function catches, or a `with suppress(...)` absorbs, is not a guard: `y`
+    // reaches `sink` only when `x` is not None, and no `raises_when` is served.
+    for op in ["bpkg.caught", "bpkg.suppressed"] {
+        let (t, rows) = rows_of(&ctx, op).await;
+        assert!(
+            rows.iter()
+                .any(|r| r[1] == "0" && r[2] == "y" && r[8] == "!is_none(x)"),
+            "{op}: {t}"
+        );
+        assert!(!rows.iter().any(|r| r[1] == "2"), "{op}: {t}");
+    }
+
+    // R8: `mode` is overwritten before the test, so the test is `other`'s, not `mode`'s.
+    let (t, rows) = rows_of(&ctx, "bpkg.overwrite").await;
+    assert!(!rows.iter().any(|r| r[1] == "12" && r[2] == "mode"), "{t}");
+    assert!(rows.iter().any(|r| r[1] == "12" && r[2] == "other"), "{t}");
+
+    // R7: a field read through a call's result is a load; its premise does not hold.
+    let premises = table(
+        &ctx,
+        "SELECT place_key, holds, boundary_reason FROM negative_premises \
+         WHERE place_key LIKE 'Field[bpkg.probes.%' ORDER BY 1",
+    )
+    .await;
+    let premise = |key: &str| {
+        cells(&premises)
+            .into_iter()
+            .find(|r| r.len() > 3 && r[1] == key)
+    };
+    let token = premise("Field[bpkg.probes.Holder._token]").expect(&premises);
+    assert_eq!(token[2], "false", "{premises}");
+    // R10: a field read only through `__dict__` is reached by a dynamic access.
+    let a = premise("Field[bpkg.probes.Snapshot.a]").expect(&premises);
+    assert_eq!(
+        (a[2].as_str(), a[3].as_str()),
+        ("false", "16"),
+        "{premises}"
+    );
+
+    // R1: "never read" is refuted only on a concrete method no release subclass defines again.
+    let is_read = |rows: &[Vec<String>], p: &str| -> Option<(String, String)> {
+        rows.iter()
+            .find(|r| r[1] == "10" && r[2] == p)
+            .map(|r| (r[6].clone(), r[7].clone()))
+    };
+    for (op, p, verdict, reason) in [
+        ("bpkg.Handler.on_message", "message", "3", "20"),
+        ("bpkg.Handler.render", "arguments", "3", "20"),
+        ("bpkg.Job.run", "work", "3", "20"),
+        ("bpkg.Handler.concrete", "unused", "2", ""),
+    ] {
+        let (t, rows) = rows_of(&ctx, op).await;
+        assert_eq!(
+            is_read(&rows, p),
+            Some((verdict.to_owned(), reason.to_owned())),
+            "{op}: {t}"
+        );
+    }
+
+    // R2: a constructor declared only under `if TYPE_CHECKING:` is unreachable at runtime.
+    let status = table(
+        &ctx,
+        "SELECT behavior_status, boundary_reason FROM operations \
+         WHERE access_path = 'bpkg.Config.__init__'",
+    )
+    .await;
+    let status = cells(&status);
+    assert!(
+        status
+            .iter()
+            .any(|r| r.len() > 2 && r[1] == "3" && r[2] == "18"),
+        "{status:?}"
+    );
+    let (t, rows) = rows_of(&ctx, "bpkg.Config.__init__").await;
+    assert_eq!(
+        is_read(&rows, "data"),
+        Some(("3".to_owned(), "18".to_owned())),
+        "{t}"
+    );
+}

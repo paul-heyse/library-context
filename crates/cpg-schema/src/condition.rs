@@ -560,7 +560,10 @@ fn parse_literal(text: &str) -> Result<Literal, String> {
     let (rest, version) = match (kind, rest.rsplit_once(")@")) {
         ("opaque", Some((head, v))) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
             let head = format!("{head})");
-            (head, Some(v.parse::<usize>().map_err(|e| format!("{text}: {e}"))?))
+            (
+                head,
+                Some(v.parse::<usize>().map_err(|e| format!("{text}: {e}"))?),
+            )
         }
         _ => (rest.to_owned(), None),
     };

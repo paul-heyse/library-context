@@ -173,6 +173,11 @@ codebook!(
         /// whether the callee's result carries it is a summary's question, Stage 3's (ADR-0022
         /// §Verdicts).
         CallTransfer = 19 => "call_transfer",
+        /// A body the operation's callers may not run: abstract, a stub (only `pass`, `...` or a
+        /// docstring), or one that only raises, so an override or caller supplies the behavior
+        /// and "never read" cannot be refuted there (ADR-0022 §Verdicts; the Stage 2 end
+        /// review's R1).
+        AbstractBody = 20 => "abstract_body",
     }
 );
 

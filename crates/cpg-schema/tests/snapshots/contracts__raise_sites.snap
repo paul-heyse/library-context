@@ -18,3 +18,4 @@ text: Utf8 NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 condition: Utf8 NOT NULL
 parameters: List(non-null Utf8) NOT NULL
+escapes: Boolean NOT NULL

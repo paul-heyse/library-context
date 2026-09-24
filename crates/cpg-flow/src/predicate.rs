@@ -431,10 +431,9 @@ impl Translator<'_> {
             PatternPredicateKind::As(None, _) | PatternPredicateKind::Star(_) => {
                 Condition::always()
             }
-            PatternPredicateKind::Mapping(_) | PatternPredicateKind::Sequence(_) => {
-                self.opaque(subject)
-                    .and(&Condition::atom(Atom::opaque(UNDECIDED)))
-            }
+            PatternPredicateKind::Mapping(_) | PatternPredicateKind::Sequence(_) => self
+                .opaque(subject)
+                .and(&Condition::atom(Atom::opaque(UNDECIDED))),
         }
     }
 }

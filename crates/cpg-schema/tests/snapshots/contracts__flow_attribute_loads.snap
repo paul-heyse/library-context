@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_attribute_loads
+family flow
+key snapshot_id, module_node_id, start_byte, end_byte, name, fact_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+@lctx.family=flow
+@lctx.table=flow_attribute_loads
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+name: Utf8 NOT NULL
