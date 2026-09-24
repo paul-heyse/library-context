@@ -1,0 +1,1014 @@
+schema_version = 1
+library = "fastmcp"
+release = "4.0.5"
+source_root = "build/envs/fastmcp/lib/python3.14/site-packages/fastmcp"
+docs_root = "build/sources/fastmcp/004bf15a2ba99f077160993c00a404e1a9da83ea/docs"
+written = "2026-09-24"
+rubric = ["present", "partial", "absent", "incorrect", "misleading"]
+
+# Source paths are relative to source_root. A path starting with "../" names a
+# sibling package in the same site-packages (e.g. ../fastmcp_tasks/...).
+
+# ---------------------------------------------------------------------------
+# A. Behavioural questions (Q01-Q12)
+# ---------------------------------------------------------------------------
+
+[[question]]
+id = "Q01"
+text = "What happens to each option of `@mcp.tool(...)` (fastmcp.FastMCP.tool): which options reach the registered Tool unchanged, which are transformed or defaulted, which are consumed by the decorator itself, and which combinations raise at registration?"
+kind = "controls"
+operations = ["fastmcp.FastMCP.tool"]
+stage = 3
+
+  [[question.item]]
+  id = "Q01.a"
+  polarity = "positive"
+  claim = "title, icons, timeout, auth and run_in_thread reach the resulting FunctionTool unchanged (FastMCP.tool -> LocalProvider.tool -> ToolMeta -> LocalProvider.add_tool -> Tool.from_function -> FunctionTool fields)."
+  source = ["server/server.py:1951-1966", "server/providers/local_provider/decorators/tools.py:302-320", "server/providers/local_provider/decorators/tools.py:138-153", "tools/function_tool.py:348-367"]
+  docs = ["servers/tools.mdx#Decorator Arguments"]
+
+  [[question.item]]
+  id = "Q01.b"
+  polarity = "positive"
+  claim = "version is transformed: a non-None version (str or int) is stored on the Tool as str(version)."
+  source = ["tools/function_tool.py:352"]
+  docs = ["servers/tools.mdx#Decorator Arguments"]
+
+  [[question.item]]
+  id = "Q01.c"
+  polarity = "positive"
+  claim = "task=None is replaced by the server's constructor default FastMCP(tasks=...) (False when tasks is unset); a bool is then normalized to TaskConfig(mode='optional') for True and TaskConfig(mode='forbidden') for False, while a TaskConfig is kept as given."
+  source = ["server/server.py:347", "server/server.py:1962", "tools/function_tool.py:325-332", "utilities/tasks.py:55-58"]
+  docs = ["servers/tasks.mdx#Server-Wide Default"]
+
+  [[question.item]]
+  id = "Q01.d"
+  polarity = "positive"
+  claim = "app is consumed by FastMCP.tool itself and not forwarded: app=True sets meta['ui']=True, an AppConfig or dict is converted with app_config_to_meta_dict into meta['ui'] (on a copy of meta), and app=None or app=False adds nothing."
+  source = ["server/server.py:1942-1948", "server/server.py:1951-1966"]
+
+  [[question.item]]
+  id = "Q01.e"
+  polarity = "positive"
+  claim = "Combining timeout with run_in_thread=False on a sync function (neither a coroutine function nor an async generator function) raises ValueError at registration."
+  source = ["tools/function_tool.py:305-323"]
+  docs = ["servers/tools.mdx#Thread affinity"]
+
+  [[question.item]]
+  id = "Q01.f"
+  polarity = "positive"
+  claim = "A task-enabled mode on a sync function raises ValueError at registration ('... uses a sync function but has task execution enabled'), including when the mode comes only from the server default FastMCP(tasks=True)."
+  source = ["tools/function_tool.py:333", "utilities/tasks.py:64-83", "server/server.py:1962"]
+  docs = ["servers/tasks.mdx#Enabling Background Tasks", "servers/tasks.mdx#Server-Wide Default"]
+
+  [[question.item]]
+  id = "Q01.g"
+  polarity = "negative"
+  claim = "An annotations dict passed to @mcp.tool is stored on the Tool as a plain dict (it is in fact converted with ToolAnnotations(**annotations))."
+  source = ["server/providers/local_provider/decorators/tools.py:268-269"]
+
+[[question]]
+id = "Q02"
+text = "When I register a function as a tool, which of its parameters become the tool's input schema, which are injected by FastMCP and hidden from the schema, and which parameter kinds are rejected at registration?"
+kind = "execution"
+operations = ["fastmcp.FastMCP.tool", "fastmcp.FastMCP.add_tool", "fastmcp.tools.Tool.from_function"]
+stage = 5
+
+  [[question.item]]
+  id = "Q02.a"
+  polarity = "positive"
+  claim = "A positional-only parameter makes registration fail with ValueError, because MCP passes tool arguments by name."
+  source = ["tools/function_parsing.py:283-294", "tools/function_tool.py:299"]
+
+  [[question.item]]
+  id = "Q02.b"
+  polarity = "positive"
+  claim = "A *args parameter makes registration fail with ValueError ('Functions with *args are not supported as tools')."
+  source = ["tools/function_parsing.py:295-296"]
+  docs = ["servers/tools.mdx#The `@tool` Decorator"]
+
+  [[question.item]]
+  id = "Q02.c"
+  polarity = "positive"
+  claim = "A **kwargs parameter makes registration fail with ValueError ('Functions with **kwargs are not supported as tools')."
+  source = ["tools/function_parsing.py:297-300"]
+  docs = ["servers/tools.mdx#The `@tool` Decorator"]
+
+  [[question.item]]
+  id = "Q02.d"
+  polarity = "positive"
+  claim = "A parameter annotated as Context (with default None it gets the optional form) is given a CurrentContext()/OptionalCurrentContext() dependency default, excluded from the input schema, and filled with the active Context at call time."
+  source = ["server/dependencies.py:321-328", "server/dependencies.py:374-377", "server/dependencies.py:692-709", "tools/function_parsing.py:332-340"]
+  docs = ["servers/context.mdx#Legacy Type-Hint Injection", "servers/dependency-injection.mdx#How Dependency Injection Works"]
+
+  [[question.item]]
+  id = "Q02.e"
+  polarity = "positive"
+  claim = "A parameter whose default is a Dependency (e.g. Depends(fn)) is excluded from the input schema, and a caller-supplied argument with that parameter's name is filtered out before dependency resolution."
+  source = ["server/dependencies.py:692-709", "server/dependencies.py:864-868"]
+  docs = ["servers/tools.mdx#Hiding Parameters from the LLM"]
+
+  [[question.item]]
+  id = "Q02.f"
+  polarity = "positive"
+  claim = "All remaining parameters form the input schema: a pydantic TypeAdapter is built over the wrapper signature with injected parameters removed, its JSON schema is compressed (titles pruned), and docstring parameter descriptions are added to properties that have no description yet."
+  source = ["tools/function_parsing.py:335-352"]
+  docs = ["servers/tools.mdx#Docstring Descriptions"]
+
+  [[question.item]]
+  id = "Q02.g"
+  polarity = "negative"
+  claim = "Context injection is triggered by the parameter's name (e.g. a parameter called ctx) rather than by its Context type annotation."
+  source = ["server/dependencies.py:321-328"]
+  docs = ["servers/context.mdx#Legacy Type-Hint Injection"]
+
+[[question]]
+id = "Q03"
+text = "Does `FastMCP(tasks=True)` make every tool task-capable (including tools passed via `FastMCP(tools=[...])` or `add_tool`), and where and when does `strict_input_validation` actually take effect?"
+kind = "configuration"
+operations = ["fastmcp.FastMCP", "fastmcp.FastMCP.tool", "fastmcp.FastMCP.add_tool"]
+stage = 3
+
+  [[question.item]]
+  id = "Q03.a"
+  polarity = "positive"
+  claim = "FastMCP(tasks=...) is stored as _support_tasks_by_default and is read only by FastMCP.tool, as the default when the decorator's task argument is None."
+  source = ["server/server.py:347", "server/server.py:1962"]
+
+  [[question.item]]
+  id = "Q03.b"
+  polarity = "positive"
+  claim = "Tools registered through FastMCP(tools=[...]) or add_tool(fn) never consult the server's tasks= default: a plain function is built with task=None, which becomes TaskConfig(mode='forbidden'), and a standalone-@tool function keeps its own task setting (None resolves to False)."
+  source = ["server/server.py:460-464", "server/server.py:1817-1829", "server/providers/local_provider/decorators/tools.py:118-125", "server/providers/local_provider/decorators/tools.py:154-155", "tools/function_tool.py:325-328"]
+
+  [[question.item]]
+  id = "Q03.c"
+  polarity = "negative"
+  claim = "FastMCP(tasks=True) enables background-task support for tools added via FastMCP(tools=[...]) or add_tool() (the docs describe it as a default for all tools, but only @mcp.tool reads it)."
+  source = ["server/server.py:1962", "server/server.py:460-464"]
+  docs = ["servers/tasks.mdx#Server-Wide Default"]
+
+  [[question.item]]
+  id = "Q03.d"
+  polarity = "positive"
+  claim = "strict_input_validation is resolved once in FastMCP.__init__ (the constructor argument, else fastmcp.settings.strict_input_validation) into the public attribute FastMCP.strict_input_validation."
+  source = ["server/server.py:466-470"]
+  docs = ["servers/server.mdx#Behavior"]
+
+  [[question.item]]
+  id = "Q03.e"
+  polarity = "positive"
+  claim = "The flag takes effect at call time: FunctionTool.run reads the _current_context ContextVar and passes strict=True to pydantic's validate_python only when the active Context's server has strict_input_validation set; with no active Context (e.g. calling tool.run() directly) strict is None, i.e. lax coercion."
+  source = ["tools/function_tool.py:124-138", "tools/function_tool.py:389", "tools/function_tool.py:474-483"]
+
+  [[question.item]]
+  id = "Q03.f"
+  polarity = "positive"
+  claim = "Because FastMCP.call_tool always enters Context(fastmcp=self) and a mounted tool is executed by the child's call_tool, a mounted child's tools are validated under the child server's strict_input_validation, not the parent's."
+  source = ["server/server.py:1437", "server/providers/fastmcp_provider.py:78-99", "server/context.py:273-279", "tools/function_tool.py:135-138"]
+
+  [[question.item]]
+  id = "Q03.g"
+  polarity = "negative"
+  claim = "strict_input_validation is enforced by the MCP SDK validating arguments against the tool's JSON input schema (it is pydantic strict mode in FunctionTool)."
+  source = ["tools/function_tool.py:467-483"]
+  docs = ["servers/tools.mdx#Validation Modes"]
+
+[[question]]
+id = "Q04"
+text = "Which FASTMCP_* settings change FastMCP's behaviour, and when is each one read: at import, as a snapshot when a server or client is constructed, or on each call? Which declared settings are never read?"
+kind = "settings"
+operations = ["fastmcp.settings"]
+stage = 2
+
+  [[question.item]]
+  id = "Q04.a"
+  polarity = "positive"
+  claim = "FASTMCP_* environment variables (and the .env file named by FASTMCP_ENV_FILE) are read once, when fastmcp is imported and fastmcp.settings = Settings() is created; later environment changes have no effect, whereas assignments to fastmcp.settings attributes are validated and seen by any later read."
+  source = ["__init__.py:20", "settings.py:19", "settings.py:37-44"]
+  docs = ["more/settings.mdx"]
+
+  [[question.item]]
+  id = "Q04.b"
+  polarity = "positive"
+  claim = "log_enabled, log_level, enable_rich_tracebacks and enable_rich_logging configure the fastmcp logger at import time, and deprecation_warnings installs the FastMCPDeprecationWarning filter at import time."
+  source = ["__init__.py:20-25", "__init__.py:40-41", "utilities/logging.py:56-83"]
+
+  [[question.item]]
+  id = "Q04.c"
+  polarity = "positive"
+  claim = "mask_error_details, strict_input_validation and client_log_level are snapshotted in FastMCP.__init__ when the matching constructor argument is None; client_init_timeout and client_disconnect_timeout are snapshotted in Client.__init__."
+  source = ["server/server.py:373-378", "server/server.py:466-476", "client/client.py:501-504", "client/client.py:582"]
+
+  [[question.item]]
+  id = "Q04.d"
+  polarity = "positive"
+  claim = "transport and show_server_banner (run_async); host, port, stateless_http, http_host_origin_protection, http_allowed_hosts and log_level (run_http_async); and json_response, streamable_http_path, sse_path, message_path, debug, http_allowed_origins and http_session_idle_timeout (http_app) are read on every call, as fallbacks when the corresponding argument is None."
+  source = ["server/mixins/transport.py:87-90", "server/mixins/transport.py:299-326", "server/mixins/transport.py:417-467"]
+  docs = ["more/settings.mdx#Transport & HTTP"]
+
+  [[question.item]]
+  id = "Q04.e"
+  polarity = "positive"
+  claim = "mcp_camelcase_compat is read on every bridged camelCase attribute access and telemetry_mode on every telemetry_mode() resolution, so assigning them at runtime takes effect immediately."
+  source = ["_compat.py:119-124", "telemetry.py:86-100"]
+
+  [[question.item]]
+  id = "Q04.f"
+  polarity = "positive"
+  claim = "server_dependencies has no attribute read in the fastmcp or fastmcp_tasks packages, and mounted_components_raise_on_load_error is not read anywhere in the fastmcp package: its only read is in fastmcp_tasks, which re-raises when collecting task components fails."
+  source = ["settings.py:270-273", "settings.py:299-310", "../fastmcp_tasks/lifespan.py:54-60"]
+  docs = ["more/settings.mdx#Advanced", "more/settings.mdx#Error Handling"]
+
+  [[question.item]]
+  id = "Q04.g"
+  polarity = "negative"
+  claim = "It is statically certain that server_dependencies is never read at runtime (Settings.get_setting/set_setting access settings by string name, as utilities.tests.temporary_settings does, so the absence of attribute reads does not prove it)."
+  source = ["settings.py:46-70", "utilities/tests.py:35-65"]
+
+[[question]]
+id = "Q05"
+text = "When a tool raises, what does a `fastmcp.Client` caller see, and what changes it: `mask_error_details` vs `FASTMCP_MASK_ERROR_DETAILS`, raising `ToolError`, the tool's own `timeout`, mounted child servers, and `Client.call_tool(raise_on_error=...)` vs `call_tool_mcp`?"
+kind = "exceptions"
+operations = ["fastmcp.FastMCP", "fastmcp.FastMCP.call_tool", "fastmcp.FastMCP.mount", "fastmcp.Client.call_tool", "fastmcp.Client.call_tool_mcp"]
+stage = 3
+
+  [[question.item]]
+  id = "Q05.a"
+  polarity = "positive"
+  claim = "An exception that is not a FastMCPError (and not an httpx 429, an httpx timeout, or a missing-client-capability MCPError) is converted by FastMCP.call_tool into a ToolError whose message is Error calling tool '<name>': <exception text>, or just Error calling tool '<name>' when masking is on."
+  source = ["server/server.py:1544-1577"]
+  docs = ["servers/tools.mdx#Error Handling"]
+
+  [[question.item]]
+  id = "Q05.b"
+  polarity = "positive"
+  claim = "The masking flag is FastMCP(mask_error_details=...) when given, otherwise fastmcp.settings.mask_error_details (FASTMCP_MASK_ERROR_DETAILS) captured at construction; changing the setting after the server is built does not change that server."
+  source = ["server/server.py:373-378"]
+  docs = ["servers/server.mdx#Behavior", "more/settings.mdx#Error Handling"]
+
+  [[question.item]]
+  id = "Q05.c"
+  polarity = "positive"
+  claim = "A ToolError, or any FastMCPError such as an argument ValidationError, raised under a tool is re-raised unchanged, so its message reaches the client even with masking on; the tools/call handler returns it as a CallToolResult with is_error=True and the message as text."
+  source = ["server/server.py:1518-1533", "server/mixins/mcp_operations.py:259-267"]
+  docs = ["servers/tools.mdx#Error Handling"]
+
+  [[question.item]]
+  id = "Q05.d"
+  polarity = "positive"
+  claim = "A tool's own timeout raises MCPError(code=-32000, 'Tool ... execution timed out after Ns'), which FastMCP.call_tool's generic handler converts into a ToolError and masks like any other exception; the client receives an is_error tool result (Client.call_tool raises ToolError), not a JSON-RPC error."
+  source = ["tools/function_tool.py:414-430", "server/server.py:1544-1577", "server/mixins/mcp_operations.py:259-267"]
+
+  [[question.item]]
+  id = "Q05.e"
+  polarity = "positive"
+  claim = "A mounted child's tool errors are masked according to the child's own mask_error_details (the child's call_tool performs the conversion) and the parent re-raises the resulting ToolError unchanged; mount() only logs a warning when the parent masks and the child does not."
+  source = ["server/providers/fastmcp_provider.py:78-99", "server/server.py:1529-1533", "server/server.py:2376-2383"]
+
+  [[question.item]]
+  id = "Q05.f"
+  polarity = "positive"
+  claim = "Client.call_tool with raise_on_error=True (default) raises fastmcp.exceptions.ToolError carrying the first TextContent text of an is_error result; with raise_on_error=False, or through call_tool_mcp, the is_error result is returned instead of raised."
+  source = ["client/mixins/tools.py:281-338", "client/mixins/tools.py:367-373", "client/mixins/tools.py:418-424", "client/mixins/tools.py:146-253"]
+  docs = ["clients/tools.mdx#Error Handling"]
+
+  [[question.item]]
+  id = "Q05.g"
+  polarity = "negative"
+  claim = "When a tool exceeds its timeout, the client receives a JSON-RPC/MCP protocol error with code -32000 (raised as MCPError)."
+  source = ["server/server.py:1544-1577"]
+  docs = ["servers/tools.mdx#Timeouts"]
+
+[[question]]
+id = "Q06"
+text = "Which calls reach a middleware's `on_call_tool`, in what order are middleware run, and what does `call_next` ultimately execute?"
+kind = "callbacks"
+operations = ["fastmcp.FastMCP.add_middleware", "fastmcp.server.middleware.Middleware.on_call_tool", "fastmcp.FastMCP.call_tool"]
+stage = 5
+
+  [[question.item]]
+  id = "Q06.a"
+  polarity = "positive"
+  claim = "A wire tools/call request reaches on_call_tool: the registered tools/call handler calls FastMCP.call_tool with its default run_middleware=True, which runs the middleware chain with method 'tools/call'."
+  source = ["server/mixins/mcp_operations.py:121", "server/mixins/mcp_operations.py:236-246", "server/server.py:1438-1473", "server/middleware/middleware.py:175-176"]
+
+  [[question.item]]
+  id = "Q06.b"
+  polarity = "positive"
+  claim = "A direct programmatic await mcp.call_tool(...) also runs the middleware chain unless run_middleware=False is passed."
+  source = ["server/server.py:1389-1396", "server/server.py:1438"]
+
+  [[question.item]]
+  id = "Q06.c"
+  polarity = "positive"
+  claim = "Calling a mounted child's tool through the parent runs the parent's chain and then the child's own chain, because FastMCPProviderTool._run calls child.call_tool(...) with the default run_middleware=True."
+  source = ["server/providers/fastmcp_provider.py:78-99"]
+  docs = ["servers/middleware.mdx#Server Composition"]
+
+  [[question.item]]
+  id = "Q06.d"
+  polarity = "positive"
+  claim = "The chain wraps self.middleware in reverse, so the first entry is outermost (first in, last out); constructor middleware come first, DereferenceRefsMiddleware is appended when dereference_schemas=True, and add_middleware() appends after it, so middleware added later runs inside DereferenceRefsMiddleware."
+  source = ["server/server.py:494", "server/server.py:502-507", "server/server.py:586-597", "server/server.py:623-624"]
+  docs = ["servers/middleware.mdx#Execution Order"]
+
+  [[question.item]]
+  id = "Q06.e"
+  polarity = "positive"
+  claim = "Within one Middleware instance a tools/call is handled as on_message -> on_request -> on_call_tool."
+  source = ["server/middleware/middleware.py:160-202"]
+  docs = ["servers/middleware.mdx#Hooks"]
+
+  [[question.item]]
+  id = "Q06.f"
+  polarity = "positive"
+  claim = "The innermost call_next is the registered extensions' tools/call interceptors (first-registered outermost) around self.call_tool(context.message.name, context.message.arguments or {}, version=<the original call's version>, run_middleware=False), i.e. tool lookup plus tool._run; rewriting context.message.name or arguments changes what runs, but the version is taken from the original call."
+  source = ["server/server.py:1463-1473", "server/server.py:678-696", "server/server.py:1479-1517"]
+
+  [[question.item]]
+  id = "Q06.g"
+  polarity = "negative"
+  claim = "Middleware added with add_middleware() after construction runs outside (before) the automatically added DereferenceRefsMiddleware."
+  source = ["server/server.py:502-507", "server/server.py:623-624"]
+
+[[question]]
+id = "Q07"
+text = "When does the `lifespan=` passed to `FastMCP` run, how many times, in what order relative to providers and extensions, and how does the value it yields reach a tool?"
+kind = "lifecycle"
+operations = ["fastmcp.FastMCP", "fastmcp.Context.lifespan_context"]
+stage = 5
+
+  [[question.item]]
+  id = "Q07.a"
+  polarity = "positive"
+  claim = "FastMCP() only stores the lifespan; it runs when _lifespan_manager is entered: by run_stdio_async or run_http_async, by the HTTP app's lifespan (the streamable-HTTP session manager through _lifespan_proxy, or the SSE app directly), or by an in-memory Client connection through FastMCPTransport."
+  source = ["server/server.py:427-434", "server/server.py:274-294", "server/mixins/transport.py:239", "server/mixins/transport.py:357", "server/http.py:525-528", "server/http.py:683-687", "client/transports/memory.py:87", "client/transports/memory.py:118-134"]
+
+  [[question.item]]
+  id = "Q07.b"
+  polarity = "positive"
+  claim = "_lifespan_manager is reference-counted: nested or concurrent entries reuse the running result, and when the count drops to 0 the cached result is cleared, so a later entry (e.g. a second, sequential in-memory Client connection) runs the lifespan again."
+  source = ["server/mixins/lifespan.py:168-187", "server/mixins/lifespan.py:213-222"]
+
+  [[question.item]]
+  id = "Q07.c"
+  polarity = "positive"
+  claim = "Entry order is: user lifespan, then SharedContext/server ContextVar setup, then extension lifespans in registration order, then each provider's lifespan in registration order (LocalProvider first; mounted servers via FastMCPProvider.lifespan), then task-extension validation; teardown runs in reverse through an AsyncExitStack shielded from cancellation."
+  source = ["server/mixins/lifespan.py:189-216", "server/server.py:364-368"]
+
+  [[question.item]]
+  id = "Q07.d"
+  polarity = "positive"
+  claim = "The user lifespan's yielded value is stored as FastMCP._lifespan_result and returned by Context.lifespan_context; when that is None, lifespan_context falls back to the request context's lifespan_context, or {} when there is no request context."
+  source = ["server/mixins/lifespan.py:195-200", "server/context.py:417-451"]
+  docs = ["servers/lifespan.mdx#Accessing Lifespan Context"]
+
+  [[question.item]]
+  id = "Q07.e"
+  polarity = "positive"
+  claim = "A Lifespan created with @lifespan turns a None yield into {}, and the default lifespan (no lifespan= given) yields {}."
+  source = ["server/lifespan.py:77-92", "server/server.py:261-271"]
+
+  [[question.item]]
+  id = "Q07.f"
+  polarity = "positive"
+  claim = "In a mounted child's tool, ctx.lifespan_context returns the child's own lifespan result, not the parent's: the child's lifespan runs inside the parent's provider lifespans via FastMCPProvider.lifespan and populates the child's _lifespan_result."
+  source = ["server/providers/fastmcp_provider.py:581-613", "server/context.py:418-442"]
+
+  [[question.item]]
+  id = "Q07.g"
+  polarity = "negative"
+  claim = "A server's lifespan runs exactly once per process, no matter how many times the server is started or how many clients connect one after another."
+  source = ["server/mixins/lifespan.py:218-222"]
+  docs = ["servers/lifespan.mdx"]
+
+[[question]]
+id = "Q08"
+text = "What protocol must code follow to use a `fastmcp.Client`: how is a connection opened and reused, what does `auto_initialize` do, what happens if a request is made before connecting, and what does `close()` do?"
+kind = "lifecycle"
+operations = ["fastmcp.Client", "fastmcp.Client.initialize", "fastmcp.Client.close"]
+stage = 5
+
+  [[question.item]]
+  id = "Q08.a"
+  polarity = "positive"
+  claim = "A connection is opened with async with client: __aenter__ calls _connect, which on first entry starts a background asyncio task running _session_runner and waits for its ready event."
+  source = ["client/client.py:948-952", "client/client.py:954-985", "client/client.py:1108-1131"]
+  docs = ["clients/client.mdx#Connection Lifecycle"]
+
+  [[question.item]]
+  id = "Q08.b"
+  polarity = "positive"
+  claim = "The client is reentrant: each successful _connect increments nesting_counter, each exit decrements it, and the session is stopped only when the counter reaches 0."
+  source = ["client/client.py:1048", "client/client.py:1066-1106"]
+
+  [[question.item]]
+  id = "Q08.c"
+  polarity = "positive"
+  claim = "With auto_initialize=True (default) the connection runs protocol negotiation on entry according to mode; negotiation exceeding init_timeout (default fastmcp.settings.client_init_timeout) raises RuntimeError('Failed to initialize server session'); with auto_initialize=False, initialize() must be called explicitly."
+  source = ["client/client.py:501-506", "client/client.py:827-831", "client/client.py:837-889", "client/client.py:891-946"]
+  docs = ["clients/client.mdx#Connection Lifecycle"]
+
+  [[question.item]]
+  id = "Q08.d"
+  polarity = "positive"
+  claim = "Making a request (e.g. call_tool or list_tools) before entering the client raises RuntimeError('Client is not connected. Use the 'async with client:' context manager first.') from the Client.session property."
+  source = ["client/client.py:650-658", "client/mixins/tools.py:204-224", "client/mixins/tools.py:71-74"]
+
+  [[question.item]]
+  id = "Q08.e"
+  polarity = "positive"
+  claim = "close() calls _disconnect(force=True), which resets the nesting counter to 0 and stops the session regardless of open async with blocks, and then closes the transport."
+  source = ["client/client.py:1363-1365", "client/client.py:1066-1070"]
+
+  [[question.item]]
+  id = "Q08.f"
+  polarity = "positive"
+  claim = "If the session fails to come up, _connect raises RuntimeError('Client failed to connect: ...') chained from the cause, except that httpx2.HTTPStatusError and MCPError are raised as-is."
+  source = ["client/client.py:235-248", "client/client.py:1027-1046"]
+
+  [[question.item]]
+  id = "Q08.g"
+  polarity = "negative"
+  claim = "Client connects in its constructor, or connects automatically on the first request made outside an async with block."
+  source = ["client/client.py:413-586", "client/client.py:650-658"]
+
+[[question]]
+id = "Q09"
+text = "Which `run`/`run_async`/`run_http_async`/`http_app` options conflict with, or are silently ignored by, each transport?"
+kind = "modes"
+operations = ["fastmcp.FastMCP.run", "fastmcp.FastMCP.run_async", "fastmcp.FastMCP.run_http_async", "fastmcp.FastMCP.http_app"]
+stage = 3
+
+  [[question.item]]
+  id = "Q09.a"
+  polarity = "positive"
+  claim = "With transport='stdio', run()/run_async() forward every extra keyword argument to run_stdio_async, which accepts only show_banner, log_level and stateless, so HTTP options such as host, port or path raise TypeError."
+  source = ["server/mixins/transport.py:94-98", "server/mixins/transport.py:215-220"]
+
+  [[question.item]]
+  id = "Q09.b"
+  polarity = "positive"
+  claim = "run_http_async raises ValueError('SSE transport does not support stateless mode') when transport='sse' and the resolved stateless_http is true, whether it came from stateless_http, the stateless alias, or FASTMCP_STATELESS_HTTP."
+  source = ["server/mixins/transport.py:299-309"]
+
+  [[question.item]]
+  id = "Q09.c"
+  polarity = "positive"
+  claim = "http_app(transport='sse') passes only message_path and sse_path (from settings or path), auth, debug and middleware to create_sse_app; json_response, stateless_http, event_store, retry_interval, host_origin_protection, allowed_hosts, allowed_origins and session_idle_timeout are silently ignored."
+  source = ["server/mixins/transport.py:459-467", "server/http.py:416-424"]
+  docs = ["deployment/http.mdx#SSE Polling for Long-Running Operations"]
+
+  [[question.item]]
+  id = "Q09.d"
+  polarity = "positive"
+  claim = "Host/Origin protection is never installed for SSE: HostOriginGuardMiddleware is added only by create_streamable_http_app, even when run_http_async(transport='sse', host_origin_protection=True) is used."
+  source = ["server/mixins/transport.py:313-337", "server/mixins/transport.py:459-467", "server/http.py:649-661"]
+  docs = ["deployment/http.mdx#Host and Origin Protection"]
+
+  [[question.item]]
+  id = "Q09.e"
+  polarity = "positive"
+  claim = "event_store, retry_interval and session_idle_timeout are parameters of http_app only; run_http_async does not accept them, so passing them to run()/run_async() raises TypeError (session_idle_timeout can still come from FASTMCP_HTTP_SESSION_IDLE_TIMEOUT)."
+  source = ["server/mixins/transport.py:258-275", "server/mixins/transport.py:372-385", "server/mixins/transport.py:453-457"]
+
+  [[question.item]]
+  id = "Q09.f"
+  polarity = "positive"
+  claim = "Putting host or port inside run_http_async's uvicorn_config raises TypeError (multiple values for a keyword argument), because host= and port= are passed to uvicorn.Config explicitly alongside **config_kwargs."
+  source = ["server/mixins/transport.py:344-358"]
+
+  [[question.item]]
+  id = "Q09.g"
+  polarity = "negative"
+  claim = "http_app(transport='sse', stateless_http=True) raises ValueError (only run_http_async performs that check)."
+  source = ["server/mixins/transport.py:307-309", "server/mixins/transport.py:417-469"]
+
+[[question]]
+id = "Q10"
+text = "Which accepted parameters or settings have no effect, or only a conditional effect, in FastMCP 4.0.5?"
+kind = "inert"
+operations = ["fastmcp.FastMCP.run_stdio_async", "fastmcp.FastMCP", "fastmcp.Client", "fastmcp.FastMCP.tool"]
+stage = 2
+
+  [[question.item]]
+  id = "Q10.a"
+  polarity = "positive"
+  claim = "run_stdio_async(stateless=...) only changes the startup log message (appends ' (stateless)'); it is not passed to the low-level server's run() or its initialization options."
+  source = ["server/mixins/transport.py:241-254"]
+
+  [[question.item]]
+  id = "Q10.b"
+  polarity = "negative"
+  claim = "run_stdio_async(stateless=True) runs the stdio server without session initialization (as its docstring suggests)."
+  source = ["server/mixins/transport.py:226", "server/mixins/transport.py:241-254"]
+
+  [[question.item]]
+  id = "Q10.c"
+  polarity = "positive"
+  claim = "FastMCP(**kwargs) is accepted only to reject it: removed option names (e.g. host, port, sse_path, json_response, stateless_http, debug, log_level, on_duplicate_tools, tool_serializer, include_tags) raise TypeError with a migration hint, and any other unknown keyword raises TypeError."
+  source = ["server/server.py:185-217", "server/server.py:337-339"]
+
+  [[question.item]]
+  id = "Q10.d"
+  polarity = "positive"
+  claim = "Client(prior_discover=...) is used only when mode is a pinned modern protocol version (session.adopt(prior_discover or a synthesized DiscoverResult)); with mode='auto' or 'legacy' it is ignored."
+  source = ["client/client.py:319-320", "client/client.py:461", "client/client.py:870-887"]
+
+  [[question.item]]
+  id = "Q10.e"
+  polarity = "positive"
+  claim = "Client(sampling_capabilities=...) takes effect only when sampling_handler is also given; otherwise it is never placed in the session kwargs."
+  source = ["client/client.py:566-574"]
+
+  [[question.item]]
+  id = "Q10.f"
+  polarity = "positive"
+  claim = "Client(name=...) is used only as a prefix in FastMCP's log and error messages; it is not sent to the server (the identity sent is the separate client_info argument)."
+  source = ["client/client.py:446", "client/client.py:559", "client/mixins/tools.py:63", "client/mixins/tools.py:184", "client/mixins/resources.py:243"]
+
+  [[question.item]]
+  id = "Q10.g"
+  polarity = "positive"
+  claim = "The tool option run_in_thread is ignored for async tool functions, which always run on the event loop."
+  source = ["tools/function_tool.py:474-476", "server/dependencies.py:716-717"]
+  docs = ["servers/tools.mdx#Decorator Arguments"]
+
+[[question]]
+id = "Q11"
+text = "Does a synchronous tool, resource, resource template or prompt function block the event loop, and how is a tool's `timeout` enforced?"
+kind = "execution"
+operations = ["fastmcp.FastMCP.tool", "fastmcp.FastMCP.resource", "fastmcp.FastMCP.prompt"]
+stage = 5
+
+  [[question.item]]
+  id = "Q11.a"
+  polarity = "positive"
+  claim = "A sync tool with run_in_thread=True (default) runs in a worker thread via anyio.to_thread.run_sync: argument validation plus the body when no parameters are injected, or the body inside the dependency-resolving wrapper when Context/Depends parameters are present."
+  source = ["tools/function_tool.py:381-388", "tools/function_tool.py:474-481", "server/dependencies.py:714-724", "utilities/async_utils.py:26-34"]
+  docs = ["servers/tools.mdx#Async Support"]
+
+  [[question.item]]
+  id = "Q11.b"
+  polarity = "positive"
+  claim = "With run_in_thread=False a sync tool is called inline on the event-loop thread, blocking it for the duration of the call."
+  source = ["tools/function_tool.py:482-483", "server/dependencies.py:725-730"]
+  docs = ["servers/tools.mdx#Thread affinity"]
+
+  [[question.item]]
+  id = "Q11.c"
+  polarity = "positive"
+  claim = "A tool timeout wraps argument validation and execution (including generator materialization) in anyio.fail_after(timeout); on TimeoutError FastMCP logs a warning and raises MCPError(code=-32000)."
+  source = ["tools/function_tool.py:405-430", "tools/function_tool.py:485-490"]
+  docs = ["servers/tools.mdx#Timeouts"]
+
+  [[question.item]]
+  id = "Q11.d"
+  polarity = "positive"
+  claim = "A sync static resource function (FunctionResource.read) is always dispatched to the threadpool; there is no option to run it inline."
+  source = ["resources/function_resource.py:201-214", "server/server.py:1994-2010"]
+
+  [[question.item]]
+  id = "Q11.e"
+  polarity = "positive"
+  claim = "A sync prompt function (FunctionPrompt.render) is always dispatched to the threadpool; there is no option to run it inline."
+  source = ["prompts/function_prompt.py:345-356", "server/server.py:2154-2165"]
+
+  [[question.item]]
+  id = "Q11.f"
+  polarity = "positive"
+  claim = "A sync resource-template function with no injected parameters runs inline on the event loop: FunctionResourceTemplate.read calls self.fn(**kwargs) directly, and self.fn is validate_call over the unchanged sync function because without_injected_parameters returns it as-is when nothing is injected."
+  source = ["resources/template.py:357-365", "resources/template.py:420-424", "resources/template.py:546-554", "server/dependencies.py:701-702"]
+
+  [[question.item]]
+  id = "Q11.g"
+  polarity = "negative"
+  claim = "@mcp.resource and @mcp.prompt accept run_in_thread to choose between inline and threadpool execution."
+  source = ["server/server.py:1994-2010", "server/server.py:2154-2165"]
+
+[[question]]
+id = "Q12"
+text = "For a `tools/call` request naming tool N, which function actually runs, and what makes a registered tool come back as 'Unknown tool'?"
+kind = "dispatch"
+operations = ["fastmcp.FastMCP.call_tool", "fastmcp.FastMCP.get_tool", "fastmcp.Client.call_tool"]
+stage = 5
+
+  [[question.item]]
+  id = "Q12.a"
+  polarity = "positive"
+  claim = "The tools/call handler calls FastMCP.call_tool(N, arguments, version=...), where the version comes from the request _meta 'fastmcp' -> 'version' (which Client.call_tool(version=...) sets), not from the tool arguments."
+  source = ["server/mixins/mcp_operations.py:88-93", "server/mixins/mcp_operations.py:236-246", "client/mixins/tools.py:321-327"]
+
+  [[question.item]]
+  id = "Q12.b"
+  polarity = "positive"
+  claim = "Resolution goes through FastMCP.get_tool: server-level transforms wrap an auth-checked AggregateProvider lookup that queries every provider's get_tool concurrently and returns the highest version; ties (e.g. two unversioned tools) go to the provider registered first, and the LocalProvider is always registered first."
+  source = ["server/server.py:942-994", "server/server.py:911-940", "server/providers/base.py:158-185", "server/providers/aggregate.py:156-181", "server/providers/aggregate.py:198-206", "server/server.py:359-368"]
+  docs = ["servers/composition.mdx#Conflict Resolution"]
+
+  [[question.item]]
+  id = "Q12.c"
+  polarity = "positive"
+  claim = "If the highest version is disabled after session transforms and no explicit version was requested, get_tool falls back to the highest enabled and authorized version; with an explicit version it returns None."
+  source = ["server/server.py:961-994"]
+
+  [[question.item]]
+  id = "Q12.d"
+  polarity = "positive"
+  claim = "When the tool has auth checks and the transport is not stdio, the checks run against the request's access token (None if unauthenticated); a False result or an AuthorizationError makes the tool resolve to None. Over stdio, component auth checks are skipped."
+  source = ["server/server.py:228-244", "server/server.py:930-938"]
+
+  [[question.item]]
+  id = "Q12.e"
+  polarity = "positive"
+  claim = "A provider whose get_tool raises anything other than NotFoundError is logged and skipped, because FastMCP never overrides AggregateProvider's default provider_error_strategy='warn'."
+  source = ["server/providers/aggregate.py:71-88", "server/providers/aggregate.py:166-176", "server/server.py:342"]
+
+  [[question.item]]
+  id = "Q12.f"
+  polarity = "positive"
+  claim = "An unresolved name raises NotFoundError('Unknown tool: ...') in FastMCP.call_tool, and the tools/call handler turns it into a CallToolResult with is_error=True and the text Unknown tool: 'N', not a JSON-RPC error."
+  source = ["server/server.py:1513-1514", "server/mixins/mcp_operations.py:245-258"]
+
+  [[question.item]]
+  id = "Q12.g"
+  polarity = "negative"
+  claim = "Providers are consulted in registration order and the first one returning a match wins, even when a later provider has a higher version (the add_provider docstring says so, but the lookup takes the highest version)."
+  source = ["server/providers/aggregate.py:156-181", "server/providers/aggregate.py:198-206", "server/server.py:698-712"]
+  docs = ["servers/composition.mdx#Conflict Resolution"]
+
+# ---------------------------------------------------------------------------
+# B. Stage-1 controls and handoffs (Q13-Q20)
+# ---------------------------------------------------------------------------
+
+[[question]]
+id = "Q13"
+text = "For `fastmcp.Client.call_tool(name, arguments, *, version, timeout, progress_handler, raise_on_error, meta)`, where does each parameter go?"
+kind = "controls"
+operations = ["fastmcp.Client.call_tool"]
+stage = 1
+
+  [[question.item]]
+  id = "Q13.a"
+  polarity = "positive"
+  claim = "arguments is replaced by {} when None and then passed unchanged (via call_tool_mcp) to ClientSession.call_tool's arguments parameter."
+  source = ["client/mixins/tools.py:329-335", "client/mixins/tools.py:212-214"]
+
+  [[question.item]]
+  id = "Q13.b"
+  polarity = "positive"
+  claim = "version is not sent as an argument: it is merged into the request meta as meta['fastmcp']['version'], preserving other keys under meta['fastmcp']."
+  source = ["client/mixins/tools.py:321-327"]
+
+  [[question.item]]
+  id = "Q13.c"
+  polarity = "positive"
+  claim = "timeout is transformed by normalize_timeout_to_seconds (timedelta to seconds, 0 to None) and passed as ClientSession.call_tool's read_timeout_seconds."
+  source = ["client/mixins/tools.py:195", "client/mixins/tools.py:215", "utilities/timeout.py:28-47"]
+  docs = ["clients/tools.mdx#Execution Options"]
+
+  [[question.item]]
+  id = "Q13.d"
+  polarity = "positive"
+  claim = "progress_handler falls back to the Client's constructor progress_handler (default default_progress_handler) and is passed as ClientSession.call_tool's progress_callback."
+  source = ["client/mixins/tools.py:196", "client/mixins/tools.py:216", "client/client.py:493-496"]
+
+  [[question.item]]
+  id = "Q13.e"
+  polarity = "positive"
+  claim = "meta (with any version merged in; an empty dict becomes None) passes through inject_trace_context and is sent as ClientSession.call_tool's meta."
+  source = ["client/mixins/tools.py:322", "client/mixins/tools.py:334", "client/mixins/tools.py:189-193", "client/mixins/tools.py:217"]
+  docs = ["clients/tools.mdx#Sending Metadata"]
+
+  [[question.item]]
+  id = "Q13.f"
+  polarity = "positive"
+  claim = "raise_on_error is never sent to the server; it is only used when parsing the result, where True makes an is_error result raise fastmcp.exceptions.ToolError."
+  source = ["client/mixins/tools.py:336-338", "client/mixins/tools.py:367-373"]
+  docs = ["clients/tools.mdx#Error Handling"]
+
+  [[question.item]]
+  id = "Q13.g"
+  polarity = "negative"
+  claim = "raise_on_error=False also suppresses protocol or transport errors such as MCPError or request timeouts."
+  source = ["client/mixins/tools.py:281-338"]
+
+[[question]]
+id = "Q14"
+text = "For `FastMCP.run_http_async(...)`, which parameters are forwarded to `http_app`, which to uvicorn, and which fall back to settings?"
+kind = "controls"
+operations = ["fastmcp.FastMCP.run_http_async"]
+stage = 1
+
+  [[question.item]]
+  id = "Q14.a"
+  polarity = "positive"
+  claim = "host and port fall back to fastmcp.settings.host and fastmcp.settings.port when None and are passed to uvicorn.Config(host=..., port=...)."
+  source = ["server/mixins/transport.py:311-312", "server/mixins/transport.py:358"]
+
+  [[question.item]]
+  id = "Q14.b"
+  polarity = "positive"
+  claim = "path, transport, middleware, json_response and allowed_origins are passed unchanged to http_app (a None json_response is resolved to settings.json_response inside http_app)."
+  source = ["server/mixins/transport.py:328-337", "server/mixins/transport.py:426-430"]
+
+  [[question.item]]
+  id = "Q14.c"
+  polarity = "positive"
+  claim = "stateless_http is resolved before forwarding: the stateless alias is used only when stateless_http is None, then None falls back to fastmcp.settings.stateless_http, and the resolved value is passed as http_app(stateless_http=...)."
+  source = ["server/mixins/transport.py:299-305", "server/mixins/transport.py:333"]
+
+  [[question.item]]
+  id = "Q14.d"
+  polarity = "positive"
+  claim = "host_origin_protection falls back to settings.http_host_origin_protection; allowed_hosts, when None, becomes settings.http_allowed_hosts with the bind host appended if protection is 'auto' and the host is loopback; both resolved values go to http_app."
+  source = ["server/mixins/transport.py:52-65", "server/mixins/transport.py:313-323", "server/mixins/transport.py:334-335"]
+  docs = ["deployment/http.mdx#Host and Origin Protection"]
+
+  [[question.item]]
+  id = "Q14.e"
+  polarity = "positive"
+  claim = "uvicorn_config is merged over the defaults timeout_graceful_shutdown=2, lifespan='on' and ws='websockets-sansio' and passed as keyword arguments to uvicorn.Config."
+  source = ["server/mixins/transport.py:344-351", "server/mixins/transport.py:358"]
+
+  [[question.item]]
+  id = "Q14.f"
+  polarity = "positive"
+  claim = "log_level sets FastMCP's temporary log level and, lowercased (falling back to settings.log_level), becomes uvicorn's log_level unless uvicorn_config already contains log_config or log_level."
+  source = ["server/mixins/transport.py:324-326", "server/mixins/transport.py:353-356"]
+
+  [[question.item]]
+  id = "Q14.g"
+  polarity = "positive"
+  claim = "show_banner only controls whether the startup banner is displayed (log_server_banner); it is not forwarded to http_app or uvicorn."
+  source = ["server/mixins/transport.py:339-343"]
+
+[[question]]
+id = "Q15"
+text = "For the `fastmcp.Client(...)` constructor, which arguments reach the transport, which become ClientSession kwargs, which are replaced by defaults or settings, and which are only used for logging?"
+kind = "controls"
+operations = ["fastmcp.Client"]
+stage = 1
+
+  [[question.item]]
+  id = "Q15.a"
+  polarity = "positive"
+  claim = "transport is converted by infer_transport: a ClientTransport is used as-is, a FastMCP or SDK server becomes FastMCPTransport, a .py/.js Path a stdio transport, an http(s) URL a StreamableHttpTransport (SSETransport for SSE URLs), and an MCPConfig or dict an MCPConfigTransport."
+  source = ["client/client.py:463", "client/transports/inference.py:141-190"]
+  docs = ["clients/client.mdx#Choosing a Transport"]
+
+  [[question.item]]
+  id = "Q15.b"
+  polarity = "positive"
+  claim = "timeout is normalized to seconds (0 becomes None) and stored as the session kwarg read_timeout_seconds."
+  source = ["client/client.py:498-499", "client/client.py:558", "utilities/timeout.py:28-47"]
+
+  [[question.item]]
+  id = "Q15.c"
+  polarity = "positive"
+  claim = "init_timeout=None is replaced by fastmcp.settings.client_init_timeout, normalized, and used as the anyio.fail_after bound of connect-time negotiation."
+  source = ["client/client.py:501-504", "client/client.py:857-858", "client/client.py:870-871"]
+
+  [[question.item]]
+  id = "Q15.d"
+  polarity = "positive"
+  claim = "log_handler (default default_log_handler) is wrapped by create_log_callback into the session kwarg logging_callback, and the session kwarg log_level is always the literal 'debug'."
+  source = ["client/client.py:490-491", "client/client.py:545-561"]
+
+  [[question.item]]
+  id = "Q15.e"
+  polarity = "positive"
+  claim = "verify is assigned to transport.verify when the transport is a StreamableHttpTransport or SSETransport, and raises ValueError for any other transport."
+  source = ["client/client.py:465-485"]
+  docs = ["clients/transports.mdx#SSL Verification"]
+
+  [[question.item]]
+  id = "Q15.f"
+  polarity = "positive"
+  claim = "progress_handler is not a session kwarg: it is stored on the client (default default_progress_handler) and used as the per-call fallback progress_callback."
+  source = ["client/client.py:493-496", "client/mixins/tools.py:196"]
+
+  [[question.item]]
+  id = "Q15.g"
+  polarity = "positive"
+  claim = "name (default a generated 'Client-<hex>') is only used as a prefix in log and error messages."
+  source = ["client/client.py:446", "client/client.py:1491-1497", "client/mixins/tools.py:63", "client/mixins/tools.py:184"]
+
+[[question]]
+id = "Q16"
+text = "What does `FastMCP.from_openapi(...)` forward to the OpenAPIProvider and what to the FastMCP constructor?"
+kind = "controls"
+operations = ["fastmcp.FastMCP.from_openapi"]
+stage = 1
+
+  [[question.item]]
+  id = "Q16.a"
+  polarity = "positive"
+  claim = "openapi_spec, client, route_maps, route_map_fn, mcp_component_fn, mcp_names, tags and validate_output are passed unchanged to OpenAPIProvider(...)."
+  source = ["server/server.py:2439-2450"]
+  docs = ["integrations/openapi.mdx#Create a Server"]
+
+  [[question.item]]
+  id = "Q16.b"
+  polarity = "positive"
+  claim = "name (default 'OpenAPI Server') is passed to the FastMCP constructor as name."
+  source = ["server/server.py:2405", "server/server.py:2451"]
+
+  [[question.item]]
+  id = "Q16.c"
+  polarity = "positive"
+  claim = "The OpenAPIProvider is installed through the constructor as providers=[provider]."
+  source = ["server/server.py:2451"]
+
+  [[question.item]]
+  id = "Q16.d"
+  polarity = "positive"
+  claim = "**settings are passed to the FastMCP constructor, so an unsupported or removed keyword raises TypeError there."
+  source = ["server/server.py:2412", "server/server.py:2451", "server/server.py:207-217", "server/server.py:339"]
+
+  [[question.item]]
+  id = "Q16.e"
+  polarity = "positive"
+  claim = "With client=None, OpenAPIProvider creates httpx2.AsyncClient(base_url=<the first servers[] url with variable defaults substituted>, timeout=30.0), and raises ValueError when the spec has no server URL."
+  source = ["server/providers/openapi/provider.py:50", "server/providers/openapi/provider.py:115-117", "server/providers/openapi/provider.py:189-201"]
+
+  [[question.item]]
+  id = "Q16.f"
+  polarity = "positive"
+  claim = "Only an auto-created client is closed by the provider's lifespan; a caller-supplied client is left open."
+  source = ["server/providers/openapi/provider.py:115", "server/providers/openapi/provider.py:203-210"]
+
+  [[question.item]]
+  id = "Q16.g"
+  polarity = "negative"
+  claim = "from_openapi's **settings are forwarded to OpenAPIProvider."
+  source = ["server/server.py:2441-2451"]
+
+[[question]]
+id = "Q17"
+text = "For `fastmcp.Client.read_resource(uri, *, version, meta)`, how is each parameter transformed and forwarded, what is returned, and how does a missing resource surface?"
+kind = "controls"
+operations = ["fastmcp.Client.read_resource"]
+stage = 1
+
+  [[question.item]]
+  id = "Q17.a"
+  polarity = "positive"
+  claim = "A str uri is converted with AnyUrl(uri); if that fails read_resource raises ValueError('Provided resource URI is invalid: ...')."
+  source = ["client/mixins/resources.py:297-303"]
+
+  [[question.item]]
+  id = "Q17.b"
+  polarity = "positive"
+  claim = "version is merged into the request meta as meta['fastmcp']['version'], not into the URI."
+  source = ["client/mixins/resources.py:289-295"]
+  docs = ["clients/resources.mdx#Version Selection"]
+
+  [[question.item]]
+  id = "Q17.c"
+  polarity = "positive"
+  claim = "meta (with any version merged in; an empty dict becomes None) is passed to read_resource_mcp, which runs it through inject_trace_context and sends it as ClientSession.read_resource's meta."
+  source = ["client/mixins/resources.py:290", "client/mixins/resources.py:304", "client/mixins/resources.py:245-255"]
+
+  [[question.item]]
+  id = "Q17.d"
+  polarity = "positive"
+  claim = "The URI is sent to ClientSession.read_resource as str(uri), i.e. the AnyUrl-normalized form."
+  source = ["client/mixins/resources.py:232-235", "client/mixins/resources.py:253-254"]
+
+  [[question.item]]
+  id = "Q17.e"
+  polarity = "positive"
+  claim = "Only result.contents (a list of TextResourceContents/BlobResourceContents) is returned; the rest of the ReadResourceResult is dropped (read_resource_mcp returns the full result)."
+  source = ["client/mixins/resources.py:304-305", "client/mixins/resources.py:215-265"]
+  docs = ["clients/resources.mdx#Raw Protocol Access"]
+
+  [[question.item]]
+  id = "Q17.f"
+  polarity = "positive"
+  claim = "Against a FastMCP server, an unknown or disabled URI surfaces as an MCPError with code INVALID_PARAMS ('Resource not found: ...') raised from the call, not as an empty list or an is_error result."
+  source = ["server/mixins/mcp_operations.py:308-317"]
+
+  [[question.item]]
+  id = "Q17.g"
+  polarity = "negative"
+  claim = "read_resource accepts timeout or raise_on_error parameters like call_tool."
+  source = ["client/mixins/resources.py:267-273"]
+
+[[question]]
+id = "Q18"
+text = "For `FastMCP.run_async(transport=None, show_banner=None, **transport_kwargs)`, how are the arguments resolved and where are they sent?"
+kind = "controls"
+operations = ["fastmcp.FastMCP.run_async"]
+stage = 1
+
+  [[question.item]]
+  id = "Q18.a"
+  polarity = "positive"
+  claim = "show_banner=None is replaced by fastmcp.settings.show_server_banner."
+  source = ["server/mixins/transport.py:87-88"]
+  docs = ["more/settings.mdx#CLI & Display"]
+
+  [[question.item]]
+  id = "Q18.b"
+  polarity = "positive"
+  claim = "transport=None is replaced by fastmcp.settings.transport (default 'stdio')."
+  source = ["server/mixins/transport.py:89-90", "settings.py:194"]
+
+  [[question.item]]
+  id = "Q18.c"
+  polarity = "positive"
+  claim = "A transport outside {'stdio', 'http', 'sse', 'streamable-http'} raises ValueError('Unknown transport: ...')."
+  source = ["server/mixins/transport.py:91-92"]
+
+  [[question.item]]
+  id = "Q18.d"
+  polarity = "positive"
+  claim = "transport='stdio' calls run_stdio_async(show_banner=show_banner, **transport_kwargs)."
+  source = ["server/mixins/transport.py:94-98"]
+
+  [[question.item]]
+  id = "Q18.e"
+  polarity = "positive"
+  claim = "transport 'http', 'sse' or 'streamable-http' calls run_http_async(transport=transport, show_banner=show_banner, **transport_kwargs)."
+  source = ["server/mixins/transport.py:99-104"]
+
+  [[question.item]]
+  id = "Q18.f"
+  polarity = "negative"
+  claim = "run_async silently drops transport_kwargs that the selected transport does not accept."
+  source = ["server/mixins/transport.py:94-104", "server/mixins/transport.py:215-220", "server/mixins/transport.py:258-275"]
+
+[[question]]
+id = "Q19"
+text = "In FastMCP's official docs, which public operation's return value is passed directly into `fastmcp.Client(...)` for in-memory use and testing, and what does the client do with it?"
+kind = "handoff"
+operations = ["fastmcp.FastMCP", "fastmcp.Client"]
+stage = 1
+
+  [[question.item]]
+  id = "Q19.a"
+  polarity = "positive"
+  claim = "The docs pass the instance returned by FastMCP(...) directly as Client's first (transport) argument, e.g. client = Client(mcp) and async with Client(mcp) as client."
+  source = ["client/client.py:413-424", "client/client.py:463"]
+  docs = ["clients/transports.mdx#In-Memory Transport", "clients/client.mdx#Connection Lifecycle", "servers/testing.mdx"]
+
+  [[question.item]]
+  id = "Q19.b"
+  polarity = "positive"
+  claim = "infer_transport wraps the FastMCP instance in FastMCPTransport(mcp=...)."
+  source = ["client/transports/inference.py:145-149"]
+
+  [[question.item]]
+  id = "Q19.c"
+  polarity = "positive"
+  claim = "On connect, FastMCPTransport enters the server's _lifespan_manager and runs the server's low-level MCP server over in-memory streams in the same process (raise_exceptions defaults to False)."
+  source = ["client/transports/memory.py:47-55", "client/transports/memory.py:86-104", "client/transports/memory.py:118-134"]
+
+  [[question.item]]
+  id = "Q19.d"
+  polarity = "negative"
+  claim = "Client(mcp) starts the server over HTTP or in a stdio subprocess."
+  source = ["client/transports/memory.py:57-104"]
+
+[[question]]
+id = "Q20"
+text = "In FastMCP's official docs, which public operation's return value is passed directly as `FastMCP(lifespan=...)`, and how does FastMCP use it?"
+kind = "handoff"
+operations = ["fastmcp.server.lifespan.lifespan", "fastmcp.FastMCP"]
+stage = 1
+
+  [[question.item]]
+  id = "Q20.a"
+  polarity = "positive"
+  claim = "The docs pass the Lifespan returned by the @lifespan decorator (fastmcp.server.lifespan.lifespan) directly as FastMCP(lifespan=...)."
+  source = ["server/lifespan.py:176-202", "server/server.py:322"]
+  docs = ["servers/lifespan.mdx#Basic Usage"]
+
+  [[question.item]]
+  id = "Q20.b"
+  polarity = "positive"
+  claim = "The docs also pass the | composition of two Lifespans (a ComposedLifespan) as FastMCP(lifespan=...); it enters the left then the right lifespan and yields the shallow merge {**left, **right}, so later keys win."
+  source = ["server/lifespan.py:94-111", "server/lifespan.py:141-173"]
+  docs = ["servers/lifespan.mdx#Composing Lifespans"]
+
+  [[question.item]]
+  id = "Q20.c"
+  polarity = "positive"
+  claim = "FastMCP stores the Lifespan unchanged as _lifespan and calls it with the server instance inside _lifespan_manager."
+  source = ["server/server.py:427-431", "server/mixins/lifespan.py:195"]
+
+  [[question.item]]
+  id = "Q20.d"
+  polarity = "positive"
+  claim = "A plain @asynccontextmanager function may also be passed directly as FastMCP(lifespan=...), but composing it with | requires wrapping it in ContextManagerLifespan: Lifespan.__or__ raises TypeError for a non-Lifespan operand."
+  source = ["server/lifespan.py:106-110", "server/lifespan.py:114-138"]
+  docs = ["servers/lifespan.mdx#Backwards Compatibility"]
+
+  [[question.item]]
+  id = "Q20.e"
+  polarity = "negative"
+  claim = "A @lifespan function can be combined with a plain @asynccontextmanager function using | without wrapping."
+  source = ["server/lifespan.py:106-110"]
+  docs = ["servers/lifespan.mdx#Backwards Compatibility"]

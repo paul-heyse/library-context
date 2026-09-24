@@ -1,0 +1,19 @@
+# Deviations and judgment calls: the behavioral-model plan
+
+The operator's instruction (2026-09-24): "Please proceed to implement the entirety of the plan in
+docs/plans/behavioral-model-pivot-plan_2026-09-24.md".
+
+This log records the decisions the plan asked the operator to make, and every judgment call made
+while implementing it.
+- Entries are append-only and numbered B1, B2, … so they cannot be confused with the plan's
+  decisions D-1 to D-9 or the review's findings F1 to F14.
+- The log is evidence for the operator's review, not authority. The decisions it records live in
+  ADRs and in DESIGN.
+
+| # | Date | Stage | Planned (design or plan) | Done | Why | Reverse by |
+|---|---|---|---|---|---|---|
+| B1 | 2026-09-24 | 0.2 | Plan §4: the operator decides D-1 to D-9 before Stage 0's ADRs | **Every decision takes the plan's recommendation.** D-1: supersede ADR-0004. D-2: a time-boxed `ty_python_core` spike, falling back to our own CFG. D-3: the runtime view. D-4: pyarrow over materialized rows. D-5: closed atoms and five verdicts. D-6: keep a curated subset of briefs. D-7: Stage 3.1's models list. D-8: continue R2 and Phase 3, pause Phase 4's deletion exit and Phase 5 B3/B6. D-9: declared extra families | The operator asked for "the entirety of the plan", and the plan states one recommendation per decision. No option was chosen that the plan did not recommend | Any decision can be revisited by amending the ADR that records it (Stage 0.3) |
+| B2 | 2026-09-24 | 0.1 | Stage 0.1: read the `.snap.new`, accept it, run `just test-all`, then commit R2 | The operator had already committed the R2 fixes, the review, the plan and the pivot document together (`8d4c442`, "commit before behavioral plan implementation"). Stage 0.1 reduced to verifying that baseline: `just test-all` **passed** (nextest 217/217, pytest 63, rule tests, deps, gold); `just pilot` **passed** (snapshot `39cc8ce5`, generation `4a6b3d55`, 32.2 s, smoke 20/20) | The snapshot the R2 rule needed was already in the committed tree | — |
+| B3 | 2026-09-24 | 0.5 | Stage 0.5: the question set is written from library source and docs before any Stage 1 output is read | A research subagent wrote `eval/behavior/fastmcp-4.0.5.toml`. It was restricted to the installed FastMCP source and the fetched docs, and barred from `.claude/`, the store and the generations. It was given the names of the 20 operations that have briefs, so that the Stage 1 questions ask about operations without one | Stage 1's exit criterion concerns operations with no brief. Knowing *which* operations have briefs selects questions; it does not inform any target's content | Rewrite the Stage 1 questions without the list |
+| B4 | 2026-09-24 | 0.5 | Stage 0.5: targets written from library source and docs | The question-set subagent also **ran** a probe script against the installed FastMCP 4.0.5 to confirm nine claims: a sync resource template runs on the event loop; a tool timeout is masked; `tasks=True` is ignored by `add_tool` and by `tools=[...]`; the lifespan reruns for a sequential client; the middleware order; `run_async(transport="stdio", host=...)` raises `TypeError`; the SSE app has no Host/Origin guard; a parent's masking does not cover a mounted child; `uvicorn.Config` refuses a duplicate `host`. The set is 20 questions and 134 items, every citation checked | Executing the library is evidence about the library, not compiler output, so pre-registration holds. It caught four places where the docs disagree with the 4.0.5 source; those became negative items | — |
+| B5 | 2026-09-24 | 0.5 | Review §5 journey b and Appendix B Q4: `mounted_components_raise_on_load_error` is never read | **Corrected** by an erratum appended to the review: `fastmcp_tasks/lifespan.py:58` reads it. The journey had searched only the `fastmcp` package. Q04.f carries the correct fact | Found while verifying the pre-registered targets | — |

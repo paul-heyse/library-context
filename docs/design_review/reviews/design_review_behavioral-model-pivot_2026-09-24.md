@@ -908,3 +908,24 @@ or abstract. I did not re-read these sources myself.
     Embedding, arXiv:2506.05176 (the results table read); Li et al., CoIR, ACL 2025,
     arXiv:2407.02883 (abstract). No study found measures embedding **serialized program facts**,
     so the pivot's facts view is Proposed.
+
+---
+
+## Erratum (2026-09-24, while pre-registering `eval/behavior/fastmcp-4.0.5.toml`)
+
+**§5 journey b is corrected.** `mounted_components_raise_on_load_error` **is read** by the release:
+- the read is in `fastmcp_tasks/lifespan.py:58`
+  (`if fastmcp.settings.mounted_components_raise_on_load_error:`);
+- `fastmcp_tasks` is the release's third distribution (§1.4).
+
+The journey searched only the `fastmcp` package. Only `server_dependencies` has no attribute load
+anywhere in the release.
+
+**Appendix B's Q4 inherited the error.** The pre-registered item Q04.f states the correct fact.
+
+The journey's point stands, and the correction strengthens it. "Never read" is a negative claim
+about the whole release, and it is unsafe in two ways:
+- a search scoped too narrowly misses real reads;
+- `Settings.get_setting(name)` can read any setting by string.
+
+That is F3's completeness premise at work.
