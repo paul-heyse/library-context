@@ -16,7 +16,7 @@ use cpg_schema::codebook::{
 use cpg_schema::findings::{
     AnalysisInvocationsRow, FindingMembersRow, FindingsRow, WitnessesRow, recipe as findings,
 };
-use cpg_schema::id::{Digest, Id, content_digest, recipe};
+use cpg_schema::id::{Digest, Id, IdHasher, content_digest, recipe};
 use cpg_schema::projection::{self, ProjectionSpec, schemas};
 use cpg_schema::tables::{ProducersRow, RunsRow};
 use datafusion::prelude::SessionContext;
@@ -46,11 +46,13 @@ pub struct Analysis {
 
 /// The analytics techniques a compile runs (DESIGN §9.8; slices 3.2, 3.3). The default is the
 /// kept set: since the keep rule (ADR-0020), Passes A–C, direct usage and selection only, every
-/// technique here off. A variant adds or removes techniques by name (`+communities,+fca`), and
-/// its label joins the compiler run's config digest, so a variant's snapshot never shares a
-/// content digest with the default's. Finding and assertion ids do not depend on it, so ablation
-/// diffs are joins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// technique here off. A variant adds or removes techniques by name (`+communities,+fca`). The
+/// whole set, not its difference from the default, joins the compiler run's config digest
+/// ([`variant_config_digest`]; the ADR-0020 review's F3), so two technique sets never share a run
+/// or a content digest, whatever the default. Finding and assertion ids do not depend on it, so
+/// ablation diffs are joins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Techniques {
     pub communities: bool,
     /// Delegation PageRank orders seeds and Related instead of direct usage (§9.5; the
@@ -104,22 +106,42 @@ impl Techniques {
         if !out.communities && (out.type_layer || out.mention_layer || out.knn_layer) {
             return Err("a community layer needs communities".to_owned());
         }
+        // RCA adds attributes to FCA's context; without FCA it does nothing (ADR-0020 review F8).
+        if out.rca && !out.fca {
+            return Err("rca needs fca".to_owned());
+        }
         Ok(out)
     }
 
-    /// The canonical changes from the default (`+rca,-knn`), or `None` for the default.
-    pub fn label(&self) -> Option<String> {
-        let mut default = Techniques::default();
+    /// The techniques that are on, in declaration order (`communities,fca`), or `none`.
+    pub fn label(&self) -> String {
         let mut this = *self;
-        let changes: Vec<String> = this
+        let on: Vec<&str> = this
             .flags()
             .into_iter()
-            .zip(default.flags())
-            .filter(|((_, a), (_, b))| **a != **b)
-            .map(|((n, a), _)| format!("{}{n}", if *a { "+" } else { "-" }))
+            .filter(|(_, on)| **on)
+            .map(|(n, _)| n)
             .collect();
-        (!changes.is_empty()).then(|| changes.join(","))
+        if on.is_empty() {
+            "none".to_owned()
+        } else {
+            on.join(",")
+        }
     }
+
+    /// The canonical JSON of the whole set (field order is declaration order).
+    pub fn json(&self) -> String {
+        serde_json::to_string(self).expect("techniques serialize")
+    }
+}
+
+/// The compiler run's config digest: the analytics config's digest with the whole technique set
+/// (the ADR-0020 review's F3). Never the bare config digest.
+pub fn variant_config_digest(config: Digest, techniques: &Techniques) -> Digest {
+    IdHasher::new("analytics-techniques")
+        .digest_field(config)
+        .str(&techniques.json())
+        .finish_digest()
 }
 
 impl std::fmt::Debug for Analysis {
@@ -130,6 +152,7 @@ impl std::fmt::Debug for Analysis {
                 "embedder",
                 &self.embedder.as_ref().map(|e| e.spec().model.clone()),
             )
+            .field("techniques", &self.techniques.label())
             .finish()
     }
 }
@@ -518,6 +541,8 @@ struct SelectionParameters<'a> {
     budget: u32,
     choices: &'a selection::Params,
     ranked_by: &'a str,
+    /// The whole technique set, so every snapshot records which techniques made it.
+    techniques: &'a Techniques,
 }
 
 #[derive(Serialize)]
@@ -1182,6 +1207,7 @@ pub async fn run(
         budget: config.briefs.budget,
         choices: &choices,
         ranked_by,
+        techniques: &techniques,
     })
     .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let selection_digest = content_digest(selection_parameters.as_bytes());
@@ -1672,18 +1698,43 @@ mod tests {
     use super::Techniques;
 
     #[test]
+    fn every_technique_set_has_its_own_config_digest() {
+        use cpg_schema::id::content_digest;
+        let config = content_digest(b"config");
+        let mut seen = std::collections::BTreeSet::new();
+        for bits in 0u16..256 {
+            let mut t = Techniques::default();
+            for (i, (_, flag)) in t.flags().into_iter().enumerate() {
+                *flag = bits >> i & 1 == 1;
+            }
+            let d = super::variant_config_digest(config, &t);
+            assert_ne!(d, config, "{}", t.label());
+            assert!(seen.insert(d), "{} collides", t.label());
+        }
+        assert_eq!(seen.len(), 256);
+    }
+
+    #[test]
     fn a_variant_is_the_default_changed_by_name_and_labelled_canonically() {
         assert_eq!(Techniques::parse("default"), Ok(Techniques::default()));
-        assert_eq!(Techniques::default().label(), None);
-        let v = Techniques::parse("+rca, +communities,+type-layer").unwrap();
-        assert!(v.rca && v.communities && v.type_layer && !v.fca && !v.knn);
-        // The label is in declaration order, whatever the spelling's order.
-        assert_eq!(v.label().as_deref(), Some("+communities,+rca,+type-layer"));
-        assert_eq!(Techniques::parse(&v.label().unwrap()), Ok(v));
+        assert_eq!(Techniques::default().label(), "none");
+        let v = Techniques::parse("+fca, +rca, +communities,+type-layer").unwrap();
+        assert!(v.rca && v.communities && v.type_layer && v.fca && !v.knn);
+        // The label names what is on, in declaration order, whatever the spelling's order.
+        assert_eq!(v.label(), "communities,fca,rca,type-layer");
+        let respelled: Vec<String> = v.label().split(',').map(|n| format!("+{n}")).collect();
+        assert_eq!(Techniques::parse(&respelled.join(",")), Ok(v));
         // Setting a technique to its default is no change.
-        assert_eq!(Techniques::parse("-fca").unwrap().label(), None);
+        assert_eq!(Techniques::parse("-fca").unwrap(), Techniques::default());
         assert!(Techniques::parse("knn").is_err());
         assert!(Techniques::parse("-louvain").is_err());
         assert!(Techniques::parse("+knn-layer").is_err());
+        // RCA without FCA would do nothing (ADR-0020 review F8).
+        assert!(Techniques::parse("+rca").is_err());
+        assert_eq!(
+            v.json().matches(':').count(),
+            8,
+            "every technique, on or off"
+        );
     }
 }

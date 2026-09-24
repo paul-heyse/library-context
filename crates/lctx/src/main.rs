@@ -379,9 +379,7 @@ fn compile(
             let spec = e.spec();
             println!("embedder {} (spec {})", spec.model, spec.hash().hex());
         }
-        if let Some(label) = techniques.label() {
-            println!("analytics variant {label}");
-        }
+        println!("analytics techniques {}", techniques.label());
         Some(cpg_core::analyze::Analysis {
             config: lctx_analytics::config::AnalyticsConfig::load(&config_path)?,
             embedder,

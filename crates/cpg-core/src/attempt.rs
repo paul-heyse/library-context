@@ -45,8 +45,9 @@ pub struct Published {
 /// review: γ = 1 fixed, the public co-assignment score, named layer policies. 12: FCA (slice 2.5).
 /// 13: seed selection within the brief budget (slice 2.6). 14: E0 and kNN (slice 3.1). 15: the
 /// increment-2 review: direct usage and selection by it, one preferred path per callable, FCA
-/// scopes keyed by node, attributes from term structure (no `Unknown`, one raised class).
-pub const COMPILER_OUTPUT_VERSION: u32 = 15;
+/// scopes keyed by node, attributes from term structure (no `Unknown`, one raised class). 16: the
+/// selection invocation records the whole technique set (the ADR-0020 review's F3).
+pub const COMPILER_OUTPUT_VERSION: u32 = 16;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -295,14 +296,9 @@ fn with_compiler_run(
     };
     let release = ids(&runs, "release_id")?[row];
     let context = ids(&runs, "context_id")?[row];
-    // A variant's label joins the config digest (§9.8's ablation): the default's is the config's.
-    let config_digest = match analysis.techniques.label() {
-        None => analysis.config.digest(),
-        Some(label) => IdHasher::new("analytics-variant")
-            .digest_field(analysis.config.digest())
-            .str(&label)
-            .finish_digest(),
-    };
+    // The whole technique set joins the config digest (§9.8; the ADR-0020 review's F3).
+    let config_digest =
+        crate::analyze::variant_config_digest(analysis.config.digest(), &analysis.techniques);
     let (compiler, run, producer) = compiler_rows(snapshot_id, release, context, config_digest);
     for (name, batch) in raw.iter_mut() {
         let extra = match *name {
