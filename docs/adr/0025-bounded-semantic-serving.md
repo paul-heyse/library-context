@@ -45,15 +45,19 @@ The file-based generation and one embedding spec remain useful.
   undecided operation remains in `unknown`, and `complete` is true only when both source-open
   and unexamined sets are empty. An early budget stop returns a generation/query-bound resumable
   cursor and its unexamined count; it never presents a partial scan as exhaustive.
-- The `flow_test_value_links` proof relation records operation/formal id, source test/use id
-  and span, resolved value place, scope/path, proof origin (`same_evaluation`,
+- The `flow_test_value_links` proof relation records operation/formal id, leaf evaluation
+  atom identity, source `flow_test_leaves.fact_id`/`flow_uses.use_id` and operand span, resolved
+  value place, scope/path, proof origin (`same_evaluation`,
   `direct_parameter_reach_no_effect`, or `modeled_identity_transfer`), cited flow/summary fact
   ids and effect-model digest. Its producer is the Rust flow/summary pass; initially it can
   certify only direct paths without calls or writes, then summaries can add modeled
   identity-preserving transfers. A merely pure transform does not establish value identity.
   The shared publication validator recomputes referenced identities and rejects
-  missing/ambiguous bindings, alias uncertainty, an unmodeled call/write, mixed snapshots or a
-  changed effect-model digest. Absence or rejection of a link yields `unknown` at serving.
+  a leaf atom absent from its cited leaf row's condition support, missing/ambiguous bindings,
+  alias uncertainty, an unmodeled call/write, mixed snapshots or a
+  changed effect-model digest. A synthetic pattern leaf needs a separately justified mapping
+  to its subject use; sharing the subject span with another arm is insufficient. Absence or
+  rejection of a link yields `unknown` at serving.
 - Rust answers condition compatibility and implication, effect and role filtering, and witness
   traversal as their stages land. Inputs are typed, never arbitrary SQL or code. Every traversal
   has row, node, pair-work and depth budgets. A hit returns explicit `unknown` and `truncated`, never

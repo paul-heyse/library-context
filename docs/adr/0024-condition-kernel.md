@@ -26,6 +26,9 @@ sentinel row is cited by 237 regions and 846 reaching facts across multiple modu
 has lost their separate source expressions. Converting only stored DNF rows therefore cannot
 address that source loss; whether the 66 recorded budget claims fall requires a product pilot.
 This is design evidence, not product acceptance.
+The focused [test-leaf proof join probe](../design_review/evidence/2026-09-24_test-leaf-proof-joins/README.md)
+found both a compound test with several leaf sites and a two-arm `match` whose distinct
+synthetic atoms share the same subject span.
 
 ## Options
 
@@ -71,8 +74,16 @@ This is design evidence, not product acceptance.
   DNF text becomes a bounded display rendering with a truncation marker, neither the raw id
   input nor serving's sole input. Condition ids and the flow schema migrate together. The bundle
   carries the root/node closure and a kernel-format version.
-- A new attributed test-use observation joins `flow_tests` to the exact place-use span and its
-  Pyrefly type term. The current `type_observations` roles do not supply this join. The typed
+- `cpg-flow` emits `flow_test_leaves` from each provider predicate **before** the current
+  span-only `flow_tests` deduplication. Each row identifies the snapshot/module/scope, provider
+  predicate identity, test span and condition root, and one leaf evaluation atom identity and
+  leaf span. A compound test has multiple rows; separate `match` arms with one subject span
+  retain separate synthetic predicate/atom rows. `flow_tests` remains a test-span projection,
+  not the proof authority. Only a stated root with validated leaf support can authorize a
+  proof row. A leaf without a justified operand-use mapping remains available as a Boolean
+  atom but cannot support a typed exclusion.
+- A new attributed test-use observation joins `flow_test_leaves` to the exact place-use span and
+  its Pyrefly type term. The current `type_observations` roles do not supply this join. The typed
   theory's exact-type proof origins are a closed whitelist: a modeled source literal or a
   modeled `type(x) is <builtin>` runtime guard. A same-evaluation identity fact proves only
   value stability; it cannot establish exact builtin class or standard equality. A Pyrefly term may
@@ -82,13 +93,19 @@ This is design evidence, not product acceptance.
   possible subclasses, custom `__eq__` and intervening effects leave the relationship
   unknown. The raw Boolean condition id is independent of theory-conditioned verdicts; the
   latter cite the theory revision and proof witness. No arbitrary Python expression is evaluated.
-- The `flow_test_types` relation records test id, exact use id/span, type-term id,
-  proof-origin code and cited fact ids. Its Rust producer queries Pyrefly's expression trace
-  at the exact test-use span and joins by source identity in the same module/snapshot; the
+- The `flow_test_types` relation cites `flow_test_leaves.fact_id` and its leaf evaluation atom
+  identity, exact `flow_uses.use_id` and operand span, type-term id, proof-origin code and cited
+  fact ids. A test-span id alone cannot identify which BDD variable the proof constrains. Its
+  Rust producer queries Pyrefly's
+  expression trace at the exact operand-use span and joins by source identity in the same
+  module/snapshot; the
   current `type_observations` table alone is insufficient. An ambiguous or absent trace emits
   no positive proof.
-  A shared publication validator checks span, role, type term, origin whitelist and fact
-  references before an exclusion may use it.
+  A shared publication validator checks the leaf row's unique predicate/atom identity and that
+  its atom is in its own condition root's support. It checks the same-snapshot/module use,
+  operand/leaf spans and role, type term, origin whitelist and cited facts before an exclusion
+  may use it. A synthetic pattern atom receives no place-use proof merely because its subject
+  span contains a use; ambiguous attribution stays unknown.
 - An `approximated` flag records ty's ambiguous terminal or another stated assumption. Query
   results report budgets and whether approximation affected them.
 

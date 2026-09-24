@@ -286,6 +286,39 @@ outcome.
     use;
   - the `approximated` flag.
 
+**Stage 3.0 implementation order after design/probe sign-off:**
+1. In `cpg-schema::condition_kernel`, add direct construction from a typed evaluation atom and
+   an explicit boundary-bearing result. The BDD is the producer's Boolean authority; a capped
+   DNF rendering is output only. Test `false`/`true` plus a budget boundary, 17 independent OR
+   sites, source-order shuffles, `given` equivalence and corrupt-node refusal.
+2. Replace `cpg-flow`'s use of Stage 2 `Condition::and`/`or`/`not` at predicate creation and
+   region/value/reaching composition. Preserve ADR-0022's per-evaluation identity. Carry a
+   boundary reason and `approximated` status; never turn a failed apply into `false` or a
+   negative claim. The 17-site case must stay stated before any persistence work starts.
+3. Migrate `conditions` to structural root/condition ids and add the lossless node relation in
+   the `flow` family. Update `cpg-extract::flow` deduplication, the extractor output version,
+   Arrow contract snapshots and the flow consumer in `cpg-core::flow_model` together. The
+   consumer must read the validated root/node closure for decisions, not parse display text.
+   Old DNF ids never silently join new ids.
+4. Add one shared graph validator used by publication and native generation load. It checks
+   format, root closure, terminal and Merkle ids, atom order/support, reduction and budgets.
+   Tamper a published-node fixture through the Delta path; a malformed generation is rejected
+   before a query can run. Keep the node-format handshake in the manifest.
+5. Emit `flow_test_leaves` per provider predicate and atom before `flow_tests`' span-only dedup.
+   Include provider predicate identity, test span, condition root and leaf atom/span so separate
+   `match` arms sharing a subject span remain distinct. Then produce `flow_test_types` against
+   that leaf row and the exact `flow_uses` operand; join Pyrefly's trace by operand-use span.
+   Add only the closed exact-runtime-origin cases and effect-stability witnesses; an
+   absent/ambiguous mapping leaves atoms independent. The later `flow_test_value_links` bridge
+   cites the same leaf row and requires its own justified subject-use mapping for synthetic
+   pattern predicates. Pin compound Boolean and two-arm `match` cases before pilot measurement.
+   The read-only [test-leaf join probe](../design_review/evidence/2026-09-24_test-leaf-proof-joins/README.md)
+   establishes the source identity gap; it does not validate the proposed new relation.
+6. Run focused source counterexamples first, then the product pilot and the registered Stage 3
+   condition questions. Report the old 66 `budget_reached` claims against the new count, node
+   and work-limit hits, condition roots/nodes, compile time and RSS. The read-only conversion
+   survey's 23,760 unique nodes and 53-node maximum are a sizing baseline, not an exit result.
+
 **1. Models catalog v1** (the superseded plan's D-7 list, unchanged).
 - **Stdlib and dependencies:** `open`/`io`/`pathlib`, `json`, `gzip`/`zlib`, logging; asyncio and
   anyio (`fail_after`, `move_on_after`, `to_thread`, task groups); contextvars;

@@ -1221,11 +1221,15 @@ decision diagram over per-evaluation atoms, persisted losslessly as nodes in the
 Variable order is the sorted atom identity. DNF becomes a capped display with a truncation marker,
 not the id input. `given`, `implies` and `compatible` run on the diagram with explicit node and
 invocation and pair-work budgets; a hit is `unknown`, not false. A typed exclusion needs
-`flow_test_types`: the Rust producer queries Pyrefly's expression trace at the exact test-use
-span, joins it to the flow use by source identity, and records test/use ids, span, type-term id,
+`flow_test_leaves`, emitted per provider predicate and leaf before `flow_tests`' span-only
+deduplication. It retains distinct `match` arm atoms at a shared subject span. `flow_test_types`
+cites that leaf row: the Rust producer queries Pyrefly's expression trace at the exact operand-use
+span, joins it to the flow use by source identity, and records the leaf evaluation atom identity,
+`flow_test_leaves.fact_id`/`flow_uses.use_id`, type-term id,
 closed proof origin and cited facts. An absent or ambiguous trace proves nothing. The shared
-validator checks span, role, type term, origin and facts. Runtime-exact origins are modeled
-literals or an exact `type(x) is builtin` guard. Same-evaluation identity proves stability only;
+validator checks leaf support in its own root, span, role, type term, origin and facts.
+Runtime-exact origins are modeled literals or an exact `type(x) is builtin` guard.
+Same-evaluation identity proves stability only;
 broad Pyrefly
 annotations alone do not prove exactness. Different sites stay independent until an
 effect-stability witness connects them. Raw Boolean ids do not depend on the theory revision;
@@ -3418,7 +3422,8 @@ startup.
 Rust. Compatibility and implication use ADR-0024's node budget and stable-place theory; an
 undecided condition leaves its operation in `unknown`. Rows and witnesses come only from the
 pinned generation. A condition term is anchored to an operation's entry formal. The Rust
-flow/summary producer writes `flow_test_value_links`: operation/formal id, test/use id and span,
+flow/summary producer writes `flow_test_value_links`: operation/formal id, leaf evaluation
+atom identity, `flow_test_leaves.fact_id`/`flow_uses.use_id` and operand span,
 resolved place/path, proof origin, cited flow/summary facts and effect-model digest. It first
 certifies direct paths without calls or writes; a later modeled transfer must be
 identity-preserving, not merely pure. The shared validator rejects ambiguous binding,
