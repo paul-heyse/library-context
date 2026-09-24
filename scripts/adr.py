@@ -10,7 +10,7 @@ Records live in docs/adr/NNNN-slug.md with a small frontmatter block:
     supersedes: [ADR-0003]
     superseded-by: null
     design: [§B3, §4.2]
-    evidence: Proposed            # optional, charter §D label
+    evidence: Proposed            # optional, principles §D label
     revisit: $ just deps          # optional; a leading "$ " makes it runnable
     ---
 
@@ -211,7 +211,7 @@ def lint(root: Path, *, check_git: bool = True) -> list[str]:
             err(a, f"date {a.meta.get('date')!r} is not YYYY-MM-DD")
         evidence = a.meta.get("evidence")
         if evidence is not None and evidence not in EVIDENCE:
-            err(a, f"evidence {evidence!r} is not a charter §D label")
+            err(a, f"evidence {evidence!r} is not a principles §D label")
         for ref in a.refs("design"):
             if not ref.startswith("§") or ref[1:] not in ids:
                 err(a, f"design ref {ref} does not resolve to a DESIGN.md heading")

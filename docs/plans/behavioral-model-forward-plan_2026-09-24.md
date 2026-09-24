@@ -498,7 +498,7 @@ stage's output is read.
 - Codebooks are append-only (`verdict`, `boundary_reason`, `condition_atom`, the effect kinds,
   concept ids, model ids).
 - Report every check as `passed`, `failed`, `blocked` (naming the prerequisite) or `not_run`,
-  with its command. A mocked provider is never a pass. Label every design claim with a charter §D
+  with its command. A mocked provider is never a pass. Label every design claim with a principles §D
   label, and date it.
 - The gold is never a compiler input. `eval/heldout/` stays sealed until increment 5's end. No
   API agents evaluate content.

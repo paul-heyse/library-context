@@ -319,7 +319,7 @@ Pilot time and memory are reported.
 4. **Condition language (D-5).**
    - **Atoms:** `is None`, `is not None`, `== literal`, `in {literals}`, truthiness,
      `isinstance(C)`, over places; everything else is opaque.
-   - **Normal form:** sorted conjuncts, with a canonical encoding for ids (DM-15).
+   - **Normal form:** sorted conjuncts, with a canonical encoding for ids (DP-04).
    - **Compatibility** (compatible / incompatible / unknown): a Rust evaluator plus a Python twin
      in `lctx_mcp`, both held to `specs/serving/conditions.json` (F6, F12).
 5. **Verdict codebook** and the rule `semantic:refuted-needs-complete-region`, with an injected
@@ -538,8 +538,8 @@ Details and versions are in review §8.3.
   is a declared migration. Never run `cargo insta review`.
 - Codebooks are append-only (`verdict`, the effect kinds, concept ids, model ids).
 - Report every check as `passed`, `failed`, `blocked` (naming the prerequisite) or `not_run`, with
-  its command. A mocked provider is never a pass. Label every design claim with a charter §D label
-  and date it.
+  its command. A mocked provider is never a pass. Label every design claim with a principles §D
+  label and date it.
 - The gold (`.claude/skills/`) is never a compiler input. `eval/heldout/` stays sealed until the
   final evaluation. No API agents evaluate content.
 - Licence is never a criterion. Extra dependency families are allowed when declared and isolated

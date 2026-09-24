@@ -89,7 +89,7 @@ def test_invalid_evidence_label_is_reported(root: Path) -> None:
     path = new(root, "evidence")
     adr.set_field(path, "evidence", "passed")
     run(root, "index")
-    assert any("not a charter §D label" in p for p in adr.lint(root, check_git=False))
+    assert any("not a principles §D label" in p for p in adr.lint(root, check_git=False))
 
 
 def decide(root: Path, record: str, heading: str = "### §B1 Front ends") -> None:
