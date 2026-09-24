@@ -121,9 +121,15 @@ lint-agents:
 # Tool presence and versions (compare with docs/pins.md)
 doctor:
     #!/usr/bin/env bash
-    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear uv ast-grep rg git gh; do
+    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear uv ast-grep rg git gh clang clang++ llvm-config mold sccache; do
       printf '%-14s ' "$t"; command -v "$t" >/dev/null && "$t" --version 2>/dev/null | head -1 || echo MISSING
     done
     printf '%-14s ' ruff; uv run ruff --version
     printf '%-14s ' pyrefly; uv run pyrefly --version
     printf '%-14s ' python; uv run python --version
+
+# Isolated build measurements: `preflight`, `capture <dir>`, `run <dir> --variant ...`, `report <dir>`.
+# `run` is the only subcommand that compiles the Rust workspace.
+[positional-arguments]
+bench-builds *args:
+    @uv run --no-sync python scripts/build_measurements.py "$@"
