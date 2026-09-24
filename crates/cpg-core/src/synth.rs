@@ -15,8 +15,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, StringArray};
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
     ArcKind, AssertionKind, AttributeValueKind, BriefSection, Codebook, DeclarationKind,
     EvidenceKind, EvidenceStatus, ExtractionMode, FindingKind, InvocationPhase, MemberRole,
@@ -34,7 +32,6 @@ use datafusion::prelude::SessionContext;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::analyze::{AnalysisRows, CompilerRun};
-use crate::delta::to_schema;
 use crate::{CoreError, sql};
 
 /// Bumped whenever a template's wording or an extractive rule changes; part of the compiler
@@ -78,86 +75,6 @@ pub struct SynthRows {
     pub brief_members: Vec<BriefMembersRow>,
     pub brief_documents: Vec<BriefDocumentsRow>,
     pub policy: Vec<AssertionPolicyRow>,
-}
-
-fn schema(fields: &[(&str, DataType)]) -> SchemaRef {
-    std::sync::Arc::new(Schema::new(
-        fields
-            .iter()
-            .map(|(n, t)| Field::new(*n, t.clone(), true))
-            .collect::<Vec<_>>(),
-    ))
-}
-
-const ID: DataType = DataType::FixedSizeBinary(16);
-
-/// One query's rows, cast to its declared columns.
-struct Table {
-    batches: Vec<arrow_array::RecordBatch>,
-}
-
-impl Table {
-    async fn read(
-        ctx: &SessionContext,
-        query: &str,
-        fields: &[(&str, DataType)],
-    ) -> Result<Self, CoreError> {
-        let s = schema(fields);
-        let batches = sql::query(ctx, query)
-            .await?
-            .collect()
-            .await?
-            .iter()
-            .map(|b| to_schema(b, &s))
-            .collect::<Result<_, _>>()?;
-        Ok(Self { batches })
-    }
-
-    fn rows(&self) -> impl Iterator<Item = (&arrow_array::RecordBatch, usize)> {
-        self.batches
-            .iter()
-            .flat_map(|b| (0..b.num_rows()).map(move |i| (b, i)))
-    }
-}
-
-fn col<'a, T: 'static>(b: &'a arrow_array::RecordBatch, name: &str) -> &'a T {
-    b.column_by_name(name)
-        .and_then(|c| c.as_any().downcast_ref::<T>())
-        .expect("a declared column")
-}
-
-fn id(b: &arrow_array::RecordBatch, name: &str, i: usize) -> Option<Id> {
-    let a = col::<FixedSizeBinaryArray>(b, name);
-    (!a.is_null(i)).then(|| Id(<[u8; 16]>::try_from(a.value(i)).expect("16 bytes")))
-}
-
-fn text(b: &arrow_array::RecordBatch, name: &str, i: usize) -> Option<String> {
-    let a = col::<StringArray>(b, name);
-    (!a.is_null(i)).then(|| a.value(i).to_owned())
-}
-
-fn int(b: &arrow_array::RecordBatch, name: &str, i: usize) -> Option<i64> {
-    let a = col::<Int64Array>(b, name);
-    (!a.is_null(i)).then(|| a.value(i))
-}
-
-fn small(b: &arrow_array::RecordBatch, name: &str, i: usize) -> Option<i16> {
-    let a = col::<Int16Array>(b, name);
-    (!a.is_null(i)).then(|| a.value(i))
-}
-
-fn flag(b: &arrow_array::RecordBatch, name: &str, i: usize) -> Option<bool> {
-    let a = col::<BooleanArray>(b, name);
-    (!a.is_null(i)).then(|| a.value(i))
-}
-
-fn hex_list(ids: impl IntoIterator<Item = Id>) -> String {
-    let list: Vec<String> = ids.into_iter().map(|i| format!("X'{}'", i.hex())).collect();
-    if list.is_empty() {
-        "NULL".to_owned()
-    } else {
-        list.join(", ")
-    }
 }
 
 /// `text` with each run of whitespace (a soft line break and its indentation included) as one
@@ -490,6 +407,224 @@ fn attributes_text(attributes: &[String]) -> String {
     listed(&parts)
 }
 
+// Stage F's relations (the holistic assessment's A4, B2): each declared once, its values bound as
+// `$ids`, its rows read as a `query_row!` type whose non-null columns may not be null (A8).
+cpg_schema::relations! {
+    inventory relations;
+    /// A readable label for every node a finding names: its declaration's, a dependency
+    /// definition's or a synthetic callable's qualified name.
+    labels_relation = "stage_f_labels",
+        deps = [
+            "nodes", "declarations", "context_definitions", "synthetic_callables",
+            "pysa_functions", "provider_class_map",
+        ],
+        sql = "SELECT n.node_id, COALESCE(d.qualified_name, \
+                      cd.module_name || '.' || cd.qualified_name, \
+                      COALESCE(dc.qualified_name, pf.module_name) || '.' || pf.name) AS label \
+               FROM nodes n \
+               LEFT JOIN declarations d ON d.node_id = n.node_id \
+               LEFT JOIN context_definitions cd ON cd.symbol_node_id = n.node_id \
+               LEFT JOIN synthetic_callables sc ON sc.node_id = n.node_id \
+               LEFT JOIN pysa_functions pf ON pf.module_node_id = sc.module_node_id \
+                 AND pf.function_key = sc.function_key \
+               LEFT JOIN provider_class_map pc ON pc.module_node_id = sc.module_node_id \
+                 AND pc.class_key = pf.defining_class_key \
+               LEFT JOIN declarations dc ON dc.node_id = pc.node_id \
+               WHERE array_has($ids, n.node_id) ORDER BY n.node_id, label"
+            .to_owned();
+    /// The seeds' declarations, their parents' kinds, decorators and module texts.
+    declarations_relation = "stage_f_declarations",
+        deps = ["declarations", "source_files"],
+        sql = "SELECT d.node_id, d.module_node_id, d.docstring_start_byte, d.docstring_end_byte, \
+                      d.kind, pd.kind AS parent_kind, \
+                      array_to_string(d.decorators, ',') AS decorators, s.text \
+               FROM declarations d JOIN source_files s ON s.module_node_id = d.module_node_id \
+               LEFT JOIN declarations pd ON pd.node_id = d.parent_node_id \
+               WHERE array_has($ids, d.node_id) ORDER BY d.node_id"
+            .to_owned();
+    /// The export nodes whose target is a seed.
+    exports_relation = "stage_f_exports",
+        deps = ["exports"],
+        sql = "SELECT DISTINCT target_node_id, export_node_id FROM exports \
+               WHERE array_has($ids, target_node_id) ORDER BY 1, 2"
+            .to_owned();
+    /// Each exact mention of a seed (or of an export naming one), with its passage and document.
+    mentions_relation = "stage_f_mentions",
+        deps = ["mention_targets", "mentions", "passages", "documents"],
+        sql = format!(
+            "SELECT t.target_node_id, p.node_id AS passage_node_id, p.document_node_id, \
+                    p.start_byte, p.text, d.path, p.ordinal, p.heading, \
+                    m.start_byte AS mention_start, m.end_byte AS mention_end, \
+                    t.mention_fact_id \
+             FROM mention_targets t JOIN mentions m ON m.fact_id = t.mention_fact_id \
+             JOIN passages p ON p.node_id = m.passage_node_id \
+             JOIN documents d ON d.node_id = p.document_node_id \
+             WHERE m.class = {exact} AND array_has($ids, t.target_node_id) \
+             ORDER BY d.path, p.ordinal, m.start_byte, t.target_node_id",
+            exact = MentionClass::Exact.code(),
+        );
+    /// The MDX components of the passages that mention a seed, each with its literal attributes.
+    components_relation = "stage_f_components",
+        deps = ["doc_components", "doc_component_attributes"],
+        sql = format!(
+            "SELECT c.document_node_id, c.passage_node_id, c.ordinal, c.parent_ordinal, c.name, \
+                    c.inner_start, c.inner_end, c.lead_start, c.lead_end, \
+                    a.name AS attribute, a.value \
+             FROM doc_components c LEFT JOIN doc_component_attributes a \
+               ON a.document_node_id = c.document_node_id AND a.component_ordinal = c.ordinal \
+               AND a.value_kind = {literal} \
+             WHERE array_has($ids, c.passage_node_id) \
+             ORDER BY c.document_node_id, c.ordinal, a.ordinal",
+            literal = AttributeValueKind::Literal.code(),
+        );
+    /// The seeds' own signatures' parameters: syntax, semantics, docstring description, and
+    /// whether each is the receiver.
+    parameters_relation = "stage_f_parameters",
+        deps = [
+            "parameters", "parameter_syntax", "parameter_semantics", "parameter_docs",
+            "provider_node_map", "pysa_functions", "declarations",
+        ],
+        sql = format!(
+            "SELECT p.signature_node_id, ps.node_id, ps.fact_id, ps.ordinal, ps.name, ps.kind, \
+                    ps.default_text, ps.annotation_text, ps.start_byte, ps.end_byte, \
+                    sem.required, sem.fact_id AS semantics_fact_id, d.module_node_id, \
+                    pdoc.text AS doc_text, pdoc.start_byte AS doc_start, \
+                    pdoc.end_byte AS doc_end, rcv.parameter_node_id IS NOT NULL AS receiver \
+             FROM parameters p JOIN parameter_syntax ps ON ps.fact_id = p.syntax_fact_id \
+             LEFT JOIN parameter_semantics sem ON sem.fact_id = p.semantics_fact_id \
+             LEFT JOIN parameter_docs pdoc ON pdoc.function_node_id = p.signature_node_id \
+               AND pdoc.name = ps.name \
+             LEFT JOIN ({receivers}) rcv ON rcv.parameter_node_id = ps.node_id \
+             JOIN declarations d ON d.node_id = p.signature_node_id \
+             WHERE array_has($ids, p.signature_node_id) \
+             ORDER BY p.signature_node_id, ps.ordinal",
+            receivers = cpg_schema::flows::receivers_sql(),
+        );
+    /// Parameters' names and functions, by node.
+    formals_relation = "stage_f_formals",
+        deps = ["parameter_syntax"],
+        sql = "SELECT node_id, name, function_node_id FROM parameter_syntax \
+               WHERE array_has($ids, node_id) ORDER BY node_id"
+            .to_owned();
+    /// Syntax nodes (a guard's test and its raise) with their module texts.
+    code_relation = "stage_f_code",
+        deps = ["syntax_nodes", "source_files"],
+        sql = "SELECT sn.node_id, sn.fact_id, sn.module_node_id, sn.start_byte, sn.end_byte, \
+                      s.text \
+               FROM syntax_nodes sn JOIN source_files s ON s.module_node_id = sn.module_node_id \
+               WHERE array_has($ids, sn.node_id) ORDER BY sn.node_id"
+            .to_owned();
+}
+
+cpg_schema::query_row! {
+    struct LabelRow {
+        node_id: Id,
+        label: Option<String>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct DeclarationRow {
+        node_id: Id,
+        module_node_id: Id,
+        docstring_start_byte: Option<i64>,
+        docstring_end_byte: Option<i64>,
+        kind: DeclarationKind,
+        parent_kind: Option<DeclarationKind>,
+        decorators: Option<String>,
+        text: Option<String>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ExportRow {
+        target_node_id: Id,
+        export_node_id: Id,
+    }
+}
+
+cpg_schema::query_row! {
+    struct MentionRow {
+        target_node_id: Id,
+        passage_node_id: Id,
+        document_node_id: Id,
+        start_byte: i64,
+        text: String,
+        path: String,
+        ordinal: i64,
+        heading: Option<String>,
+        mention_start: i64,
+        mention_end: i64,
+        mention_fact_id: Id,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ComponentRow {
+        document_node_id: Id,
+        passage_node_id: Id,
+        ordinal: i64,
+        parent_ordinal: Option<i64>,
+        name: Option<String>,
+        inner_start: Option<i64>,
+        inner_end: Option<i64>,
+        lead_start: Option<i64>,
+        lead_end: Option<i64>,
+        attribute: Option<String>,
+        value: Option<String>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ParameterRow {
+        signature_node_id: Id,
+        node_id: Id,
+        fact_id: Id,
+        ordinal: i64,
+        name: String,
+        kind: ParameterKind,
+        default_text: Option<String>,
+        annotation_text: Option<String>,
+        start_byte: i64,
+        end_byte: i64,
+        required: Option<bool>,
+        semantics_fact_id: Option<Id>,
+        module_node_id: Id,
+        doc_text: Option<String>,
+        doc_start: Option<i64>,
+        doc_end: Option<i64>,
+        receiver: bool,
+    }
+}
+
+cpg_schema::query_row! {
+    struct FormalRow {
+        node_id: Id,
+        name: String,
+        function_node_id: Id,
+    }
+}
+
+cpg_schema::query_row! {
+    struct CodeRow {
+        node_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        text: Option<String>,
+    }
+}
+
+/// Fetch a Stage F relation over a set of node ids.
+async fn over<R: cpg_schema::query::QueryRow>(
+    ctx: &SessionContext,
+    relation: cpg_schema::query::Relation,
+    ids: impl IntoIterator<Item = Id>,
+) -> Result<Vec<R>, CoreError> {
+    sql::fetch(ctx, &relation, sql::Params::new().ids("ids", ids)).await
+}
+
 /// The kind policy as published rows (DESIGN §10.2).
 pub fn policy_rows(snapshot_id: Id) -> Vec<AssertionPolicyRow> {
     ASSERTION_POLICY
@@ -535,48 +670,16 @@ pub async fn run(
                 .flat_map(|w| [w.caller_node_id, w.callee_node_id]),
         )
         .collect();
-    let labels_sql = format!(
-        "SELECT n.node_id, COALESCE(d.qualified_name, \
-                cd.module_name || '.' || cd.qualified_name, \
-                COALESCE(dc.qualified_name, pf.module_name) || '.' || pf.name) AS label \
-         FROM nodes n \
-         LEFT JOIN declarations d ON d.node_id = n.node_id \
-         LEFT JOIN context_definitions cd ON cd.symbol_node_id = n.node_id \
-         LEFT JOIN synthetic_callables sc ON sc.node_id = n.node_id \
-         LEFT JOIN pysa_functions pf ON pf.module_node_id = sc.module_node_id \
-           AND pf.function_key = sc.function_key \
-         LEFT JOIN provider_class_map pc ON pc.module_node_id = sc.module_node_id \
-           AND pc.class_key = pf.defining_class_key \
-         LEFT JOIN declarations dc ON dc.node_id = pc.node_id \
-         WHERE n.node_id IN ({}) ORDER BY n.node_id, label",
-        hex_list(named.iter().copied())
-    );
     // The least label per node, whichever run's row it is (slice 1.5 review O4).
     let mut labels: BTreeMap<Id, String> = BTreeMap::new();
-    for (b, i) in Table::read(
-        ctx,
-        &labels_sql,
-        &[("node_id", ID), ("label", DataType::Utf8)],
-    )
-    .await?
-    .rows()
-    {
-        if let (Some(n), Some(l)) = (id(b, "node_id", i), text(b, "label", i)) {
-            labels.entry(n).or_insert(l);
+    for r in over::<LabelRow>(ctx, labels_relation(), named.iter().copied()).await? {
+        if let Some(l) = r.label {
+            labels.entry(r.node_id).or_insert(l);
         }
     }
     let label = |n: Id| labels.get(&n).cloned().unwrap_or_else(|| n.hex());
 
     // The seeds' declarations, docstrings and module texts.
-    let decl_sql = format!(
-        "SELECT d.node_id, d.module_node_id, d.docstring_start_byte, d.docstring_end_byte, \
-                d.kind, pd.kind AS parent_kind, array_to_string(d.decorators, ',') AS decorators, \
-                s.text, s.byte_len \
-         FROM declarations d JOIN source_files s ON s.module_node_id = d.module_node_id \
-         LEFT JOIN declarations pd ON pd.node_id = d.parent_node_id \
-         WHERE d.node_id IN ({}) ORDER BY d.node_id",
-        hex_list(seeds.iter().copied())
-    );
     struct Decl {
         module: Id,
         docstring: Option<(usize, usize)>,
@@ -584,36 +687,16 @@ pub async fn run(
         text: Option<String>,
     }
     let mut decls: BTreeMap<Id, Decl> = BTreeMap::new();
-    for (b, i) in Table::read(
-        ctx,
-        &decl_sql,
-        &[
-            ("node_id", ID),
-            ("module_node_id", ID),
-            ("docstring_start_byte", DataType::Int64),
-            ("docstring_end_byte", DataType::Int64),
-            ("kind", DataType::Int16),
-            ("parent_kind", DataType::Int16),
-            ("decorators", DataType::Utf8),
-            ("text", DataType::Utf8),
-            ("byte_len", DataType::Int64),
-        ],
-    )
-    .await?
-    .rows()
-    {
-        let (Some(node), Some(module)) = (id(b, "node_id", i), id(b, "module_node_id", i)) else {
-            continue;
-        };
-        let docstring = int(b, "docstring_start_byte", i)
-            .zip(int(b, "docstring_end_byte", i))
+    for r in over::<DeclarationRow>(ctx, declarations_relation(), seeds.iter().copied()).await? {
+        let docstring = r
+            .docstring_start_byte
+            .zip(r.docstring_end_byte)
             .map(|(s, e)| (s as usize, e as usize));
-        let decorators = text(b, "decorators", i).unwrap_or_default();
+        let decorators = r.decorators.unwrap_or_default();
         let has = |d: &str| decorators.split(',').any(|x| x == d);
-        let class = Some(DeclarationKind::Class.code());
-        let form = if small(b, "kind", i) == class {
+        let form = if r.kind == DeclarationKind::Class {
             Form::Class
-        } else if small(b, "parent_kind", i) != class {
+        } else if r.parent_kind != Some(DeclarationKind::Class) {
             Form::Function
         } else if has("staticmethod") {
             Form::StaticMethod
@@ -625,12 +708,12 @@ pub async fn run(
             Form::Method
         };
         decls.insert(
-            node,
+            r.node_id,
             Decl {
-                module,
+                module: r.module_node_id,
                 docstring,
                 form,
-                text: text(b, "text", i),
+                text: r.text,
             },
         );
     }
@@ -639,39 +722,17 @@ pub async fn run(
     // is. A member seed's aliases extend its class's export, and a mention of the class is not a
     // mention of the member.
     let mut exports_of: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
-    for (b, i) in Table::read(
-        ctx,
-        &format!(
-            "SELECT DISTINCT target_node_id, export_node_id FROM exports \
-             WHERE target_node_id IN ({}) ORDER BY 1, 2",
-            hex_list(seeds.iter().copied())
-        ),
-        &[("target_node_id", ID), ("export_node_id", ID)],
-    )
-    .await?
-    .rows()
-    {
-        if let (Some(t), Some(e)) = (id(b, "target_node_id", i), id(b, "export_node_id", i)) {
-            exports_of.entry(t).or_default().push(e);
-        }
+    for r in over::<ExportRow>(ctx, exports_relation(), seeds.iter().copied()).await? {
+        exports_of
+            .entry(r.target_node_id)
+            .or_default()
+            .push(r.export_node_id);
     }
     let mention_targets: BTreeSet<Id> = seeds
         .iter()
         .copied()
         .chain(exports_of.values().flatten().copied())
         .collect();
-    let mention_sql = format!(
-        "SELECT t.target_node_id, p.node_id AS passage_node_id, p.document_node_id, \
-                p.start_byte, p.text, d.path, p.ordinal, p.heading, \
-                m.start_byte AS mention_start, m.end_byte AS mention_end, t.mention_fact_id \
-         FROM mention_targets t JOIN mentions m ON m.fact_id = t.mention_fact_id \
-         JOIN passages p ON p.node_id = m.passage_node_id \
-         JOIN documents d ON d.node_id = p.document_node_id \
-         WHERE m.class = {exact} AND t.target_node_id IN ({targets}) \
-         ORDER BY d.path, p.ordinal, m.start_byte, t.target_node_id",
-        exact = MentionClass::Exact.code(),
-        targets = hex_list(mention_targets.iter().copied())
-    );
     struct Passage {
         node: Id,
         document: Id,
@@ -684,64 +745,32 @@ pub async fn run(
         place: String,
     }
     let mut passages: BTreeMap<Id, Vec<Passage>> = BTreeMap::new();
-    for (b, i) in Table::read(
-        ctx,
-        &mention_sql,
-        &[
-            ("target_node_id", ID),
-            ("passage_node_id", ID),
-            ("document_node_id", ID),
-            ("start_byte", DataType::Int64),
-            ("text", DataType::Utf8),
-            ("path", DataType::Utf8),
-            ("ordinal", DataType::Int64),
-            ("heading", DataType::Utf8),
-            ("mention_start", DataType::Int64),
-            ("mention_end", DataType::Int64),
-            ("mention_fact_id", ID),
-        ],
-    )
-    .await?
-    .rows()
-    {
-        let (Some(target), Some(node), Some(document), Some(start), Some(body)) = (
-            id(b, "target_node_id", i),
-            id(b, "passage_node_id", i),
-            id(b, "document_node_id", i),
-            int(b, "start_byte", i),
-            text(b, "text", i),
-        ) else {
-            continue;
-        };
-        let path = text(b, "path", i).unwrap_or_default();
-        if is_changelog(&path) {
+    for r in over::<MentionRow>(ctx, mentions_relation(), mention_targets.iter().copied()).await? {
+        if is_changelog(&r.path) {
             continue;
         }
-        let place = match text(b, "heading", i) {
-            Some(h) => format!("`{path}` § {h}"),
-            None => format!("`{path}`"),
+        let place = match &r.heading {
+            Some(h) => format!("`{}` § {h}", r.path),
+            None => format!("`{}`", r.path),
         };
-        let (Some(ms), Some(me), Some(mention_fact)) = (
-            int(b, "mention_start", i),
-            int(b, "mention_end", i),
-            id(b, "mention_fact_id", i),
-        ) else {
-            continue;
-        };
-        let mention = ((ms - start) as usize, (me - start) as usize);
+        let mention = (
+            (r.mention_start - r.start_byte) as usize,
+            (r.mention_end - r.start_byte) as usize,
+        );
         // An export's mention counts for the seed it names.
+        let target = r.target_node_id;
         let seed = seeds
             .iter()
             .copied()
             .find(|s| *s == target || exports_of.get(s).is_some_and(|e| e.contains(&target)));
         if let Some(seed) = seed {
             passages.entry(seed).or_default().push(Passage {
-                node,
-                document,
-                start,
-                text: body,
+                node: r.passage_node_id,
+                document: r.document_node_id,
+                start: r.start_byte,
+                text: r.text,
                 mention,
-                mention_fact,
+                mention_fact: r.mention_fact_id,
                 place,
             });
         }
@@ -759,59 +788,19 @@ pub async fn run(
     }
     let mentioned: BTreeSet<Id> = passages.values().flatten().map(|p| p.node).collect();
     let mut components: BTreeMap<(Id, i64), Component> = BTreeMap::new();
-    if !mentioned.is_empty() {
-        let component_sql = format!(
-            "SELECT c.document_node_id, c.passage_node_id, c.ordinal, c.parent_ordinal, c.name, \
-                    c.inner_start, c.inner_end, c.lead_start, c.lead_end, \
-                    a.name AS attribute, a.value \
-             FROM doc_components c LEFT JOIN doc_component_attributes a \
-               ON a.document_node_id = c.document_node_id AND a.component_ordinal = c.ordinal \
-               AND a.value_kind = {literal} \
-             WHERE c.passage_node_id IN ({passages}) \
-             ORDER BY c.document_node_id, c.ordinal, a.ordinal",
-            literal = AttributeValueKind::Literal.code(),
-            passages = hex_list(mentioned.iter().copied())
-        );
-        for (b, i) in Table::read(
-            ctx,
-            &component_sql,
-            &[
-                ("document_node_id", ID),
-                ("passage_node_id", ID),
-                ("ordinal", DataType::Int64),
-                ("parent_ordinal", DataType::Int64),
-                ("name", DataType::Utf8),
-                ("inner_start", DataType::Int64),
-                ("inner_end", DataType::Int64),
-                ("lead_start", DataType::Int64),
-                ("lead_end", DataType::Int64),
-                ("attribute", DataType::Utf8),
-                ("value", DataType::Utf8),
-            ],
-        )
-        .await?
-        .rows()
-        {
-            let (Some(document), Some(passage), Some(ordinal)) = (
-                id(b, "document_node_id", i),
-                id(b, "passage_node_id", i),
-                int(b, "ordinal", i),
-            ) else {
-                continue;
-            };
-            let c = components
-                .entry((document, ordinal))
-                .or_insert_with(|| Component {
-                    passage,
-                    name: text(b, "name", i),
-                    parent: int(b, "parent_ordinal", i),
-                    inner: int(b, "inner_start", i).zip(int(b, "inner_end", i)),
-                    lead: int(b, "lead_start", i).zip(int(b, "lead_end", i)),
-                    literal: BTreeMap::new(),
-                });
-            if let (Some(a), Some(v)) = (text(b, "attribute", i), text(b, "value", i)) {
-                c.literal.insert(a, v);
-            }
+    for r in over::<ComponentRow>(ctx, components_relation(), mentioned.iter().copied()).await? {
+        let c = components
+            .entry((r.document_node_id, r.ordinal))
+            .or_insert_with(|| Component {
+                passage: r.passage_node_id,
+                name: r.name,
+                parent: r.parent_ordinal,
+                inner: r.inner_start.zip(r.inner_end),
+                lead: r.lead_start.zip(r.lead_end),
+                literal: BTreeMap::new(),
+            });
+        if let (Some(a), Some(v)) = (r.attribute, r.value) {
+            c.literal.insert(a, v);
         }
     }
     // The nearest enclosing `ParamField`'s literal `body`: `None` with no such ancestor,
@@ -829,22 +818,6 @@ pub async fn run(
     };
 
     // The seeds' own signatures' parameters.
-    let params_sql = format!(
-        "SELECT p.signature_node_id, ps.node_id, ps.fact_id, ps.ordinal, ps.name, ps.kind, \
-                ps.default_text, ps.annotation_text, ps.start_byte, ps.end_byte, \
-                sem.required, sem.fact_id AS semantics_fact_id, d.module_node_id, \
-                pdoc.text AS doc_text, pdoc.start_byte AS doc_start, pdoc.end_byte AS doc_end, \
-                rcv.parameter_node_id IS NOT NULL AS receiver \
-         FROM parameters p JOIN parameter_syntax ps ON ps.fact_id = p.syntax_fact_id \
-         LEFT JOIN parameter_semantics sem ON sem.fact_id = p.semantics_fact_id \
-         LEFT JOIN parameter_docs pdoc ON pdoc.function_node_id = p.signature_node_id \
-           AND pdoc.name = ps.name \
-         LEFT JOIN ({receivers}) rcv ON rcv.parameter_node_id = ps.node_id \
-         JOIN declarations d ON d.node_id = p.signature_node_id \
-         WHERE p.signature_node_id IN ({seeds}) ORDER BY p.signature_node_id, ps.ordinal",
-        receivers = cpg_schema::flows::receivers_sql(),
-        seeds = hex_list(seeds.iter().copied())
-    );
     struct Param {
         node: Id,
         fact: Id,
@@ -862,59 +835,24 @@ pub async fn run(
         receiver: bool,
     }
     let mut params: BTreeMap<Id, Vec<Param>> = BTreeMap::new();
-    for (b, i) in Table::read(
-        ctx,
-        &params_sql,
-        &[
-            ("signature_node_id", ID),
-            ("node_id", ID),
-            ("fact_id", ID),
-            ("ordinal", DataType::Int64),
-            ("name", DataType::Utf8),
-            ("kind", DataType::Int16),
-            ("default_text", DataType::Utf8),
-            ("annotation_text", DataType::Utf8),
-            ("start_byte", DataType::Int64),
-            ("end_byte", DataType::Int64),
-            ("required", DataType::Boolean),
-            ("semantics_fact_id", ID),
-            ("module_node_id", ID),
-            ("doc_text", DataType::Utf8),
-            ("doc_start", DataType::Int64),
-            ("doc_end", DataType::Int64),
-            ("receiver", DataType::Boolean),
-        ],
-    )
-    .await?
-    .rows()
-    {
-        let (Some(sig), Some(node), Some(fact), Some(module)) = (
-            id(b, "signature_node_id", i),
-            id(b, "node_id", i),
-            id(b, "fact_id", i),
-            id(b, "module_node_id", i),
-        ) else {
-            continue;
-        };
-        params.entry(sig).or_default().push(Param {
-            node,
-            fact,
-            name: text(b, "name", i).unwrap_or_default(),
-            kind: small(b, "kind", i).and_then(ParameterKind::from_code),
-            default: text(b, "default_text", i),
-            annotation: text(b, "annotation_text", i),
-            span: (
-                int(b, "start_byte", i).unwrap_or_default() as usize,
-                int(b, "end_byte", i).unwrap_or_default() as usize,
-            ),
-            required: flag(b, "required", i),
-            semantics: id(b, "semantics_fact_id", i),
-            module,
-            doc: text(b, "doc_text", i)
-                .zip(int(b, "doc_start", i))
-                .zip(int(b, "doc_end", i))
+    for r in over::<ParameterRow>(ctx, parameters_relation(), seeds.iter().copied()).await? {
+        params.entry(r.signature_node_id).or_default().push(Param {
+            node: r.node_id,
+            fact: r.fact_id,
+            name: r.name,
+            kind: Some(r.kind),
+            default: r.default_text,
+            annotation: r.annotation_text,
+            span: (r.start_byte as usize, r.end_byte as usize),
+            required: r.required,
+            semantics: r.semantics_fact_id,
+            module: r.module_node_id,
+            doc: r
+                .doc_text
+                .zip(r.doc_start)
+                .zip(r.doc_end)
                 .map(|((t, a), z)| (t, a as usize, z as usize)),
-            receiver: flag(b, "receiver", i).unwrap_or(false),
+            receiver: r.receiver,
         });
     }
 
@@ -933,20 +871,14 @@ pub async fn run(
         })
         .collect();
     let mut formal_names: BTreeMap<Id, String> = BTreeMap::new();
-    for (b, i) in Table::read(
+    for r in over::<FormalRow>(
         ctx,
-        &format!(
-            "SELECT node_id, name FROM parameter_syntax WHERE node_id IN ({}) ORDER BY node_id",
-            hex_list(pass_b.iter().filter_map(|f| f.related_node_id))
-        ),
-        &[("node_id", ID), ("name", DataType::Utf8)],
+        formals_relation(),
+        pass_b.iter().filter_map(|f| f.related_node_id),
     )
     .await?
-    .rows()
     {
-        if let (Some(n), Some(name)) = (id(b, "node_id", i), text(b, "name", i)) {
-            formal_names.entry(n).or_insert(name);
-        }
+        formal_names.entry(r.node_id).or_insert(r.name);
     }
     struct Code {
         fact: Id,
@@ -960,41 +892,15 @@ pub async fn run(
         .filter(|f| f.finding_kind == FindingKind::ConditionalRaise)
         .flat_map(|f| [f.related_node_id, f.condition_node_id])
         .flatten();
-    for (b, i) in Table::read(
-        ctx,
-        &format!(
-            "SELECT sn.node_id, sn.fact_id, sn.module_node_id, sn.start_byte, sn.end_byte, s.text \
-             FROM syntax_nodes sn JOIN source_files s ON s.module_node_id = sn.module_node_id \
-             WHERE sn.node_id IN ({}) ORDER BY sn.node_id",
-            hex_list(guard_nodes)
-        ),
-        &[
-            ("node_id", ID),
-            ("fact_id", ID),
-            ("module_node_id", ID),
-            ("start_byte", DataType::Int64),
-            ("end_byte", DataType::Int64),
-            ("text", DataType::Utf8),
-        ],
-    )
-    .await?
-    .rows()
-    {
-        let (Some(n), Some(fact), Some(module), Some(a), Some(z), Some(source)) = (
-            id(b, "node_id", i),
-            id(b, "fact_id", i),
-            id(b, "module_node_id", i),
-            int(b, "start_byte", i),
-            int(b, "end_byte", i),
-            text(b, "text", i),
-        ) else {
+    for r in over::<CodeRow>(ctx, code_relation(), guard_nodes).await? {
+        let Some(source) = r.text else {
             continue;
         };
-        if let Some(slice) = source.get(a as usize..z as usize) {
-            code.entry(n).or_insert(Code {
-                fact,
-                module,
-                span: (a as usize, z as usize),
+        if let Some(slice) = source.get(r.start_byte as usize..r.end_byte as usize) {
+            code.entry(r.node_id).or_insert(Code {
+                fact: r.fact_id,
+                module: r.module_node_id,
+                span: (r.start_byte as usize, r.end_byte as usize),
                 text: slice.to_owned(),
             });
         }
@@ -1008,21 +914,10 @@ pub async fn run(
         .filter_map(|m| m.node_id)
         .collect();
     let mut formal_function: BTreeMap<Id, Id> = BTreeMap::new();
-    for (b, i) in Table::read(
-        ctx,
-        &format!(
-            "SELECT node_id, function_node_id FROM parameter_syntax WHERE node_id IN ({}) \
-             ORDER BY node_id",
-            hex_list(handoff_formals.iter().copied())
-        ),
-        &[("node_id", ID), ("function_node_id", ID)],
-    )
-    .await?
-    .rows()
-    {
-        if let (Some(n), Some(f)) = (id(b, "node_id", i), id(b, "function_node_id", i)) {
-            formal_function.entry(n).or_insert(f);
-        }
+    for r in over::<FormalRow>(ctx, formals_relation(), handoff_formals.iter().copied()).await? {
+        formal_function
+            .entry(r.node_id)
+            .or_insert(r.function_node_id);
     }
     // Each seed's handoff occurrences as (producer site, consumer site): a pattern that shows one
     // whole is preferred within its role (slice 2.2 review F3).

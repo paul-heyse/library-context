@@ -42,18 +42,19 @@ impl Params {
         Self::default()
     }
 
-    /// `$name` as a list of ids (`FixedSizeBinary(16)`), for `array_has($name, column)`. An empty
-    /// list is a list, and matches nothing.
+    /// `$name` as a list of ids, for `array_has($name, column)`. They are bound as `BinaryView`, the
+    /// type a session's Delta scans give every id column (`array_has` coerces neither
+    /// `FixedSizeBinary` nor `Binary` to it). An empty list is a list, and matches nothing.
     pub fn ids(mut self, name: &str, ids: impl IntoIterator<Item = Id>) -> Self {
         let values: Vec<ScalarValue> = ids
             .into_iter()
-            .map(|id| ScalarValue::FixedSizeBinary(16, Some(id.0.to_vec())))
+            .map(|id| ScalarValue::BinaryView(Some(id.0.to_vec())))
             .collect();
         self.0.push((
             name.to_owned(),
             ScalarValue::List(ScalarValue::new_list_nullable(
                 &values,
-                &DataType::FixedSizeBinary(16),
+                &DataType::BinaryView,
             )),
         ));
         self
@@ -112,7 +113,7 @@ pub async fn fetch<R: QueryRow>(
 mod tests {
     use std::sync::Arc;
 
-    use datafusion::arrow::array::{FixedSizeBinaryArray, RecordBatch, StringArray};
+    use datafusion::arrow::array::{BinaryViewArray, RecordBatch, StringArray};
     use datafusion::arrow::datatypes::{Field, Schema};
 
     use super::*;
@@ -126,17 +127,18 @@ mod tests {
 
     fn session() -> SessionContext {
         let ctx = SessionContext::new();
+        // Ids as a session's Delta scans give them (`BinaryView`), never the declared
+        // `FixedSizeBinary(16)`.
         let schema = Arc::new(Schema::new(vec![
-            Field::new("node_id", DataType::FixedSizeBinary(16), false),
+            Field::new("node_id", DataType::BinaryView, false),
             Field::new("name", DataType::Utf8, true),
         ]));
         let batch = RecordBatch::try_new(
             schema,
             vec![
-                Arc::new(
-                    FixedSizeBinaryArray::try_from_iter([[1u8; 16], [2; 16], [3; 16]].into_iter())
-                        .unwrap(),
-                ),
+                Arc::new(BinaryViewArray::from_iter_values([
+                    [1u8; 16], [2; 16], [3; 16],
+                ])),
                 Arc::new(StringArray::from(vec![Some("a"), Some("o'brien"), None])),
             ],
         )
