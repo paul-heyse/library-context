@@ -293,8 +293,15 @@ fn with_compiler_run(
     };
     let release = ids(&runs, "release_id")?[row];
     let context = ids(&runs, "context_id")?[row];
-    let (compiler, run, producer) =
-        compiler_rows(snapshot_id, release, context, analysis.config.digest());
+    // A variant's label joins the config digest (§9.8's ablation): the default's is the config's.
+    let config_digest = match analysis.techniques.label() {
+        None => analysis.config.digest(),
+        Some(label) => IdHasher::new("analytics-variant")
+            .digest_field(analysis.config.digest())
+            .str(&label)
+            .finish_digest(),
+    };
+    let (compiler, run, producer) = compiler_rows(snapshot_id, release, context, config_digest);
     for (name, batch) in raw.iter_mut() {
         let extra = match *name {
             n if n == Runs::NAME => Runs::to_batch(std::slice::from_ref(&run))?,

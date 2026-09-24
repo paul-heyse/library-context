@@ -87,6 +87,7 @@ async fn compile_config(
     let analysis = Analysis {
         config: AnalyticsConfig::parse(config).unwrap(),
         embedder: None,
+        techniques: Default::default(),
     };
     let result = compile_analyzed(&dir.path().join("store"), s, &out.tables, Some(&analysis)).await;
     (result, dir)
@@ -124,6 +125,7 @@ async fn analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDi
     let analysis = Analysis {
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Default::default(),
     };
     let store = dir.path().join("store");
     compile_analyzed(&store, s, &out.tables, Some(&analysis))

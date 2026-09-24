@@ -40,6 +40,97 @@ pub const TOOL: &str = "lctx-compiler";
 pub struct Analysis {
     pub config: AnalyticsConfig,
     pub embedder: Option<std::sync::Arc<dyn crate::embed::Embedder>>,
+    /// Which analytics techniques run (the §9.8 ablation's variants; slice 3.2).
+    pub techniques: Techniques,
+}
+
+/// The analytics techniques a compile runs (DESIGN §9.8; slices 3.2, 3.3). The default is the
+/// kept set; a variant adds or removes techniques by name (`-knn`, `+rca`), and its label joins
+/// the compiler run's config digest, so a variant's snapshot never shares a content digest with
+/// the default's. Finding and assertion ids do not depend on it, so ablation diffs are joins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Techniques {
+    pub communities: bool,
+    pub pagerank: bool,
+    pub fca: bool,
+    pub knn: bool,
+    /// FCA's relational scaling: `calls X` and `hands off to X` attributes (§9.6, 3.2).
+    pub rca: bool,
+    /// A community layer of shared declared parameter types (§9.4, 3.2).
+    pub type_layer: bool,
+    /// A community layer of doc co-mentions (§9.4, 3.2; C5 O1).
+    pub mention_layer: bool,
+    /// A community layer of API–API embedding neighbours (§9.4, §9.7, 3.2).
+    pub knn_layer: bool,
+}
+
+impl Default for Techniques {
+    fn default() -> Self {
+        Techniques {
+            communities: true,
+            pagerank: true,
+            fca: true,
+            knn: true,
+            rca: false,
+            type_layer: false,
+            mention_layer: false,
+            knn_layer: false,
+        }
+    }
+}
+
+impl Techniques {
+    fn flags(&mut self) -> [(&'static str, &mut bool); 8] {
+        [
+            ("communities", &mut self.communities),
+            ("pagerank", &mut self.pagerank),
+            ("fca", &mut self.fca),
+            ("knn", &mut self.knn),
+            ("rca", &mut self.rca),
+            ("type-layer", &mut self.type_layer),
+            ("mention-layer", &mut self.mention_layer),
+            ("knn-layer", &mut self.knn_layer),
+        ]
+    }
+
+    /// `default`, or changes to it: a comma list of `+name` and `-name`.
+    pub fn parse(spec: &str) -> Result<Self, String> {
+        let mut out = Techniques::default();
+        if spec.trim() == "default" || spec.trim().is_empty() {
+            return Ok(out);
+        }
+        for part in spec.split(',').map(str::trim) {
+            let (on, name) = match part.split_at_checked(1) {
+                Some(("+", n)) => (true, n),
+                Some(("-", n)) => (false, n),
+                _ => return Err(format!("{part}: expected +name or -name")),
+            };
+            let mut flags = out.flags();
+            let flag = flags
+                .iter_mut()
+                .find(|(n, _)| *n == name)
+                .ok_or_else(|| format!("{name}: no such technique"))?;
+            *flag.1 = on;
+        }
+        if !out.communities && (out.type_layer || out.mention_layer || out.knn_layer) {
+            return Err("a community layer needs communities".to_owned());
+        }
+        Ok(out)
+    }
+
+    /// The canonical changes from the default (`+rca,-knn`), or `None` for the default.
+    pub fn label(&self) -> Option<String> {
+        let mut default = Techniques::default();
+        let mut this = *self;
+        let changes: Vec<String> = this
+            .flags()
+            .into_iter()
+            .zip(default.flags())
+            .filter(|((_, a), (_, b))| **a != **b)
+            .map(|((n, a), _)| format!("{}{n}", if *a { "+" } else { "-" }))
+            .collect();
+        (!changes.is_empty()).then(|| changes.join(","))
+    }
 }
 
 impl std::fmt::Debug for Analysis {
@@ -554,158 +645,163 @@ pub async fn run(
             paths.push((node, access.value(i).to_owned()));
         }
     }
-    let input = communities::Input::build(
-        &p,
-        &subsystem,
-        &collect(
-            ctx,
-            &cpg_schema::communities::co_use_sql(),
-            &cpg_schema::communities::schemas::co_use(),
+    let techniques = analysis.techniques;
+    if techniques.communities {
+        let input = communities::Input::build(
+            &p,
+            &subsystem,
+            &collect(
+                ctx,
+                &cpg_schema::communities::co_use_sql(),
+                &cpg_schema::communities::schemas::co_use(),
+            )
+            .await?,
+            &public,
         )
-        .await?,
-        &public,
-    )
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    let params = communities::Params::preregistered();
-    let parameters = serde_json::to_string(&CommunityParameters {
-        communities: &params,
-        module_prefixes: &config.subsystem.module_prefixes,
-        public_roots: &config.subsystem.public_roots,
-    })
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    let parameters_digest = content_digest(parameters.as_bytes());
-    let consensus_id = findings::invocation(
-        AnalyticMethod::CommunityConsensus.code(),
-        parameters_digest,
-        Some(community_digest),
-        None,
-        None,
-    );
-    let outcome = communities::run(&input, &params, snapshot_id, consensus_id)
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    for run in &outcome.runs {
-        let parameters = format!(
-            "{{\"consensus\":\"{}\",\"run\":{}}}",
-            parameters_digest.hex(),
-            run.parameters
+        let params = communities::Params::preregistered();
+        let parameters = serde_json::to_string(&CommunityParameters {
+            communities: &params,
+            module_prefixes: &config.subsystem.module_prefixes,
+            public_roots: &config.subsystem.public_roots,
+        })
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        let parameters_digest = content_digest(parameters.as_bytes());
+        let consensus_id = findings::invocation(
+            AnalyticMethod::CommunityConsensus.code(),
+            parameters_digest,
+            Some(community_digest),
+            None,
+            None,
         );
-        let run_digest = content_digest(parameters.as_bytes());
+        let outcome = communities::run(&input, &params, snapshot_id, consensus_id)
+            .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        for run in &outcome.runs {
+            let parameters = format!(
+                "{{\"consensus\":\"{}\",\"run\":{}}}",
+                parameters_digest.hex(),
+                run.parameters
+            );
+            let run_digest = content_digest(parameters.as_bytes());
+            rows.invocations.push(AnalysisInvocationsRow {
+                snapshot_id,
+                invocation_id: findings::invocation(
+                    AnalyticMethod::Leiden.code(),
+                    run_digest,
+                    Some(community_digest),
+                    None,
+                    Some(run.seed as i64),
+                ),
+                run_id: compiler.run_id,
+                model_id: compiler.model("leiden"),
+                extraction_mode: ExtractionMode::GraphAnalysis,
+                method: AnalyticMethod::Leiden,
+                parameters,
+                parameters_digest: run_digest,
+                projection_digest: Some(community_digest),
+                library_versions: lctx_analytics::libraries(),
+                subject_node_id: None,
+                seed: Some(run.seed as i64),
+                iterations: Some(run.iterations),
+                residual: None,
+                converged: Some(run.converged),
+                quality_history: run.quality_history.clone(),
+                candidate_set_size: Some(outcome.vertices as i64),
+                vertices_examined: Some(outcome.vertices as i64),
+                arcs_examined: Some(outcome.pairs as i64),
+                completion: if run.converged {
+                    CoverageStatus::CompleteUnderStatedModel
+                } else {
+                    CoverageStatus::Partial
+                },
+                stop_reason: None,
+                diagnostics: None,
+            });
+        }
         rows.invocations.push(AnalysisInvocationsRow {
             snapshot_id,
-            invocation_id: findings::invocation(
-                AnalyticMethod::Leiden.code(),
-                run_digest,
-                Some(community_digest),
-                None,
-                Some(run.seed as i64),
-            ),
+            invocation_id: consensus_id,
             run_id: compiler.run_id,
-            model_id: compiler.model("leiden"),
+            model_id: compiler.model("community-consensus"),
             extraction_mode: ExtractionMode::GraphAnalysis,
-            method: AnalyticMethod::Leiden,
+            method: AnalyticMethod::CommunityConsensus,
             parameters,
-            parameters_digest: run_digest,
+            parameters_digest,
             projection_digest: Some(community_digest),
             library_versions: lctx_analytics::libraries(),
             subject_node_id: None,
-            seed: Some(run.seed as i64),
-            iterations: Some(run.iterations),
+            seed: None,
+            iterations: None,
             residual: None,
-            converged: Some(run.converged),
-            quality_history: run.quality_history.clone(),
+            converged: None,
+            quality_history: Vec::new(),
             candidate_set_size: Some(outcome.vertices as i64),
             vertices_examined: Some(outcome.vertices as i64),
             arcs_examined: Some(outcome.pairs as i64),
-            completion: if run.converged {
-                CoverageStatus::CompleteUnderStatedModel
-            } else {
-                CoverageStatus::Partial
-            },
+            completion: outcome.completion,
             stop_reason: None,
-            diagnostics: None,
+            diagnostics: Some(outcome.diagnostics),
         });
+        rows.findings.extend(outcome.findings);
+        rows.members.extend(outcome.members);
     }
-    rows.invocations.push(AnalysisInvocationsRow {
-        snapshot_id,
-        invocation_id: consensus_id,
-        run_id: compiler.run_id,
-        model_id: compiler.model("community-consensus"),
-        extraction_mode: ExtractionMode::GraphAnalysis,
-        method: AnalyticMethod::CommunityConsensus,
-        parameters,
-        parameters_digest,
-        projection_digest: Some(community_digest),
-        library_versions: lctx_analytics::libraries(),
-        subject_node_id: None,
-        seed: None,
-        iterations: None,
-        residual: None,
-        converged: None,
-        quality_history: Vec::new(),
-        candidate_set_size: Some(outcome.vertices as i64),
-        vertices_examined: Some(outcome.vertices as i64),
-        arcs_examined: Some(outcome.pairs as i64),
-        completion: outcome.completion,
-        stop_reason: None,
-        diagnostics: Some(outcome.diagnostics),
-    });
-    rows.findings.extend(outcome.findings);
-    rows.members.extend(outcome.members);
-    // Centrality (§9.5): PageRank over the usage projection; each public API's rank.
-    let usage_digest = ranking::projection_digest(spec.digest());
-    let rank_params = ranking::Params::preregistered();
-    let parameters = serde_json::to_string(&RankingParameters {
-        pagerank: &rank_params,
-        weight_policy: ranking::WEIGHT_POLICY,
-        module_prefixes: &config.subsystem.module_prefixes,
-        public_roots: &config.subsystem.public_roots,
-    })
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    let parameters_digest = content_digest(parameters.as_bytes());
-    let invocation_id = findings::invocation(
-        AnalyticMethod::PageRank.code(),
-        parameters_digest,
-        Some(usage_digest),
-        None,
-        None,
-    );
-    let ranked = ranking::run(
-        &ranking::UsageGraph::build(&p, &subsystem),
-        &public,
-        &rank_params,
-        snapshot_id,
-        invocation_id,
-    )
-    .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    rows.invocations.push(AnalysisInvocationsRow {
-        snapshot_id,
-        invocation_id,
-        run_id: compiler.run_id,
-        model_id: compiler.model("pagerank"),
-        extraction_mode: ExtractionMode::GraphAnalysis,
-        method: AnalyticMethod::PageRank,
-        parameters,
-        parameters_digest,
-        projection_digest: Some(usage_digest),
-        library_versions: lctx_analytics::libraries(),
-        subject_node_id: None,
-        seed: None,
-        iterations: Some(ranked.ranks.iterations),
-        residual: Some(ranked.ranks.residual),
-        converged: Some(ranked.ranks.converged),
-        quality_history: Vec::new(),
-        candidate_set_size: Some(ranked.vertices as i64),
-        vertices_examined: Some(ranked.vertices as i64),
-        arcs_examined: Some(ranked.arcs as i64),
-        completion: ranked.completion,
-        stop_reason: None,
-        diagnostics: Some(ranked.diagnostics),
-    });
-    rows.findings.extend(ranked.findings);
+    if techniques.pagerank {
+        // Centrality (§9.5): PageRank over the usage projection; each public API's rank.
+        let usage_digest = ranking::projection_digest(spec.digest());
+        let rank_params = ranking::Params::preregistered();
+        let parameters = serde_json::to_string(&RankingParameters {
+            pagerank: &rank_params,
+            weight_policy: ranking::WEIGHT_POLICY,
+            module_prefixes: &config.subsystem.module_prefixes,
+            public_roots: &config.subsystem.public_roots,
+        })
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        let parameters_digest = content_digest(parameters.as_bytes());
+        let invocation_id = findings::invocation(
+            AnalyticMethod::PageRank.code(),
+            parameters_digest,
+            Some(usage_digest),
+            None,
+            None,
+        );
+        let ranked = ranking::run(
+            &ranking::UsageGraph::build(&p, &subsystem),
+            &public,
+            &rank_params,
+            snapshot_id,
+            invocation_id,
+        )
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        rows.invocations.push(AnalysisInvocationsRow {
+            snapshot_id,
+            invocation_id,
+            run_id: compiler.run_id,
+            model_id: compiler.model("pagerank"),
+            extraction_mode: ExtractionMode::GraphAnalysis,
+            method: AnalyticMethod::PageRank,
+            parameters,
+            parameters_digest,
+            projection_digest: Some(usage_digest),
+            library_versions: lctx_analytics::libraries(),
+            subject_node_id: None,
+            seed: None,
+            iterations: Some(ranked.ranks.iterations),
+            residual: Some(ranked.ranks.residual),
+            converged: Some(ranked.ranks.converged),
+            quality_history: Vec::new(),
+            candidate_set_size: Some(ranked.vertices as i64),
+            vertices_examined: Some(ranked.vertices as i64),
+            arcs_examined: Some(ranked.arcs as i64),
+            completion: ranked.completion,
+            stop_reason: None,
+            diagnostics: Some(ranked.diagnostics),
+        });
+        rows.findings.extend(ranked.findings);
+    }
     // Embeddings in analytics (§9.7; slice 3.1): E0 embeds the corpus passages and the subsystem's
     // public APIs through the cache, in windows under the document cap; exact kNN links each API
     // to its nearest passages and labels each community by its centroid's nearest heading.
-    if let Some(embedder) = &analysis.embedder {
+    if let (true, Some(embedder)) = (techniques.knn, &analysis.embedder) {
         let knn = neighbours::Params::preregistered();
         let mut texts: Vec<String> = Vec::new();
         // (node, label, first window, window count)
@@ -1274,7 +1370,7 @@ pub async fn run(
     .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let fca_params = concepts::Params::preregistered();
     let fca_digest = cpg_schema::concepts::digest();
-    for scope in &scopes {
+    for scope in scopes.iter().filter(|_| techniques.fca) {
         let parameters = serde_json::to_string(&ConceptParameters {
             fca: &fca_params,
             scope: &scope.label,
@@ -1320,4 +1416,25 @@ pub async fn run(
     // Two seeds may reach the same finding only with different subjects, so ids are unique; the
     // key rules check it.
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Techniques;
+
+    #[test]
+    fn a_variant_is_the_default_changed_by_name_and_labelled_canonically() {
+        assert_eq!(Techniques::parse("default"), Ok(Techniques::default()));
+        assert_eq!(Techniques::default().label(), None);
+        let v = Techniques::parse("+rca, -knn,+type-layer").unwrap();
+        assert!(v.rca && !v.knn && v.type_layer && v.fca);
+        // The label is in declaration order, whatever the spelling's order.
+        assert_eq!(v.label().as_deref(), Some("-knn,+rca,+type-layer"));
+        assert_eq!(Techniques::parse(&v.label().unwrap()), Ok(v));
+        // Setting a technique to its default is no change.
+        assert_eq!(Techniques::parse("+fca").unwrap().label(), None);
+        assert!(Techniques::parse("knn").is_err());
+        assert!(Techniques::parse("-louvain").is_err());
+        assert!(Techniques::parse("-communities,+knn-layer").is_err());
+    }
 }

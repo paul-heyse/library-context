@@ -91,6 +91,10 @@ enum Cmd {
         /// Where the published snapshot's serving generation is built (DESIGN §6.4).
         #[arg(long, default_value = "build/generations")]
         generations: PathBuf,
+        /// The analytics variant (DESIGN §9.8's ablation): `default`, or changes to it such as
+        /// `-knn` or `+rca,+type-layer`.
+        #[arg(long, default_value = "default")]
+        analytics: String,
     },
     /// Build a published snapshot's serving generation (DESIGN §6.4): `<out>/<key>/`.
     Bundle {
@@ -310,6 +314,10 @@ fn embedder_of(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the compile command's flags, one each"
+)]
 fn compile(
     library_dir: &Path,
     env_dir: &Path,
@@ -318,6 +326,7 @@ fn compile(
     reinstall: bool,
     embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
     generations: &Path,
+    techniques: cpg_core::analyze::Techniques,
 ) -> anyhow::Result<()> {
     let started = Instant::now();
     acquire(library_dir, env_dir, reinstall)?;
@@ -355,9 +364,13 @@ fn compile(
             let spec = e.spec();
             println!("embedder {} (spec {})", spec.model, spec.hash().hex());
         }
+        if let Some(label) = techniques.label() {
+            println!("analytics variant {label}");
+        }
         Some(cpg_core::analyze::Analysis {
             config: lctx_analytics::config::AnalyticsConfig::load(&config_path)?,
             embedder,
+            techniques,
         })
     } else {
         None
@@ -556,6 +569,7 @@ fn run() -> anyhow::Result<()> {
             embedder,
             embed_url,
             generations,
+            analytics,
         } => compile(
             &libraries.join(&name),
             &envs.join(&name),
@@ -564,6 +578,7 @@ fn run() -> anyhow::Result<()> {
             reinstall,
             embedder_of(embedder, &embed_url),
             &absolute(&generations)?,
+            cpg_core::analyze::Techniques::parse(&analytics).map_err(|e| anyhow::anyhow!(e))?,
         ),
         Cmd::Bundle {
             store,

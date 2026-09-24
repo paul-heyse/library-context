@@ -928,6 +928,7 @@ budget = 2
         )
         .unwrap(),
         embedder: None,
+        techniques: Default::default(),
     };
     let store = dir.path().join("store");
     cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis))
@@ -1090,6 +1091,7 @@ budget = 3
         )
         .unwrap(),
         embedder,
+        techniques: Default::default(),
     };
     let store = base.join("store");
     cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis))

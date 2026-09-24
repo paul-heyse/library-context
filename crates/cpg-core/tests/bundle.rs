@@ -75,6 +75,7 @@ async fn compiled(sub: &str, reverse: bool) -> (tempfile::TempDir, PathBuf) {
     let analysis = Analysis {
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Default::default(),
     };
     let store = dir.path().join("store");
     compile_analyzed(&store, SNAPSHOT, &out.tables, Some(&analysis))
