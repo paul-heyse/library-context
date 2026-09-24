@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table behavior_steps
+family findings
+key snapshot_id, behavior_id, step
+check step_nonnegative: step >= 0
+@lctx.family=findings
+@lctx.table=behavior_steps
+snapshot_id: FixedSizeBinary(16) NOT NULL
+behavior_id: FixedSizeBinary(16) NOT NULL
+step: Int64 NOT NULL
+caller_node_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+callee_node_id: FixedSizeBinary(16) NOT NULL
+modality: Int16 NOT NULL [lctx.codebook=modality]
+conditional: Boolean NOT NULL

@@ -17,13 +17,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cpg_schema::behavior::{
-    self as b, ArgumentFlows, ArgumentFlowsRow, BehaviorsRow, DelegationsRow, Guards, GuardsRow,
-    HandoffsRow, OperationDocumentsRow, OperationFacetsRow, OperationSourceRow, OperationsRow,
-    ParameterReads, ParameterReadsRow,
+    self as b, ArgumentFlows, ArgumentFlowsRow, BehaviorStepsRow, BehaviorsRow, DelegationsRow,
+    Guards, GuardsRow, HandoffsRow, OperationDocumentsRow, OperationFacetStatusRow,
+    OperationFacetsRow, OperationSourceRow, OperationsRow, ParameterReads, ParameterReadsRow,
 };
 use cpg_schema::codebook::{
-    AnalyticMethod, BehaviorKind, Codebook, CoverageStatus, DeclarationKind, EmbeddingView,
-    ExtractionMode, FindingKind, MemberRole, Modality, OperationFacet, Verdict,
+    AnalyticMethod, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
+    EmbeddingView, ExtractionMode, FindingKind, MemberRole, Modality, OperationFacet, Verdict,
 };
 use cpg_schema::findings::{
     AnalysisInvocationsRow, FindingMembersRow, PublicPathsRow, recipe as findings,
@@ -52,7 +52,9 @@ pub struct BehaviorRows {
     pub delegations: Vec<DelegationsRow>,
     pub operations: Vec<OperationsRow>,
     pub facets: Vec<OperationFacetsRow>,
+    pub facet_status: Vec<OperationFacetStatusRow>,
     pub behaviors: Vec<BehaviorsRow>,
+    pub steps: Vec<BehaviorStepsRow>,
     pub documents: Vec<OperationDocumentsRow>,
     pub invocations: Vec<AnalysisInvocationsRow>,
     /// The cache keys the documents use, for the snapshot's key set (`content_digest`).
@@ -127,6 +129,37 @@ fn line_of(text: &str, byte: usize) -> i64 {
         .count() as i64
 }
 
+/// The boundary a hop through a non-definite arc meets (increment 3's deep review, F1).
+fn hop_reason(modality: Modality) -> Option<BoundaryReason> {
+    match modality {
+        Modality::Definite => None,
+        Modality::Candidate => Some(BoundaryReason::OverrideDispatch),
+        Modality::Potential => Some(BoundaryReason::AmbiguousBinding),
+    }
+}
+
+/// The order a scan's boundaries are named in: the first is `operations.boundary_reason`.
+fn reason_rank(r: BoundaryReason) -> u8 {
+    match r {
+        BoundaryReason::BudgetReached => 0,
+        BoundaryReason::OverrideDispatch => 1,
+        BoundaryReason::AmbiguousBinding => 2,
+        BoundaryReason::UnresolvedTarget => 3,
+        BoundaryReason::OutsideProviderModel => 4,
+        _ => 5,
+    }
+}
+
+/// One step of a behavior's path before its id is known.
+#[derive(Clone, Copy)]
+struct Hop {
+    caller: Id,
+    call_site: Id,
+    callee: Id,
+    modality: Modality,
+    conditional: bool,
+}
+
 /// The digest of what the behavior scan reads: its declared relations and this module's own.
 pub fn digest() -> Digest {
     let mut h = cpg_schema::id::IdHasher::new("behavior-scan");
@@ -169,7 +202,6 @@ pub async fn run(
         .iter()
         .map(|s| (s.node_id, s.access_path.as_str()))
         .collect();
-    let _ = public;
 
     // Pass B from every public callable, into any release function (the flows hold only arcs
     // into release functions).
@@ -203,15 +235,42 @@ pub async fn run(
         .map(|f| (f.formal_node_id, f.formal_name.as_str()))
         .collect();
     let mut partial = BTreeSet::new();
+    // Every boundary each operation's scan met, for its status (increment 3's deep review, F2).
+    let mut boundaries: BTreeMap<Id, BTreeSet<(u8, BoundaryReason, String)>> = BTreeMap::new();
+    let mut meet = |op: Id, reason: BoundaryReason, text: String| {
+        boundaries
+            .entry(op)
+            .or_default()
+            .insert((reason_rank(reason), reason, text));
+    };
+    // The reads each (callable, formal) makes: a frontier state with any is a depth cut.
+    let mut reads_at: BTreeSet<(Id, Id)> = out
+        .parameter_reads
+        .iter()
+        .map(|r| (r.caller_node_id, r.parameter_node_id))
+        .collect();
+    reads_at.extend(
+        out.argument_flows
+            .iter()
+            .filter_map(|f| f.source_parameter_node_id.map(|p| (f.caller_node_id, p))),
+    );
+    let open_reads: BTreeSet<(Id, Id)> =
+        sql::fetch::<b::OpenSiteReadRow>(ctx, &b::open_site_reads(), sql::Params::new())
+            .await?
+            .into_iter()
+            .map(|r| (r.caller_node_id, r.parameter_node_id))
+            .collect();
+    let mut hops: BTreeMap<Id, Vec<Hop>> = BTreeMap::new();
     let (mut states, mut examined) = (0i64, 0i64);
     for &node in &callables {
+        let own_parameters = parameters_of
+            .get(&node)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         let result = pass_b::run(
             &flows,
             node,
-            parameters_of
-                .get(&node)
-                .map(Vec::as_slice)
-                .unwrap_or_default(),
+            own_parameters,
             |_| true,
             max_depth,
             snapshot_id,
@@ -224,20 +283,62 @@ pub async fn run(
             || result.stop_reason.is_some()
         {
             partial.insert(node);
+            meet(
+                node,
+                BoundaryReason::BudgetReached,
+                format!("the scan stopped at the depth bound ({max_depth})"),
+            );
         }
         let mut members: BTreeMap<Id, Vec<&FindingMembersRow>> = BTreeMap::new();
         for m in &result.members {
             members.entry(m.finding_id).or_default().push(m);
         }
-        let mut last_step: BTreeMap<Id, (i64, Id, Id)> = BTreeMap::new();
+        // Each finding's first witness path, hop by hop with its modality (review F6).
+        let mut paths: BTreeMap<Id, Vec<(i64, Hop)>> = BTreeMap::new();
         for w in result.witnesses.iter().filter(|w| w.path == 0) {
-            let e = last_step.entry(w.finding_id).or_insert((
+            paths.entry(w.finding_id).or_default().push((
                 w.step,
-                w.callee_node_id,
-                w.call_site_node_id,
+                Hop {
+                    caller: w.caller_node_id,
+                    call_site: w.call_site_node_id,
+                    callee: w.callee_node_id,
+                    modality: w.modality,
+                    conditional: false,
+                },
             ));
-            if w.step >= e.0 {
-                *e = (w.step, w.callee_node_id, w.call_site_node_id);
+        }
+        // The values the scan tracks: the operation's parameters and every formal it reached.
+        let mut tracked: BTreeSet<(Id, Id)> =
+            own_parameters.iter().map(|p| (node, p.node)).collect();
+        for f in &result.findings {
+            if f.finding_kind == FindingKind::Forwarding
+                && let (Some(callee), Some(formal)) = (
+                    paths
+                        .get(&f.finding_id)
+                        .and_then(|p| p.iter().max_by_key(|(s, _)| *s))
+                        .map(|(_, h)| h.callee),
+                    f.related_node_id,
+                )
+            {
+                tracked.insert((callee, formal));
+                if f.depth.unwrap_or(0) >= i64::from(max_depth)
+                    && reads_at.contains(&(callee, formal))
+                {
+                    meet(
+                        node,
+                        BoundaryReason::BudgetReached,
+                        format!("a reached formal is read past the depth bound ({max_depth})"),
+                    );
+                }
+            }
+        }
+        for &(caller, formal) in &tracked {
+            if caller != node && open_reads.contains(&(caller, formal)) {
+                meet(
+                    node,
+                    BoundaryReason::UnresolvedTarget,
+                    "a tracked value reaches a call site resolution leaves open".to_owned(),
+                );
             }
         }
         for f in &result.findings {
@@ -247,19 +348,40 @@ pub async fn run(
                 .unwrap_or_default();
             let member = |role: MemberRole| ms.iter().find(|m| m.role == role);
             let source = member(MemberRole::SourceParameter);
-            let conditional = member(MemberRole::ConditionalCall).is_some();
-            let (callee, site) = last_step
+            let conditional_sites: BTreeSet<Id> = ms
+                .iter()
+                .filter(|m| m.role == MemberRole::ConditionalCall)
+                .filter_map(|m| m.node_id)
+                .collect();
+            let conditional = !conditional_sites.is_empty();
+            let mut path: Vec<Hop> = paths
                 .get(&f.finding_id)
-                .map(|&(_, c, s)| (Some(c), Some(s)))
+                .map(|p| {
+                    let mut p = p.clone();
+                    p.sort_by_key(|(s, _)| *s);
+                    p.into_iter().map(|(_, h)| h).collect()
+                })
+                .unwrap_or_default();
+            for h in &mut path {
+                h.conditional = conditional_sites.contains(&h.call_site);
+            }
+            let (callee, site) = path
+                .last()
+                .map(|h| (Some(h.callee), Some(h.call_site)))
                 .unwrap_or((Some(node), None));
-            let (kind, verdict, target_name, value, site) = match f.finding_kind {
+            // One verdict policy per arc (review F1): a hop through a non-definite arc makes the
+            // row unknown, as the delegation over it is.
+            let hop = path.iter().find_map(|h| hop_reason(h.modality));
+            let positive = |c: bool| match (hop, c) {
+                (Some(_), _) => Verdict::Unknown,
+                (None, true) => Verdict::Conditional,
+                (None, false) => Verdict::Established,
+            };
+            let (kind, verdict, reason, target_name, value, site) = match f.finding_kind {
                 FindingKind::Forwarding => (
                     BehaviorKind::Forwards,
-                    if conditional {
-                        Verdict::Conditional
-                    } else {
-                        Verdict::Established
-                    },
+                    positive(conditional),
+                    hop,
                     f.related_node_id
                         .and_then(|n| formal_name.get(&n))
                         .map(|s| (*s).to_owned()),
@@ -268,11 +390,8 @@ pub async fn run(
                 ),
                 FindingKind::TransformedArgument => (
                     BehaviorKind::SuppliesLiteral,
-                    if conditional {
-                        Verdict::Conditional
-                    } else {
-                        Verdict::Established
-                    },
+                    positive(conditional),
+                    hop,
                     f.related_node_id
                         .and_then(|n| formal_name.get(&n))
                         .map(|s| (*s).to_owned()),
@@ -281,7 +400,8 @@ pub async fn run(
                 ),
                 FindingKind::ConditionalRaise => (
                     BehaviorKind::RaisesWhen,
-                    Verdict::Conditional,
+                    positive(true),
+                    hop,
                     member(MemberRole::Formal).and_then(|m| m.label.clone()),
                     None,
                     f.condition_node_id,
@@ -289,25 +409,40 @@ pub async fn run(
                 FindingKind::UnfollowedArgument => (
                     BehaviorKind::Unfollowed,
                     Verdict::Unknown,
+                    hop.or(Some(BoundaryReason::OutsideProviderModel)),
                     member(MemberRole::Formal).and_then(|m| m.label.clone()),
                     member(MemberRole::Reason).and_then(|m| m.label.clone()),
                     site,
                 ),
                 _ => continue,
             };
+            if let Some(r) = reason {
+                let text = match r {
+                    BoundaryReason::OverrideDispatch => {
+                        "a path crosses an override-open call".to_owned()
+                    }
+                    BoundaryReason::AmbiguousBinding => {
+                        "a path crosses a potential call".to_owned()
+                    }
+                    _ => "a parameter is read in a form the scan does not follow".to_owned(),
+                };
+                meet(node, r, text);
+            }
             let parameter = source.and_then(|m| m.node_id);
             let target = f.related_node_id;
+            let behavior_id = b::behavior_id(
+                node,
+                kind,
+                parameter,
+                callee,
+                target,
+                value.as_deref(),
+                site,
+            );
+            hops.insert(behavior_id, path);
             out.behaviors.push(BehaviorsRow {
                 snapshot_id,
-                behavior_id: b::behavior_id(
-                    node,
-                    kind,
-                    parameter,
-                    callee,
-                    target,
-                    value.as_deref(),
-                    site,
-                ),
+                behavior_id,
                 operation_node_id: node,
                 kind,
                 parameter_node_id: parameter,
@@ -319,6 +454,7 @@ pub async fn run(
                 depth: f.depth.unwrap_or(0),
                 conditional,
                 verdict,
+                boundary_reason: reason,
                 site_node_id: site,
                 site_module_node_id: None,
                 site_start_byte: None,
@@ -370,21 +506,40 @@ pub async fn run(
         e.1 += 1;
     }
     for (&(op, callee, modality), &(site, n)) in &delegated {
-        let (verdict, value) = match modality {
-            Modality::Definite => (Verdict::Established, None),
-            _ => (Verdict::Unknown, Some(modality.text().to_owned())),
+        let reason = hop_reason(modality);
+        let (verdict, value) = match reason {
+            None => (Verdict::Established, None),
+            Some(_) => (Verdict::Unknown, Some(modality.text().to_owned())),
         };
+        if let Some(r) = reason {
+            meet(
+                op,
+                r,
+                "it makes an override-open or potential call".to_owned(),
+            );
+        }
+        let behavior_id = b::behavior_id(
+            op,
+            BehaviorKind::Delegates,
+            None,
+            Some(callee),
+            None,
+            value.as_deref(),
+            Some(site),
+        );
+        hops.insert(
+            behavior_id,
+            vec![Hop {
+                caller: op,
+                call_site: site,
+                callee,
+                modality,
+                conditional: false,
+            }],
+        );
         out.behaviors.push(BehaviorsRow {
             snapshot_id,
-            behavior_id: b::behavior_id(
-                op,
-                BehaviorKind::Delegates,
-                None,
-                Some(callee),
-                None,
-                value.as_deref(),
-                Some(site),
-            ),
+            behavior_id,
             operation_node_id: op,
             kind: BehaviorKind::Delegates,
             parameter_node_id: None,
@@ -396,6 +551,7 @@ pub async fn run(
             depth: 1,
             conditional: false,
             verdict,
+            boundary_reason: reason,
             site_node_id: Some(site),
             site_module_node_id: None,
             site_start_byte: None,
@@ -458,6 +614,7 @@ pub async fn run(
                 depth: 0,
                 conditional: false,
                 verdict: Verdict::Established,
+                boundary_reason: None,
                 site_node_id: Some(*site),
                 site_module_node_id: None,
                 site_start_byte: None,
@@ -469,8 +626,33 @@ pub async fn run(
             });
         }
     }
+    // A behavior id names one claim; two rows under one id are a defect, never merged (§3.4.1;
+    // increment 3's deep review, F8).
     out.behaviors.sort_by_key(|r| r.behavior_id);
-    out.behaviors.dedup_by_key(|r| r.behavior_id);
+    if let Some(w) = out
+        .behaviors
+        .windows(2)
+        .find(|w| w[0].behavior_id == w[1].behavior_id)
+    {
+        return Err(CoreError::Analysis(format!(
+            "two behaviors share the id {}",
+            w[0].behavior_id.hex()
+        )));
+    }
+    for r in &out.behaviors {
+        for (step, h) in hops.get(&r.behavior_id).into_iter().flatten().enumerate() {
+            out.steps.push(BehaviorStepsRow {
+                snapshot_id,
+                behavior_id: r.behavior_id,
+                step: step as i64,
+                caller_node_id: h.caller,
+                call_site_node_id: h.call_site,
+                callee_node_id: h.callee,
+                modality: h.modality,
+                conditional: h.conditional,
+            });
+        }
+    }
 
     // Where each behavior is shown: its site's module, span, line and verbatim text.
     let sites: BTreeSet<Id> = out
@@ -535,31 +717,42 @@ pub async fn run(
             .or_else(|| qualified.get(&n).cloned())
     };
 
-    // Operations: a scan cut at the depth bound, or call sites resolution leaves open, make
-    // negative answers about the operation unknown (the ADR set's re-review R1).
+    // Operations: established only when the scan met no boundary in its region (increment 3's
+    // deep review, F2); its own open call sites count too.
     let open: BTreeMap<Id, i64> =
         sql::fetch::<b::OpenSitesRow>(ctx, &b::open_sites(), sql::Params::new())
             .await?
             .into_iter()
             .map(|r| (r.node_id, r.sites))
             .collect();
+    for (&node, &n) in &open {
+        boundaries.entry(node).or_default().insert((
+            reason_rank(BoundaryReason::UnresolvedTarget),
+            BoundaryReason::UnresolvedTarget,
+            format!("{n} call site(s) resolution leaves open"),
+        ));
+    }
     for s in &sources {
-        let mut reasons = Vec::new();
-        if partial.contains(&s.node_id) {
-            reasons.push(format!("the scan stopped at the depth bound ({max_depth})"));
-        }
-        if let Some(n) = open.get(&s.node_id) {
-            reasons.push(format!("{n} call site(s) resolution leaves open"));
-        }
-        let (status, status_reason) = if s.kind == DeclarationKind::Class {
+        let met = boundaries.get(&s.node_id);
+        let (status, reason, status_reason) = if s.kind == DeclarationKind::Class {
             (
                 Verdict::NotAnalyzed,
+                None,
                 Some("a class: its controls are its __init__'s".to_owned()),
             )
-        } else if reasons.is_empty() {
-            (Verdict::Established, None)
+        } else if let Some(met) = met.filter(|m| !m.is_empty()) {
+            (
+                Verdict::Unknown,
+                met.first().map(|(_, r, _)| *r),
+                Some(
+                    met.iter()
+                        .map(|(_, _, t)| t.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ),
+            )
         } else {
-            (Verdict::Unknown, Some(reasons.join("; ")))
+            (Verdict::Established, None, None)
         };
         out.operations.push(OperationsRow {
             snapshot_id,
@@ -571,25 +764,56 @@ pub async fn run(
             module: s.module.clone(),
             docstring_summary: s.docstring.as_deref().and_then(b::docstring_summary),
             behavior_status: status,
+            boundary_reason: reason,
             status_reason,
         });
     }
 
-    // Facets.
-    let mut facets: BTreeSet<(Id, OperationFacet, String)> = BTreeSet::new();
+    // Facets, each with the best verdict of what it comes from (increment 3's deep review, F3).
+    let mut facets: BTreeMap<(Id, OperationFacet, String), Verdict> = BTreeMap::new();
+    let mut put = |node: Id, facet: OperationFacet, value: String, verdict: Verdict| {
+        let e = facets.entry((node, facet, value)).or_insert(verdict);
+        *e = (*e).min(verdict);
+    };
     for s in &sources {
         let kind = match (s.kind, s.is_method) {
             (DeclarationKind::Class, _) => "class",
             (_, true) => "method",
             _ => "function",
         };
-        facets.insert((s.node_id, OperationFacet::Kind, kind.to_owned()));
-        facets.insert((s.node_id, OperationFacet::Module, s.module.clone()));
+        put(
+            s.node_id,
+            OperationFacet::Kind,
+            kind.to_owned(),
+            Verdict::Established,
+        );
+        put(
+            s.node_id,
+            OperationFacet::Module,
+            s.module.clone(),
+            Verdict::Established,
+        );
         if s.kind == DeclarationKind::AsyncFunction {
-            facets.insert((s.node_id, OperationFacet::Async, "true".to_owned()));
+            put(
+                s.node_id,
+                OperationFacet::Async,
+                "true".to_owned(),
+                Verdict::Established,
+            );
+        }
+        if s.kind == DeclarationKind::Class {
+            for d in &s.decorators {
+                put(
+                    s.node_id,
+                    OperationFacet::Decorator,
+                    d.clone(),
+                    Verdict::Established,
+                );
+            }
         }
     }
     let attributes = crate::analyze::collect_attributes(ctx, &callables).await?;
+    let mut declared: BTreeMap<Id, Vec<(OperationFacet, String)>> = BTreeMap::new();
     for (node, attribute) in attributes {
         let (facet, value) = if let Some(v) = attribute.strip_prefix("parameter type ") {
             (OperationFacet::ParameterType, v)
@@ -606,31 +830,114 @@ pub async fn run(
                 "an FCA attribute of no known form: {attribute}"
             )));
         };
-        facets.insert((node, facet, value.to_owned()));
+        put(node, facet, value.to_owned(), Verdict::Established);
+        declared
+            .entry(node)
+            .or_default()
+            .push((facet, value.to_owned()));
+    }
+    // A class's parameters are its public constructor's: `<class path>.__init__`, its own or
+    // inherited through a public path.
+    let node_at: BTreeMap<&str, Id> = public
+        .iter()
+        .map(|p| (p.access_path.as_str(), p.node_id))
+        .collect();
+    let mut constructor: BTreeMap<Id, Id> = BTreeMap::new();
+    for s in sources.iter().filter(|s| s.kind == DeclarationKind::Class) {
+        if let Some(&init) = node_at.get(format!("{}.__init__", s.access_path).as_str()) {
+            constructor.insert(s.node_id, init);
+            for (facet, value) in declared.get(&init).into_iter().flatten() {
+                if matches!(
+                    facet,
+                    OperationFacet::Parameter | OperationFacet::ParameterType
+                ) {
+                    put(s.node_id, *facet, value.clone(), Verdict::Established);
+                }
+            }
+        }
     }
     for r in &out.behaviors {
         let facet = match r.kind {
-            BehaviorKind::Delegates if r.verdict == Verdict::Established => {
-                OperationFacet::DelegatesTo
-            }
+            BehaviorKind::Delegates => OperationFacet::DelegatesTo,
             BehaviorKind::Forwards => OperationFacet::ForwardsTo,
             BehaviorKind::HandsOffTo => OperationFacet::HandsOffTo,
             BehaviorKind::TakesFrom => OperationFacet::TakesFrom,
             _ => continue,
         };
         if let Some(name) = r.callee_node_id.and_then(name_of) {
-            facets.insert((r.operation_node_id, facet, name));
+            put(r.operation_node_id, facet, name, r.verdict);
         }
     }
     out.facets = facets
         .into_iter()
-        .map(|(node_id, facet, value)| OperationFacetsRow {
+        .map(|((node_id, facet, value), verdict)| OperationFacetsRow {
             snapshot_id,
             node_id,
             facet,
             value,
+            verdict,
         })
         .collect();
+
+    // Whether each operation's rows for each facet are complete (F3, F4): the served authority
+    // for `find_operations`' `complete` and its `unknown` list.
+    let status_of: BTreeMap<Id, (Verdict, Option<String>)> = out
+        .operations
+        .iter()
+        .map(|o| (o.node_id, (o.behavior_status, o.status_reason.clone())))
+        .collect();
+    for s in &sources {
+        let class = s.kind == DeclarationKind::Class;
+        let (scan, scan_reason) = status_of
+            .get(&s.node_id)
+            .cloned()
+            .unwrap_or((Verdict::NotAnalyzed, None));
+        for &facet in <OperationFacet as Codebook>::all() {
+            let (verdict, reason) = match facet {
+                OperationFacet::Kind
+                | OperationFacet::Module
+                | OperationFacet::Async
+                | OperationFacet::Decorator => (Verdict::Established, None),
+                OperationFacet::Parameter | OperationFacet::ParameterType
+                    if class && !constructor.contains_key(&s.node_id) =>
+                {
+                    (
+                        Verdict::NotAnalyzed,
+                        Some(
+                            "no public __init__: a synthesized or unexported constructor"
+                                .to_owned(),
+                        ),
+                    )
+                }
+                OperationFacet::Parameter | OperationFacet::ParameterType => {
+                    (Verdict::Established, None)
+                }
+                OperationFacet::Returns if class => (
+                    Verdict::NotAnalyzed,
+                    Some("a class: its constructor returns the instance".to_owned()),
+                ),
+                OperationFacet::Returns => (Verdict::Established, None),
+                OperationFacet::Raises => (
+                    Verdict::Unknown,
+                    Some("only a typed raise directly in the body is a row".to_owned()),
+                ),
+                OperationFacet::DelegatesTo | OperationFacet::ForwardsTo => {
+                    (scan, scan_reason.clone())
+                }
+                OperationFacet::HandsOffTo | OperationFacet::TakesFrom => (
+                    Verdict::Unknown,
+                    Some("official usage is read in two handoff shapes only".to_owned()),
+                ),
+            };
+            out.facet_status.push(OperationFacetStatusRow {
+                snapshot_id,
+                node_id: s.node_id,
+                facet,
+                verdict,
+                reason,
+            });
+        }
+    }
     stages.mark("behavior: operations and facets");
 
     // Documents: the signature-and-docstring view and the source-body view of each callable.

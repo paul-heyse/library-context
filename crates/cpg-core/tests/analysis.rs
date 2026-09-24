@@ -935,6 +935,11 @@ async fn a_diff_is_a_join_on_content_ids() {
         (0, 0),
         "{documents:?}"
     );
+    // The behavior model does not read FCA: no behavior or status moves (increment 3's review, F8).
+    for table in ["behaviors", "operations"] {
+        let t = diff.tables.iter().find(|t| t.table == table).unwrap();
+        assert_eq!((t.only_from, t.only_to), (0, 0), "{t:?}");
+    }
     insta::assert_snapshot!("diff_minus_fca", diff.render());
     let same = cpg_core::diff::diff(&store, a, a).await.unwrap();
     assert!(!same.changes_published_output());
@@ -1314,7 +1319,9 @@ async fn the_analysis_rules_reject_their_violations() {
         "embedding_cache",
         "operations",
         "operation_facets",
+        "operation_facet_status",
         "behaviors",
+        "behavior_steps",
     ] {
         let published = ctx.table(table).await.unwrap();
         ctx.register_table(format!("{table}_published").as_str(), published.into_view())
@@ -1480,12 +1487,33 @@ async fn the_analysis_rules_reject_their_violations() {
              SELECT b.snapshot_id, b.operation_node_id AS behavior_id, c.node_id AS operation_node_id, \
                     b.kind, b.parameter_node_id, b.parameter_name, b.callee_node_id, \
                     b.target_node_id, b.target_name, b.value, b.depth, b.conditional, \
-                    CAST(2 AS SMALLINT) AS verdict, b.site_node_id, b.site_module_node_id, \
+                    CAST(2 AS SMALLINT) AS verdict, CAST(NULL AS SMALLINT) AS boundary_reason, \
+                    b.site_node_id, b.site_module_node_id, \
                     b.site_start_byte, b.site_end_byte, b.site_line, b.site_text, b.occurrences, \
                     b.invocation_id \
              FROM (SELECT * FROM behaviors_published LIMIT 1) b \
              CROSS JOIN (SELECT min(node_id) AS node_id FROM operations_published \
                          WHERE behavior_status <> 0) c",
+        ),
+        // Increment 3's deep review, F1: an established behavior whose path crosses a candidate
+        // (override-open) arc.
+        (
+            "semantic:established-needs-definite-path",
+            "behavior_steps",
+            "SELECT * FROM behavior_steps_published \
+             UNION ALL \
+             SELECT b.snapshot_id, b.behavior_id, 99 AS step, b.operation_node_id AS caller_node_id, \
+                    b.operation_node_id AS call_site_node_id, \
+                    b.operation_node_id AS callee_node_id, CAST(1 AS SMALLINT) AS modality, \
+                    false AS conditional \
+             FROM (SELECT * FROM behaviors_published WHERE verdict = 0 \
+                   ORDER BY behavior_id LIMIT 1) b",
+        ),
+        // F3: an operation with no status for a facet.
+        (
+            "semantic:facet-status-covers-operations",
+            "operation_facet_status",
+            "SELECT * FROM operation_facet_status_published WHERE facet <> 3",
         ),
         (
             "semantic:public-path-one-node",

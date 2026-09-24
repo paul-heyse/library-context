@@ -39,8 +39,9 @@ surface**:
 The universe is `public_paths` (§9's opening). Every analysis runs per public callable, and a
 seed traversal becomes a query.
 
-Agents reach the model through these operations. The five behavioral tools are **Proposed**; they
-land by plan stage (§11.3):
+Agents reach the model through these operations. `get_operation`, `find_operations` and
+`search_operations` are **Implemented** (Stage 1; §11.3); `explain` and `lookup_concepts` are
+**Proposed** and land by plan stage:
 
 | Operation | Returns | Does not promise |
 |---|---|---|
@@ -64,7 +65,8 @@ set of searchable briefs for one subsystem, reached by the first two operations 
 ### §1.2 Increments
 
 **Proposed.** Source: IP L3073–3085, reshaped by ADR-0004 and ADR-0021. Every plan stage also ends
-with a `compact` review (ADR-0021).
+with a `compact` review (ADR-0021), except where it coincides with an increment's end: then one
+review at the increment's depth covers both (the plan's §15).
 
 Each increment is a working vertical slice and ends with the review shown (ADR-0001 mechanics).
 
@@ -466,9 +468,11 @@ compatibility of two conditions with a finite-domain evaluator: compatible, inco
   generation per process: the two brief tools now, the behavioral tools as their stages land
   (ADR-0010 amendment, 2026-09-24; **Proposed**).
 - It reads files only: no Delta, no DataFusion, and no compiler code.
-- **Its executor** is pyarrow compute over **materialized** rows. No SQL string is built and
-  nothing recurses at serve time. Results carry row caps, a `truncated` flag and cursors.
-  **No semantic decision is re-implemented in Python.** Compatibility that a question needs is
+- **Its executor** is Python dictionaries and sets built once from the pyarrow-loaded **materialized**
+  rows (increment 3's deep review, F9). No SQL string is built and nothing recurses at serve time. Results carry row caps, a `truncated` flag and cursors.
+  **No semantic decision is re-implemented in Python.** Which facet rows are complete is served
+  data (`operation_facet_status`), and the facet names are held to the codebook by shared known
+  answers (`specs/serving/facets.json`; the review's F4). Compatibility that a question needs is
   materialized at compile time. A serve-time condition filter would need its own ADR (the ADR
   review's F12).
 
@@ -619,7 +623,7 @@ the semantics are in §3.9):
 
 | Family | Tables | Stage |
 |---|---|---|
-| `behavior` | Derived: Stage C/D declared SQL, persisted, one coverage row per public callable. First today's in-session relations: `argument_flows`, `guards`, `parameter_reads` and `handoffs` (`cpg_schema::flows`); then `delegations` (depth-1 call arcs with modality) and `behaviors` with the control fates Pass B finds (per public operation parameter: forwarded to which formal, a literal supplied to a callee's formal, raises when, or unfollowed with a reason). **No negative fate:** Stage 1 sees parameter reads only at call arguments, so a parameter with no fate is `not_analyzed` for its other channels (stores, returns, tests), never "unused" (the ADR review's F2). From Stage 2, generalized over the flow IR: `value_flows`, `field_writes`/`field_reads`, `guards` by control dependence, `raises`, `handlers`, `callbacks`, `resources`, `ambient_reads` | 1, then 2 |
+| `behavior` | Analysis tables (ADR-0019; deviation B6), written after `public_paths`; no coverage rows: `operations.behavior_status` is every public callable's verdict, and `operation_facet_status` says per operation and facet whether its rows are complete. First today's in-session relations: `argument_flows`, `guards`, `parameter_reads` and `handoffs` (`cpg_schema::flows`); then `delegations` (depth-1 call arcs with modality) and `behaviors` with the control fates Pass B finds (per public operation parameter: forwarded to which formal, a literal supplied to a callee's formal, raises when, or unfollowed with a reason). **No negative fate:** Stage 1 sees parameter reads only at call arguments, so a parameter with no fate is `not_analyzed` for its other channels (stores, returns, tests), never "unused" (the ADR review's F2). **One verdict per arc** (increment 3's deep review, F1): a behavior whose path crosses a candidate or potential arc is `unknown` (`override_dispatch`, `ambiguous_binding`), as the delegation over it is; `behavior_steps` keeps every behavior's path hop by hop (F6). From Stage 2, generalized over the flow IR: `value_flows`, `field_writes`/`field_reads`, `guards` by control dependence, `raises`, `handlers`, `callbacks`, `resources`, `ambient_reads` | 1, then 2 |
 | `flow` | CPG-constructing, from the flow-IR provider (§B5): `flow_defs`, `flow_uses`, `flow_reaching` (use → reaching definition, with a condition), `flow_exits`, `flow_regions`, `conditions`, `condition_atoms` | 2 |
 
 *Superseded:* "Deferred: CFG, dataflow and alias tables (§1.3, §13)". Flow and bounded places are
@@ -694,6 +698,8 @@ migration (DM-51).
 | `run_id` | `release_id`, `context_id`, `producer_id`, sorted enabled families, the producer's own config digest | global |
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id`, `invocation_id` (ADR-0019) | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. A finding's payload names its witness steps by call-site and callee node ids, never by `edge_id` (producer-scoped, ADR-0014 O6). An assertion's includes its sorted supports; a brief's, its seed, applicable case and sorted (section, ordinal, assertion); `review_state` is outside it. An invocation's is its method, parameters digest, projection digest, subject and seed. `capability_id` = `brief_id` | content |
+| `behavior_id` (ADR-0021; increment 3's deep review, F8) | `H("behavior", operation, kind, parameter, callee, target, value, site)`: the claim. The **verdict, boundary reason, depth and `conditional` are outside it**: they grade the claim. A re-grade keeps the id, and `lctx diff` keys behaviors by id **and** verdict so it shows. Two rows under one id are an error of the scan, never merged | content |
+| `condition_id` (ADR-0022 §Conditions) | `H("condition", encoding)`, the canonical DNF encoding | content |
 | `edge_id` (C1, **Implemented** and **Tested**: `the_catalogs_hold_every_graph_shape`, `the_catalogs_are_the_same_across_runs_order_and_location`; byte-identical on a pilot rerun and relocation, C6 review 2026-09-23) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
 | Role and derived node ids (C1, C3, C4, C5 **Implemented**) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, kind, detail, class pair and type-variable identity, then each child's role, ordinal, id, parameter name, kind and requiredness; a variable's is its identity alone, a display-only kind's includes its display (Rust; a Merkle id with no SQL form, so no `id:` rule). It is producer-scoped like syntax and external-symbol ids: it hashes Pyrefly's detail text, Pysa class keys and anchor byte offsets, so a Pyrefly bump or an edit earlier in a module renames it. Field (C4): `field`, class node, name (Rust; `id:record_fields`). Document (C5): `document`, release, path. Passage and code block (C5): `passage` or `code_block`, document node, ordinal (Rust; `id:documents`, `id:passages`, `id:code_blocks`) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
 | `snapshot_id` | a fresh random 128-bit value per compile attempt | execution identity (DM-12) |
@@ -2153,9 +2159,20 @@ beside the config's (ADR-0011 review F4). Defaults below are starting budgets, n
     (the re-review, 2026-09-24).
   - Test: `behaviors_cover_public_callables_outside_the_subsystem`, where `pkg.relay.relay`
     forwards `path` to `pkg.Catalog.load` from outside the fixture's prefixes.
-- **An operation's `behavior_status`** is `established` only when its scan met no boundary. It is
-  `unknown` when the scan stopped at the depth bound, or when the operation has call sites
-  resolution leaves open, with the reason in `status_reason`.
+- **An operation's `behavior_status`** is `established` only when its scan met no boundary **in
+  its region**, the callables it reached (increment 3's deep review, F2). Otherwise it is
+  `unknown`, the first boundary in `boundary_reason` and every one in `status_reason`. The
+  boundaries, in that order:
+  - `budget_reached`: the scan stopped at the depth bound, or a formal it reached is read at the
+    frontier;
+  - `override_dispatch` or `ambiguous_binding`: a path, or the operation itself, crosses a candidate
+    or potential arc;
+  - `unresolved_target`: the operation has a call site resolution leaves open, or a tracked value
+    reaches one in a callee (`open_site_reads`);
+  - `outside_provider_model`: a tracked value is read in a form the scan does not follow.
+
+  Tests: `one_arc_has_one_verdict_and_the_region_decides_the_status` on `behavior_shapes`, and the
+  rule `semantic:established-needs-definite-path` with its injected case.
 - **Seed findings remain the input to briefs, and differ in mask** (the ADR review's F7, deferred to
   Stage 2.6). The seed passes follow subsystem callees only, and briefs state that stop as a limit.
   So a seed's brief and its behavior rows can differ past the subsystem edge.
@@ -3314,7 +3331,7 @@ are **Proposed**.
 | Tool | Parameters | Output |
 |---|---|---|
 | `get_operation` (Stage 1) | snapshot_id, operation (a public path) | `Operation`: paths, signature, docstring summary, facets, each control's fate and verdict, behaviors with conditions and evidence, boundaries, the brief id if any. An unknown path is invalid params |
-| `find_operations` (Stage 1) | library, `where` (typed facet filters; concepts from Stage 4), limit (1–50), cursor | `OperationSet`: matches, `complete`, the operations whose answer is `unknown` or `not_analyzed`, `truncated`, next cursor. Never vectors |
+| `find_operations` (Stage 1) | library, `where` (typed facet filters; concepts from Stage 4), limit (1–50), cursor | `OperationSet`: matches, `complete`, the operations that could still match (rows `unknown` or `not_analyzed`, per `operation_facet_status`), `truncated`, next cursor. Never vectors |
 | `search_operations` (Stage 1) | library, query, filters, limit | `OperationHits`: ranked, per-view RRF, labelled `ranked_discovery` |
 | `lookup_concepts` (Stage 4) | text, limit | Candidate concepts with labels and scope notes |
 | `explain` (Stage 4) | snapshot_id, claim id | The rule id, premises and source spans |
@@ -3330,19 +3347,26 @@ is pyarrow over materialized rows (§B13).
 - `{path_prefix}`.
 
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
-claims. Unknown facets and values are invalid params, and the error names the valid ones.
+claims. An unknown facet is invalid params. An unknown **value** is invalid params only where
+every operation's rows for that facet are complete, and the error names close values; elsewhere
+absence is not known, and the answer is empty with `complete = false`.
 
-**Two facet classes**, which decide what `complete` means (the re-review R1):
-- **Declared facets** are read from the declaration and its annotations: `parameter`,
-  `parameter_type`, `returns`, `decorator`, `async`, `kind`, `module`. They are complete under the
-  stated model, so a result over declared facets alone has `complete = true`.
-- **Every other facet is never complete in Stage 1:** `raises` (a typed `raise` directly in the
-  body, which Pyrefly types) and the behavioral facets `forwards_to`, `delegates_to`,
-  `hands_off_to` and `takes_from`. A depth cut, a call site resolution leaves open, or an untyped
-  raise can hide a match.
-  - `unknown` lists the operations known to hide possible matches: those whose `behavior_status`
-    is `unknown`, or which hold an `unknown` row of the facet's kind.
-  - It is capped at 50, with a count and a flag. It is evidence, not a bound.
+**Completeness is served data** (increment 3's deep review, F3 and F4), not a class Python decides:
+- `operation_facet_status` holds, per operation and facet, `established` when its rows are
+  complete, or the verdict and why they are not:
+  - a class's `parameter` and `parameter_type` are its public constructor's (its own or inherited
+    `__init__` path), and without one they are `not_analyzed`;
+  - `returns` does not apply to a class;
+  - `raises` is never complete (only a typed `raise` directly in the body is a row);
+  - `forwards_to` and `delegates_to` take the operation's `behavior_status`;
+  - `hands_off_to` and `takes_from` are never complete (two usage shapes only).
+- `operation_facets` rows carry a verdict. Only `established` and `conditional` rows **match**. An
+  `unknown` row (a path through an override-open call) leaves its operation open.
+- **An operation hides a possible match** when, for every term, it matches or is open (its rows
+  are incomplete, or its row is `unknown`), and it is not a match. `complete` is true exactly when
+  no operation in the universe hides one.
+- `unknown` lists the hiding operations, capped at 50, with a count and a flag. It is evidence, not
+  a bound.
 
 **`complete` is never "not truncated".** Truncation has its own flag.
 

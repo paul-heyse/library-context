@@ -138,8 +138,12 @@ key:operations
   SELECT snapshot_id, node_id, count(*) AS n FROM operations GROUP BY snapshot_id, node_id HAVING count(*) > 1
 key:operation_facets
   SELECT snapshot_id, node_id, facet, value, count(*) AS n FROM operation_facets GROUP BY snapshot_id, node_id, facet, value HAVING count(*) > 1
+key:operation_facet_status
+  SELECT snapshot_id, node_id, facet, count(*) AS n FROM operation_facet_status GROUP BY snapshot_id, node_id, facet HAVING count(*) > 1
 key:behaviors
   SELECT snapshot_id, behavior_id, count(*) AS n FROM behaviors GROUP BY snapshot_id, behavior_id HAVING count(*) > 1
+key:behavior_steps
+  SELECT snapshot_id, behavior_id, step, count(*) AS n FROM behavior_steps GROUP BY snapshot_id, behavior_id, step HAVING count(*) > 1
 key:operation_documents
   SELECT snapshot_id, node_id, embedding_view, chunk, count(*) AS n FROM operation_documents GROUP BY snapshot_id, node_id, embedding_view, chunk HAVING count(*) > 1
 key:analysis_invocations
@@ -584,12 +588,24 @@ codebook:operations.kind
   SELECT kind FROM operations WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
 codebook:operations.behavior_status
   SELECT behavior_status FROM operations WHERE behavior_status IS NOT NULL AND behavior_status NOT IN (0, 1, 2, 3, 4)
+codebook:operations.boundary_reason
+  SELECT boundary_reason FROM operations WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 codebook:operation_facets.facet
   SELECT facet FROM operation_facets WHERE facet IS NOT NULL AND facet NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+codebook:operation_facets.verdict
+  SELECT verdict FROM operation_facets WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
+codebook:operation_facet_status.facet
+  SELECT facet FROM operation_facet_status WHERE facet IS NOT NULL AND facet NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+codebook:operation_facet_status.verdict
+  SELECT verdict FROM operation_facet_status WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:behaviors.kind
   SELECT kind FROM behaviors WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6)
 codebook:behaviors.verdict
   SELECT verdict FROM behaviors WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
+codebook:behaviors.boundary_reason
+  SELECT boundary_reason FROM behaviors WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+codebook:behavior_steps.modality
+  SELECT modality FROM behavior_steps WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:operation_documents.embedding_view
   SELECT embedding_view FROM operation_documents WHERE embedding_view IS NOT NULL AND embedding_view NOT IN (0, 1)
 codebook:analysis_invocations.extraction_mode
@@ -712,6 +728,10 @@ semantic:behavior-covers-public
   SELECT p.node_id FROM (SELECT DISTINCT node_id FROM public_paths) p LEFT JOIN operations o ON o.node_id = p.node_id WHERE o.node_id IS NULL OR (o.kind = 2) <> (o.behavior_status = 4)
 semantic:behavior-of-an-operation
   SELECT b.operation_node_id AS node_id FROM behaviors b LEFT ANTI JOIN operations o ON o.node_id = b.operation_node_id UNION ALL SELECT f.node_id FROM operation_facets f LEFT ANTI JOIN operations o ON o.node_id = f.node_id
+semantic:established-needs-definite-path
+  SELECT DISTINCT b.behavior_id FROM behaviors b JOIN behavior_steps s ON s.behavior_id = b.behavior_id WHERE b.verdict IN (0, 1) AND s.modality <> 0
+semantic:facet-status-covers-operations
+  WITH facets AS (SELECT * FROM (VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11)) AS f(facet)) SELECT o.node_id FROM operations o CROSS JOIN facets f LEFT ANTI JOIN operation_facet_status s ON s.node_id = o.node_id AND s.facet = f.facet
 semantic:refuted-needs-complete-region
   SELECT b.behavior_id FROM behaviors b WHERE b.verdict = 2
 semantic:public-path-one-node

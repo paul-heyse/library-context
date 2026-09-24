@@ -494,8 +494,8 @@ async fn finish(
     };
     {
         use cpg_schema::behavior::{
-            ArgumentFlows, Behaviors, Delegations, Guards, Handoffs, OperationDocuments,
-            OperationFacets, Operations, ParameterReads,
+            ArgumentFlows, BehaviorSteps, Behaviors, Delegations, Guards, Handoffs,
+            OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
         };
         let w = &mut written;
         write_analysis::<ArgumentFlows>(&ctx, root, snapshot_id, &behavior.argument_flows, w)
@@ -507,7 +507,10 @@ async fn finish(
         write_analysis::<Delegations>(&ctx, root, snapshot_id, &behavior.delegations, w).await?;
         write_analysis::<Operations>(&ctx, root, snapshot_id, &behavior.operations, w).await?;
         write_analysis::<OperationFacets>(&ctx, root, snapshot_id, &behavior.facets, w).await?;
+        write_analysis::<OperationFacetStatus>(&ctx, root, snapshot_id, &behavior.facet_status, w)
+            .await?;
         write_analysis::<Behaviors>(&ctx, root, snapshot_id, &behavior.behaviors, w).await?;
+        write_analysis::<BehaviorSteps>(&ctx, root, snapshot_id, &behavior.steps, w).await?;
         write_analysis::<OperationDocuments>(&ctx, root, snapshot_id, &behavior.documents, w)
             .await?;
     }

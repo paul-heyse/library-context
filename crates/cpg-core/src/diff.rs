@@ -50,8 +50,10 @@ pub struct Diff {
 
 /// The ids compared: each table's content id, as text. A document is keyed by its brief's seed,
 /// its chunk and its text (the ADR-0020 review's F7), not by its brief's id, which moves with any
-/// assertion: a document no technique reaches compares equal.
-fn id_queries() -> [(&'static str, &'static str); 5] {
+/// assertion: a document no technique reaches compares equal. A behavior is keyed by its id **and
+/// its verdict**, and an operation by its node and status, so a re-graded claim under an
+/// unchanged id shows (increment 3's deep review, F8).
+fn id_queries() -> [(&'static str, &'static str); 7] {
     [
         (
             "findings",
@@ -74,6 +76,16 @@ fn id_queries() -> [(&'static str, &'static str); 5] {
             "SELECT DISTINCT encode(b.seed_node_id, 'hex') || ':' || CAST(d.chunk AS VARCHAR) \
              || ':' || encode(sha256(d.text), 'hex') \
              FROM brief_documents d JOIN briefs b ON b.brief_id = d.brief_id",
+        ),
+        (
+            "behaviors",
+            "SELECT DISTINCT encode(behavior_id, 'hex') || ':' || CAST(verdict AS VARCHAR) \
+             FROM behaviors",
+        ),
+        (
+            "operations",
+            "SELECT DISTINCT encode(node_id, 'hex') || ':' || CAST(behavior_status AS VARCHAR) \
+             FROM operations",
         ),
     ]
 }

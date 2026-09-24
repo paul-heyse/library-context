@@ -16,4 +16,5 @@ qualified_name: Utf8 NOT NULL
 module: Utf8 NOT NULL
 docstring_summary: Utf8 NULL
 behavior_status: Int16 NOT NULL [lctx.codebook=verdict]
+boundary_reason: Int16 NULL [lctx.codebook=boundary_reason]
 status_reason: Utf8 NULL

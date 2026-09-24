@@ -38,6 +38,8 @@ def _fate_line(f: ops.Fate) -> str:
     if f.value:
         parts.append(f"value `{f.value}`")
     parts.append(f"verdict **{f.verdict}**")
+    if f.boundary_reason:
+        parts.append(f"({f.boundary_reason})")
     if f.conditional:
         parts.append("(on some paths)")
     if f.occurrences > 1:
@@ -104,7 +106,33 @@ def _marks(gen: Generation, question: dict, item: dict) -> str:
     return "; ".join(sorted(set(hits))) or "no parameter of the operations is named"
 
 
-def packet(gen: Generation, questions: list[dict], stage: int | None) -> str:
+def _request(gen: Generation, request: dict) -> list[str]:
+    """A pre-registered `find_operations` or `search_operations` request, answered."""
+    if request["tool"] == "find_operations":
+        found = ops.find_operations(
+            gen, ops.Where.model_validate(request["where"]), limit=50, cursor=None
+        )
+        lines = [
+            f"- `find_operations({request['where']})`: {found.total} match(es), "
+            f"complete **{found.complete}**, {found.unknown_total} could still match"
+        ]
+        lines += [f"  - match `{m.access_path}` ({m.behavior_status})" for m in found.matches]
+        lines += [f"  - could match `{u.access_path}`" for u in found.unknown[:10]]
+        return lines
+    import asyncio
+
+    hits = asyncio.run(
+        ops.search_operations(gen, ops.OperationIndex(gen), None, request["query"], None, limit=10)
+    )
+    lines = [f"- `search_operations({request['query']!r})`, mode {hits.mode}:"]
+    lines += [
+        f"  {i + 1}. `{h.access_path}` ({h.rank_source}, {h.relevance})"
+        for i, h in enumerate(hits.hits)
+    ]
+    return lines
+
+
+def packet(gen: Generation, questions: list[dict], stage: int | None, exits: list[dict]) -> str:
     lines = [
         f"# Structured evaluation packet — generation `{gen.key}`",
         "",
@@ -125,9 +153,14 @@ def packet(gen: Generation, questions: list[dict], stage: int | None) -> str:
                 f"— *marks: {_marks(gen, q, it)}*"
             )
         lines += ["", "**Served answer**", ""]
+        if "request" in q:
+            lines += _request(gen, q["request"])
         for spelling in q["operations"]:
             lines += _operation(gen, spelling)
         lines.append("")
+    for e in exits:
+        if stage is None or e["stage"] == stage:
+            lines += [f"## Exit rule, stage {e['stage']}", "", e["rule"], ""]
     return "\n".join(lines) + "\n"
 
 
@@ -139,9 +172,11 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     gen = load(args.generation, None)
-    questions = tomllib.loads(args.questions.read_text(encoding="utf-8"))["question"]
+    spec = tomllib.loads(args.questions.read_text(encoding="utf-8"))
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(packet(gen, questions, args.stage), encoding="utf-8")
+    args.out.write_text(
+        packet(gen, spec["question"], args.stage, spec.get("exit", [])), encoding="utf-8"
+    )
     print(f"structured-eval: wrote {args.out} (generation {gen.key})")
     return 0
 

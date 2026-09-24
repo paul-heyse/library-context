@@ -481,3 +481,29 @@ the smallest shape that closes F1, F3(a), F6 and F7 together.
 - The scope matches the implemented guarantees everywhere else (verified above).
 - Later extensions have a clear path, once the facet class has one authority (F4) and the verdict
   policy has one place (F1).
+
+---
+
+## 12. Disposition (author, 2026-09-24)
+
+The Revise is taken in full, with the review's counter-design (§8) as the target shape where it
+applies. Measured on the pilot after the fix (snapshot `eb444ac5`, generation `0af33db8`,
+2026-09-24, fake embedder): `just pilot` **passed** (36.8 s, smoke 20/20). `just test-all`
+**passed** (nextest 250/250, pytest 79, rule tests 7/7, lint-agents, adr lint, fixtures, deps,
+gold).
+
+| # | Disposition | Where |
+|---|---|---|
+| F1 | **Fixed.** One verdict policy, in one place (`cpg-core/src/behavior.rs`, `hop_reason`): a behavior whose witness path crosses a `candidate` arc is `unknown` with `override_dispatch` (a `potential` one, `ambiguous_binding`), exactly as the delegation over it. ADR-0022 §Verdicts and DESIGN §3.9 record it. **Pilot:** 502 forwards, 42 literal supplies and 2 guarded raises that were `established` or `conditional` are now `unknown`; `render_prompt`'s `arguments` → `Prompt.render` is `unknown` (`override_dispatch`) | rule `semantic:established-needs-definite-path` + injected case; `one_arc_has_one_verdict_and_the_region_decides_the_status` (`behavior_shapes`: `Base.handle` → `self.render`) |
+| F2 | **Fixed**, with the stricter option: the status is over the scan's region and counts the operation's own override-open calls. Boundaries in order: the depth cut **and a formal read at the frontier**; an override-open or potential call on a path or of its own; an open site of its own **or one in a callee taking a tracked value** (new relation `open_site_reads`); a read the scan does not follow. `boundary_reason` names the first and `status_reason` all. **Pilot:** `established` 991 → 570; `unknown` 601 (override 383, open site 79, budget 66, unfollowed 73); `not_analyzed` 363 classes | `behavior_shapes` (`deep.top` for the frontier, `open.forward_open` for a callee's open site, `own_open`, `dispatch.Base.handle`); DESIGN §9's opening |
+| F3 | **Fixed.** (a) Class facets: decorators from the declaration (41 `dataclass` classes on the pilot); parameters from the class's public `__init__` path, own or inherited (187 classes); without one, `not_analyzed` (176). (b) Behavioral facet rows are written for every verdict and carry it; only `established` and `conditional` rows match; a value on `unknown` rows only answers `complete: false`, never "no operation has". (c) `unknown` lists every operation that could still match: incomplete rows (`not_analyzed` included) or an `unknown` row | `operation_facet_status` (served); `class_facets_and_their_completeness_are_data`; pytest `test_a_class_without_a_public_constructor_could_match_any_parameter`, `test_a_value_on_unknown_rows_only_is_open_not_absent`; DESIGN §11.3 |
+| F4 | **Fixed.** Completeness is served data (`operation_facet_status`, `FORMAT` 4); `DECLARED` and `BEHAVIORAL` are gone from Python. The facet names are held to the codebook by `specs/serving/facets.json`, which Rust writes and both languages assert. The handoff facets are declared never complete (two usage shapes) | `the_facet_names_are_the_shared_known_answers`; `test_the_facet_names_are_the_codebook_s` |
+| F5 | **Fixed.** Pass/fail exit rules for Stages 2, 3 and 5 are pre-registered in the question set, before any Stage 2 output existed; the Stage 2 set gains two `find_operations` items (Q21 settings, Q22 `raise_on_error`) and two `search_operations` items (Q23, Q24). Stage 1's result stays "met in part": no rule was registered for it, and applying one now would not be pre-registration. Its assessment still awaits the operator (B10) | `eval/behavior/fastmcp-4.0.5.toml`; `scripts/structured_eval.py` renders requests and exit rules |
+| F6 | **Fixed.** `behavior_steps` persists every behavior's path hop by hop with modality and `conditional` (4,465 steps for 4,033 behaviors on the pilot); relation rows (delegations) carry their one step; handoffs have none. Invocations stay on Pass B rows; a relation row's producer is its declared relation | `every_forward_carries_its_path_hop_by_hop` |
+| F7 | **Kept as a scoped deviation** (DM-58), with its trigger now recorded: the pre-registered `search_operations` items Q23 and Q24 are judged at Stage 2's evaluation; if neither view earns a present rating there, the source-body view is removed. One live embedding measurement is owed when the GPU is free | deviation log B13 |
+| F8 | **Fixed.** A duplicate `behavior_id` is an error of the scan; §3.4.1 has the `behavior_id` and `condition_id` rows (the verdict is a grade, outside the id); `lctx diff` keys behaviors by id **and** verdict, and operations by node **and** status | `a_diff_is_a_join_on_content_ids` (snapshot updated: behaviors and operations unchanged across the FCA variant) |
+| F9 | **Fixed.** §3.2's behavior row (analysis tables, no coverage rows), §1.1 (three tools Implemented), §B13 (Python dictionaries over pyarrow-loaded rows), `behaviors.value`'s doc, §1.2 (stage and increment reviews merged), the `find_operations` docstring. The revision history row lands with the handoff | DESIGN; `cpg_schema::behavior`; `server.py` |
+| O6 | **Deferred** (trigger: Stage 2 reads the persisted relations; it does in 2.6) | — |
+| O8 | **Fixed** at this batch's handoff | `STATUS.md` |
+| O9 | **Fixed** (`public` now drives class constructors) | — |
+| O2, O5, O7 | **Deferred** with the review's triggers | §10 of this review |

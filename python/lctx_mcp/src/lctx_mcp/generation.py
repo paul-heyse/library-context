@@ -20,7 +20,7 @@ import pyarrow.ipc as ipc
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 3
+FORMAT = 4
 
 
 class GenerationError(RuntimeError):
@@ -134,11 +134,19 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _utf8("module"),
                 _utf8("docstring_summary", True),
                 _utf8("behavior_status"),
+                # FORMAT 4 (increment 3's deep review, F2).
+                _utf8("boundary_reason", True),
                 _utf8("status_reason", True),
                 _id("brief_id", True),
             ]
         ),
-        "operation_facets": pa.schema([_id("node_id"), _utf8("facet"), _utf8("value")]),
+        "operation_facets": pa.schema(
+            [_id("node_id"), _utf8("facet"), _utf8("value"), _utf8("verdict")]
+        ),
+        # FORMAT 4 (F3, F4): whether each operation's rows for each facet are complete.
+        "operation_facet_status": pa.schema(
+            [_id("node_id"), _utf8("facet"), _utf8("verdict"), _utf8("reason", True)]
+        ),
         "behaviors": pa.schema(
             [
                 _id("behavior_id"),
@@ -152,6 +160,7 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _int("depth"),
                 pa.field("conditional", pa.bool_(), nullable=False),
                 _utf8("verdict"),
+                _utf8("boundary_reason", True),
                 _int("occurrences"),
                 _utf8("path", True),
                 _int("line", True),
@@ -198,8 +207,12 @@ class Generation:
     op_text: list[str] = field(default_factory=list)
     paths: dict[str, bytes] = field(default_factory=dict)
     spellings: dict[bytes, list[tuple[str, bool]]] = field(default_factory=dict)
-    facets: dict[bytes, list[tuple[str, str]]] = field(default_factory=dict)
-    by_facet: dict[tuple[str, str], set[bytes]] = field(default_factory=dict)
+    # Per operation, its facet rows `(facet, value, verdict)`.
+    facets: dict[bytes, list[tuple[str, str, str]]] = field(default_factory=dict)
+    # Per `(facet, value)`, the operations with that row and its verdict.
+    by_facet: dict[tuple[str, str], dict[bytes, str]] = field(default_factory=dict)
+    # Per operation and facet, `(verdict, reason)`: `established` when its rows are complete.
+    facet_status: dict[bytes, dict[str, tuple[str, str | None]]] = field(default_factory=dict)
     behaviors: dict[bytes, list[dict]] = field(default_factory=dict)
     op_vectors: dict[str, tuple[np.ndarray, list[bytes]]] = field(default_factory=dict)
 
@@ -286,11 +299,14 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     for r in tables["public_paths"].to_pylist():
         paths[r["access_path"]] = r["node_id"]
         spellings.setdefault(r["node_id"], []).append((r["access_path"], r["own"]))
-    facets: dict[bytes, list[tuple[str, str]]] = {}
-    by_facet: dict[tuple[str, str], set[bytes]] = {}
+    facets: dict[bytes, list[tuple[str, str, str]]] = {}
+    by_facet: dict[tuple[str, str], dict[bytes, str]] = {}
     for r in tables["operation_facets"].to_pylist():
-        facets.setdefault(r["node_id"], []).append((r["facet"], r["value"]))
-        by_facet.setdefault((r["facet"], r["value"]), set()).add(r["node_id"])
+        facets.setdefault(r["node_id"], []).append((r["facet"], r["value"], r["verdict"]))
+        by_facet.setdefault((r["facet"], r["value"]), {})[r["node_id"]] = r["verdict"]
+    facet_status: dict[bytes, dict[str, tuple[str, str | None]]] = {}
+    for r in tables["operation_facet_status"].to_pylist():
+        facet_status.setdefault(r["node_id"], {})[r["facet"]] = (r["verdict"], r["reason"])
     behaviors: dict[bytes, list[dict]] = {}
     for r in tables["behaviors"].to_pylist():
         behaviors.setdefault(r["operation_node_id"], []).append(r)
@@ -325,6 +341,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         spellings=spellings,
         facets=facets,
         by_facet=by_facet,
+        facet_status=facet_status,
         behaviors=behaviors,
         op_vectors=op_vectors,
     )

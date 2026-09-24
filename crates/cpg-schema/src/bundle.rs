@@ -170,6 +170,8 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                 utf8("module", false),
                 utf8("docstring_summary", true),
                 utf8("behavior_status", false),
+                // FORMAT 4 (increment 3's deep review, F2): the first boundary the scan met.
+                utf8("boundary_reason", true),
                 utf8("status_reason", true),
                 id("brief_id", true),
             ],
@@ -181,8 +183,21 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                 id("node_id", false),
                 utf8("facet", false),
                 utf8("value", false),
+                // FORMAT 4 (F3): only established and conditional rows match.
+                utf8("verdict", false),
             ],
             &["node_id", "facet", "value"],
+        ),
+        // FORMAT 4 (F3, F4): the served authority for `complete` and the `unknown` list.
+        file(
+            "operation_facet_status",
+            vec![
+                id("node_id", false),
+                utf8("facet", false),
+                utf8("verdict", false),
+                utf8("reason", true),
+            ],
+            &["node_id", "facet"],
         ),
         file(
             "behaviors",
@@ -198,6 +213,8 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                 int("depth", false),
                 Field::new("conditional", DataType::Boolean, false),
                 utf8("verdict", false),
+                // FORMAT 4 (F1): why a row is unknown.
+                utf8("boundary_reason", true),
                 int("occurrences", false),
                 utf8("path", true),
                 int("line", true),

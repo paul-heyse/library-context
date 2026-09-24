@@ -647,6 +647,36 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
+            // Increment 3's deep review, F1: a behavior whose path crosses a non-definite arc
+            // (override dispatch, a potential call) is never established or conditional; the
+            // delegation over the same arc is unknown, and so is the behavior.
+            "semantic:established-needs-definite-path",
+            format!(
+                "SELECT DISTINCT b.behavior_id FROM behaviors b \
+                 JOIN behavior_steps s ON s.behavior_id = b.behavior_id \
+                 WHERE b.verdict IN ({established}, {conditional}) AND s.modality <> {definite}",
+                established = Verdict::Established.code(),
+                conditional = Verdict::Conditional.code(),
+                definite = crate::codebook::Modality::Definite.code(),
+            ),
+        ),
+        (
+            // Increment 3's deep review, F3: every operation says, for every facet, whether its
+            // rows are complete; absence is never read as "complete".
+            "semantic:facet-status-covers-operations",
+            format!(
+                "WITH facets AS (SELECT * FROM (VALUES {facets}) AS f(facet)) \
+                 SELECT o.node_id FROM operations o CROSS JOIN facets f \
+                 LEFT ANTI JOIN operation_facet_status s \
+                   ON s.node_id = o.node_id AND s.facet = f.facet",
+                facets = <crate::codebook::OperationFacet as Codebook>::all()
+                    .iter()
+                    .map(|f| format!("({})", f.code()))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+        ),
+        (
             // ADR-0022, §3.9: a refutation holds only where the analysis was complete.
             "semantic:refuted-needs-complete-region",
             // Stage 1 has no region a refutation could rest on (the ADR set's re-review R2):

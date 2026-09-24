@@ -186,6 +186,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "embedding_spec",
             "evidence",
             "lexical_text",
+            "operation_facet_status",
             "operation_facets",
             "operation_text",
             "operation_vectors",

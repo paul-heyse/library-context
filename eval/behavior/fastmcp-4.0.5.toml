@@ -1012,3 +1012,127 @@ stage = 1
   claim = "A @lifespan function can be combined with a plain @asynccontextmanager function using | without wrapping."
   source = ["server/lifespan.py:106-110"]
   docs = ["servers/lifespan.mdx#Backwards Compatibility"]
+
+# ---------------------------------------------------------------------------
+# D. find_operations and search_operations (Q21-Q24), and the exit rules.
+# Appended 2026-09-24, before any Stage 2 output existed (increment 3's deep
+# review, F5 and F7), from the library source only.
+# ---------------------------------------------------------------------------
+
+[[question]]
+id = "Q21"
+text = "Which public operations read the settings `mask_error_details`, `strict_input_validation` or `client_init_timeout`, and in which phase (at import, at construction, or per call)?"
+kind = "settings"
+operations = ["fastmcp.FastMCP", "fastmcp.Client"]
+stage = 2
+
+  [[question.item]]
+  id = "Q21.a"
+  polarity = "positive"
+  claim = "FastMCP.__init__ reads fastmcp.settings.mask_error_details at construction, only when its mask_error_details argument is None, and stores the result on self._mask_error_details (a snapshot)."
+  source = ["server/server.py:374-378"]
+
+  [[question.item]]
+  id = "Q21.b"
+  polarity = "positive"
+  claim = "FastMCP.__init__ reads fastmcp.settings.strict_input_validation at construction when its strict_input_validation argument is None."
+  source = ["server/server.py:466-470"]
+
+  [[question.item]]
+  id = "Q21.c"
+  polarity = "positive"
+  claim = "Client.__init__ reads fastmcp.settings.client_init_timeout at construction when its init_timeout argument is None, and stores the normalized value on self._init_timeout."
+  source = ["client/client.py:502-504"]
+
+  [[question.item]]
+  id = "Q21.d"
+  polarity = "negative"
+  claim = "mask_error_details is read from fastmcp.settings on every tool call."
+  source = ["server/server.py:374-378"]
+
+[[question]]
+id = "Q22"
+text = "find_operations(kind='method', facets=[parameter = raise_on_error]): which public methods take a parameter named raise_on_error, and is the answer complete?"
+kind = "find"
+operations = []
+stage = 2
+request = { tool = "find_operations", where = { kind = "method", facets = [{ facet = "parameter", value = "raise_on_error" }] } }
+
+  [[question.item]]
+  id = "Q22.a"
+  polarity = "positive"
+  claim = "fastmcp.Client.call_tool is a match."
+  source = ["client/mixins/tools.py:282-292"]
+
+  [[question.item]]
+  id = "Q22.b"
+  polarity = "positive"
+  claim = "fastmcp.ClientGroup.call_tool is a match (ClientGroup is exported under TYPE_CHECKING and supplied at runtime by fastmcp's module __getattr__)."
+  source = ["client/group.py:252-262", "__init__.py:15", "__init__.py:57-63"]
+
+  [[question.item]]
+  id = "Q22.c"
+  polarity = "negative"
+  claim = "A private helper that takes raise_on_error (Client._parse_call_tool_result, or the module function _parse_call_tool_result) is listed."
+  source = ["client/mixins/tools.py:255-259", "client/mixins/tools.py:342-347"]
+
+[[question]]
+id = "Q23"
+text = "search_operations('run the server over HTTP'): does the ranking put the server's HTTP entry points first?"
+kind = "search"
+operations = []
+stage = 2
+request = { tool = "search_operations", query = "run the server over HTTP" }
+
+  [[question.item]]
+  id = "Q23.a"
+  polarity = "positive"
+  claim = "fastmcp.FastMCP.run_http_async is among the top 5 hits."
+  source = ["server/mixins/transport.py:258"]
+
+  [[question.item]]
+  id = "Q23.b"
+  polarity = "positive"
+  claim = "fastmcp.FastMCP.http_app is among the top 10 hits."
+  source = ["server/mixins/transport.py:372"]
+
+  [[question.item]]
+  id = "Q23.c"
+  polarity = "negative"
+  claim = "A fastmcp.Client method is the first hit."
+
+[[question]]
+id = "Q24"
+text = "search_operations('call a tool on a connected server and get its result'): does the ranking find the client call, not the server's registration decorator?"
+kind = "search"
+operations = []
+stage = 2
+request = { tool = "search_operations", query = "call a tool on a connected server and get its result" }
+
+  [[question.item]]
+  id = "Q24.a"
+  polarity = "positive"
+  claim = "fastmcp.Client.call_tool is among the top 5 hits."
+  source = ["client/mixins/tools.py:282-292"]
+
+  [[question.item]]
+  id = "Q24.b"
+  polarity = "negative"
+  claim = "fastmcp.FastMCP.tool (the registration decorator) ranks above fastmcp.Client.call_tool."
+
+# Exit rules, one per stage, pre-registered (increment 3's deep review, F5). A
+# stage's items are its questions' items. "Claimed" means the served answer
+# states the negative item. The assessment applies the rule as written; the
+# operator reviews the assessment.
+
+[[exit]]
+stage = 2
+rule = "Passes when, over the stage-2 questions (Q04, Q10, Q21-Q24): no positive item is rated incorrect or misleading; no negative item is claimed; and at least half of the positive items are present or partial. Fails otherwise."
+
+[[exit]]
+stage = 3
+rule = "Passes when, over the stage-3 questions: no positive item is rated incorrect or misleading; no negative item is claimed; and at least half of the positive items are present or partial. Fails otherwise."
+
+[[exit]]
+stage = 5
+rule = "Passes when, over the stage-5 questions: no positive item is rated incorrect or misleading; no negative item is claimed; and at least half of the positive items are present or partial. Fails otherwise."

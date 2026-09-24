@@ -48,7 +48,7 @@ def test_an_unknown_operation_names_near_spellings(generation: Path) -> None:
 
 def test_declared_facets_answer_completely_and_raises_never_does(generation: Path) -> None:
     gen = load(generation, None)
-    where = ops.Where(facets=[ops.FacetTerm(facet="parameter", value="key")])
+    where = ops.Where(kind="method", facets=[ops.FacetTerm(facet="parameter", value="key")])
     found = ops.find_operations(gen, where, limit=50, cursor=None)
     assert "pkg.Catalog.remove" in [m.access_path for m in found.matches]
     assert found.complete and found.unknown == []
@@ -61,17 +61,21 @@ def test_declared_facets_answer_completely_and_raises_never_does(generation: Pat
 
 def test_a_behavioral_facet_lists_what_could_hide_a_match(generation: Path) -> None:
     gen = load(generation, None)
-    forwarding = sorted({v for f, v in gen.by_facet if f == "forwards_to"})
-    assert forwarding, "the fixture has forwarding"
+    forwarding = sorted(
+        v
+        for (f, v), rows in gen.by_facet.items()
+        if f == "forwards_to" and any(x in ops.MATCHING for x in rows.values())
+    )
+    assert forwarding, "the fixture has established forwarding"
     where = ops.Where(facets=[ops.FacetTerm(facet="forwards_to", value=forwarding[0])])
     found = ops.find_operations(gen, where, limit=50, cursor=None)
     assert found.total >= 1
-    assert not found.complete, "a behavioral facet is never complete in Stage 1"
     for u in found.unknown:
-        rows = gen.behaviors.get(bytes.fromhex(u.operation_id), [])
-        assert u.behavior_status == "unknown" or any(
-            r["kind"] == "unfollowed" and r["verdict"] == "unknown" for r in rows
-        )
+        node = bytes.fromhex(u.operation_id)
+        status = gen.facet_status[node]["forwards_to"][0]
+        row = gen.by_facet.get(("forwards_to", forwarding[0]), {}).get(node)
+        assert status != "established" or row == "unknown", u.access_path
+    assert found.complete == (found.unknown_total == 0)
 
 
 def test_pages_follow_a_bound_cursor(generation: Path) -> None:
@@ -91,10 +95,15 @@ def test_pages_follow_a_bound_cursor(generation: Path) -> None:
 
 
 def test_an_unknown_facet_value_is_refused_with_near_values(generation: Path) -> None:
+    """Only where every operation's rows for the facet are complete: `module` is."""
     gen = load(generation, None)
-    where = ops.Where(facets=[ops.FacetTerm(facet="raises", value="KeyErr")])
-    with pytest.raises(ops.OperationError, match="KeyError"):
+    where = ops.Where(facets=[ops.FacetTerm(facet="module", value="pkg.registr")])
+    with pytest.raises(ops.OperationError, match=r"pkg\.registry"):
         ops.find_operations(gen, where, limit=5, cursor=None)
+    # `raises` is never complete, so an absent value is not known to be absent.
+    never = ops.Where(facets=[ops.FacetTerm(facet="raises", value="KeyErr")])
+    found = ops.find_operations(gen, never, limit=5, cursor=None)
+    assert found.total == 0 and not found.complete
 
 
 @pytest.mark.anyio
@@ -123,7 +132,7 @@ async def test_the_behavioral_tools_round_trip(generation: Path) -> None:
             "find_operations",
             {
                 "library": LIBRARY,
-                "where": {"facets": [{"facet": "parameter", "value": "key"}]},
+                "where": {"kind": "method", "facets": [{"facet": "parameter", "value": "key"}]},
             },
         )
         assert found.structured_content is not None
@@ -147,3 +156,43 @@ def test_a_class_carries_its_constructor(generation: Path) -> None:
     op = ops.get_operation(gen, gen.snapshot_id, cls)
     assert op.kind == "class" and op.behavior_status == "not_analyzed"
     assert op.constructor is not None and op.constructor.access_path.endswith("__init__")
+
+
+def test_the_facet_names_are_the_codebook_s() -> None:
+    """One authority for the facet vocabulary (increment 3's deep review, F4)."""
+    import json
+    from typing import get_args
+
+    spec = json.loads((Path(__file__).parents[3] / "specs/serving/facets.json").read_text())
+    assert list(get_args(ops.FacetName)) == spec["facets"]
+
+
+def test_a_class_without_a_public_constructor_could_match_any_parameter(
+    generation: Path,
+) -> None:
+    """F3: a class's parameters are its public `__init__`'s; with none, it is never absent."""
+    gen = load(generation, None)
+    where = ops.Where(kind="class", facets=[ops.FacetTerm(facet="parameter", value="key")])
+    found = ops.find_operations(gen, where, limit=50, cursor=None)
+    assert not found.complete
+    assert "pkg.Catalog" in [u.access_path for u in found.unknown]
+    assert all(
+        gen.facet_status[bytes.fromhex(u.operation_id)]["parameter"][0] != "established"
+        for u in found.unknown
+    )
+
+
+def test_a_value_on_unknown_rows_only_is_open_not_absent(generation: Path) -> None:
+    """F3: a behavioral value with no established row answers `complete: false`, never "no
+    operation has"."""
+    gen = load(generation, None)
+    open_values = [
+        key
+        for key, rows in gen.by_facet.items()
+        if rows and all(v not in ops.MATCHING for v in rows.values())
+    ]
+    assert open_values, "the fixture has a behavior only known through an override-open call"
+    facet, value = open_values[0]
+    term = ops.FacetTerm.model_validate({"facet": facet, "value": value})
+    found = ops.find_operations(gen, ops.Where(facets=[term]), limit=5, cursor=None)
+    assert found.total == 0 and not found.complete and found.unknown_total >= 1

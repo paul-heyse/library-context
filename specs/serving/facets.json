@@ -1,0 +1,17 @@
+{
+  "_doc": "The operation_facet codebook's names in code order (DESIGN §11.3). Rust writes this file (LCTX_WRITE_KNOWN_ANSWERS=1); Python's FacetName must equal it.",
+  "facets": [
+    "parameter",
+    "parameter_type",
+    "returns",
+    "raises",
+    "decorator",
+    "async",
+    "delegates_to",
+    "forwards_to",
+    "hands_off_to",
+    "takes_from",
+    "module",
+    "kind"
+  ]
+}

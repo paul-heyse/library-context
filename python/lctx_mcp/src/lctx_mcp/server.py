@@ -369,8 +369,9 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
     ) -> ops.OperationSet:
         """Every public operation matching all the given facet terms (exact values), plus
         optional kind and path prefix. Exhaustive over this generation; `complete` is false when
-        an operation's behavior is unknown for a behavioral facet you used, and those operations
-        are listed. No negation."""
+        some operation that does not match has incomplete rows for a facet you used (a class
+        without a public constructor, a behavior scan that met a boundary, a facet that is never
+        complete such as `raises`), and those operations are listed in `unknown`. No negation."""
         served = ctx.lifespan_context["served"]
         _check(served, library)
         try:

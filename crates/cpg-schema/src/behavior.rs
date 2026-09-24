@@ -10,9 +10,16 @@
 //! - **`delegations`**: every depth-1 call arc of a public callable (the invocation projection's
 //!   accepted evidence, `flows::arcs`).
 //! - **`operations`**: one row per public node, at its preferred path, with its docstring summary.
-//! - **`operation_facets`**: `find_operations`'s typed facets per public node.
+//! - **`operation_facets`**: `find_operations`'s typed facets per public node, each with the best
+//!   verdict among the rows it comes from.
+//! - **`operation_facet_status`**: per public node and facet, whether its facet rows are complete
+//!   (`established`) or why not: the served authority for `find_operations`' `complete` and its
+//!   `unknown` list (increment 3's deep review, F3 and F4).
 //! - **`behaviors`**: what each public operation does with its parameters, whom it delegates to and
-//!   what official usage hands it, each row with a [`Verdict`](crate::codebook::Verdict).
+//!   what official usage hands it, each row with a [`Verdict`](crate::codebook::Verdict) and, when
+//!   it is not established, its boundary reason.
+//! - **`behavior_steps`**: each behavior's call path, hop by hop with its modality (the review's
+//!   F6): what `explain` returns and what `semantic:established-needs-definite-path` reads.
 //! - **`operation_documents`**: the texts `search_operations` embeds, one row per view and chunk.
 //!
 //! All are analysis tables (ADR-0019): computed from the snapshot, the analytics config and the
@@ -21,8 +28,8 @@
 //! (`semantic:behavior-covers-public`).
 
 use crate::codebook::{
-    BehaviorKind, Codebook, DeclarationKind, EmbeddingView, InvocationPhase, Modality,
-    OperationFacet, SourceRole, ValueClass, Verdict,
+    BehaviorKind, BoundaryReason, Codebook, DeclarationKind, EmbeddingView, InvocationPhase,
+    Modality, OperationFacet, SourceRole, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -168,11 +175,17 @@ table!(
         /// The docstring's first paragraph, whitespace collapsed; none without a docstring.
         docstring_summary: Option<String>,
         /// What the behavior scan's rows can support: `established` when the scan from this
-        /// callable met no boundary; `unknown` when it stopped at the depth bound or the callable
-        /// has call sites resolution leaves open (then negative answers about it are unknown);
-        /// `not_analyzed` for a class (its controls are its `__init__`'s).
+        /// callable met no boundary in its **region** (the callables it reached): no depth cut and
+        /// no read of a tracked formal at the frontier, no override-open call in the region or of
+        /// its own, no open call site taking a tracked value or of its own, and no read it does
+        /// not follow; otherwise `unknown` (then negative answers about it are unknown);
+        /// `not_analyzed` for a class (its controls are its `__init__`'s). Increment 3's deep
+        /// review, F2.
         behavior_status: Verdict,
-        /// Why the status is not `established`, in words.
+        /// The first boundary met, in the order budget, override dispatch, open site, unfollowed
+        /// read.
+        boundary_reason: Option<BoundaryReason>,
+        /// Why the status is not `established`, every boundary met, in words.
         status_reason: Option<String>,
     }
 );
@@ -188,6 +201,30 @@ table!(
         node_id: Id,
         facet: OperationFacet,
         value: String,
+        /// `established` for a declared facet; for a behavioral one, the best verdict among the
+        /// behaviors it comes from (`established`, then `conditional`, then `unknown`). Only
+        /// `established` and `conditional` rows match; an `unknown` row puts its operation in the
+        /// `unknown` list.
+        verdict: Verdict,
+    }
+);
+
+table!(
+    /// Whether a public node's rows for a facet are complete (increment 3's deep review, F3, F4):
+    /// one row per public node and facet. `established`: every value it has is a row;
+    /// otherwise the verdict and why (a class's constructor is not public, a behavior's region is
+    /// not closed, a facet is never complete). `find_operations` is `complete` only when every
+    /// operation in its universe that does not match is `established` for every facet it asks.
+    OperationFacetStatus, OperationFacetStatusRow = "operation_facet_status",
+    family = Findings,
+    key = [snapshot_id, node_id, facet],
+    checks = [],
+    {
+        snapshot_id: Id,
+        node_id: Id,
+        facet: OperationFacet,
+        verdict: Verdict,
+        reason: Option<String>,
     }
 );
 
@@ -212,14 +249,18 @@ table!(
         target_node_id: Option<Id>,
         /// The formal's name, or the handoff's formal.
         target_name: Option<String>,
-        /// A literal as written (`supplies_literal`), the unfollowed reason, or the test's source
-        /// text (`raises_when`).
+        /// A literal as written (`supplies_literal`), the unfollowed reason, or a delegation's
+        /// modality when it is not definite. A guard's test text is `site_text`.
         value: Option<String>,
         /// Call steps from the operation (0 for a handoff).
         depth: i64,
         /// A call on the path is made only on some paths of its caller.
         conditional: bool,
         verdict: Verdict,
+        /// Why the verdict is `unknown`: `override_dispatch` (a hop through a candidate arc),
+        /// `ambiguous_binding` (a potential arc), `outside_provider_model` (a read in a form not
+        /// followed). Null when established or conditional.
+        boundary_reason: Option<BoundaryReason>,
         /// The syntax node that shows it: the last call site, the `if` test, or the usage site.
         site_node_id: Option<Id>,
         /// Where the site is: its module, byte span, 1-based line and verbatim text.
@@ -231,6 +272,26 @@ table!(
         /// How many occurrences stand behind a handoff row (1 otherwise).
         occurrences: i64,
         invocation_id: Option<Id>,
+    }
+);
+
+table!(
+    /// Each behavior's call path from its operation, one row per hop (increment 3's deep review,
+    /// F6): Pass B's witness path, or a delegation's one arc. A handoff has none.
+    BehaviorSteps, BehaviorStepsRow = "behavior_steps",
+    family = Findings,
+    key = [snapshot_id, behavior_id, step],
+    checks = [("step_nonnegative", "step >= 0")],
+    {
+        snapshot_id: Id,
+        behavior_id: Id,
+        step: i64,
+        caller_node_id: Id,
+        call_site_node_id: Id,
+        callee_node_id: Id,
+        modality: Modality,
+        /// The caller makes this call only on some of its paths.
+        conditional: bool,
     }
 );
 
@@ -331,7 +392,7 @@ crate::relations! {
         sql = format!(
             "SELECT p.node_id, p.access_path, d.kind, d.qualified_name, sf.module_name AS module, \
                     d.docstring, (pd.kind IS NOT NULL AND pd.kind = {class}) AS is_method, \
-                    d.module_node_id, d.start_byte, d.end_byte \
+                    d.module_node_id, d.start_byte, d.end_byte, d.decorators \
              FROM public_paths p \
              JOIN declarations d ON d.node_id = p.node_id \
              JOIN source_files sf ON sf.module_node_id = d.module_node_id AND sf.role = {release} \
@@ -360,6 +421,58 @@ crate::relations! {
         );
 }
 
+crate::relations! {
+    inventory open_reads;
+
+    /// Call sites resolution leaves open (unresolved, partial, or with an unresolved remainder)
+    /// whose arguments read a name the caller binds as a parameter (increment 3's deep review,
+    /// F2): a tracked value that leaves the analysis there. The mapping from an argument's value
+    /// to the names it reads is `flows::parameter_reads_sql`'s.
+    open_site_reads = "behavior:open_site_reads",
+        deps = ["edges", "resolutions", "arguments", "syntax_nodes", "references",
+                "reference_resolutions", "bindings"],
+        sql = format!(
+            "WITH open AS ( \
+               SELECT ec.src_node_id AS caller_node_id, r.call_site_node_id FROM edges ec \
+               JOIN resolutions r ON r.call_site_node_id = ec.dst_node_id \
+               WHERE ec.edge_kind = {encloses} \
+                 AND (r.status <> {resolved} OR r.has_unresolved_remainder)), \
+             declared AS ( \
+               SELECT b.site_node_id AS parameter_node_id, b.scope_id, b.name FROM bindings b \
+               WHERE b.kind = {parameter}), \
+             valued AS ( \
+               SELECT o.caller_node_id, o.call_site_node_id, s.module_node_id, s.owner_node_id, \
+                      s.start_byte, s.end_byte \
+               FROM open o JOIN arguments a ON a.call_node_id = o.call_site_node_id \
+               JOIN edges v ON v.edge_kind = {argument_value} AND v.src_node_id = a.node_id \
+               JOIN syntax_nodes s ON s.node_id = v.dst_node_id) \
+             SELECT DISTINCT v.caller_node_id, v.call_site_node_id, d.parameter_node_id \
+             FROM valued v \
+             JOIN syntax_nodes n ON n.module_node_id = v.module_node_id \
+                  AND n.owner_node_id = v.owner_node_id AND n.kind = {name} \
+                  AND n.start_byte >= v.start_byte AND n.end_byte <= v.end_byte \
+             JOIN references rf ON rf.name_node_id = n.node_id \
+             JOIN reference_resolutions rr ON rr.reference_id = rf.node_id AND NOT rr.captured \
+             JOIN bindings b ON b.node_id = rr.binding_id \
+             JOIN declared d ON d.scope_id = b.scope_id AND d.name = b.name \
+             ORDER BY 1, 2, 3",
+            encloses = crate::codebook::EdgeKind::EnclosesCall.code(),
+            resolved = crate::codebook::ResolutionStatus::Resolved.code(),
+            parameter = crate::codebook::BindingKind::Parameter.code(),
+            argument_value = crate::codebook::EdgeKind::ArgumentValue.code(),
+            name = crate::codebook::SyntaxKind::ExprName.code(),
+        );
+}
+
+crate::query_row! {
+    /// An open call site taking a value the caller binds as a parameter.
+    pub struct OpenSiteReadRow {
+        caller_node_id: Id,
+        call_site_node_id: Id,
+        parameter_node_id: Id,
+    }
+}
+
 crate::query_row! {
     /// A caller with call sites resolution leaves open.
     pub struct OpenSitesRow {
@@ -381,6 +494,8 @@ crate::query_row! {
         module_node_id: Id,
         start_byte: i64,
         end_byte: i64,
+        /// The declaration's decorators' trailing names, in source order.
+        decorators: Vec<String>,
     }
 }
 
@@ -400,7 +515,7 @@ pub fn docstring_summary(docstring: &str) -> Option<String> {
 /// The relations' identity, for the compiler digest and the behavior scan's invocation.
 pub fn digest() -> Digest {
     let mut h = IdHasher::new("behavior-relations");
-    for r in all().into_iter().chain(boundaries()) {
+    for r in all().into_iter().chain(boundaries()).chain(open_reads()) {
         h.str(r.name).str(&r.sql);
     }
     h.finish_digest()

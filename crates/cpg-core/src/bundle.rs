@@ -47,7 +47,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 3;
+pub const FORMAT: u64 = 4;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -153,25 +153,34 @@ fn query(name: &str) -> Option<String> {
         }
         "operations" => format!(
             "SELECT o.node_id, o.access_path, {kind} AS kind, o.is_method, o.qualified_name, \
-                    o.module, o.docstring_summary, {status} AS behavior_status, o.status_reason, \
-                    b.brief_id \
+                    o.module, o.docstring_summary, {status} AS behavior_status, \
+                    {reason} AS boundary_reason, o.status_reason, b.brief_id \
              FROM operations o \
              LEFT JOIN (SELECT seed_node_id, min(brief_id) AS brief_id FROM briefs \
                         GROUP BY seed_node_id) b ON b.seed_node_id = o.node_id \
              ORDER BY o.node_id",
             kind = text_of::<DeclarationKind>("o.kind"),
             status = text_of::<Verdict>("o.behavior_status"),
+            reason = text_of::<BoundaryReason>("o.boundary_reason"),
         ),
         "operation_facets" => format!(
-            "SELECT node_id, {facet} AS facet, value FROM operation_facets \
-             ORDER BY node_id, facet, value",
+            "SELECT node_id, {facet} AS facet, value, {verdict} AS verdict \
+             FROM operation_facets ORDER BY node_id, facet, value",
             facet = text_of::<OperationFacet>("operation_facets.facet"),
+            verdict = text_of::<Verdict>("operation_facets.verdict"),
+        ),
+        "operation_facet_status" => format!(
+            "SELECT node_id, {facet} AS facet, {verdict} AS verdict, reason \
+             FROM operation_facet_status ORDER BY node_id, facet",
+            facet = text_of::<OperationFacet>("operation_facet_status.facet"),
+            verdict = text_of::<Verdict>("operation_facet_status.verdict"),
         ),
         "behaviors" => format!(
             "SELECT b.behavior_id, b.operation_node_id, {kind} AS kind, b.parameter_name, \
                     b.callee_node_id, COALESCE(o.access_path, d.qualified_name) AS callee, \
                     b.target_name, b.value, b.depth, b.conditional, {verdict} AS verdict, \
-                    b.occurrences, df.path, b.site_line AS line, b.site_text \
+                    {reason} AS boundary_reason, b.occurrences, df.path, b.site_line AS line, \
+                    b.site_text \
              FROM behaviors b \
              LEFT JOIN operations o ON o.node_id = b.callee_node_id \
              LEFT JOIN (SELECT node_id, min(qualified_name) AS qualified_name FROM declarations \
@@ -181,6 +190,7 @@ fn query(name: &str) -> Option<String> {
              ORDER BY b.behavior_id",
             kind = text_of::<BehaviorKind>("b.kind"),
             verdict = text_of::<Verdict>("b.verdict"),
+            reason = text_of::<BoundaryReason>("b.boundary_reason"),
             files = cpg_schema::flows::display_files_sql(),
         ),
         "operation_vectors" => format!(

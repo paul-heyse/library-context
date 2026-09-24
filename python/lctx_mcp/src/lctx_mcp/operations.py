@@ -2,7 +2,8 @@
 
 - `get_operation`: one public operation's record by deterministic lookup.
 - `find_operations`: an **exhaustive** conjunction of typed facet terms over the materialized
-  `operation_facets`, with `complete` saying whether an `unknown` behavior could hide a match.
+  `operation_facets`, with `complete` and `unknown` read from the served
+  `operation_facet_status` (increment 3's deep review, F3 and F4): no facet class is decided here.
 - `search_operations`: **ranked** discovery (BM25 over `operation_text`, cosine per embedded view,
   reciprocal-rank fusion), labelled as such; an exact public spelling is promoted.
 
@@ -23,26 +24,8 @@ from pydantic import BaseModel, Field
 from lctx_mcp.generation import Generation
 from lctx_mcp.retrieval import K, Lexical, ranks, vector_scores
 
-# Facets read from the declaration and its annotations: complete under the stated model. Every
-# other facet (`raises`, which Pyrefly types, and the behavioral ones) is never complete in Stage 1
-# (the ADR set's re-review R1): a depth cut, an open call site or an untyped raise can hide a match.
-DECLARED = (
-    "parameter",
-    "parameter_type",
-    "returns",
-    "decorator",
-    "async",
-    "kind",
-    "module",
-)
-# A behavioral facet and the behavior kind whose `unknown` rows show what could hide a match.
-BEHAVIORAL = {
-    "forwards_to": "unfollowed",
-    "delegates_to": "delegates",
-    "hands_off_to": None,
-    "takes_from": None,
-    "raises": None,
-}
+# The facet names, as the `operation_facet` codebook spells them: `specs/serving/facets.json`
+# holds them for both languages (`test_the_facet_names_are_the_codebook's`).
 FacetName = Literal[
     "parameter",
     "parameter_type",
@@ -50,20 +33,23 @@ FacetName = Literal[
     "raises",
     "decorator",
     "async",
-    "kind",
-    "module",
-    "forwards_to",
     "delegates_to",
+    "forwards_to",
     "hands_off_to",
     "takes_from",
+    "module",
+    "kind",
 ]
 UNKNOWN_CAP = 50
+# Rows whose verdict lets them match; an `unknown` row puts its operation in `unknown` instead.
+MATCHING = frozenset({"established", "conditional"})
 NOTE_FIND = (
     "Exhaustive over the materialized facets of this generation. `complete` is true only when "
-    "every term is a declared facet (parameter, parameter_type, returns, decorator, async, kind, "
-    "module). `raises` (a typed `raise` directly in the body) and the behavioral facets are never "
-    "complete: `unknown` lists the operations known to hide possible matches (an unknown "
-    "behavior, a scan stopped at its depth bound, call sites resolution leaves open)."
+    "every operation that does not match has complete rows for every facet asked "
+    "(`operation_facet_status`). `unknown` lists the operations that could still match: one whose "
+    "rows for a facet are not complete (a class without a public constructor, a scan that met a "
+    "boundary, a facet that is never complete such as `raises` or the handoffs), or whose row is "
+    "`unknown` (a path through an override-open call)."
 )
 NOTE_SEARCH = (
     "Ranked discovery, not exhaustive: a score ranks operations, it is never evidence that one "
@@ -101,6 +87,9 @@ class Fate(BaseModel):
     depth: int
     conditional: bool
     verdict: str
+    # Why the verdict is `unknown`: `override_dispatch`, `ambiguous_binding`,
+    # `outside_provider_model`; none when established or conditional.
+    boundary_reason: str | None
     occurrences: int
     path: str | None
     line: int | None
@@ -130,9 +119,12 @@ class Operation(BaseModel):
     module: str
     docstring_summary: str | None
     behavior_status: str
+    boundary_reason: str | None
     status_reason: str | None
     capability_id: str | None
     facets: dict[str, list[str]]
+    # The facets whose rows are not complete for this operation, with why.
+    incomplete_facets: dict[str, str]
     parameters: list[ParameterRecord]
     delegates: list[Fate]
     handoffs: list[Fate]
@@ -211,6 +203,7 @@ def _fate(r: dict) -> Fate:
         depth=r["depth"],
         conditional=r["conditional"],
         verdict=r["verdict"],
+        boundary_reason=r["boundary_reason"],
         occurrences=r["occurrences"],
         path=r["path"],
         line=r["line"],
@@ -245,8 +238,13 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
     """One operation's record; a class also carries its constructor's."""
     o = gen.operations[node]
     facets: dict[str, list[str]] = {}
-    for facet, value in gen.facets.get(node, []):
+    for facet, value, _ in gen.facets.get(node, []):
         facets.setdefault(facet, []).append(value)
+    incomplete = {
+        facet: f"{verdict}: {reason}" if reason else verdict
+        for facet, (verdict, reason) in sorted(gen.facet_status.get(node, {}).items())
+        if verdict != "established"
+    }
     rows = gen.behaviors.get(node, [])
     per_parameter: dict[str, list[Fate]] = {
         name: [] for name in facets.get("parameter", []) if not name.startswith("*")
@@ -279,9 +277,11 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
         module=o["module"],
         docstring_summary=o["docstring_summary"],
         behavior_status=o["behavior_status"],
+        boundary_reason=o["boundary_reason"],
         status_reason=o["status_reason"],
         capability_id=o["brief_id"].hex() if o["brief_id"] else None,
         facets=facets,
+        incomplete_facets=incomplete,
         parameters=parameters,
         delegates=[_fate(r) for r in rows if r["kind"] == "delegates"] + supplies,
         handoffs=[_fate(r) for r in rows if r["kind"] in ("hands_off_to", "takes_from")],
@@ -307,7 +307,7 @@ def _universe(gen: Generation, where: Where) -> list[bytes]:
     out = []
     for node in gen.op_ids:
         if where.kind is not None:
-            kind = next((v for f, v in gen.facets.get(node, []) if f == "kind"), None)
+            kind = next((v for f, v, _ in gen.facets.get(node, []) if f == "kind"), None)
             if kind != where.kind:
                 continue
         if where.path_prefix is not None and not any(
@@ -342,38 +342,49 @@ def _offset(gen: Generation, where: Where, cursor: str | None) -> int:
     return offset
 
 
-def find_operations(gen: Generation, where: Where, limit: int, cursor: str | None) -> OperationSet:
-    """§11.3 `find_operations`: exhaustive over the materialized facets."""
+def _check_terms(gen: Generation, where: Where) -> None:
+    """Refuse a term no operation has, but only where every operation's rows for its facet are
+    complete; elsewhere absence is not known (increment 3's deep review, F3)."""
     for term in where.facets:
-        if (term.facet, term.value) not in gen.by_facet:
+        if (term.facet, term.value) in gen.by_facet:
+            continue
+        if all(
+            gen.facet_status.get(n, {}).get(term.facet, ("unknown", None))[0] == "established"
+            for n in gen.op_ids
+        ):
             known = sorted({v for f, v in gen.by_facet if f == term.facet})
             near = difflib.get_close_matches(term.value, known, n=5)
             hint = f"; close values: {', '.join(near)}" if near else ""
             raise OperationError(
                 f"no operation has {term.facet} = {term.value!r} in this generation{hint}"
             )
+
+
+def _term(gen: Generation, node: bytes, term: FacetTerm) -> str:
+    """How one operation stands on one term: `match`, `no` (complete and absent) or `open`."""
+    verdict = gen.by_facet.get((term.facet, term.value), {}).get(node)
+    if verdict in MATCHING:
+        return "match"
+    status = gen.facet_status.get(node, {}).get(term.facet, ("unknown", None))[0]
+    if verdict is None and status == "established":
+        return "no"
+    return "open"
+
+
+def find_operations(gen: Generation, where: Where, limit: int, cursor: str | None) -> OperationSet:
+    """§11.3 `find_operations`: exhaustive over the materialized facets."""
+    _check_terms(gen, where)
     universe = _universe(gen, where)
-    matched = [
-        n for n in universe if all(n in gen.by_facet[(t.facet, t.value)] for t in where.facets)
-    ]
+    matched: list[bytes] = []
+    hiding: list[bytes] = []
+    for n in universe:
+        standing = [_term(gen, n, t) for t in where.facets]
+        if all(s == "match" for s in standing):
+            matched.append(n)
+        elif "no" not in standing:
+            # Every term is matched or could be: the operation could still match.
+            hiding.append(n)
     matched.sort(key=lambda n: gen.operations[n]["access_path"])
-    # Beyond the declared facets, nothing is complete in Stage 1. What is known to hide possible
-    # matches: an operation outside them whose scan was not established, or with an `unknown`
-    # behavior of the facet's kind.
-    hiding: set[bytes] = set()
-    open_terms = [t for t in where.facets if t.facet not in DECLARED]
-    for term in open_terms:
-        kind = BEHAVIORAL.get(term.facet)
-        for n in universe:
-            if n in matched:
-                continue
-            rows = gen.behaviors.get(n, [])
-            status = gen.operations[n]["behavior_status"]
-            if status == "unknown" or (
-                kind is not None
-                and any(r["kind"] == kind and r["verdict"] == "unknown" for r in rows)
-            ):
-                hiding.add(n)
     unknown = sorted(hiding, key=lambda n: gen.operations[n]["access_path"])
     offset = _offset(gen, where, cursor)
     page = matched[offset : offset + limit]
@@ -383,7 +394,7 @@ def find_operations(gen: Generation, where: Where, limit: int, cursor: str | Non
         generation=gen.key,
         matches=[_ref(gen, n) for n in page],
         total=len(matched),
-        complete=not open_terms,
+        complete=not unknown,
         unknown=[_ref(gen, n) for n in unknown[:UNKNOWN_CAP]],
         unknown_total=len(unknown),
         unknown_truncated=len(unknown) > UNKNOWN_CAP,
@@ -436,8 +447,8 @@ async def search_operations(
     """§11.3 `search_operations`: ranked discovery over operations."""
     allowed = set(_universe(gen, where)) if where is not None else set(gen.op_ids)
     if where is not None:
-        for term in where.facets:
-            allowed &= gen.by_facet.get((term.facet, term.value), set())
+        _check_terms(gen, where)
+        allowed = {n for n in allowed if all(_term(gen, n, t) == "match" for t in where.facets)}
     legs: list[dict[bytes, int]] = []
     if index.lexical is not None:
         scores = dict(zip(gen.op_ids, index.lexical.scores(query).tolist(), strict=True))
