@@ -287,13 +287,14 @@ async fn normalized(
     Ok(RecordBatch::try_new(schema.clone(), columns)?)
 }
 
-/// `lexical_text`: each brief's documents, then the distinct tokens of its public names, each
-/// once however many spellings or splits produce it (§11.2; the holistic assessment's A1(c)).
+/// `lexical_text`: each brief's documents, then the distinct tokens of its seed's **own** public
+/// names, each once however many spellings or splits produce it (§11.2; the holistic assessment's
+/// A1(c); ADR-0010's R2 F1 amendment: inherited spellings promote, but name nothing here).
 async fn lexical(ctx: &SessionContext, schema: &SchemaRef) -> Result<RecordBatch, CoreError> {
     let docs = normalized(
         ctx,
         "SELECT d.brief_id, d.chunk, d.text, m.access_path FROM brief_documents d \
-         LEFT JOIN brief_members m ON m.brief_id = d.brief_id \
+         LEFT JOIN brief_members m ON m.brief_id = d.brief_id AND m.own \
          ORDER BY d.brief_id, d.chunk, m.access_path",
         &Arc::new(arrow_schema::Schema::new(vec![
             Field::new("brief_id", DataType::FixedSizeBinary(16), false),

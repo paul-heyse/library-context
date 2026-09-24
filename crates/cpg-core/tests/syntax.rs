@@ -1589,6 +1589,10 @@ async fn public_paths_follow_the_member_rule() {
             .any(|r| r.access_path.starts_with("pub.External."))
     );
     assert!(path("pub.Unresolved.run").is_some());
+    // R2 F4: members are one level below an exported class. A nested class is a row, but its
+    // own members are not (the seed resolution walked any depth; `public_paths` does not).
+    assert!(path("pub.Outer.Inner").is_some());
+    assert!(path("pub.Outer.Inner.m").is_none());
     // Classes are rows; private names and segments are not; `__init__` is.
     assert!(
         path("pub.Unresolved")

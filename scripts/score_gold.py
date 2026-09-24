@@ -27,10 +27,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
-from gold_match import MATCHER_VERSION, hits, jaccard, resolve
+from gold_match import MATCHER_VERSION, class_nodes, hits, jaccard, resolve, status
 from lctx_mcp.embedder import FakeEmbedder, HttpEmbedder
 from lctx_mcp.generation import load
 from lctx_mcp.server import search, serve
@@ -40,9 +41,32 @@ GOLD = ROOT / "eval" / "gold" / "fastmcp-4.0.5.json"
 SOURCES = ROOT / "build" / "envs" / "fastmcp" / "lib" / "python3.14" / "site-packages"
 
 
-def status(embedder_name: str, degraded_aliases: int) -> str:
-    """`blocked` when live vectors were asked for and any alias answered without them."""
-    return "blocked" if embedder_name == "vllm" and degraded_aliases else "measured"
+def span_recall(
+    gold: list[dict],
+    evidence: dict[str, list[tuple[int, int]]],
+    sources: Path,
+    touched: set[str],
+) -> tuple[list[int], list[int], int]:
+    """(c): recalled and total spans, overall and in touched families, and how many the sources
+    could not map. An unmapped span is a miss, never out of the denominator (R2 F2)."""
+    recall_all = [0, 0]
+    recall_touched = [0, 0]
+    unmapped = 0
+    for f in gold:
+        for span in f["source_spans"]:
+            starts = line_spans(sources, span["path"])
+            hit = False
+            if starts is None or span["line_end"] >= len(starts):
+                unmapped += 1
+            else:
+                a, z = starts[span["line_start"] - 1], starts[span["line_end"]]
+                hit = any(s < z and a < e for s, e in evidence.get(span["path"], []))
+            recall_all[0] += hit
+            recall_all[1] += 1
+            if f["id"] in touched:
+                recall_touched[0] += hit
+                recall_touched[1] += 1
+    return recall_all, recall_touched, unmapped
 
 
 def line_spans(sources: Path, path: str) -> list[int] | None:
@@ -68,7 +92,9 @@ async def score(generation: Path, embedder_name: str, url: str, sources: Path) -
     gen = load(generation, embedder.spec if embedder else None)
     served = serve(gen, embedder)
     gold = json.loads(GOLD.read_text())["families"]
-    families = resolve(gold, gen.tables["public_paths"].to_pylist(), gen.library)
+    public = gen.tables["public_paths"].to_pylist()
+    families = resolve(gold, public)
+    classes = class_nodes(public)
     seeds = {b: r["seed_node_id"] for b, r in gen.briefs.items()}
 
     # (a)
@@ -119,22 +145,7 @@ async def score(generation: Path, embedder_name: str, url: str, sources: Path) -
     for row in gen.tables["evidence"].to_pylist():
         if row["path"] and row["start_byte"] is not None and row["end_byte"] is not None:
             evidence.setdefault(row["path"], []).append((row["start_byte"], row["end_byte"]))
-    recall_all = [0, 0]
-    recall_touched = [0, 0]
-    unmapped = 0
-    for f in gold:
-        for span in f["source_spans"]:
-            starts = line_spans(sources, span["path"])
-            if starts is None or span["line_end"] >= len(starts):
-                unmapped += 1
-                continue
-            a, z = starts[span["line_start"] - 1], starts[span["line_end"]]
-            hit = any(s < z and a < e for s, e in evidence.get(span["path"], []))
-            recall_all[0] += hit
-            recall_all[1] += 1
-            if f["id"] in touched:
-                recall_touched[0] += hit
-                recall_touched[1] += 1
+    recall_all, recall_touched, unmapped = span_recall(gold, evidence, sources, set(touched))
 
     label = {
         "vllm": "live vectors",
@@ -145,6 +156,19 @@ async def score(generation: Path, embedder_name: str, url: str, sources: Path) -
         "generation": gen.key,
         "snapshot": gen.snapshot_id,
         "matcher_version": MATCHER_VERSION,
+        "gold_sha256": hashlib.sha256(GOLD.read_bytes()).hexdigest(),
+        "bundle_format": gen.manifest.get("format"),
+        "units": {"families": len(families), "aliases": aliases_total, "spans": recall_all[1]},
+        # The class ceiling (R2 O1): a class operation matches only a brief seeded by that class.
+        "class_ceiling": {
+            "class_operations": sum(1 for f in families for n in f.nodes if n in classes),
+            "class_only_families": [f.id for f in families if f.nodes and f.nodes <= classes],
+            "class_only_aliases": sum(
+                len(g["task_aliases"])
+                for f, g in zip(families, gold, strict=True)
+                if f.nodes and f.nodes <= classes
+            ),
+        },
         "briefs": len(seeds),
         "embedder": embedder_name,
         "label": label,

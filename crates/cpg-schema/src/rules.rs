@@ -622,6 +622,15 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
+            // R2 F3: one path names one node. Seed resolution, the gold matcher and promotion
+            // all read a path as naming exactly one node (a module `pkg/C.py`'s `f` and a class
+            // `pkg.C`'s member `f` would both spell `pkg.C.f`).
+            "semantic:public-path-one-node",
+            "SELECT access_path FROM public_paths GROUP BY access_path \
+             HAVING count(DISTINCT node_id) > 1"
+                .to_owned(),
+        ),
+        (
             // A1: one preferred path per node, the name every consumer shows it by.
             "semantic:public-path-preferred",
             "SELECT node_id FROM public_paths GROUP BY node_id \

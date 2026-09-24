@@ -1458,6 +1458,18 @@ async fn the_analysis_rules_reject_their_violations() {
                     export_node_id, kind, own, preferred FROM public_paths_published",
         ),
         (
+            "semantic:public-path-one-node",
+            "public_paths",
+            "SELECT snapshot_id, node_id, access_path, export_node_id, kind, own, preferred \
+             FROM public_paths_published \
+             UNION ALL \
+             SELECT p.snapshot_id, q.node_id, p.access_path, p.export_node_id, p.kind, p.own, \
+                    false AS preferred \
+             FROM public_paths_published p \
+             JOIN (SELECT min(node_id) AS node_id FROM public_paths_published) q \
+               ON q.node_id <> p.node_id",
+        ),
+        (
             "semantic:public-path-preferred",
             "public_paths",
             "SELECT snapshot_id, node_id, access_path, export_node_id, kind, own, \

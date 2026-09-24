@@ -32,9 +32,31 @@ class Family:
         return len(self.nodes) + len(self.unresolved_under_root) + len(self.outside_root)
 
 
-def resolve(families: list[dict], public_paths: list[dict], root: str) -> list[Family]:
-    """Each family's operations resolved by exact path against the served public paths."""
-    by_path: dict[str, bytes] = {r["access_path"]: r["node_id"] for r in public_paths}
+def paths(public_paths: list[dict]) -> dict[str, bytes]:
+    """Each served public path's node: the one lookup every script resolves by (R2 F2)."""
+    return {r["access_path"]: r["node_id"] for r in public_paths}
+
+
+def roots(public_paths: list[dict]) -> set[str]:
+    """The release's public roots, as the served paths show them (not the distribution name)."""
+    return {r["access_path"].split(".")[0] for r in public_paths}
+
+
+def class_nodes(public_paths: list[dict]) -> set[bytes]:
+    """The nodes of exported classes."""
+    return {r["node_id"] for r in public_paths if r["kind"] == "class"}
+
+
+def status(embedder_name: str, degraded_aliases: int) -> str:
+    """`blocked` when live vectors were asked for and any alias answered without them."""
+    return "blocked" if embedder_name == "vllm" and degraded_aliases else "measured"
+
+
+def resolve(families: list[dict], public_paths: list[dict]) -> list[Family]:
+    """Each family's operations resolved by exact path against the served public paths; an
+    operation that resolves to nothing is under a public root or outside every one."""
+    by_path = paths(public_paths)
+    under_roots = roots(public_paths)
     out = []
     for f in families:
         nodes: set[bytes] = set()
@@ -44,7 +66,7 @@ def resolve(families: list[dict], public_paths: list[dict], root: str) -> list[F
             node = by_path.get(op)
             if node is not None:
                 nodes.add(node)
-            elif op.split(".")[0] == root:
+            elif op.split(".")[0] in under_roots:
                 under.append(op)
             else:
                 outside.append(op)
@@ -66,8 +88,5 @@ def hits(family: Family, seed: bytes) -> bool:
 
 
 def node_of(public_paths: list[dict], path: str) -> bytes | None:
-    """The node a public path names, or None."""
-    for r in public_paths:
-        if r["access_path"] == path:
-            return r["node_id"]
-    return None
+    """The node a public path names, or None (the same lookup as `resolve`)."""
+    return paths(public_paths).get(path)

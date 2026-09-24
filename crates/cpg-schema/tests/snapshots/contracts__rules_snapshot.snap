@@ -660,6 +660,8 @@ semantic:evidence-text-bytes
   SELECT evidence_id FROM evidence WHERE text IS NOT NULL AND start_byte IS NOT NULL AND end_byte IS NOT NULL AND octet_length(text) <> end_byte - start_byte
 semantic:public-path-exported
   SELECT p.node_id, p.access_path FROM public_paths p LEFT ANTI JOIN (SELECT q.node_id, q.access_path FROM public_paths q JOIN declarations d ON d.node_id = q.node_id AND d.kind = q.kind JOIN exports e ON e.export_node_id = q.export_node_id AND (q.access_path = e.access_path OR q.access_path = e.access_path || '.' || d.name)) ok ON ok.node_id = p.node_id AND ok.access_path = p.access_path
+semantic:public-path-one-node
+  SELECT access_path FROM public_paths GROUP BY access_path HAVING count(DISTINCT node_id) > 1
 semantic:public-path-preferred
   SELECT node_id FROM public_paths GROUP BY node_id HAVING sum(CASE WHEN preferred THEN 1 ELSE 0 END) <> 1
 semantic:public-path-own

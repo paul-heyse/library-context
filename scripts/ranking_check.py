@@ -4,7 +4,8 @@ brief rank first against the distractor briefs? (DESIGN §1.5, §12; evaluation 
 Usage: ranking_check.py GENERATION [--embedder vllm|fake|none] [--embed-url URL] [--family ID]
 
 Prints each alias with the seed brief's rank and the mode (hybrid or lexical-only), then a summary,
-and exits 1 unless the seed ranks first for every alias (increment-1 deep review F2). A fake-vector
+and exits 1 unless the seed ranks first for every alias (increment-1 deep review F2), or 2 when
+`vllm` was asked for and any alias answered without live vectors (blocked). A fake-vector
 run is labelled as such; only real vectors make a hybrid result evidence. The seed's brief is the
 one whose seed is the seed path's node, by the gold matcher (`gold_match`, version 2).
 """
@@ -17,7 +18,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from gold_match import MATCHER_VERSION, node_of
+from gold_match import MATCHER_VERSION, node_of, status
 from lctx_mcp.embedder import FakeEmbedder, HttpEmbedder
 from lctx_mcp.generation import load
 from lctx_mcp.server import search, serve
@@ -43,12 +44,14 @@ async def check(generation: Path, embedder_name: str, url: str, family_id: str) 
         raise SystemExit(f"{target} is not a public path of this generation")
     seeds = {b: r["seed_node_id"] for b, r in gen.briefs.items()}
     first = 0
+    degraded = 0
     for alias in family["task_aliases"]:
         result = await search(served, gen.library, alias, limit=10)
         order = [h.title for h in result.hits]
         nodes = [seeds[bytes.fromhex(h.capability_id)] for h in result.hits]
         rank = nodes.index(node) + 1 if node in nodes else None
         first += rank == 1
+        degraded += result.mode != "hybrid"
         print(f"{result.mode:12} rank {rank}  {alias!r}  {order}")
         if result.degraded_reason:
             print(f"{'':12} ({result.degraded_reason})")
@@ -58,6 +61,10 @@ async def check(generation: Path, embedder_name: str, url: str, family_id: str) 
         f"{family_id} aliases against {len(gen.briefs) - 1} distractors{label} "
         f"(matcher {MATCHER_VERSION})"
     )
+    # A lexical-only first rank under `vllm` is not evidence (§11.1): the check is blocked (R2 F2).
+    if status(embedder_name, degraded) == "blocked":
+        print(f"ranking: blocked ({degraded} aliases answered without live vectors)")
+        return 2
     return 0 if first == len(family["task_aliases"]) else 1
 
 

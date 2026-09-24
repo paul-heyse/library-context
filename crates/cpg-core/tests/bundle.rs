@@ -118,6 +118,46 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
         .unwrap();
     assert_eq!(again.key, a.key);
     let manifest = verify(&a.dir).unwrap();
+    // ADR-0010's R2 F1 amendment: a brief's lexical names are its seed's own spellings.
+    // `pkg.Server.tool` is also spelled `pkg.Alpha.tool` through a public subclass, which promotes
+    // the brief (`symbol_map`) but names nothing in its lexical text.
+    let served = |file: &str| {
+        let bytes = std::fs::read(a.dir.join(file)).unwrap();
+        let reader =
+            arrow_ipc::reader::FileReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
+        reader.map(|b| b.unwrap()).collect::<Vec<_>>()
+    };
+    let strings = |b: &arrow_array::RecordBatch, column: &str| -> Vec<String> {
+        let c = b.column_by_name(column).unwrap();
+        let c = c
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap();
+        (0..arrow_array::Array::len(c))
+            .map(|i| c.value(i).to_owned())
+            .collect()
+    };
+    let symbols: Vec<String> = served("symbol_map.arrow")
+        .iter()
+        .flat_map(|b| strings(b, "symbol"))
+        .collect();
+    assert!(
+        symbols.contains(&"pkg.Alpha.tool".to_owned()),
+        "{symbols:?}"
+    );
+    let names: Vec<String> = served("lexical_text.arrow")
+        .iter()
+        .flat_map(|b| strings(b, "text"))
+        .map(|t| t.rsplit('\n').next().unwrap_or_default().to_owned())
+        .collect();
+    assert!(
+        names.iter().any(|n| n.split(' ').any(|t| t == "tool")),
+        "{names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n.split(' ').any(|t| t == "alpha")),
+        "an inherited spelling named a brief: {names:?}"
+    );
     let rows = |f: &str| manifest["files"][f]["rows"].as_u64().unwrap();
     // Five configured seeds; the fixture has no official usage code, so nothing is eligible to
     // fill the budget of six (the increment-2 review's U1).

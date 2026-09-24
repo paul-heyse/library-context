@@ -1658,8 +1658,9 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
     the seed's aliases only;
   - `public_paths`: the whole public surface (node, path, kind, `own`, `preferred`), what a
     query's or a gold operation's spelling resolves against;
-  - `lexical_text`: each brief's documents, then the **distinct tokens** of its public names, each
-    once however many spellings or splits produce it (the path, its segments and their words at
+  - `lexical_text`: each brief's documents, then the **distinct tokens** of its seed's **own**
+    public names (inherited spellings promote but name nothing here: ADR-0010's R2 F1 amendment),
+    each once however many spellings or splits produce it (the path, its segments and their words at
     underscores and case changes; `cpg_schema::bundle::name_tokens`), for BM25 (§11.2). The
     tokenizer is Unicode lower-casing, then ASCII letter-and-digit runs, identical in Rust and
     Python, with shared known answers in `specs/serving/tokens.json`;
@@ -1833,8 +1834,15 @@ the same name, written before Stage E. Its roots are bound as `$roots`.
   the seed rank among its definitions. Nothing is inherited past an unresolved base or an ancestor
   outside the release that precedes the definition, and nothing where a class up to the definer
   binds the name by an assignment or import.
+- **Its domain** (R2 F4): members are **one level** below an exported class. A nested class is a
+  row, but its own members are not (the seed resolution it replaced walked any depth), so a seed
+  or gold operation at depth 2 is refused or unresolved. An **undefined** base (a name Pyrefly
+  cannot resolve) leaves no ancestry row, so members are inherited past it: the refusal fires
+  only for a base that is named but unmapped. On the pilot, neither case occurs (Measured,
+  2026-09-24).
 - **`own`** marks a path whose export declares the node. **`preferred`** marks one path per node:
-  own first, then the fewest segments, then the least.
+  own first, then the fewest segments, then the least. One path names one node
+  (`semantic:public-path-one-node`, R2 F3).
 - Rules: `semantic:public-path-exported`, `-preferred` and `-own`, each with an injected case. On
   `analysis_shapes`, every brief's seed is its row, and the relation refuses `pkg.Shadowed.run`
   and `pkg.Aliased.tool`, as the seed resolution does (`public_paths_agree_with_the_seed_resolution`).
@@ -1859,8 +1867,9 @@ its aliases are the rows naming its node through the same container (the same ex
 the module level for a direct export). The relation carries the member rule that `member()` used
 to walk here (a whole-MRO walk, external ancestors included, that **fails closed**; slice 1.4
 review F2): nothing is inherited past an unresolved ancestor or a non-release class before the
-definition, nor where a class in the chain binds the name other than by `def` or `class`. A seed
-with no row is refused, naming it. Tested: `a_seed_that_could_name_another_method_is_refused`,
+definition, nor where a class in the chain binds the name other than by `def` or `class`. Two
+limits of that domain (R2 F4; §9's opening): members are one level below an exported class, and
+an undefined base, which Pyrefly drops, fails open. A seed with no row is refused, naming it. Tested: `a_seed_that_could_name_another_method_is_refused`,
 `public_paths_agree_with_the_seed_resolution`. On the pilot the lookup replaced about 0.9 s of
 seed-resolution queries (Measured: "analyze: seed selection" 0.89 s before, 0.02 s after,
 2026-09-24).
@@ -2825,12 +2834,14 @@ read, and bundles copy the vectors they need from it.
 
 1. **Lexical.** BM25 over `lexical_text`, scored by `bm25s` 0.3.11 (numpy backend,
    `get_scores`) over our own tokenization (ADR-0010 amendment). That text is the brief's text
-   plus split forms of public names (`write_dataset` → `write dataset`), computed in Rust when the
-   bundle is built.
+   plus the distinct name tokens of its seed's own public spellings, each once
+   (`write_dataset` → `write dataset`; `FORMAT` 2, ADR-0010's amendments of 2026-09-24),
+   computed in Rust when the bundle is built.
 2. **Vector.** Exact cosine over the generation's vectors, using the instruction-prefixed query
    vector.
 3. **Fusion.** Reciprocal-rank fusion with K = 60, 1-based ranks, and ties broken by `brief_id`.
-4. **Exact symbols.** Matches in `symbol_map` are merged by brief id and **recorded as promoted**.
+4. **Exact symbols.** Matches in `symbol_map` (every public spelling of a brief's seed, own and
+   inherited, in `FORMAT` 2) are merged by brief id and **recorded as promoted**.
 5. **Return.** At most `limit` results (default 5), with relevance and coverage information.
    **A score is never presented as proof of task fit.**
 6. **Degraded mode.** Lexical + exact-symbol only when the embedding service is down, reported in
