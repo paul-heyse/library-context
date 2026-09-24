@@ -59,8 +59,8 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert result["library"] == LIBRARY and len(result["generation"]) == 16
         # Passes A, B and C for each of 5 configured seeds and the one seed selection adds
         # (slice 2.6), 40 Leiden runs and their consensus (2.3), the PageRank (2.4), the selection,
-        # and FCA of the seeds' three scopes (2.5).
-        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 64}
+        # FCA of the seeds' three scopes (2.5), and the kNN (3.1).
+        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 65}
         assert 1 <= len(result["hits"]) <= 5
         tool = next(h for h in result["hits"] if h["title"] == "pkg.Server.tool")
         brief = await client.call_tool(

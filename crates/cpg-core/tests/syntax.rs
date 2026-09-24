@@ -986,6 +986,82 @@ budget = 2
 /// `docs_shapes` with its usage modules as official examples, compiled with the analytics config
 /// at `sub` under a temporary directory, module order reversed or not.
 async fn docs_shapes_analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDir) {
+    docs_shapes_embedded(sub, reverse, None).await
+}
+
+/// A bag-of-words embedder for tests: each lowercase word adds one to a hashed dimension of 64,
+/// then the vector is normalized, so texts sharing words are near (slice 3.1).
+struct WordsEmbedder {
+    spec: cpg_core::embed::Spec,
+}
+
+impl WordsEmbedder {
+    fn new() -> Self {
+        WordsEmbedder {
+            spec: cpg_core::embed::Spec {
+                model: "test-words".to_owned(),
+                revision: "1".to_owned(),
+                tokenizer_revision: "bytes/4".to_owned(),
+                server: "in-process".to_owned(),
+                served_dtype: "float32".to_owned(),
+                pooling: "none".to_owned(),
+                query_template: "{query}".to_owned(),
+                query_task: "test".to_owned(),
+                document_template: "{text}".to_owned(),
+                dimensions: 64,
+                output_dtype: "float32".to_owned(),
+                normalization: "l2".to_owned(),
+                max_document_tokens: 2048,
+            },
+        }
+    }
+
+    fn vector(text: &str) -> Vec<f32> {
+        let mut v = vec![0f32; 64];
+        for word in text
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() > 2)
+        {
+            let h = word
+                .to_lowercase()
+                .bytes()
+                .fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+                    (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+                });
+            v[(h % 64) as usize] += 1.0;
+        }
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm == 0.0 {
+            v[0] = 1.0;
+            return v;
+        }
+        v.iter().map(|x| x / norm).collect()
+    }
+}
+
+impl cpg_core::embed::Embedder for WordsEmbedder {
+    fn spec(&self) -> &cpg_core::embed::Spec {
+        &self.spec
+    }
+    fn count_tokens<'a>(
+        &'a self,
+        request_text: &'a str,
+    ) -> cpg_core::embed::EmbedFuture<'a, usize> {
+        Box::pin(async move { Ok(request_text.len() / 4) })
+    }
+    fn embed<'a>(
+        &'a self,
+        request_texts: &'a [String],
+    ) -> cpg_core::embed::EmbedFuture<'a, Vec<Vec<f32>>> {
+        Box::pin(async move { Ok(request_texts.iter().map(|t| Self::vector(t)).collect()) })
+    }
+}
+
+async fn docs_shapes_embedded(
+    sub: &str,
+    reverse: bool,
+    embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
+) -> (SessionContext, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join(sub);
     std::fs::create_dir_all(&base).unwrap();
@@ -1013,7 +1089,7 @@ budget = 3
 "#,
         )
         .unwrap(),
-        embedder: None,
+        embedder,
     };
     let store = base.join("store");
     cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis))
@@ -1125,6 +1201,48 @@ async fn handoffs_and_usage_patterns_come_from_official_code() {
         ctx.deregister_table(table).unwrap();
         ctx.register_table(table, original).unwrap();
     }
+}
+
+/// Embeddings in analytics (slice 3.1): E0 embeds the corpus passages and the subsystem's public
+/// APIs through the cache; kNN links an API to the passages near it, and the brief says so,
+/// `statistically_derived`.
+#[tokio::test(flavor = "multi_thread")]
+async fn doc_links_come_from_embedding_similarity() {
+    let (ctx, _dir) = docs_shapes_embedded(
+        "knn",
+        false,
+        Some(std::sync::Arc::new(WordsEmbedder::new())),
+    )
+    .await;
+    let knn = lines(
+        &ctx,
+        "SELECT parameters, candidate_set_size, diagnostics FROM analysis_invocations \
+         WHERE method = 8",
+    )
+    .await;
+    insta::assert_snapshot!("knn_invocation", knn);
+    let links = lines(
+        &ctx,
+        "SELECT d.qualified_name, m.label, round(f.score, 3) FROM findings f \
+         JOIN declarations d ON d.node_id = f.subject_node_id \
+         JOIN finding_members m ON m.finding_id = f.finding_id AND m.role = 15 \
+         WHERE f.finding_kind = 15 ORDER BY 1, 3 DESC, 2",
+    )
+    .await;
+    insta::assert_snapshot!("doc_links", links);
+    let briefs = lines(
+        &ctx,
+        "SELECT b.title, a.evidence_status, a.text FROM briefs b \
+         JOIN brief_assertions ba ON ba.brief_id = b.brief_id \
+         JOIN assertions a ON a.assertion_id = ba.assertion_id \
+         WHERE a.assertion_kind = 14 ORDER BY b.title",
+    )
+    .await;
+    assert!(
+        briefs.contains("pkg.Server.tool | 2 | Documentation near this operation"),
+        "{briefs}"
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
 
 /// Slice 2.2 review F6: Pass C, the usage patterns and the rest of Stage E and F are identical

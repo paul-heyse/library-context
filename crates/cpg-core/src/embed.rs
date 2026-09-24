@@ -191,12 +191,14 @@ pub struct Embedded {
 const BATCH: usize = 32;
 
 /// Embed the brief documents through the cache: fill each document's `input_hash`, check the token
-/// cap, embed the keys the cache lacks, merge them, and return the cache version and keys used.
+/// cap, embed the keys the cache lacks, merge them, and return the cache version and the keys the
+/// snapshot uses (the documents' and `prior`, the analytics' E0 keys).
 pub async fn embed_documents(
     root: &std::path::Path,
     snapshot_id: Id,
     embedder: &dyn Embedder,
     docs: &mut [BriefDocumentsRow],
+    prior: &[Digest],
 ) -> Result<Embedded, CoreError> {
     let spec = embedder.spec();
     let spec_hash = spec.hash();
@@ -206,8 +208,8 @@ pub async fn embed_documents(
         let tokens = embedder.count_tokens(&request).await?;
         if tokens > spec.max_document_tokens as usize {
             return Err(CoreError::Embed(format!(
-                "a brief document is {tokens} tokens, over the {}-token cap; splitting by \
-                 applicable case arrives in increment 2",
+                "a brief document chunk is {tokens} tokens, over the {}-token cap (the byte proxy \
+                 that split it undercounted)",
                 spec.max_document_tokens
             )));
         }
@@ -245,17 +247,123 @@ pub async fn embed_documents(
     }
     let batch = EmbeddingCache::to_sorted_batch(&rows)?;
     let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
+    // The snapshot's keys: its documents' and the analytics' (E0, slice 3.1), sorted and distinct.
+    let mut keys: Vec<Digest> = requests
+        .iter()
+        .map(|(k, _)| *k)
+        .chain(prior.iter().copied())
+        .collect();
+    keys.sort();
+    keys.dedup();
     let mut h = IdHasher::new("embedding-keys");
     h.digest_field(spec_hash);
-    for (key, _) in &requests {
+    for key in &keys {
         h.digest_field(*key);
     }
     Ok(Embedded {
         spec_hash,
         version,
-        used: requests.len() as i64,
+        used: keys.len() as i64,
         keys_digest: h.finish_digest(),
     })
+}
+
+/// Embed document texts through the cache for the analytics (E0; DESIGN §9.7, slice 3.1): each
+/// text's vector in order, read from the cache or embedded and merged by the insert-only MERGE,
+/// with the distinct keys used and the cache version after the merge. A text is embedded as a
+/// document (the spec's document template); its caller keeps it under the document cap.
+pub async fn embed_texts(
+    root: &std::path::Path,
+    snapshot_id: Id,
+    embedder: &dyn Embedder,
+    texts: &[String],
+) -> Result<(Vec<Vec<f32>>, Vec<Digest>, u64), CoreError> {
+    let spec = embedder.spec();
+    let spec_hash = spec.hash();
+    let requests: Vec<(Digest, String)> = texts
+        .iter()
+        .map(|t| {
+            let request = spec.document_text(t);
+            (input_hash(&request), request)
+        })
+        .collect();
+    let mut unique: std::collections::BTreeMap<Digest, &String> = std::collections::BTreeMap::new();
+    for (key, request) in &requests {
+        unique.entry(*key).or_insert(request);
+    }
+    let mut vectors = cached_vectors(root, spec_hash).await?;
+    vectors.retain(|k, _| unique.contains_key(k));
+    let missing: Vec<(Digest, &String)> = unique
+        .iter()
+        .filter(|(k, _)| !vectors.contains_key(*k))
+        .map(|(k, r)| (*k, *r))
+        .collect();
+    let mut rows = Vec::new();
+    for chunk in missing.chunks(BATCH) {
+        let batch: Vec<String> = chunk.iter().map(|(_, r)| (*r).clone()).collect();
+        let embedded = embedder.embed(&batch).await?;
+        if embedded.len() != batch.len() {
+            return Err(CoreError::Embed(format!(
+                "{} vectors for {} texts",
+                embedded.len(),
+                batch.len()
+            )));
+        }
+        for ((key, _), vector) in chunk.iter().zip(embedded) {
+            check_vector(&vector, spec.dimensions).map_err(CoreError::Embed)?;
+            vectors.insert(*key, vector.clone());
+            rows.push(EmbeddingCacheRow {
+                spec_hash,
+                input_hash: *key,
+                vector,
+                model: spec.model.clone(),
+            });
+        }
+    }
+    let batch = EmbeddingCache::to_sorted_batch(&rows)?;
+    let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
+    let out = requests
+        .iter()
+        .map(|(k, _)| vectors.get(k).cloned())
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| CoreError::Embed("a text without a vector".to_owned()))?;
+    Ok((out, unique.into_keys().collect(), version))
+}
+
+/// Every cached vector of `spec_hash`, by key (the global read mode).
+async fn cached_vectors(
+    root: &std::path::Path,
+    spec_hash: Digest,
+) -> Result<std::collections::BTreeMap<Digest, Vec<f32>>, CoreError> {
+    let mut out = std::collections::BTreeMap::new();
+    if !root.join(EmbeddingCache::NAME).join("_delta_log").exists() {
+        return Ok(out);
+    }
+    let table = crate::delta::open_verified::<EmbeddingCache>(root).await?;
+    let ctx = crate::snapshot::empty_session();
+    table.update_datafusion_session(&ctx.state())?;
+    ctx.register_table(EmbeddingCache::NAME, table.table_provider().await?)?;
+    let query = format!(
+        "SELECT input_hash, vector FROM embedding_cache WHERE spec_hash = X'{}'",
+        spec_hash.hex()
+    );
+    for b in crate::sql::query(&ctx, &query).await?.collect().await? {
+        let keys = arrow_cast::cast(b.column(0), &arrow_schema::DataType::Binary)?;
+        let keys = keys.as_binary::<i32>();
+        let lists = b.column(1).as_list::<i32>();
+        for i in 0..b.num_rows() {
+            let (Ok(key), false) = (
+                <[u8; 32]>::try_from(keys.value(i)),
+                arrow_array::Array::is_null(lists, i),
+            ) else {
+                continue;
+            };
+            let values = lists.value(i);
+            let floats = values.as_primitive::<arrow_array::types::Float32Type>();
+            out.insert(Digest(key), floats.values().to_vec());
+        }
+    }
+    Ok(out)
 }
 
 /// The keys of `spec_hash` the cache holds among `wanted`, read at its latest version over all

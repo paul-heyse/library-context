@@ -913,6 +913,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             11,
             "44252165621a2305caebdef9f2bac256f6e0fd6c57397a3e629e1e7080ccaa1f",
         ),
+        (
+            14,
+            12,
+            "02cbec86553c6e4fb4e4d098a21d0dc9539f271090fd9c96825e0d823b45bf9b",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(

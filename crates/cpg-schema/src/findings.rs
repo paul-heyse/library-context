@@ -396,6 +396,12 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
         BriefSection::Controls,
         &[EvidenceStatus::StructurallyObserved],
     ),
+    // kNN (§9.7): a link to documentation, statistical like Related.
+    (
+        AssertionKind::DocLink,
+        BriefSection::Related,
+        &[EvidenceStatus::StatisticallyDerived],
+    ),
     // Pass C and §10.5: a pattern is official usage code (documented), or an executed fixture.
     (
         AssertionKind::UsagePattern,
@@ -533,6 +539,11 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
     (
         FindingKind::Implication,
         EvidenceStatus::StructurallyObserved,
+    ),
+    (FindingKind::DocLink, EvidenceStatus::StatisticallyDerived),
+    (
+        FindingKind::CommunityLabel,
+        EvidenceStatus::StatisticallyDerived,
     ),
 ];
 

@@ -474,6 +474,7 @@ analytic_method
   5 pagerank
   6 fca_next_closure
   7 seed_selection
+  8 knn
 finding_kind
   0 public_alias
   1 direct_delegation
@@ -490,6 +491,8 @@ finding_kind
   12 centrality
   13 applicable_case
   14 implication
+  15 doc_link
+  16 community_label
 stop_reason
   0 depth_limit
   1 vertex_budget
@@ -516,6 +519,7 @@ member_role
   12 intent_attribute
   13 premise
   14 conclusion
+  15 label
 assertion_kind
   0 outcome
   1 public_access
@@ -531,6 +535,7 @@ assertion_kind
   11 unfollowed_control
   12 applicable_case
   13 implication
+  14 doc_link
 brief_section
   0 outcome
   1 public_access

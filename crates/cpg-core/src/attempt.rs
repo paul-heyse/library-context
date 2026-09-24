@@ -43,8 +43,8 @@ pub struct Published {
 /// 10: the slice 2.2 review: release handoff endpoints, one-target producers, the narrowed
 /// receiver exclusion, doc blocks by document, self-contained usage patterns. 11: the ADR-0011
 /// review: γ = 1 fixed, the public co-assignment score, named layer policies. 12: FCA (slice 2.5).
-/// 13: seed selection within the brief budget (slice 2.6).
-pub const COMPILER_OUTPUT_VERSION: u32 = 13;
+/// 13: seed selection within the brief budget (slice 2.6). 14: E0 and kNN (slice 3.1).
+pub const COMPILER_OUTPUT_VERSION: u32 = 14;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -104,6 +104,16 @@ pub fn compiler_digest() -> Digest {
             .hex(),
     ));
     queries.push(("concept_relations", cpg_schema::concepts::digest().hex()));
+    queries.push((
+        "neighbour_relations",
+        cpg_schema::neighbours::digest().hex(),
+    ));
+    queries.push((
+        "knn_parameters",
+        lctx_analytics::neighbours::Params::preregistered()
+            .digest()
+            .hex(),
+    ));
     queries.push((
         "fca_parameters",
         lctx_analytics::concepts::Params::preregistered()
@@ -432,7 +442,7 @@ async fn finish(
     // Stage E (ADR-0019): the analyses read the session, and their rows are written like any
     // other table's, one commit each.
     let found = match analysis {
-        Some((a, compiler)) => crate::analyze::run(&ctx, snapshot_id, a, compiler).await?,
+        Some((a, compiler)) => crate::analyze::run(&ctx, root, snapshot_id, a, compiler).await?,
         None => AnalysisRows::default(),
     };
     written.stages.mark("analyze (Pass A)");
@@ -468,6 +478,7 @@ async fn finish(
                 snapshot_id,
                 embedder.as_ref(),
                 &mut made.brief_documents,
+                &found.embedded_keys,
             )
             .await?;
             // The spec itself, so a generation is built from the store alone (§6.4).

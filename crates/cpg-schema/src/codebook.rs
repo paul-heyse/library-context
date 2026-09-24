@@ -823,6 +823,9 @@ codebook!(
         /// Seed selection within the brief budget: communities choose, centrality orders
         /// (§9.4, §9.5; slice 2.6). Its diagnostics name the configured and selected seeds.
         SeedSelection = 7 => "seed_selection",
+        /// Exact nearest neighbours over cached embeddings: doc links and community labels
+        /// (§9.7; slice 3.1).
+        Knn = 8 => "knn",
     }
 );
 
@@ -875,6 +878,13 @@ codebook!(
         /// threshold: every API with the premise's attributes has the conclusion's. The score is
         /// its support.
         Implication = 14 => "implication",
+        /// A corpus passage near a public API by embedding similarity (§9.7): the subject is the
+        /// API, the related node the passage, the score the cosine. Statistical: a link, never an
+        /// Outcome or a claim.
+        DocLink = 15 => "doc_link",
+        /// The heading of the passage nearest a community's centroid (§9.7): the subject is the
+        /// community's subject, the related node the passage, the score the cosine.
+        CommunityLabel = 16 => "community_label",
     }
 );
 
@@ -938,6 +948,8 @@ codebook!(
         Premise = 13 => "premise",
         /// An implication's conclusion attribute.
         Conclusion = 14 => "conclusion",
+        /// A passage's heading (or its document's path), as a doc link or community label shows it.
+        Label = 15 => "label",
     }
 );
 
@@ -988,6 +1000,8 @@ codebook!(
         ApplicableCase = 12 => "applicable_case",
         /// An implication of the seed's scope that the seed satisfies (FCA `implication`).
         Implication = 13 => "implication",
+        /// Documentation near the operation by embedding similarity (kNN `doc_link`).
+        DocLink = 14 => "doc_link",
     }
 );
 

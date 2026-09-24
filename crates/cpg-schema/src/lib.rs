@@ -16,6 +16,7 @@ pub mod graph;
 pub mod hash;
 pub mod id;
 pub mod metrics;
+pub mod neighbours;
 pub mod projection;
 pub mod rules;
 pub mod table;

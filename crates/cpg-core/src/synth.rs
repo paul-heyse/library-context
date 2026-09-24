@@ -45,8 +45,9 @@ use crate::{CoreError, sql};
 /// path-qualifier rule for Pass B's templates, and unfollowed controls (slice 2.1 review F1, F4).
 /// 9: a usage pattern cites only a handoff it shows (slice 2.2 review F3). 10: applicable cases
 /// and implications from FCA, the applicable case in the brief document, and over-cap documents
-/// split into chunks (slice 2.5). 11: Related from communities and centrality (slice 2.6).
-pub const TEMPLATE_VERSION: i64 = 11;
+/// split into chunks (slice 2.5). 11: Related from communities and centrality (slice 2.6). 12: doc
+/// links and community labels from embeddings (slice 3.1).
+pub const TEMPLATE_VERSION: i64 = 12;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -1654,17 +1655,30 @@ pub async fn run(
             co.truncate(5);
             if !co.is_empty() {
                 let names: Vec<String> = co.iter().map(|(_, l, _)| format!("`{l}`")).collect();
+                // The community's label: its centroid's nearest documentation (slice 3.1).
+                let labelled = found.findings.iter().find(|f| {
+                    f.finding_kind == FindingKind::CommunityLabel
+                        && f.subject_node_id == c.subject_node_id
+                });
+                let label = labelled
+                    .and_then(|f| concept_rows(f, MemberRole::Label).first().copied())
+                    .and_then(|m| m.label.clone())
+                    .map(|l| format!(", nearest documentation “{l}”"))
+                    .unwrap_or_default();
                 let mut draft = Draft::new(
                     AssertionKind::Related,
                     format!(
                         "Related operations, from its community of {} public APIs (co-assignment \
-                         {:.2} across Leiden seeds), by usage centrality: {}.",
+                         {:.2} across Leiden seeds{label}), by usage centrality: {}.",
                         members.len(),
                         c.score.unwrap_or_default(),
                         listed(&names)
                     ),
                 )
                 .citing(c);
+                if let Some(f) = labelled {
+                    draft = draft.citing(f);
+                }
                 for (_, _, node) in &co {
                     if let Some(f) = ranks.get(node) {
                         draft = draft.citing(f);
@@ -1672,6 +1686,39 @@ pub async fn run(
                 }
                 drafts.push(draft);
             }
+        }
+
+        // Doc links (§9.7; slice 3.1): the documentation nearest the operation by embedding
+        // similarity. Statistical: a pointer to read, never a claim or an Outcome.
+        let mut links: Vec<&&FindingsRow> = findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::DocLink)
+            .collect();
+        links.sort_by(|a, b| {
+            b.score
+                .unwrap_or_default()
+                .total_cmp(&a.score.unwrap_or_default())
+                .then(a.related_node_id.cmp(&b.related_node_id))
+        });
+        if !links.is_empty() {
+            let items: Vec<String> = links
+                .iter()
+                .filter_map(|f| {
+                    let label = concept_rows(f, MemberRole::Label).first()?.label.clone()?;
+                    Some(format!("“{label}” ({:.2})", f.score.unwrap_or_default()))
+                })
+                .collect();
+            let mut draft = Draft::new(
+                AssertionKind::DocLink,
+                format!(
+                    "Documentation near this operation, by embedding similarity: {}.",
+                    items.join("; ")
+                ),
+            );
+            for f in links {
+                draft = draft.citing(f);
+            }
+            drafts.push(draft);
         }
 
         // Usage pattern (§10.5): official code using the operation, with its setup, verbatim.

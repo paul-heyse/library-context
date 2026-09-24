@@ -25,7 +25,7 @@ use lctx_analytics::graph::Projection;
 use lctx_analytics::pass_a::{self, Budgets, Seed};
 use lctx_analytics::pass_b::{self, Flows, SeedParameter};
 use lctx_analytics::pass_c::{self, Handoffs};
-use lctx_analytics::{communities, concepts, ranking, selection};
+use lctx_analytics::{communities, concepts, neighbours, ranking, selection};
 use serde::Serialize;
 
 use crate::delta::to_schema;
@@ -112,6 +112,8 @@ pub struct AnalysisRows {
     pub findings: Vec<FindingsRow>,
     pub members: Vec<FindingMembersRow>,
     pub witnesses: Vec<WitnessesRow>,
+    /// E0's embedding keys (slice 3.1): the snapshot's key set includes them.
+    pub embedded_keys: Vec<cpg_schema::id::Digest>,
 }
 
 async fn collect(
@@ -420,6 +422,13 @@ struct PassCParameters<'a> {
 }
 
 #[derive(Serialize)]
+struct KnnParameters<'a> {
+    knn: &'a neighbours::Params,
+    /// The embedding spec whose vectors the search reads.
+    spec_hash: String,
+}
+
+#[derive(Serialize)]
 struct SelectionParameters<'a> {
     budget: u32,
     rule: &'a str,
@@ -509,6 +518,7 @@ pub async fn project(ctx: &SessionContext, spec: &ProjectionSpec) -> Result<Proj
 /// Stage E for one attempt: Pass A from every seed of the config.
 pub async fn run(
     ctx: &SessionContext,
+    root: &std::path::Path,
     snapshot_id: Id,
     analysis: &Analysis,
     compiler: CompilerRun,
@@ -692,6 +702,151 @@ pub async fn run(
         diagnostics: Some(ranked.diagnostics),
     });
     rows.findings.extend(ranked.findings);
+    // Embeddings in analytics (§9.7; slice 3.1): E0 embeds the corpus passages and the subsystem's
+    // public APIs through the cache, in windows under the document cap; exact kNN links each API
+    // to its nearest passages and labels each community by its centroid's nearest heading.
+    if let Some(embedder) = &analysis.embedder {
+        let knn = neighbours::Params::preregistered();
+        let mut texts: Vec<String> = Vec::new();
+        // (node, label, first window, window count)
+        let mut passage_spans: Vec<(Id, String, usize, usize)> = Vec::new();
+        for b in collect(
+            ctx,
+            &cpg_schema::neighbours::passages_sql(),
+            &cpg_schema::neighbours::schemas::passages(),
+        )
+        .await?
+        {
+            let nodes = id_col(&b, "node_id")?;
+            let heading = str_col(&b, "heading")?;
+            let path = str_col(&b, "path")?;
+            let text = str_col(&b, "text")?;
+            for (i, node) in nodes.into_iter().enumerate() {
+                let label = if heading.is_null(i) {
+                    path.value(i).to_owned()
+                } else {
+                    format!("{} § {}", path.value(i), heading.value(i))
+                };
+                let w = neighbours::windows(text.value(i), knn.window_bytes);
+                passage_spans.push((node, label, texts.len(), w.len()));
+                texts.extend(w);
+            }
+        }
+        let mut least: BTreeMap<Id, String> = BTreeMap::new();
+        for (id, path) in &paths {
+            least.entry(*id).or_insert_with(|| path.clone());
+        }
+        let api_nodes: Vec<Id> = least
+            .keys()
+            .copied()
+            .filter(|n| {
+                p.dense(*n).is_some_and(|d| {
+                    p.kinds[d as usize] == NodeKind::Function && subsystem.contains(d as usize)
+                })
+            })
+            .collect();
+        let mut api_spans: Vec<(Id, usize, usize)> = Vec::new();
+        if !api_nodes.is_empty() {
+            for b in collect(
+                ctx,
+                &cpg_schema::neighbours::api_texts_sql(&api_nodes),
+                &cpg_schema::neighbours::schemas::api_texts(),
+            )
+            .await?
+            {
+                let nodes = id_col(&b, "node_id")?;
+                let docstring = str_col(&b, "docstring")?;
+                let parameters = str_col(&b, "parameters")?;
+                for (i, node) in nodes.into_iter().enumerate() {
+                    let text = neighbours::api_text(
+                        &least[&node],
+                        (!parameters.is_null(i)).then(|| parameters.value(i)),
+                        (!docstring.is_null(i)).then(|| docstring.value(i)),
+                    );
+                    let w = neighbours::windows(&text, knn.window_bytes);
+                    api_spans.push((node, texts.len(), w.len()));
+                    texts.extend(w);
+                }
+            }
+        }
+        let (vectors, keys, _) =
+            crate::embed::embed_texts(root, snapshot_id, embedder.as_ref(), &texts).await?;
+        rows.embedded_keys = keys;
+        let item = |node: Id, first: usize, count: usize| neighbours::Item {
+            node,
+            vectors: vectors[first..first + count].to_vec(),
+        };
+        let apis: Vec<neighbours::Item> = api_spans
+            .iter()
+            .map(|&(n, first, count)| item(n, first, count))
+            .collect();
+        let passages: Vec<neighbours::Passage> = passage_spans
+            .iter()
+            .map(|(n, label, first, count)| neighbours::Passage {
+                item: item(*n, *first, *count),
+                label: label.clone(),
+            })
+            .collect();
+        let groups: Vec<(Id, Vec<Id>)> = rows
+            .findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::Community)
+            .map(|f| {
+                (
+                    f.subject_node_id,
+                    rows.members
+                        .iter()
+                        .filter(|m| {
+                            m.finding_id == f.finding_id && m.role == MemberRole::CommunityMember
+                        })
+                        .filter_map(|m| m.node_id)
+                        .collect(),
+                )
+            })
+            .collect();
+        let parameters = serde_json::to_string(&KnnParameters {
+            knn: &knn,
+            spec_hash: embedder.spec().hash().hex(),
+        })
+        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        let parameters_digest = content_digest(parameters.as_bytes());
+        let knn_digest = cpg_schema::neighbours::digest();
+        let invocation_id = findings::invocation(
+            AnalyticMethod::Knn.code(),
+            parameters_digest,
+            Some(knn_digest),
+            None,
+            None,
+        );
+        let found = neighbours::run(&apis, &passages, &groups, &knn, snapshot_id, invocation_id)
+            .map_err(|e| CoreError::Analysis(e.to_string()))?;
+        rows.invocations.push(AnalysisInvocationsRow {
+            snapshot_id,
+            invocation_id,
+            run_id: compiler.run_id,
+            model_id: compiler.model("knn"),
+            extraction_mode: ExtractionMode::GraphAnalysis,
+            method: AnalyticMethod::Knn,
+            parameters,
+            parameters_digest,
+            projection_digest: Some(knn_digest),
+            library_versions: lctx_analytics::libraries(),
+            subject_node_id: None,
+            seed: None,
+            iterations: None,
+            residual: None,
+            converged: None,
+            quality_history: Vec::new(),
+            candidate_set_size: Some(found.candidate_pairs as i64),
+            vertices_examined: Some((apis.len() + passages.len()) as i64),
+            arcs_examined: None,
+            completion: neighbours::COMPLETION,
+            stop_reason: None,
+            diagnostics: Some(found.diagnostics),
+        });
+        rows.findings.extend(found.findings);
+        rows.members.extend(found.members);
+    }
     // Seed selection (§9.4, §9.5; slice 2.6): the configured seeds, then, while the brief budget
     // allows, each community's most central public API (`lctx_analytics::selection`).
     let configured = config.seeds();

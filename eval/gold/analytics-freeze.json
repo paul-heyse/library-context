@@ -3,8 +3,9 @@
  "community_parameters": "fa465073c42edda7128d2f314cad6a7e4381ca18e8ad88d1a5bfa5c1a10b4970",
  "fca_parameters": "a0100e5477d064cb4a503c0313e86584d7e0ed372e701fcc46e636c6b969c53b",
  "frozen": "2026-09-23",
+ "knn_parameters": "a3e76fe69d27047c6c406a70531ed8458e78f25b35d6ab692e2bd61bc05ce412",
  "libraries/fastmcp/analytics.toml": "bc5426192547734c533f0c36d4b9bab79ff839f485cc6257612629e0e1d450a2",
  "note": "The analytics config as frozen after the increment-1 deep review (O1): the first use of gold against compiled output was slice 1.9 (config sha256 306416feb2be9738f6112a149ec68f0ba048a385ab62e9fce6a0db66393c7357 at 6c86f53). Two recorded edits followed: the slice 2.0 seed fastmcp.FastMCP.mount, and the removal of [briefs] serve_unreviewed. Any later edit is an ADR-0004 amendment naming the gold its author has seen.",
  "pagerank_parameters": "54b8ccded62a48d8b21182c1647c758d24f172f3457b95d86da4e59cef2c43c2",
- "parameters_note": "The community, PageRank and FCA parameters are code (deviation log D28, D29, D32), frozen here by the digest of their canonical JSON (communities and PageRank from the ADR-0011 review's fixes, FCA from slice 2.5, 2026-09-23), before the first gold scoring (3.3). lctx-analytics' the_parameters_match_their_gold_freeze checks them; an edit is an ADR-0004 amendment, like the config's."
+ "parameters_note": "The community, PageRank, FCA and kNN parameters are code (deviation log D28, D29, D32, D35), frozen here by the digest of their canonical JSON (communities and PageRank from the ADR-0011 review's fixes, FCA from slice 2.5, kNN from slice 3.1; 2026-09-23), before the first gold scoring (3.3). lctx-analytics' the_parameters_match_their_gold_freeze checks them; an edit is an ADR-0004 amendment, like the config's."
 }

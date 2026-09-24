@@ -2193,6 +2193,39 @@ log D24, D25, D30):
   similarity margin.
 - **Output.** `statistically_derived` findings.
 
+**Implemented** and **Tested** in slice 3.1 (2026-09-23; deviation log D35):
+- **E0** (`cpg-core::embed::embed_texts`), in Stage E after PageRank, with an embedder configured.
+  It embeds the corpus passages (`cpg_schema::neighbours::passages_sql`) and the subsystem's
+  public APIs (`path(parameters)` and the docstring; `api_texts_sql`, text version 1) as
+  documents under the spec. Each text is cut into windows of at most 4,096 bytes at line ends,
+  never dropping text. Vectors are read from the cache or embedded and merged; E0's keys join the
+  snapshot's key set in `content_digest`.
+- **kNN** (`lctx_analytics::neighbours`): exact, the best cosine over window pairs. Each API's
+  three nearest passages at or above 0.5 are `doc_link` findings; each reported community's
+  centroid takes its nearest passage's heading as a `community_label`. Both are
+  `statistically_derived`, and one `knn` invocation records the candidate set (APIs × passages)
+  and the counts. The parameters (k 3, floor 0.5, 4,096-byte windows) are pre-registered code,
+  frozen with the others.
+- **Stage F.** A `doc_link` assertion (section Related) lists the operation's nearest
+  documentation with its cosines; the Related line names its community's label. Neither feeds the
+  Outcome.
+- **Not yet built:** kNN as a community layer, left to 3.2 under the §9.8 keep rule.
+- **Tests.** `neighbours::tests`: windows never drop text; exact search, the floor and node-order
+  ties; a community labelled by its centroid's nearest heading.
+  `doc_links_come_from_embedding_similarity` runs `docs_shapes` end to end with a bag-of-words
+  test embedder: `Server.tool` links the quickstart's "Install" section (0.77), and its brief
+  carries the link, `statistically_derived`.
+- **Pilot (Measured, 2026-09-23).** Fake vectors (snapshot `0f8b911f`): E0 covers 2,079 windows
+  (328 APIs; 1,751 windows of 1,608 passages), 527,424 candidate pairs, and no link clears the
+  floor, as expected of unrelated hash vectors; Stage E takes 3.8 s instead of 2.2. **Live
+  vectors** (Qwen3-Embedding-8B via `just pilot-live`, snapshot `89d3d4d0`; the service was
+  stopped afterwards): 957 links, 323 of 328 APIs linked, cosines 0.50–0.91 (mean 0.70), and all
+  29 communities labelled. Each seed's links are its own documentation (`FastMCP.tool`: "tools.mdx §
+  The @tool Decorator" 0.85; `mount`: "composition.mdx § Namespacing" 0.84); Stage E takes 46.6 s,
+  embedding included. The §1.5 ranking check on that generation is **failed**: `FastMCP.tool`
+  is first for 0 of 2 `fm.register` aliases (ranks 4 and 2; 1 of 2 at slice 1.9). 3.3's
+  pre-registered evaluation judges it.
+
 ### §9.8 Determinism and ablation
 
 - **Determinism oracles:**
@@ -2678,3 +2711,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | ADR-0011 standard review fixes and ADR-0011 accepted: γ = 1 fixed with a recorded profile, named layer policies, the invocation projection in the community digest, the public co-assignment score, the parameters in the gold freeze (§9, §9.4) | ADR-0011 (accepted); ADR-0004 (amended); deviation log D31 |
 | 2026-09-23 | Slice 2.5: FCA (`cpg_schema::concepts`, `lctx_analytics::concepts`: NextClosure concepts and the Duquenne–Guigues basis), `applicable_case` and `implication` findings and assertions, the applicable case in the brief document, over-cap documents split into chunks (§9.6, §10.2, §10.3) | ADR-0011; deviation log D32 |
 | 2026-09-23 | Slice 2.6: seed selection within the brief budget (`lctx_analytics::selection`, a `seed_selection` invocation), Related from communities and centrality, the statistical-policy cases (§9.4, §10.3) | ADR-0011; deviation log D34 |
+| 2026-09-23 | Slice 3.1: embeddings in analytics: E0 through the cache (`embed_texts`), exact kNN (`lctx_analytics::neighbours`), `doc_link` and `community_label` findings, the doc-link assertion and the Related label (§9.7) | ADR-0011; deviation log D35 |

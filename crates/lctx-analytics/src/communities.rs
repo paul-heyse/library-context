@@ -98,6 +98,7 @@ impl Params {
         content_digest(self.json().as_bytes())
     }
 }
+
 /// One layer: integer counts per unordered pair of dense indices, each with its least site.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Layer {
@@ -771,6 +772,15 @@ mod tests {
             freeze["pagerank_parameters"].as_str(),
             Some(
                 crate::ranking::Params::preregistered()
+                    .digest()
+                    .hex()
+                    .as_str()
+            )
+        );
+        assert_eq!(
+            freeze["knn_parameters"].as_str(),
+            Some(
+                crate::neighbours::Params::preregistered()
                     .digest()
                     .hex()
                     .as_str()
