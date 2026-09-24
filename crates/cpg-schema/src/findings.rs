@@ -565,6 +565,39 @@ pub const FINDING_STATUS: &[(FindingKind, EvidenceStatus)] = &[
     ),
 ];
 
+impl EvidenceRow {
+    /// An evidence row whose id is derived from the row's own identity columns (kind, node,
+    /// module, span, text; `recipe::evidence`), so the two cannot disagree (the holistic
+    /// assessment's B1). The cited fact is lineage.
+    pub fn new(
+        snapshot_id: Id,
+        kind: EvidenceKind,
+        node: Option<Id>,
+        module: Option<Id>,
+        span: Option<(i64, i64)>,
+        text: Option<String>,
+        cited_fact_id: Option<Id>,
+    ) -> Self {
+        EvidenceRow {
+            snapshot_id,
+            evidence_id: recipe::evidence(
+                crate::codebook::Codebook::code(kind),
+                node,
+                module,
+                span,
+                text.as_deref(),
+            ),
+            evidence_kind: kind,
+            cited_fact_id,
+            node_id: node,
+            module_node_id: module,
+            start_byte: span.map(|s| s.0),
+            end_byte: span.map(|s| s.1),
+            text,
+        }
+    }
+}
+
 /// The method whose invocation may produce each finding kind (the ADR-0011 review's deferred row,
 /// fired by the increment-2 review): the rule `semantic:finding-kind-by-method` checks each
 /// finding's invocation against it.

@@ -1000,23 +1000,15 @@ pub async fn run(
             && let Some((a, z)) = summary_span(source, s, e)
         {
             let verbatim = source[a..z].to_owned();
-            let ev = add_evidence(EvidenceRow {
+            let ev = add_evidence(EvidenceRow::new(
                 snapshot_id,
-                evidence_id: recipe::evidence(
-                    EvidenceKind::Span.code(),
-                    Some(seed),
-                    Some(decl.module),
-                    Some((a as i64, z as i64)),
-                    Some(&verbatim),
-                ),
-                evidence_kind: EvidenceKind::Span,
-                cited_fact_id: None,
-                node_id: Some(seed),
-                module_node_id: Some(decl.module),
-                start_byte: Some(a as i64),
-                end_byte: Some(z as i64),
-                text: Some(verbatim.clone()),
-            });
+                EvidenceKind::Span,
+                Some(seed),
+                Some(decl.module),
+                Some((a as i64, z as i64)),
+                Some(verbatim.clone()),
+                None,
+            ));
             outcome.text = Some(normalized(&verbatim));
             outcome.evidence.push((ev, EvidenceKind::Span));
         } else if let Some((p, (a, z))) = passages.get(&seed).and_then(|ps| {
@@ -1025,23 +1017,15 @@ pub async fn run(
         }) {
             let verbatim = p.text[a..z].to_owned();
             let (start, end) = (p.start + a as i64, p.start + z as i64);
-            let ev = add_evidence(EvidenceRow {
+            let ev = add_evidence(EvidenceRow::new(
                 snapshot_id,
-                evidence_id: recipe::evidence(
-                    EvidenceKind::Passage.code(),
-                    Some(p.node),
-                    Some(p.document),
-                    Some((start, end)),
-                    Some(&verbatim),
-                ),
-                evidence_kind: EvidenceKind::Passage,
-                cited_fact_id: None,
-                node_id: Some(p.node),
-                module_node_id: Some(p.document),
-                start_byte: Some(start),
-                end_byte: Some(end),
-                text: Some(verbatim.clone()),
-            });
+                EvidenceKind::Passage,
+                Some(p.node),
+                Some(p.document),
+                Some((start, end)),
+                Some(verbatim.clone()),
+                None,
+            ));
             outcome.text = Some(normalized(&verbatim));
             outcome.evidence.push((ev, EvidenceKind::Passage));
         }
@@ -1227,23 +1211,15 @@ pub async fn run(
             else {
                 continue;
             };
-            let ev = add_evidence(EvidenceRow {
+            let ev = add_evidence(EvidenceRow::new(
                 snapshot_id,
-                evidence_id: recipe::evidence(
-                    EvidenceKind::Fact.code(),
-                    Some(p.node),
-                    Some(p.module),
-                    Some((p.span.0 as i64, p.span.1 as i64)),
-                    Some(span_text),
-                ),
-                evidence_kind: EvidenceKind::Fact,
-                cited_fact_id: Some(p.fact),
-                node_id: Some(p.node),
-                module_node_id: Some(p.module),
-                start_byte: Some(p.span.0 as i64),
-                end_byte: Some(p.span.1 as i64),
-                text: Some(span_text.to_owned()),
-            });
+                EvidenceKind::Fact,
+                Some(p.node),
+                Some(p.module),
+                Some((p.span.0 as i64, p.span.1 as i64)),
+                Some(span_text.to_owned()),
+                Some(p.fact),
+            ));
             let mut evidence = vec![(ev, EvidenceKind::Fact)];
             let mut parts = vec![p.kind.map_or("parameter", Codebook::text).replace('_', " ")];
             if let Some(d) = &p.default {
@@ -1253,23 +1229,15 @@ pub async fn run(
                 (Some(required), Some(fact)) => {
                     let word = if required { "required" } else { "optional" };
                     evidence.push((
-                        add_evidence(EvidenceRow {
+                        add_evidence(EvidenceRow::new(
                             snapshot_id,
-                            evidence_id: recipe::evidence(
-                                EvidenceKind::Fact.code(),
-                                Some(p.node),
-                                Some(p.module),
-                                None,
-                                Some(word),
-                            ),
-                            evidence_kind: EvidenceKind::Fact,
-                            cited_fact_id: Some(fact),
-                            node_id: Some(p.node),
-                            module_node_id: Some(p.module),
-                            start_byte: None,
-                            end_byte: None,
-                            text: Some(word.to_owned()),
-                        }),
+                            EvidenceKind::Fact,
+                            Some(p.node),
+                            Some(p.module),
+                            None,
+                            Some(word.to_owned()),
+                            Some(fact),
+                        )),
                         EvidenceKind::Fact,
                     ));
                     parts.push(word.to_owned());
@@ -1287,23 +1255,15 @@ pub async fn run(
             let text = match described {
                 Some((doc, a, z, verbatim)) => {
                     evidence.push((
-                        add_evidence(EvidenceRow {
+                        add_evidence(EvidenceRow::new(
                             snapshot_id,
-                            evidence_id: recipe::evidence(
-                                EvidenceKind::Span.code(),
-                                Some(p.node),
-                                Some(p.module),
-                                Some((a as i64, z as i64)),
-                                Some(&verbatim),
-                            ),
-                            evidence_kind: EvidenceKind::Span,
-                            cited_fact_id: None,
-                            node_id: Some(p.node),
-                            module_node_id: Some(p.module),
-                            start_byte: Some(a as i64),
-                            end_byte: Some(z as i64),
-                            text: Some(verbatim),
-                        }),
+                            EvidenceKind::Span,
+                            Some(p.node),
+                            Some(p.module),
+                            Some((a as i64, z as i64)),
+                            Some(verbatim),
+                            None,
+                        )),
                         EvidenceKind::Span,
                     ));
                     format!("`{}` ({}): {}", p.name, parts.join("; "), sentence(&doc))
@@ -1485,23 +1445,15 @@ pub async fn run(
             let mut draft = Draft::new(AssertionKind::Restriction, text).citing(f);
             for (node, c) in [(f.condition_node_id, test), (f.related_node_id, raise)] {
                 draft.evidence.push((
-                    add_evidence(EvidenceRow {
+                    add_evidence(EvidenceRow::new(
                         snapshot_id,
-                        evidence_id: recipe::evidence(
-                            EvidenceKind::Fact.code(),
-                            node,
-                            Some(c.module),
-                            Some((c.span.0 as i64, c.span.1 as i64)),
-                            Some(&c.text),
-                        ),
-                        evidence_kind: EvidenceKind::Fact,
-                        cited_fact_id: Some(c.fact),
-                        node_id: node,
-                        module_node_id: Some(c.module),
-                        start_byte: Some(c.span.0 as i64),
-                        end_byte: Some(c.span.1 as i64),
-                        text: Some(c.text.clone()),
-                    }),
+                        EvidenceKind::Fact,
+                        node,
+                        Some(c.module),
+                        Some((c.span.0 as i64, c.span.1 as i64)),
+                        Some(c.text.clone()),
+                        Some(c.fact),
+                    )),
                     EvidenceKind::Fact,
                 ));
             }
@@ -1805,23 +1757,15 @@ pub async fn run(
             );
             for st in &pattern.statements {
                 draft.evidence.push((
-                    add_evidence(EvidenceRow {
+                    add_evidence(EvidenceRow::new(
                         snapshot_id,
-                        evidence_id: recipe::evidence(
-                            EvidenceKind::Example.code(),
-                            Some(st.node),
-                            Some(st.module),
-                            Some((st.span.0 as i64, st.span.1 as i64)),
-                            Some(&st.text),
-                        ),
-                        evidence_kind: EvidenceKind::Example,
-                        cited_fact_id: None,
-                        node_id: Some(st.node),
-                        module_node_id: Some(st.module),
-                        start_byte: Some(st.span.0 as i64),
-                        end_byte: Some(st.span.1 as i64),
-                        text: Some(st.text.clone()),
-                    }),
+                        EvidenceKind::Example,
+                        Some(st.node),
+                        Some(st.module),
+                        Some((st.span.0 as i64, st.span.1 as i64)),
+                        Some(st.text.clone()),
+                        None,
+                    )),
                     EvidenceKind::Example,
                 ));
             }
@@ -1918,23 +1862,15 @@ pub async fn run(
             for (a, z) in warnings(&p.text) {
                 let verbatim = p.text[a..z].to_owned();
                 let (start, end) = (p.start + a as i64, p.start + z as i64);
-                let ev = add_evidence(EvidenceRow {
+                let ev = add_evidence(EvidenceRow::new(
                     snapshot_id,
-                    evidence_id: recipe::evidence(
-                        EvidenceKind::Passage.code(),
-                        Some(p.node),
-                        Some(p.document),
-                        Some((start, end)),
-                        Some(&verbatim),
-                    ),
-                    evidence_kind: EvidenceKind::Passage,
-                    cited_fact_id: None,
-                    node_id: Some(p.node),
-                    module_node_id: Some(p.document),
-                    start_byte: Some(start),
-                    end_byte: Some(end),
-                    text: Some(verbatim.clone()),
-                });
+                    EvidenceKind::Passage,
+                    Some(p.node),
+                    Some(p.document),
+                    Some((start, end)),
+                    Some(verbatim.clone()),
+                    None,
+                ));
                 drafts.push(Draft {
                     kind: AssertionKind::DocumentedWarning,
                     text: Some(format!(
