@@ -1,0 +1,14 @@
+[project]
+name = "lctx-semantics"
+version = "0.1.0"
+description = "Pinned Rust semantic query kernel for lctx-mcp."
+requires-python = ">=3.14,<3.15"
+
+[build-system]
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "lctx_semantics._native"
+python-source = "python"

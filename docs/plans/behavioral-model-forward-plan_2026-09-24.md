@@ -273,7 +273,9 @@ outcome.
 - **Then, in the product:**
   - lossless conditions (a node table in the `flow` family), with the DNF encoding as a bounded
     rendering;
-  - the typed theory from Pyrefly's type observations at the test's use;
+  - an attributed test-use/type-term observation and the typed theory: only exact builtin
+    runtime values under the stated type-trust model, with stable-value evidence across sites;
+    broad annotations and possible subclasses stay undecided;
   - the kernel's `implies`/`compatible` API, which Stage 3.6's filters and Stage 4's definitions
     use;
   - the `approximated` flag.
@@ -320,6 +322,15 @@ boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for co
 - summarized flows and effects in `get_operation`;
 - effect and role filters in `find_operations`;
 - a compatibility filter ("fates compatible with `transport == 'sse'`"), because Q09 needs one.
+- Its input is anchored to the operation's entry formal; a checked entry-to-test value/stability
+  bridge is required before comparing with a persisted predicate. Missing bridges return
+  `unknown`, and compatibility means may-model non-refutation, not concrete feasibility.
+- Supersede ADR-0010's lookup-only materialized executor. The Python FastMCP layer loads an
+  in-process Rust/PyO3 semantic executor against one immutable generation. Typed compatibility,
+  implication, effect/role filtering and bounded witness traversal may run at query time; row,
+  node, pair-work and depth limits produce explicit `unknown` and `truncated`. Direct lookups and
+  ranked retrieval keep their existing materialized routes. A `standard` review covers the §B13
+  pivot (ADR-0025) before acceptance.
 
 **Exit:** `behavior_shapes` part 2 passes, and Stage 3's pre-registered exit rule (Q01, Q03, Q05,
 Q09) passes. Then increment 4's `compact` review.
@@ -400,7 +411,7 @@ stage's output is read.
 | Stage | Adopt | Spike, with its exit test | Defer (trigger) | Avoid |
 |---|---|---|---|---|
 | 2.9 | Hypothesis 6.168.x (Python dev); `sys.monitoring` (stdlib, 3.14) | — | CPython bytecode CFG, via `dis` or `bytecode` 0.19 (a region defect runtime inputs cannot exercise) | A ty patch for runtime-aware indexing, while resolution suffices (E6) |
-| 3 | biodivine-lib-bdd 0.6.3 (after its spike); CrossHair 0.0.110 (validation lane); pyre-check 0.10.0 / Pysa (oracle; Pyrefly binary pinned); heck, aho-corasick, regex, strsim for identifier splitting | ascent 0.8.1 (on its trigger) | OxiDD 0.12 (biodivine measured too slow or too large); z3 0.21 on the system libz3 (a query the kernel plus typed theory cannot decide); Soufflé or Nemo as rule oracles | crepe, DDlog, cozo, differential-dataflow |
+| 3 | biodivine-lib-bdd 0.6.3 (after its spike); PyO3 (pinned in-process semantic executor); CrossHair 0.0.110 (validation lane); pyre-check 0.10.0 / Pysa (oracle; Pyrefly binary pinned); heck, aho-corasick, regex, strsim for identifier splitting | ascent 0.8.1 (on its trigger) | OxiDD 0.12 (biodivine measured too slow or too large); z3 0.21 on the system libz3 (a query the kernel plus typed theory cannot decide); Soufflé or Nemo as rule oracles | crepe, DDlog, cozo, differential-dataflow |
 | 4 | PyStemmer; DataFusion `WITH RECURSIVE` (compile time only); schemars (if needed) | — | oxttl SKOS export; FCA oracles (dev-only) | LinkML; OWL/RDF stacks; taxonomy induction; BERTopic or UMAP in the pipeline |
 | 5 | — | Graph-FCA offline | Qwen3-Reranker (a §B10 ADR) | rust-bert, ort, fastembed |
 | Any | — | — | Lance / LanceDB (more than ~10⁵ vectors at 4,096-d, or filtered ANN); ty type inference as a second type provider (a question Pyrefly's types cannot answer, E2); ty saturation exposure (a scope measurably degraded, E11); `mypy.stubtest` (a native-extension library, E23) | Scalpel as a component (E24) |
@@ -444,7 +455,7 @@ stage's output is read.
 | **Per-site atoms lose simplification** (fewer contradictions found, longer rendered conditions) | Sound by construction; the typed theory (3.0) restores sharing for primitive places; rendered-condition sizes measured on the pilot |
 | **BDD blow-up** on unstructured conditions (a random 32×8 over 40 atoms did not finish in 10 minutes in the probe) | A node limit per operation (`binary_op_with_limit`), widening to `unknown`; a deterministic order; the spike measures pilot conditions, which are structured |
 | **The oracle executes code** | Generated programs only, outside `fixtures/python/`; an isolated worker; no network; timeouts. The library under analysis is never executed by the oracle |
-| **The typed theory depends on Pyrefly's types** | Sharing only where the type at the use is a builtin immutable scalar; an unknown type means per site |
+| **The typed theory depends on Pyrefly's types and value stability** | A builtin immutable scalar at the use is necessary, and cross-site sharing also needs an effect-stability witness. An unknown type or intervening effect keeps sites independent |
 | ty churn and salsa skew | Exact pins; `--precise` locks; parity tests on upgrade |
 | Summaries lose precision or fail to terminate | A finite domain with widening; `unknown` rates reported per stage |
 | Scope creep | Exit criteria per stage; §12's deferred list; nothing starts before its stage |
@@ -481,7 +492,6 @@ stage's output is read.
 | Graph-FCA in the pipeline | An offline experiment yields templates the structured evaluation rates useful |
 | On-demand RCA at serve time | Materialized membership proves too coarse |
 | Lance / LanceDB | More than ~10⁵ vectors at 4,096-d, or filtered ANN with managed FTS |
-| A PyO3 executor | Serve-time composition beyond pyarrow's operators |
 | spaCy in compile | Regex directive tagging misses conditions the evaluation needs |
 | A neural reranker | An ADR under §B10 after a measured need |
 | Native-extension bodies | A pilot question needs one |

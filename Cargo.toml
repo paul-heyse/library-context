@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "python/lctx_semantics"]
 
 [workspace.package]
 version = "0.1.0"
@@ -23,6 +23,8 @@ parquet = { version = "=59.3.0", default-features = false, features = ["zstd"] }
 datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet"] }
 deltalake = { git = "https://github.com/delta-io/delta-rs", rev = "58f07cd62bfbce3649a7e1c87c696288068ae184", default-features = false, features = ["datafusion", "rustls"] }
 petgraph = "=0.8.3"
+biodivine-lib-bdd = "=0.6.3"
+pyo3 = { version = "=0.29.2", features = ["extension-module"] }
 # The analytics adapter's subsystem masks and FCA contexts (DESIGN §5, §9.6): petgraph's own
 # `fixedbitset`, already in the graph at this version.
 fixedbitset = "=0.5.7"

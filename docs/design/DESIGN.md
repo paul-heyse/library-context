@@ -48,19 +48,19 @@ Agents reach the model through these operations. `get_operation`, `find_operatio
 | `search_capabilities(library, query, limit)` (**Implemented**) | Published briefs relevant to a task, including ones whose API names differ from its wording | Exhaustive discovery |
 | `get_capability(snapshot_id, capability_id)` (**Implemented**) | The full brief | A synthesized solution for arbitrary requirements |
 | `get_operation(snapshot_id, operation)` (Stage 1) | One public operation's record: paths, signature, each control's fate and verdict, behaviors with conditions, raises, callbacks, ambient reads, evidence, boundaries; its brief if one exists | Behavior the analysis did not reach, which is stated as `unknown` or `not_analyzed` |
-| `find_operations(library, where, limit, cursor)` (Stage 1) | **Exhaustive** matches over materialized rows, with `complete` and the operations whose answer is unknown; never vectors | Completeness where a boundary intervenes, which it names |
+| `find_operations(library, where, limit, cursor)` (Stage 1; semantic filters Stage 3) | **Exhaustive** matches over the pinned generation, with `complete` and the operations whose answer is unknown; never vectors | Completeness where a boundary intervenes, which it names |
 | `search_operations(library, query, filters, limit)` (Stage 1) | **Ranked** discovery over operations, labelled as such | Exhaustiveness |
 | `lookup_concepts(text)` (Stage 4) | Candidate capability concepts with scope notes | A single interpretation of ambiguous wording |
 | `explain(snapshot_id, claim)` (Stage 4) | The derivation: rule, premises, source spans | Proof of runtime behavior beyond the stated model |
 
-All interpretation is computed at compile time and materialized. A request selects and joins
-published rows under bounded operators. Nothing is synthesized, traversed or generated during a
-request (§11.3).
+Compile time publishes facts, summaries and lossless condition nodes. A request can select
+materialized rows or run a bounded Rust semantic query over that immutable generation (§11.3,
+ADR-0025, Proposed). No generative model runs in the request path.
 
 *Superseded (ADR-0004, 2026-09-22):* stage 1 was a capability compiler whose product was a small
 set of searchable briefs for one subsystem, reached by the first two operations only.
 
-> Decision: ADR-0021
+> Decision: ADR-0021, ADR-0025
 
 ### §1.2 Increments
 
@@ -431,11 +431,12 @@ Excluded in stage 1:
 **Allowed:** text embeddings, and a *rebuildable* search projection of the published generation
 (§B12): briefs and, from ADR-0021, operations.
 
-**Not a solver** (ADR-0022). The behavior model's closed condition language (§3.9) decides the
-compatibility of two conditions with a finite-domain evaluator: compatible, incompatible, or
-`unknown` whenever an opaque atom decides. A constraint solver stays excluded.
+**Proposed Stage 3 amendment (ADR-0024).** A bounded Boolean decision-diagram kernel and a
+narrow typed theory for proven stable primitive places are allowed. They decide compatibility
+and implication over evaluation atoms (§3.9), returning `unknown` at node, stability or type
+boundaries. A general constraint solver remains excluded. Stage 2 still uses bounded DNF.
 
-> Decision: ADR-0005, ADR-0022
+> Decision: ADR-0005, ADR-0022, ADR-0024
 
 ### §B11 Insight synthesis is programmatic; no LLM in the query path
 
@@ -470,16 +471,24 @@ compatibility of two conditions with a finite-domain evaluator: compatible, inco
 - The Python package `lctx_mcp` serves the operations of §1.1 (§11.3) from one pinned serving
   generation per process: the two brief tools now, the behavioral tools as their stages land
   (ADR-0010 amendment, 2026-09-24; **Proposed**).
-- It reads files only: no Delta, no DataFusion, and no compiler code.
-- **Its executor** is Python dictionaries and sets built once from the pyarrow-loaded **materialized**
-  rows (increment 3's deep review, F9). No SQL string is built and nothing recurses at serve time. Results carry row caps, a `truncated` flag and cursors.
-  **No semantic decision is re-implemented in Python.** Which facet rows are complete is served
-  data (`operation_facet_status`), and the facet names are held to the codebook by shared known
-  answers (`specs/serving/facets.json`; the review's F4). Compatibility that a question needs is
-  materialized at compile time. A serve-time condition filter would need its own ADR (the ADR
-  review's F12).
+- It reads one immutable generation: no Delta, DataFusion, compiler code or network access in
+  the semantic executor. Direct lookup and ranked retrieval may use the current pyarrow-loaded
+  dictionaries and vectors.
+- **Proposed Stage 3 amendment (ADR-0025).** A pinned, in-process Rust/PyO3 extension executes
+  bounded semantic queries over that generation. Condition compatibility and implication,
+  effect/role filters and witness traversal use the Rust authority. Inputs are typed, never SQL
+  strings or executable expressions. Row, node, pair-work and depth budgets yield `unknown` and
+  `truncated`, never a negative or `complete` claim. Results cite same-generation row/node ids;
+  cursors bind generation, query and deterministic order. No semantic decision is duplicated in
+  Python. The current materialized lookup route stays available for direct retrieval.
+  The extension is `lctx_semantics._native`, built by a pinned maturin uv workspace member
+  for CPython 3.14.7, and startup checks its kernel format and lossless node closure against the
+  generation. A semantic filter partitions candidates into matched, proven-excluded,
+  source-open and unexamined; `complete` requires the latter two to be empty.
+- Which facet rows are complete remains served data (`operation_facet_status`); facet names are
+  held to the codebook by `specs/serving/facets.json`.
 
-> Decision: ADR-0010
+> Decision: ADR-0025 (superseding ADR-0010)
 
 ### §B14 One embedding spec, cached vectors
 
@@ -499,7 +508,7 @@ compatibility of two conditions with a finite-domain evaluator: compatible, inco
   - Two views with the same text share one vector, correctly, because one text has one vector per
     spec. `semantic:one-embedding-spec` holds as written: one spec per snapshot.
 
-> Decision: ADR-0010
+> Decision: ADR-0025 (carrying forward ADR-0010)
 
 ---
 
@@ -1202,7 +1211,27 @@ getattr family and its kin, `unresolved_target` otherwise. It is never a guess.
   - calls are assumed to return (`NoReturn` is Stage 3's models);
   - ty's non-empty-iterable, context-manager-suppression and finally-path predicates are opaque.
 - **Compatibility** of two conditions waits for its first question, Stage 3's Q9 (the Stage 2
-  review's F11). This is not a solver (§B10), and there is no Python twin (the ADR review's F12).
+  review's F11). Stage 2 has no Python twin (the ADR review's F12).
+
+**Proposed Stage 3 condition kernel (ADR-0024).** The authoritative condition becomes a bounded
+decision diagram over per-evaluation atoms, persisted losslessly as nodes in the `flow` family.
+Variable order is the sorted atom identity. DNF becomes a capped display with a truncation marker,
+not the id input. `given`, `implies` and `compatible` run on the diagram with explicit node and
+invocation and pair-work budgets; a hit is `unknown`, not false. A typed exclusion needs
+`flow_test_types`: the Rust producer queries Pyrefly's expression trace at the exact test-use
+span, joins it to the flow use by source identity, and records test/use ids, span, type-term id,
+closed proof origin and cited facts. An absent or ambiguous trace proves nothing. The shared
+validator checks span, role, type term, origin and facts. Runtime-exact origins are modeled
+literals or an exact `type(x) is builtin` guard. Same-evaluation identity proves stability only;
+broad Pyrefly
+annotations alone do not prove exactness. Different sites stay independent until an
+effect-stability witness connects them. Raw Boolean ids do not depend on the theory revision;
+theory-conditioned decisions cite a witness and revision. Condition rows name roots in the
+lossless node relation. Publication and native load validate terminals, child closure,
+acyclicity, atom order, reduction and recomputed Merkle ids. The result records whether ty's
+ambiguous terminal or a declared runtime assumption was admitted as `approximated`.
+
+> Decision: ADR-0022, ADR-0024
 
 **Verdicts** (codebook `verdict`, append-only). Every behavioral answer carries exactly one, never
 a null, and a positive answer states **may**-behavior:
@@ -2875,6 +2904,10 @@ over all 44 gold aliases:
 - **Authorship:** the operator, from library source and docs. **Never from `.claude/skills/`.**
 
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
+- **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
+  call the shared bounded diagram kernel. `summary_flows` and `summary_effects` reference
+  lossless condition roots; a rendered DNF is only display. Type-derived scalar exclusions
+  require a stable-value witness, and node-limit hits become explicit boundaries.
 - **Output tables:**
   - `summary_flows`: callable, input path, output path, kind (`value`, `transform`, `constant`),
     condition, verdict;
@@ -2912,7 +2945,7 @@ over all 44 gold aliases:
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022
+> Decision: ADR-0022, ADR-0024
 
 ---
 
@@ -3358,20 +3391,40 @@ are **Proposed**.
 | Tool | Parameters | Output |
 |---|---|---|
 | `get_operation` (Stage 1; conditions from Stage 2) | snapshot_id, operation (a public path, or a module-global singleton's name, which resolves to its class) | `Operation`: paths, signature, docstring summary, facets and which are incomplete, each parameter's fates (forwards, derives, stores, returns, raises, tests, is-read claims) with verdicts, conditions and lines, delegations, handoffs, settings read with their phase, a class's constructor record, a singleton's fields (their reads and never-read claims), boundaries, the brief id if any. An unknown path is invalid params |
-| `find_operations` (Stage 1) | library, `where` (typed facet filters; concepts from Stage 4), limit (1–50), cursor | `OperationSet`: matches, `complete`, the operations that could still match (rows `unknown` or `not_analyzed`, per `operation_facet_status`), `truncated`, next cursor. Never vectors |
+| `find_operations` (Stage 1; semantic filters Stage 3) | library, `where` (typed facet, effect, role and condition-compatibility filters; concepts from Stage 4), limit (1–50), cursor | `OperationSet`: matches, `complete`, the operations that could still match (rows `unknown` or `not_analyzed`, per `operation_facet_status` and query boundaries), `truncated`, next cursor. Never vectors |
 | `search_operations` (Stage 1) | library, query, filters, limit | `OperationHits`: ranked, per-view RRF, labelled `ranked_discovery` |
 | `lookup_concepts` (Stage 4) | text, limit | Candidate concepts with labels and scope notes |
 | `explain` (Stage 4) | snapshot_id, claim id | The rule id, premises and source spans |
 
-All return objects with read-only annotations, and follow the error contract above. The executor
-is pyarrow over materialized rows (§B13).
+All return objects with read-only annotations, and follow the error contract above. Direct
+lookup/retrieval still uses materialized rows. **Proposed Stage 3:** a pinned in-process Rust
+extension executes bounded semantic queries over the same immutable generation (§B13,
+ADR-0025). It returns cited row/node ids, budgets, unknown boundaries and truncation; Python
+does not reinterpret condition truth. The extension's ABI and generation format are checked at
+startup.
 
 **Semantics** (the ADR review's F8):
 
-**`where`** is a conjunction of terms. Each term is one of:
+**`where`** is a conjunction of terms. Current Stage 1 terms are:
 - `{facet, value}`: exact equality on an `operation_facets` row;
 - `{kind}`: function, method or class;
 - `{path_prefix}`.
+
+**Proposed Stage 3 terms (ADR-0025):** `{effect}`, `{role}`, and
+`{compatible_with: <typed condition>}`. The condition grammar is closed and canonicalized by
+Rust. Compatibility and implication use ADR-0024's node budget and stable-place theory; an
+undecided condition leaves its operation in `unknown`. Rows and witnesses come only from the
+pinned generation. A condition term is anchored to an operation's entry formal. The Rust
+flow/summary producer writes `flow_test_value_links`: operation/formal id, test/use id and span,
+resolved place/path, proof origin, cited flow/summary facts and effect-model digest. It first
+certifies direct paths without calls or writes; a later modeled transfer must be
+identity-preserving, not merely pure. The shared validator rejects ambiguous binding,
+alias uncertainty, unmodeled effects, mixed snapshots and digest drift. Missing links are
+`unknown`, not source-atom matches by spelling. Compatibility means may-model non-refutation,
+never proof of feasible execution. Candidates partition into matched, proven-excluded,
+source-open and unexamined. Unvisited/undecided operations make `complete = false`; an early
+budget stop returns an unexamined count and a resumable generation/query-bound cursor. Row,
+depth and pair-work budgets have the same unknown/truncated behavior.
 
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
 claims. An unknown facet is invalid params. An unknown **value** is invalid params only where
@@ -3401,10 +3454,11 @@ absence is not known, and the answer is empty with `complete = false`.
 hash and an offset. A cursor from another generation or request is invalid params. Every result
 names its `snapshot_id`.
 
-**`explain`** returns the one derivation stored with the claim: a behavior row's site, its witness
-steps and the rule's name. It never reconstructs trees at request time (§1.3).
+**`explain`** currently returns the stored derivation. The proposed Rust executor may traverse
+bounded stored witness links at request time, retaining their row ids and reporting a boundary
+if the depth budget is reached (§1.3, ADR-0025).
 
-> Decision: ADR-0010, ADR-0013
+> Decision: ADR-0025 (superseding ADR-0010), ADR-0013
 
 ---
 

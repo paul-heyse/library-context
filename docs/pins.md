@@ -87,10 +87,11 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | Component | Pin | Verified | How |
 |---|---|---|---|
 | leiden-rs | `=0.8.1`, `default-features = false` and no features (ADR-0011 as amended: built from the dense index, not the `petgraph` adapter; sequential, no rayon) | 2026-09-23 (slice 2.3) | `Cargo.lock` gains only `leiden-rs 0.8.1` (its rand 0.9, rustc-hash 2 and thiserror 2 were already locked); `lctx-analytics` `build.rs` records it in every invocation's `library_versions`; the LFR and shuffled-input fixtures in `communities::tests` |
+| biodivine-lib-bdd | `=0.6.3` (Stage 3 condition kernel, ADR-0024; Rust 1.88 minimum) | 2026-09-24 | `cargo info biodivine-lib-bdd@0.6.3` and its installed `Cargo.toml`/apply/transfer sources; `cargo check -p cpg-schema` added it and `num-rational 0.4.2` to the lock; the standalone Stage 3.0 spike passed 4/4 |
 | fcars, bitvec | `=0.2.2` and `=1.0.1`, dev-dependencies of `lctx-analytics` only: fcars is the oracle for our FCA's concept sets (ADR-0011), bitvec builds its relation | 2026-09-23 (slice 2.5) | MIT; the lock gains bitvec, funty, radium, tap and wyz (dev only; rayon was already locked); `fcars_agrees_on_the_concepts` compares concept sets on random contexts |
 | rand, rand_chacha, rand_core | the 0.9 line leiden-rs resolves: rand 0.9.5, rand_chacha 0.9.0, rand_core 0.9.5 (the lock also holds rand 0.8 and 0.10 for other crates) | 2026-09-23 (slice 2.3) | `lctx-analytics` `build.rs` asserts each is locked exactly once on the `0.9.` line and records it; rand does not promise sequences across versions (ADR-0011) |
 
-## Serving and embeddings (ADR-0010, accepted)
+## Serving and embeddings (ADR-0025 proposed; carries ADR-0010's embedding pins)
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
@@ -102,6 +103,8 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | httpx2 | `==2.13.1` (the query embedder; bytes sent as `content=`, never `json=`). pydantic's maintained continuation of httpx (operator, 2026-09-24); FastMCP 4.0.5 already depends on it, so the switch removes `httpx` 0.28.1 from the server's lock | 2026-09-24 | PyPI JSON read 2026-09-24 (2.13.1, 2026-09-23; `import httpx2`); `uv lock`; `test_the_http_client_sends_the_exact_bytes_and_reports_a_down_service` |
 | bm25s | `==0.3.11`, numpy backend; it depends on numpy only, so no scipy enters the environment | 2026-09-23 | `uv.lock` (`dependencies = [numpy]`); `test_bm25_scores_are_the_lucene_formula` |
 | uv_build | `>=0.12,<0.13` (the `lctx-mcp` build backend, matching uv 0.12.18) | 2026-09-23 | `uv sync` built the member |
+| PyO3 | `=0.29.2` with `extension-module` (native semantic query member; CPython 3.14.7) | 2026-09-24 | `cargo info pyo3@0.29.2`, official PyO3 0.29.2 changelog for Python 3.14 support, and `cargo check -p lctx-semantics` |
+| maturin | `==1.15.0` (the `lctx-semantics` PEP 517/660 backend) | 2026-09-24 | PyPI 1.15.0 release (2026-08-24), `uvx --from maturin==1.15.0 maturin --version`; mixed package route checked in Context7 `/pyo3/maturin`; `uv sync` and `uv build --package lctx-semantics` plus isolated CPython 3.14.7 wheel import passed |
 | LanceDB | 0.39.0 (Python) — **deferred** behind a size trigger | 2026-09-22 (source read at tag) | hybrid/FTS/RRF chain; bundles Arrow 58 / DataFusion 54 |
 
 ## Dev tools

@@ -14,6 +14,7 @@ arrow-select.workspace = true
 blake3.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+biodivine-lib-bdd.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

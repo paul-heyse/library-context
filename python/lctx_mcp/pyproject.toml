@@ -12,7 +12,11 @@ dependencies = [
     # Used directly (the holistic assessment's A7), and locked through fastmcp.
     "pydantic==2.13.5",
     "mcp-types==2.2.0",
+    "lctx-semantics==0.1.0",
 ]
+
+[tool.uv.sources]
+lctx-semantics = { workspace = true }
 
 [project.scripts]
 lctx-mcp = "lctx_mcp.__main__:main"

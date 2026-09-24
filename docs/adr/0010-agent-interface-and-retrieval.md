@@ -1,10 +1,10 @@
 ---
 id: ADR-0010
 title: FastMCP interface with in-process hybrid retrieval and one Qwen3 embedding spec
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0025
 design: [§B13, §B14, §11]
 evidence: Tested
 revisit: The corpus exceeds a few thousand briefs, ANN or managed FTS is needed (adopt LanceDB), the Rust and Python embedding clients disagree beyond tolerance on the conformance vectors, or the embedding model or revision changes (a new spec hash, so every cached vector is re-derived).

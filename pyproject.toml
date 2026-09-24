@@ -5,13 +5,14 @@ description = "The uv workspace root: repo scripts, their tests and the dev tool
 requires-python = ">=3.14"
 # The members, so the root environment runs their tests and type-checks them. vLLM is served from
 # its own locked project (services/vllm), never from here.
-dependencies = ["lctx-mcp"]
+dependencies = ["lctx-mcp", "lctx-semantics"]
 
 [tool.uv.workspace]
-members = ["python/lctx_mcp"]
+members = ["python/lctx_mcp", "python/lctx_semantics"]
 
 [tool.uv.sources]
 lctx-mcp = { workspace = true }
+lctx-semantics = { workspace = true }
 
 [dependency-groups]
 dev = [
