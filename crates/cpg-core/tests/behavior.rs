@@ -309,3 +309,132 @@ async fn a_negative_claim_is_refuted_only_where_its_premise_holds() {
         "{premises}"
     );
 }
+
+#[tokio::test]
+async fn fates_are_stated_on_the_normal_path_and_branches_are_fates() {
+    let (ctx, _dir) = compiled().await;
+    let paged = behaviors_of(&ctx, "bpkg.paged").await;
+    // Past `if size is not None and size <= 0: raise`, `size` reaches `_bind` on the normal
+    // path: established (0), with no condition.
+    assert!(
+        paged.lines().any(|l| l.contains("| 0    | size")
+            && l.contains("| 0       |")
+            && !l.contains("opaque")),
+        "{paged}"
+    );
+    // The guard raises under its own condition.
+    assert!(paged.contains("size <= 0"), "{paged}");
+    // `verbose` decides a branch (tests, 12), and the delegation it gates is conditional (1).
+    assert!(
+        paged
+            .lines()
+            .any(|l| l.contains("| 12   | verbose") && l.contains("truthy(verbose)")),
+        "{paged}"
+    );
+    assert!(
+        paged
+            .lines()
+            .any(|l| l.contains("| 4    |") && l.contains("truthy(verbose)")),
+        "{paged}"
+    );
+}
+
+/// A table's rows as trimmed cells.
+fn cells(table: &str) -> Vec<Vec<String>> {
+    table
+        .lines()
+        .filter(|l| l.starts_with('|'))
+        .map(|l| l.split('|').map(|c| c.trim().to_owned()).collect())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_value_inside_a_call_reaches_its_result_only_by_the_callees_summary() {
+    let (ctx, _dir) = compiled().await;
+    let labelled = behaviors_of(&ctx, "bpkg.labelled").await;
+    let rows = cells(&labelled);
+    // Columns: kind, parameter, target, callee text, value, verdict, reason, condition, phase.
+    let row = |kind: &str, parameter: &str| -> Vec<Vec<String>> {
+        rows.iter()
+            .filter(|r| r.len() > 9 && r[1] == kind && r[2] == parameter)
+            .cloned()
+            .collect()
+    };
+    // `name` is forwarded to `_describe` over a definite arc, but whether `_describe`'s result
+    // carries it is a summary's question: the return is unknown (3), `call_transfer` (19).
+    let returned = row("11", "name");
+    assert!(
+        !returned.is_empty() && returned.iter().all(|r| r[6] == "3" && r[7] == "19"),
+        "{labelled}"
+    );
+    assert!(
+        row("0", "name").iter().any(|r| r[6] == "0"),
+        "the forward itself stays established: {labelled}"
+    );
+    // The fallback nested in `.lower()`'s receiver keeps its test: the setting is read only when
+    // `level` is None. `level` (the fallback's branch and its test) reaches the result only
+    // through `.lower()`.
+    assert!(
+        row("9", "")
+            .iter()
+            .any(|r| r[5].contains("log_level") && r[8] == "is_none(level)"),
+        "{labelled}"
+    );
+    assert!(
+        row("11", "level")
+            .iter()
+            .any(|r| r[6] == "3" && r[7] == "19"),
+        "{labelled}"
+    );
+}
+
+#[tokio::test]
+async fn two_guards_normal_paths_factor_out_together() {
+    let (ctx, _dir) = compiled().await;
+    // Past `if verify is not None: … raise` and `if mode not in MODES and mode not in (…): raise`,
+    // each guard's normal path is a disjunction; their product is factored out, so the read is
+    // stated under its own test alone, as a fate and as an ambient read.
+    let configured = behaviors_of(&ctx, "bpkg.configured").await;
+    assert!(
+        cells(&configured).iter().any(|r| r.len() > 9
+            && r[1] == "9"
+            && r[5].contains("port")
+            && r[8] == "is_none(timeout)"),
+        "{configured}"
+    );
+    let reads = table(
+        &ctx,
+        "SELECT a.condition FROM ambient_reads a JOIN operations o ON o.node_id = a.reader_node_id \
+         WHERE o.access_path = 'bpkg.configured'",
+    )
+    .await;
+    assert!(
+        cells(&reads)
+            .iter()
+            .any(|r| r.len() > 1 && r[1] == "is_none(timeout)"),
+        "{reads}"
+    );
+}
+
+#[tokio::test]
+async fn an_unmapped_argument_names_its_release_callee() {
+    let (ctx, _dir) = compiled().await;
+    // `**options` maps to no formal of `Session.__init__`, but the call's callee is in the
+    // release: the claim names it rather than reading as a call outside the release.
+    let rows = table(
+        &ctx,
+        "SELECT b.kind, b.parameter_name, c.access_path, b.callee_text, b.verdict \
+         FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id \
+         LEFT JOIN operations c ON c.node_id = b.callee_node_id \
+         WHERE o.access_path = 'bpkg.open_session' AND b.parameter_name = 'options'",
+    )
+    .await;
+    assert!(
+        cells(&rows).iter().any(|r| r.len() > 5
+            && r[1] == "7"
+            && r[3] == "bpkg.Session.__init__"
+            && r[4].is_empty()
+            && r[5] == "0"),
+        "{rows}"
+    );
+}

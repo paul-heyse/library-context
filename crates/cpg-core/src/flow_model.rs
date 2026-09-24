@@ -3,7 +3,8 @@
 //!
 //! - **Parameter reach.** A use's sources are the parameters whose value reaches it: through its
 //!   reaching definitions, then each definition's value sources, to a parameter's definition, each
-//!   step **identity** or derived, under the conjunction of the conditions met on the way
+//!   step **identity**, derived or **through a call** (the weakest step decides), under the
+//!   conjunction of the conditions met on the way
 //!   (reachability at each use, the selecting condition inside each value). A lambda's or
 //!   comprehension's read of an enclosing function's parameter is followed through our
 //!   resolution, flow-insensitively (`captured`).
@@ -78,6 +79,7 @@ cpg_schema::query_row! {
         sink_end_byte: i64,
         use_id: Id,
         identity: bool,
+        through_call: bool,
         condition_id: Id,
     }
 }
@@ -95,6 +97,7 @@ cpg_schema::query_row! {
         start_byte: i64,
         end_byte: i64,
         condition_id: Id,
+        function_node_id: Option<Id>,
     }
 }
 
@@ -261,7 +264,7 @@ cpg_schema::relations! {
     values = "flow_model_values",
         deps = ["flow_values"],
         sql = "SELECT module_node_id, sink, sink_start_byte, sink_end_byte, use_id, identity, \
-                      condition_id FROM flow_values \
+                      through_call, condition_id FROM flow_values \
                ORDER BY module_node_id, sink_start_byte, sink_end_byte, use_id, condition_id"
             .to_owned();
     conditions = "flow_model_conditions",
@@ -269,10 +272,14 @@ cpg_schema::relations! {
         sql = "SELECT DISTINCT condition_id, encoding FROM conditions ORDER BY condition_id"
             .to_owned();
     regions = "flow_model_regions",
-        deps = ["flow_regions"],
-        sql = "SELECT module_node_id, start_byte, end_byte, condition_id FROM flow_regions \
-               ORDER BY module_node_id, start_byte, end_byte"
-            .to_owned();
+        deps = ["flow_regions", "declarations"],
+        sql = format!(
+            "SELECT r.module_node_id, r.start_byte, r.end_byte, r.condition_id, \
+                    sd.node_id AS function_node_id \
+             FROM flow_regions r {join} \
+             ORDER BY r.module_node_id, r.start_byte, r.end_byte",
+            join = scope_join("r"),
+        );
     /// Every call argument's value span.
     arguments = "flow_model_arguments",
         deps = ["arguments", "edges", "syntax_nodes"],
@@ -423,6 +430,11 @@ pub struct FlowModelRows {
     /// Each method's class, and each declaration's qualified name.
     pub method_class: BTreeMap<Id, Id>,
     pub qualified: BTreeMap<Id, String>,
+    /// Per function and parameter name, the literals its statements' region conditions test
+    /// over that parameter (a place rooted at it, or its name in an opaque test's text).
+    pub tested: BTreeMap<(Id, String), BTreeSet<String>>,
+    /// Each release call site's region condition (the statement's), when not `true`.
+    pub call_condition: BTreeMap<Id, String>,
 }
 
 /// Where a value comes from: a parameter, or a field of a method's receiver read with no local
@@ -433,18 +445,38 @@ enum Origin {
     Field(Id, String),
 }
 
+/// How a value reaches a use or sink: unchanged, computed from it, or only inside a call (whose
+/// result may not carry it: a summary's question, Stage 3's). A path is as weak as its weakest
+/// step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Transfer {
+    Identity,
+    Derived,
+    Call,
+}
+
+impl Transfer {
+    fn of(identity: bool, through_call: bool) -> Self {
+        match (identity, through_call) {
+            (_, true) => Transfer::Call,
+            (true, false) => Transfer::Identity,
+            (false, false) => Transfer::Derived,
+        }
+    }
+}
+
 /// One origin reaching a use.
 #[derive(Clone, Debug)]
 struct Source {
-    identity: bool,
+    transfer: Transfer,
     captured: bool,
     condition: Condition,
 }
 
-type Sources = BTreeMap<(Origin, bool), Source>;
+type Sources = BTreeMap<(Origin, Transfer), Source>;
 
 fn merge(into: &mut Sources, origin: Origin, s: Source) {
-    let key = (origin, s.identity);
+    let key = (origin, s.transfer);
     match into.get_mut(&key) {
         Some(e) => {
             e.condition = e.condition.or(&s.condition);
@@ -512,7 +544,7 @@ impl Model {
                         &mut out,
                         Origin::Field(class, field),
                         Source {
-                            identity: true,
+                            transfer: Transfer::Identity,
                             captured: false,
                             condition: at,
                         },
@@ -537,7 +569,7 @@ impl Model {
                             &mut out,
                             Origin::Parameter(p),
                             Source {
-                                identity: true,
+                                transfer: Transfer::Identity,
                                 captured: true,
                                 condition: Condition::always(),
                             },
@@ -555,7 +587,7 @@ impl Model {
                         &mut out,
                         Origin::Parameter(p),
                         Source {
-                            identity: true,
+                            transfer: Transfer::Identity,
                             captured: false,
                             condition: at,
                         },
@@ -571,16 +603,21 @@ impl Model {
                 .get(&(d.module_node_id, FlowSink::Definition, vs, ve))
                 .cloned()
                 .unwrap_or_default();
-            for (u2, identity, c2) in inner {
+            // Loop, `with` and comprehension targets and augmented assignments compute the value.
+            let bound = if plain(d.kind) {
+                Transfer::Identity
+            } else {
+                Transfer::Derived
+            };
+            for (u2, transfer, c2) in inner {
                 let selected = at.and(&self.condition(c2));
                 let sources = self.reach(u2, visiting);
-                for ((o, id3), s) in sources.iter() {
-                    let id3 = *id3;
+                for ((o, t3), s) in sources.iter() {
                     merge(
                         &mut out,
                         o.clone(),
                         Source {
-                            identity: identity && id3 && plain(d.kind),
+                            transfer: transfer.max(*t3).max(bound),
                             captured: s.captured,
                             condition: selected.and(&s.condition),
                         },
@@ -597,37 +634,126 @@ impl Model {
     /// The parameters reaching a sink: the union over the uses its value reads.
     fn sink(&mut self, key: (Id, FlowSink, i64, i64)) -> Sources {
         let mut out = Sources::new();
-        for (u, identity, c) in self.values.get(&key).cloned().unwrap_or_default() {
+        for (u, transfer, c) in self.values.get(&key).cloned().unwrap_or_default() {
             let selected = self.condition(c);
             let sources = self.reach(u, &mut HashSet::new());
-            for ((o, id2), s) in sources.iter() {
-                let id2 = *id2;
+            for ((o, t2), s) in sources.iter() {
                 merge(
                     &mut out,
                     o.clone(),
                     Source {
-                        identity: identity && id2,
+                        transfer: transfer.max(*t2),
                         captured: s.captured,
                         condition: selected.and(&s.condition),
                     },
                 );
             }
         }
-        // A derived row adds nothing where the same origin reaches the sink unchanged.
-        let unchanged: BTreeSet<Origin> = out
-            .keys()
-            .filter(|(_, identity)| *identity)
-            .map(|(o, _)| o.clone())
-            .collect();
-        out.retain(|(o, identity), _| *identity || !unchanged.contains(o));
+        // A weaker row adds nothing where the same origin reaches the sink by a stronger
+        // transfer: unchanged over derived, derived over through a call.
+        let mut strongest: BTreeMap<Origin, Transfer> = BTreeMap::new();
+        for (o, t) in out.keys() {
+            strongest
+                .entry(o.clone())
+                .and_modify(|e| *e = (*e).min(*t))
+                .or_insert(*t);
+        }
+        out.retain(|(o, t), _| strongest.get(o) == Some(t));
         out
     }
 }
 
 /// A sink: its module, kind and span.
 type SinkKey = (Id, FlowSink, i64, i64);
-/// A sink's value sources: the use, whether it passes unchanged, and the selecting condition.
-type ValueSources = HashMap<SinkKey, Vec<(Id, bool, Id)>>;
+/// The root names an opaque test's text spells: identifiers outside string literals, neither an
+/// attribute (after a `.`) nor a string prefix (`f"…"`). `"log_level" not in kwargs` names only
+/// `kwargs`; `isinstance(self.transport, T)` names `isinstance`, `self` and `T`.
+fn root_names(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80;
+    let mut out = Vec::new();
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == q {
+                quote = None;
+            }
+            i += 1;
+        } else if b == b'"' || b == b'\'' {
+            quote = Some(b);
+            i += 1;
+        } else if word(b) && !b.is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && word(bytes[i]) {
+                i += 1;
+            }
+            let attribute = text[..start].trim_end().ends_with('.');
+            let prefix = matches!(bytes.get(i), Some(b'"' | b'\''));
+            if !attribute && !prefix {
+                out.push(&text[start..i]);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Per function, each guard that raises: its statement's start and the normal path past it (the
+/// guard's condition negated).
+pub(crate) type RaiseGuards = BTreeMap<Id, Vec<(i64, Condition)>>;
+
+pub(crate) fn guards_of(raises: &[RaiseSitesRow]) -> RaiseGuards {
+    let mut out = RaiseGuards::new();
+    for r in raises {
+        if let Ok(c) = Condition::parse(&r.condition)
+            && !c.is_always()
+        {
+            out.entry(r.function_node_id)
+                .or_default()
+                .push((r.start_byte, c.not()));
+        }
+    }
+    out
+}
+
+/// A claim's condition on its function's normal path (ADR-0022 §Conditions): the guards that
+/// raise (other than the claim's own site) factored out where they are a factor
+/// (`Condition::given`), all of them together first (two guards' normal paths multiply), then
+/// each alone.
+pub(crate) fn normal_path(
+    guards: &RaiseGuards,
+    function: Id,
+    condition: &Condition,
+    site: Option<i64>,
+) -> Condition {
+    let normals: Vec<&Condition> = guards
+        .get(&function)
+        .into_iter()
+        .flatten()
+        .filter(|(start, _)| Some(*start) != site)
+        .map(|(_, n)| n)
+        .collect();
+    let all = normals
+        .iter()
+        .fold(Condition::always(), |acc, n| acc.and(n));
+    let mut c = condition.given(&all);
+    for n in normals {
+        c = c.given(n);
+    }
+    c
+}
+
+/// A statement region: its module, span, condition and enclosing function.
+type RegionKept = (Id, (i64, i64), Id, Option<Id>);
+/// A sink's value sources: the use, how it reaches the value, and the selecting condition.
+type ValueSources = HashMap<SinkKey, Vec<(Id, Transfer, Id)>>;
 
 /// A module's statement regions, for the innermost region around a span.
 struct Regions(HashMap<Id, Vec<(i64, i64, Id)>>);
@@ -730,7 +856,11 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         values_map
             .entry((r.module_node_id, r.sink, r.sink_start_byte, r.sink_end_byte))
             .or_default()
-            .push((r.use_id, r.identity, r.condition_id));
+            .push((
+                r.use_id,
+                Transfer::of(r.identity, r.through_call),
+                r.condition_id,
+            ));
     }
     let mut captured_map: HashMap<(Id, i64, i64), Vec<Id>> = HashMap::new();
     for r in captured_rows {
@@ -782,6 +912,17 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         memo: HashMap::new(),
         keep_receivers: false,
     };
+    let region_rows_kept: Vec<RegionKept> = region_rows
+        .iter()
+        .map(|r| {
+            (
+                r.module_node_id,
+                (r.start_byte, r.end_byte),
+                r.condition_id,
+                r.function_node_id,
+            )
+        })
+        .collect();
     let mut region_map: HashMap<Id, Vec<(i64, i64, Id)>> = HashMap::new();
     for r in region_rows {
         region_map.entry(r.module_node_id).or_default().push((
@@ -866,7 +1007,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         let argument = (sink == FlowSink::Argument)
             .then(|| argument_at.get(&(module, start, end)).copied())
             .flatten();
-        for ((origin, identity), s) in model.sink(key) {
+        for ((origin, transfer), s) in model.sink(key) {
             let (function_node_id, source_key, parameter_node_id, source_name, class_node_id) =
                 match &origin {
                     Origin::Parameter(p) => {
@@ -907,7 +1048,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 module_node_id: module,
                 sink_start_byte: start,
                 sink_end_byte: end,
-                identity,
+                identity: transfer == Transfer::Identity,
+                through_call: transfer == Transfer::Call,
                 captured: s.captured,
                 condition_id,
                 condition,
@@ -1166,10 +1308,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             for l in d.iter().flatten() {
                 // A place's root, or any name an opaque test's text spells.
                 let spelled: Vec<&str> = match (l.atom.place(), &l.atom) {
-                    (Some(place), _) => vec![place.split('.').next().unwrap_or(place)],
-                    (None, cpg_schema::condition::Atom::Opaque { text }) => text
-                        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                        .collect(),
+                    // A versioned place (`p@line`) still names `p`: the value it reads may be the
+                    // parameter's.
+                    (Some(place), _) => vec![place.split(['.', '@']).next().unwrap_or(place)],
+                    (None, cpg_schema::condition::Atom::Opaque { text }) => root_names(text),
                     (None, _) => Vec::new(),
                 };
                 for root in spelled {
@@ -1224,6 +1366,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         .collect();
 
     // Ambient reads: a place whose root resolves to a singleton, and the field after it.
+    let guards = guards_of(&out.raise_sites);
     for u in &uses {
         if !u.place.contains('.') || u.place.contains('[') {
             continue;
@@ -1284,7 +1427,11 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     .fold(Condition::never(), |acc, c| acc.or(&model.condition(*c)))
             })
             .unwrap_or_else(Condition::always);
-        let condition = region.and(&selected);
+        // Stated on the reader's normal path, as a fate is.
+        let condition = match reader {
+            Some(r) => normal_path(&guards, r, &region.and(&selected), None),
+            None => region.and(&selected),
+        };
         let (condition_id, condition) = condition_text(&condition);
         out.ambient_reads.push(AmbientReadsRow {
             snapshot_id,
@@ -1303,7 +1450,42 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         });
     }
 
+    // What each function's branches test: the literals over each parameter.
+    for r in &region_rows_kept {
+        let Some(f) = r.3 else { continue };
+        let names = parameters_of.get(&f).cloned().unwrap_or_default();
+        if let Condition::Dnf(d) = model.condition(r.2) {
+            for l in d.iter().flatten() {
+                let spelled: Vec<String> = match (l.atom.place(), &l.atom) {
+                    (Some(place), _) => {
+                        vec![place.split(['.', '@']).next().unwrap_or(place).to_owned()]
+                    }
+                    (None, cpg_schema::condition::Atom::Opaque { text }) => {
+                        root_names(text).into_iter().map(str::to_owned).collect()
+                    }
+                    (None, _) => Vec::new(),
+                };
+                for root in spelled {
+                    if names.contains(&root.as_str()) {
+                        let mut lit = l.clone();
+                        lit.positive = true;
+                        out.tested
+                            .entry((f, root))
+                            .or_default()
+                            .insert(lit.encode());
+                    }
+                }
+            }
+        }
+    }
     for c in &call_rows {
+        if let Some(cond) = regions
+            .at(c.module_node_id, c.start_byte, c.end_byte)
+            .map(|id| model.condition(id))
+            .filter(|cond| !cond.is_always())
+        {
+            out.call_condition.insert(c.node_id, cond.encode());
+        }
         if let Some(t) = text_of(
             &texts,
             c.module_node_id,
@@ -1407,7 +1589,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             if own.is_some_and(|r| {
                 sources
                     .keys()
-                    .any(|(o, identity)| *o == Origin::Parameter(r) && *identity)
+                    .any(|(o, t)| *o == Origin::Parameter(r) && *t == Transfer::Identity)
             }) {
                 reaches_class = class_of(func);
             } else if let Some(t) = text_of(
@@ -1605,4 +1787,32 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     }
     out.premises = premises.into_values().collect();
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::root_names;
+
+    #[test]
+    fn an_opaque_test_names_only_its_roots() {
+        assert_eq!(
+            root_names("\"log_level\" not in config_kwargs"),
+            vec!["not", "in", "config_kwargs"]
+        );
+        assert_eq!(
+            root_names("isinstance(self.transport, StreamableHttpTransport | SSETransport)"),
+            vec![
+                "isinstance",
+                "self",
+                "StreamableHttpTransport",
+                "SSETransport"
+            ]
+        );
+        assert_eq!(
+            root_names("f\"{x}\" == y and 'a\\'b' in z"),
+            vec!["y", "and", "in", "z"]
+        );
+        assert_eq!(root_names("size <= 0"), vec!["size"]);
+        assert_eq!(root_names("é.x > 1"), vec!["é"]);
+    }
 }

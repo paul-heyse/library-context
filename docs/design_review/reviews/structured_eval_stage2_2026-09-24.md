@@ -1,0 +1,145 @@
+# Structured evaluation — Stage 2 (flow IR, conditions and verdicts)
+
+**Set:** `eval/behavior/fastmcp-4.0.5.toml`. Stage 2's questions are Q04 and Q10 (pre-registered in
+`2fb10b8`) and Q21–Q24 with the stage exit rules (pre-registered in `f6f00b7`), all before any
+Stage 2 output of FastMCP existed.
+
+**Exit rule (stage 2, as registered):** "Passes when, over the stage-2 questions (Q04, Q10,
+Q21-Q24): no positive item is rated incorrect or misleading; no negative item is claimed; and at
+least half of the positive items are present or partial. Fails otherwise."
+
+**Assessor:** the author (Claude), rating each item against the packet. The operator reviews this
+assessment (ADR-0021). No API agent was used.
+
+**Rubric.** As at Stage 1: positive items are `present` / `partial` / `absent` / `incorrect` /
+`misleading`. A claim served with verdict `unknown` counts as `partial`. For a negative item, the
+question is whether the served answer claims it.
+
+**Live vectors.** Q23 and Q24 are `search_operations` items, so they ran on live Qwen3-Embedding-8B
+vectors (`just embed-serve`, GPU checked at ≥30 GB free, stopped afterwards).
+`scripts/structured_eval.py` gained `--embed-url` for this; the same packet without it is
+lexical-only.
+
+## Two attempts
+
+| Attempt | Generation (live) | Snapshot | Outcome |
+|---|---|---|---|
+| 1 | `004c6c93d85a17f3` | `b77093ad030faf6238298fb38a3d553b` | **failed**: Q10.f misleading |
+| 2 | `8530457240e062a2` | `99298186cc7bab2167b948dd31872bbe` | **passed** |
+
+Attempt 1 failed on one item, so the cause was fixed and the rule re-applied. ADR-0021's revisit
+trigger needs two consecutive failures, so it **did not fire**. The fixes are deviation B15.
+The packet: `just structured-eval <generation> 2 http://127.0.0.1:8000` (written to
+`build/structured/stage2.md`; the rated copies are `build/structured/stage2-final.md` and
+`stage1-final.md`).
+
+### What attempt 1 found, and what changed
+
+| # | Defect in attempt 1 | Where it showed | Fix (Tested by) |
+|---|---|---|---|
+| 1 | A use inside a call was a derived flow, stated `established`: `Client(name=…)` "returns" in `_parse_call_tool_result`'s result, which only logs it | Q10.f (**misleading**) | `flow_values.through_call`; a path is as weak as its weakest step; such claims are `unknown` with `call_transfer` (boundary reason 19, appended). `a_nested_fallback_keeps_its_test_and_a_call_is_a_transfer`, `a_value_inside_a_call_reaches_its_result_only_by_the_callees_summary` |
+| 2 | A fallback nested inside a call (`(x if x is not None else settings.x).lower()`) lost its test: `log_level` read "on every call" | Q04.d | Value sources recurse structurally, so nested conditional expressions keep their conditions. Same tests |
+| 3 | The normal path was not factored out where two guards multiply, or where one normal path met two nestings: `client_init_timeout` read "when `!opaque(mode not in …) & is_none(verify) \| …`" | Q04.c, Q21.c | Self-subsuming resolution in the normalizer (`conditions.rs` known answers); the product of a function's guards factored first; ambient reads stated on the normal path too. `two_guards_normal_paths_factor_out_together` |
+
+Reading Stage 1's questions on the fixed generation found three more. They were fixed before
+attempt 2's final generation:
+
+| # | Defect | Where | Fix (Tested by) |
+|---|---|---|---|
+| 4 | One atom for a place tested on both sides of a rebinding: the path through `stateless_http = stateless` read as a contradiction and was dropped | Q14.c | Versioned places, `place@line`, only where a scope tests a place at two values. `a_test_after_a_rebinding_reads_a_versioned_place` |
+| 5 | An opaque test's names were matched as parameters even inside strings or after a dot: `log_level` "tests" `"log_level" not in config_kwargs`; `transport` "tests" `isinstance(self.transport, …)` | Q14.f, Q15.a | `root_names`. `an_opaque_test_names_only_its_roots` |
+| 6 | An argument no formal receives (`**settings`) into a release callee was served "outside the release" | Q16.d, Q18.d–e | The call site's one release callee is named. `an_unmapped_argument_names_its_release_callee` |
+
+## Ratings (attempt 2, generation `8530457240e062a2`)
+
+| Item | Rating | What the served answer shows |
+|---|---|---|
+| Q04.a env read once at import into the singleton | partial | The singleton `fastmcp.settings` (class `Settings`) and its import-time reads; that later environment changes have no effect is not stated |
+| Q04.b logging settings at import; the warnings filter | partial | `log_enabled`, `log_level`, `enable_rich_tracebacks`, `deprecation_warnings` at import (the last two when `log_enabled`); `enable_rich_logging` is read per call in `configure_logging`, whose import-time call is Stage 3's |
+| Q04.c constructor snapshots | partial | `mask_error_details`, `strict_input_validation`, `client_log_level` and `client_disconnect_timeout` snapshots, each when its argument is None; `client_init_timeout` is `construction` (its stored value passes through a call) |
+| Q04.d per-call fallbacks in `run_async`, `run_http_async`, `http_app` | **present** | All thirteen, each `per_call` under `is_none(<argument>)` and the transport branch; `http_allowed_hosts` is read unconditionally, as the source does |
+| Q04.e `mcp_camelcase_compat`, `telemetry_mode` per call | **present** | Both per call |
+| Q04.f `server_dependencies` not read; `mounted_components_raise_on_load_error` only in `fastmcp_tasks` | **present** | "no read — unknown (dynamic_access)"; the one read in `fastmcp_tasks.lifespan.docket_lifespan` |
+| Q04.g (negative) never read is statically certain | not claimed ✓ | `unknown`, `dynamic_access` |
+| Q10.a `stateless` only in the log line | **present** | `derives` → `logger.info` only |
+| Q10.b (negative) stateless skips initialization | not claimed ✓ | — |
+| Q10.c `**kwargs` accepted only to reject it | partial | Forwarded to `_check_removed_kwargs`, which raises (conditional); the raise's condition is the callee's, not restated |
+| Q10.d `prior_discover` only when the mode is pinned | **present** | Forward to `session.adopt` when `effective_mode` is neither `auto` nor `legacy` |
+| Q10.e `sampling_capabilities` only with a handler | **present** | Stored when `!is_none(sampling_capabilities) & !is_none(sampling_handler)` |
+| Q10.f `Client(name=…)` only in messages | partial | Derives into log and error messages; the helper's result is `unknown` (`call_transfer`). "Only" is Stage 3's summary |
+| Q10.g `run_in_thread` ignored for async functions | absent | `unknown` (`override_dispatch`) |
+| Q21.a `mask_error_details` snapshot when None | **present** | `reads_setting`, phase snapshot, `is_none(mask_error_details)`; stored on `self._mask_error_details` |
+| Q21.b `strict_input_validation` when None | **present** | Same shape |
+| Q21.c `client_init_timeout` when None, stored normalized | partial | Read at construction when `is_none(init_timeout)`; the store through `normalize_timeout_to_seconds` is `unknown` (`call_transfer`) |
+| Q21.d (negative) read on every tool call | not claimed ✓ | The per-call read in `fastmcp_tasks` is a fallback without a server context |
+| Q22.a `Client.call_tool` matches | **present** | Matched by declaration node (displayed as `ClientToolsMixin.call_tool`); complete, none could still match |
+| Q22.b `ClientGroup.call_tool` matches | **present** | Matched |
+| Q22.c (negative) a private helper listed | not claimed ✓ | — |
+| Q23.a `run_http_async` in the top 5 | **present** | Rank 1 (lexical-only: rank 3) |
+| Q23.b `http_app` in the top 10 | absent | Not in the top 10, live or lexical |
+| Q23.c (negative) a Client method first | not claimed ✓ | — |
+| Q24.a `Client.call_tool` in the top 5 | **present** | Rank 3 (lexical-only: not in the top 10) |
+| Q24.b (negative) `FastMCP.tool` above it | not claimed ✓ | `FastMCP.tool` is not in the top 10 |
+
+## Tally and the exit rule
+
+| Attempt | Positive items | Present | Partial | Absent | Incorrect | Misleading | Negatives claimed |
+|---|---|---|---|---|---|---|---|
+| 1 | 20 | 11 | 6 | 2 | 0 | **1** (Q10.f) | 0 of 6 |
+| 2 | 20 | 12 | 6 | 2 | **0** | **0** | **0** of 6 |
+
+Attempt 2: no positive incorrect or misleading, no negative claimed, and 18 of 20 positives present
+or partial. **The stage-2 exit rule passes.** The plan's Stage 2 exit ("`flow_shapes` and
+`behavior_shapes` part 1 pass, and eval Q4 and Q10 are answered") also holds: 23 `flow_shapes` and
+9 behavior known answers pass (`just test-all`, 2026-09-24), and Q04 and Q10 are answered.
+
+**B13 (the source-body view).** Q23.a and Q24.a are present on live vectors, so the view stays.
+The rule as registered cannot credit one view over another. Live vectors decide Q24.a: it is absent
+lexical-only.
+
+## Stage 1's questions on the Stage 2 generation
+
+The same packet for Q13–Q20 (`build/structured/stage1-final.md`), rated by the Stage 1 rubric:
+
+| Question | Stage 1 (`0ed0c3b1…`) P / p / A | Stage 2 (`85304572…`) P / p / A | What moved |
+|---|---|---|---|
+| Q13 `call_tool` | 0 / 4 / 2 | 1 / 5 / 0 | `version` merged into `meta['fastmcp']` (present); `meta`'s first hop; `arguments or {}` is an identity forward under `truthy(arguments)` |
+| Q14 `run_http_async` | 0 / 3 / 4 | 2 / 5 / 0 | host/port fallbacks (present); `show_banner` only gates the banner (present); the `stateless` alias, `uvicorn_config`, `log_level` into `config_kwargs` |
+| Q15 `Client` | 0 / 3 / 4 | 1 / 6 / 0 | `verify` stored on the transport or `ValueError` (present); `init_timeout`, `progress_handler`, `name` |
+| Q16 `from_openapi` | 2 / 3 / 1 | 2 / 3 / 1 | `**settings` now names `FastMCP.__init__` |
+| Q17 `read_resource` | 0 / 0 / 6 | 2 / 3 / 1 | `AnyUrl` or `ValueError` and `version` into meta (present); `meta`, `uri`, the return |
+| Q18 `run_async` | 0 / 2 / 3 | 3 / 2 / 0 | both settings fallbacks and the unknown-transport `ValueError` (present) |
+| Q19 `Client(mcp)` handoff | 1 / 1 / 1 | 1 / 1 / 1 | — (handoffs are Pass C's) |
+| Q20 lifespan handoff | 0 / 0 / 4 | 0 / 1 / 3 | the store through `typing.cast` (`call_transfer`) |
+| **44 positives** | **3 / 16 / 25** | **12 / 26 / 6** | |
+
+Nothing is incorrect or misleading, and none of the six negatives is claimed.
+
+## What stays open, by owner
+
+| Observation | Items | Owner |
+|---|---|---|
+| Identity functions (`typing.cast`) and every other call are transfers until modeled | Q20.c, Q21.c, many `call_transfer` rows (6,137 on the pilot) | Stage 3's models catalog and summaries |
+| A read reached through a call from module scope (`configure_logging` at import) | Q04.b | Stage 3 (ADR-0022: reads through calls) |
+| A closure over an enclosing local (`def _retry` reads `progress_callback`) | Q15.f | Stage 3 (callbacks and closures) |
+| A callee's raise condition restated in the caller's places | Q10.c | Stage 3's summaries |
+| `self.m(...)` override dispatch | Q10.g, Q14.b, Q18.d–e | Stage 3/5 (a closed-world or model option) |
+| `http_app` outside the top 10 for "run the server over HTTP" | Q23.b | The F7 views, under B13's rule; no change now |
+| An inherited member displays under its defining class (`ClientToolsMixin.call_tool`) | Q22.a, Q24.a | Serving's preferred-path policy (observation) |
+| `model_config` listed as a singleton field | Q04 | Settings fields could skip pydantic configuration (observation) |
+| Query-vector jitter across vLLM restarts (0.04578 vs 0.0456 at rank 2, rank unchanged) | Q24 | O6 (determinism), deferred |
+
+## Measured on the pilot (2026-09-24, fake embedder, snapshot `9c82f3dbd4f6be6956d957e16db7d2e7`)
+
+| | Before the fixes (`b77093ad…`) | After |
+|---|---|---|
+| Behaviors `established` / `conditional` | 5,111 / 7,526 | 3,601 / 3,201 |
+| `unknown`: `budget_reached` / `override_dispatch` / `call_transfer` | 315 / 1,331 / — | 32 / 1,343 / 6,137 |
+| `refuted_under_model` | 63 | 63 |
+| Operations `established` / `unknown` / `not_analyzed` | 637 / 534 / 363 | 637 / 534 / 363 |
+| Reaching rows | 68,931 | 69,005 (paths no longer dropped as false contradictions) |
+| Versioned condition literals | — | 2,299 of 37,171 |
+| Compile | 72.0 s (live, embedding 33.6 s) | 39.7 s (live, every vector cached) |
+
+Self-subsuming resolution brings 283 claims back inside the condition budget. `call_transfer` is
+now the largest single reason a claim is `unknown`, so it is Stage 3's first target.

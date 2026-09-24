@@ -179,11 +179,22 @@ semantics must close:
      `or`, `not` and conditional expressions in tests.
   4. Simplify:
      - drop a conjunction holding a literal and its negation;
-     - drop `!x` from a conjunction when `x` alone is a disjunct, to a fixpoint;
+     - `x | !x` is `true`;
+     - self-subsuming resolution, to a fixpoint: drop `!y` from a conjunction when another
+       conjunction holds `y` and otherwise only literals the first holds too
+       (`a & r & !y | r & y` is `a & r | r & y`; `x | !x & r` is `x | r` is the case with nothing
+       else). Stage 2's evaluation added it (deviation B15): one normal path met in two
+       differently nested forms must normalize to one encoding before `Condition::given` can
+       factor it out;
      - absorb (drop a conjunction that contains another).
 - **Budget:** at most 16 conjunctions of at most 8 literals. A larger condition is not stated, and
   its record is `unknown` with `budget_reached`. ty's own saturation (512K diagram nodes per scope)
   is not observable through its API. The pilot's largest scope is reported per run.
+- **Fates are stated on the normal path** (Stage 2.6). A statement past a guard that raises
+  (`if x is None: raise …`) is reached under the guard's negation, which says only that no error
+  was raised. Each fate's condition has every such factor removed where it is one
+  (`Condition::given`: all conjunctions share it and the remainders agree); the guard itself is
+  its own `raises_when` fate.
 - **The runtime view** evaluates, before normalization:
   - `TYPE_CHECKING` (the sentinel, as a name or an attribute of a dotted name) as false;
   - `sys.version_info` comparisons against the context's Python version;
@@ -207,6 +218,17 @@ semantics must close:
     - to a module global (`Global[module.name]`).
 
     At most two segments follow the root.
+- **A spelled place names a value, so a rebound place is versioned** (Stage 2's evaluation,
+  deviation B15). A place bound more than once in its scope can hold two values at two tests on one
+  path (`if x is None: x = d`, then `if x is None:`); as one atom, the two tests would contradict
+  and a feasible path would be dropped. A test's value is versioned by the line of the latest
+  binding other than a parameter reaching it (none: the value the scope received; ty's
+  loop-header bindings do not count as a second binding). Where one scope's tests of a place read
+  more than one version, each versioned test is spelled `place@line`; otherwise all of them are
+  spelled plainly, so versions appear only where they disambiguate. Two tests with the same
+  spelling on one path read one value, except around a loop's back edge, where ty's diagrams do
+  not unroll either. A versioned place still names its root for matching a parameter (the value
+  may be the parameter's).
 - **§9.9's `Parameter[…]`, `Field[…]` and `Global[…]` are this key's written form.** A singleton
   read as `settings.X` in one module and as `fastmcp.settings.X` in another is one place,
   `Global[fastmcp.settings].X`.
@@ -249,6 +271,15 @@ semantics must close:
   - A module-level `__getattr__` supplies names the module does not bind, so it reaches no bound
     place.
   - `exec` and `eval` reach every place.
+- **A value inside a call is a transfer, not a flow.** A use inside a call within a value (the
+  callee, its receiver or an argument) reaches the value only if the callee's result carries it,
+  which is a summary's question (Stage 3). The flow IR marks such a use `through_call`, a path is
+  as weak as its weakest step (identity, derived, through a call), and a `derives`, `stores`,
+  `returns` or `raises_when` claim reached only through a call is `unknown` with `boundary_reason`
+  `call_transfer` (appended), keeping the condition it would hold under. The forward into the
+  callee's formal stays its own claim. An operator, an f-string or a container is computed from
+  its operands directly. Stage 2's evaluation found this (deviation B15): `Client(name=…)` was
+  served as established in a helper's result that only logs it.
 - **Override dispatch** gets `boundary_reason` `override_dispatch`: a call through a `candidate`
   arc (`self.m(...)`, which a subclass may override). A behavior whose path crosses such an arc is
   `unknown`, as the delegation over it is (increment 3's deep review, F1).

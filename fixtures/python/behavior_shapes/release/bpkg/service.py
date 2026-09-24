@@ -59,3 +59,41 @@ class Session:
         if self._mode == "pinned":
             return self._prior
         return None
+
+
+def paged(size=None, verbose=False):
+    if size is not None and size <= 0:
+        raise ValueError("size must be positive")
+    if verbose:
+        _stdio()
+    return _bind(size, None)
+
+
+def _describe(name):
+    logger.info(f"describing {name}")
+    return "described"
+
+
+def labelled(name, level=None):
+    chosen = (level if level is not None else settings.log_level).lower()
+    return _describe(name), chosen
+
+
+MODES = ("v1", "v2")
+
+
+def configured(mode="auto", verify=None, timeout=None):
+    if verify is not None:
+        if mode == "http":
+            pass
+        else:
+            raise ValueError("verify needs http")
+    if mode not in MODES and mode not in ("auto", "legacy"):
+        raise ValueError("unknown mode")
+    if timeout is None:
+        timeout = settings.port
+    return timeout
+
+
+def open_session(name, **options):
+    return Session(name, **options)

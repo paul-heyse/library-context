@@ -194,3 +194,17 @@ def commented(a, b):
             > b):
         return a
     return b
+
+
+def nested_fallback(level=None, name=None):
+    chosen = (level if level is not None else settings.level).lower()
+    label = f"[{name}]"
+    return fallback(name), chosen, label
+
+
+def alias_fallback(stateless=None, stateless_http=None):
+    if stateless is not None and stateless_http is None:
+        stateless_http = stateless
+    if stateless_http is None:
+        stateless_http = settings.stateless
+    return stateless_http

@@ -129,7 +129,7 @@ def _marks(gen: Generation, question: dict, item: dict) -> str:
     return "; ".join(sorted(set(hits))) or "no parameter of the operations is named"
 
 
-def _request(gen: Generation, request: dict) -> list[str]:
+def _request(gen: Generation, request: dict, embedder=None) -> list[str]:
     """A pre-registered `find_operations` or `search_operations` request, answered."""
     if request["tool"] == "find_operations":
         found = ops.find_operations(
@@ -145,7 +145,9 @@ def _request(gen: Generation, request: dict) -> list[str]:
     import asyncio
 
     hits = asyncio.run(
-        ops.search_operations(gen, ops.OperationIndex(gen), None, request["query"], None, limit=10)
+        ops.search_operations(
+            gen, ops.OperationIndex(gen), embedder, request["query"], None, limit=10
+        )
     )
     lines = [f"- `search_operations({request['query']!r})`, mode {hits.mode}:"]
     lines += [
@@ -155,7 +157,9 @@ def _request(gen: Generation, request: dict) -> list[str]:
     return lines
 
 
-def packet(gen: Generation, questions: list[dict], stage: int | None, exits: list[dict]) -> str:
+def packet(
+    gen: Generation, questions: list[dict], stage: int | None, exits: list[dict], embedder=None
+) -> str:
     lines = [
         f"# Structured evaluation packet — generation `{gen.key}`",
         "",
@@ -177,7 +181,7 @@ def packet(gen: Generation, questions: list[dict], stage: int | None, exits: lis
             )
         lines += ["", "**Served answer**", ""]
         if "request" in q:
-            lines += _request(gen, q["request"])
+            lines += _request(gen, q["request"], embedder)
         for spelling in q["operations"]:
             lines += _operation(gen, spelling)
         lines.append("")
@@ -193,12 +197,21 @@ def main() -> int:
     parser.add_argument("questions", type=Path)
     parser.add_argument("--stage", type=int)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--embed-url", help="the vLLM service for search items' query vectors (else lexical)"
+    )
     args = parser.parse_args()
-    gen = load(args.generation, None)
+    embedder = None
+    if args.embed_url:
+        from lctx_mcp.embedder import HttpEmbedder
+
+        embedder = HttpEmbedder(args.embed_url)
+    gen = load(args.generation, embedder.spec if embedder else None)
     spec = tomllib.loads(args.questions.read_text(encoding="utf-8"))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
-        packet(gen, spec["question"], args.stage, spec.get("exit", [])), encoding="utf-8"
+        packet(gen, spec["question"], args.stage, spec.get("exit", []), embedder),
+        encoding="utf-8",
     )
     print(f"structured-eval: wrote {args.out} (generation {gen.key})")
     return 0

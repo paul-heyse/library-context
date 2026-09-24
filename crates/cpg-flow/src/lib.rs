@@ -11,7 +11,10 @@
 //! - **value sources**: for each value a definition, call argument, `return` or `yield` takes,
 //!   the uses it reads, each **identity** (the value passes unchanged: the expression itself, a
 //!   conditional-expression branch, a boolean operand, a walrus) or **derived** (anything
-//!   computed), under the condition inside the expression that selects it;
+//!   computed), under the condition inside the expression that selects it, nested conditional
+//!   expressions and boolean operators included. A derived use inside a call (its callee, receiver
+//!   or an argument) is **through a call**: it reaches the value only if the callee's result
+//!   carries it, which is a summary's question (ADR-0022 §Verdicts);
 //! - **regions**: every statement's reachability condition.
 //!
 //! **The runtime override.** ty decides `TYPE_CHECKING` as true while indexing. Before ty parses a
@@ -142,6 +145,8 @@ pub struct ValueSource {
     pub use_ix: u32,
     /// The value passes unchanged (see the crate docs); `false`: it is computed from the use.
     pub identity: bool,
+    /// The use is inside a call within the value (its callee, receiver or an argument).
+    pub through_call: bool,
     pub condition: Condition,
 }
 
@@ -260,6 +265,9 @@ fn module(
         module: &parsed,
         original,
         context,
+        index,
+        pf,
+        versions: Default::default(),
     };
     let mut w = Walk {
         db,
@@ -622,7 +630,15 @@ impl<'db> Walk<'_, 'db> {
     }
 
     /// The value sources of `e` (see the crate docs).
-    fn sources(&mut self, sink: Sink, sink_span: Span, e: &Expr, cond: &Condition, identity: bool) {
+    fn sources(
+        &mut self,
+        sink: Sink,
+        sink_span: Span,
+        e: &Expr,
+        cond: &Condition,
+        identity: bool,
+        through_call: bool,
+    ) {
         if cond.is_never() {
             return;
         }
@@ -635,25 +651,29 @@ impl<'db> Walk<'_, 'db> {
                         sink,
                         span: sink_span,
                         use_ix: u,
-                        identity,
+                        identity: identity && !through_call,
+                        through_call,
                         condition: cond.clone(),
                     });
                 }
                 // The receiver or container is read to compute the value.
                 match e {
-                    Expr::Attribute(a) => self.sources(sink, sink_span, &a.value, cond, false),
+                    Expr::Attribute(a) => {
+                        self.sources(sink, sink_span, &a.value, cond, false, through_call);
+                    }
                     Expr::Subscript(s) => {
-                        self.sources(sink, sink_span, &s.value, cond, false);
-                        self.sources(sink, sink_span, &s.slice, cond, false);
+                        self.sources(sink, sink_span, &s.value, cond, false, through_call);
+                        self.sources(sink, sink_span, &s.slice, cond, false, through_call);
                     }
                     _ => {}
                 }
             }
             Expr::If(i) => {
                 let test = self.t.test(&i.test);
-                self.sources(sink, sink_span, &i.body, &cond.and(&test), identity);
-                self.sources(sink, sink_span, &i.orelse, &cond.and(&test.not()), identity);
-                self.sources(sink, sink_span, &i.test, cond, false);
+                let (body, orelse) = (cond.and(&test), cond.and(&test.not()));
+                self.sources(sink, sink_span, &i.body, &body, identity, through_call);
+                self.sources(sink, sink_span, &i.orelse, &orelse, identity, through_call);
+                self.sources(sink, sink_span, &i.test, cond, false, through_call);
             }
             Expr::BoolOp(b) => {
                 // `a or b`: `a` when truthy, else `b`; `a and b`: `a` when falsy, else `b`.
@@ -669,49 +689,42 @@ impl<'db> Walk<'_, 'db> {
                             ast::BoolOp::And => before.and(&truth.not()),
                         }
                     };
-                    self.sources(sink, sink_span, v, &cond.and(&here), identity);
+                    let here = cond.and(&here);
+                    self.sources(sink, sink_span, v, &here, identity, through_call);
                     before = match b.op {
                         ast::BoolOp::Or => before.and(&truth.not()),
                         ast::BoolOp::And => before.and(&truth),
                     };
                 }
             }
-            Expr::Named(n) => self.sources(sink, sink_span, &n.value, cond, identity),
+            Expr::Named(n) => {
+                self.sources(sink, sink_span, &n.value, cond, identity, through_call);
+            }
             _ => {
-                // Computed: every use inside, derived.
-                let mut inner = Vec::new();
-                collect_places(e, &mut inner);
-                for x in inner {
-                    if let Some(&u) = self.use_of.get(&Span::from(x)) {
-                        self.flow.values.push(ValueSource {
-                            sink,
-                            span: sink_span,
-                            use_ix: u,
-                            identity: false,
-                            condition: cond.clone(),
-                        });
-                    }
+                // Computed: each sub-expression's uses, derived, under the conditions nested
+                // conditional expressions and boolean operators select them by. Everything inside
+                // a call is through it.
+                let through_call = through_call || matches!(e, Expr::Call(_));
+                for child in children(e) {
+                    self.sources(sink, sink_span, child, cond, false, through_call);
                 }
             }
         }
     }
 }
 
-/// The spans of every place expression inside `e` (its own sub-expressions included).
-fn collect_places(e: &Expr, out: &mut Vec<TextRange>) {
-    struct V<'o>(&'o mut Vec<TextRange>);
-    impl<'a> SourceOrderVisitor<'a> for V<'_> {
+/// The expressions directly inside `e`, in source order (a comprehension's, a lambda's and an
+/// f-string's included).
+fn children(e: &Expr) -> Vec<&Expr> {
+    struct V<'a>(Vec<&'a Expr>);
+    impl<'a> SourceOrderVisitor<'a> for V<'a> {
         fn visit_expr(&mut self, e: &'a Expr) {
-            if matches!(e, Expr::Name(_) | Expr::Attribute(_) | Expr::Subscript(_))
-                && PlaceExpr::try_from_expr(e).is_some()
-            {
-                self.0.push(e.range());
-            }
-            source_order::walk_expr(self, e);
+            self.0.push(e);
         }
     }
-    let mut v = V(out);
-    v.visit_expr(e);
+    let mut v = V(Vec::new());
+    source_order::walk_expr(&mut v, e);
+    v.0
 }
 
 struct Visitor<'w, 'a, 'db> {
@@ -724,8 +737,14 @@ struct Visitor<'w, 'a, 'db> {
 
 impl Visitor<'_, '_, '_> {
     fn sources(&mut self, sink: Sink, e: &Expr, identity: bool) {
-        self.w
-            .sources(sink, e.range().into(), e, &Condition::always(), identity);
+        self.w.sources(
+            sink,
+            e.range().into(),
+            e,
+            &Condition::always(),
+            identity,
+            false,
+        );
     }
 
     fn generators(&mut self, generators: &[ast::Comprehension]) {
@@ -844,6 +863,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                     &a.target,
                     &Condition::always(),
                     false,
+                    false,
                 );
             }
             Stmt::For(f) => self.sources(Sink::Definition, &f.iter, false),
@@ -883,6 +903,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                             a.range().into(),
                             &s.value,
                             &Condition::always(),
+                            false,
                             false,
                         ),
                         v => self.sources(Sink::Argument, v, true),

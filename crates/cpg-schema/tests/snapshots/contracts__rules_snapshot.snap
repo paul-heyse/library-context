@@ -521,7 +521,7 @@ codebook:bindings.static_branch
 codebook:references.field
   SELECT field FROM references WHERE field IS NOT NULL AND field NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
 codebook:reference_resolutions.reason
-  SELECT reason FROM reference_resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM reference_resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:type_terms.kind
   SELECT kind FROM type_terms WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)
 codebook:type_term_args.role
@@ -571,23 +571,23 @@ codebook:coverage.fact_family
 codebook:coverage.status
   SELECT status FROM coverage WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3, 4)
 codebook:coverage.reason
-  SELECT reason FROM coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:boundaries.fact_family
   SELECT fact_family FROM boundaries WHERE fact_family IS NOT NULL AND fact_family NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 codebook:boundaries.reason
-  SELECT reason FROM boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:provider_node_map.reason
-  SELECT reason FROM provider_node_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM provider_node_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:provider_class_map.reason
-  SELECT reason FROM provider_class_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM provider_class_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:exports.reason
-  SELECT reason FROM exports WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM exports WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:signatures.form
   SELECT form FROM signatures WHERE form IS NOT NULL AND form NOT IN (0, 1, 2)
 codebook:signatures.reason
-  SELECT reason FROM signatures WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM signatures WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:parameters.reason
-  SELECT reason FROM parameters WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM parameters WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:resolutions.status
   SELECT status FROM resolutions WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3)
 codebook:resolutions.domain
@@ -595,29 +595,29 @@ codebook:resolutions.domain
 codebook:resolutions.unresolved_reason
   SELECT unresolved_reason FROM resolutions WHERE unresolved_reason IS NOT NULL AND unresolved_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 codebook:resolutions.reason
-  SELECT reason FROM resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:argument_resolutions.status
   SELECT status FROM argument_resolutions WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3)
 codebook:argument_resolutions.unresolved_reason
   SELECT unresolved_reason FROM argument_resolutions WHERE unresolved_reason IS NOT NULL AND unresolved_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 codebook:call_targets.reason
-  SELECT reason FROM call_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM call_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:ancestry_targets.reason
-  SELECT reason FROM ancestry_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM ancestry_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:override_targets.reason
-  SELECT reason FROM override_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM override_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:site_targets.reason
-  SELECT reason FROM site_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM site_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:identifier_targets.reason
-  SELECT reason FROM identifier_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM identifier_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:import_targets.reason
-  SELECT reason FROM import_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM import_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:type_class_targets.reason
-  SELECT reason FROM type_class_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM type_class_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:type_binders.reason
-  SELECT reason FROM type_binders WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM type_binders WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:mention_targets.reason
-  SELECT reason FROM mention_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM mention_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:nodes.node_kind
   SELECT node_kind FROM nodes WHERE node_kind IS NOT NULL AND node_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 codebook:edges.edge_kind
@@ -627,7 +627,7 @@ codebook:edges.src_kind
 codebook:edges.dst_kind
   SELECT dst_kind FROM edges WHERE dst_kind IS NOT NULL AND dst_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 codebook:graph_gaps.reason
-  SELECT reason FROM graph_gaps WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT reason FROM graph_gaps WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:edge_kinds.edge_kind
   SELECT edge_kind FROM edge_kinds WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35)
 codebook:edge_kinds.derivation
@@ -657,7 +657,7 @@ codebook:operations.kind
 codebook:operations.behavior_status
   SELECT behavior_status FROM operations WHERE behavior_status IS NOT NULL AND behavior_status NOT IN (0, 1, 2, 3, 4)
 codebook:operations.boundary_reason
-  SELECT boundary_reason FROM operations WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT boundary_reason FROM operations WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:operation_facets.facet
   SELECT facet FROM operation_facets WHERE facet IS NOT NULL AND facet NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 codebook:operation_facets.verdict
@@ -675,13 +675,13 @@ codebook:dynamic_accesses.kind
 codebook:negative_premises.kind
   SELECT kind FROM negative_premises WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3)
 codebook:negative_premises.boundary_reason
-  SELECT boundary_reason FROM negative_premises WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT boundary_reason FROM negative_premises WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:behaviors.kind
-  SELECT kind FROM behaviors WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+  SELECT kind FROM behaviors WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 codebook:behaviors.verdict
   SELECT verdict FROM behaviors WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:behaviors.boundary_reason
-  SELECT boundary_reason FROM behaviors WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+  SELECT boundary_reason FROM behaviors WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
 codebook:behaviors.phase
   SELECT phase FROM behaviors WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3)
 codebook:behavior_steps.modality

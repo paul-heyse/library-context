@@ -40,8 +40,9 @@ py-check: py-fixture
     uv run pyrefly check --summary=none
 
 # The structured evaluation's packet for one stage (ADR-0021; DESIGN §12): targets beside answers
-structured-eval generation stage:
-    uv run python scripts/structured_eval.py {{generation}} eval/behavior/fastmcp-4.0.5.toml --stage {{stage}} --out build/structured/stage{{stage}}.md
+# Search items rank on live query vectors when embed_url names a running `just embed-serve`
+structured-eval generation stage embed_url="":
+    uv run python scripts/structured_eval.py {{generation}} eval/behavior/fastmcp-4.0.5.toml --stage {{stage}} --out build/structured/stage{{stage}}.md {{ if embed_url != "" { "--embed-url " + embed_url } else { "" } }}
 
 # The generation the lctx_mcp tests serve: analysis_shapes with fake vectors, into build/py-fixture
 py-fixture:

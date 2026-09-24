@@ -202,6 +202,113 @@ fn a_boolean_operand_is_an_identity_source_under_its_truth() {
 }
 
 #[test]
+fn a_nested_fallback_keeps_its_test_and_a_call_is_a_transfer() {
+    let f = flow();
+    let sources = |sink: Sink, needle: &str| -> Vec<(String, bool, bool, String)> {
+        let at = text().find(needle).unwrap() as u32;
+        f.values
+            .iter()
+            .filter(|s| s.sink == sink && s.span.start == at)
+            .map(|s| {
+                let u = &f.uses[s.use_ix as usize];
+                (
+                    u.place.clone(),
+                    s.identity,
+                    s.through_call,
+                    s.condition.encode(),
+                )
+            })
+            .collect()
+    };
+    // The fallback sits in the receiver of `.lower()`: each branch keeps its test, and both
+    // reach `chosen` only through the call.
+    let chosen = sources(Sink::Definition, "(level if level");
+    assert!(
+        chosen.contains(&(
+            "settings.level".to_owned(),
+            false,
+            true,
+            "is_none(level)".to_owned()
+        )),
+        "{chosen:?}"
+    );
+    assert!(
+        chosen.contains(&(
+            "level".to_owned(),
+            false,
+            true,
+            "!is_none(level)".to_owned()
+        )),
+        "{chosen:?}"
+    );
+    // An f-string is computed from its operand directly.
+    assert_eq!(
+        sources(Sink::Definition, "f\"[{name}]\""),
+        vec![("name".to_owned(), false, false, "true".to_owned())]
+    );
+    // A returned call's argument reaches the result only through the callee.
+    let returned = sources(Sink::Return, "fallback(name), chosen");
+    assert!(
+        returned.contains(&("name".to_owned(), false, true, "true".to_owned())),
+        "{returned:?}"
+    );
+    assert!(
+        returned.contains(&("chosen".to_owned(), false, false, "true".to_owned())),
+        "{returned:?}"
+    );
+    // The argument itself passes unchanged into the callee's formal.
+    assert_eq!(
+        sources(Sink::Argument, "name), chosen"),
+        vec![("name".to_owned(), true, false, "true".to_owned())]
+    );
+}
+
+#[test]
+fn a_test_after_a_rebinding_reads_a_versioned_place() {
+    // The second test reads the value the alias binding may have supplied: its atom is versioned
+    // by that binding's line, so the path through the alias is not a contradiction.
+    let alias = line_of("stateless_http = stateless", "def alias_fallback");
+    let u = use_ix(
+        "stateless_http",
+        "return stateless_http",
+        "def alias_fallback",
+    );
+    let r = reaching(u);
+    let v = format!("stateless_http@{alias}");
+    assert_eq!(
+        r,
+        vec![
+            (
+                "settings.stateless".to_owned(),
+                Some(BindingKind::Assignment),
+                format!("is_none({v})"),
+                false
+            ),
+            (
+                "stateless".to_owned(),
+                Some(BindingKind::Assignment),
+                format!("!is_none(stateless) & !is_none({v}) & is_none(stateless_http)"),
+                false
+            ),
+            (
+                "stateless_http".to_owned(),
+                Some(BindingKind::Parameter),
+                format!(
+                    "!is_none(stateless_http) & !is_none({v}) | !is_none({v}) & is_none(stateless)"
+                ),
+                false
+            ),
+        ],
+        "{r:?}"
+    );
+    // The first test reads the parameter as received: plain.
+    assert_eq!(
+        region("stateless_http = stateless", "def alias_fallback"),
+        "!is_none(stateless) & is_none(stateless_http)"
+    );
+}
+
+#[test]
 fn an_untranslatable_test_is_opaque_and_keeps_its_text() {
     assert_eq!(
         region("return n", "def walrus"),
@@ -383,8 +490,8 @@ fn an_empty_literal_loop_keeps_the_entry_value() {
     assert!(shown.contains(&"None".to_owned()), "{shown:?}");
 }
 
-/// Every use with the definitions reaching it and every statement region, as text: pins the
-/// provider's output for this fixture (the Stage 2 review's O5).
+/// Every use with the definitions reaching it, every value source and every statement region,
+/// as text: pins the provider's output for this fixture (the Stage 2 review's O5).
 #[test]
 fn the_flow_facts_are_pinned() {
     let f = flow();
@@ -406,6 +513,23 @@ fn the_flow_facts_are_pinned() {
             u.place,
             slice(u.span.start, u.span.end),
             defs.join("; ")
+        ));
+    }
+    for v in &f.values {
+        let u = &f.uses[v.use_ix as usize];
+        out.push_str(&format!(
+            "value {:?} {} <- {} ({}) if {}\n",
+            v.sink,
+            line(v.span.start),
+            u.place,
+            if v.identity {
+                "identity"
+            } else if v.through_call {
+                "through a call"
+            } else {
+                "derived"
+            },
+            v.condition.encode()
         ));
     }
     for r in &f.regions {

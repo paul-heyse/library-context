@@ -72,6 +72,7 @@ boundary_reason
   16 dynamic_access
   17 override_dispatch
   18 runtime_unreachable
+  19 call_transfer
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
@@ -601,6 +602,7 @@ behavior_kind
   9 reads_setting
   10 is_read
   11 returns
+  12 tests
 verdict
   0 established
   1 conditional

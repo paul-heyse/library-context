@@ -5,7 +5,18 @@ from bpkg.dispatch import Base, Derived
 from bpkg.config import Settings, settings
 from bpkg.open import forward_open, own_open
 from bpkg.records import Configured, Plain, Point
-from bpkg.service import Session, debug_enabled, ignore, make, serve, start
+from bpkg.service import (
+    Session,
+    configured,
+    debug_enabled,
+    ignore,
+    labelled,
+    make,
+    open_session,
+    paged,
+    serve,
+    start,
+)
 
 __all__ = [
     "Base",
@@ -15,11 +26,15 @@ __all__ = [
     "Point",
     "Session",
     "Settings",
+    "configured",
     "debug_enabled",
     "forward_open",
     "ignore",
+    "labelled",
     "make",
+    "open_session",
     "own_open",
+    "paged",
     "serve",
     "settings",
     "start",

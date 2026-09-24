@@ -311,14 +311,19 @@ table!(
 table!(
     /// Where a function's parameter goes (Stage 2.6; ADR-0022): per sink (a call argument, a
     /// `return`, a `raise`, a stored field or dict entry), the parameter whose value reaches it
-    /// through the flow IR's reaching definitions and value sources, **identity** (unchanged) or
-    /// derived, under the condition it does so (a path condition in the function's own places).
+    /// through the flow IR's reaching definitions and value sources, **identity** (unchanged),
+    /// derived, or only through a call (`through_call`: the callee's result may not carry it),
+    /// under the condition it does so (a path condition in the function's own places). Per sink and
+    /// source, the strongest transfer is kept.
     /// A read of an enclosing function's parameter inside a lambda or comprehension is followed
     /// through our resolution, flow-insensitively (`captured`).
     ValueFlows, ValueFlowsRow = "value_flows",
     family = Findings,
     key = [snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity],
-    checks = [("sink_span_order", "sink_end_byte >= sink_start_byte")],
+    checks = [
+        ("sink_span_order", "sink_end_byte >= sink_start_byte"),
+        ("identity_not_through_call", "NOT (identity AND through_call)"),
+    ],
     {
         snapshot_id: Id,
         /// The function the sink is in (for a field source, the reading method).
@@ -335,6 +340,7 @@ table!(
         sink_start_byte: i64,
         sink_end_byte: i64,
         identity: bool,
+        through_call: bool,
         captured: bool,
         condition_id: Id,
         condition: String,

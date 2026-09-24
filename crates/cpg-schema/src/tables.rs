@@ -814,11 +814,16 @@ table!(
 table!(
     /// What a value reads: per sink (a definition's value, a call argument, a `return`, a
     /// `yield`, a `raise`), each use inside it, **identity** (the value passes unchanged) or
-    /// derived, under the condition inside the expression that selects it.
+    /// derived, under the condition inside the expression that selects it. A derived use inside a
+    /// call (its callee, receiver or an argument) is `through_call`: it reaches the value only if
+    /// the callee's result carries it (ADR-0022 §Verdicts).
     FlowValues, FlowValuesRow = "flow_values",
     family = Flow,
     key = [snapshot_id, module_node_id, sink_start_byte, sink_end_byte, use_id, fact_id],
-    checks = [("sink_span_order", "sink_start_byte >= 0 AND sink_end_byte >= sink_start_byte")],
+    checks = [
+        ("sink_span_order", "sink_start_byte >= 0 AND sink_end_byte >= sink_start_byte"),
+        ("identity_not_through_call", "NOT (identity AND through_call)"),
+    ],
     {
         snapshot_id: Id,
         fact_id: Id,
@@ -828,6 +833,7 @@ table!(
         sink_end_byte: i64,
         use_id: Id,
         identity: bool,
+        through_call: bool,
         condition_id: Id,
     }
 );

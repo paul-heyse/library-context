@@ -204,6 +204,7 @@ pub(crate) fn run(
                     sink_end_byte: i64::from(v.span.end),
                     use_id: use_ids[v.use_ix as usize],
                     identity: v.identity,
+                    through_call: v.through_call,
                     condition_id,
                 }
             ));

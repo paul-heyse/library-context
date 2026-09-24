@@ -288,8 +288,11 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
         if verdict != "established"
     }
     rows = gen.behaviors.get(node, [])
+    # A class's parameters are its constructor's: its record carries them.
     per_parameter: dict[str, list[Fate]] = {
-        name: [] for name in facets.get("parameter", []) if not name.startswith("*")
+        name: []
+        for name in (facets.get("parameter", []) if o["kind"] != "class" else [])
+        if not name.startswith("*")
     }
     fated = (
         "forwards",
@@ -299,6 +302,7 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
         "stores",
         "returns",
         "is_read",
+        "tests",
     )
     for r in rows:
         if r["kind"] in fated and r["parameter_name"]:

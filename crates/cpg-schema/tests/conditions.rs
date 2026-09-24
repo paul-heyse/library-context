@@ -16,6 +16,29 @@ const NORMAL: &[(&str, &str)] = &[
         "truthy(a) | !truthy(a) & truthy(b)",
         "truthy(a) | truthy(b)",
     ),
+    // Self-subsuming resolution: the other conjunction holds `y` and only literals this one
+    // holds too.
+    (
+        "truthy(a) & truthy(r) & !truthy(y) | truthy(r) & truthy(y)",
+        "truthy(a) & truthy(r) | truthy(r) & truthy(y)",
+    ),
+    (
+        "!truthy(y) | truthy(r) & truthy(y)",
+        "!truthy(y) | truthy(r)",
+    ),
+    (
+        "truthy(a) & !truthy(y) | truthy(a) & truthy(y)",
+        "truthy(a)",
+    ),
+    (
+        "truthy(a) & !truthy(y) | truthy(b) & truthy(y)",
+        "!truthy(y) & truthy(a) | truthy(b) & truthy(y)",
+    ),
+    // A normal path met in two differently nested forms (`Client.__init__`'s `verify` guard).
+    (
+        "!truthy(i) & !truthy(m) & is_none(t) & is_none(v) | !truthy(m) & is_none(t) & truthy(i)",
+        "!truthy(m) & is_none(t) & is_none(v) | !truthy(m) & is_none(t) & truthy(i)",
+    ),
     (
         "member_of(t,{\"sse\",\"http\",\"sse\"})",
         "member_of(t,{\"http\",\"sse\"})",

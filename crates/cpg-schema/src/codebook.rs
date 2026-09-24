@@ -169,6 +169,10 @@ codebook!(
         /// An operation whose seed declaration the runtime view cannot reach (ADR-0022 §Composed
         /// layers); `unreachable_in_context` is the checker's never-bound.
         RuntimeUnreachable = 18 => "runtime_unreachable",
+        /// A value that reaches a sink only inside a call (its callee, receiver or an argument):
+        /// whether the callee's result carries it is a summary's question, Stage 3's (ADR-0022
+        /// §Verdicts).
+        CallTransfer = 19 => "call_transfer",
     }
 );
 
@@ -1186,6 +1190,9 @@ codebook!(
         IsRead = 10 => "is_read",
         /// A parameter is returned (identity or derived).
         Returns = 11 => "returns",
+        /// A parameter decides a branch of the operation: the literals over it, as the flow IR's
+        /// region conditions test them.
+        Tests = 12 => "tests",
     }
 );
 

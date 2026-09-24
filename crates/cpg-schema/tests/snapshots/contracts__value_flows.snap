@@ -6,6 +6,7 @@ table value_flows
 family findings
 key snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity
 check sink_span_order: sink_end_byte >= sink_start_byte
+check identity_not_through_call: NOT (identity AND through_call)
 @lctx.family=findings
 @lctx.table=value_flows
 snapshot_id: FixedSizeBinary(16) NOT NULL
@@ -19,6 +20,7 @@ module_node_id: FixedSizeBinary(16) NOT NULL
 sink_start_byte: Int64 NOT NULL
 sink_end_byte: Int64 NOT NULL
 identity: Boolean NOT NULL
+through_call: Boolean NOT NULL
 captured: Boolean NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 condition: Utf8 NOT NULL

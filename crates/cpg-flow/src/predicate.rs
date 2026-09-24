@@ -8,17 +8,27 @@
 //! **The runtime view** decides, before anything is normalized: `TYPE_CHECKING` (the sentinel
 //! the module was renamed to) is false; `sys.version_info` comparisons follow the context's
 //! Python version; `sys.platform` and `os.name` tests follow its platform.
+//!
+//! **Versioned places.** An atom names a place, but a place bound more than once in its scope can
+//! hold different values at two tests on one path (`if x is None: x = d` then `if x is None:`);
+//! read as one atom, the two tests would contradict. A test's value is versioned by the line of
+//! the latest binding other than a parameter reaching it (none: the value the scope received).
+//! Where a scope's tests of a place read more than one version, each versioned test is spelled
+//! `place@line` (ADR-0022 §Places); otherwise every test of it is spelled plainly.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 
 use cpg_schema::condition::{Atom, Condition, Value};
 use ruff_db::parsed::ParsedModuleRef;
 use ruff_python_ast_ty::{self as ast, CmpOp, Expr};
 use ruff_text_size_ty::Ranged;
-use ty_python_core::UseDefMap;
+use ty_python_core::ast_ids::HasScopedUseId;
+use ty_python_core::definition::{DefinitionKind, DefinitionState};
 use ty_python_core::place::PlaceExpr;
 use ty_python_core::predicate::{PatternPredicateKind, Predicate, PredicateNode};
 use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
+use ty_python_core::{FileScopeId, ProgramFile, SemanticIndex, UseDefMap};
 
 use crate::db::FlowDb;
 use crate::{RuntimeContext, SENTINEL};
@@ -38,6 +48,10 @@ pub(crate) struct Translator<'a> {
     /// The module's text as written (the sentinel undone): opaque atoms quote it.
     pub original: &'a str,
     pub context: &'a RuntimeContext,
+    pub index: &'a SemanticIndex<'a>,
+    pub pf: ProgramFile<'a>,
+    /// Per scope, each tested place (plainly spelled) with how many versions its tests read.
+    pub versions: RefCell<HashMap<FileScopeId, HashMap<String, usize>>>,
 }
 
 impl Translator<'_> {
@@ -50,8 +64,63 @@ impl Translator<'_> {
     }
 
     /// The place an expression names, as ty spells it, when it has at most two attribute
-    /// segments and no subscript (DESIGN §3.9).
+    /// segments and no subscript (DESIGN §3.9); versioned where its scope's tests read more than
+    /// one value of it (see the module docs).
     pub(crate) fn place(&self, e: &Expr) -> Option<String> {
+        let place = self.plain(e)?;
+        let Some(line) = self.version(e) else {
+            return Some(place);
+        };
+        let versioned = self
+            .index
+            .try_expression_scope_id(e)
+            .is_some_and(|fid| self.versions_tested(fid, &place) > 1);
+        Some(if versioned {
+            format!("{place}@{line}")
+        } else {
+            place
+        })
+    }
+
+    /// How many versions of `place` the tests of scope `fid` read (the plain one counted),
+    /// surveyed once per scope over its predicates.
+    fn versions_tested(&self, fid: FileScopeId, place: &str) -> usize {
+        if let Some(counts) = self.versions.borrow().get(&fid) {
+            return counts.get(place).copied().unwrap_or(0);
+        }
+        let mut tests: Vec<&Expr> = Vec::new();
+        for p in self.index.use_def_map(fid).predicates().iter() {
+            match &p.node {
+                PredicateNode::Expression(x)
+                | PredicateNode::Condition(x)
+                | PredicateNode::ChainedComparisonCondition(x) => {
+                    tests.push(x.node_ref(self.db).node(self.module));
+                }
+                PredicateNode::Pattern(pattern) => {
+                    tests.push(pattern.subject(self.db).node_ref(self.db).node(self.module));
+                    if let Some(guard) = pattern.guard(self.db) {
+                        tests.push(guard.node_ref(self.db).node(self.module));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut seen: HashMap<String, BTreeSet<Option<usize>>> = HashMap::new();
+        for t in tests {
+            for x in places_in(t) {
+                if let Some(p) = self.plain(x) {
+                    seen.entry(p).or_default().insert(self.version(x));
+                }
+            }
+        }
+        let counts: HashMap<String, usize> = seen.into_iter().map(|(k, v)| (k, v.len())).collect();
+        let n = counts.get(place).copied().unwrap_or(0);
+        self.versions.borrow_mut().insert(fid, counts);
+        n
+    }
+
+    /// The place an expression names, spelled plainly (see [`Self::place`]).
+    fn plain(&self, e: &Expr) -> Option<String> {
         let place = PlaceExpr::try_from_expr(e)?.to_string();
         let original = self
             .source(e.range())
@@ -65,6 +134,54 @@ impl Translator<'_> {
         };
         let dots = place.matches('.').count();
         (dots <= 2 && !place.contains('[')).then_some(place)
+    }
+
+    /// The line of the latest binding other than a parameter that reaches a test's read of a
+    /// place bound more than once in its scope; `None` when the plain spelling is unambiguous
+    /// (see the module docs).
+    fn version(&self, e: &Expr) -> Option<usize> {
+        let load = match e {
+            Expr::Name(n) => n.ctx.is_load(),
+            Expr::Attribute(a) => a.ctx.is_load(),
+            Expr::Subscript(s) => s.ctx.is_load(),
+            _ => false,
+        };
+        if !load {
+            return None;
+        }
+        let fid = self.index.try_expression_scope_id(e)?;
+        let place = PlaceExpr::try_from_expr(e)?;
+        let id = self.index.place_table(fid).place_id(&place)?;
+        let map = self.index.use_def_map(fid);
+        // ty's loop-header bindings stand for the loop's own; they are not a second binding.
+        let bound = map
+            .reachable_bindings(id)
+            .filter(|b| match b.binding {
+                DefinitionState::Defined(d) => {
+                    !matches!(d.kind(self.db), DefinitionKind::LoopHeader(_))
+                }
+                _ => false,
+            })
+            .count();
+        if bound <= 1 {
+            return None;
+        }
+        let use_id = ast::ExprRef::from(e).scoped_use_id(self.db, self.pf);
+        let latest = map
+            .bindings_at_use(use_id)
+            .filter_map(|b| match b.binding {
+                DefinitionState::Defined(d) => Some(d.kind(self.db)),
+                _ => None,
+            })
+            .filter(|k| {
+                !matches!(
+                    k,
+                    DefinitionKind::Parameter(_) | DefinitionKind::LambdaParameter(_)
+                )
+            })
+            .map(|k| usize::from(k.target_range(self.module).start()))
+            .max()?;
+        Some(self.original[..latest].matches('\n').count() + 1)
     }
 
     /// The truth of `e` used as a test.
@@ -306,6 +423,29 @@ impl Translator<'_> {
             }
         }
     }
+}
+
+/// The place expressions a test reads (names, attribute chains and subscripts, loaded).
+fn places_in(e: &Expr) -> Vec<&Expr> {
+    use ruff_python_ast_ty::visitor::source_order::{self, SourceOrderVisitor};
+    struct V<'a>(Vec<&'a Expr>);
+    impl<'a> SourceOrderVisitor<'a> for V<'a> {
+        fn visit_expr(&mut self, e: &'a Expr) {
+            let load = match e {
+                Expr::Name(n) => n.ctx.is_load(),
+                Expr::Attribute(a) => a.ctx.is_load(),
+                Expr::Subscript(s) => s.ctx.is_load(),
+                _ => false,
+            };
+            if load && PlaceExpr::try_from_expr(e).is_some() {
+                self.0.push(e);
+            }
+            source_order::walk_expr(self, e);
+        }
+    }
+    let mut v = V(Vec::new());
+    v.visit_expr(e);
+    v.0
 }
 
 /// A reachability diagram's condition, memoized per diagram node of one scope's use-def map.

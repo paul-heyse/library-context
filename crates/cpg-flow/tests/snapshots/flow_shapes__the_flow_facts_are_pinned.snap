@@ -75,6 +75,88 @@ use 193:a a <- a [parameter] if true
 use 194:b b <- b [parameter] if true
 use 195:a a <- a [parameter] if opaque("a > b")
 use 196:b b <- b [parameter] if !opaque("a > b")
+use 200:level level <- level [parameter] if !is_none(level)
+use 200:level level <- level [parameter] if true
+use 200:settings settings <- <unbound> [unbound] if is_none(level)
+use 200:settings.level settings.level <- <unbound> [unbound] if is_none(level)
+use 201:name name <- name [parameter] if true
+use 202:fallback fallback <- <unbound> [unbound] if true
+use 202:name name <- name [parameter] if true
+use 202:chosen chosen <- (level if level is not None else settings.level).lower() [assignment] if true
+use 202:label label <- f"[{name}]" [assignment] if true
+use 206:stateless stateless <- stateless [parameter] if true
+use 206:stateless_http stateless_http <- stateless_http [parameter] if !is_none(stateless)
+use 207:stateless stateless <- stateless [parameter] if !is_none(stateless) & is_none(stateless_http)
+use 208:stateless_http stateless_http <- stateless [assignment] if !is_none(stateless) & is_none(stateless_http); stateless_http [parameter] if !is_none(stateless_http) | is_none(stateless)
+use 209:settings settings <- <unbound> [unbound] if is_none(stateless_http@207)
+use 209:settings.stateless settings.stateless <- <unbound> [unbound] if is_none(stateless_http@207)
+use 210:stateless_http stateless_http <- settings.stateless [assignment] if is_none(stateless_http@207); stateless [assignment] if !is_none(stateless) & !is_none(stateless_http@207) & is_none(stateless_http); stateless_http [parameter] if !is_none(stateless_http) & !is_none(stateless_http@207) | !is_none(stateless_http@207) & is_none(stateless)
+value Definition 19 <- object (through a call) if true
+value Definition 23 <- timeout (identity) if !is_none(timeout)
+value Definition 23 <- timeout (derived) if true
+value Return 24 <- timeout (identity) if true
+value Definition 29 <- settings.host (identity) if true
+value Definition 29 <- settings (derived) if true
+value Return 30 <- host (identity) if true
+value Raise 35 <- ValueError (through a call) if true
+value Return 37 <- path.upper (through a call) if true
+value Return 37 <- path (through a call) if true
+value Return 38 <- path (identity) if true
+value Return 42 <- a (identity) if truthy(a)
+value Return 42 <- b (identity) if !truthy(a)
+value Argument 46 <- items (identity) if true
+value Definition 46 <- len (through a call) if true
+value Definition 46 <- items (through a call) if true
+value Return 47 <- n (identity) if true
+value Definition 52 <- names (derived) if true
+value Return 52 <- prefix (derived) if true
+value Return 52 <- n (derived) if true
+value Return 52 <- names (derived) if true
+value Definition 62 <- total (derived) if true
+value Definition 62 <- v (derived) if true
+value Definition 57 <- values (derived) if true
+value Return 65 <- total (identity) if true
+value Definition 71 <- fn (through a call) if true
+value Definition 73 <- error (identity) if true
+value Return 76 <- result (derived) if true
+value Return 76 <- cleanup (derived) if true
+value Definition 82 <- compute (through a call) if true
+value Definition 81 <- cm (derived) if true
+value Return 83 <- value (identity) if true
+value Return 94 <- state (identity) if true
+value Definition 102 <- counter (derived) if true
+value Return 103 <- counter (identity) if true
+value Definition 111 <- level (derived) if true
+value Return 112 <- level (identity) if true
+value Return 114 <- inner (identity) if true
+value Definition 118 <- data (identity) if true
+value Return 120 <- data (identity) if true
+value Return 125 <- host (identity) if true
+value Return 132 <- value (identity) if true
+value Definition 136 <- n (derived) if true
+value Return 137 <- n (identity) if true
+value Definition 149 <- item (identity) if true
+value Return 150 <- last (identity) if true
+value Return 160 <- result (identity) if true
+value Return 169 <- marker_value (identity) if true
+value Return 179 <- x (identity) if true
+value Definition 183 <- TYPE_CHECKING (derived) if true
+value Return 195 <- a (identity) if true
+value Return 196 <- b (identity) if true
+value Definition 200 <- level (through a call) if !is_none(level)
+value Definition 200 <- settings.level (through a call) if is_none(level)
+value Definition 200 <- settings (through a call) if is_none(level)
+value Definition 200 <- level (through a call) if true
+value Definition 201 <- name (derived) if true
+value Argument 202 <- name (identity) if true
+value Return 202 <- fallback (through a call) if true
+value Return 202 <- name (through a call) if true
+value Return 202 <- chosen (derived) if true
+value Return 202 <- label (derived) if true
+value Definition 207 <- stateless (identity) if true
+value Definition 209 <- settings.stateless (identity) if true
+value Definition 209 <- settings (derived) if true
+value Return 210 <- stateless_http (identity) if true
 region 1 """One function per shape; each test in `cpg-flow` names its function and line.""" if true
 region 3 import os if true
 region 4 import sys if true
@@ -199,3 +281,13 @@ region 192 def commented(a, b): if true
 region 193 if (a  # first if true
 region 195 return a if opaque("a > b")
 region 196 return b if !opaque("a > b")
+region 199 def nested_fallback(level=None, name=None): if true
+region 200 chosen = (level if level is not None else settings.level).lower() if true
+region 201 label = f"[{name}]" if true
+region 202 return fallback(name), chosen, label if true
+region 205 def alias_fallback(stateless=None, stateless_http=None): if true
+region 206 if stateless is not None and stateless_http is None: if true
+region 207 stateless_http = stateless if !is_none(stateless) & is_none(stateless_http)
+region 208 if stateless_http is None: if true
+region 209 stateless_http = settings.stateless if is_none(stateless_http@207)
+region 210 return stateless_http if true

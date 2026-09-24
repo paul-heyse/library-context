@@ -16,8 +16,10 @@
 //!
 //! **Normalization** is syntactic (ADR-0022 §Conditions, the Stage 2 review's F2): literals sorted
 //! bytewise by encoding and deduplicated; a conjunction holding a literal and its negation dropped;
-//! `!x` dropped from any conjunction when `x` alone is a disjunct (`a | !a & b` is `a | b`),
-//! repeated to a fixpoint; then conjunctions sorted, deduplicated and absorbed.
+//! `x | !x` is `true`; self-subsuming resolution, repeated to a fixpoint: a literal `!y` is
+//! dropped from a conjunction when another conjunction holds `y` and otherwise only literals the
+//! first holds too (`a & r & !y | r & y` is `a & r | r & y`; `a | !a & b` is `a | b`); then
+//! conjunctions sorted, deduplicated and absorbed.
 //!
 //! **Budget.** At most [`MAX_CONJUNCTIONS`] conjunctions of [`MAX_LITERALS`] literals; anything
 //! larger is [`Condition::OverBudget`], which states nothing (its record is `unknown`,
@@ -238,8 +240,9 @@ impl Condition {
     }
 
     /// Normalize raw conjunctions (DESIGN §3.9; see the module docs): literals sorted and
-    /// deduplicated; a conjunction holding a literal and its negation dropped; `!x` dropped beside
-    /// a lone `x`; the rest sorted, deduplicated and absorbed; then the budget.
+    /// deduplicated; a conjunction holding a literal and its negation dropped; self-subsuming
+    /// resolution (`a & !y | y` is `a | y`); the rest sorted, deduplicated and absorbed; then the
+    /// budget.
     pub fn from_dnf(raw: Vec<Vec<Literal>>) -> Self {
         let mut conjunctions: Vec<Vec<Literal>> = Vec::new();
         for mut c in raw {
@@ -251,23 +254,51 @@ impl Condition {
             }
             conjunctions.push(c);
         }
-        // `x | !x & r` is `x | r`: drop a literal whose negation stands alone as a disjunct.
+        // `x | !x` is `true`: a literal and its negation each standing alone.
+        let alone: BTreeSet<String> = conjunctions
+            .iter()
+            .filter(|c| c.len() == 1)
+            .map(|c| c[0].encode())
+            .collect();
+        if conjunctions
+            .iter()
+            .filter(|c| c.len() == 1)
+            .any(|c| alone.contains(&c[0].negated().encode()))
+        {
+            return Condition::always();
+        }
+        // Self-subsuming resolution: `a & r & !y | r & y` is `a & r | r & y`. A literal is dropped
+        // from a conjunction when another conjunction holds its negation and otherwise only
+        // literals it holds too (`x | !x & r` is `x | r` is the case with nothing else). A
+        // conjunction left empty makes the condition `true`.
         loop {
-            let alone: BTreeSet<String> = conjunctions
+            let sets: Vec<BTreeSet<String>> = conjunctions
                 .iter()
-                .filter(|c| c.len() == 1)
-                .map(|c| c[0].negated().encode())
+                .map(|c| c.iter().map(Literal::encode).collect())
                 .collect();
-            let mut changed = false;
-            for c in &mut conjunctions {
-                if c.len() > 1 {
-                    let before = c.len();
-                    c.retain(|l| !alone.contains(&l.encode()));
-                    changed |= c.len() != before;
+            let mut change = None;
+            'find: for (i, c) in conjunctions.iter().enumerate() {
+                for (k, l) in c.iter().enumerate() {
+                    let negated = l.negated().encode();
+                    let own = l.encode();
+                    let resolves = sets.iter().enumerate().any(|(j, s)| {
+                        j != i
+                            && s.contains(&negated)
+                            && s.iter()
+                                .all(|x| *x == negated || (*x != own && sets[i].contains(x)))
+                    });
+                    if resolves {
+                        change = Some((i, k));
+                        break 'find;
+                    }
                 }
             }
-            if !changed {
+            let Some((i, k)) = change else {
                 break;
+            };
+            conjunctions[i].remove(k);
+            if conjunctions[i].is_empty() {
+                return Condition::always();
             }
         }
         conjunctions.sort_by_cached_key(|c| encode_conjunction(c));
@@ -341,6 +372,51 @@ impl Condition {
             }
             Condition::OverBudget => Condition::OverBudget,
         }
+    }
+
+    /// This condition with a factor assumed true: when every conjunction contains a conjunction
+    /// of `factor`, every conjunction of `factor` is used, and the remainders agree, that
+    /// remainder; otherwise the condition unchanged. It factors out a function's normal path (the
+    /// negation of a guard that raises) from what a fate is stated under.
+    pub fn given(&self, factor: &Condition) -> Condition {
+        if self == factor {
+            return Condition::always();
+        }
+        let (Condition::Dnf(c), Condition::Dnf(f)) = (self, factor) else {
+            return self.clone();
+        };
+        if f.is_empty() || f.iter().any(Vec::is_empty) {
+            return self.clone();
+        }
+        let set =
+            |x: &Vec<Literal>| -> BTreeSet<String> { x.iter().map(Literal::encode).collect() };
+        let factors: Vec<BTreeSet<String>> = f.iter().map(set).collect();
+        let mut used = BTreeSet::new();
+        let mut rest: Option<BTreeSet<String>> = None;
+        for conj in c {
+            let have = set(conj);
+            let Some((i, b)) = factors.iter().enumerate().find(|(_, b)| b.is_subset(&have)) else {
+                return self.clone();
+            };
+            used.insert(i);
+            let r: BTreeSet<String> = have.difference(b).cloned().collect();
+            match &rest {
+                None => rest = Some(r),
+                Some(x) if *x == r => {}
+                Some(_) => return self.clone(),
+            }
+        }
+        if used.len() != factors.len() {
+            return self.clone();
+        }
+        let rest = rest.unwrap_or_default();
+        let literals: Vec<Literal> = c
+            .iter()
+            .flatten()
+            .filter(|l| rest.contains(&l.encode()))
+            .cloned()
+            .collect();
+        Condition::from_dnf(vec![literals])
     }
 
     /// The canonical encoding (`over_budget` for a condition past the budget).
@@ -530,6 +606,17 @@ mod tests {
         );
         // A tautology reduces to `true`.
         assert!(c("is_none(x) | !is_none(x) & !truthy(y) | truthy(y)").is_always());
+        assert!(c("opaque(\"s\") | !opaque(\"s\")").is_always());
+    }
+
+    #[test]
+    fn a_normal_path_factors_out() {
+        let guard = c("!is_none(n) & opaque(\"n <= 0\")").not();
+        assert!(guard.given(&guard).is_always());
+        let fate = guard.and(&c("truthy(verbose)"));
+        assert_eq!(fate.given(&guard).encode(), "truthy(verbose)");
+        let other = c("truthy(x) | truthy(y)");
+        assert_eq!(other.given(&guard), other, "no factor, no change");
     }
 
     #[test]
