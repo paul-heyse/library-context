@@ -1767,18 +1767,9 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         }
     }
     let positive = |c: &ModelCondition| -> Vec<String> {
-        match c.legacy() {
-            Condition::Dnf(d) => d
-                .iter()
-                .flatten()
-                .map(|l| {
-                    let mut l = l.clone();
-                    l.positive = true;
-                    l.encode()
-                })
-                .collect(),
-            Condition::OverBudget => Vec::new(),
-        }
+        c.diagram()
+            .map(|diagram| diagram.support().to_vec())
+            .unwrap_or_default()
     };
     let mut atom_reads: HashMap<(Id, String), BTreeSet<String>> = HashMap::new();
     for (f, ts) in &tests_of {

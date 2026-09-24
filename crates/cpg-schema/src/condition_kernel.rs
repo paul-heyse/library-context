@@ -5,6 +5,12 @@ use crate::condition::{Atom, Condition};
 use crate::id::{Id, IdHasher};
 use biodivine_lib_bdd::{Bdd, BddNode, BddPointer, BddVariableSet, op_function};
 
+/// Version of the structural node encoding persisted in a serving generation.
+pub const KERNEL_FORMAT: u32 = 1;
+/// Admission limits for one generation's catalog before native hydration.
+pub const MAX_CATALOG_CONDITIONS: usize = 100_000;
+pub const MAX_CATALOG_NODES: usize = 100_000;
+
 // Stage 2 can retain 16 conjunctions of 8 distinct literals each.
 const MAX_ATOMS: usize = 128;
 const MAX_NODES: usize = 50_000;
@@ -56,6 +62,72 @@ pub struct DiagramNode {
     pub atom: String,
     pub low: Id,
     pub high: Id,
+}
+
+/// One persisted condition reference. An absent root carries a named kernel boundary.
+#[derive(Clone, Debug)]
+pub struct ConditionRoot {
+    pub condition_id: Id,
+    pub root_id: Option<Id>,
+    pub boundary_reason: Option<String>,
+}
+
+/// Shared publication and native-load check of a complete condition catalog.
+pub fn hydrate_catalog(
+    conditions: &[ConditionRoot],
+    nodes: &[DiagramNode],
+) -> Result<HashMap<Id, Diagram>, String> {
+    if conditions.len() > MAX_CATALOG_CONDITIONS || nodes.len() > MAX_CATALOG_NODES {
+        return Err(format!(
+            "condition catalog exceeds limits: {} conditions, {} nodes",
+            conditions.len(),
+            nodes.len()
+        ));
+    }
+    let mut catalog = HashMap::new();
+    for node in nodes {
+        let atom = Atom::parse_encoded(&node.atom)
+            .map_err(|e| format!("node {} atom: {e}", node.node_id.hex()))?;
+        if atom.encode() != node.atom {
+            return Err(format!("node {} has noncanonical atom", node.node_id.hex()));
+        }
+        if catalog.insert(node.node_id, node.clone()).is_some() {
+            return Err(format!("duplicate node {}", node.node_id.hex()));
+        }
+    }
+    let mut diagrams = HashMap::new();
+    let mut seen_conditions = HashSet::new();
+    let mut reached_nodes = HashSet::new();
+    for row in conditions {
+        if !seen_conditions.insert(row.condition_id) {
+            return Err(format!("duplicate condition {}", row.condition_id.hex()));
+        }
+        match (row.root_id, row.boundary_reason.as_deref()) {
+            (Some(root), None) => {
+                let diagram = Diagram::from_catalog(root, &catalog)
+                    .map_err(|e| format!("invalid root {}: {e:?}", root.hex()))?;
+                if diagram.id() != row.condition_id {
+                    return Err(format!("condition id differs from root {}", root.hex()));
+                }
+                reached_nodes.extend(diagram.root_and_nodes().1.into_iter().map(|n| n.node_id));
+                diagrams.insert(row.condition_id, diagram);
+            }
+            (None, Some(code)) if KernelBoundary::from_code(code).is_some() => {}
+            _ => {
+                return Err(format!(
+                    "invalid condition boundary {}",
+                    row.condition_id.hex()
+                ));
+            }
+        }
+    }
+    if reached_nodes.len() != catalog.len() {
+        return Err(format!(
+            "{} condition nodes are not reachable from any stated root",
+            catalog.len().saturating_sub(reached_nodes.len())
+        ));
+    }
+    Ok(diagrams)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -872,6 +944,45 @@ mod tests {
         assert_eq!(
             validate_nodes(root, &duplicate),
             Err(NodeValidationError::DuplicateId)
+        );
+    }
+
+    #[test]
+    fn shared_catalog_hydration_rejects_orphans_and_duplicate_roots() {
+        let a = d("truthy(a)");
+        let (root, mut nodes) = a.root_and_nodes();
+        let row = ConditionRoot {
+            condition_id: a.id(),
+            root_id: Some(root),
+            boundary_reason: None,
+        };
+        assert!(hydrate_catalog(std::slice::from_ref(&row), &nodes).is_ok());
+        assert!(
+            hydrate_catalog(&[row.clone(), row.clone()], &nodes)
+                .err()
+                .unwrap()
+                .contains("duplicate condition")
+        );
+        nodes.extend(d("truthy(b)").root_and_nodes().1);
+        assert!(
+            hydrate_catalog(&[row], &nodes)
+                .err()
+                .unwrap()
+                .contains("not reachable")
+        );
+        let too_many = vec![
+            ConditionRoot {
+                condition_id: a.id(),
+                root_id: Some(root),
+                boundary_reason: None,
+            };
+            MAX_CATALOG_CONDITIONS + 1
+        ];
+        assert!(
+            hydrate_catalog(&too_many, &[])
+                .err()
+                .unwrap()
+                .contains("exceeds limits")
         );
     }
 

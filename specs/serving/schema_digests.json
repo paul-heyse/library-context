@@ -55,6 +55,14 @@
     "form": "[{\"metadata\":[],\"name\":\"behavior_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"operation_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"parameter_name\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"callee_node_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"callee\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"target_name\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"value\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"depth\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"conditional\",\"nullable\":false,\"type\":\"bool\"},{\"metadata\":[],\"name\":\"verdict\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"boundary_reason\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"condition\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"callee_text\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"phase\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"premise_key\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"occurrences\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"path\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"line\",\"nullable\":true,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"site_text\",\"nullable\":true,\"type\":\"utf8\"}]",
     "digest": "49eeecc0436c0c25d795a12f6ef5c8153bb80cf74f794c6233000abaf13a8fe5"
   },
+  "conditions": {
+    "form": "[{\"metadata\":[],\"name\":\"condition_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"root_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"boundary_reason\",\"nullable\":true,\"type\":\"utf8\"}]",
+    "digest": "5dddc3a65938bf05971a0196f277a2e952701c626e611b8bdfc579de0d5f7c49"
+  },
+  "condition_nodes": {
+    "form": "[{\"metadata\":[],\"name\":\"node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"atom\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"low_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"high_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
+    "digest": "0cac9574d15f87cd5d3a1407bb0a73d83f8aa662c3f5fb8203be77a310de390d"
+  },
   "singletons": {
     "form": "[{\"metadata\":[],\"name\":\"global\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"class_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
     "digest": "5dd50e121791a4b6287f781847a02e41867f75b91b06bf36a4b0a377e87e5913"

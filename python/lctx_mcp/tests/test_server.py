@@ -190,6 +190,17 @@ async def test_a_mismatched_generation_fails_at_connect(generation: Path, tmp_pa
     wrong_schema = tampered(generation, tmp_path, schema)
     with pytest.raises(GenerationError, match="schema digest"):
         load(wrong_schema, FakeEmbedder().spec)
+    wrong_path = tampered(
+        generation,
+        tmp_path,
+        lambda m: m["files"]["conditions"].update(file="../conditions.arrow"),
+    )
+    with pytest.raises(GenerationError, match="unexpected served file path"):
+        load(wrong_path, None)
+    renamed = tmp_path / "renamed"
+    shutil.copytree(generation, renamed)
+    with pytest.raises(GenerationError, match="generation directory"):
+        load(renamed, None)
     with pytest.raises(RuntimeError, match="Client failed to connect") as err:
         async with Client(build_server(wrong_schema, FakeEmbedder())):
             pass

@@ -175,6 +175,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
         1
     );
     assert_eq!(manifest["spec_hash"].as_str().unwrap().len(), 64);
+    assert_eq!(manifest["condition_kernel_format"], 1);
     let names: Vec<&String> = manifest["files"].as_object().unwrap().keys().collect();
     assert_eq!(
         names,
@@ -184,6 +185,8 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "behaviors",
             "brief_members",
             "briefs",
+            "condition_nodes",
+            "conditions",
             "embedding_spec",
             "evidence",
             "lexical_text",
@@ -220,6 +223,13 @@ async fn a_changed_generation_is_refused() {
     copy(&g.dir, &renamed);
     let err = verify(&renamed).unwrap_err().to_string();
     assert!(err.contains("generation key"), "{err}");
+    let manifest_path = renamed.join("MANIFEST.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["files"]["conditions"]["file"] = serde_json::json!("../conditions.arrow");
+    std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let err = verify(&renamed).unwrap_err().to_string();
+    assert!(err.contains("unexpected served file path"), "{err}");
 
     let path = g.dir.join("briefs.arrow");
     let mut bytes = std::fs::read(&path).unwrap();

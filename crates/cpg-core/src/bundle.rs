@@ -47,7 +47,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 5;
+pub const FORMAT: u64 = 6;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -194,6 +194,12 @@ fn query(name: &str) -> Option<String> {
             phase = text_of::<cpg_schema::codebook::ReadPhase>("b.phase"),
             files = cpg_schema::flows::display_files_sql(),
         ),
+        "conditions" => "SELECT condition_id, root_id, boundary_reason FROM conditions \
+                         ORDER BY condition_id"
+            .to_owned(),
+        "condition_nodes" => "SELECT node_id, atom, low_id, high_id FROM condition_nodes \
+                              ORDER BY node_id"
+            .to_owned(),
         "singletons" => "SELECT global, class_node_id FROM singletons ORDER BY global".to_owned(),
         "ambient_reads" => format!(
             "SELECT a.global, a.field, a.reader_node_id, \
@@ -711,6 +717,7 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     }
     let mut manifest = json!({
         "format": FORMAT,
+        "condition_kernel_format": cpg_schema::condition_kernel::KERNEL_FORMAT,
         "library": release[0],
         "requirement": release[1],
         "snapshot_id": ids[0],
@@ -768,6 +775,12 @@ pub async fn bundle(root: &Path, snapshot_id: Id, out: &Path) -> Result<Generati
 pub fn verify(dir: &Path) -> Result<Value, CoreError> {
     let manifest: Value = serde_json::from_str(&fs_err::read_to_string(dir.join("MANIFEST.json"))?)
         .map_err(|e| bad(format!("MANIFEST.json: {e}")))?;
+    if manifest["format"].as_u64() != Some(FORMAT)
+        || manifest["condition_kernel_format"].as_u64()
+            != Some(u64::from(cpg_schema::condition_kernel::KERNEL_FORMAT))
+    {
+        return Err(bad("manifest or condition kernel format mismatch"));
+    }
     let files = manifest["files"]
         .as_object()
         .ok_or_else(|| bad("MANIFEST.json lists no files"))?;
@@ -775,6 +788,12 @@ pub fn verify(dir: &Path) -> Result<Value, CoreError> {
         let file = entry["file"]
             .as_str()
             .ok_or_else(|| bad(format!("{name}: no file")))?;
+        if file != format!("{name}.arrow") {
+            return Err(bad(format!("{name}: unexpected served file path")));
+        }
+        if dir.join(file).is_symlink() {
+            return Err(bad(format!("{file}: a served file cannot be a symlink")));
+        }
         let bytes = fs_err::read(dir.join(file))?;
         if Some(sha256(&bytes).as_str()) != entry["sha256"].as_str() {
             return Err(bad(format!("{file}: its sha256 differs from the manifest")));

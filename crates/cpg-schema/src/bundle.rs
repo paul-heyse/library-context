@@ -228,6 +228,26 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             ],
             &["behavior_id"],
         ),
+        // FORMAT 6 (ADR-0024): structural Boolean authority for generation-pinned queries.
+        file(
+            "conditions",
+            vec![
+                id("condition_id", false),
+                id("root_id", true),
+                utf8("boundary_reason", true),
+            ],
+            &["condition_id"],
+        ),
+        file(
+            "condition_nodes",
+            vec![
+                id("node_id", false),
+                utf8("atom", false),
+                id("low_id", false),
+                id("high_id", false),
+            ],
+            &["node_id"],
+        ),
         // FORMAT 5 (Stage 2; ADR-0022): module-global singletons, their fields' reads at the
         // resolved key, and the field and setting claims with their premises.
         file(

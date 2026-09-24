@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cpg_schema::condition::{Atom, EvaluationIdentity};
-use cpg_schema::condition_kernel::{Diagram, DiagramNode, KernelBoundary};
+use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::{Id, IdHasher};
 use cpg_schema::rules::{Rule, rules};
 use datafusion::arrow::util::pretty::pretty_format_batches;
@@ -174,35 +174,27 @@ async fn validate_condition_graph(ctx: &SessionContext) -> Result<Vec<Violation>
     let sources: Vec<PersistedSource> =
         sql::fetch(ctx, &source_contract(), sql::Params::new()).await?;
     let mut errors = Vec::new();
-    let mut catalog = HashMap::new();
-    for row in nodes {
-        let node = DiagramNode {
+    let nodes: Vec<DiagramNode> = nodes
+        .into_iter()
+        .map(|row| DiagramNode {
             node_id: row.node_id,
             atom: row.atom,
             low: row.low_id,
             high: row.high_id,
-        };
-        if catalog.insert(node.node_id, node).is_some() {
-            errors.push(format!("duplicate node {}", row.node_id.hex()));
-        }
-    }
-    let mut diagrams = HashMap::new();
-    for row in conditions {
-        match (row.root_id, row.boundary_reason.as_deref()) {
-            (Some(root), None) => match Diagram::from_catalog(root, &catalog) {
-                Ok(diagram) if diagram.id() == row.condition_id => {
-                    diagrams.insert(row.condition_id, diagram);
-                }
-                Ok(_) => errors.push(format!("condition id differs from root {}", root.hex())),
-                Err(e) => errors.push(format!("invalid root {}: {e:?}", root.hex())),
-            },
-            (None, Some(code)) if KernelBoundary::from_code(code).is_some() => {}
-            _ => errors.push(format!(
-                "invalid condition boundary {}",
-                row.condition_id.hex()
-            )),
-        }
-    }
+        })
+        .collect();
+    let conditions: Vec<ConditionRoot> = conditions
+        .into_iter()
+        .map(|row| ConditionRoot {
+            condition_id: row.condition_id,
+            root_id: row.root_id,
+            boundary_reason: row.boundary_reason,
+        })
+        .collect();
+    let diagrams = hydrate_catalog(&conditions, &nodes).unwrap_or_else(|e| {
+        errors.push(e);
+        HashMap::new()
+    });
     let source_by_id: HashMap<Id, PersistedSource> =
         sources.into_iter().map(|s| (s.module_node_id, s)).collect();
     let mut leaf_keys = HashSet::new();

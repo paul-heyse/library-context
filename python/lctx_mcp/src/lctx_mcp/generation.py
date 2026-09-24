@@ -16,11 +16,14 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 import pyarrow.ipc as ipc
+from lctx_semantics import ConditionGraph, catalog_limits
 
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 5
+FORMAT = 6
+KERNEL_FORMAT = 1
+MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
 
 
 class GenerationError(RuntimeError):
@@ -172,6 +175,13 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _utf8("site_text", True),
             ]
         ),
+        # FORMAT 6 (ADR-0024): the condition graph is retained for native semantic queries.
+        "conditions": pa.schema(
+            [_id("condition_id"), _id("root_id", True), _utf8("boundary_reason", True)]
+        ),
+        "condition_nodes": pa.schema(
+            [_id("node_id"), _utf8("atom"), _id("low_id"), _id("high_id")]
+        ),
         # FORMAT 5 (Stage 2): singletons, their fields' reads, and field and setting claims.
         "singletons": pa.schema([_utf8("global"), _id("class_node_id")]),
         "ambient_reads": pa.schema(
@@ -250,6 +260,7 @@ class Generation:
     ambient: dict[str, list[dict]] = field(default_factory=dict)
     claims: dict[str, dict] = field(default_factory=dict)
     op_vectors: dict[str, tuple[np.ndarray, list[bytes]]] = field(default_factory=dict)
+    condition_graph: ConditionGraph | None = None
 
     @property
     def snapshot_id(self) -> str:
@@ -268,7 +279,14 @@ def _read(root: Path, manifest: dict, name: str, schema: pa.Schema) -> pa.Table:
     entry = manifest["files"].get(name)
     if entry is None:
         raise GenerationError(f"MANIFEST.json lists no {name}")
-    data = (root / entry["file"]).read_bytes()
+    if entry.get("file") != f"{name}.arrow":
+        raise GenerationError(f"{name}: unexpected served file path")
+    path = root / entry["file"]
+    if path.is_symlink():
+        raise GenerationError(f"{entry['file']}: a served file cannot be a symlink")
+    if name in {"conditions", "condition_nodes"} and path.stat().st_size > MAX_CONDITION_FILE_BYTES:
+        raise GenerationError(f"{entry['file']}: condition file exceeds the load budget")
+    data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != entry["sha256"]:
         raise GenerationError(f"{entry['file']}: its sha256 differs from the manifest")
     want = schema_digest(schema)
@@ -289,9 +307,16 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     manifest = json.loads((root / "MANIFEST.json").read_text(encoding="utf-8"))
     if manifest.get("format") != FORMAT:
         raise GenerationError(f"manifest format {manifest.get('format')}, not {FORMAT}")
+    if manifest.get("condition_kernel_format") != KERNEL_FORMAT:
+        raise GenerationError(
+            f"condition kernel format {manifest.get('condition_kernel_format')}, "
+            f"not {KERNEL_FORMAT}"
+        )
     key = generation_key(manifest)
     if manifest.get("generation") != key:
         raise GenerationError(f"the generation key is {key}, not the manifest's")
+    if root.name != key:
+        raise GenerationError(f"the generation directory is {root.name}, not {key}")
     spec_hash: str | None = manifest.get("spec_hash")
     specs = _read(root, manifest, "embedding_spec", expected_schemas(0)["embedding_spec"])
     dimensions = 0
@@ -309,6 +334,28 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         dimensions = spec.dimensions
     schemas = expected_schemas(dimensions)
     tables = {name: _read(root, manifest, name, schema) for name, schema in schemas.items()}
+    max_conditions, max_nodes = catalog_limits()
+    if (
+        tables["conditions"].num_rows > max_conditions
+        or tables["condition_nodes"].num_rows > max_nodes
+    ):
+        raise GenerationError("condition catalog exceeds native load limits")
+    conditions = [
+        (
+            r["condition_id"].hex(),
+            None if r["root_id"] is None else r["root_id"].hex(),
+            r["boundary_reason"],
+        )
+        for r in tables["conditions"].to_pylist()
+    ]
+    nodes = [
+        (r["node_id"].hex(), r["atom"], r["low_id"].hex(), r["high_id"].hex())
+        for r in tables["condition_nodes"].to_pylist()
+    ]
+    try:
+        condition_graph = ConditionGraph(KERNEL_FORMAT, conditions, nodes)
+    except ValueError as e:
+        raise GenerationError(f"invalid condition graph: {e}") from e
 
     brief_rows = tables["briefs"].to_pylist()
     brief_ids = [r["brief_id"] for r in brief_rows]
@@ -373,6 +420,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         symbols=symbols,
         spec_hash=spec_hash,
         vectors=vectors,
+        condition_graph=condition_graph,
         vector_rows=vector_rows,
         op_ids=op_ids,
         operations={r["node_id"]: r for r in op_rows},
