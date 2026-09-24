@@ -468,7 +468,12 @@ These are as in the forward plan's §5. The pointers:
   - the forward plan;
   - whether to commit `docs/full_cpg_pipeline_external_review.md`.
 
-## 7. Probe material (the scratchpad did not survive the reboot)
+## 7. Probe material
+
+The probes themselves, with their recorded outputs, are saved under
+`docs/design_review/evidence/` (`d145a60`): `2026-09-24_translator-atom-identity/` (P1, P2),
+`2026-09-24_bdd-biodivine/` (P3), `2026-09-24_crosshair/` (P4) and `2026-09-24_pysa-spike/`. The
+essentials are repeated below.
 
 ### 7.1 The eight translation defects: shapes for `flow_shapes` cases
 

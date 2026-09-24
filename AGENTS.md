@@ -38,6 +38,7 @@ real consumer.
 | `docs/adr/` | Decision records, a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: core principles (DP-01–24, gates G1–G8), the code-intelligence profile (CI-01–13, gates CI-G1–G3) and the repo layer in `binding/library-context.md` (ADR-0023) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
+| `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
 | `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0014); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0012) |
 | `docs/initial_plan/` | Research input (don't edit it) and `DISPOSITION.md`, which maps each input section to where it landed |
