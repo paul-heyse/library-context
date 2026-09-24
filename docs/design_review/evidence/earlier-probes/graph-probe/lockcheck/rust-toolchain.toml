@@ -1,0 +1,7 @@
+# Load-bearing: this machine's rustup default is nightly. Every cargo command in
+# this workspace must run on this pinned stable. Changing it is a pin change —
+# see the pin-check skill and docs/pins.md.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,0 +1,13 @@
+[package]
+name = "stagef-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "nested_expressions"] }
+arrow-array = "=59.3.0"
+arrow-schema = "=59.3.0"
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread"] }
+
+[workspace]

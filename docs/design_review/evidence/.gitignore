@@ -1,0 +1,10 @@
+# Reproducible or bulky artefacts never enter the evidence folder's history.
+target/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+store/
+envs/
+node_modules/

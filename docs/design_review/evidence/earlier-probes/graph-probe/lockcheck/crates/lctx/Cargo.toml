@@ -1,0 +1,20 @@
+[package]
+name = "lctx"
+description = "The production entry point: acquire a library, then extract, derive, validate and publish its snapshot (DESIGN §4.0, ADR-0013)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+cpg-schema = { path = "../cpg-schema" }
+cpg-extract = { path = "../cpg-extract" }
+cpg-core = { path = "../cpg-core" }
+getrandom.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

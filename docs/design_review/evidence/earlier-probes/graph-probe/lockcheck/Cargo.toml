@@ -1,0 +1,75 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+# The pinned dependency family (DESIGN §7, ADR-0002). Arrow, DataFusion,
+# object_store and delta-rs must resolve to exactly one version each;
+# `just deps` enforces that with scripts/check_family.py (not deny.toml, which
+# misses dev-only duplicates — ADR-0002).
+[workspace.dependencies]
+arrow-array = "=59.3.0"
+arrow-schema = "=59.3.0"
+arrow-ipc = "=59.3.0"
+arrow-select = "=59.3.0"
+arrow-cast = "=59.3.0"
+arrow-ord = "=59.3.0"
+parquet = "=59.3.0"
+datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet"] }
+object_store = "=0.13.2"
+deltalake = { git = "https://github.com/delta-io/delta-rs", rev = "58f07cd62bfbce3649a7e1c87c696288068ae184", default-features = false, features = ["datafusion", "rustls"] }
+petgraph = "=0.8.3"
+
+# Analyzers (ADR-0012, docs/pins.md): Pyrefly 1.3.1 + third_party/pyrefly-1.3.1.patch from the
+# fork, and the ruff crate line it compiles against. One version each (scripts/check_family.py).
+pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978" }
+pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978" }
+pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978" }
+pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978" }
+pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978" }
+pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "6a93da3460f9279ba32ff4ebec07e1cbdf2eb978" }
+ruff_python_ast = "=0.0.11"
+ruff_source_file = "=0.0.11"
+ruff_text_size = "=0.0.11"
+# Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.
+blake3 = "=1.8.6"
+serde_json = "1"
+# Stage A (ADR-0013): reading a library's `pyproject.toml`/`uv.lock` and verifying `RECORD`
+# hashes. Each is already in the graph at this exact version (Pyrefly, delta-rs), so none adds
+# a version; `getrandom` draws each attempt's `snapshot_id` (DESIGN §3.4.1).
+toml = "=1.1.6"
+sha2 = "=0.10.9"
+base64 = "=0.22.1"
+# The docs family (CPG slice C5, docs/pins.md): markdown-rs, MDX constructs and byte offsets
+# (probe P5).
+markdown = "=1.0.0"
+getrandom = "=0.3.4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures = "0.3"
+thiserror = "2"
+url = "2"
+
+# dev
+insta = "1.48"
+proptest = "1"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+allow_attributes_without_reason = "warn"
+
+# Debug info for the DataFusion + delta-rs graph fills disks quickly.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0

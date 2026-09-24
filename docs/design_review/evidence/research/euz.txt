@@ -1,0 +1,3311 @@
+Journal of Artificial Intelligence Research 83 (2025) 1-38
+
+Submitted 12/2023; 12/2024; published 06/2025
+
+The fixed-point semantics of relational concept analysis∗
+Jérôme Euzenat
+
+Jerome.Euzenat@inria.fr
+Univ. Grenoble Alpes, Inria, CNRS, Grenoble INP, LIG, F-38000 Grenoble, France
+Associate editor: Ivan José Varzinczak
+
+Abstract
+Relational concept analysis (RCA) is an extension of formal concept analysis dealing
+with several related formal contexts simultaneously. It can learn description logic theories
+from data and has been used within various applications. However, RCA returns a single
+family of concept lattices, though, when the data feature circular dependencies, other
+solutions may be considered acceptable. The semantics of RCA, provided in an operational
+way, does not shed light on this issue. This paper aims at defining precisely the semantics
+of RCA and identifying alternative solutions. We first characterise the acceptable solutions
+as those families of concept lattices which belong to the space determined by the initial
+contexts (well-formed ), which cannot scale new attributes (saturated ), and which refer
+only to concepts of the family (self-supported ). We adopt a functional view on the RCA
+process by defining the space of well-formed solutions and two functions on that space:
+one expansive and the other contractive. In this context, the acceptable solutions are the
+common fixed points of both functions. We show that RCA returns the least element of
+the set of acceptable solutions. In addition, it is possible to build dually an operation that
+generates its greatest element. The set of acceptable solutions is a complete sublattice
+of the interval between these two elements. Its structure, and how the defined functions
+traverse it, are studied in detail.
+
+Contents
+1 Introduction
+
+2
+
+2 Preliminaries and related work
+2.1 Basics of formal concept analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2 Extending formal concept analysis with scaling . . . . . . . . . . . . . . . . . . . . .
+2.3 Other extensions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.4 A very short introduction to RCA . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.5 Dependencies and cycles . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+5
+5
+6
+9
+10
+13
+
+3 Motivating examples
+3.1 RCA may accept different families of concept lattices . . . . . . . . . . . . . . . . . .
+3.2 Minimal RCA example . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+14
+14
+15
+
+4 Dual context-lattice space
+4.1 The space of contexts K . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.2 The space of lattices L . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3 The lattice T of context-lattice pairs . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.4 The lattice O of families of context-lattice pairs . . . . . . . . . . . . . . . . . . . . .
+
+16
+17
+18
+20
+22
+
+∗. This is the author version formatted with the original JAIR style. Only differences beyond style are
+table of content, paper format and title nonuppercasing. doi: 10.1613/jair.1.17882
+© 2025 The Authors. Published by AI Access Foundation under Creative Commons Attribution License CC BY 4.0.
+
+Jérôme Euzenat
+
+5 A functional standpoint on RCA
+5.1 The expansion function EF ∗ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5.2 Self-supported lattices . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5.3 The contraction function P Q∗ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+24
+24
+25
+26
+
+6 The fixed points of EF ∗ and P Q∗
+6.1 Fixed points . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+6.2 Closure functions (EF ∗∞ and P Q∗∞ ) . . . . . . . . . . . . . . . . . . . . . . . . . .
+6.3 Acceptable solutions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+27
+27
+29
+30
+
+7 The fixed-point semantics of RCA
+7.1 Classical RCA computes EF ∗ ’s least fixed point . . . . . . . . . . . . . . . . . . . .
+7.2 Greatest fixed-point (of P Q∗ ) semantics . . . . . . . . . . . . . . . . . . . . . . . . .
+7.3 The structure of fixed points . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+31
+32
+32
+34
+
+8 Conclusion
+
+42
+
+9 Bibliography
+
+44
+
+1. Introduction
+Formal concept analysis (FCA) is a well-defined and widely used operation for extracting
+concept lattices from binary data tables [Ganter and Wille, 1999]. This means that, from
+a set of objects described by Boolean attributes (called context), it will generate the set of
+all descriptions relevant to these objects (called concepts) organised in a lattice following
+a generalisation order relation between these concepts. For instance, from a description of
+people through their diploma, major and current job it is possible to generate concepts about
+those bachelors in literature who hold a teacher position. This concept is a subconcept of
+bachelors in literature, which is a subconcept of that of people having a bachelor degree.
+The subconcepts add more constraints (attributes) to the objects they cover and thus cover
+less objects. These concepts, in turn, may be used to study the diploma-job matching.
+Many other techniques exist in AI and elsewhere for analysing data. Features that
+distinguish FCA is that it is symbolic, i.e. concept descriptions are algebraic combinations of
+attributes, and complete, i.e. FCA provides the lattice of all symbolically described concepts
+covering the input data. From this set, it is possible to select those which are more relevant
+to a particular purpose. Some numerical techniques would instead provide the concepts
+which optimise a criterion or may project the object descriptions in a space that make their
+separation and grouping easier. This leads to select the concepts to be considered, for which
+a description remains to be found. FCA and these types of techniques are complementary.
+Formal concept analysis has been put to work in a variety of applications [Ganter et
+al., 2005; Missaoui et al., 2022], but its Boolean descriptions are limited with respect to
+real data. It has thus received many extensions for using concrete domains to overcome this
+limitation. For instance, people may be further characterised by their salary, age and hobby.
+‘Conceptual scaling’ can group age and salary into intervals so as to be treated by FCA.
+However, such extensions do not cover relations between objects themselves: the fact that
+students have been taught by specific teachers or have been registered to specific schools.
+Relational concept analysis (RCA) extends FCA by taking into account relations between
+objects [Rouane Hacène et al., 2013a]. Such relations induce possible ‘relational attributes’
+2
+
+The fixed-point semantics of relational concept analysis
+
+that are added to the initial contexts, through ‘relational scaling’. From a family of related
+scaled contexts, RCA generates a family of dependent concept lattices which may include
+concepts that would not exist in FCA. For instance, people may be related to their household,
+their employer or their properties. Household, themselves may be described by their income,
+size and related to their members and the neighbourhood in which they are settled. This
+may lead to classify household depending on theses features and creating new attributes for
+people based on whether they live in a low-income household and whether they have been
+employed by a school. These new attributes, in turn, will generate new people concepts
+such as low-income household teachers and may lead to unveil indirect relations between
+household and jobs.
+Although RCA was initially targeting conceptual description languages such as UML
+[Huchard et al., 2007], it has been generalised to more varied description logic constructors
+[Rouane Hacène et al., 2013a]. Relational concept analysis has been used for instance for
+analysing the ecological and sanitary quality of water courses [Ouzerdine et al., 2019]. For
+that purpose, it connects formal contexts corresponding to water courses to data collection
+points which themselves are connected to measures and to organisms collected in water that
+can be described by further attributes. These relations between objects help generating
+richer concept descriptions comprising relations between concepts. It is then possible to
+connect the abundance or scarcity of some species to the presence of some pollutants, e.g.
+glyphosate. RCA has also been used for other purposes such as generating link keys used
+to extract links from RDF data sets [Atencia et al., 2020].
+In principle, RCA contributes to the completeness of FCA by providing more concepts
+to classify objects in. However, some concepts that can be considered acceptable may still
+not be generated by RCA. Indeed, in presence of circular relationships between objects,
+RCA may not identify reciprocally supporting concepts. For instance, consider that people
+are related to the schools they have attended, and schools are related to the students that
+they graduated. People attended multiple schools and schools had many student. There
+may be populations who have attended specific groups of schools and graduated from these.
+Although there may be no attribute distinguishing these populations and groups, they can
+be described by having attended at least one school of the group of schools having graduated
+only students of the population. These reciprocally supporting attributes lead to a refined
+version of the returned concept lattice which contains more concepts. Such concepts may
+reveal distinct populations based on various hidden factors not directly available from the
+data, such as wealth or information whose collection is not possible.
+These mutually supported concepts may not be returned by RCA. However, they determine families of more complete concept lattices covering the data. Hence, it remains
+to determine which unique family is returned by RCA. In this respect, this paper may be
+thought of as a way to restore the completeness of RCA by providing more possible concepts. This completeness may be useful in applications in which the most relevant solution
+is not the minimal one. It may also contribute to unveil more implications or dependencies
+between concepts.
+This problem of alternative RCA results stemmed out of curiosity. It occurred to us
+through experimenting with relational concept analysis for extracting link keys. Although
+RCA was returning acceptable results, it was easy to identify other acceptable results that
+it did not return. When RCA is used for extracting description logic terminologies, it makes
+3
+
+Jérôme Euzenat
+
+sense to return minimal terminologies that may be extended. But different sets of link keys
+would return totally different sets of links. The problem also manifests itself in applications
+in which developers add artificial identifiers in their data in order to constrain the returned
+solution to include more concepts [Braud et al., 2018; Dolques et al., 2012].
+To understand why such concepts are not provided, and which concepts are returned
+by RCA, this paper questions its semantics. The semantics of relational concept analysis
+has, so far, been provided in a rather operational way [Rouane Hacène et al., 2013b]. It
+specifies that RCA returns a family of concept lattices referring to each other that describe
+the input data and it shows that this result is unique. However, when there exist cycles
+in the dependencies between data, several families may satisfy these constraints. Hence,
+relational concept analysis needs a more precise and process-independent semantics that
+defines what it returns. For that purpose, this paper provides a structured description of
+the space on which relational concept analysis applies. It then defines acceptable solutions
+as those families of concept lattices which belong to the space determined by the initial
+family of formal contexts (well-formed ), cannot scale new attributes (saturated ), and refer
+only to concepts of the family (self-supported ).
+Relational concept analysis is then studied in a functional framework. It characterises
+the acceptable solutions as the fixed points of two functions, one expansive, which extends
+concept lattices as long as there are reasons to generate concepts distinguishing objects,
+and the other contractive, which reduces concept lattices as long as the attributes they are
+built on are not supported by remaining concepts. These functions can be iterated and the
+acceptable solutions are those families of concept lattices which are fixed points for both
+(Proposition 28): there is no reason to either extend or reduce them. The results provided
+by RCA are then proved to be the smallest acceptable solution, which is the least fixed point
+of the expansive function (Proposition 29). It also offers an alternative semantics based on
+the greatest element of this set, which is the greatest fixed point of the contractive function
+(Proposition 30). The structure of the set of fixed points is further characterised to support
+algorithmic developments.
+This paper extends the results obtained for the RCA0 restriction of RCA [Euzenat, 2021],
+which contains a single formal context, hence a single concept lattice, and no attribute, only
+relations. In spite of the simplicity of RCA0 , the main arguments of this work were already
+present and it remains a good introduction to the considered problems. A specific research
+report [Euzenat, 2023] builds on the results established in [Euzenat, 2021] and extends them
+step-by-step to RCA. It also explains the legacy names used here for functions.
+The present paper offers a direct and more synthetic formulation of the fixed-point
+semantics of RCA and the space of alternative acceptable solutions.
+We first present the work on which this one builds (relational concept analysis) and
+relevant related work (Section 2). Then, simple examples are provided to illustrate that
+relational concept analysis may accept concept lattices which are not those provided by the
+RCA operation (Section 3). In order to determine which could be the acceptable solutions
+of relational concept analysis, Section 4 circumscribes the space of objects that it considers. Two functions, an expansive function, corresponding to the operations of RCA, and a
+contractive function, aiming at finding self-supported solutions, are defined on this space
+(Section 5). The fixed points of these functions are discussed leading to a redefinition of
+4
+
+The fixed-point semantics of relational concept analysis
+
+acceptable solutions as those objects of the space which are fixed points for both functions
+(Section 6). In consequence, solutions returned by RCA are precisely characterised as the
+smallest acceptable solution, a dual operation returning the greatest acceptable solution can
+be defined, and the structure of the set of acceptable solutions is investigated (Section 7).
+
+2. Preliminaries and related work
+We mix preliminaries with related work for reasons of space, but also because the paper
+directly builds on this related work.
+2.1 Basics of formal concept analysis
+This paper relies only on the most basic results of formal concept analysis expressed as
+order-preserving functions.
+Formal Concept Analysis (FCA) [Ganter and Wille, 1999] starts with a formal context
+(hereafter context) ⟨G, M, I⟩ such that G denotes a set of objects, M a set of attributes, and
+I ⊆ G×M a binary relation between G and M , called the incidence relation. The statement
+gIm is interpreted as ‘object g has attribute m’, also noted m(g). Two operators ·↑ and
+·↓ define a Galois connection between the powersets ⟨2G , ⊆⟩ and ⟨2M , ⊆⟩, with A ⊆ G and
+B ⊆ M:
+A↑ = {m ∈ M | gIm for all g ∈ A},
+B ↓ = {g ∈ G | gIm for all m ∈ B}.
+
+The operators ·↑ and ·↓ are decreasing, i.e. if A1 ⊆ A2 then A↑2 ⊆ A↑1 and if B1 ⊆ B2 then
+↓
+B2 ⊆ B1↓ . Intuitively, the less objects there are, the more attributes they share, and dually,
+the less attributes there are, the more objects have these attributes. It can be checked that
+A ⊆ A↑↓ and that B ⊆ B ↓↑ , that A↑ = A↑↓↑ and that B ↓ = B ↓↑↓ .
+A pair ⟨A, B⟩ ∈ 2G × 2M , such that A↑ = B and B ↓ = A, is called a formal concept
+(hereafter concept), where A = extent(⟨A, B⟩) is the extent and B = intent(⟨A, B⟩) the
+intent of ⟨A, B⟩. Moreover, for a formal concept ⟨A, B⟩, A and B are closed for the closure
+operations ·↑↓ and ·↓↑ , respectively, i.e. A↑↓ = A and B ↓↑ = B.
+Concepts are partially ordered by ⟨A1 , B1 ⟩ ≤ ⟨A2 , B2 ⟩ ⇔ A1 ⊆ A2 or equivalently
+B2 ⊆ B1 . With respect to this partial order, the set of all formal concepts is a complete
+lattice called the concept lattice of ⟨G, M, I⟩. It has for supremum the concept ⊤ = ⟨G, G↑ ⟩
+and for infimum the concept ⊥ = ⟨M ↓ , M ⟩.
+Example 1 (Formal concept analysis). Starting from a context K10 = ⟨G1 , M10 , I10 ⟩ with
+G1 = {a, b, c}, M10 = {m1 , m2 , m3 } and I10 as the incidence relation whose table is given
+below, the application of FCA results in the lattice made of the concepts ABC, AB, C and
+⊥ as:
+5
+
+Jérôme Euzenat
+
+FCA(
+
+ABC
+
+L01 :
+
+K10 m1 m2 m3
+a
+×
+×
+b
+c ×
+×
+
+m2
+
+)=
+
+a, b
+AB
+
+m1 , m3
+c
+
+C
+
+⊥
+
+By convention, concept lattices are represented by their reflexive-transitive reduction (Haase
+diagram) in which concepts are displayed in two parts: an upper part representing their
+intent and a lower part representing their extent. They only display the proper part of their
+intent and extent. Their actual intent is obtained by joining it to the union of the proper
+intents of their more general concepts. Conversely, their extent is obtained by joining it to
+the union of the proper extent of their more specific concepts. Hence, ABC = ⟨{a, b, c}, ∅⟩
+and ⊥ = ⟨∅, {m1 , m2 , m3 }⟩.
+Formal concept analysis can be considered as a function that associates to a context
+⟨G, M, I⟩ its concept lattice ⟨C, ≤⟩ = FCA(⟨G, M, I⟩) (or B(G, M, I) [Ganter and Wille,
+1999]). This is illustrated by Example 1. By abuse of language, when a variable L denotes
+a concept lattice ⟨C, ≤⟩, L will also be used to denote C.
+The concepts that can be created from a context can be identified by their extent. Hence,
+η(⟨G, M, I⟩) = 2G is the set of all concept names that may be used in any such concept
+lattice1 . We will identify the concepts by such sets; the extent of a so-named concept will
+be the set of objects in its name. In any specific concept lattice L = FCA(K), the subset
+η(L) of η(K) is the set of names of concepts in this lattice according to this convention as
+illustrated in Example 2.
+Example 2 (Concept names). Consider the context K10 of Example 1. The set of objects
+of K10 being G1 = {a, b, c}, the set of concept names that can be created for them in any
+concept lattice is η(K10 ) = {ABC, AB, AC, BC, A, B, C, ⊥}. In the specific lattice obtained
+in Example 1, the set of concept names is η(L01 ) = {ABC, AB, C, ⊥}.
+Throughout the paper, concepts are named after their extent. They will be displayed as
+uppercase character strings.
+In order to discuss algorithms performing formal concept analysis, we will restrict ourselves to finite structures, as it is often the case. In such a case, from finite contexts are
+generated finite lattices whose concepts have finite extents and intents.
+2.2 Extending formal concept analysis with scaling
+Formal concept analysis is defined on relatively simple structures hence many extensions
+of it have been designed. These may allow formal concept analysis to (a) deal with more
+complex input structures, and/or (b) generate more expressive and interpretable knowledge
+structures.
+1. A similar remark is made in [Wajnberg, 2020, §4.1.2].
+
+6
+
+The fixed-point semantics of relational concept analysis
+
+2.2.1 Scaling: a generalisation
+Scaling is one kind of extension of type (a). It is a way to encode a more complex structure Σ
+into FCA. For that purpose, a scaling operation ς determines a set Dς,Σ of Boolean attributes
+to be added to a context K from a structure Σ. In scaled contexts, these attributes can
+be interpreted so that the incidence relation I is immediately derived from the attribute
+m ∈ Dς,Σ following:
+Σ |= gIm or Σ |= m(g).
+Hence, adding attributes M ′ to a context under such a structure Σ consists of adding the
+attributes and extending the incidence relation according to this interpretation. It may be
+performed as:
+′
+′
+KΣ
++M ′ (⟨G, M, I⟩) = ⟨G, M ∪ M , I ∪ {⟨g, m⟩ ∈ G × M | Σ |= m(g)}⟩,
+
+and suppressing them as:
+′
+′
+KΣ
+−M ′ (⟨G, M, I⟩) = ⟨G, M \ M , I \ {⟨g, m⟩ ∈ G × M }⟩.
+
+Applying a scaling operation ς to a context K following a structure Σ can thus be
+decomposed into (i) determining the set of attributes Dς,Σ to add, and (ii) extending the
+context with these attributes:
+σς (K, Σ) = KΣ
++Dς,Σ (K).
+This unified view of scaling may be applied to many available scaling operations, including
+the initial conceptual scaling [Ganter and Wille, 1999] and logical scaling [Prediger, 1997].
+RCA relies on relational scaling.
+2.2.2 Relational scaling
+Relational scaling operations (ς) considered in [Rouane Hacène et al., 2013a] create relational
+attributes from a binary relation r ⊆ G × G′ between two sets of objects G = dom(r) and
+G′ = cod(r) and a concept lattice L on G′ . ς(r, c) provides the syntactic form of the attribute.
+For example, qualified existential scaling (ς = ∃) is expressed by ∃(r, c) = ∃r.c. For instance,
+the employer relation may relate people to companies depending on whether one works for
+the other. If the company lattice contains the school concept, then the relational attribute
+∃employer.School may be scaled and holds for all people employed by a school.
+Thus, the set of qualified existential attributes are:
+D∃,⟨r,L⟩ = {∃r.c | c ∈ η(L)}.
+Such attributes are interpreted, according to a closed-world description logic interpretation,
+by
+⟨r, L⟩ |= gI∃r.c iff ∃g ′ ; ⟨g, g ′ ⟩ ∈ r ∧ g ′ ∈ extent(c).
+This is illustrated in Example 3.
+Example 3 (Relational scaling). Consider that the relation q is given by the table:
+7
+
+Jérôme Euzenat
+
+q a b c
+d ×
+e
+×
+f
+×
+
+∃q.ABC
+∃q.AB
+∃q.C
+
+between G1 = {a, b, c} and G2 = {d, e, f } and consider the concept lattice L01 corresponding to
+the context K10 of Example 1. The concepts in L01 have names in η(L01 ) = {ABC, AB, C, ⊥}
+(Example 2) hence scaling by σ∃ will provide the attribute set {∃q.ABC, ∃q.AB, ∃q.C, ∃q.⊥}.
+The description of the relation q allows to uncover the incidence relation for these (the
+incidence relation for ⊥ is always empty for ∃ so never displayed in the examples):
+
+d × ×
+e × ×
+f ×
+×
+
+n1
+n2
+∃q.ABC
+∃q.AB
+∃q.C
+
+If, in addition, the context K20 of G2 had two other attributes n1 and n2 whose incidence
+relation is given as I20 displayed below, then the scaling operation would correspond to:
+ABC
+
+σ∃ (
+
+K20 n1 n2
+d ×
+e × ×
+f
+
+,
+
+AB
+q a b c
+m2
+d ×
+,
+e
+×
+a, b
+×
+f
+
+m1 , m3
+c
+C
+
+)=
+
+K21
+d ×
+× ×
+e × × × ×
+×
+×
+f
+
+When generating relational attributes, scaling only relies on the names of the concepts
+in L. It is thus possible to define the sets of attributes from the set of names. The set of
+relational attributes that can be scaled from ς and r against a set of concept of names N is
+Dς,r,N = {ς(r, c) | c ∈ N }. This can be used with η(L), i.e. the names of concepts actually
+in L, or with η(K), i.e. the names of all possible concepts to be generated from a context
+K. Example 4 illustrates this.
+Example 4 (Set of relational attributes). For the context K20 of Example 3, if there is only
+one relation q, whose codomain is K10 of Example 1, and the existential scaling operation ∃,
+then the set of possibly scalable relational attributes is:
+D∃,q,η(K10 ) = {∃q.ABC, ∃q.AB, ∃q.AC, ∃q.BC, ∃q.A, ∃q.B, ∃q.C, ∃q.⊥}.
+But using only those concepts from the lattice L01 obtained in Example 1, this set is reduced
+to:
+D∃,q,η(L01 ) = {∃q.ABC, ∃q.AB, ∃q.C, ∃q.⊥}.
+Various relational scaling operations exist, such as existential, strict and wide universal,
+min and max cardinality, which all follow the classical role restriction semantics of description
+logics [Baader et al., 2007] under the closed-world assumption (see Table 1). The set of
+8
+
+The fixed-point semantics of relational concept analysis
+
+Table 1: Relational scaling operations (inspired from [Braud et al., 2018; Rouane Hacène
+et al., 2013a]) and additional link key condition scaling operations [Atencia et al.,
+2020].
+language (D)
+
+Σ
+
+condition (m(g))
+
+existential
+universal (wide)
+strict universal
+contains (wide)
+strict contains
+
+∃r
+∀r.c
+∀∃r.c
+∀c.r
+∀∃c.r
+
+R
+R, L
+R, L
+R, L
+R, L
+
+qualified existential
+qualified min cardinality
+qualified max cardinality
+∀-condition
+∃-condition
+
+∃r.c
+≤n r.c
+≥n r.c
+∀⟨r, r′ ⟩k
+∃⟨r, r′ ⟩k
+
+R, L
+R, L
+R, L
+R × R′ , LC×C ′
+R × R′ , LC×C ′
+
+r(g) ̸= ∅
+r(g) ⊆ extent(c)
+r(g) ̸= ∅ ∧ r(g) ⊆ extent(c)
+extent(c) ⊆ r(g)
+extent(c) ̸= ∅
+∧extent(c) ⊆ r(g)
+r(g) ∩ extent(c) ̸= ∅
+|r(g) ∩ extent(c)| ≤ n
+|r(g) ∩ extent(c)| ≥ n
+r(g) =k r′ (g ′ )
+r(g) ∩k r′ (g ′ ) ̸= ∅
+
+name
+
+relational attributes obtained from a relation r by relational scaling may be large but remains
+finite as long as G′ = cod(r) is finite. Cardinality constraints, relying on integers, may entail
+infinite sets of concepts in theory, but in practice, when G′ is finite, the set of meaningful
+cardinality attributes is bounded by |G′ |.
+In fact, RCA may be considered as a very general way to apply relational scaling across
+contexts. Various kinds of relational scaling operations have been provided [Atencia et al.,
+2020; Braud et al., 2018; Wajnberg, 2020].
+2.3 Other extensions
+There are other extensions [Chaudron and Maille, 2000; Ferré and Ridoux, 2000; Ganter
+and Kuznetsov, 2001] providing formal concept analysis with more expressiveness in the
+expression of intents without scaling (type b extension). Instead of scaling, they change the
+structure of the set of attributes, staying within the scope of Galois lattices. However, these
+extensions are not directly affected by the problem of context dependencies considered here
+as the attributes do not refer to concepts.
+On the contrary, other approaches [Ferré and Cellier, 2020; Kötters, 2013] aim at extracting conceptual structures from n-ary relations without resorting to scaling. Their concepts
+have intents that can be thought of as conjunctive queries and extents as tuples of objects, i.e.
+answers to these queries. Hence, instead of being classes, i.e. monadic predicates, concepts
+correspond to general polyadic predicates. For that purpose, they rely on more expressive
+input, e.g. in Graph-FCA [Ferré and Cellier, 2020] the incidence relation is a hypergraph
+between objects, and produce more expressive representations. A comparison of RCA and
+Graph-FCA is provided in [Keip et al., 2020]. Graph-FCA adopts a different approach from
+RCA but should, in principle, suffer from the same problem as the one considered here as
+9
+
+Jérôme Euzenat
+
+soon as it contains circular dependencies: intents would need to refer to concepts so created,
+i.e. named subqueries. This remains to be studied.
+Finally, description logic base mining [Baader and Distel, 2008; Guimarães et al., 2023]
+and relational concept analysis share the same purpose: inferring a TBox from an ABox
+(taken as an interpretation). However, RCA does this by introducing new named concepts
+based on FCA, where description logic base mining does not introduce new names but uses
+new concept descriptions inspired from Duquenne-Guigues implication bases [Guigues and
+Duquenne, 1986]. Where, in Example 3, relational scaling would use attribute ∃q.AB, base
+mining would use the description ∃q.∃m2 .⊤. As soon as cycles occur in context dependencies,
+this naturally leads to cyclic concept definitions. This has been interpreted with the greatest
+fixed-point semantics in E Lgf p . However, led by complexity considerations, work has focused
+on extracting minimal bases in E L through unravelling [Baader and Distel, 2008; Guimarães
+et al., 2023]. The problem raised in this paper is different but applies as well to description
+logic base mining as soon as it is taken as a knowledge induction task from data: circular
+dependencies may lead to different, equally well-behaving, bases that would be worth taking
+in consideration.
+2.4 A very short introduction to RCA
+Relational Concept Analysis (RCA) [Rouane Hacène et al., 2013a] extends FCA to the
+processing of relational datasets and allows inter-object relations to be materialised and
+incorporated into formal concept intents. It may also be thought of as a general way to deal
+with circular references using different scaling operations.
+RCA applies
+– a set of relational scaling operations Ω on
+– a family of contexts K 0 = {⟨Gx , Mx0 , Ix0 ⟩}x∈X indexed by a finite set X, such that, if
+x ̸= z, Gx ∩ Gz = ∅, and
+– a finite set of binary relations R, i.e. relations r ⊆ Gx × Gz (with x, z ∈ X).
+⟨K 0 , R⟩ is called a relational context2 . Each context of the family K t may be abbreviated
+as Kxt = ⟨Gx , Mxt , Ixt ⟩. The use of the ordinal superscript t will become clearer in a few
+lines and can be ignored at that stage. We note Rx = {r ∈ R | dom(r) = Gx } and
+Rx,z = {r ∈ Rx | cod(r) = Gz }.
+2.4.1 Concept names and relational attributes
+The notation used for expressing sets of relational attributes can be generalised. For RCA,
+η ∗ (K 0 ) = {η(Kx0 )}x∈X is the indexed set of all concept names induced from all contexts in
+K 0 . Similarly, for an indexed set of concept lattices L = {Lx }x∈X , η ∗ (L) = {η(Lx )}x∈X .
+Then, given a set of relational scaling operations Ω, a set of relations R, the set of scalable
+relational attributes for a concept with respect to an indexed family of sets of concept names
+N is:
+[ [ [
+DΩ,Rx ,N =
+Dς,r,Nz .
+ς∈Ω z∈X r∈Rx,z
+
+2. We use the term ‘relational context’ instead of ‘relational context family’.
+
+10
+
+The fixed-point semantics of relational concept analysis
+
+This notation is used for identifying the relational attributes that can be scaled for a
+context Kx from a set of concept lattices:
+DΩ,Rx ,L = DΩ,Rx ,η∗ (L) ,
+or the set of all the possible relational attributes that can be scaled for a context Kx given
+a family of formal contexts K 0 as
+DΩ,Rx ,K 0 = DΩ,Rx ,η∗ (K 0 ) .
+Since ∀z ∈ X, η(Lz ) ⊆ η(Kz0 ), then DΩ,Rx ,{Lz }z∈X ⊆ DΩ,Rx ,K 0 . This is illustrated by
+Example 5.
+Example 5 (Set of relational attributes (cont’d)). Following Example 4, if K20 , whose
+objects are {d, e, f }, is also linked to itself (K20 ) by the relation s and the current set of
+concept names is η(L02 ) = {DEF, DE, E}, then it would additionally scale the relational
+attributes: D{∃},{s},{L02 } = D∃,s,η(L02 ) = {∃s.DEF, ∃s.DE, ∃s.E}. If, in addition, the strict
+contains scaling operation (∀∃C.r, see Table 1) is used, then new relational attributes would
+be:
+D{∃,∀∃},{q,s},{L01 ,L02 } = {∃q.ABC, ∃q.AB, ∃q.C, ∃q.⊥, ∃s.DEF, ∃s.DE, ∃s.E,
+∀∃ABC.q, ∀∃AB.q, ∀∃C.q, ∀∃⊥.q, ∀∃DEF.s, ∀∃DE.s, ∀∃E.s}.
+The semantics of these attributes is provided in the same way as above and noted
+⟨R, L⟩ |= gIς(r, c).
+2.4.2 Operations and algorithm
+Hereafter, we will consider relational scaling with the structure Σ = ⟨R, L⟩ made of a set
+of binary relations R between two sets of objects from K 0 , and a family Lt = {Ltx }x∈X of
+concept lattices obtained from K t .
+RCA applies relational scaling operations from a set Ω to each Kxt ∈ K t and all relations
+r ∈ Rx,z from the set of concepts in the corresponding Ltz = FCA(Kzt ). Such scaling is
+defined as:
+⟨R,L⟩
+σΩ (Kx , R, L) = K+DΩ,R ,L (Kx ).
+x
+
+The classical RCA algorithm, that is called here RCA, thus relies on FCA and σΩ . More
+∗ are defined as:
+precisely, it applies these in parallel on all contexts. Hence, FCA∗ and σΩ
+FCA∗ ({Kx }x∈X ) = {FCA(Kx )}x∈X ,
+∗
+σΩ
+({Kx }x∈X , R, L) = {σΩ (Kx , R, L)}x∈X .
+
+such that L is a family of concept lattices. The whole family of concepts lattices needs to
+be passed to σ.
+RCA starts from the initial family of contexts K 0 and iterates the application of the two
+operations:
+∗
+K t+1 = σΩ
+(K t , R, FCA∗ (K t ))
+until reaching a fixed point, i.e. reaching n such that K n+1 = K n . Then, RCAΩ (K 0 , R) =
+FCA∗ (K n ).
+Thus, the RCA algorithm proceeds in the following way:
+11
+
+Jérôme Euzenat
+
+1. Initial contexts: t ← 0; {⟨Gx , Mxt , Ixt ⟩}x∈X ← {⟨Gx , Mx , Ix ⟩}x∈X .
+2. {Ltx }x∈X ← FCA∗ ({⟨Gx , Mxt , Ixt ⟩}x∈X ) (or, for each context, ⟨Gx , Mxt , Ixt ⟩ the corresponding concept lattice Ltx = FCA(⟨Gx , Mxt , Ixt ⟩) is created using FCA).
+∗ ({⟨G , M t , I t ⟩}
+t
+3. {⟨Gx , Mxt+1 , Ixt+1 ⟩}x∈X ← σΩ
+x
+x x x∈X , R, {Lx }x∈X ) (i.e. relational scaling is
+applied, for each relation r whose codomain lattice has new concepts, generating new
+contexts ⟨Gx , Mxt+1 , Ixt+1 ⟩ including both plain and relational attributes in Mxt+1 ).
+4. If ∃x ∈ X such that Mxt+1 ̸= Mxt (scaling has occurred), then t ← t + 1; go to Step 2.
+5. Return {Ltx }x∈X .
+This is illustrated by Example 6.
+Example 6 (Relational concept analysis). Consider two relations p and q defined as:
+p d e f
+a ×
+b
+×
+c
+×
+
+q a b c
+d ×
+e
+×
+f
+×
+
+and applying on the contexts K10 of Example 1 and K20 of Example 3 (Figure 1).
+Applying FCA∗ to the two contexts K10 and K20 , provides the very simple lattices L01
+and L02 of Figure 1 with concepts ABC, AB, C and ⊥, and DEF , DE and E, respectively.
+Applying scaling, as seen partially in Example 3, provides the context K11 with new attributes
+∃p.DEF , ∃p.DE, ∃p.E and K21 with ∃q.ABC, ∃q.AB, ∃q.C (Example 4). Applying FCA∗
+to these contexts provides the lattices L11 and L12 with additional concepts B and F . These
+can in turn go through scaling and unveil new attributes ∃p.F and ∃q.B added to K11 and K21
+to give K12 and K22 . FCA∗ introduces the new attributes in the intent of relevant concepts
+but does not introduce any new concept. Hence the process stops and RCA returns the family
+of concept lattices {L21 , L22 }.
+The result is thus quite different from the {L01 , L02 } that would have been returned by FCA
+alone.
+2.4.3 Properties and semantics
+A context K = ⟨G, M, I⟩ is a subcontext of another K ′ = ⟨G′ , M ′ , I ′ ⟩ whenever G ⊆ G′ ,
+M ⊆ M ′ and I = I ′ ∩ (G × M ) [Ganter and Wille, 1999, §3.1]. By abuse of notation, this is
+noted K ⊆ K ′ . This is generalised to families of contexts {Kx }x∈X ⊆ {Kx′ }x∈X whenever
+∀x ∈ X, Kx ⊆ Kx′ .
+RCA always reaches a closed family of contexts for reason of finiteness [Rouane Hacène
+et al., 2013a] and the sequence (K t )nt=0 is non-(intent-)contracting, i.e. ∀t ≥ 0, K t ⊆ K t+1
+[Rouane Hacène et al., 2013b].
+The RCA semantics characterises the set of concepts in resulting RCA lattices as all
+and only those concepts grounded on the initial family (K 0 ) based on relations (R) [Rouane
+Hacène et al., 2013b]. This can thus be considered as a well-grounded semantics: an attribute
+is scaled and applied to an object at iteration t + 1 only if its condition applies at stage t.
+Hence, everything is ultimately relying on K 0 .
+[Rouane Hacène et al., 2013b] established that RCA indeed finds the K n satisfying these
+constraints through correctness (the concepts of FCA∗ (K n ) are grounded in K 0 through R)
+and completeness (all so-grounded concepts are in K n ).
+12
+
+The fixed-point semantics of relational concept analysis
+
+ABC
+
+DEF
+
+AB
+
+C
+
+a, b
+
+n1
+
+m1 , m3
+c
+
+DE
+
+⊥
+L02 :
+
+AB
+
+∃p.DEF
+
+m2 ,∃p.DE
+a
+B
+
+∃p.E
+b
+
+n1 , ∃q.AB
+
+DE
+
+C
+
+m1 , m3
+c
+
+d
+n2
+e
+
+E
+
+⊥
+L12 :
+∃p.DEF
+
+ABC
+
+m1
+m2
+m3
+∃p.DEF
+∃p.DE
+∃p.E
+∃p.F
+
+K12
+a
+×
+× ×
+b
+×
+× × ×
+c ×
+× ×
+×
+
+∃q.ABC
+
+DEF
+
+m2 , ∃p.DE
+a
+B
+
+F
+
+K21
+d ×
+× ×
+∃q.C e × × × ×
+f
+×
+×
+f
+
+⊥
+
+L11 :
+
+AB
+
+∃q.ABC
+
+DEF
+
+∃p.E
+b
+
+K22
+d ×
+× ×
+e × × × × ×
+f
+×
+×
+
+n1 , ∃q.AB
+
+DE
+m1 , m3 ,
+∃p.F
+C
+c
+
+n1
+n2
+∃q.ABC
+∃q.AB
+∃q.B
+∃q.C
+
+m1
+m2
+m3
+∃p.DEF
+∃p.DE
+∃p.E
+
+ABC
+
+K11
+a
+×
+× ×
+b
+×
+× × ×
+c ×
+× ×
+
+n2
+e
+
+E
+
+L01 :
+
+K20 n1 n2
+d ×
+e × ×
+f
+
+d
+
+n1
+n2
+∃q.ABC
+∃q.AB
+∃q.C
+
+m2
+
+K10 m1 m2 m3
+a
+×
+b
+×
+c ×
+×
+
+f
+
+d
+
+E
+
+n2 , ∃q.B
+e
+
+⊥
+
+∃q.C
+F
+
+f
+
+⊥
+
+L21 :
+
+L22 :
+
+Figure 1: The three iterations of RCA from the initial contexts K10 and K20 .
+
+2.5 Dependencies and cycles
+As can be seen, relations in RCA define a dependency graph between objects (of different
+or the same context). In turn, this graph of objects induces a dependency graph between
+concepts through the scaled attributes that refer to other concepts. It also induces a dependency graph between contexts: an edge exists between two contexts if an object of the
+former is related to an object of the latter.
+This paper is related to the circular dependencies, i.e. the circuits, that may exist within
+these graphs. Circular dependencies create a problem when one wants to define the family
+of concept lattices that should be returned by relational concept analysis. As will be seen
+in Section 3, there may exists several such families.
+13
+
+Jérôme Euzenat
+
+3. Motivating examples
+In order to illustrate the weakness of the RCA semantics, we first carry on the introductory
+Examples 1–6 (§3.1). We then display it on a more minimal example that will be carried
+over the paper (§3.2).
+From such a simple basis, it is possible to consider more complex settings:
+– By using more than two contexts;
+– By using more than two relations between these contexts;
+– By using more than two objects in each context;
+– By using more than zero attributes in the contexts.
+3.1 RCA may accept different families of concept lattices
+
+∃p.DEF
+∃p.DE
+∃p.DF
+∃p.EF
+∃p.D
+∃p.E
+∃p.F
+
+∃q.ABC
+∃q.AB
+∃q.AC
+∃q.BC
+∃q.A
+∃q.B
+∃q.C
+
+The simple Example 6 (Figure 1) does not present a result in which each object is identified
+by a single class. Indeed, a has not more attributes than b. This result could also be obtained
+with far more objects a′ , a′′ , etc. sharing the attributes of a and b, or duplicating other
+objects.
+However, the lattices L⋆1 and L⋆2 displayed in Figure 2 seem another good way to describe
+the data given as input to RCA. There is in fact an objective difference between AC and
+BC: AC denotes all objects connected by p to DF and BC all objects connected by p to
+EF . Reciprocally, DF denotes all objects connected by q to AC and EF those connected
+by q to BC.
+
+K2⋆ n1 n2
+d ×
+× × ×
+×
+e × × × ×
+×
+×
+f
+×
+× ×
+×
+
+K1⋆ m1 m2 m3
+a
+×
+× × ×
+×
+b
+×
+× ×
+×
+×
+c ×
+× ×
+× ×
+×
+ABC
+
+AB
+
+m2 , ∃p.DE
+
+A
+L⋆1 :
+
+∃p.D
+a
+
+AC
+
+B
+
+∃p.DEF
+
+∃p.DF
+
+∃p.E
+b
+
+DEF
+
+BC
+
+C
+
+∃p.EF
+
+DE
+
+m1 , m3 , ∃p.F
+c
+
+n1 , ∃p.AB
+
+D
+L⋆2 :
+
+⊥
+
+∃p.A
+d
+
+DF
+
+E
+
+∃p.ABC
+
+∃p.AC
+
+n2 , ∃p.B
+e
+
+EF
+
+∃p.BC
+
+∃p.C
+F
+
+f
+
+⊥
+
+Figure 2: Alternative concept lattices for the example of Section 3.1 (⋆ is simply a way to
+identify these objects).
+
+These lattices share many common points with those returned by RCA: they are also
+(i) valid concept lattices, (ii) whose contexts extend K10 and K20 with attributes of D{∃},{p},K 0
+and D{∃},{q},K 0 (Example 4), (iii) stable for scaling, and (iv ) such that each attribute refers
+14
+
+The fixed-point semantics of relational concept analysis
+
+only to concepts in the lattices. The only difference with L21 and L22 is that they are not those
+returned by RCA. We will temporarily informally consider lattices sharing these features as
+acceptable.
+But, if there exists several acceptable solutions for a given Ω and R, why does RCA
+only returns one of these, and which one? To help answering this question, we illustrate the
+problem with a minimal running example below.
+3.2 Minimal RCA example
+As another example, consider the following two empty contexts K30 and K40 of Figure 4 and
+the two relations p and q of Figure 3.
+p
+a
+b
+
+c
+×
+
+d
+
+q
+c
+d
+
+×
+
+a
+×
+
+b
+×
+
+Figure 3: Relations p and q for RCA.
+Applying FCA to the two contexts K30 and K40 provides the very simple lattices L03 and
+From this, RCA generates new context K31 and K41 through scaling which
+provides new lattices L13 and L14 (Figure 4).
+
+L04 of Figure 4.
+
+∃p.CD
+
+K31
+a
+b
+
+L03 :
+
+×
+×
+
+L13 :
+
+a, b
+
+AB
+
+L04 :
+
+AB
+
+L14 :
+
+∃p.CD
+a, b
+
+c, d
+
+CD
+
+∃q.AB
+c, d
+
+CD
+
+K40
+c
+d
+
+K41
+c
+d
+
+∃q.AB
+
+K30
+a
+b
+
+×
+×
+
+Figure 4: The two iterations of RCA from the initial contexts K30 and K40 .
+The lattices L13 and L14 of Figure 4 are those returned by RCA as applying scaling from
+them returns the same contexts K31 and K41 .
+However, there could be other acceptable solutions such as those displayed in Figure 5.
+They are all acceptable solutions for {K30 , K40 } (Figure 4) as they satisfy the four conditions
+of Section 3.1.
+#
+On the contrary, Figure 6 displays a family of concept lattices {L#
+3 , L4 } which is not an
+acceptable solution. Although they contain all concepts of {L03 , L04 } and no concept not in
+{L⋆3 , L⋆4 }, they would generate more attributes through scaling and applying RCA to their
+contexts {K3# , K4# } would lead to {L⋆3 , L⋆4 }
+Hence the question raised in the previous section: Why does RCA return only one
+solution, and which one? Answering it requires to reconsider the RCA semantics. More
+precisely, it requires to define formally which families of concept lattices could be considered
+as acceptable solutions and which of them is returned by the RCA operation.
+15
+
+Jérôme Euzenat
+
+∃p.CD
+∃p.D
+
+K3′
+a × ×
+b ×
+
+K3′′
+a ×
+b × ×
+
+L⋆3 :
+
+B
+
+∃p.D
+
+C
+
+b
+
+L⋆4 :
+
+⊥
+
+∃p.CD
+
+AB
+
+∃q.A
+c
+
+A
+
+∃p.C
+a
+
+AB
+
+∃p.CD
+a
+
+L′′3 :
+B
+
+⊥
+
+CD
+
+b
+
+L′3 :
+
+L′4 :
+
+d
+∃q.A
+c
+
+CD
+
+∃q.AB
+c
+
+D
+
+b
+
+∃q.AB
+
+C
+
+L′′4 :
+
+∃p.D
+
+D
+
+∃q.B
+d
+
+∃q.B
+d
+
+∃q.AB
+∃q.A
+∃q.B
+
+∃p.C
+a
+
+∃q.AB
+
+K4⋆
+c × ×
+d ×
+×
+
+∃q.AB
+∃q.A
+
+∃p.CD
+∃p.C
+∃p.D
+
+∃p.CD
+∃p.C
+
+K3⋆
+a × ×
+b ×
+×
+
+A
+
+CD
+
+K4′
+c × ×
+d ×
+
+∃q.AB
+∃q.B
+
+∃p.CD
+
+AB
+
+K4′′
+c ×
+d × ×
+
+K3#
+a × ×
+b ×
+
+AB
+L#
+3 :
+A
+
+∃p.CD
+
+CD
+
+b
+
+L#
+4 :
+
+∃p.C
+a
+
+D
+
+∃q.AB
+c
+∃q.B
+d
+
+∃q.AB
+∃q.B
+
+∃p.CD
+∃p.C
+
+Figure 5: Alternative pairs of concept lattices covering the contexts of Figure 4.
+
+K4#
+c ×
+d × ×
+
+#
+Figure 6: A family of concept lattices {L#
+3 , L4 } which is not an acceptable solution.
+
+We will thus redefine the objects on which RCA operates (§4), precising well-formedness,
+and introduce two functions on this space (§5) from whose fixed points acceptability can be
+defined (§6), offering a fixed-point semantics for relational concept analysis (§7).
+
+4. Dual context-lattice space
+In order to investigate the semantics of relational concept analysis, we need to define the
+objects on which it applies. They are determined by three elements given once and for all:
+K 0 = {⟨Gx , Mx0 , Ix0 ⟩}x∈X , R, and Ω. Through the application of RCA, only Mxt and Ixt
+change, hence the other may remain implicit.
+These objects are introduced progressively by considering in a row: contexts (§4.1),
+lattices (§4.2), context-lattice pairs (§4.3) and indexed families of context-lattice pairs (§4.4).
+The first three subsections will only consider one context Kx , one concept lattice Lx and
+one context-lattice pair Tx at a time; the fourth section will consider them together.
+16
+
+The fixed-point semantics of relational concept analysis
+
+Hereafter, we use a simple and regular notation: K denotes contexts, L lattices, T
+context-lattice pairs and O families of context-lattice pairs. In addition, R is used for
+relations, N for names and D for attributes. Greek letters are devoted to some auxiliary
+functions (η, κ, σ, π). E, F , P and Q are used for functions names and ∗ is used for
+distinguishing the parallel application of such functions.
+4.1 The space of contexts K
+We first study the semantics of RCA from the standpoint of the contexts. The contexts
+considered by RCA are scaled from an initial context using the scaling operations. Property 1
+highlights that the incidence of the scaled attributes does only depend on the relation and
+not on the concept lattices.
+Property 1 (The incidence relation depends only on the attributes). Given a set Ω of
+relational scaling operations, a family K = {⟨Gx , Mx , Ix ⟩}x∈X of formal contexts and a set
+R of relations on K. Given Lz and L′z two concept lattices on Gz , for all scaled attributes
+m ∈ DΩ,Rx,z ,Lz ∩ DΩ,Rx,z ,L′z , ∀g ∈ Gx , ⟨R, Lz ⟩ |= m(g) if and only if ⟨R, L′z ⟩ |= m(g).
+Proof. m = ς(r, c) is scaled from a scaling operation ς, a relation r and a concept c (possibly
+a cardinal n). From Table 1, ⟨R, Lz ⟩ |= gIm only depends on ς, r and the extent of c.
+However, ς and r are independent from Lz and L′z . The concept c is identified by a name
+which denotes its extent. Hence, its extent is the same in Lz and L′z . So whether an object
+of g ∈ Gx satisfies the attribute ς(r, c) or not depends solely on the attribute ς(r, c) and not
+on the specific lattice considered.
+This means that the interpretation of an attribute never changes: it is given by its syntactic form ς(r, c) and, in particular, the concept name. Hence, when adding or suppressing
+Σ
+attributes, through KΣ
++M or K−M , Σ can be ⟨R, N ⟩ with N an indexed set of names, and
+∗
+0
+in particular η (K ).
+In RCA, the set of objects Gx does not change and for any object and attribute, either the
+object satisfies the attribute or not. Property 1 entails that, if Mx ⊆ Mx′ , then Ix ⊆ Ix′ . Thus
+we are justified in using, for RCA, the definition of subcontexts introduced in Section 2.4.3.
+For comparing two contexts, it suffices to compare their sets of attributes: if Mx ⊆ Mx′ ,
+then Kx ⊆ Kx′ .
+The attribute language DΩ,Rx ,N that can be generated by scaling depends on the finite
+set of relations R, the scaling operations Ω and the set of possible concepts identified by
+their standardised names (§2.2.2 and 2.4.1). Given N ⊆ η ∗ (K 0 ) an indexed family of names
+of concepts that can be in the codomain of relations in R, the set of contexts that can be
+obtained by scaling is
+⟨R,η ∗ (K 0 )⟩
+
+KKNx0 ,R,Ω = {K+M
+
+(Kx0 ) | M ⊆ DΩ,Rx ,N }
+
+⟨R,η ∗ (K 0 )⟩
+
+with K+M
+(.) the operation defined in §2.2. Passing η ∗ (K 0 ) to K allows to interpret
+the generated attributes and to determine I.
+Below, when we write K N , the property applies for any {Nx }x∈X such that ∀x ∈ X,
+Nx ⊆ η(Kx0 ), and in particular for η ∗ (K 0 ).
+We can define two operations, ∧ and ∨ on KKN0 ,R,Ω .
+x
+
+17
+
+Jérôme Euzenat
+
+N
+Definition 1 (Meet and join of contexts). Given K, K ′ ∈ K⟨G,M
+0 ,I 0 ⟩,R,Ω , such that K =
+0
+0
+′
+0
+′
+0
+′
+′
+⟨G, M ∪ M, I ∪ I⟩ and K = ⟨G, M ∪ M , I ∪ I ⟩, K ∨ K and K ∧ K ′ are defined as:
+
+K ∨ K ′ = ⟨G, M 0 ∪ (M ∪ M ′ ), I 0 ∪ (I ∪ I ′ )⟩,
+′
+
+′
+
+0
+
+′
+
+0
+
+K ∧ K = ⟨G, M ∪ (M ∩ M ), I ∪ (I ∩ I )⟩.
+
+(join)
+(meet)
+
+The set of contexts is closed by meet and join.
+Property 2 ([Euzenat, 2021]). ∀K, K ′ ∈ KKN0 ,R,Ω , K ∧ K ′ ∈ KKN0 ,R,Ω and K ∨ K ′ ∈
+x
+x
+KKN0 ,R,Ω .
+x
+
+Proof. Meet and join are defined from the union and intersection of subsets of DΩ,Rx ,K 0
+(Definition 1). But KKN0 ,R,Ω is closed by union and intersection of the sets of attributes to
+x
+add to M 0 and the incidence relation is fully determined by the set of attributes (Property 1).
+Hence, meet and join of contexts in KKN0 ,R,Ω belong to KKN0 ,R,Ω .
+x
+
+x
+
+4.2 The space of lattices L
+From KKN0 ,R,Ω , one can define LKN0 ,R,Ω as the set of images of KKN0 ,R,Ω by FCA. These are
+x
+x
+x
+concept lattices obtained by applying FCA on Kx0 extended with a subset of DΩ,Rx ,N :
+⟨R,η ∗ (K 0 )⟩
+
+LKNx0 ,R,Ω = {FCA(K+M
+
+(Kx0 )) | M ⊆ DΩ,Rx ,N }.
+
+For each subset of attributes, the lattice obtained by FCA is necessarily syntactically
+different as its concepts refer to different attributes in their intents (at least one of them).
+There is in fact a bijective correspondence between LKx0 ,R,Ω and KKx0 ,R,Ω [Ganter and
+Wille, 1999, §1.2]. On the one hand, to any context in KKx0 ,R,Ω corresponds only one lattice
+by FCA. On the other hand, to any concept lattice ⟨C, ≤⟩ ∈ LKx0 ,R,Ω corresponds a formal
+context:
+[
+[
+[
+κ(⟨C, ≤⟩) = ⟨
+extent(c),
+intent(c),
+extent(c) × intent(c)⟩.
+c∈C
+
+c∈C
+
+c∈C
+
+κ(L) collects the attributes and objects present in L intents to build the unique M and G,
+from which the corresponding I is obtained.
+It is such that FCA ◦ κ = idK and κ ◦ FCA = idL (idK and idL being the respective
+identity functions). This may be stated as:
+Property 3. K = κ(L) iff L = FCA(K).
+S
+S
+S
+Proof. ⇒) K = ⟨G, M, I⟩ = ⟨ c∈C extent(c), c∈C intent(c), c∈C extent(c) × intent(c)⟩ =
+′
+′ ′
+κ(⟨C, ≤⟩) = κ(L).
+S This means that ⟨C, ≤⟩
+S is the concept lattice of a ′context ⟨G , M′ , I ⟩.
+But since G = c∈C extent(c) and M = c∈C intent(c), then G = G and M = M . We
+need to prove that I = I ′ . Consider I ̸= I ′ , this could be because there exists at least one
+g ∈ G and m ∈ M such that ⟨g, m⟩ ∈ I \ I ′ (or, but not exclusively, ⟨g, m⟩ ∈ I ′ \ I). In this
+condition, there could notSexists c ∈ C such that g ∈ extent(c) and m ∈ intent(c) (resp.
+it exists). Then ⟨g, m⟩ ̸∈ c∈C extent(c) × intent(c) (resp. on the contrary it is there) and
+18
+
+The fixed-point semantics of relational concept analysis
+
+S
+thus I ̸= c∈C extent(c) × intent(c) which contradicts ⟨G, M, I⟩ = κ(⟨C, ≤⟩). Hence, I = I ′
+and L = ⟨C, ≤⟩ = FCA(⟨G, M, I⟩) = FCA(K)
+⇐) L = ⟨C, ≤⟩ = FCA(⟨G, M, I⟩) = FCA(K) entails ∀c ∈ C, ∀g ∈ extent(c), ∀m ∈
+intent(c), gIm, i.e. extent(c) × intent(c) ⊆ I. In addition, if gIm, then there exists S
+c ∈ FCA(⟨G, M, I⟩) = ⟨C, ≤⟩ such that g ∈ extent(c) and m ∈ intent(c), thus
+IS⊆ c∈C extent(c) × intent(c).
+Moreover, ⊤ = ⟨G, G↑ ⟩ ∈ C and ⊥ = ⟨M ↓ ,S
+M ⟩ ∈ C, hence
+S
+Sc∈C extent(c) =
+S G and c∈C intent(c) = M . Thus K = ⟨G, M, I⟩ = ⟨ c∈C extent(c),
+intent(c),
+c∈C
+c∈C extent(c) × intent(c)⟩ = κ(L).
+We define a specific type of homomorphisms between two concept lattices when concepts
+are simply mapped into concepts with the same extent and a possibly increased intent3 .
+Definition 2 (Lattice homomorphism [Euzenat, 2021]). A concept lattice homomorphism
+h : ⟨C, ≤⟩ → ⟨C ′ , ≤′ ⟩ is a function which maps each concept c ∈ C into a corresponding
+concept h(c) ∈ C ′ such that:
+– ∀c ∈ C, intent(c) ⊆ intent(h(c)),
+– ∀c ∈ C, extent(c) = extent(h(c)), and
+– ∀c, d ∈ C, c ≤ d ⇒ h(c) ≤′ h(c).
+We note L ⪯ L′ if there exists a homomorphism from L to L′ . In principle, L ≃ L′ if
+L ⪯ L′ and L′ ⪯ L, but here, ≃ is simply =. This owes to the fact that the homomorphism
+maps concepts of equal extent, hence, if they hold in both ways, there should be as many
+concepts in each lattice and these concepts will also have the same intent.
+Property 4 (FCA is monotone). ∀K = ⟨G, M, I⟩ and K ′ = ⟨G, M ′ , I ′ ⟩,
+K ⊆ K ′ ⇒ FCA(K) ⪯ FCA(K ′ ).
+Proof. Any concept c ∈ FCA(K) characterises a set of objects extent(c) by the set of
+attributes intent(c) that these objects are the only ones to satisfy. Since both contexts have
+the same set of objects G, there are not more objects satisfying these in K ′ and since M ⊆ M ′
+these attributes are still in K ′ , thus c ∈ FCA(K ′ ). Hence, it is always possible to define h
+such as h(c) = c. Then extent(h(c)) = extent(c) and intent(h(c)) ⊇ intent(c). Moreover, if
+c ≤ d, then h(c) ≤ h(d) because extent(c) ⊆ extent(d) entails extent(h(c)) ⊆ extent(h(d)).
+Hence, FCA(K) ⪯ FCA(K ′ ) (Definition 2).
+If K ⊆ K ′ , then each concept that can be built from K can be built from K ′ . The
+additional attributes in M ′ can only be used to separate further objects of existing concepts,
+introducing additional concepts. All concepts are preserved, possibly with a larger intent,
+which preserves the homomorphism.
+We can define ∧ and ∨ on LKN0 ,R,Ω from the corresponding operators in KKN0 ,R,Ω .
+x
+
+x
+
+Definition 3 (Meet and join of lattices). Given L, L′ ∈ LKN0 ,R,Ω ,
+x
+
+L ∨ L′ = FCA(κ(L) ∨ κ(L′ )),
+′
+
+′
+
+L ∧ L = FCA(κ(L) ∧ κ(L )).
+
+(join)
+(meet)
+
+3. The results in the remainder of this section are specific to RCA: ⪯ is defined with the equality of extents
+and ⊆ depends only on M because G is always the same.
+
+19
+
+Jérôme Euzenat
+
+The set of lattices is also closed by meet and join:
+Property 5. ∀L, L′ ∈ LKN0 ,R,Ω , L ∧ L′ ∈ LKN0 ,R,Ω and L ∨ L′ ∈ LKN0 ,R,Ω .
+x
+
+x
+
+x
+
+Proof. LKN0 ,R,Ω is closed by meet and join since KKN0 ,R,Ω is closed by meet and join (Propx
+x
+erty 2) and LKN0 ,R,Ω is the image of KKN0 ,R,Ω by FCA.
+x
+x
+4.3 The lattice T of context-lattice pairs
+Although K N and L N have been presented independently, it is useful to consider the two
+sets together as, in RCA, lattices in L N are an intermediate result of the process which
+is used for computing the next contexts. Instead of dealing with two interrelated spaces
+independently, we tightly connect them. Doing so, we will consider objects which are pairs
+of contexts and associated concept lattices through FCA. They are called context-lattice
+pairs.
+From any context in K , it is possible to generate a context-lattice pair using FCA. The
+T constructor does this.
+Definition 4 (T constructor). Given a context K ∈ K N , T : K N → K N × L N generates
+a context-lattice pair, such that:
+T(K) = ⟨K, FCA(K)⟩.
+We consider the set TKN0 ,R,Ω of pairs in KKN0 ,R,Ω × LKN0 ,R,Ω such that:
+x
+
+x
+
+x
+
+TKNx0 ,R,Ω = {⟨K, L⟩ ∈ KKNx0 ,R,Ω × LKNx0 ,R,Ω |L = FCA(K)}.
+This set is well defined because KKN0 ,R,Ω has already been defined and LKN0 ,R,Ω are precisely
+x
+x
+those lattices obtained by FCA from an element of KKN0 ,R,Ω .
+x
+Alternatively, using Property 3, it can be defined from κ:
+TKNx0 ,R,Ω = {⟨K, L⟩ ∈ KKNx0 ,R,Ω × LKNx0 ,R,Ω |K = κ(L)}.
+η ∗ (K 0 )
+
+As before, we use TKx0 ,R,Ω = TK 0 ,R,Ω and, for any ⟨K, L⟩ ∈ TKN0 ,R,Ω we note:
+x
+
+x
+
+k(⟨K, L⟩) = K,
+l(⟨K, L⟩) = L.
+It is possible to define the meet and join:
+Definition 5 (Meet and join of context-lattice pairs). Given T , T ′ ∈ TKN0 ,R,Ω T ∨ T ′ and
+x
+T ∧ T ′ are defined as:
+T ∨ T ′ = T(k(T ) ∨ k(T ′ )),
+′
+
+′
+
+T ∧ T = T(k(T ) ∧ k(T )).
+
+(join)
+(meet)
+
+As this definition makes clear, the operations of T N only depend on the context part.
+But the usual relations with the meet and join on contexts and lattices are preserved:
+20
+
+The fixed-point semantics of relational concept analysis
+
+Property 6.
+T ∨ T ′ = ⟨k(T ) ∨ k(T ′ ), l(T ) ∨ l(T ′ )⟩,
+T ∧ T ′ = ⟨k(T ) ∧ k(T ′ ), l(T ) ∧ l(T ′ )⟩.
+Proof. This is a simple consequence on the definition of conjunction and disjunction on
+context-lattice pairs (Definition 4) and lattices (Definition 3) as:
+L ∨ L′ = FCA(K ∨ K ′ ),
+′
+
+(join)
+
+′
+
+L ∧ L = FCA(K ∧ K ).
+
+(meet)
+
+The set of context-lattice pairs is closed by meet and join:
+Property 7. ∀T, T ′ ∈ TKN0 ,R,Ω , T ∧ T ′ ∈ TKN0 ,R,Ω and T ∨ T ′ ∈ TKN0 ,R,Ω .
+x
+
+x
+
+x
+
+Proof. TKN0 ,R,Ω is closed by meet and join because it is based on T (Definition 5), T builds a
+x
+context-lattice pair in TKN0 ,R,Ω from contexts in KKN0 ,R,Ω (Definition 4), and KKN0 ,R,Ω itself
+x
+x
+x
+is closed by meet and join (Property 2).
+We also define the order between two context-lattice pairs by combining the orders on
+contexts and lattices:
+Definition 6 (Order). Given T , T ′ ∈ TKN0 ,R,Ω ,
+x
+
+T ⪯ T ′ if k(T ) ⊆ k(T ′ ) and l(T ) ⪯ l(T ′ ).
+Figure 7 presents the relations between K N , L N and T N and their respective orders.
+Since FCA is monotone (Property 4), T ⪯ T ′ iff k(T ) ⪯ k(T ′ ). Like before, we note T ≃ T ′
+if T ⪯ T ′ and T ′ ⪯ T , and again ≃ is =.
+This can be applied to the T constructor.
+Property 8. ∀K, K ′ ∈ KKN0 ,R,Ω , K ⊆ K ′ iff T(K) ⪯ T(K ′ ).
+x
+
+Proof. (⇒) This is due to monotony of FCA (Property 4). k(T(K)) = K ⊆ K ′ = k(T(K ′ ))
+means that l(T(K)) = FCA(K) ⪯ FCA(K ′ ) = l(T(K ′ )). Thus, T(K) ⪯ T(K ′ ). (⇐)
+T(K) ⪯ T(K ′ ) entails, by Definition 6, that K ⊆ K ′ .
+This has the consequence that T = T ′ if and only if k(T ) = k(T ′ ).
+Joining together contexts and lattices was a preliminary step to consider families of such
+pairs to represent the behaviour of relational concept analysis as a whole. This is done
+hereafter.
+21
+
+Jérôme Euzenat
+
+k(T ′ )
+
+FCA
+κ
+
+l(T ′ )
+
+FCA
+κ
+
+l(T )
+
+L
+
+⪯
+
+⊆
+
+K
+
+k(T )
+k
+
+l
+
+k
+
+⪯
+
+T′
+
+T
+
+l
+
+T
+
+Figure 7: Relations between T , K and L .
+4.4 The lattice O of families of context-lattice pairs
+So far, we have only considered one context independently from the others. We now consider
+relational concept analysis in its entirety.
+RCA deals with families of contexts. Its elements are thus simple vectors of the pairs
+generated by each context. These vectors will be considered as sets indexed by X. All
+provided definitions can be applied to indexed families of context-lattice pairs, the order
+between them will be the product of the piece-wise orders. The only important change is
+that N will be frozen to the set of concept names in all the different contexts in K 0 .
+The input of RCA is given by a family of contexts: K 0 = {Kx0 }x∈X , a set R of relations
+between the objects of these contexts, and a set Ω of relational scaling operations. From this,
+it is possible to characterise the space OK 0 ,R,Ω associated with RCA by the direct product
+of the sets of context-lattice pairs associated with each context.
+Definition 7 (OK 0 ,R,Ω ). Given an indexed family of contexts K 0 = {⟨Gx , Mx0 , Ix0 ⟩}x∈X , a
+set R of relations between the objects of these contexts, and a set Ω of relational scaling
+operations, the space OK 0 ,R,Ω of indexed families of context-lattice pairs is:
+OK 0 ,R,Ω =
+
+Y
+
+η ∗ (K 0 )
+
+TK 0 ,R,Ω .
+x
+
+x∈X
+
+As usual, OK 0 ,R,Ω will simply be referred to as O.
+This is well defined because the set of all possible concept extents across all contexts is
+determined by the set of objects in the context. This permits us to name unambiguously
+all the concepts in the family of concept lattices. In turn, since η ∗ (K 0 ), R and Ω do not
+change and I is determined by {Mx }x∈X (Property 1), this determines all attributes that
+can occur in a scaled RCA context.
+Contrary to RCA0 [Euzenat, 2021], the scaled attributes depend on R that makes the
+connection from one context to another, e.g. from Tx to Tz . But since it is possible to
+name concepts in the lattices generated by the scaled attributes according to their elements
+22
+
+The fixed-point semantics of relational concept analysis
+
+in Gz , then, as soon as Gz is finite, the set of scalable attributes in Mx is finite and can be
+established as DΩ,Rx ,K 0 from the beginning.
+The previous notations can be extended:
+T∗ ({Kx }x∈X ) = {T(Kx )}x∈X = {⟨Kx , FCA(Kx )⟩}x∈X .
+For any {Tx }x∈X ∈ OK 0 ,R,Ω :
+k({Tx }x∈X ) = {k(Tx )}x∈X ,
+l({Tx }x∈X ) = {l(Tx )}x∈X ,
+kz ({Tx }x∈X ) = k(Tz ),
+lz ({Tx }x∈X ) = l(Tz ).
+Finally, for any indexed family of context-lattice pairs O ∈ O, the family of lattices l(O)
+is determined directly from k(O): l(O) = FCA∗ (k(O)).
+We can define ∧ and ∨ on OK 0 ,R,Ω .
+Definition 8 (Meet and join of families of context-lattice pairs). Given O = {Tx }x∈X ,
+O′ = {Tx′ }x∈X ∈ OK 0 ,R,Ω , O ∨ O′ and O ∧ O′ are defined as:
+O ∨ O′ = {Tx ∨ Tx′ }x∈X ,
+O∧O
+
+′
+
+(join)
+
+= {Tx ∧ Tx′ }x∈X .
+
+(meet)
+
+The set of families of context-lattice pairs is once again closed by meet and join:
+N
+′
+N
+′
+N
+Property 9. ∀O, O′ ∈ OK
+0 ,R,Ω , O ∧ O ∈ OK 0 ,R,Ω and O ∨ O ∈ OK 0 ,R,Ω .
+
+Proof. OK 0 ,R,Ω is closed by meet and join because meet and join are the piecewise meet and
+η ∗ (K 0 )
+
+join of context-lattice pairs (Definition 8) and for each x ∈ X, TK 0 ,R,Ω is closed by meet
+x
+and join (Property 7).
+We also define the order between two objects by combining the previous definitions.
+Definition 9 (Order). Given O = {Tx }x∈X , O′ = {Tx′ }x∈X ∈ OK 0 ,R,Ω ,
+O ⪯ O′ if ∀x ∈ X, Tx ⪯ Tx′ .
+Like before, we note O ≃ O′ if O ⪯ O′ and O′ ⪯ O, and again ≃ is =.
+Property 8 can be generalised: the order between families of context-lattice pairs may
+be reduced to the order between contexts (and ultimately the order between their sets of
+attributes).
+Property 10. ∀O, O′ ∈ OK 0 ,R,Ω , if k(O) ⊆ k(O′ ) then O ⪯ O′ .
+Proof. k(O) ⊆ k(O′ ) means that ∀x ∈ X, kx (O) ⊆ kx (O′ ) which is equivalent, by Property 8,
+to ⟨kx (O), lx (O)⟩ ⪯ ⟨kx (O′ ), lx (O′ )⟩ and hence O ⪯ O′ (Definition 9).
+Finally, the set OK 0 ,R,Ω of families of context-lattice pairs is a complete lattice.
+23
+
+Jérôme Euzenat
+
+Proposition 11. ⟨OK 0 ,R,Ω , ∨, ∧⟩ is a complete lattice.
+Proof. OK 0 ,R,Ω is closed by meet and join (Property 9). The commutativity, associativity
+and the absorption law of ∨ and ∧ ultimately rely on these properties holding for the
+same operators on contexts. They are satisfied because these are properties of union and
+intersection on sets. Hence, ⟨OK 0 ,R,Ω , ∨, ∧⟩ is a lattice.
+V It is′ completeWbecause′ ∨ and ∧ are
+well-defined (Definition 8) and ∀S ⊆ O, ∀O ∈ S, O′ ∈S O ⪯ O ⪯ O′ ∈S O (due to the
+completeness of powerset lattices which apply to those of attributes).
+The set O of families of context-lattice pairs arguably contains all possible solutions
+that can be returned by relational concept analysis. However, they have been defined on
+independent contexts, taking into account the scalable attributes but not the coherence
+between the considered concepts. This will now be achieved through specific functions.
+
+5. A functional standpoint on RCA
+Here we adopt a functional standpoint on operations on the space of families of contextlattice pairs. We first define an expansion function EF ∗ which corresponds to the internal
+operations of RCA (§5.1). We then consider the notion of support which eliminates potential
+solutions referring to non-available concepts (§5.2). This allows us to define a contraction
+function reducing the non-supported part of a family of context-lattice pairs (§5.3).
+5.1 The expansion function EF ∗
+The solutions are now characterised as elements of OK 0 ,R,Ω . In the following, a function on
+∗
+this set is defined to reformulate RCA. This is EFK
+0 ,R,Ω , the expansion function attached
+0
+to a relational context ⟨K , R⟩ and a set Ω of scaling operations.
+Definition 10 (Expansion function). Given a relational context ⟨K 0 , R⟩ and a set Ω of re∗
+lational scaling operations, the expansion function EFK
+0 ,R,Ω : OK 0 ,R,Ω → OK 0 ,R,Ω is defined
+by:
+∗ ∗
+∗
+EFK
+0 ,R,Ω (O) = T (σΩ (k(O), R, l(O))).
+∗
+∗
+As previously, we will abbreviate EFK
+0 ,R,Ω as EF .
+This function is the basis of RCA: it covers scaling and the application of FCA∗ embedded
+in the function T∗ . Thus, the two steps (3) and (2) of the RCA algorithm (Section 2.4.2)
+have been merged into one.
+A family of context-lattice pairs is called saturated if it is not possible to scale new
+relational attributes in any of its contexts.
+
+Definition 11 (Saturated family of context-lattice pairs). A family of context-lattice pairs
+O ∈ O is saturated if ∀x ∈ X, kx (O) = σΩ (kx (O), R, l(O)).
+EF ∗ is an extensive and monotone internal operation for O:
+Property 12 (EF ∗ is internal to O). ∀O ∈ O, EF ∗ (O) ∈ O.
+24
+
+The fixed-point semantics of relational concept analysis
+
+η ∗ (K 0 )
+
+Proof. ∀x ∈ X, σΩ (kx (O), R, l(O)) ∈ KK 0 ,R,Ω because σΩ only scales attributes in DΩ,Rx ,K 0 .
+η ∗ (K 0 )
+
+x
+
+Thus, T(σΩ (kx (O), R, l(O))) ∈ TK 0 ,R,Ω . Hence, EF ∗ (O) = {T(σΩ (kx (O), R, l(O)))}x∈X ∈
+x
+OKx0 ,R,Ω (Definition 7).
+Property 13 (EF ∗ is extensive and monotone). The function EF ∗ attached to a relational
+context and a set of scaling operations satisfies:
+O ⪯ EF ∗ (O),
+′
+
+∗
+
+(Extensivity)
+∗
+
+′
+
+O ⪯ O ⇒ EF (O) ⪯ EF (O ).
+
+(Monotony)
+
+Proof. Extensivity holds because EF ∗ can only add to k(O) attributes scaled from l(O),
+hence ∀x ∈ X, kx (O) ⊆ kx (EF ∗ (O)). Thus, by Property 10, O ⪯ EF ∗ (O). Monotony holds
+because O ⪯ O′ means that ∀x ∈ X, lx (O) ⪯ lx (O′ ) and kx (O) ⊆ kx (O′ ). The former
+entails that ∀x ∈ X, η(lx (O)) ⊆ η(lx (O′ )) and consequently, that DΩ,Rx ,l(O) ⊆ DΩ,Rx ,l(O′ ) .
+A smaller context (kx (O)) is extended by a smaller set of attributes (DΩ,Rx ,l(O) ), thus
+kx (EF ∗ (O)) ⊆ kx (EF ∗ (O′ )). Hence, by Property 10, EF ∗ (O) ⪯ EF ∗ (O′ ).
+5.2 Self-supported lattices
+In a family of context-lattice pairs O, there may be a context k(Ox ) containing attributes
+which refer to concepts non existing in l(O). Such an attribute, e.g. ∃r.c, belonging to
+k(Ox ) may belong to DΩ,Rx ,K 0 and be well-defined by the incidence relation, but c may not
+be a concept of l(O). This is illustrated by Example 7.
+Example 7 (Non self-supported families of context-lattice pairs). Figure 6 (p.16) shows a
+#
+familly of contexts {K3# , K4# } and the associated family of concept lattices {L#
+3 , L4 } that
+could be a solution for the example of Section 3.2 as it belongs to O{∃},{p,q},{K30 ,K40 } . However, this family is not self-supported because the context K3# (and thus concept A) uses the
+attribute ∃p.C which refers to a concept (C) not present in L#
+4 and similarly for ∃q.B in
+#
+context K4 .
+
+A family of context-lattice pairs in O containing such attributes will see them preserved
+by EF ∗ which only extends the contexts. This is not the expected result: concepts referred
+to by attributes are expected to exist in the corresponding lattice.
+One may consider identifying such attributes and forbidding them. However, support
+is contextual: a supported attribute in a large family of context-lattice pairs may not be
+supported in a smaller one.
+In order to define acceptable solutions for RCA, we introduce the notion of context
+supported by a family of concept lattices, i.e. those contexts whose relational attributes
+only refer to concepts in the lattices.
+Definition 12 (Supported context). A context ⟨Gx , Mx , Ix ⟩ is supported by a family of
+indexed lattices {Lz }z∈X , with respect to a set R of relations, if ∀ς(r, c) ∈ Mx , r ∈ Rx,z and
+c ∈ Lz .
+By extension, an indexed family of context-lattice pairs is said self-supported if each
+context of the family is supported by the family lattices. The support of a single context
+may use several lattices of the family (l(O)).
+25
+
+Jérôme Euzenat
+
+Definition 13 (Self-supported families of context-lattice pairs). A family of context-lattice
+pairs O ∈ O is self-supported, with respect to a set R of relations, if ∀x ∈ X, kx (O) is
+supported by l(O), with respect to R.
+The definition of self-supported families of context-lattice pairs does not provide a direct
+way to transform a non self-supported family into a self-supported one. A possible way to
+solve this problem consists of extracting only the attributes currently in the lattice and to
+apply FCA to the resulting context.
+For that purpose, we introduce a filtering or purging function π ∗ which suppresses from
+the contexts (κ(Lx )) induced by the lattices Lx in L those attributes non supported by L:
+Q
+Q
+∗
+Definition 14 (Purging function). The function πK
+0 ,R,Ω :
+x∈X LKx0 ,R,Ω →
+x∈X KKx0 ,R,Ω
+returns the family of contexts reduced of those attributes not present in a family of lattices:
+∗
+πK
+0 ,R,Ω (L) = {πK 0 ,R,Ω (Lx , L)}x∈X
+
+with
+⟨R,L⟩
+
+πK 0 ,R,Ω (Lx , L) = K−(D
+
+Ω,Rx ,K 0 ) \DΩ,Rx ,L )
+
+(κ(Lx )).
+
+∗
+∗
+When unambiguous, we refer to πK 0 ,R,Ω (resp. πK
+0 ,R,Ω ) as π (resp. π ). This extends
+the purging function of [Euzenat, 2021]. The purging function only restricts the sets of
+possible contexts and does not expand them.
+π and σ are not inverse functions: in particular, σ greatly depends on Ω and R to decide
+which attributes to scale, through π simply suppresses attributes non supported by the
+lattices, independently from Ω, which however determines the attribute language.
+π ∗ can be used to determine if a family of context-lattice pairs is self-supported:
+
+Property 14. O is self-supported if and only if k(O) = π ∗ (l(O)).
+Proof. O is self-supported means that ∀ x ∈ X, kx (O) is supported by l(O) (Definition 13) which means that, in kx (O), there is no attribute built from concepts out of
+l(O), i.e. not belonging to DΩ,Rx ,l(O) . By Definition 14, this is equivalent to having
+∀x ∈ X, π(lx (O), l(O)) = κ(lx (O)). However, by Property 3, kx (O) = κ(lx (O)), thus
+kx (O) = π(lx (O), l(O)) and then k(O) = π ∗ (l(O)).
+Like the scaling function, the purging function, is only one step: it suppresses currently
+unsupported attributes, but this may lead to less concepts to be generated by FCA, and
+thus to other non-supported attributes. Hence, it has to be iterated.
+We introduce a contraction function, P Q∗K 0 ,R,Ω , attached to a relational context ⟨K 0 , R⟩
+and a set Ω of scaling operations, which suppresses non-supported attributes and whose
+closure yields self-supported families of context-lattice pairs.
+5.3 The contraction function P Q∗
+∗
+∗
+Similarly to EFK
+0 ,R,Ω , it is possible to define P QK 0 ,R,Ω the contraction function attached
+to a relational context ⟨K 0 , R⟩ and a set Ω of scaling operations.
+
+26
+
+The fixed-point semantics of relational concept analysis
+
+Definition 15 (Contraction function). Given a relational context ⟨K 0 , R⟩ and a set Ω of
+relational scaling operations, the contraction function P Q∗K 0 ,R,Ω : OK 0 ,R,Ω → OK 0 ,R,Ω is
+defined by:
+∗
+P Q∗K 0 ,R,Ω (O) = T∗ (πK
+0 ,R,Ω (l(O))).
+As previously, we will abbreviate P Q∗K 0 ,R,Ω as P Q∗ .
+P Q∗ is an anti-extensive and monotone internal operation for O:
+Property 15 (P Q∗ is internal to O). ∀O ∈ O, P Q∗ (O) ∈ O.
+Proof. P Q∗ (O) = T∗ (π ∗ (l(O))) = T∗ ({π(lx (O), l(O))}x∈X ) = {T(π(lx (O), l(O)))}x∈X . So,
+η ∗ (K 0 )
+η ∗ (K 0 )
+P Q∗ (O) ∈ O if π(lx (O), l(O)) ∈ KK 0 ,R,Ω (Definition 7). This is the case because (i) KK 0 ,R,Ω
+x
+
+x
+
+η ∗ (K 0 )
+
+contains all contexts extending Kx0 with attributes from DΩ,Rx ,K 0 , (ii) kx (O) ∈ KK 0 ,R,Ω ,
+x
+and (iii) π only suppresses attributes from kx (O) preserving those of Kx0 .
+Property 16 (P Q∗ is anti-extensive and monotone). The function P Q∗ attached to a relational context and a set of scaling operations satisfies:
+P Q∗ (O) ⪯ O,
+′
+
+(Anti-extensivity)
+∗
+
+∗
+
+′
+
+O ⪯ O ⇒ P Q (O) ⪯ P Q (O ).
+
+(Monotony)
+
+Proof. Anti-extensivity holds because P Q∗ can only suppress from k(O) attributes not supported by l(O), hence ∀x ∈ X, kx (P Q∗ (O)) ⊆ kx (O). Thus, by Property 10, P Q∗ (O) ⪯ O.
+Monotony holds because O ⪯ O′ means that ∀x ∈ X, kx (O) ⊆ kx (O′ ) and lx (O) ⪯ lx (O′ ).
+This entails that η ∗ (l(O)) ⊆ η ∗ (l(O′ )) and thus, ∀x ∈ X, DΩ,Rx ,l(O) ⊆ DΩ,Rx ,l(O′ ) . Because P Q∗ (O) suppresses from kx (O) attributes not in Mx0 ∪ DΩ,Rx ,l(O) , this entails that
+kx (P Q∗ (O)) ⊆ kx (P Q∗ (O′ )). Hence, by Property 10, P Q∗ (O) ⪯ P Q∗ (O′ ).
+
+6. The fixed points of EF ∗ and P Q∗
+We end up with two functions, EF ∗ and P Q∗ , over families of context-lattice pairs, the
+former extensive and the latter anti-extensive. We consider the fixed points of these functions
+as saturated and self-supported families of context-lattice pairs (§6.1). Closure functions are
+defined which return the smallest subsuming and greatest subsumed fixed points of a family
+(§6.2). This allows us to precisely define acceptable solutions as those families of contextlattice pairs which are fixed points for both functions (§6.3).
+6.1 Fixed points
+RCA is a world of fixed points, hence it is easy to get lost among the various fixed points
+involved:
+– In description logics, which RCA targets, the semantics of concepts is given by (least)
+fixed points when circularities occur [Nebel, 1990];
+– FCA’s goal is to compute fixed points: concepts are the result of a closure operation
+which is also a fixed point [Belohlávek, 2008];
+– finally, the RCA result is the fixed point of the function that grows a family of concept
+lattices from the previous one through scaling.
+27
+
+Jérôme Euzenat
+
+The present work is concerned with the fixed points of the latter function taking the others
+into account.
+Given EF ∗ and P Q∗ , it is possible to define their sets of fixed points, i.e. the sets of
+families of context-lattice pairs closed for EF ∗ and P Q∗ , as:
+Definition 16 (Fixed points). A family of context-lattice pairs O ∈ O is a fixed point for a
+function ϕ, if ϕ(O) ≃ O. We call fp(ϕ) the set of fixed points for ϕ.
+This characterises fp(EF ∗ ) and fp(P Q∗ ).
+This may be directly expressed
+∗ (k(O), R, l(O)) = k(O).
+Property 17. O ∈ fp(EF ∗ ) iff σΩ
+∗ (k(O), R, l(O))). (⇐) If σ ∗ (k(O), R, l(O)) =
+Proof. O = T∗ (k(O)) and EF ∗ (O) = T∗ (σΩ
+Ω
+∗
+∗ (k(O), R, l(O)) ̸=
+k(O), then EF (O) = O and thus O is a fixed point of EF ∗ . (⇒) If σΩ
+k(O), then EF ∗ (O) ̸= O, so it is not a fixed point.
+
+Property 18. O ∈ fp(P Q∗ ) iff π ∗ (l(O)) = k(O).
+Proof. O = T∗ (k(O)) and P Q∗ (O) = T∗ (π ∗ (l(O))). (⇐) If π ∗ (l(O)) = k(O), then P Q∗ (O)
+= O and thus is a fixed point of P Q∗ . (⇒) If π ∗ (l(O)) ̸= k(O), then P Q∗ (O) ̸= O, so it is
+not a fixed point.
+Since O is a complete lattice (Proposition 11) and EF ∗ and P Q∗ are order-preserving
+(or monotone) on O (Properties 13 and 16), then we can apply the Knaster-Tarski theorem.
+Theorem (Knaster-Tarski theorem [Tarski, 1955]). Let O be a complete lattice and let
+ϕ : O → O be an order-preserving function. Then the set of fixed points of ϕ in O is also a
+complete lattice.
+Thus, ⟨fp(EF ∗ ), ⪯⟩ and ⟨fp(P Q∗ ), ⪯⟩ are complete lattices. This warrants that there
+exists least and greatest fixed points of EF ∗ and P Q∗ in O. For such a function ϕ, operating
+on the set O, their least and greatest fixed points are:
+^
+_
+lfp(ϕ) =
+O and gfp(ϕ) =
+O.
+O∈fp(ϕ)
+
+O∈fp(ϕ)
+
+The fixed points of these two functions may be further characterised. The smallest fixed
+point of P Q∗ is the smallest element of O which cannot be further reduced:
+Property 19 (Least fixed point of P Q∗ ).
+lfp(P Q∗ ) = T∗ (K 0 ).
+Proof. T∗ (π ∗ (FCA∗ (K 0 ))) = T∗ (K 0 ) because (a) ∀x ∈ X, κ(FCA(Kx0 )) = Kx0 (Property 3),
+and (b) π(FCA(Kx0 ), FCA∗ (K 0 )) = Kx0 as it is not possible to suppress attributes from
+Kx0 which, being an initial (unscaled) context, does not comprise any attribute referring
+to concepts. Thus, P Q∗ (T∗ (K 0 )) = T∗ (π ∗ (FCA∗ (K 0 ))) = T∗ (K 0 ). Moreover, ∀O ∈ O,
+T∗ (K 0 ) ⪯ O. Hence, T∗ (K 0 ) is a fixed point of P Q∗ and all other fixed points are greater.
+
+28
+
+The fixed-point semantics of relational concept analysis
+
+The greatest fixed point of EF ∗ is the family that cannot be further extended (generalising Proposition 2 of [Euzenat, 2021]):
+Property 20 (Greatest fixed point of EF ∗ ).
+⟨R,η ∗ (K 0 )⟩
+
+∗
+∗
+gfp(EFK
+0 ,R,Ω ) = T ({K+D
+
+Ω,Rx ,K 0
+
+(Kx0 )}x∈X ).
+
+Proof. This family of context-lattice pairs is the greatest element of O as ∀x ∈ X, the
+context kx (O) contains all attributes of Mx0 ∪ DΩ,Rx ,K 0 and due to Property 10. It is also a
+fixed point because EF ∗ is extensive (Property 13) and internal (Property 12).
+6.2 Closure functions (EF ∗∞ and P Q∗∞ )
+EF ∗ and P Q∗ are not closure operations as they are not idempotent. However, with the
+same arguments as [Rouane Hacène et al., 2013a], and in particular the finiteness of contexts
+(see Section 2.4.3), it can be argued that their repeated application converges to a fixed point.
+Property 21 (Stability of EF ∗ ). ∀O ∈ O, ∃n; EF ∗n (O) = EF ∗n+1 (O).
+Proof. EF ∗ can only increase the contexts when there are new concepts in lattices and
+increase the lattices when contexts grow. However, the set of attributes that can increase
+contexts, and the set of concepts that can be in lattices, is finite. Hence, at each step either
+an attribute is added or n has been reached such that the family of context-lattice pairs is
+the same. This is the same argument as that of [Rouane Hacène et al., 2013a].
+This below is an extension of Proposition 5 of [Euzenat, 2021]:
+Property 22 (Stability of P Q∗ ). ∀O ∈ O, ∃n; P Q∗n (O) = P Q∗n+1 (O).
+Proof. P Q∗ can only decrease the contexts and reduce lattices. Since these are finite (and
+the decrease does not affect the attributes of K 0 ), there exists a n at which the decrease
+stops.
+The finite application of EF ∗ and P Q∗ as many times as necessary, i.e. to the first
+n satisfying Properties 21 and 22, are closure operations denoted by EF ∗∞ and P Q∗∞ ,
+respectively.
+Property 23. EF ∗∞ and P Q∗∞ are closures.
+Proof. Since EF ∗ is extensive and monotone (Property 13), EF ∗∞ is also extensive and
+monotone by transitivity of ⪯. In order to be a closure operation it has to be idempotent.
+This is the case, because ∀O ∈ O, EF ∗∞ (O) = EF ∗n (O) = EF ∗n+1 (O) = EF ∗ (EF ∗n (O)).
+Since EF ∗n (O) = EF ∗ (EF ∗n (O)), EF ∗ can be applied n times, leading to EF ∗∞ (O) =
+EF ∗n (O) = EF ∗n (EF ∗n (O)) = EF ∗∞ (EF ∗∞ (O)).
+The same can be obtained from P Q∗ , albeit anti-extensive (Property 16).
+In addition, they are extrema of the sets of fixed points of their respective functions.
+29
+
+Jérôme Euzenat
+
+Property 24 (EF ∗ and P Q∗ return the smallest subsuming and greatest subsumed fixed
+points). ∀O ∈ O,
+EF ∗∞ (O) = min(fp(EF ∗ ) ∩ {O′ |O ⪯ O′ }),
+⪯
+
+∗∞
+
+PQ
+
+(O) = max(fp(P Q∗ ) ∩ {O′ |O′ ⪯ O}).
+⪯
+
+Proof. EF ∗∞ (O) ∈ fp(EF ∗ ) and P Q∗∞ (O) ∈ fp(P Q∗ ) as they satisfy Definition 16. Moreover, EF ∗∞ (O) ∈ {O′ |O ⪯ O′ } and P Q∗∞ (O) ∈ {O′ |O′ ⪯ O} as EF ∗ and P Q∗ are
+respectively extensive and anti-extensive and monotone (Property 13 and 16). There cannot be O′ ∈ fp(EF ∗ ) ∩ {O′ |O ⪯ O′ } such that O′ ≺ EF ∗∞ (O) because otherwise k(O′ ) ⊂
+k(EF ∗∞ (O)) and k(O) ⊆ k(O′ ). In other terms, O′ contains all attributes of O but not
+all attributes of EF ∗∞ (O). But, EF ∗∞ only adds scalable attributes and k(EF ∗∞ (O))
+contains only attributes scalable from O. Hence, O′ is not closed for EF ∗ (O′ ̸∈ fp(EF ∗ )).
+The same holds for P Q∗∞ (O), there cannot be O′ ∈ fp(P Q∗ ) ∩ {O′ |O′ ⪯ O} such that
+P Q∗∞ (O) ≺ O′ because otherwise k(O′ ) ⊆ k(O). In other terms, all attributes of O′ are
+in O but O′ contains all attributes of P Q∗∞ (O). However, P Q∗∞ only suppress attributes
+not supported by those of O. Hence, O′ is not closed for P Q∗ (O′ ̸∈ fp(P Q∗ )), as it would
+contain non-supported attributes.
+The respective relations of these various objects can be summarised by the following
+property:
+Property 25. ∀O ∈ O,
+lfp(P Q∗ ) ⪯ P Q∗∞ (O) ⪯ P Q∗ (O) ⪯ O ⪯ EF ∗ (O) ⪯ EF ∗∞ (O) ⪯ gfp(EF ∗ ).
+Proof. All the inner equations are consequences of the extensivity of EF ∗ (Property 13) and
+anti-extensivity of P Q∗ (Property 16). The outer ones owe to the fact that the two closure
+operations are fixed points (Property 24), thus they are subsumed by, resp. subsuming,
+their greatest, resp. least, fixed point.
+6.3 Acceptable solutions
+What is called acceptable solutions in Section 3 is now rephrased in Definition 17.
+Definition 17 (Acceptable family of context-lattice pairs). Given a family K 0 of contexts,
+a set Ω of scaling operations and a set R of relations, a family of context-lattice pairs O is
+acceptable if
+– O ∈ OK 0 ,R,Ω ,
+(well-formedness)
+– O is saturated,
+(saturation)
+– O is self-supported.
+(self-support)
+This can be characterised as those families of context-lattice pairs which are fixed points
+of both EF ∗ and P Q∗ .
+The fixed points of EF ∗ are exactly those saturated elements of O:
+Property 26 (Fixed points of EF ∗ are saturated). ∀O ∈ O, O is saturated iff O ∈ fp(EF ∗ ).
+30
+
+The fixed-point semantics of relational concept analysis
+
+∗ (k(O), R, l(O)) (Property 17) which is equivalent
+Proof. O ∈ fp(EF ∗ ) means that k(O) = σΩ
+to ∀x ∈ X, kx (O) = σΩ (kx (O), R, l(O)) which, by Definition 11, means that O is saturated.
+
+The fixed points of P Q∗ are exactly those self-supported objects in O:
+Property 27 (Fixed points of P Q∗ are self-supported). ∀O ∈ O, O is self-supported iff
+O ∈ fp(P Q∗ ).
+Proof. O is self-supported iff k(O) = π ∗ (l(O)) (Property 14) which is equivalent to O =
+P Q∗ (O) (Property 18), i.e. O ∈ fp(P Q∗ ).
+Hence, the set of acceptable solutions is fp(EF ∗ ) ∩ fp(P Q∗ ).
+Proposition 28 (Acceptable solutions are fixed points of both EF ∗ and P Q∗ ). Given a
+family K 0 of contexts, a set Ω of scaling operations and a set R of relations, a family of
+context-lattice pairs O is acceptable iff O ∈ OK 0 ,R,Ω and O ∈ fp(EF ∗ ) ∩ fp(P Q∗ ).
+Proof. O is well-formed as it belongs to OK 0 ,R,Ω . It is saturated if and only if it belongs
+to fp(EF ∗ ) (Property 26) and it is self-supported if and only if it belongs to fp(P Q∗ )
+(Property 27). Hence, O is acceptable (Definition 17).
+Example 8 illustrates this:
+Example 8 (Acceptable solutions). In the example of Section 3.2, it can be checked that
+the given solutions belong to the expected fixed points:
+EF ∗ ({⟨K31 , L13 ⟩, ⟨K41 , L14 ⟩}) = {⟨K31 , L13 ⟩, ⟨K41 , L14 ⟩} = P Q∗ ({⟨K31 , L13 ⟩, ⟨K41 , L14 ⟩}),
+EF ∗ ({⟨K3⋆ , L⋆3 ⟩, ⟨K4⋆ , L⋆4 ⟩}) = {⟨K3⋆ , L⋆3 ⟩, ⟨K4⋆ , L⋆4 ⟩} = P Q∗ ({⟨K3⋆ , L⋆3 ⟩, ⟨K4⋆ , L⋆4 ⟩}),
+EF ∗ ({⟨K3′ , L′3 ⟩, ⟨K4′ , L′4 ⟩}) = {⟨K3′ , L′3 ⟩, ⟨K4′ , L′4 ⟩} = P Q∗ ({⟨K3′ , L′3 ⟩, ⟨K4′ , L′4 ⟩}),
+and
+EF ∗ ({⟨K3′′ , L′′3 ⟩, ⟨K4′′ , L′′4 ⟩}) = {⟨K3′′ , L′′3 ⟩, ⟨K4′′ , L′′4 ⟩} = P Q∗ ({⟨K3′′ , L′′3 ⟩, ⟨K4′′ , L′′4 ⟩}).
+and none of the other elements of O as displayed in Figure 9 (p.38).
+In lattice theory, saturation and self-support would have been easily called closedness.
+The terms saturation and self-support have been chosen in order to differentiate them.
+
+7. The fixed-point semantics of RCA
+Now that the acceptable solutions have been characterised structurally and functionally, we
+can answer our initial question and define the semantics of RCA. RCA returns the smallest
+acceptable solution. It is also the least fixed point of the EF ∗ function (§7.1). Another
+interesting operation is the one that generates the greatest acceptable solution, which is also
+the greatest fixed point of P Q∗ (§7.2). It is also worth considering obtaining the whole set
+fp(EF ∗ ) ∩ fp(P Q∗ ). Section 7.3 investigates the structure of [lfp(EF ∗ ), gfp(P Q∗ )] and its
+relation with fp(EF ∗ ) ∩ fp(P Q∗ ) towards that goal. It provides various results that may be
+exploited to develop efficient algorithms.
+31
+
+Jérôme Euzenat
+
+7.1 Classical RCA computes EF ∗ ’s least fixed point
+RCA as it has been defined in Section 2.4.2 (p.11) may be redefined as
+∗∞
+∗
+0
+RCAΩ (K 0 , R) = l(EFK
+0 ,R,Ω (T (K )))
+
+i.e. RCA iterates EF ∗ from T∗ (K 0 ) until reaching a fixed point, and ultimately the corresponding lattices are returned.
+It thus seems that RCA returns a fixed point of EF ∗ . Hence the question: which fixed
+point is returned by RCA’s well-grounded semantics? This is the least fixed point.
+Proposition 29 (The RCA algorithm computes the least fixed point of EF ∗ ). Given EF ∗
+the expansion function associated to K 0 , R and Ω,
+∗
+RCAΩ (K 0 , R) = l(lfp(EFK
+0 ,R,Ω )).
+
+Proof. T∗ (K 0 ) ∈ O, hence EF ∗∞ (T∗ (K 0 )) ∈ O (by Property 12). Moreover, EF ∗∞ (T∗ (K 0 ))
+= min⪯ (fp(EF ∗ ) ∩ {O′ | T∗ (K 0 ) ⪯ O′ }) (Property 24). But ∀O′ ∈ O, T∗ (K 0 ) ⪯ O′ , hence
+∗∞
+∗
+0
+EF ∗∞ (T∗ (K 0 )) = min⪯ (fp(EF ∗ )). Thus, EFK
+0 ,R,Ω (T (K )) is a fixed point more specific
+than all fixed points: it is the least fixed point.
+∗
+0
+∗∞
+RCAΩ (K 0 , R) = l(EFK
+0 ,R,Ω (T (K ))) returns the family of lattices associated with the
+∗
+least fixed point of EFK 0 ,R,Ω .
+7.2 Greatest fixed-point (of P Q∗ ) semantics
+It is possible to define RCA as returning the greatest acceptable solution. The greatest fixed
+point of EF ∗ (Property 20) is not necessarily an acceptable solution because it may not be
+self-supported. Said otherwise, it does not belong to fp(EF ∗ ) ∩ fp(P Q∗ ) because it is not a
+fixed point for P Q∗ .
+Alternatively, a dual procedure RCA may be defined as:
+⟨R,η ∗ (K 0 )⟩
+
+∗
+RCAΩ (K 0 , R) = l(P Q∗∞
+K 0 ,R,Ω (T ({K+D
+
+Ω,Rx ,K 0
+
+(Kx0 )}x∈X )))
+
+and it can be characterised analogously as the greatest fixed point of P Q∗K 0 ,R,Ω .
+Proposition 30 (RCA determines the greatest fixed point of P Q∗ ). Given P Q∗ the contraction function associated to K 0 , R and Ω,
+RCAΩ (K 0 , R) = l(gfp(P Q∗K 0 ,R,Ω )).
+⟨R,η ∗ (K 0 )⟩
+
+Proof. O∞ = T∗ ({K+D
+
+Ω,Rx ,K 0
+
+∞
+(Kx0 )}x∈X ) ∈ O, hence P Q∗∞
+K 0 ,R,Ω (O ) ∈ O (by Property 15).
+
+Moreover, P Q∗∞ (O∞ ) = max⪯ (fp(P Q∗ ) ∩ {O′ |O′ ⪯ O∞ }) (Property 24). But ∀O′ ∈ O,
+∞
+O′ ⪯ O∞ , hence P Q∗∞ (O∞ ) = max⪯ (fp(P Q∗ )). Thus, P Q∗∞
+K 0 ,R,Ω (O ) is a fixed point
+more general than all fixed points: it is the greatest fixed point.
+∞
+RCAΩ (K 0 , R) = l(P Q∗∞
+K 0 ,R,Ω (O )) returns the family of lattices associated with the
+∗
+greatest fixed point of P QK 0 ,R,Ω .
+32
+
+The fixed-point semantics of relational concept analysis
+
+⟨R,η ∗ (K 0 )⟩
+
+(Kx0 )}x∈X ), the largest
+In order to find gfp(P Q∗ ), the process starts with T∗ ({K+D
+Ω,Rx ,K 0
+family of context-lattice pairs, and iterates the application of P Q∗ , i.e. the two operations
+π ∗ and FCA∗ , until reaching a fixed point, i.e. reaching n such that On+1 = On .
+Thus, the RCA algorithm proceeds in the following way:
+⟨R,η ∗ (K 0 )⟩
+(Kx0 )}x∈X
+1. Initial contexts: t ← 0; {⟨Gx , Mxt , Ixt ⟩}x∈X ← {K+D
+0
+Ω,Rx ,K
+
+2. {Ltx }x∈X ← FCA∗ ({⟨Gx , Mxt , Ixt ⟩}x∈X ) (or, for each context, ⟨Gx , Mxt , Ixt ⟩ the corresponding concept lattice Ltx = FCA(⟨Gx , Mxt , Ixt ⟩) is created using FCA).
+3. {⟨Gx , Mxt+1 , Ixt+1 ⟩}x∈X ← π ∗ ({Ltx }x∈X ) (i.e. suppressing from Kxt each attribute in Ltx
+referring through a relation r ∈ Rx,z to a concept cz not appearing in Ltz ).
+4. If ∃x ∈ X; Mxt+1 ̸= Mxt (purging has occurred), then t ← t + 1; go to Step 2.
+5. Return: {Ltx }x∈X .
+This algorithm is the dual of the RCA procedure.
+Example 9 shows how this is processed.
+Example 9 (Greatest fixed-point semantics). In the cases presented in Section 3.1 and 3.2,
+the greatest (or maximum) elements {⟨K1⋆ , L⋆1 ⟩, ⟨K2⋆ , L⋆2 ⟩} and {⟨K3⋆ , L⋆3 ⟩, ⟨K4⋆ , L⋆4 ⟩} of O are
+fixed points for both EF ∗ and P Q∗ . Instead, consider the example of Section 3.1 in which
+the relation p is changed to:
+p d e f
+a × ×
+b × ×
+c
+×
+
+q a b c
+d ×
+×
+e
+f
+×
+
+∃p.DEF
+∃p.DE
+∃p.DF
+∃p.EF
+∃p.D
+∃p.E
+∃p.F
+
+∃q.ABC
+∃q.AB
+∃q.AC
+∃q.BC
+∃q.A
+∃q.B
+∃q.C
+
+q remaining the same. The effect of changing p is to make a and b non distinguishable and
+reduce the sets of supported concepts.
+⟨R,η ∗ (K 0 )⟩
+⊤
+⊤
+Then (Property 20), gfp(EF ∗ ) = T∗ ({K+D
+(Kx0 )}x∈{1,2} ) = {⟨K1⊤ , L⊤
+1 ⟩, ⟨K2 , L2 ⟩}
+Ω,Rx ,K 0
+is presented below:
+
+K2⊤ n1 n2
+d ×
+× × ×
+×
+e × × × ×
+×
+×
+×
+× ×
+×
+f
+
+K1⊤ m1 m2 m3
+a
+×
+× × × × × ×
+b
+×
+× × × × × ×
+c ×
+× ×
+× ×
+×
+
+DEF
+
+ABC
+
+AB
+
+∃p.DEF, ∃p.DF, ∃p.EF
+
+m2 , ∃p.D, ∃p.E, ∃p.DE
+a, b
+L⊤
+1 :
+
+C
+
+DE
+
+m1 , m3 , ∃p.F
+c
+
+n1 , ∃p.AB
+
+D
+L⊤
+2 :
+
+⊥
+
+33
+
+∃p.A
+d
+
+DF
+
+E
+
+⊥
+
+∃p.ABC
+
+∃p.AC
+
+n2 , ∃p.B
+e
+
+EF
+
+∃p.BC
+
+∃p.C
+F
+
+f
+
+Jérôme Euzenat
+
+⊤
+⊤
+∗
+It can be checked that {⟨K1⊤ , L⊤
+1 ⟩, ⟨K2 , L2 ⟩} is a fixed point for EF : no additional
+∗
+attribute can be scaled. On the contrary, it is not a fixed point for P Q which can be applied
+to it.
+In a first application, it will purge ⟨K2⊤ , L⊤
+2 ⟩ to:
+
+∃q.ABC
+∃q.AB
+∃q.C
+
+DEF
+
+DE
+
+K2† n1 n2
+d ×
+× ×
+e × × × ×
+f
+×
+×
+
+∃p.ABC
+
+n1 , ∃p.AB
+d
+E
+
+∃q.C
+
+n2
+e
+
+L†2 :
+
+F
+
+f
+
+⊥
+
+∃p.DEF
+∃p.DE
+∃p.E
+∃p.F
+
+†
+†
+A second application will purge ⟨K1⊤ , L⊤
+1 ⟩ with respect to ⟨K2 , L2 ⟩:
+
+K1† m1 m2 m3
+a
+×
+× × ×
+b
+×
+× × ×
+c ×
+× ×
+×
+
+ABC
+
+AB
+
+∃p.DEF
+
+m2 , ∃p.E, ∃p.DE
+a, b
+L†1 :
+
+C
+
+m1 , m3 , ∃p.F
+c
+
+⊥
+
+It can be checked that {⟨K1† , L†1 ⟩, ⟨K2† , L†2 ⟩} is a fixed point for P Q∗ , but also for EF ∗ .
+It may be interesting, for some applications to check if there is only one acceptable
+solution. This can easily be characterised by:
+∗
+∗
+∗
+∗
+Proposition 31. lfp(EFK
+0 ,R,Ω ) = gfp(P QK 0 ,R,Ω ) iff |fp(EFK 0 ,R,Ω ) ∩ fp(P QK 0 ,R,Ω )| = 1.
+
+The proof of this proposition is given in the next section (7.3) as it relies on further
+results.
+This can be tested using RCA and RCA.
+FCA can be described as RCA with R = ∅. In this case, ∀x ∈ X, DΩ,Rx ,K 0 = ∅. Thus,
+O = {T∗ (K 0 )} = {⟨K 0 , FCA(K 0 )⟩} and fp(EF ∗ ) = fp(P Q∗ ) = {T∗ (K 0 )}. Hence,
+RCAΩ (K 0 , ∅) = RCAΩ (K 0 , ∅) = FCA(K 0 ).
+7.3 The structure of fixed points
+Besides obtaining the least fixed point of EF ∗ (RCAΩ ) or the greatest fixed point of P Q∗
+(RCAΩ ), an interesting problem is to obtain all acceptable solutions, i.e. those families of
+context-lattice pairs belonging to the fixed points of both functions (fp(EF ∗ ) ∩ fp(P Q∗ )).
+A naive algorithm for this consists in enumerating all elements of O and testing if they
+are fixed points. This would not be very efficient. One way to try to improve on this
+34
+
+The fixed-point semantics of relational concept analysis
+
+situation is to understand the structure of the set of fixed points and its relation with the
+two functions and their closures. Figure 8 illustrates the structure of O and how EF ∗∞ and
+P Q∗∞ and their composition traverse this structure.
+An interesting property of the functions EF ∗ and P Q∗ is that they preserve each other
+stability:
+Property 32 (EF ∗ is internal to fp(P Q∗ )). ∀O ∈ fp(P Q∗ ), EF ∗ (O) ∈ fp(P Q∗ ).
+Proof. If O ∈ fp(P Q∗ ), all attributes in intents of l(O) are supported by concepts in l(O)
+(Property 27 and Definition 13). By Property 13, O ⪯ EF ∗ (O), so these concepts are still
+in l(EF ∗ (O)). Moreover, EF ∗ only adds to k(O) attributes which are supported by l(O)
+(they only refer to concepts in l(O)). Hence, the attributes in k(EF ∗ (O)) and those scaled
+by σΩ are still supported by l(EF ∗ (O)).
+Property 33 (P Q∗ is internal to fp(EF ∗ )). ∀O ∈ fp(EF ∗ ), P Q∗ (O) ∈ fp(EF ∗ ).
+∗ does not
+Proof. If O ∈ fp(EF ∗ ), this means that EF ∗ (O) = O and, in particular, that σΩ
+∗
+scale new attributes based on the concepts in l(O). By Property 16, P Q (O) ⪯ O, so that
+∗ cannot scale new attributes
+l(P Q∗ (O)) does not contain more concepts than l(O), then σΩ
+∗
+∗
+∗
+∗
+(σΩ (k(P Q (O)), R, l(P Q (O))) ⊆ σΩ (k(O), R, l(O)) = ∅). Hence, P Q∗ (O) ∈ fp(EF ∗ ).
+
+This shows that fp(EF ∗ ) ∩ fp(P Q∗ ) ̸= ∅: acceptable solutions always exist. In addition,
+the closure operations associated with the two functions preserve their extrema.
+Property 34. P Q∗∞ (gfp(EF ∗ )) = gfp(P Q∗ ) and EF ∗∞ (lfp(P Q∗ )) = lfp(EF ∗ ).
+Proof. ∀O ∈ O, O ⪯ gfp(EF ∗ ) (from Property 25), and P Q∗∞ is order preserving (Property 23), thus P Q∗∞ (O) ⪯ P Q∗∞ (gfp(EF ∗ )). Hence, ∀O ∈ fp(P Q∗ ), O ⪯ P Q∗∞ (gfp(EF ∗ )).
+Moreover, P Q∗∞ (gfp(EF ∗ )) ∈ fp(P Q∗ ), thus P Q∗∞ (gfp(EF ∗ )) = gfp(P Q∗ ).
+Similarly, ∀O ∈ O, lfp(P Q∗ ) ⪯ O (Property 25), and EF ∗∞ is order preserving (Property 23), thus EF ∗∞ (lfp(P Q∗ )) ⪯ EF ∗∞ (O). Hence, ∀O ∈ fp(EF ∗ ), EF ∗∞ (lfp(P Q∗ )) ⪯ O.
+Moreover, EF ∗∞ (lfp(P Q∗ )) ∈ fp(EF ∗ ), therefore EF ∗∞ (lfp(P Q∗ )) = lfp(EF ∗ ).
+Proposition 35 complements Property 25 for elements of fp(EF ∗ ) ∩ fp(P Q∗ ). The elements of fp(EF ∗ ) ∩ fp(P Q∗ ) thus belong to the interval [lfp(EF ∗ ) gfp(P Q∗ )] (which is more
+restricted than [lfp(P Q∗ ) gfp(EF ∗ )], see Figure 8).
+Proposition 35. ∀O ∈ fp(EF ∗ ) ∩ fp(P Q∗ ),
+lfp(P Q∗ ) ⪯ lfp(EF ∗ ) ⪯ O ⪯ gfp(P Q∗ ) ⪯ gfp(EF ∗ ).
+Proof. By Property 34, P Q∗∞ (gfp(EF ∗ )) = gfp(P Q∗ ), but P Q∗ (O) ⪯ O (Property 16) and
+P Q∗∞ (O) ⪯ P Q∗ (O) (Property 25), thus gfp(P Q∗ ) = P Q∗∞ (gfp(EF ∗ )) ⪯ P Q∗ (gfp(EF ∗ ))
+⪯ gfp(EF ∗ ). Moreover, by Property 34, EF ∗∞ (lfp(P Q∗ )) = lfp(EF ∗ ), but O ⪯ EF ∗ (O)
+(Property 13) and EF ∗ (O) ⪯ EF ∗∞ (O) (Property 25), thus lfp(P Q∗ ) ⪯ EF ∗ (lfp(P Q∗ )) ⪯
+EF ∗∞ (lfp(P Q∗ )) = lfp(EF ∗ ). Finally, O ∈ fp(EF ∗ ) ∩ fp(P Q∗ ) entails that lfp(EF ∗ ) ⪯ O
+and O ⪯ gfp(P Q∗ ).
+It is now possible to prove Proposition 31:
+35
+
+Jérôme Euzenat
+
+gfp(EF ∗ )
+O
+EF ∗∞
+P Q∗∞ 34
+EF ∗∞
+P Q∗∞
+
+fp(EF ∗ ) =
+Im(EF ∗∞ )
+
+O
+
+34 EF ∗∞
+P Q∗∞
+
+P Q∗∞ 40
+fp(P Q∗ ) =
+Im(P Q∗∞ )
+
+40 EF ∗∞
+
+fp(EF ∗ )
+
+O
+
+P Q∗∞ 33
+
+gfp(P Q∗ )
+32 EF ∗∞
+P Q∗∞ 40
+40 EF ∗∞
+
+35 41
+
+lfp(EF ∗ )
+O
+
+fp(P Q∗ )
+
+T∗ (K 0 ) = lfp(P Q∗ )
+Figure 8: Illustration of Properties 32, 33, 35, 34, 36, 40 and 41. The figure displays four
+times O and the images of gfp(EF ∗ ) (red), a random family of context-lattice
+pairs (blue) and lfp(P Q∗ ) = T∗ (K 0 ) (green) through P Q∗∞ (left) and EF ∗∞
+(right). fp(EF ∗ ) is drawn in vertical lines; fp(P Q∗ ) in horizontal lines and the
+grey area depicts the interval [lfp(EF ∗ ), gfp(P Q∗ )].
+
+36
+
+The fixed-point semantics of relational concept analysis
+
+∗
+∗
+Proof of Proposition 31. First, both lfp(EFK
+0 ,R,Ω ) and gfp(P QK 0 ,R,Ω ) are among the acceptable solutions. Indeed, lfp(EF ∗ ) = EF ∗∞ (lfp(P Q∗ )) (Property 34), but lfp(P Q∗ ) ∈
+fp(P Q∗ ) thus EF ∗∞ (lfp(P Q∗ )) ∈ fp(P Q∗ ) (Property 32), hence lfp(EF ∗ ) ∈ fp(P Q∗ ). The
+same reasoning can be applied to gfp(P Q∗K 0 ,R,Ω ) with Property 33.
+⇒) Since all acceptable solutions are within the interval between both fixed points (Proposition 35), if these are equal then the interval contains only one object which is the only
+acceptable solution.
+∗
+∗
+⇐) If there is only one acceptable solution, then lfp(EFK
+0 ,R,Ω ) = gfp(P QK 0 ,R,Ω ).
+
+Proposition 35 together with the preamble of the proof of Proposition 31 determine
+that [lfp(EF ∗ ) gfp(P Q∗ )] is the smallest interval in which fp(EF ∗ ) ∩ fp(P Q∗ ) is included
+since its bounds are acceptable solutions. However, acceptable solutions do not cover the
+whole interval: the converse of Proposition 35 does not hold in general as shown by the
+counter-example 10.
+Example 10 (Non coverage in RCA). In the example of Section 3.2, lfp(EF ∗ ) = {⟨K11 , L11 ⟩,
+#
+#
+⟨K21 , L12 ⟩} and gfp(P Q∗ ) = {⟨K1⋆ , L⋆1 ⟩, ⟨K2⋆ , L⋆2 ⟩}. The family {⟨K1# , L#
+1 ⟩, ⟨K2 , L2 ⟩} of Figure 6 belongs to [lfp(EF ∗ ) gfp(P Q∗ )], but not to fp(EF ∗ ) ∩ fp(P Q∗ ) as mentioned in Example 7. Figure 9 shows that 12 out of 16 elements of the interval are in this situation: only 4
+belong to fp(EF ∗ ) ∩ fp(P Q∗ ).
+This interval may be thought of as an approximation of the situation described by the
+initial context K 0 . For some purposes, this may be sufficient. However, it may also be
+interesting to navigate within the set fp(EF ∗ ) ∩ fp(P Q∗ ) of fixed points or to compute it.
+In order to find the elements of fp(EF ∗ ) ∩ fp(P Q∗ ), the closure of EF ∗ and P Q∗ , EF ∗∞
+and P Q∗∞ , can be used as functions which maps elements of O into families of contextlattice pairs in fp(EF ∗ ) and fp(P Q∗ ), respectively. Moreover, Properties 33 and 32 entail
+that P Q∗∞ ◦ EF ∗∞ and EF ∗∞ ◦ P Q∗∞ map any element of O into an acceptable family of
+context-lattice pairs in fp(EF ∗ ) ∩ fp(P Q∗ ). Hence, the set of acceptable solutions are those
+elements in the image of O by the composition of these two closure operations, in any order.
+Property 36. Im(P Q∗∞ ◦ EF ∗∞ ) = fp(EF ∗ ) ∩ fp(P Q∗ ) = Im(EF ∗∞ ◦ P Q∗∞ ).
+Proof. We show it for P Q∗∞ ◦ EF ∗∞ , the other part is dual:
+⊆ By definition, Im(P Q∗∞ ◦ EF ∗∞ ) ⊆ Im(P Q∗∞ ) = fp(P Q∗ ). Moreover, Im(EF ∗∞ ) =
+fp(EF ∗ ), but by Property 33, if O ∈ fp(EF ∗ ), then P Q∗∞ (O) ∈ fp(EF ∗ ). Hence,
+Im(P Q∗∞ ◦ EF ∗∞ ) ⊆ fp(EF ∗ ) ∩ fp(P Q∗ ).
+⊇ ∀O ∈ fp(P Q∗ ) ∩ fp(EF ∗ ), O ∈ fp(EF ∗ ), thus EF ∗∞ (O) = O and O ∈ fp(P Q∗ ), thus
+P Q∗∞ (O) = O. Hence, O = P Q∗∞ (EF ∗∞ (O)) = P Q∗∞ ◦ EF ∗∞ (O) ∈ Im(P Q∗∞ ◦
+EF ∗∞ ) and consequently fp(EF ∗ ) ∩ fp(P Q∗ ) ⊆ Im(P Q∗∞ ◦ EF ∗∞ ).
+In addition, these functions are monotone and idempotent.
+Property 37. P Q∗∞ ◦ EF ∗∞ (resp. EF ∗∞ ◦ P Q∗∞ ) is order-preserving and idempotent:
+∀O, O′ ∈ O, O ⪯ O′ ⇒ (P Q∗∞ ◦ EF ∗∞ )(O) ⪯ (P Q∗∞ ◦ EF ∗∞ )(O′ ),
+(Monotony)
+(P Q∗∞ ◦ EF ∗∞ ) ◦ (P Q∗∞ ◦ EF ∗∞ )(O) = P Q∗∞ ◦ EF ∗∞ (O).
+37
+
+(Idempotence)
+
+Jérôme Euzenat
+
+AB
+A
+
+B
+⊥
+
+AB
+A
+
+CD
+B
+
+AB
+
+C
+
+A
+
+⊥
+
+C
+
+L⋆3 , L⋆4
+
+D
+⊥
+
+CD
+
+AB
+
+D
+
+A
+
+CD
+C
+
+CD
+
+A
+
+C
+
+AB
+A
+
+L′3 , L′4
+
+AB
+
+CD
+B
+
+CD
+
+AB
+
+B
+
+CD
+C
+
+D
+
+⊥
+
+AB
+
+CD
+
+A
+
+D
+
+⊥
+
+AB
+AB
+
+CD
+
+CD
+C
+
+B
+
+#
+L#
+3 , L4
+
+⊥
+
+AB
+D
+
+⊥
+
+AB
+
+A
+
+B
+
+CD
+
+D
+
+C
+
+AB
+
+B
+
+CD
+C
+
+AB
+
+CD
+
+B
+
+D
+
+L′′3 , L′′4
+
+⊥
+
+CD
+
+AB
+
+AB
+
+CD
+D
+
+CD
+
+L13 , L14
+
+Figure 9: All the families of lattices belonging to [lfp(EF ∗ ) gfp(P Q∗ )] in the example of
+Section 3.2. Those in fp(EF ∗ ) ∩ fp(P Q∗ ) are within solid boxes. As usual, only
+direct edges are displayed. Solid arrows show direct application of EF ∗ and dashed
+arrows show direct application of P Q∗ . Dotted arrows are order relations not
+corresponding to EF ∗ or P Q∗ applications.
+
+38
+
+The fixed-point semantics of relational concept analysis
+
+Proof. We prove it for P Q∗∞ ◦ EF ∗∞ , the EF ∗∞ ◦ P Q∗∞ case is strictly dual.
+Monotony is obtained as the combination of order-preservation of the two functions: O ⪯
+O′ , hence EF ∗∞ (O) ⪯ EF ∗∞ (O′ ), and thus P Q∗∞ ◦ EF ∗∞ (O) ⪯ P Q∗∞ ◦ EF ∗∞ (O′ )
+(applying Property 23 twice).
+Idempotence is obtained from Property 36: ∀O ∈ O, P Q∗∞ ◦EF ∗∞ (O) ∈ fp(EF ∗ )∩fp(P Q∗ ),
+hence P Q∗∞ ◦ EF ∗∞ (O) = O and P Q∗∞ ◦ EF ∗∞ ◦ P Q∗∞ ◦ EF ∗∞ (O) = O, thus P Q∗∞ ◦
+EF ∗∞ ◦ P Q∗∞ ◦ EF ∗∞ (O) = P Q∗∞ ◦ EF ∗∞ (O).
+The monotony of these functions entails that fp(EF ∗ ) ∩ fp(P Q∗ ) is a complete lattice:
+Proposition 38. ⟨fp(EF ∗ ) ∩ fp(P Q∗ ), ⪯⟩ is a complete sublattice of ⟨O, ⪯⟩.
+Proof. fp(EF ∗ ) ∩ fp(P Q∗ ) = Im(P Q∗∞ ◦ EF ∗∞ ) (Property 36) and Im(P Q∗∞ ◦ EF ∗∞ ) =
+fp(P Q∗∞ ◦ EF ∗∞ ) due to idempotence (Property 37), hence the Knaster-Tarski theorem
+can be applied based on Property 37 (monotony), concluding that it is a complete lattice.
+It is included in O, thus this is a sublattice of ⟨O, ⪯⟩.
+This is illustrated by Example 11.
+Example 11 (Interval lattice). Figure 9 shows all elements of [lfp(EF ∗ ) gfp(P Q∗ )] for the
+example of Section 3.2. It can be observed that ⟨fp(EF ∗ ) ∩ fp(P Q∗ ), ⪯⟩ is a proper sublattice
+of O. Actually only 4 out of 16 possible objects in the interval are acceptable.
+In the figure, direct edges corresponding to EF ∗ or P Q∗ , from lattice pairs of level 2 and
+4, are drawn in solid or dashed, respectively. All the objects of level 3 that are not comparable
+with the two intermediate fixed points map to the extrema of the interval and thus EF ∗ are
+P Q∗ are not displayed.
+However, the functions P Q∗∞ ◦ EF ∗∞ and P Q∗∞ ◦ EF ∗∞ are not necessarily extensive,
+nor anti-extensive (see Figure 10 and Example 12, p. 40). Hence, they would not be closure
+operations.
+For any family of context-lattice pairs within the fixed points, i.e. fp(EF ∗ ) or fp(P Q∗ )
+(the vertically or horizontally stripped area of Figure 10), the two functions are equal.
+Property 39. ∀O ∈ fp(EF ∗ ) ∪ fp(P Q∗ ), P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O).
+Proof. For any lattice O belonging to fp(EF ∗ ) ∩ fp(P Q∗ ), P Q∗ (O) = EF ∗ (O) = O, hence
+P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O) = O. Similarly, for any lattice O belonging to
+fp(EF ∗ ), then EF ∗∞ (O) = O, so P Q∗∞ ◦EF ∗∞ (O) = P Q∗∞ (O). However, by Property 32,
+since O ∈ fp(EF ∗ ), P Q∗∞ (O) ∈ fp(EF ∗ ). This means that EF ∗∞ ◦ P Q∗∞ (O) = P Q∗∞ (O)
+as well. The same can be proved for O ∈ fp(P Q∗ ) with Property 33.
+What is actually shown by the proof of Property 39 is that:
+if O ∈ fp(EF ∗ ) then P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O) = P Q∗∞ (O),
+if O ∈ fp(P Q∗ ) then P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O) = EF ∗∞ (O).
+In particular, this applies to the bounds of fp(EF ∗ ) ∪ fp(P Q∗ ):
+39
+
+Jérôme Euzenat
+
+Property 40.
+EF ∗∞ ◦ P Q∗∞ (gfp(EF ∗ )) = P Q∗∞ ◦ EF ∗∞ (gfp(EF ∗ )) = gfp(P Q∗ ),
+and
+P Q∗∞ ◦ EF ∗∞ (lfp(P Q∗ )) = EF ∗∞ ◦ P Q∗∞ (lfp(P Q∗ )) = lfp(EF ∗ ).
+Proof. The first part of these equations are consequences of Property 39, since gfp(EF ∗ ) and
+lfp(P Q∗ ) belong to fp(EF ∗ ) and fp(P Q∗ ), respectively. The second part is due to P Q∗∞ ◦
+EF ∗∞ (gfp(EF ∗ )) = P Q∗∞ (gfp(EF ∗ )) and EF ∗∞ ◦ P Q∗∞ (lfp(P Q∗ )) = EF ∗∞ (lfp(P Q∗ ))
+for the same reason that gfp(EF ∗ ) ∈ fp(EF ∗ ) and lfp(P Q∗ ) ∈ fp(P Q∗ ), respectively. Property 34 shows that the second terms correspond to gfp(P Q∗ ) and lfp(EF ∗ ), respectively.
+Example 12 shows that EF ∗∞ ◦ P Q∗∞ (O# ) ≺ O# ≺ P Q∗∞ ◦ EF ∗∞ (O# ) hence that
+the equality does not hold in general.
+Example 12 (Counterexample to equality in RCA). Consider Example 3.2 (p. 15), lfp(EF ∗ )
+1 = {⟨K 1 , L1 ⟩, ⟨K 1 , L1 ⟩} and gfp(P Q∗ ) = O ⋆ = {⟨K ⋆ , L⋆ ⟩, ⟨K ⋆ , L⋆ ⟩}. O # = {⟨K #
+= O12
+1
+1
+2
+2
+12
+1
+1
+2
+2
+12
+1
+#
+#
+∗ ) gfp(P Q∗ )] but not to fp(EF ∗ ) ∩ fp(P Q∗ ). It happens
+⟩}
+belongs
+to
+[lfp(EF
+,
+L
+⟩,
+⟨K
+, L#
+2
+2
+1
+#
+⋆ and P Q∗ (O # ) = O 1 , hence P Q∗∞ ◦EF ∗∞ (O # ) = P Q∗ ◦EF ∗ (O # ) =
+that EF ∗ (O12
+) = O12
+12
+12
+12
+12
+⋆ and EF ∗∞ ◦ P Q∗∞ (O # ) = EF ∗ ◦ P Q∗ (O # ) = O 1 . These two objects are not isomorO12
+12
+12
+12
+#
+#
+phic. What can be said, in this case, is that EF ∗∞ ◦ P Q∗∞ (O12
+) ≺ P Q∗∞ ◦ EF ∗∞ (O12
+).
+This is the result of σ which may add needed support (for C and B from A and D) and π
+which may suppress unsupported concepts (A missing C and D missing B).
+It is not necessary that the results of the closure be the bounds of the interval as is shown
+for any object of the second and fourth lines of the lattice of Figure 9.
+It may be that, as illustrated by Example 12, when P Q∗∞ is first applied, it suppresses
+non-supported attributes which cannot be recovered by scaling. Conversely, EF ∗∞ applied
+first may scale attributes (∃p.D in Example 12) which generate new concepts (B) supporting
+previously non-supported concept (D). These will not be suppressed any more.
+Property 41 shows that, in addition, there is still a homomorphism between the two
+resulting objects.
+Property 41. ∀O ∈ O, EF ∗∞ ◦ P Q∗∞ (O) ⪯ P Q∗∞ ◦ EF ∗∞ (O).
+Proof. P Q∗∞ (O) ⪯ O by Property 25. But EF ∗∞ is monotone (Property 23), hence EF ∗∞ ◦
+P Q∗∞ (O) ⪯ EF ∗∞ (O). P Q∗∞ is also monotone (Property 23), thus P Q∗∞ ◦ EF ∗∞ ◦
+P Q∗∞ (O) ⪯ P Q∗∞ ◦ EF ∗∞ (O). However, P Q∗∞ ◦ EF ∗∞ (O) ∈ fp(EF ∗ ) ∪ fp(P Q∗ ) so
+P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O) (Property 39). Thus, P Q∗∞ ◦ EF ∗∞ ◦ P Q∗∞ (O) =
+EF ∗∞ ◦ P Q∗∞ ◦ P Q∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O). This means that EF ∗∞ ◦ P Q∗∞ (O) ⪯
+P Q∗∞ ◦ EF ∗∞ (O).
+Alternative proof. The same reasoning can be held from O ⪯ EF ∗∞ (O) (Property 25) and
+EF ∗∞ and P Q∗∞ being monotone (Property 23). Hence, P Q∗∞ (O) ⪯ P Q∗∞ ◦ EF ∗∞ (O)
+and EF ∗∞ ◦ P Q∗∞ (O) ⪯ EF ∗∞ ◦ P Q∗∞ ◦ EF ∗∞ (O). But, P Q∗∞ ◦ EF ∗∞ (O) ∈ fp(EF ∗ ) ∪
+40
+
+The fixed-point semantics of relational concept analysis
+
+P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O) ⪯ O
+Property 39
+
+P Q∗∞ ◦ EF ∗∞ (O) = O = EF ∗∞ ◦ P Q∗∞ (O)
+
+EF ∗
+
+EF ∗
+·
+EF ∗∞
+·
+P Q∗∞
+
+EF ∗
+
+P Q∗∞·
+⪯
+EF ∗∞·
+·
+
+P Q∗
+
+P Q∗
+
+EF ∗
+
+·
+P Q∗∞
+
+·
+P Q∗
+
+EF ∗∞
+·
+
+P Q∗
+
+O ⪯ P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O)
+Property 39
+
+EF ∗∞ ◦ P Q∗∞ (O) ⪯ P Q∗∞ ◦ EF ∗∞ (O)
+Property 41
+
+Figure 10: Illustration of the position of P Q∗∞ ◦EF ∗∞ (O) and EF ∗∞ ◦P Q∗∞ (O) depending
+on O’s origin (in dotted, O, in dashed fp(EF ∗ ) ∪ fp(P Q∗ ), in plain fp(EF ∗ ) ∩
+fp(P Q∗ )). Colours correspond to that of Figure 8: green starting from fp(EF ∗ ),
+red starting from fp(P Q∗ ), blue starting outside of them.
+
+fp(P Q∗ ), so P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ ◦ P Q∗∞ (O) (Property 39). Thus EF ∗∞ ◦ P Q∗∞ ◦
+EF ∗∞ (O) = P Q∗∞ ◦ EF ∗∞ ◦ EF ∗∞ (O) = P Q∗∞ ◦ EF ∗∞ (O). Hence, EF ∗∞ ◦ P Q∗∞ (O) ⪯
+P Q∗∞ ◦ EF ∗∞ (O).
+The alternative proof is given here to show that starting from the EF ∗ or P Q∗ give the
+same result.
+It is thus unclear what to do with EF ∗∞ ◦ P Q∗∞ and P Q∗∞ ◦ EF ∗∞ in general. For
+instance, if one needs an operation to map elements of O to fp(EF ∗ ) ∩ fp(P Q∗ ), which one
+is preferable? There may be an interest in studying the interval [EF ∗∞ ◦ P Q∗∞ (O) P Q∗∞ ◦
+EF ∗∞ (O)]. Does it contain only fixed points or no fixed points? Are these the image
+of other lattices? This question can be answered if O can be compared to these bounds
+(Proposition 42): the intermediate families are not fixed points.
+Proposition 42. ∀O ∈ O \ (fp(EF ∗ ) ∩ fp(P Q∗ )):
+– if O ⪯ P Q∗∞ ◦ EF ∗∞ (O), then ∀O′ ∈ [O P Q∗∞ ◦ EF ∗∞ (O)[, O′ ̸∈ fp(EF ∗ ) ∩ fp(P Q∗ ),
+– if EF ∗∞ ◦ P Q∗∞ (O) ⪯ O, then ∀O′ ∈]EF ∗∞ ◦ P Q∗∞ (O), O], O′ ̸∈ fp(EF ∗ ) ∩ fp(P Q∗ ).
+Proof. Considering the first item of the proposition, O ⪯ P Q∗∞ ◦ EF ∗∞ (O) can only occur
+if EF ∗∞ (O) ∈ fp(P Q∗ ), i.e. P Q∗∞ ◦ EF ∗∞ (O) = EF ∗∞ (O). Indeed, if this were not the
+case, then P Q∗∞ would suppress attributes from EF ∗∞ (O). However, since O ⪯ P Q∗∞ ◦
+41
+
+Jérôme Euzenat
+
+EF ∗∞ (O), these could not be attributes from O, but only attributes added by EF ∗∞ . But
+since EF ∗∞ only adds attributes if they are supported and it starts with attributes from O,
+this is not possible. Thus, if O′ ∈ [O P Q∗∞ ◦ EF ∗∞ (O)[ then O′ ∈ [O EF ∗∞ (O)[. However,
+O′ cannot be a fixed point for EF ∗ because it contains all attributes of O which would scale
+to generate all those of EF ∗∞ (O). Hence O′ ̸∈ fp(EF ∗ ) ∩ fp(P Q∗ ).
+The second item has a similar proof: EF ∗∞ ◦P Q∗∞ (O) ⪯ O can only occur if P Q∗∞ (O) ∈
+fp(EF ∗ ), i.e. EF ∗∞ ◦ P Q∗∞ (O) = P Q∗∞ (O). Indeed, if this were not the case, then EF ∗∞
+would generate attributes from P Q∗∞ (O). However, since EF ∗∞ ◦ P Q∗∞ (O) ⪯ O, these
+could only be attributes of O which were suppressed by P Q∗∞ due to lack of support.
+But this is not possible because if they lacked support in O, there is not more support
+for them in P Q∗∞ (O), which only reduces O. Thus, if O′ ∈]EF ∗∞ ◦ P Q∗∞ (O) O], then
+O′ ∈]P Q∗∞ (O) O]. However, O′ cannot be a fixed point for P Q∗ because it contains less
+attributes than O: if these attributes lacked supports in O, they would still lack it in O′ .
+Hence, O′ ̸∈ fp(EF ∗ ) ∩ fp(P Q∗ ).
+This is illustrated by Example 13:
+#
+#
+#
+Example 13. In Example 12 (p. 40), O34
+= {⟨K3# , L#
+3 ⟩, ⟨K4 , L4 ⟩} is a fixed point for
+#
+#
+⋆ and EF ∗∞ ◦ P Q∗∞ (O # )
+neither EF ∗ nor P Q∗ . P Q∗∞ ◦ EF ∗∞ (O34
+) = EF ∗∞ (O34
+) = O34
+34
+#
+1 . None of the objects in the interval between O # and either O ⋆ or
+) = O34
+= P Q∗∞ (O34
+34
+34
+1 belongs to fp(EF ∗ ) ∩ fp(P Q∗ ) as can be seen in Figure 9.
+O34
+
+This result cannot be generalised to the interval ]EF ∗∞ ◦ P Q∗∞ (O) P Q∗∞ ◦ EF ∗∞ (O)[
+as shown by Example 14.
+′ =
+Example 14 (The subinterval may contain fixed points). Following Example 13, O34
+#
+#
+1 , O ⋆ [ as
+{⟨K3′ , L′3 ⟩, ⟨K4′ , L′4 ⟩} belongs to ]EF ∗∞ ◦ P Q∗∞ (O34 ) P Q∗∞ ◦ EF ∗∞ (O34 )[ = ]O34
+34
+′
+∗
+∗
+can be observed in Figure 9. However, O34 ∈ fp(EF ) ∩ fp(P Q ).
+
+Proposition 42 can however be useful algorithmically. Indeed, if one considers the non#
+acceptable objects of Figure 9 on the same line as O34
+, then this result identifies as non
+acceptable two objects on the second and fourth line without testing them.
+
+8. Conclusion
+We addressed the questions of which family of concept lattices was returned by relational
+concept analysis and, more generally, which such families could be considered acceptable.
+This paper provides an answer to these questions by characterising the acceptable families
+of context-lattice pairs that describe a particular initial family of contexts as those families
+which are well-formed, saturated and self-supported. It identifies the results returned by
+relational concept analysis as the smallest element of this set. It also defines an alternative
+operation providing its greatest elements. The structure of the set of acceptable solutions
+has been further characterised.
+To that extent the paper defines the set of well-formed objects O, a function EF ∗ ,
+generalising RCA, expanding a family, and a function P Q∗ contracting a family. The fixed
+points of these functions characterise the saturated families and the self-supported families
+42
+
+The fixed-point semantics of relational concept analysis
+
+respectively. Hence, the acceptable solutions are those elements of the intersection of the
+fixed points of both functions (fp(EF ∗ ) ∩ fp(P Q∗ )).
+These results rely fundamentally on the finiteness of the structure and monotony of the
+operations. Dealing with infinite structures would jeopardise the construction of the sets
+of scalable relational attributes (Section 2.4.1), however as soon as the termination of the
+application of the operations is preserved, this should not be a problem. Non-monotonic
+operations could be induced by non-monotonic scaling operations. Such operations would
+prevent relational concept analysis to work properly and would require fully different mechanisms.
+In FCA, conceptual scaling is considered as a human-driven analysis tool: a knowledgeable person could provide attributes to be scaled for describing better the data to be
+analysed. In RCA, scaling is used as an extraction tool, with the drawback to potentially
+generate many attributes. By only extracting the least fixed point, RCA avoids generating
+too many of them. This is useful when generating a description logic TBox because all concepts are well-defined and necessary, but other contexts may benefit from exploiting other
+solutions.
+Beyond the minimal common acceptable lattices returned by RCA and the most detailed
+ones that RCA returns, algorithms may be developed for returning all acceptable solutions
+[Atencia et al., 2021]. The characterisation of the structure of the space of acceptable
+solutions aims at contributing to this goal. However, our work does not provide an ‘efficient’
+way to obtain all elements of this set.
+This work also opens perspectives for helping users to identify the acceptable solution
+that they prefer. Beyond generating all solutions, another option is to offer users the opportunity to guide the navigation among them. The structure of admissible solutions and the
+associated functions may be fruitfully exploited in order to help users finding an acceptable
+solution featuring the concepts and attributes that they want and not unnecessary ones.
+An anonymous reviewer remarked that variations of RCA, such as those based on AOCposets [Dolques et al., 2013], may receive the same treatment. This is a perspective worth
+pursuing, that may lead to generalise the results presented here.
+Finally, the position of relational concept analysis with respect to formal concept analysis
+and Galois connections would be worth investigating. On the one hand, this work shows
+that, contrary to other extensions that use scaling to encode a problem within FCA, RCA
+cannot be encoded in FCA. Indeed, RCA admits various fixed points contrary to FCA.
+RCA is not just the application of a product or sequence of FCA, but relations between
+contexts introduce constraints between them leading to the possibility of alternative fixed
+points. Hence, an encoding would not be direct, so that it provides RCA solutions directly.
+On the other hand, other generalisations of FCA get closer to general Galois connections by
+extending the structure of attributes. The open question is whether RCA is another instance
+of a Galois connection extending FCA or if these two need a common generalisation.
+
+Acknowledgments
+This work has been partially funded by the ANR Elker project (ANR-17-CE23-0007-01).
+The author thanks Petko Valtchev for comments and suggestions on an earlier version of this
+43
+
+Jérôme Euzenat
+
+work, Marianne Huchard for taking the pain to describe the trick used for forcing discrimination, Amedeo Napoli for explaining me RCA (and so many other things), Jérôme David
+for reviewing the text, and Philippe Besnard for pointing to the Knaster-Tarski theorem.
+Anonymous reviews helped clarifying the paper.
+
+9. Bibliography
+Atencia, M., David, J., Euzenat, J., Napoli, A., & Vizzini, J. (2020). Link key candidate
+extraction with relational concept analysis. Discrete applied mathematics, 273, 2–20.
+doi: 10.1016/J.DAM.2019.02.012 (cit. on pp. 3, 9).
+Atencia, M., David, J., Euzenat, J., Napoli, A., & Vizzini, J. (2021). Relational concept
+analysis for circular link key extraction (Deliverable No. 1.2). Elker. https://moex.
+inria.fr/files/reports/elker-1.2.pdf . (Cit. on p. 43).
+Baader, F., Calvanese, D., McGuinness, D., Nardi, D., & Patel-Schneider, P. (Eds.). (2007).
+The description logic handbook: Theory, implementations and applications (2nd ed.).
+Cambridge University Press. doi: 10.1017/cbo9780511711787. (Cit. on p. 8).
+Baader, F., & Distel, F. (2008). A finite basis for the set of E L -implications holding
+in a finite model. Proc. 6th International Conference on Formal Concept Analysis (ICFCA), Montréal (CA), 4933, 46–61. doi: 10.1007/978-3-540-78137-0_4 (cit. on
+p. 10).
+Belohlávek, R. (2008). Introduction to formal concept analysis (tech. rep.). Univerzita Palackého, Olomouc (CZ). http://belohlavek.inf.upol.cz/vyuka/IntroFCA.pdf . (Cit. on p. 27).
+Braud, A., Dolques, X., Huchard, M., & Le Ber, F. (2018). Generalization effect of quantifiers
+in a classification based on relational concept analysis. Knowledge-based systems, 160,
+119–135. doi: 10.1016/J.KNOSYS.2018.06.011 (cit. on pp. 4, 9).
+Chaudron, L., & Maille, N. (2000). Generalized formal concept analysis. Proc. 8th International Conference on Conceptual Structures (ICCS), Darmstadt (DE), 1867, 357–
+370. doi: 10.1007/10722280_25 (cit. on p. 9).
+Dolques, X., Huchard, M., Nebut, C., & Reitz, P. (2012). Fixing generalization defects in
+UML use case diagrams. Fundamenta informaticae, 115 (4), 327–356. doi: 10.3233/FI2012-658 (cit. on p. 4).
+Dolques, X., Le Ber, F., & Huchard, M. (2013). AOC-posets: A scalable alternative to
+concept lattices for relational concept analysis. Proc. of the 10th international conference on concept lattices and their applications (CLA), La Rochelle (FR), 129–140.
+https://ceur-ws.org/Vol-1062/paper11.pdf (cit. on p. 43).
+Euzenat, J. (2021). Fixed-point semantics for barebone relational concept analysis. Proc.
+16th international conference on formal concept analysis (ICFCA), Strasbourg (FR),
+12773, 20–37. doi: 10.1007/978-3-030-77867-5_2 (cit. on pp. 4, 18, 19, 22, 26, 29).
+Euzenat, J. (2023). Stepwise functional refoundation of relational concept analysis (Research
+report No. 9518). INRIA. doi: 10.48550/arXiv.2310.06441. (Cit. on p. 4).
+Ferré, S., & Cellier, P. (2020). Graph-FCA: An extension of formal concept analysis to
+knowledge graphs. Discrete applied mathematics, 273, 81–102. doi: 10.1016/J.DAM.
+2019.03.003 (cit. on p. 9).
+
+44
+
+The fixed-point semantics of relational concept analysis
+
+Ferré, S., & Ridoux, O. (2000). A logical generalization of formal concept analysis. Proc. 8th
+International Conference on Conceptual Structures (ICCS), Darmstadt (DE), 1867,
+371–384. doi: 10.1007/10722280_26 (cit. on p. 9).
+Ganter, B., & Kuznetsov, S. (2001). Pattern structures and their projections. Proc. 9th
+International conference on conceptual structures (ICCS), Stanford (CA US), 2120,
+129–142. doi: 10.1007/3-540-44583-8_10 (cit. on p. 9).
+Ganter, B., Stumme, G., & Wille, R. (Eds.). (2005). Formal concept analysis: Foundations
+and applications. Springer. doi: 10.1007/978-3-540-31881-1. (Cit. on p. 2).
+Ganter, B., & Wille, R. (1999). Formal concept analysis: Mathematical foundations. Springer.
+doi: 10.1007/978-3-642-59830-2. (Cit. on pp. 2, 5–7, 12, 18).
+Guigues, J.-L., & Duquenne, V. (1986). Familles minimales d’implications informatives résultant d’un tableau de données binaires. Mathématiques et sciences humaines, 95,
+5–18. https://www.numdam.org/item/MSH_1986__95__5_0/ (cit. on p. 10).
+Guimarães, R., Ozaki, A., Persia, C., & Sertkaya, B. (2023). Mining E L ⊥ bases with
+adaptable role depth. Journal of artificial intelligence research, 76, 119–135. doi:
+10.1613/jair.1.13777 (cit. on p. 10).
+Huchard, M., Rouane Hacène, M., Roume, C., & Valtchev, P. (2007). Relational concept
+discovery in structured datasets. Annals of Mathematics and Artificial Intelligence,
+49 (1), 39–76. doi: 10.1007/s10472-007-9056-3 (cit. on p. 3).
+Keip, P., Ferré, S., Gutierrez, A., Huchard, M., Silvie, P., & Martin, P. (2020). Practical
+comparison of FCA extensions to model indeterminate value of ternary data. Proc.
+15th International Conference on Concept Lattices and Their Applications (CLA),
+Tallinn (EE), 2668, 197–208. https://ceur-ws.org/Vol-2668/paper15.pdf (cit. on p. 9).
+Kötters, J. (2013). Concept lattices of a relational structure. Proc. 20th International Conference on Conceptual Structures (ICCS), Mumbay (IN), 7735, 301–310. doi: 10.1007/
+978-3-642-35786-2_23 (cit. on p. 9).
+Missaoui, R., Kwuida, L., & Abdessalem, T. (Eds.). (2022). Complex data analytics with
+formal concept analysis. Springer. doi: 10.1007/978-3-030-93278-7. (Cit. on p. 2).
+Nebel, B. (1990). Reasoning and revision in hybrid representation systems (Vol. 422). Springer.
+doi: 10.1007/BFB0016445. (Cit. on p. 27).
+Ouzerdine, A., Braud, A., Dolques, X., Huchard, M., & Le Ber, F. (2019). Adjusting the
+exploration flow in relational concept analysis – an experience on a watercourse
+quality dataset. In R. Jaziri, A. Martin, M.-C. Rousset, L. Boudjeloud-Assala, &
+F. Guillet (Eds.), Advances in knowledge discovery and management (pp. 175–198,
+Vol. 1004). Springer. doi: 10.1007/978-3-030-90287-2_9. (Cit. on p. 3).
+Prediger, S. (1997). Logical scaling in formal concept analysis. Proc. 5th International Conference on Conceptual Structures (ICCS), Seattle (WA US), 1257, 332–341. doi:
+10.1007/BFB0027881 (cit. on p. 7).
+Rouane Hacène, M., Huchard, M., Napoli, A., & Valtchev, P. (2013a). Relational concept
+analysis: Mining concept lattices from multi-relational data. Annals of Mathematics
+and Artificial Intelligence, 67 (1), 81–108. doi: 10.1007/S10472-012-9329-3 (cit. on pp. 2,
+3, 7, 9, 10, 12, 29).
+Rouane Hacène, M., Huchard, M., Napoli, A., & Valtchev, P. (2013b). Soundness and completeness of relational concept analysis. Proc. 11th International Conference on For-
+
+45
+
+Jérôme Euzenat
+
+mal Concept Analysis (ICFCA), Dresden (DE), 7880, 228–243. doi: 10.1007/978- 3642-38317-5_15 (cit. on pp. 4, 12).
+Tarski, A. (1955). A lattice-theoretical fixpoint theorem and its applications. Pacific journal
+of mathematics, 5 (2), 285–309. doi: 10.2140/pjm.1955.5.285 (cit. on p. 28).
+Wajnberg, M. (2020). Analyse relationnelle de concepts: Une méthode polyvalente pour
+l’extraction de connaissance [Doctoral dissertation, Université du Québec à Montréal & Université de Lorraine]. https://hal.science/tel-03042085. (Cit. on pp. 6, 9).
+
+46
+
+

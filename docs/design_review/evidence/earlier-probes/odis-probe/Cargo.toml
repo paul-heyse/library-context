@@ -1,0 +1,12 @@
+[package]
+name = "odis_probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+odis = "=2026.9.1"
+fixedbitset = "=0.5.7"
+bit-set = "0.8"
+
+[profile.release]
+debug = false

@@ -1,0 +1,6752 @@
+{
+  "entries": [
+    {
+      "schema_id": "f329796272b9314200433ac342cbc15c"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": ""
+        }
+      ],
+      "predicate": "python.Name.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "name": {
+              "id": 0,
+              "key": "pkg"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "name": {
+              "id": 0,
+              "key": "pkg.mod"
+            }
+          }
+        }
+      ],
+      "predicate": "python.Module.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "language": 7
+          }
+        }
+      ],
+      "predicate": "src.FileLanguage.1"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "endsInNewline": true,
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "hasUnicodeOrTabs": false,
+            "lengths": [
+              11,
+              33,
+              14,
+              10,
+              1,
+              18,
+              45,
+              6,
+              13,
+              1,
+              22,
+              10,
+              1,
+              32,
+              14,
+              30,
+              14,
+              6,
+              14,
+              1,
+              25,
+              13,
+              1,
+              11,
+              30,
+              1,
+              12,
+              27,
+              10,
+              1,
+              20,
+              10,
+              1,
+              32,
+              9,
+              32,
+              15,
+              1,
+              1,
+              13,
+              20,
+              10,
+              13,
+              14,
+              13,
+              1,
+              1,
+              9,
+              20,
+              1,
+              17,
+              29,
+              1,
+              22,
+              23,
+              1,
+              1,
+              22,
+              13,
+              1,
+              1,
+              12,
+              52
+            ]
+          }
+        }
+      ],
+      "predicate": "src.FileLines.1"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "digest": {
+              "hash": "598e7f02af9e6f3e63cdcb0de8d88fb34c3aef2bf7750acc4b8ce828fcae5953",
+              "size": 858
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        }
+      ],
+      "predicate": "digest.FileDigest.1"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 858,
+              "start": 0
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "sys"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 3,
+              "start": 7
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.TYPE_CHECKING"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "typing.TYPE_CHECKING"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 13,
+              "start": 30
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.typing"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "typing"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 6,
+              "start": 51
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.os"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "os"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 2,
+              "start": 65
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 40,
+              "start": 335
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.cfg"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 11,
+              "start": 377
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f.<locals>.flag"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 4,
+              "start": 554
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 82,
+              "start": 548
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 121,
+              "start": 633
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.g"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 34,
+              "start": 757
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.y"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 11,
+              "start": 794
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.D"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "collections.OrderedDict"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 11,
+              "start": 115
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.D"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 8,
+              "start": 142
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.R"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 178
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.V"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 9,
+              "start": 221
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.V"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 9,
+              "start": 265
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.V"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 9,
+              "start": 285
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.T2"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 8,
+              "start": 325
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg.version_info_cache"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 25,
+              "start": 350
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.W"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 420
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.N"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 451
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.OLD"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 10,
+              "start": 535
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f.<locals>.x"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 585
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.m.<locals>.self"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 4,
+              "start": 673
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.m"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 41,
+              "start": 667
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.helper.<locals>.self"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 4,
+              "start": 725
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.helper"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 40,
+              "start": 714
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f.<locals>.x"
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 612
+            }
+          }
+        }
+      ],
+      "predicate": "python.DeclarationLocation.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "module": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 858,
+              "start": 0
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "bases": [],
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.Cfg"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 40,
+              "start": 335
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.cfg"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 11,
+              "start": 377
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "func": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.f"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.f.<locals>.flag"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 4,
+              "start": 554
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.f"
+                      }
+                    }
+                  },
+                  "is_async": false,
+                  "kwonly_params": [],
+                  "params": [
+                    {
+                      "name": {
+                        "id": 0,
+                        "key": "flag"
+                      }
+                    }
+                  ],
+                  "posonly_params": []
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 82,
+              "start": 548
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "bases": [],
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.C"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 121,
+              "start": 633
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.g"
+                      }
+                    }
+                  },
+                  "is_async": true,
+                  "kwonly_params": [],
+                  "params": [],
+                  "posonly_params": [],
+                  "returnsInfo": {
+                    "displayType": {
+                      "id": 0,
+                      "key": "int"
+                    },
+                    "xrefs": [
+                      {
+                        "source": {
+                          "length": 3,
+                          "start": 0
+                        },
+                        "target": {
+                          "id": 0,
+                          "key": "int"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 34,
+              "start": 757
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.y"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 11,
+              "start": 794
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.D"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 8,
+              "start": 142
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.R"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 178
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.V"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 9,
+              "start": 221
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.V"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 9,
+              "start": 265
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.V"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 9,
+              "start": 285
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.T2"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 8,
+              "start": 325
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "cls": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.Cfg"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.Cfg.version_info_cache"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 25,
+              "start": 350
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.W"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 420
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.N"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 451
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "module": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.OLD"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 10,
+              "start": 535
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "func": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.f"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.f.<locals>.x"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 585
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "func": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.C.m"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.C.m.<locals>.self"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 4,
+              "start": 673
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "cls": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.C"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.C.m"
+                      }
+                    }
+                  },
+                  "is_async": false,
+                  "kwonly_params": [],
+                  "params": [
+                    {
+                      "name": {
+                        "id": 0,
+                        "key": "self"
+                      }
+                    }
+                  ],
+                  "posonly_params": []
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 41,
+              "start": 667
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "func": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.C.helper"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.C.helper.<locals>.self"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 4,
+              "start": 725
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "cls": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.C"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.C.helper"
+                      }
+                    }
+                  },
+                  "is_async": false,
+                  "kwonly_params": [],
+                  "params": [
+                    {
+                      "name": {
+                        "id": 0,
+                        "key": "self"
+                      }
+                    }
+                  ],
+                  "posonly_params": []
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 40,
+              "start": 714
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "definition": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "container": {
+                    "func": {
+                      "id": 0,
+                      "key": {
+                        "name": {
+                          "id": 0,
+                          "key": "pkg.mod.f"
+                        }
+                      }
+                    }
+                  },
+                  "declaration": {
+                    "id": 0,
+                    "key": {
+                      "name": {
+                        "id": 0,
+                        "key": "pkg.mod.f.<locals>.x"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "span": {
+              "length": 5,
+              "start": 612
+            }
+          }
+        }
+      ],
+      "predicate": "python.DefinitionLocation.4"
+    },
+    {
+      "facts": [],
+      "predicate": "python.ImportStarLocation.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "call_args": [],
+            "callee_span": {
+              "length": 5,
+              "start": 383
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "call_args": [
+              {
+                "argument": {
+                  "lit": {
+                    "id": 0,
+                    "key": "X"
+                  }
+                },
+                "span": {
+                  "length": 3,
+                  "start": 484
+                }
+              }
+            ],
+            "callee_span": {
+              "length": 19,
+              "start": 469
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "call_args": [],
+            "callee_span": {
+              "length": 7,
+              "start": 798
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "call_args": [],
+            "callee_span": {
+              "length": 3,
+              "start": 798
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "call_args": [
+              {
+                "span": {
+                  "length": 1,
+                  "start": 812
+                }
+              },
+              {
+                "span": {
+                  "length": 1,
+                  "start": 815
+                }
+              },
+              {
+                "span": {
+                  "length": 1,
+                  "start": 818
+                }
+              },
+              {
+                "span": {
+                  "length": 1,
+                  "start": 821
+                }
+              },
+              {
+                "span": {
+                  "length": 1,
+                  "start": 824
+                }
+              },
+              {
+                "span": {
+                  "length": 2,
+                  "start": 827
+                }
+              },
+              {
+                "span": {
+                  "length": 1,
+                  "start": 831
+                }
+              },
+              {
+                "span": {
+                  "length": 22,
+                  "start": 834
+                }
+              }
+            ],
+            "callee_span": {
+              "length": 51,
+              "start": 806
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "call_args": [],
+            "callee_span": {
+              "length": 13,
+              "start": 695
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "call_args": [
+              {
+                "span": {
+                  "length": 4,
+                  "start": 749
+                }
+              }
+            ],
+            "callee_span": {
+              "length": 7,
+              "start": 747
+            },
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            }
+          }
+        }
+      ],
+      "predicate": "python.FileCall.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "callee": {
+              "id": 0,
+              "key": "pkg.mod.C.helper"
+            },
+            "caller": {
+              "id": 0,
+              "key": "pkg.mod.C.m"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "callee": {
+              "id": 0,
+              "key": "pkg.mod.f"
+            },
+            "caller": {
+              "id": 0,
+              "key": "pkg.mod.C.helper"
+            }
+          }
+        }
+      ],
+      "predicate": "python.CalleeToCaller.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "sys"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.TYPE_CHECKING"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "typing.TYPE_CHECKING"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.typing"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "typing"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.os"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "os"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.cfg"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f.<locals>.flag"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.g"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.y"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "imp": {
+                "id": 0,
+                "key": {
+                  "as_name": {
+                    "id": 0,
+                    "key": "pkg.mod.D"
+                  },
+                  "from_name": {
+                    "id": 0,
+                    "key": "collections.OrderedDict"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.D"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.R"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.V"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.V"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.V"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.T2"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg.version_info_cache"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.W"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.N"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "module": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.OLD"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f.<locals>.x"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.m.<locals>.self"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.m"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.helper.<locals>.self"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.helper"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "container": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f"
+                  }
+                }
+              }
+            },
+            "declaration": {
+              "variable": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f.<locals>.x"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "predicate": "python.ContainingTopLevelDeclaration.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "xrefs": [
+              {
+                "source": {
+                  "length": 3,
+                  "start": 7
+                },
+                "target": {
+                  "id": 0,
+                  "key": "sys"
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 16
+                },
+                "target": {
+                  "id": 0,
+                  "key": "typing"
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 30
+                },
+                "target": {
+                  "id": 0,
+                  "key": "typing.TYPE_CHECKING"
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 51
+                },
+                "target": {
+                  "id": 0,
+                  "key": "typing"
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 65
+                },
+                "target": {
+                  "id": 0,
+                  "key": "os"
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 72
+                },
+                "target": {
+                  "id": 0,
+                  "key": "typing.TYPE_CHECKING"
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 72
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.TYPE_CHECKING"
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 159
+                },
+                "target": {
+                  "id": 0,
+                  "key": "typing.TYPE_CHECKING"
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 159
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.TYPE_CHECKING"
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 192
+                },
+                "target": {
+                  "id": 0,
+                  "key": "sys.version_info"
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 192
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.sys.version_info"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 188
+                },
+                "target": {
+                  "id": 0,
+                  "key": "sys"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 188
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.sys"
+                }
+              },
+              {
+                "source": {
+                  "length": 8,
+                  "start": 240
+                },
+                "target": {
+                  "id": 0,
+                  "key": "sys.platform"
+                }
+              },
+              {
+                "source": {
+                  "length": 8,
+                  "start": 240
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.sys.platform"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 236
+                },
+                "target": {
+                  "id": 0,
+                  "key": "sys"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 236
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.sys"
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 306
+                },
+                "target": {
+                  "id": 0,
+                  "key": "typing.TYPE_CHECKING"
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 306
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.typing.TYPE_CHECKING"
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 299
+                },
+                "target": {
+                  "id": 0,
+                  "key": "typing"
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 299
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.typing"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 383
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.Cfg"
+                }
+              },
+              {
+                "source": {
+                  "length": 18,
+                  "start": 396
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.Cfg.version_info_cache"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 392
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.cfg"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 433
+                },
+                "target": {
+                  "id": 0,
+                  "key": "os.name"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 433
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.os.name"
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 430
+                },
+                "target": {
+                  "id": 0,
+                  "key": "os"
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 430
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.os"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 480
+                },
+                "target": {
+                  "id": 0,
+                  "key": "os._Environ.get"
+                }
+              },
+              {
+                "source": {
+                  "length": 7,
+                  "start": 472
+                },
+                "target": {
+                  "id": 0,
+                  "key": "os.environ"
+                }
+              },
+              {
+                "source": {
+                  "length": 7,
+                  "start": 472
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.os.environ"
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 469
+                },
+                "target": {
+                  "id": 0,
+                  "key": "os"
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 469
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.os"
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 508
+                },
+                "target": {
+                  "id": 0,
+                  "key": "sys.version_info"
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 508
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.sys.version_info"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 504
+                },
+                "target": {
+                  "id": 0,
+                  "key": "sys"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 504
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.sys"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 774
+                },
+                "target": {
+                  "id": 0,
+                  "key": "int"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 802
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.C.m"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 798
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.C"
+                }
+              },
+              {
+                "source": {
+                  "length": 5,
+                  "start": 806
+                },
+                "target": {
+                  "id": 0,
+                  "key": "print"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 812
+                },
+                "target": {
+                  "id": 0,
+                  "key": "collections.OrderedDict"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 812
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.D"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 815
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.V"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 818
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.W"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 821
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.N"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 824
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.R"
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 827
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.T2"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 831
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.y"
+                }
+              },
+              {
+                "source": {
+                  "length": 18,
+                  "start": 838
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.Cfg.version_info_cache"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 834
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.cfg"
+                }
+              },
+              {
+                "source": {
+                  "length": 11,
+                  "start": 96
+                },
+                "target": {
+                  "id": 0,
+                  "key": "collections"
+                }
+              },
+              {
+                "source": {
+                  "length": 11,
+                  "start": 115
+                },
+                "target": {
+                  "id": 0,
+                  "key": "collections.OrderedDict"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 146
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.dict"
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 330
+                },
+                "target": {
+                  "id": 0,
+                  "key": "int"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 371
+                },
+                "target": {
+                  "id": 0,
+                  "key": "None"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 541
+                },
+                "target": {
+                  "id": 0,
+                  "key": "True"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 598
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.f.<locals>.flag"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 629
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.x"
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 700
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.C.helper"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 695
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.C.m.<locals>.self"
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 747
+                },
+                "target": {
+                  "id": 0,
+                  "key": "pkg.mod.f"
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 749
+                },
+                "target": {
+                  "id": 0,
+                  "key": "True"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "predicate": "python.XRefsViaNameByFile.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 3,
+                "start": 480
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "os._Environ.get"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 8,
+                "start": 240
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "sys.platform"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 3,
+                "start": 774
+              },
+              {
+                "length": 3,
+                "start": 330
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "int"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 3,
+                "start": 7
+              },
+              {
+                "length": 3,
+                "start": 188
+              },
+              {
+                "length": 3,
+                "start": 236
+              },
+              {
+                "length": 3,
+                "start": 504
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "sys"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 3,
+                "start": 188
+              },
+              {
+                "length": 3,
+                "start": 236
+              },
+              {
+                "length": 3,
+                "start": 504
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.sys"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 7,
+                "start": 472
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "os.environ"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 798
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.C"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 815
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.V"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 2,
+                "start": 827
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.T2"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 4,
+                "start": 598
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.f.<locals>.flag"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 812
+              },
+              {
+                "length": 11,
+                "start": 115
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "collections.OrderedDict"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 11,
+                "start": 96
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "collections"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 2,
+                "start": 65
+              },
+              {
+                "length": 2,
+                "start": 430
+              },
+              {
+                "length": 2,
+                "start": 469
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "os"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 3,
+                "start": 383
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.Cfg"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 4,
+                "start": 371
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "None"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 629
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.x"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 6,
+                "start": 16
+              },
+              {
+                "length": 6,
+                "start": 51
+              },
+              {
+                "length": 6,
+                "start": 299
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "typing"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 802
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.C.m"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 6,
+                "start": 700
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.C.helper"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 13,
+                "start": 306
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.typing.TYPE_CHECKING"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 13,
+                "start": 30
+              },
+              {
+                "length": 13,
+                "start": 72
+              },
+              {
+                "length": 13,
+                "start": 159
+              },
+              {
+                "length": 13,
+                "start": 306
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "typing.TYPE_CHECKING"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 18,
+                "start": 396
+              },
+              {
+                "length": 18,
+                "start": 838
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.Cfg.version_info_cache"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 13,
+                "start": 72
+              },
+              {
+                "length": 13,
+                "start": 159
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.TYPE_CHECKING"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 5,
+                "start": 806
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "print"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 12,
+                "start": 192
+              },
+              {
+                "length": 12,
+                "start": 508
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.sys.version_info"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 3,
+                "start": 392
+              },
+              {
+                "length": 3,
+                "start": 834
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.cfg"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 4,
+                "start": 433
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.os.name"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 4,
+                "start": 146
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.dict"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 4,
+                "start": 695
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.C.m.<locals>.self"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 8,
+                "start": 240
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.sys.platform"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 6,
+                "start": 299
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.typing"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 831
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.y"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 7,
+                "start": 472
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.os.environ"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 2,
+                "start": 430
+              },
+              {
+                "length": 2,
+                "start": 469
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.os"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 4,
+                "start": 541
+              },
+              {
+                "length": 4,
+                "start": 749
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "True"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 4,
+                "start": 433
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "os.name"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 812
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.D"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 824
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.R"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 747
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.f"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 821
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.N"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 12,
+                "start": 192
+              },
+              {
+                "length": 12,
+                "start": 508
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "sys.version_info"
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "spans": [
+              {
+                "length": 1,
+                "start": 818
+              }
+            ],
+            "target": {
+              "id": 0,
+              "key": "pkg.mod.W"
+            }
+          }
+        }
+      ],
+      "predicate": "python.XRefsViaNameByTarget.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "file": {
+              "id": 0,
+              "key": "fixture/pkg/mod.py"
+            },
+            "xrefs": [
+              {
+                "source": {
+                  "length": 3,
+                  "start": 7
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "sys/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "sys"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 16
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "typing.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "typing"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 30
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "typing.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "typing.TYPE_CHECKING"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 51
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "typing.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "typing"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 65
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "os/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "os"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 72
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "typing.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "typing.TYPE_CHECKING"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 72
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.TYPE_CHECKING"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 159
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "typing.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "typing.TYPE_CHECKING"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 159
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.TYPE_CHECKING"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 192
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "sys/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "sys.version_info"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 192
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys.version_info"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 188
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "sys/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "sys"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 188
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 8,
+                  "start": 240
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "sys/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "sys.platform"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 8,
+                  "start": 240
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys.platform"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 236
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "sys/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "sys"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 236
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 306
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "typing.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "typing.TYPE_CHECKING"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 13,
+                  "start": 306
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.typing.TYPE_CHECKING"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 299
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "typing.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "typing"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 299
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.typing"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 383
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 18,
+                  "start": 396
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg.version_info_cache"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 392
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.cfg"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 433
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "os/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "os.name"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 433
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.os.name"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 430
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "os/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "os"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 430
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.os"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 480
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "os/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "os._Environ.get"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 7,
+                  "start": 472
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "os/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "os.environ"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 7,
+                  "start": 472
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.os.environ"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 469
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "os/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "os"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 469
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.os"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 508
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "sys/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "sys.version_info"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 12,
+                  "start": 508
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys.version_info"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 504
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "sys/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "sys"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 504
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.sys"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 774
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "builtins.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "int"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 802
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.m"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 798
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 5,
+                  "start": 806
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "builtins.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "print"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 812
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "collections/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "collections.OrderedDict"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 812
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.D"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 815
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.V"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 818
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.W"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 821
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.N"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 824
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.R"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 2,
+                  "start": 827
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.T2"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 831
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.y"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 18,
+                  "start": 838
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.Cfg.version_info_cache"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 834
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.cfg"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 11,
+                  "start": 96
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "collections/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "collections"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 11,
+                  "start": 115
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "collections/__init__.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "collections.OrderedDict"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 146
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.dict"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 3,
+                  "start": 330
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "builtins.pyi"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "int"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 371
+                },
+                "target": {
+                  "name": {
+                    "id": 0,
+                    "key": "None"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 541
+                },
+                "target": {
+                  "name": {
+                    "id": 0,
+                    "key": "True"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 598
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f.<locals>.flag"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 629
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.x"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 6,
+                  "start": 700
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.helper"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 695
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C.m.<locals>.self"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 1,
+                  "start": 747
+                },
+                "target": {
+                  "file": {
+                    "id": 0,
+                    "key": "fixture/pkg/mod.py"
+                  },
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "length": 4,
+                  "start": 749
+                },
+                "target": {
+                  "name": {
+                    "id": 0,
+                    "key": "True"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "predicate": "python.xrefs.XRefsByFile.1"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "func": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.f"
+                  }
+                }
+              }
+            },
+            "location": {
+              "length": 15,
+              "start": 565
+            },
+            "pretty_text": "Doc of f."
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "declaration": {
+              "cls": {
+                "id": 0,
+                "key": {
+                  "name": {
+                    "id": 0,
+                    "key": "pkg.mod.C"
+                  }
+                }
+              }
+            },
+            "location": {
+              "length": 15,
+              "start": 646
+            },
+            "pretty_text": "Doc of C."
+          }
+        }
+      ],
+      "predicate": "python.DeclarationDocstring.4"
+    },
+    {
+      "facts": [
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": ""
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": ""
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "pkg"
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "mod"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "pkg"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "sys"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "sys"
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.sys"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "sys"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "typing"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "typing"
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.TYPE_CHECKING"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "TYPE_CHECKING"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "typing.TYPE_CHECKING"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "TYPE_CHECKING"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "typing"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.typing"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "typing"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "os"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "os"
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.os"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "os"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.Cfg"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "Cfg"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.cfg"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "cfg"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.f"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "f"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.f.<locals>"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "<locals>"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "f"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "mod"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "pkg"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.f.<locals>.flag"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "flag"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "<locals>"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "f"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "mod"
+                          },
+                          "parent": {
+                            "id": 0,
+                            "key": {
+                              "local_name": {
+                                "id": 0,
+                                "key": "pkg"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.C"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "C"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.g"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "g"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.y"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "y"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "collections"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "collections"
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.D"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "D"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "collections.OrderedDict"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "OrderedDict"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "collections"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.R"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "R"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.V"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "V"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.T2"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "T2"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.Cfg.version_info_cache"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "version_info_cache"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "Cfg"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "mod"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "pkg"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.W"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "W"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.N"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "N"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.OLD"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "OLD"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "mod"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "pkg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.f.<locals>.x"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "x"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "<locals>"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "f"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "mod"
+                          },
+                          "parent": {
+                            "id": 0,
+                            "key": {
+                              "local_name": {
+                                "id": 0,
+                                "key": "pkg"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.C.m"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "m"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "C"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "mod"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "pkg"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.C.m.<locals>"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "<locals>"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "m"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "C"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "mod"
+                          },
+                          "parent": {
+                            "id": 0,
+                            "key": {
+                              "local_name": {
+                                "id": 0,
+                                "key": "pkg"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.C.m.<locals>.self"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "self"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "<locals>"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "m"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "C"
+                          },
+                          "parent": {
+                            "id": 0,
+                            "key": {
+                              "local_name": {
+                                "id": 0,
+                                "key": "mod"
+                              },
+                              "parent": {
+                                "id": 0,
+                                "key": {
+                                  "local_name": {
+                                    "id": 0,
+                                    "key": "pkg"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.C.helper"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "helper"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "C"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "mod"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "pkg"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.C.helper.<locals>"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "<locals>"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "helper"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "C"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "mod"
+                          },
+                          "parent": {
+                            "id": 0,
+                            "key": {
+                              "local_name": {
+                                "id": 0,
+                                "key": "pkg"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": 0,
+          "key": {
+            "id": 0,
+            "key": "pkg.mod.C.helper.<locals>.self"
+          },
+          "value": {
+            "id": 0,
+            "key": {
+              "local_name": {
+                "id": 0,
+                "key": "self"
+              },
+              "parent": {
+                "id": 0,
+                "key": {
+                  "local_name": {
+                    "id": 0,
+                    "key": "<locals>"
+                  },
+                  "parent": {
+                    "id": 0,
+                    "key": {
+                      "local_name": {
+                        "id": 0,
+                        "key": "helper"
+                      },
+                      "parent": {
+                        "id": 0,
+                        "key": {
+                          "local_name": {
+                            "id": 0,
+                            "key": "C"
+                          },
+                          "parent": {
+                            "id": 0,
+                            "key": {
+                              "local_name": {
+                                "id": 0,
+                                "key": "mod"
+                              },
+                              "parent": {
+                                "id": 0,
+                                "key": {
+                                  "local_name": {
+                                    "id": 0,
+                                    "key": "pkg"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "predicate": "python.NameToSName.4"
+    },
+    {
+      "facts": [],
+      "predicate": "gencode.GenCode.1"
+    }
+  ]
+}

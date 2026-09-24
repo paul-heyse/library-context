@@ -1,0 +1,1636 @@
+Theoretical comparison of Relational Concept Analysis
+(RCA) and Graph-FCA (GCA)
+Vanessa Fokou, Peggy Cellier, Xavier Dolques, Sébastien Ferré, Florence Le Ber
+
+To cite this version:
+Vanessa Fokou, Peggy Cellier, Xavier Dolques, Sébastien Ferré, Florence Le Ber. Theoretical comparison of
+Relational Concept Analysis (RCA) and Graph-FCA (GCA). International Journal of Approximate Reasoning,
+2025, 186, pp.109496. ⟨10.1016/j.ijar.2025.109496⟩. ⟨hal-05138994⟩
+
+HAL Id: hal-05138994
+https://hal.science/hal-05138994v1
+Submitted on 2 Jul 2025
+
+HAL is a multi-disciplinary open access archive
+for the deposit and dissemination of scientific research documents, whether they are published or not.
+The documents may come from teaching and research
+institutions in France or abroad, or from public or private research centers.
+
+L’archive ouverte pluridisciplinaire HAL, est destinée au dépôt et à la diffusion de documents scientifiques de niveau recherche, publiés ou non, émanant
+des établissements d’enseignement et de recherche
+français ou étrangers, des laboratoires publics ou
+privés.
+
+Distributed under a Creative Commons CC BY 4.0 - Attribution - International License
+
+Theoretical Comparison of Relational Concept
+Analysis (RCA) and Graph-FCA (GCA)
+Vanessa Fokoua , Peggy Cellierb , Xavier Dolquesa , Sébastien Ferréb ,
+Florence Le Bera
+a
+
+Université de Strasbourg, ENGEES, CNRS, ICube UMR 7357 Strasbourg, France
+b
+Univ Rennes, INSA, CNRS, Inria, IRISA - UMR 6074, Rennes, France
+
+Abstract
+Relational Concept Analysis (RCA) and Graph-FCA (GCA) are two extensions of Formal Concept Analysis (FCA) introduced in order to allow concept
+analysis on multi-relational data. The two methods have diﬀerent properties and parameters, but when restricting to binary relationships, existential
+quantifier and unary concepts, their outputs look similar. On this basis, a
+theoretical comparison of the two methods is conducted, showing that each
+RCA concept corresponds to a GCA concept. Furthermore, to allow the comparison of concept intensions, a transformation of RCA results into relational
+patterns is performed. These results give a sound basis to help interpreting
+RCA results and to combine the two approaches for data exploration.
+Keywords: Relational Concept Analysis, Graph-FCA, Relational Pattern,
+Relational Data, Graph Pattern
+1. Introduction
+In many fields, collected data are not only tabular data but complex relational data that can be represented by graphs. For instance in the environmental domain, graphs are used to represent the social interactions between
+animals, or in semantic web, graphs are used to model knowledge. An important task is then the extraction of structures, or patterns, from relational
+Email addresses: vfokou@unistra.fr (Vanessa Fokou), peggy.cellier@irisa.fr
+(Peggy Cellier), dolques@unistra.fr (Xavier Dolques), Sebastien.Ferre@irisa.fr
+(Sébastien Ferré), florence.leber@engees.unistra.fr (Florence Le Ber)
+
+Preprint submitted to International Journal of Approximate Reasoning
+
+May 14, 2025
+
+data to better understand the underlying concepts in these domains. Formal
+Concept Analysis (FCA) [1] is a mathematical formalism based on lattice
+theory and designed to analyze data (called a formal context) by grouping
+objects with shared properties into formal concepts. It produces a hierarchical structure called a concept lattice representing the generalization ordering
+between formal concepts. Designed for tabular data, the direct application
+of FCA on more complex data is limited because it requires the flattening of
+these data, which results in a loss of structural information.
+Several generalizations of FCA have been made to handle multi-relational
+data such as: Triadic Concept Analysis (TCA) [2], Power Context Families
+[3], Relational Concept Analysis (RCA) [4], concept lattices of a relational
+structure [5], Graph-FCA (GCA) [6] and Polyadic Relational Concept Analysis [7]. Other approaches deal with a single relationship, such as Network
+Formal Contexts [8]. Among them two approaches seem to be very close:
+RCA and GCA. RCA has been successfully used in a number of fields, e.g.
+software engineering [9], ontology restructuring [10], the analysis of old Arabic remedies [11]. GCA has been used for diﬀerent purposes: extraction of
+linguistic structures from parse trees, extraction of workflow patterns from
+cooking recipes [12], or addressing the problem of knowledge graph alignment
+[13]. RCA and GCA seem to be complementary and a few works have addressed questions of comparison or links between both approaches [14, 15, 16].
+In [17], an empirical comparison of RCA and GCA has been conducted.
+In this paper we propose a theoretical comparison of GCA and RCA based
+on the same ground, i.e., using the existential quantifier, data with only unary
+and binary relations, and unary concepts. We first prove that RCA concept
+extents are included in GCA concept extents and secondly, that RCA concept
+intents are included in GCA concept intents. However, as RCA and GCA
+concept intents are defined diﬀerently, a common representation is required
+for the comparison. We thus transform the RCA concept lattice family into
+relational patterns that are similar to GCA graph patterns.
+The paper is organized as follows. Section 2 discusses the related work.
+Section 3 presents RCA and GCA methods. The extensional comparison of
+RCA and GCA is described in Sect. 5. Section 6 transforms the family of
+RCA lattices into relational patterns and Sect. 7 compares the RCA patterns
+to GCA graph patterns. Section 8 concludes and draws some perspectives.
+
+2
+
+2. Related work
+RCA produces as output a family of concept lattices, which can be
+diﬃcult to interpret when the lattices are large because a concept intent
+can recursively depend on the intent of another relationally-related concept.
+Various approaches have been proposed to deal with this complexity (e.g.
+[18, 19]), some of them propose to transform the lattice family into a hierarchy of graphs, thus moving RCA close to GCA. The work in [14, 20] presents
+a method to automatically extract directed acyclic graphs from RCA concept
+intents, starting from one chosen lattice of the lattice family. The resulting
+graphs are represented within a hierarchy in which each graph represents
+a navigation path through the lattice family. This method was defined for
+sequential data, described with a transitive relation. The aim was to explain
+concept values in the target lattice from the preceding values, encoded in
+other lattices. In [15], the authors propose a generic graphical representation
+of RCA outputs that emphasizes the relational patterns. This representation
+is named hierarchy of concept graphs where, each concept belongs to one
+concept graph and each concept graph exhibits the relationships between
+several concepts. This generic representation makes no assumption on the
+context family and can therefore handle all kinds of relational data.
+A practical comparison of TCA (Triadic Concept Analysis), RCA, and
+GCA for modeling indeterminate values in ternary data has been realized in
+[16]. Ternary relationships have been directly processed in GCA and TCA.
+Indeed, GCA extends FCA to n-ary relationships and a ternary relationship
+can be embedded into a TCA scheme i.e., “an object g has the attribute m
+under the condition b". As RCA is limited to binary relations, the authors
+propose and compare three diﬀerent encodings for the ternary relation. Similarities and dissimilarities between RCA and GCA have been studied in [17].
+This conducted to the definition of a common ground, where the outputs of
+the two methods are close to each other. Furthermore, this work explores,
+and highlights how cycles are processed diﬀerently by both approaches. An
+empirical comparison is carried out suggesting that RCA concept extents are
+included in GCA concept extents. To our knowledge, a thorough theoretical
+comparison of the two approaches has not yet been conducted.
+3. Preliminaries
+We here recall the fundamental notions of FCA, RCA and GCA.
+3
+
+3.1. Formal Concept Analysis (FCA)
+FCA [1] consists of extracting conceptual structures from a set of objects
+described by attributes, called a formal context. A formal context is a triple
+K = (O, A, I) where, O and A are sets of objects and attributes respectively
+and I is a binary relation between O and A, i.e., I ✓ O ⇥ A. For instance,
+tables Animal and Food in Fig. 1 are examples of formal contexts. The
+incidence relation I induces two mappings (operators), int : 2O ! 2A and
+ext : 2A ! 2O such that int(X) = {y 2 A | 8x 2 X, (x, y) 2 I} and
+ext(Y ) = {x 2 O | 8y 2 Y, (x, y) 2 I}. A formal concept is then defined
+as a pair (X, Y ) where X ✓ O, Y ✓ A, int(X) = Y and ext(Y ) = X; X
+and Y respectively represent the extent and the intent of the formal concept
+(X, Y ). The set of all concepts built from a formal context K is denoted CK .
+Let C1 = (X1 , Y1 ) and C2 = (X2 , Y2 ) two concepts of CK . The subsumption
+relation v is defined by C1 v C2 if and only if X1 ✓ X2 (or equivalently
+Y2 ✓ Y1 ). The set CK provided with the subsumption relation has a lattice
+structure, and is called the concept lattice associated with K.
+The FCA result on the Food context is the concept lattice presented in
+Fig. 2 (right). Each concept is represented by a box that has three compartments representing, from top to bottom, the identifier, the intent and the
+extent of the concept respectively. Dotted arrows represent the subsumption
+relation between concepts.
+3.2. Relational Concept Analysis (RCA)
+RCA [4] extends the purpose of FCA to binary relational data: data represented by several tables and associations between them. In RCA, tables describing objects through attributes are called object-attribute contexts (formal contexts), and those encoding relations between objects are called objectobject contexts (relational contexts). RCA input data is called a Relational
+Context Family (RCF) which is a pair (K, R) where: K = {Ki }i=1..n is a set
+of formal contexts Ki = (Oi , Ai , Ii ), and R = {rk }k=1..m is a set of relational
+contexts rk where rk ✓ dom(rk ) ⇥ ran(rk ), and dom(rk ), ran(rk ) 2 {Oi }i=1..n
+are respectively the domain (source) and range (target) of rk . For instance,
+the three tables in Fig. 1 form an RCF with 2 formal contexts on the left
+(K = {Animal, Food}) and one relational context on the rigth (R = {eat})
+linking animals to the foods they eat. This means that dom(eat) = OAnimal
+and ran(eat) = OFood .
+RCA iteratively applies FCA on an RCF using relational scaling mechanism to extend initial formal contexts through relational attributes. Each
+4
+
+⇥
+⇥
+
+carnivore
+
+herbivore
+
+Animal
+a1
+a2
+a3
+a4
+
+⇥
+⇥
+
+Food
+f1
+f2
+f3
+f4
+f5
+f6
+
+fruit
+⇥
+⇥
+
+grass
+
+meat
+
+⇥
+⇥
+⇥
+⇥
+
+eat
+a1
+a2
+a3
+a4
+
+f1
+⇥
+
+f2
+⇥
+
+f3
+⇥
+
+f4
+⇥
+
+⇥
+
+⇥
+
+⇥
+
+⇥
+
+f5
+
+f6
+
+⇥
+⇥
+
+⇥
+⇥
+
+Figure 1: Example of an RCF about animals and food (named Animal_Food).
+
+iteration includes 2 steps: (1) applying FCA on each formal context of an
+RCF, (2) relational scaling and extension of formal contexts. The next iteration is based on the results of the previous iteration by applying FCA on the
+extended formal contexts, and the process ends when the families of lattices
+of two consecutive steps are isomorphic.
+Definition 1 (Relational attribute). A relational attribute is an expression qr(C), where q is a scaling quantifier (9, 98, ...), r is a relation between
+two object sets and C is a concept whose extent contains objects from ran(r).
+Relational scaling aims to integrate in formal contexts the relational information encoded in relational context by transforming a relation rk into a
+set of relational attributes that extends the formal context describing the
+set of objects in dom(rk ). In the running example, the relation eat will be
+used in association with Food concepts, to constitute the set of relational
+attributes in order to extend Animal formal context. Henceforth, these relational attributes will be part of Animal concept intents. Using the existential
+quantifier (9) - which will be used all along this work - we will obtain relational attributes of the form 9 eat(Concept_food) expressing the fact that
+an animal eats some food that belongs to a given food concept.
+RCA result on an RCF, written RCA(RCF), is a set of inter-connected
+lattices through relational attributes, called Concept Lattice Family (CLF),
+one lattice per formal context of the RCF. For the current RCF, we have a
+CLF made of two concept lattices as presented in Fig. 2. As we can see,
+the Food concept lattice has no relational attributes because OFood is not
+the domain of a relational context like OAnimal . The Animal concept lattice
+contains relational attributes connecting Animal objects to Food concepts.
+For instance, 9eat(C_food_3) is a relational attribute linking objects of
+concept C_animals_2 to objects of concept C_food_3 and it is interpreted
+as: 8 oi 2 Ext(C_animals_2), 9 oj 2 Ext(C_food_3), (oi , oj ) 2 eat.
+5
+
+C_animals_3
+
+C_food_4
+
+∃ eat(C_food_4)
+
+C_animals_2
+herbivore
+∃ eat(C_food_3)
+∃ eat(C_food_2)
+
+C_animals_1
+carnivore
+∃ eat(C_food_1)
+
+a1
+a4
+
+a2
+a3
+
+C_animals_0
+
+C_food_3
+
+C_food_2
+
+C_food_1
+
+fruit
+
+grass
+
+meat
+
+f1
+f4
+
+f2
+f3
+
+f5
+f6
+
+C_food_0
+
+∃ eat(C_food_0)
+
+Figure 2: RCA results on the RCF presented in Fig. 1 – reduced lattice representation.
+
+3.3. Graph-FCA (GCA)
+GCA [6] was introduced as an extension of FCA where the dataset is a
+form of hyper-graph instead of a binary table. GCA adopts a graph point of
+view, seeing objects as graph nodes, relationships as directed edges between
+nodes, and attributes as node and edge labels. Whereas FCA defines its input
+data as a formal context which is an incidence relationship between objects
+and attributes, GCA defines its input data as a graph context which is an
+incidence relationship between object tuples and attributes.
+Definition 2 (Graph context). A graph context is a triple K = (O, A, I),
+where O is a set of objects, A a set of attributes,
+and I ✓ O⇤ ⇥A an incidence
+S
+relation between object tuples o 2 O⇤ = k 1 Ok and attributes a 2 A.
+
+Figure 3 presents the graph context corresponding to the RCF shown in
+Fig. 1. In this graph context, each object is represented by a rectangular node where the first compartment identifies the object and the second
+compartment represents node labels (object features). Links between nodes
+represent the relations between objects. The set of attributes A contains both
+unary attributes describing objects and binary attributes applying on tuple of
+objects to represent the relationships between objects. An incidence ((o), a)
+6
+
+a1
+
+a4
+
+a3
+
+a2
+
+herbivore
+
+herbivore
+
+carnivore
+
+carnivore
+
+eat eat
+
+eat
+
+eat
+
+eat
+
+eat
+
+eat
+
+eat
+
+eat
+
+eat
+
+eat
+
+eat
+
+f4
+
+f3
+
+f1
+
+f2
+
+f6
+
+f5
+
+fruit
+
+grass
+
+fruit
+
+grass
+
+meat
+
+meat
+
+Figure 3: Graph context corresponding to Animal_Food RCF shown in Fig. 2.
+
+describes object o by attribute a, for instance ((a1), herbivore). An incidence ((o1 , o2 ), a) relates object o1 to object o2 through a binary relation a,
+for instance ((a1, f 4), eat). By generalization, an incidence ((o1 , . . . , on ), a)
+represents an n-ary relationship, connecting n objects. For more readability,
+((o1 , . . . , on ), a) is also noted as a(o1 , . . . , on ). Finally, unary attributes are
+used to label nodes and n-ary attributes are used to label edges connecting
+n nodes.
+GCA extends a formal concept into a graph concept where the concept
+extent is a set of n-tuples of objects (called object relation) and the concept
+intent is a Projected Graph Pattern (PGP) describing what those n-tuples
+of objects have in common, n is the arity of the concept. Unary concepts
+(n = 1) are about sets of objects (like in FCA), while n-ary concepts (n > 1)
+are about relations between objects.
+Definition 3 (Projected Graph Pattern - PGP). A PGP of arity k (kPGP) is a pair Q = (x, P ), where x = (x1 , . . . , xk ) 2 V k is a tuple of k
+projected variables, and P ✓ V ⇤ ⇥ A is a graph pattern i.e., an abstraction
+of a graph context with variables as nodes.
+Figure 4 presents the set of graph patterns produced by the GCA tool
+on the graph context shown in Fig. 3. In this result, the instances of the
+variables onto the graph context have already been generated (see the third
+compartment of each node). Formally, the first pattern P1 (in blue) is written: P1 = {carnivore(a), meat(b), eat(a, b)} with variables a and b. A
+PGP is simply a graph with focus on one or several nodes. For instance,
+Q1a = ((a), P 1) is a unary PGP with focus on variable a in P1. Each node
+in the graph pattern identifies a unary concept and has three horizontal compartments: the first contains the concept id Qix, where i is the number of
+7
+
+Q2b
+eat a _
+
+Q1a
+carnivore
+
+Q2a
+
+a3
+a2
+
+a4
+a3
+a2
+a1
+
+eat
+
+eat
+Q2b
+
+Q1b
+meat
+f6
+f5
+
+f6
+f5
+f4
+f3
+f2
+f1
+
+f6
+f5
+f4
+f3
+f2
+f1
+
+Q3c
+herbivore
+a4
+a1
+
+Q1b
+meat
+eat a _
+
+eat eat eat
+Q3d
+f4
+f3
+f2
+f1
+
+Q3d
+
+Q2a
+
+eat c _
+
+eat _ b
+
+f4
+f3
+f2
+f1
+
+a4
+a3
+a2
+a1
+
+f6
+f5
+
+Q3a
+
+Q3b
+
+fruit
+
+grass
+
+Q3a
+
+Q3b
+
+Q1a
+
+f3
+f2
+
+fruit
+eat c _
+
+grass
+eat c _
+
+carnivore
+eat _ b
+
+f4
+f1
+
+f3
+f2
+
+a3
+a2
+
+f4
+f1
+
+Figure 4: Corresponding graph patterns
+of Animal_Food graph context (Fig. 3).
+
+Q3c
+herbivore
+eat _ b
+eat _ a
+a4
+a1
+
+Figure 5: Corresponding concept hierarchy
+of Animal_Food graph patterns (Fig. 4).
+
+the pattern, and x is the lowercase string - generally a single letter - that
+identifies the concept relative to its pattern. For example, Q1a is the first
+concept of the first pattern, and Q3d is the fourth concept of the third pattern. The second compartment contains the descriptors of the concept; for
+instance, Q1a is described as carnivore, it is part of the concept intent.
+The third compartment contains the extent of the concept which represents
+the instances of the projected variables. For illustration, the extent of Q1a
+is {a3, a2}, the instances of the variable a.
+An object relation is a set R ✓ Ok , for some arity k, of object tuples.
+For illustration, R = {(a3, f 6), (a3, f 5), (a2, f 6), (a2, f 5)} is a binary object
+relation (of arity 2) from the current graph context. The description of a
+tuple of objects o is the PGP Q(o) = (o, I), which uses objects as variables.
+The intension of a finite non-empty object relation R, denoted by int(R) is
+the intersection of the description of all tuples of objects in R.
+\
+int(R) =
+Q(o)
+o2R
+
+The extension of a k-PGP Q is defined as the set of k-tuples of objects
+whose description contains Q: ext(Q) = {o 2 Ok | Q ✓q Q(o)}. These
+two derivation operators (ext, int) form a Galois connection between two
+8
+
+k
+
+posets (2O , ✓) and (Qk , ✓q ) – Qk is the set of K-PGPs. A graph concept
+is then a pair (R, Q) with R ✓ Ok and Q 2 Qk , for some arity k, such that
+R = ext(Q) and Q = int(R) where R is the extent and Q is the intent. For
+instance, the binary PGP ((a, b), {carnivore(a), meat(b), eat(a, b)}) has the
+following extension: {(a3, f 6), (a3, f 5), (a2, f 6), (a2, f 5)}. This PGP identifies the list of carnivore animals and the meat they eat. Visually, each
+node Qnx represents a unary concept whose intent is the PGP ((x), P n), and
+whose extent is listed in the third compartment. For instance, concept Q3a
+= ({f 1, f 4}, ((a), P 3)) is the concept of fruits that are eaten by an herbivore
+that also eats grass. It has two instances, f1 and f4. The intent of k-ary concepts can be read by selecting several nodes, e.g. Q3(a,c), but their extent
+cannot be read in the figures.
+The GCA tool also provides a lattice view named concept hierarchy as
+an alternative for the pattern view by showing subsomption links between
+concepts and replacing relational links by textual labels inside concept nodes
+(second compartment). Figure 5 presents the concept hierarchy of the graph
+patterns in Fig. 4. In this concept hierarchy, dotted arrows represent the
+subsumption relation between concepts and the relation eat between nodes
+a and b in Q1 (Fig. 4) is represented by [eat _ b] and [eat a _] in the
+description part of Q1a and Q1b respectively (Fig. 5). In general, as in this
+example, the GCA tool does not display a bottom or top concept if its extent
+or its intent is empty. This representation of GCA concepts thus appears as
+a family of concept hierarchies, one for each category of objects, similarly to
+RCA. Comparing this concept hierarchy (Fig. 5) to the CLF presented in
+Fig. 2, we can see that the concept Q3d produces by GCA is not produced by
+RCA. Indeed, GCA automatically considers relationships in both directions
+and Q3d gathers food objects eaten by herbivore animals in concept Q3c.
+4. Overview
+This work investigates a theoretical comparison of GCA and RCA based
+on the same ground, i.e., using the existential quantifier (9), data with only
+unary and binary relations, and unary concepts, leading to the result that
+RCA concepts are included in GCA concepts. We first prove that all RCA
+concept extents are GCA concept extents (extensional comparison) and secondly, that each RCA concept intent is included in some GCA concept intent
+(intensional comparison).
+
+9
+
+The extensional comparison in Sect. 5 begins by defining a transformation
+of relational context families into graph contexts, in order to provide a wellfounded ground for comparison (Definition 6). Definition 7 introduces how
+a PGP simulates an RCA concept. This notion of PGP simulating an RCA
+concept is used in Lemma 1 which states that if a PGP Q simulates an RCA
+concept C, then ext(Q) = Ext(C). Lemma 1 is then used in Theorem 1 to
+prove that for every RCA concept, there is a GCA concept with the same
+extent. However, empirical results in a previous work [17] have shown that
+RCA results get closer to GCA results by adding inverse relations to RCA
+data as GCA automatically considers inverse relationships in its process.
+Section 5.4 proves in Theorem 2 that adding inverse relations does not change
+the previous result stating that all RCA extents are GCA extents.
+To achieve the intensional comparison, a common representation is to be
+found for RCA and GCA concept intents, since they are not directly comparable. Section 6 first presents a transformation of the RCA result (a concept
+lattice family) into relational patterns including inverse relationships. The
+translation process begins with the definition of the dependency graph of a
+concept lattice family (Definition 8) and a concept pattern is then defined
+as a Strongly Connected Component (SCC) of the dependency graph. Lemmas 3 and 4 respectively introduce the notions of redundant and strongly
+redundant relational attributes, which form the basis for the definition of the
+common representation (EAR-pattern, Definition 9) for comparing RCA and
+GCA intensions. Definition 10 defines the RCA EAR-pattern which is equivalent in term of information to the original concept lattice family. Section 7
+then addresses the intensional comparison proper, starting with the definition of GCA EAR-patterns (Definition 12), based on the quotient graphs of
+GCA graph patterns (Definition 11). Theorem 3 finally states that the union
+of RCA EAR-patterns is included in the union of GCA EAR-patterns in the
+sense of labelled subgraphs (Definition 13).
+5. Extensional Comparison of RCA and GCA
+In this section and in the following, we compare RCA and GCA on the
+same ground, as defined in [17]: considering data with only unary and binary
+relations, using the existential quantifier (9) for RCA, computing only unary
+concepts for GCA. We first compare RCA and GCA on the extensional side
+because they are directly comparable. Indeed, the objects are the same on
+both sides, although split in n subsets on the RCA side. As we only consider
+10
+
+unary GCA concepts, as mentioned above, this amounts to compare sets of
+extensions, i.e., sets of sets of objects. Given CR the set of RCA concept
+extensions, and CG the set of GCA concept extensions, we demonstrate that
+CR ✓ CG , and that the reverse does not hold. Before stating and demonstrating this result, we need to make some observations regarding RCA concepts
+w.r.t. their iterative generation process and also to translate an RCF to a
+graph context in order to ground the comparison.
+5.1. RCA Concept Rank and Initial Intent
+The RCA concept generation process is iterative. On each iteration, new
+concepts may be formed, and the intent of existing concepts may be extended
+with new relational attributes derived from new concepts at the previous
+iteration. A concept is identified by its extent, so a new concept is actually
+a new extent. The iterative process stops when no new concept is formed,
+which was proven to happen after a finite number of steps because the set of
+objects is finite, hence the set of possible extents is also finite.
+RCA usually only consider the concepts after the last iteration, i.e. pairs
+(X, Y ) where Y is the final intent. We introduce two new notions: the rank
+of a concept, and the initial intent of a concept.
+Definition 4 (Concept rank). The rank of an RCA concept C = (X, Y ),
+written rank (C), is the RCA iteration i
+0 that first generates a concept
+with extent X.
+Definition 5 (Initial intent). The initial intent of an RCA concept C =
+c
+(X, Y ), written Int(C)
+or shortly Yb , is the intent of C at iteration rank(C),
+i.e., when extent X was first generated. We therefore have Yb 0 = X.
+
+By definition of RCA iterations that can only add new relational attributes,
+we have Yb ✓ Y . We can also say that the initial intent of a concept C
+can only refer to concepts Ci (through relational attributes) s.t. rank (Ci ) <
+rank (C) because a concept cannot be used before being introduced. Those
+preliminary results are important because initial intents break the cycles that
+may exist in the final intents of concepts. This hence establishes a topological
+ordering among concepts via their rank, while preserving the characterization
+of extents as X = Yb 0 .
+11
+
+5.2. Translating Relational Context Families to Graph Contexts
+In order to have a well-founded ground for comparison, a Relational Context Family (RCF) from the RCA side must first be translated into an equivalent graph context on the GCA side. This is relatively simple when restricting
+to their common ground because we have multi-relational data on both sides.
+The main subtlety is about the set of objects that is partitioned in RCA and
+not in GCA. This leads to the introduction of additional unary attributes to
+represent the diﬀerent categories of objects.
+Definition 6. Let (K, R) be an RCF. The corresponding graph context K =
+(O, A, I) is defined as follows:
+S
+• O := i=1..n Oi : the set of objects is the disjoint union of the sets of
+objects of all object-attribute contexts Ki 2 K;
+• A = A1 [ A2 : the set of attributes is made of unary attributes (A1 )
+and binary attributes (A2 ), where:
+S
+– A1 := i=1..n ({aKi }[Ai ): the set of unary attributes is the disjoint
+union of the sets of attributes of all object-attribute contexts,
+extended with the name of the contexts (aKi ) as object types;
+
+– A2 := {rk }k=1..m : the set of binary attributes is the set of relation
+names, one for each object-object context;
+
+• the incidences between tuples of objects and attributes is defined as:
+I := {aKi (o) | Ki 2 K, o 2 Oi }
+[ {a(o) | o 2 Oi , a 2 Ai , (o, a) 2 Ii }
+[ {r(o1 , o2 ) | r 2 R, (o1 , o2 ) 2 r}
+For instance, the graph context corresponding to the RCF presented in Fig.
+1 is equal to K = (O, A, I) where:
+• O = OAnimal [ OFood
+• A = A1 [ A2 where A1 = {aAnimal } [ AAnimal [ {aFood } [ AFood and
+A2 = {eat}
+• I = {aAnimal (o) | o 2 OAnimal } [ {aFood (o) | o 2 OFood }
+[ {a(o) | (o, a) 2 IAnimal } [ {a(o) | (o, a) 2 IFood }
+[ {eat(o1 , o2 ) | (o1 , o2 ) 2 eat}
+12
+
+Note that this translation is injective, indeed diﬀerent RCFs clearly lead to
+diﬀerent graph contexts. As a consequence, no information is lost in the process, and the translation can be easily reversed as long as the attributes a Ki
+are distinguished from other unary attributes. However, there is no obvious
+general translation from graph contexts to RCFs because of the lack of object
+categories, and because of the possible existence of n-ary relations.
+5.3. Comparing Sets of Concept Extensions
+We prove in the following that all RCA extensions are also GCA extensions. This was conjectured in a previous work [17], where it was also shown
+through counter-examples that the reverse does not hold. In order to make
+this proof, we first construct a PGP that simulates the initial intent of an
+RCA concept, and prove two lemmas about this construction.
+Definition 7 (PGP simulating an RCA concept). Let C be a concept
+in an RCA Concept Lattice Family (CLF). Let C = {Ck } be the subset
+of concepts that participate to the description of C i.e., concepts referred
+to in relational attributes of the initial intent of C, and recursively in the
+initial intent of those concepts. C also includes C itself as C0 . We define the
+PGP Q = (x0 , P0 ) simulating C by introducing a set of variables X = {xk },
+containing a distinct variable for each concept Ck 2 C; and by defining a
+pattern Pk for each concept Ck s.t.:
+Pk := {aKi (xk ) | Ck belongs to the concept lattice of context Ki }
+c k )}
+[ {a(xk ) | a 2 Int(C
+S
+c k )}
+[
+{{r(xk , xl )} [ Pl | 9rCl 2 Int(C
+
+We define Qk = (xk , Pk ) as the PGP that simulates Ck , and we note this
+simulation relationship Qk ⇠ Ck .
+The recursive definition of Pk is well defined because of the rank-based
+topological ordering of initial intents. The base case is made of concepts
+at rank 0, which have no relational attributes in their initial intent. For
+illustration, let us abbreviate C_animals_1 as Ca1 and C_food_1 as Cf 1
+in Fig. 2 (left), and define the pattern Pa1 that simulates Ca1 given that
+d a1 ) = {carnivore, 9 eat(Cf 1 )}. We have Qa1 = (xa1 , Pa1 ) where Pa1 =
+Int(C
+{aAnimal (xa1 ), carnivore(xa1 ), eat(xa1 , xf 1 ), aFood (xf 1 ), meat(xf 1 )}.
+13
+
+Lemma 1. Under the conditions of Definition 7, we have for all Ck 2 C
+Qk ⇠ Ck =) ext(Qk ) = Ext(Ck ).
+Proof. We prove the lemma by recurrence on the rank of concepts in C. In
+the general case, we consider a concept Ck at rank n, belonging to context Ki .
+We assume the lemma is true for all concepts at a rank lower than n, in
+particular to those occurring in the initial intent Ybk of Ck .
+We first prove that Ext(Ck ) ✓ ext(Qk ). Considering some ok 2 Ext(Ck ),
+we have to prove that ok 2 ext(Qk ), which is defined by Qk ✓q (ok , I), which
+is true iﬀ there exists a mapping from variables to objects s.t. (xk ) = ok
+T
+and (Pk ) ✓ I. We have ok 2 Ext(Ck ) = Ybk0 = ↵2Yb ↵0 , i.e., ok 2 ↵0 for all
+elements ↵ of the initial intent. There are two kinds of elements:
+• formal attributes (↵ = a 2 Ai ): ok 2 ↵0 implies that ok 2 a0 , hence
+(ok , a) 2 Ii .
+
+• relational attributes (↵ = 9r(Cl )): ok 2 ↵0 here implies that ok 2
+(9r(Cl ))0 , which implies there exists an object ol s.t. (ok , ol ) 2 r and
+ol 2 Ext(Cl ). By applying the recurrence hypothesis, we get ol 2
+ext(Ql ), and hence there exists a mapping l s.t. l (xl ) = ol and
+l (Pl ) ✓ I.
+S
+We define the mapping
+:= {xk ! ok } [ l l as the union of the
+mappings of each relational attribute plus the mapping from xk to ok . It
+therefore remains to show that (Pk ) ✓ I. Pk can be decomposed into the
+following subsets of elements:
+• aKi (xk ): ok belongs to context Ki , so we do have aKi (ok ) 2 I according
+to the definition of the graph context that corresponds to the RCF.
+• a(xk ): by definition of Qk , we have a 2 Ybk , hence as seen above we
+have (ok , a) 2 Ii , hence a(ok ) 2 I.
+• r(xk , xl ): by definition of Qk , we have 9r(Cl ) 2 Ybk , hence as seen above
+we have (ok , ol ) 2 r, hence r(ok , ol ) 2 I.
+• Pl ✓ Pk : we have seen above that l (Pl ) ✓ I, hence by definition of
+that includes l , we also have (Pl ) ✓ I.
+14
+
+As all parts of Pk project to parts of I through , we get (Pk ) ✓ I.
+We then prove that ext(Qk ) ✓ Ext(Ck ). Considering ok 2 ext(Qk ), we
+know it exists a mapping from variables to objects s.t. (xk ) = ok and
+T
+(Pk ) ✓ I. We have to prove that ok 2 Ext(Ck ) = Ybk0 = ↵2Ŷ ↵0 . Hence
+we have to prove that ok belongs to the extension of each element ↵ of the
+initial intent. We do so for the two kinds of elements:
+• ↵ = a 2 Ai (formal attribute): by definition of Qk , we know that
+a(xk ) 2 Pk . From (Pk ) ✓ I we get (a(xk )) 2 I, then from (xk ) = ok
+we get a(ok ) 2 I. Hence we also get (ok , a) 2 Ii through context
+translation, and therefore, ok 2 a0 .
+• ↵ = 9r(Cl ) (relational attribute): by definition of Qk , we know that
+r(xk , xl ) 2 Pk and Pl ✓ Pk . From constraints on , we can deduce
+that r(ok , ol ) 2 I, with ol = (xl ), and (Pl ) ✓ I. From there, we can
+conclude that ol 2 ext(Ql ), by simply projecting on the variables of
+Pl . By applying the recurrence hypothesis, we get ol 2 Ext(Cl ). From
+r(ok , ol ) 2 I, we also get (ok , ol ) 2 r through context translation. We
+therefore have ok 2 (9rCl )0 , by definition of the extension of a relational
+attribute.
+The base case is for rank(Ck ) = 0. The same proof as the general case
+can be used because the recurrence hypothesis is only used for relational
+attributes, and concepts at rank 0 have none of them. ⌅
+Theorem 1. Let (K, R) be an RCF, and K its corresponding graph context.
+For every RCA concept, there is a GCA concept with the same extension.
+Proof. Consider any concept C in the CLF, and the PGP Q that simulates
+C, i.e., such that Q ⇠ C. As a particular case of previous lemma with k = 0,
+we have ext(Q) = Ext(C). In GCA, the pair (ext, int) is a Galois connection,
+so (ext(Q), int(ext(Q))) forms a concept, and hence ext(Q) is the extension
+of a GCA concept. ⌅
+5.4. Comparison when Adding Inverse Relations to RCA
+Empirical results in a previous work [17] have shown that RCA results get
+closer to GCA results by adding inverse relations to the RCF. Indeed, GCA
+automatically considers inverse relationships in its process, due to the graph
+categorical product used for computing GCA graph patterns. More precisely,
+15
+
+C_food_4
+∃ eat_r(C_animals_3)
+
+C_food_1
+
+C_animals_3
+
+C_food_5
+
+∃ eat(C_food_4)
+
+∃ eat_r(C_animals_2)
+
+meat
+∃ eat_r(C_animals_1)
+f5
+f6
+
+C_animals_2
+herbivore
+∃ eat(C_food_3)
+∃ eat(C_food_2)
+∃ eat(C_food_5)
+
+C_animals_1
+carnivore
+∃ eat(C_food_1)
+
+a1
+a4
+
+C_food_3
+
+C_food_2
+
+fruit
+
+grass
+
+f1
+f4
+
+f2
+f3
+
+a2
+a3
+
+C_animals_0
+
+C_food_0
+
+∃ eat(C_food_0)
+
+∃ eat_r(C_animals_0)
+
+Figure 6: RCA results on the Animal_Food RCF that integrates inverse relationships.
+
+for every relation r 2 R, a new relation r = {(oj , oi ) | (oi , oj ) 2 r} is included in the set of relations. We note R the set of inverse relations derived
+from a set of relations R, and the inverse of a relation is named by adding the
+string “_r” at the end of the relation name. Figure 6 presents RCA results on
+the Animal_Food RCF with the inverse relation eat_r. We can see that food
+concepts have relational attributes of the form 9 eat_r(C_animals_i). Also,
+the addition of this inverse relation creates a new food concept: C_food_5
+which corresponds to the GCA concept Q3d (in Fig. 5) missing in the RCA
+results without inverse relation presented in Fig. 2.
+The question we address in this section is whether the previous result
+stating the inclusion of RCA extensions in GCA extensions remains true or
+not. We demonstrate that inclusion remains valid by showing that the set of
+GCA extensions is not aﬀected by the introduction of inverse binary edges.
+Lemma 2. Let K = (O, A, I) be a graph context, and K = (O, A , I ) be
+its extension with inverse relations, i.e. A = A [ R , where R ✓ A is the
+set of binary attributes in A, and I = I [ {r (oj , oi ) | r(oi , oj ) 2 I}. There
+is a one-to-one correspondence between K-concepts and K -concepts:
+(R, Q) 2 GCA(K) () (R, Q ) 2 GCA(K ),
+
+where, given Q = (x, P ), we have Q = (x, P ) and P
+r(x, y) 2 P }.
+16
+
+= P [ {r (y, x) |
+
+Proof. The computation of GCA concept intensions boils down to repeated
+categorical products of the incidence relation. In particular, when the edge
+r(x, y) belongs to I ⇥ . . . ⇥ I (n times), this means that for all i 2 1..n,
+there is a pair of objects (ui , vi ) s.t. r(ui , vi ) 2 I. Then, by definition of I ,
+it comes that for all i 2 1..n, we also have r (vi , ui ) 2 I . From there, we
+conclude that the categorical product I ⇥. . . I contains r (y, x) in addition
+to r(x, y). Indeed, the categorical product defines x = (u1 , . . . , un ) and y =
+(v1 , . . . , vn ). The reverse also holds. Whenever r (x, y) 2 I ⇥. . . I , we have
+r(x, y) 2 I⇥. . .⇥I because whenever r (vi , ui ) 2 I holds, r(ui , vi ) 2 I ✓ I .
+This implies that K -concepts can be derived from K-concepts, simply
+by adding inverse binary edges in patterns along the above definition of P .
+The concept extensions are the same. ⌅
+Based on this lemma, previous Theorem 1 can be extended to RCF with
+inverse relations.
+Theorem 2. Let (K, R) be an RCF, and K its corresponding graph context.
+For every RCA concept of the extended RCF (K, R [ R ), there is a GCA
+concept of K with the same extension.
+Proof. It is easy to see that if K is the graph context corresponding to
+the RCF (K, R), then K is the graph context corresponding to the RCF
+extended with inverse relations. Therefore, from Theorem 1, we have that
+all concept extensions of the extended RCF are concept extensions of K .
+Lemma 2 shows that K and K have the same concept extensions. Therefore,
+all concepts extensions of the extended RCF are concept extensions of the
+non-extended graph context K. ⌅
+6. From CLF to RCA Relational Patterns
+In a concept lattice family, concept intents are defined in term of relational attributes pointing to other concepts while GCA concept intents are
+defined in term of Projected Graph Pattern. Thus, concept intents of the
+two approaches are not directly comparable, and a common representation
+must be found. We choose graphs as the common representation because
+graphs are natural settings for representing multi-relational data, and there
+is work in this direction regarding RCA [14, 15]. In order to get as close
+as possible to GCA, inverse relations will be included in the RCA data [17].
+In the following, we detail the process of representing the RCA results into
+relational patterns similar to GCA graph patterns.
+17
+
+6.1. Dependency Graph of a Concept Lattice Family
+The transformation of a concept lattice family into a hierarchy of concept
+graphs was described by [15], based on the Strongly Connected Components
+(SCC) [21] of a dependency graph between concepts. The dependancy graph
+included the relations from each concept in a lattice to its ancestors and to
+the target concepts of its relational attributes, as defined below.
+Definition 8 (Dependency graph [15]). Let L be a CLF. The dependency graph of L is the directed graph GL = (V, E) where: V is the set of
+all concepts of all lattices in L, except bottom concepts, and E is the set of
+concept dependencies C1 ! C2 , when C2 is a parent concept of C1 (C1 C2 ),
+or C1 is labeled by a relational attribute 9 r(C2 ) i.e., 9 r(C2 ) 2 Int(C1 ).
+For instance, in the CLF presented in Fig. 2, we have C_animals_2 !
+C_animals_3 and C_animals_2 ! C_food_3. Figure 7 shows the dependency graph of the RCF presented in Fig. 6 with its 3 SCCs circled. For
+sake of understanding, edges are represented in two ways: the dotted edges
+represent the subsumption relation between concepts, while the solid and
+labelled edges materialize the relational attributes between concepts. For instance, the edge between the concepts C_animals_2 and C_food_3 labelled
+by 9 eat materializes the fact that 9 eat(C_food_3) 2 Int(C_animals_2).
+A concept graph (or concept pattern) is defined as an SCC of the dependency graph i.e., a maximal set of concepts where each concept has a
+dependency path to all other concepts (in the SCC) for the definition of its
+intent. In these concept patterns, we will only keep the edges corresponding
+to relational attributes (we know how to reconstruct the edges corresponding
+to the subsumption relation). There are two diﬃculties in obtaining GCAlike patterns from these concept patterns. The first diﬃculty concerns the
+inter-SCC edges (for instance, the edge 9 eat between concepts C_animals_1
+and C_food_4 in Fig. 7), do we lose information on the concept intents by
+ignoring them? The second diﬃculty is the presence of inverse relations that
+are not explicitly represented in the GCA graph patterns. It is worth noting
+that inter-SCC edges do not have inverse edges, otherwise they would be
+intra-SCC. Both diﬃculties are solved in the next section.
+6.2. Redundant Relational Attributes
+A naive interpretation of a concept intent takes into account all its relational attributes, some of which do not provide new features about the
+18
+
+C_food_4
+f1
+f2
+f3
+f4
+f5
+f6
+✓ eat
+
+✓ eat_r
+
+C_animals_3
+a1
+a2
+a3
+a4
+✓ eat_r
+
+✓ eat_r
+
+C_food_5
+
+✓ eat
+
+C_food_1
+✓ eat_r
+
+f1
+f2
+f3
+f4
+
+meat
+
+✓ eat_r
+
+f5
+f6
+✓ eat
+
+✓ eat_r
+
+✓ eat_r
+
+C_food_2
+
+C_food_3
+
+C_animals_1
+
+grass
+
+fruit
+
+carnivore
+
+f2
+f3
+
+f1
+f4
+
+a2
+a3
+
+✓ eat
+
+✓ eat
+
+✓ eat_r
+
+✓ eat
+
+✓ eat
+
+✓ eat_r
+
+C_animals_2
+herbivore
+a1
+a4
+
+Figure 7: Dependency graph of Animal_Food CLF presented in Fig. 6 with its 3 SCCs.
+
+description of the concept. For example, the intension of C_animals_2 (Fig.
+6) contains the relational attributes 9 eat(C_food_2), 9 eat(C_food_3), 9
+eat(C_food_5) and 9 eat(C_food_4). The two first relational attributes are
+suﬃcient for its description while 9eat(C_food_5) and 9 eat(C_food_4) are
+redundant. In fact, these two last attributes do not provide any new information (w.r.t 9 eat(C_food_2) and 9 eat(C_food_3)). Lemma 3 introduces
+the notion of redundancy of relational attributes as defined in [14].
+Lemma 3. Let C1 and C2 be two concepts such that C1 C2 . If a concept
+C is such that 9 r(C1 ) 2 Int(C), then we also have 9 r(C2 ) 2 Int(C). For
+this reason, 9 r(C2 ) is considered redundant for the description of C.
+Proof. Let C1 = (X1 , Y1 ) and C2 = (X2 , Y2 ).
+9r(C1 ) 2 Int(C) () 8o 2 Ext(C), r(o)\X1 6= ;. Since C1 C2 , X1 ✓ X2
+and thus, r(o) \ X2 6= ; () 9r(C2 ) 2 Int(C). Hence, the relational
+attributes are ordered and 9r(C2 ) is redundant in the interpretation of C.
+This lemma makes it possible to reduce redundancy and describe a concept by its most specific intent. However, looking further to the example
+19
+
+of concept C_animals_2, we can diﬀerentiate the two redundant attributes
+9 eat(C_food_5) and 9 eat(C_food_4). The first one points at the direct
+subsumer of only the two concepts (C_food_2) and (C_food_3) while the
+last one points at concept (C_food_4) that also covers (C_food_1), thus
+adding some kind of noise to the description of concept C_animals_2. Accordingly, there is no inverse relational attribute pointing from C_food_4 to
+C_animals_2. This type of attribute will be called strongly redundant as
+defined in the following lemma.
+Lemma 4. Let C = (X, Y ) and C1 = (X1 , Y1 ) be two formal concepts. If
+9 r(C1 ) 2 Y and 9 r (C) 62 Y1 then, there exists a concept S
+C2 = (X2 , Y2 )
+C1 such as 9 r(C2 ) 2 Y and 9 r (C) 2 Y2 with X2 = X1 \ {r(o) | o 2 X}.
+We then say that 9 r(C1 ) is strongly redundant for the description of C.
+Proof. We have to prove that: (1) X2 ✓ X1 , which is trivial by definition
+of X2 , (2) 9r (C) 2 Y2 , and (3) 9r(C2 ) 2 Y .
+To prove 9r (C) 2 Y2 , we start from what it implies to be an element of
+X2 : 8oj 2 X2 : oj 2 [{r(o) | o 2 X}, by definition of X2
+) 8oj 2 X2 : 9oi 2 X : (oi , oj ) 2 r, by definition of r(oi )
+) 8oj 2 X2 : 9oi 2 X : (oj , oi ) 2 r , by definition of inverse relation
+) 9r (C) 2 Y2 , by definition of relational attributes in the intension.
+To prove 9r(C2 ) 2 Y , we start from 9r(C1 ) 2 Y , which implies
+8oi 2 X : 9oj 2 X1 : (oi , oj ) 2 r
+) 8oi 2 X : 9oj 2 X1 : (oi , oj ) 2 r hence oj 2 [{r(oi ) | oi 2 X}
+) 8oi 2 X : 9oj 2 X2 : (oi , oj ) 2 r, by definition of X2
+) 9r(C2 ) 2 Y , by definition of relational attributes in intension. ⌅
+Lemma 4 states that a relational attribute that has no reciprocal relational attribute is strongly redundant, which is the case of inter-SCC edges.
+Thus, ignoring inter-SCC edges does not lead to a loss of information in the
+interpretation of concept intents. This addresses the first diﬃculty mentioned
+in the previous section about inter-SCC edges. After deleting strongly redundant relational attributes, all remaining relational attribute between two
+concepts have an inverse relational attribute. This means that the edges
+induced by inverse relationships can be ignored (by convention), as in the
+case of GCA graph patterns. This addresses the second diﬃculty concerning
+inverse relational attributes.
+
+20
+
+6.3. RCA Relational Pattern (RCA EAR-Pattern)
+A relational pattern is induced for each SCC of the RCA dependency
+graph. This section first defines such a relational pattern as an extensionattribute-relation pattern (EAR-pattern), which will serve as a common representation to compare RCA intensions and GCA intensions. It then defines
+the EAR-patterns of RCA based on the above i.e., using only intra-SCC
+relational edges, and ignoring inverse edges given their redundancy.
+Definition 9 (EAR-pattern). Let O be a set of objects, A a set of attributes, and R a set of binary relationships. An extent-attribute-relation
+pattern (EAR-pattern) is a labelled directed graph P = (V, E, LV , LE ) where:
+• the nodes V ✓ 2O are concept extensions, i.e. sets of objects;
+• E ✓ V ⇥ V is a set of directed edges relating extensions;
+• LV : V ! 2A is a labelling function from nodes to sets of attributes;
+• LE : E ! 2R is a labelling function from edges to sets of relations.
+Definition 10 (RCA EAR-pattern). Let S be an SCC of a dependency
+graph GL . The RCA EAR-pattern induced by S is the EAR-pattern PS =
+(V, E, LV , LE ) where:
+• V = {Ext(C) | C 2 S}: the extensions of the concepts of S;
+• E = {(Ext(C1 ), Ext(C2 )) | C1 , C2 2 S, 9r(C2 ) 2 Int(C1 )}: edges
+correspond to the relational attributes in concept intensions;
+• LV (Ext(C)) = {a 2 A | a 2 Int(C)}: extension labels are the unary
+attributes in the intension;
+• LE ((Ext(C1 ), Ext(C2 )) = {r 2 R | 9r(C2 ) 2 C1 }: edge labels are the
+relations of relational attributes from C1 to C2 .
+For instance, Fig. 8 presents the set of RCA EAR-patterns obtained from
+the CLF on Animal_Food RCF shown in Fig. 6. As we can see, this set of
+RCA EAR-patterns corresponds to the set of GCA graph patterns (Fig. 4)
+obtained on the same example.
+
+21
+
+C_animals_3
+a1
+a2
+a3
+a4
+eat
+C_food_4
+f1
+f2
+f3
+f4
+f5
+f6
+
+C_animals_2
+
+C_animals_1
+
+herbivore
+
+carnivore
+
+a1
+a4
+
+a2
+a3
+
+eat
+
+C_food_5
+f1
+f2
+f3
+f4
+
+eat
+
+eat
+
+eat
+
+C_food_3
+
+C_food_2
+
+C_food_1
+
+fruit
+
+grass
+
+meat
+
+f1
+f4
+
+f2
+f3
+
+f5
+f6
+
+Figure 8: RCA EAR-patterns of the Animal_Food CLF presented in Fig.6.
+
+To sum up, for a CLF obtained on a given RCF (with inverse relations),
+the corresponding set of RCA EAR-patterns is obtained as follows: (1) dependency graph of the CLF, (2) SCCs of the dependency graph, (3) removal
+of the edges of the subsumption relation, (4) removal of redundant relational
+attributes, and (5) removal of relational attributes induced by inverse relationships. It should be noted that these positive results are achieved thanks
+to inverse relationships which play an important role for the computation of
+SCCs. The representation of RCA results as EAR-patterns, close to GCA
+graph patterns, makes it possible to compare the concept intensions of the
+two approaches, as done below.
+7. Intensional Comparison of RCA and GCA Concepts
+This section compares a set of RCA EAR-patterns to a set of GCA graph
+patterns computed on the same data. However, they are not directly comparable because GCA graph patterns are not exactly EAR-patterns, and
+because they may have several nodes corresponding to the same concept, the
+so-called automorphic concepts. We therefore start by transforming GCA
+graph patterns into EAR-patterns.
+7.1. From Graph Patterns to EAR-Patterns
+The duplication of concepts in GCA output is sometimes required to
+properly represent the graph patterns that exhibit symmetries or capture
+some structures such as cycles. We refer to these duplicated concepts as
+22
+
+Jean
+
+Bob
+
+male
+
+male
+
+love
+
+love love
+
+Julie
+
+Anne
+
+female
+
+female
+
+love
+
+Q1a
+
+female
+
+Anne
+
+love
+
+Q1b
+
+male
+
+Bob
+
+Q3a
+
+love
+
+Anne
+Jeanne
+Julie
+Bob
+Julien
+Jean
+
+Q3d
+
+love
+
+Anne
+Jeanne
+Julie
+Bob
+Julien
+Jean
+
+love
+
+Q3b
+
+love
+
+Anne
+Bob
+
+Q2a
+
+love
+
+Anne
+Jeanne
+Julie
+Bob
+Julien
+Jean
+
+love
+Q3c
+
+love
+
+Julien
+male
+love
+Jeanne
+
+Q4c
+
+male
+
+Bob
+Julien
+Jean
+
+love
+
+Q4b
+
+female
+
+Anne
+Jeanne
+Julie
+
+love
+love
+
+Q4d
+
+male
+
+Bob
+Julien
+Jean
+
+Q2b
+
+love
+
+Anne
+Jeanne
+Julie
+Bob
+Julien
+Jean
+
+love
+Q4a
+
+Anne
+Bob
+
+female
+
+Anne
+Jeanne
+Julie
+
+female
+
+Figure 10: Graph patterns for the graph context in Fig. 9.
+Figure 9: Graph context
+made of cycles of length 2-4.
+
+automorphic concepts which are interchangeable nodes in a pattern. For
+illustration, let us use the example on cycles of length 2-4 presented in [17].
+The graph context is made of two cycles of length 2 and 4 as shown in
+Fig. 9. The graph patterns are presented in Fig. 10 where, patterns Q2
+(red), Q3 (lime-green) and Q4 (green) all contain automorphic concepts. For
+instance, Q2a and Q2b are automorphic concepts. However, RCA does not
+produce automorphic concepts. Our idea is then to merge the occurrences
+of automorphic concepts in GCA graph patterns. Given P a graph pattern,
+merging its automorphic concepts is equivalent to computing its quotient
+graph with respect to the concept extents, i.e., two nodes belong to the same
+class if they have the same extent.
+Definition 11 (Quotient graph ([22], P.110)). Let G be a graph and
+let P = V1 , . . . , Vk be a partition of the vertex set of G into non-empty
+classes. The quotient G/P of G by P is the graph whose vertices are the
+sets V1 , . . . , Vk and whose edges are the pairs (Vi , Vj ), i 6= j, such that there
+exists ui 2 Vi , uj 2 Vj s.t. (ui , uj ) 2 E(G).
+Figure 11 presents the quotient graphs of the graph patterns shown in Fig.
+10. Pattern Q1 (blue) does not change because it has no automorphic concepts. The automorphic concepts of patterns Q2, Q3, Q4 have been merged.
+Figure 12 presents the corresponding RCA EAR-patterns. GCA produces
+two more patterns (Q1, Q2) than RCA, as explained in [17].
+In a quotient pattern P ✓ V ⇤ ⇥ A of a graph pattern, A contains unary
+attributes which label nodes and n-ary attributes/relations which label edges.
+If P is limited to binary relations as it is the case in this work, A can be
+23
+
+Q3a
+Q1a
+female
+Anne
+
+love love
+
+Q1b
+male
+Bob
+
+Q4c
+
+Q2a
+Anne
+Bob
+
+love
+
+Anne
+Jeanne
+Julie
+Bob
+Julien
+Jean
+
+love
+
+C_person_3
+
+male
+
+C_person_2
+Jean
+Julie
+Julien
+Jeanne
+Bob
+Anne
+
+Bob
+Julien
+Jean
+
+lovelove
+
+male
+Jean
+Julien
+Bob
+
+lovelove
+
+Q4a
+
+C_person_1
+
+female
+
+female
+
+Anne
+Jeanne
+Julie
+
+Figure 11: Quotient graphs of the GCA graph
+patterns in Fig. 10.
+
+love
+
+Julie
+Jeanne
+Anne
+
+Figure 12: RCA patterns for the
+example in Fig. 9.
+
+partitioned into two sets: unary attributes (A1 ) and binary attributes, also
+called relations (A2 ). Pattern P can thus be equivalently represented as an
+EAR-pattern along the following definition.
+Definition 12 (GCA EAR-pattern). Let P ✓ V ⇤ ⇥ A be the quotient
+graph of a GCA graph pattern. Let A = A1 [ A2 , with A1 the set of (unary)
+attributes and A2 the set of relations (binary attributes). The EAR-pattern
+of P is written PG = (V, E, LV , LE ) where:
+• V = {v | ((. . . , v, . . .), a) 2 P },
+• E = {(v1 , v2 ) | ((v1 , v2 ), a) 2 P },
+• LV (v) = {a 2 A1 | ((v), a) 2 P },
+• LE ((v1 , v2 )) = {r 2 A2 | ((v1 , v2 ), r) 2 P }.
+7.2. Comparing RCA and GCA EAR-Patterns
+Let (K, R) be an RCF, K the corresponding graph context, and
+F
+=
+(K, R [ R ) the extended RCA with inverse relations. Let S =
+S
+{S1 , S2 , ..., Sm } = (VSS
+, ES , LVS , LES ) be the disjoint1 union of RCA EARpatterns of F and P = {P1 , P2 , ..., Pn } = (VP , EP , LVP , LEP ) be the disjoint
+1
+
+Because every concept belongs to one and only one pattern.
+
+24
+
+union of the GCA EAR-patterns of K. In the following, we prove that every
+RCA EAR-pattern is a subgraph of a GCA EAR-pattern, which is equivalent
+to S being a labelled subgraph of P in the sense of Definition 13.
+Definition 13 (Labelled subgraph). Let G1 = (V1 , E1 , LV 1 , LE1 ) and
+G2 = (V2 , E2 , LV 2 , LE2 ) be labelled graphs. G2 is a labelled subgraph of
+G1 (G2 ✓ G1 ) iﬀ V2 ✓ V1 , E2 ✓ E1 , 8v 2 V2 : LV2 (v) = LV1 (v) and
+8(v1 , v2 ) 2 E2 : LE2 ((v1 , v2 )) = LE1 ((v1 , v2 )).
+Theorem 3. Let F = (K, R [ R ) be an RCF extended with inverse relations
+S and K the corresponding graph context of the RCF
+S (K, R). Let
+S = i Si be the union of RCA EAR-patterns of F and P = j Pj the union
+of GCA EAR-patterns of K. We have S ✓ P , and so 8 Si : 9Pj : Si ✓ Pj .
+Proof. Let CR be the set of RCA concept extents for F and CG the set of
+GCA concept extents for K. Based on CR ✓ CG (Theorem 2), we want
+to prove that S ✓ P by proving that: (1) 8(v1 , v2 ) 2 ES : (v1 , v2 ) 2
+EP , LES ((v1 , v2 )) = LEP ((v1 , v2 )) and (2) 8vi 2 VS : vi 2 VP , LVS (vi ) =
+LVP (vi ).
+(1) Let (v1 , v2 ) 2 ES be an edge, and r 2 LES (v1 , v2 ) a relation in its
+label, where v1 , v2 correspond to the extents of concepts C1 , C2 . This implies
+that 9r(C2 ) 2 Int(C1 ) and 9r (C1 ) 2 Int(C2 ), by definition of RCA EARpatterns. Then 8o1 2 v1 : 9o2 2 v2 : (o1 , o2 ) 2 r and 8o2 2 v2 : 9o1 2 v1 :
+(o2 , o1 ) 2 r , hence (o1 , o2 ) 2 r (*), by the definition of relational attributes.
+Let R12 = {(o1 , o2 ) | o1 2 v1 , o2 2 v2 , (o1 , o2 ) 2 r} (object relation of
+arity 2). We have ⇡1 (R12 ) = {⇡1 (o1 , o2 ) | (o1 , o2 ) 2 R12 } = v1 and ⇡2 (R12 ) =
+{⇡2 (o1 , o2 ) | (o1 , o2 ) 2 R12 } = v2 2 , according to (*).
+Let Q12 = int(R12 ) = \q {Q((o1 , o2 ))}(o1 ,o2 )2R12 = ((y1 , y2 ), P12 ), for some
+pattern P12 , by definition of the intension of an object relation of arity 2.
+This implies that r(y1 , y2 ) 2 P12 , by the definition of R12 .
+Let us prove that ext(((y1 ), P12 )) = v1 and ext(((y2 ), P12 )) = v2 , i.e., that
+the nodes y1 , y2 in the GCA EAR-pattern correspond to the nodes v1 , v2 in
+the RCA EAR-pattern.
+ext(((y1 ), P12 ))
+= ext(⇡1 (Q12 )), because ⇡1 ((y1 , y2 )) = y1
+2
+
+⇡1 and ⇡2 respectively represent the projection on the first and second component of
+a tuple or set of tuples.
+
+25
+
+= ext(⇡1 (int(R12 ))), because Q12 is the intent of R12
+= ext(int(⇡1 (R12 ))), because of Lemma 24 in [6] (⇡(int(R)) = int(⇡(R)))
+= ext(int(v1 )), since ⇡1 (R12 ) = v1
+= v1 , because v1 2 CR ✓ CG , so v1 is closed as a concept extent.
+By analogy, we also have ext(((y2 ), P12 )) = v2 . Those results imply that
+r(y1 , y2 ) 2 P12 , then, from the definition of GCA EAR-patterns, (v1 , v2 ) is
+an edge in P , and r is one of its labels.
+Moreover, if r is a label of (v1 , v2 ) in P , then r(y1 , y2 ) 2 P12 , then r(o1 , o2 )
+for all (o1 , o2 ) 2 ext(Q12 ). Hence, for all o1 2 ⇡1 (ext(Q12 )) = v1 , there
+is o2 2 ⇡2 (ext(Q12 )) = v2 s.t. (o1 , o2 ) 2 r. As a consequence, we have
+9r(C2 ) 2 Int(C1 ). Similarly, we have 9r (C1 ) 2 Int(C2 ). Therefore, r is a
+label of the edge (v1 , v2 ) in S.
+(2) Let v 2 VS be a node and a 2 LVS (v) be a label attribute, where v
+corresponds to the extent of concept C. This implies that a 2 Int(C) by
+definition of RCA EAR-patterns, hence 8o 2 v : a(o).
+Let Q = int(v) = ((y), P ) for some pattern P . We have a(y) 2 P
+because Q generalizes all objects in v, all of which have attribute a. Moreover,
+ext(Q) = ext(int(v)) = v because v 2 CR ✓ CG . Then, from the definition
+of GCA EAR-patterns, v is a node of P , and a is one of its labels.
+Moreover, if a is a label of v, then a(y) 2 P , then a(o) for all o 2 v, hence
+a 2 Int(C), and finally a is a label of v in S. ⌅
+Theorem 3 covers three configurations. Firstly, we can have S = P where
+all patterns are the same. An example is the Animal_Food context presented
+in Fig. 3. Secondly, we can have a one-to-one matching between patterns
+but there exists at least one pair of diﬀerent patterns Si , Pj , where Si ⇢ Pj .
+An example is given in [17], where GCA produces one more concept than
+RCA. The third configuration is when there exists a pattern Pj that cannot
+be matched with any pattern Si . An example is the cycle shown in Fig. 9.
+8. Conclusion
+In this paper, we have conducted a theoretical comparison between RCA
+and GCA based on their common ground namely, unary concepts, existential quantifier, data with only unary and binary relations and integration of
+inverse relationships into RCA input data. The extensional comparison provides the theoretical proof that the set of RCA concept extents is included in
+the set of GCA concept extents. To perform the intensional comparison, we
+26
+
+transform RCA output - the concept lattice family - into RCA EAR-patterns
+where relational attributes are represented as labeled edges between concept
+extensions. We then proved that the RCA EAR-patterns are subgraphs of
+the GCA EAR-patterns, which are quotient graphs of GCA graph patterns.
+These two comparisons allow us to conclude that the results of RCA are included in the results of GCA. Therefore, GCA is more expressive than RCA
+in this setting. This is to explore further, considering a maximal version of
+RCA, as suggested by [23].
+As future work, we will investigate the formalization of RCA EARpatterns for lattice families with quantifiers other than the existential quantifier (98, ◆, or with percentages). This will lead to representations with
+richer and more meaningful relations/edges, that will be useful to help the
+interpretation of lattice families. The notion of n-ary concepts which is one
+of the specificities of GCA is based on graph patterns. It would be interesting to compute n-ary concepts from RCA EAR-patterns to take advantage
+of RCA quantifiers.
+Aknowledgments. This research is supported by ANR project SmartFCA
+(ANR-21-CE23-0023).
+References
+[1] B. Ganter, R. Wille, Formal Concept Analysis: Mathematical Foundations, Springer, 1999.
+[2] F. Lehmann, R. Wille, A triadic approach to formal concept analysis,
+in: Conceptual Structures: ICCS’95, Proc., Springer, 1995, pp. 32–43.
+[3] R. Wille, Conceptual graphs and formal concept analysis, in: Conceptual Structures: ICCS’97, Proc., Springer, 1997, pp. 290–303.
+[4] M. Rouane-Hacene, M. Huchard, A. Napoli, P. Valtchev, Relational
+concept analysis: mining concept lattices from multi-relational data,
+Annals of Mathematics and Artificial Intelligence 67 (2013) 81–108.
+[5] J. Kötters, Concept lattices of a relational structure, in: Conceptual
+Structures: ICCS 2013, Proc., Springer, 2013, pp. 301–310.
+[6] S. Ferré, P. Cellier, Graph-FCA: An extension of formal concept analysis
+to knowledge graphs, Discrete applied mathematics 273 (2020) 81–102.
+27
+
+[7] A. Bazin, J. Galasso, G. Kahn, Polyadic relational concept analysis,
+International Journal of Approximate Reasoning 164 (2024) 109067.
+[8] M. Yan, J. Li, Knowledge discovery and updating under the evolution
+of network formal contexts based on three-way decision, Information
+Sciences 601 (2022) 18–38.
+[9] N. Hlad, B. Lemoine, M. Huchard, A.-D. Seriai, Leveraging relational
+concept analysis for automated feature location in software product
+lines, in: Proc. of the 20th ACM SIGPLAN Int. Conf. on Generative
+Programming: Concepts and Experiences, 2021, pp. 170–183.
+[10] L. Shi, Y. Toussaint, A. Napoli, A. Blansché, Mining for reengineering:
+An application to semantic wikis using formal and relational concept
+analysis, in: ESWC Conference, Springer, 2011, pp. 421–435.
+[11] V. Fokou, K. El Haﬀ, A. Braud, X. Dolques, F. Le Ber, V. Pitchon,
+Exploring Old Arabic Remedies with Formal and Relational Concept
+Analysis, in: Int. Joint Conf. Concepts 24, Springer, 2024, pp. 302–318.
+[12] S. Ferré, P. Cellier, Graph-FCA in practice, in: ICCS 2016, LNCS vol
+9717, Springer, 2016, pp. 107–121.
+[13] S. Ferré, Exploring the application of graph-FCA to the problem of
+knowledge graph alignment, in: CLA 2022, 2022, pp. 1–12.
+[14] C. Nica, A. Braud, X. Dolques, M. Huchard, F. Le Ber, Extracting Hierarchies of Closed Partially-Ordered Patterns using Relational Concept
+Analysis, in: ICCS 2016, LNCS vol 9717, Springer, 2016, pp. 17–30.
+[15] S. Ferré, P. Cellier, How Hierarchies of Concept Graphs Can Facilitate
+the Interpretation of RCA Lattices?, in: CLA 2018, Vol. 2123 of CEURWS Proc., 2018.
+[16] P. Keip, S. Ferré, A. Gutierrez, M. Huchard, P. Silvie, P. Martin, Practical comparison of FCA extensions to model indeterminate value of
+ternary data, in: CLA 2020, Vol. 2668 of CEUR-WS Proc., 2020.
+[17] V. Fokou, P. Cellier, X. Dolques, S. Ferré, F. Le Ber, Comparing Relational Concept Analysis and Graph-FCA on their Common Ground, in:
+Int. Joint Conf. Concepts 24, 2024, pp. 63–79.
+28
+
+[18] A. Ouzerdine, A. Braud, X. Dolques, M. Huchard, F. Le Ber, Adjusting
+the Exploration Flow in Relational Concept Analysis, in: AKDM, SCI
+Vol 1004, Springer, 2022, pp. 175–198.
+[19] M. Huchard, P. Martin, E. Muller, P. Poncelet, V. Raveneau, A. Sallaberry, RCAviz: Exploratory search in multi-relational datasets represented using relational concept analysis, IJAR 166 (2024) 109123.
+[20] C. Nica, A. Braud, F. Le Ber, RCA-SEQ: an original approach for enhancing the analysis of sequential data based on hierarchies of multilevel
+closed partially-ordered patterns, DAM 273 (2020) 232–251.
+[21] S. Even, Graph algorithms, Cambridge University Press, 2011.
+[22] G. Hahn, C. Tardif, Graph homomorphisms: structure and symmetry,
+in: Graph symmetry: Algebraic Methods and Applications.
+[23] J. Euzenat, Stepwise functional refoundation of relational concept analysis (2024). arXiv:2310.06441.
+
+29
+
+

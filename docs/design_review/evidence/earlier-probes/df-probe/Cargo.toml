@@ -1,0 +1,24 @@
+[package]
+name = "df-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+cpg-core = { path = "/home/paul/library-context/crates/cpg-core" }
+cpg-schema = { path = "/home/paul/library-context/crates/cpg-schema" }
+arrow-array = "=59.3.0"
+arrow-schema = "=59.3.0"
+arrow-select = "=59.3.0"
+arrow-ord = "=59.3.0"
+arrow-row = "=59.3.0"
+datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet"] }
+deltalake = { git = "https://github.com/delta-io/delta-rs", rev = "58f07cd62bfbce3649a7e1c87c696288068ae184", default-features = false, features = ["datafusion", "rustls"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures = "0.3"
+async-trait = "0.1"
+
+[profile.release]
+debug = 0

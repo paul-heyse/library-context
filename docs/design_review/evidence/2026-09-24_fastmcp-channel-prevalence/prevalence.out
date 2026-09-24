@@ -1,0 +1,223 @@
+files=257  function/method defs (incl. nested)=2291  classes=424
+
+stub defs (@overload/Protocol/abstract, excluded from (a)): 100
+(a0) defs with **kwargs incl. stubs: 83
+(a) **kwargs
+  defs with **kwargs: 69
+    forward it as **name to a call:        51
+      forwarding call sites by kind: {'other call': 14, 'self./cls.<m>(...)': 4, 'Constructor(...)': 7, 'call of a parameter/closure var (wrapper)': 6, 'super().<m>(...)': 22, 'functools.partial(...)': 2}
+      forwarding defs by kind:       {'other call': 13, 'Constructor(...)': 6, 'self./cls.<m>(...)': 3, 'call of a parameter/closure var (wrapper)': 6, 'super().<m>(...)': 22, 'functools.partial(...)': 2}
+        fwd: apps/app.py::FastMCPApp.run
+        fwd: client/transports/config.py::MCPConfigTransport.connect_session
+        fwd: client/transports/http.py::StreamableHttpTransport.connect_session
+        fwd: client/transports/memory.py::FastMCPTransport.connect_session
+        fwd: client/transports/sse.py::SSETransport.connect_session
+        fwd: client/transports/stdio.py::StdioTransport.connect_session
+        fwd: experimental/transforms/code_mode.py::_ensure_async.<locals>.wrapper
+        fwd: experimental/transforms/code_mode.py::MontySandboxProvider.run.<locals>.track.<locals>.wrapped
+        fwd: server/auth/providers/aws.py::AWSCognitoTokenVerifier.__init__
+        fwd: server/auth/providers/azure.py::AzureProvider.from_b2c
+        fwd: server/auth/providers/descope.py::_DescopeJWTVerifier.__init__
+        fwd: server/extensions.py::ServerExtension.__init_subclass__
+        fwd: server/low_level.py::LowLevelServer.__init__
+        fwd: server/middleware/middleware.py::MiddlewareContext.copy
+        fwd: server/mixins/transport.py::TransportMixin.run_async
+        fwd: server/mixins/transport.py::TransportMixin.run
+        fwd: server/providers/fastmcp_provider.py::FastMCPProviderTool.__init__
+        fwd: server/providers/fastmcp_provider.py::FastMCPProviderResource.__init__
+        fwd: server/providers/fastmcp_provider.py::FastMCPProviderPrompt.__init__
+        fwd: server/providers/fastmcp_provider.py::FastMCPProviderResourceTemplate.__init__
+        fwd: server/providers/proxy.py::ProxyTool.__init__
+        fwd: server/providers/proxy.py::ProxyTool.model_copy
+        fwd: server/providers/proxy.py::ProxyResource.__init__
+        fwd: server/providers/proxy.py::ProxyResource.model_copy
+        fwd: server/providers/proxy.py::ProxyTemplate.__init__
+        fwd: server/providers/proxy.py::ProxyTemplate.model_copy
+        fwd: server/providers/proxy.py::ProxyPrompt.__init__
+        fwd: server/providers/proxy.py::ProxyPrompt.model_copy
+        fwd: server/providers/proxy.py::FastMCPProxy.__init__
+        fwd: server/providers/proxy.py::_make_restoring_handler.<locals>.wrapper
+        fwd: server/providers/proxy.py::ProxyClient.__init__
+        fwd: server/providers/proxy.py::StatefulProxyClient.__init__
+        fwd: server/server.py::FastMCP.from_openapi
+        fwd: server/server.py::FastMCP.from_fastapi
+        fwd: server/server.py::create_proxy
+        fwd: tools/function_tool.py::_wrap_body_errors.<locals>.wrapper
+        fwd: tools/function_tool.py::_wrap_body_errors.<locals>.wrapper
+        fwd: tools/tool_transform.py::forward
+        fwd: utilities/async_utils.py::call_sync_fn_in_threadpool
+        fwd: utilities/components.py::FastMCPComponent.__init_subclass__
+        fwd: utilities/json_schema.py::replace_refs
+        fwd: utilities/logging.py::configure_logging
+        fwd: utilities/logging.py::temporary_log_level
+        fwd: utilities/mcp_server_config/v1/sources/filesystem.py::FileSystemSource.__init__
+        fwd: utilities/openapi/json_schema_converter.py::convert_schema_definitions
+        fwd: utilities/tests.py::ASGIServer.http_client
+        fwd: utilities/tests.py::ASGIServer.transport
+        fwd: utilities/tests.py::ASGIServer.client
+        fwd: utilities/tests.py::asgi_server
+        fwd: utilities/tests.py::asgi_client
+        fwd: utilities/tests.py::HeadlessOAuth.__init__
+        consumed-only: client/transports/stdio.py::StdioTransport.connect
+        consumed-only: contrib/mcp_mixin/mcp_mixin.py::mcp_tool
+        consumed-only: contrib/mcp_mixin/mcp_mixin.py::mcp_resource
+        consumed-only: contrib/mcp_mixin/mcp_mixin.py::mcp_prompt
+        consumed-only: prompts/base.py::Prompt.to_mcp_prompt
+        consumed-only: resources/base.py::Resource.to_mcp_resource
+        consumed-only: resources/template.py::ResourceTemplate.to_mcp_template
+        consumed-only: server/auth/oauth_proxy/upstream.py::AsyncOAuth2Client.fetch_token
+        consumed-only: server/auth/oauth_proxy/upstream.py::AsyncOAuth2Client.refresh_token
+        consumed-only: server/dependencies.py::without_injected_parameters.<locals>.wrapper
+        consumed-only: server/server.py::FastMCP.__init__
+        consumed-only: tools/base.py::Tool.to_mcp_tool
+        consumed-only: tools/tool_transform.py::forward_raw
+        consumed-only: tools/tool_transform.py::TransformedTool._create_forwarding_transform.<locals>._forward
+        consumed-only: utilities/cli.py::load_and_merge_config
+        consumed-only: utilities/mcp_server_config/v1/mcp_server_config.py::MCPServerConfig.run_server
+        consumed-only: utilities/tests.py::temporary_settings
+        consumed-only: utilities/tests.py::run_server_in_process
+    reference it but never **-forward:      18
+    never reference it (accepted, ignored): 0
+  defs with *args: 26; forward *args: 11
+  keyword arguments at call sites (non-**): 5042; value is a bare parameter of the enclosing def: 1064 (21%)
+
+(b) self.<attr> = <param> in __init__
+  classes with such assignments: 153
+  strict (RHS is exactly a parameter): 324
+    read via self.<attr> in another method of the same class: 273
+    read only in a mixin method typed `self: <Class>`:          4
+    read only as <expr>.<attr> elsewhere (needs types/aliasing): 38
+    no load of that attribute name anywhere in the package:     9
+  derived (RHS expression mentions a parameter, e.g. `p or default`, `p if p is not None else settings.x`): 136
+    same-class read: 112; mixin read: 1; elsewhere only: 23; never: 0
+      never-read: client/transports/stdio.py::PythonStdioTransport.script_path
+      never-read: client/transports/stdio.py::FastMCPStdioTransport.script_path
+      never-read: client/transports/stdio.py::NodeStdioTransport.script_path
+      never-read: client/transports/stdio.py::UvxStdioTransport.tool_name
+      never-read: client/transports/stdio.py::NpxStdioTransport.package
+      never-read: server/auth/jwt_issuer.py::JWTIssuer._signing_key
+      never-read: server/auth/providers/aws.py::AWSCognitoProvider.aws_region
+      never-read: server/auth/providers/aws.py::AWSCognitoProvider.user_pool_id
+      never-read: server/sessions.py::Session._principal
+  declarative storage: pydantic-model classes=95 (annotated fields=402); @dataclass classes=52 (fields=250)
+
+(c) callable storage
+  defs that put a callable-typed parameter into a container (append/add/insert/extend/update/[k]=): 7
+      server/context.py::Context._paginate_list  ['container.extend(callable param)']
+      server/http.py::create_sse_app  ['container.extend(callable param)']
+      server/http.py::create_streamable_http_app  ['container.extend(callable param)']
+      server/mixins/transport.py::TransportMixin.custom_route.<locals>.decorator  ['container.append(callable param)']
+      server/server.py::FastMCP.add_middleware  ['container.append(callable param)']
+      utilities/types.py::create_function_without_params  ['container.update(callable param)']
+      utilities/versions.py::dedupe_with_versions  ['container.setdefault(callable param)']
+  defs that store a callable-typed parameter as self.<attr> (callback kept for later invocation): 16 sites in 15 defs
+      apps/form.py::FormInput.__init__  self._on_submit
+      client/auth/client_credentials.py::PrivateKeyJWTOAuthProvider.__init__  self._assertion_provider
+      client/client.py::Client.__init__  self._progress_handler
+      experimental/transforms/code_mode.py::Search.__init__  self._search_fn
+      server/auth/oauth_proxy/proxy.py::_ApplicationTypeRegistrationHandler.__init__  self._handler
+      server/auth/providers/debug.py::DebugTokenVerifier.__init__  self.validate
+      server/lifespan.py::Lifespan.__init__  self._fn
+      server/lifespan.py::ContextManagerLifespan.__init__  self._fn
+      server/lifespan.py::ComposedLifespan.__init__  self._right
+      server/lifespan.py::ComposedLifespan.__init__  self._left
+      server/middleware/error_handling.py::ErrorHandlingMiddleware.__init__  self.error_callback
+      server/middleware/rate_limiting.py::RateLimitingMiddleware.__init__  self.get_client_id
+      server/middleware/rate_limiting.py::SlidingWindowRateLimitingMiddleware.__init__  self.get_client_id
+      server/providers/openapi/provider.py::OpenAPIProvider.__init__  self._mcp_component_fn
+      server/server.py::FastMCP.add_completion_handler  self._completion_handler
+      utilities/authorization.py::_RequireRoles.__init__  self._extract
+  metadata attached to a function object (fn.__x__ = ... / setattr): 11
+      prompts/function_prompt.py::prompt.<locals>.attach_metadata  __fastmcp__
+      resources/function_resource.py::resource.<locals>.attach_metadata  __fastmcp__
+      server/providers/filesystem_discovery.py::import_module_from_file  __file__
+      server/providers/filesystem_discovery.py::import_module_from_file  __loader__
+      server/providers/filesystem_discovery.py::import_module_from_file  __spec__
+      server/providers/filesystem_discovery.py::import_module_from_file  __path__
+      server/providers/local_provider/decorators/prompts.py::PromptDecoratorMixin.prompt.<locals>.decorate_and_register  __fastmcp__
+      server/providers/local_provider/decorators/resources.py::ResourceDecoratorMixin.resource.<locals>.decorator  __fastmcp__
+      server/providers/local_provider/decorators/tools.py::ToolDecoratorMixin.tool.<locals>.decorate_and_register  __fastmcp__
+      tools/function_tool.py::tool.<locals>.attach_metadata  __fastmcp__
+      utilities/types.py::get_cached_typeadapter  __kwdefaults__
+  defs inserting a parameter-derived value into a self.<container> (registry writes, any type): 29
+      reg: cli/apps_dev.py::_MessageLog.log_request  ['self._entries.append(param)']
+      reg: cli/apps_dev.py::_MessageLog.log_response  ['self._entries.append(param)']
+      reg: cli/apps_dev.py::_MessageLog.log_bridge  ['self._entries.append(param)']
+      reg: client/client.py::Client.__init__  ['self._session_kwargs[k] = param']
+      reg: client/client.py::Client.set_roots  ['self._session_kwargs[k] = param']
+      reg: client/client.py::Client.set_sampling_callback  ['self._session_kwargs[k] = param']
+      reg: mcp_config.py::MCPConfig.add_server  ['self.mcpServers[k] = param']
+      reg: mcp_config.py::CanonicalMCPConfig.add_server  ['self.mcpServers[k] = param']
+      reg: server/auth/cimd.py::CIMDFetcher._store_cache_entry  ['self._cache[k] = param']
+      reg: server/auth/identity_assertion.py::IdentityAssertionValidator._discover_jwks_uri  ['self._discovery_locks.setdefault(param)']
+      reg: server/auth/providers/in_memory.py::InMemoryOAuthProvider.register_client  ['self.clients[k] = param']
+      reg: server/auth/providers/in_memory.py::InMemoryOAuthProvider.exchange_authorization_code  ['self.access_tokens[k] = param', 'self.refresh_tokens[k] = param']
+      reg: server/auth/providers/in_memory.py::InMemoryOAuthProvider.exchange_refresh_token  ['self.access_tokens[k] = param', 'self.refresh_tokens[k] = param']
+      reg: server/context.py::Context.set_state  ['self._request_state[k] = param']
+      reg: server/low_level.py::LowLevelServer.__init__  ['self.middleware.append(param)']
+      reg: server/mixins/mcp_operations.py::MCPOperationsMixin._on_set_logging_level  ['self._client_log_levels[k] = param']
+      reg: server/mixins/transport.py::TransportMixin.custom_route  ['self._additional_http_routes.append(param)']
+      reg: server/mixins/transport.py::TransportMixin.custom_route.<locals>.decorator  ['self._additional_http_routes.append(param)']
+      reg: server/providers/aggregate.py::AggregateProvider.add_provider  ['self.providers.append(param)']
+      reg: server/providers/base.py::Provider.add_transform  ['self._transforms.append(param)']
+      reg: server/providers/base.py::Provider.enable  ['self._transforms.append(param)']
+      reg: server/providers/base.py::Provider.disable  ['self._transforms.append(param)']
+      reg: server/providers/local_provider/local_provider.py::LocalProvider._add_component  ['self._components[k] = param']
+      reg: server/providers/proxy.py::FastMCPProxy.__init__  ['self.middleware.append(param)']
+      reg: server/providers/wrapped_provider.py::_WrappedProvider.__init__  ['self._transforms.append(param)']
+      reg: server/server.py::FastMCP.add_middleware  ['self.middleware.append(param)']
+      reg: server/server.py::FastMCP.add_extension  ['self._extensions[k] = param']
+      reg: server/server.py::FastMCP.add_transform  ['self._transforms.append(param)']
+      reg: utilities/token_cache.py::TokenCache.set  ['self._entries[k] = param']
+  closures returned by their enclosing def (decorator/wrapper factories): 29
+
+(d) exception handling
+  try statements: 453; except handlers: 462
+  handlers raising a different exception type: 85  (`from e`: 78, `from None`: 7, no cause: 0)
+  handlers that only re-raise the same exception: 57
+  `raise <lowercase variable>` inside handlers (exception type needs inference): 5
+  handlers with no raise at all (swallow / convert to value / log): 279
+  most common (caught -> raised) pairs:
+       11  Exception -> ResourceError
+        6  Exception -> ValueError
+        6  subprocess.CalledProcessError -> RuntimeError
+        5  OSError -> StateFileError
+        5  _PROXY_TRANSPORT_ERRORS -> _proxy_upstream_error
+        4  json.JSONDecodeError -> ValueError
+        4  Exception -> ToolError
+        3  Exception -> PromptError
+        3  PathEscapeError -> ValueError
+        2  SSRFError -> CIMDValidationError
+        2  (ValueError, KeyError, IndexError) -> IdentityAssertionError
+        2  Exception -> TokenError
+        2  Exception -> TypeError
+        2  FastMCPError -> to_mcp_error
+        2  Exception -> ImportError
+
+(e) public defs
+  non-nested defs whose name does not start with '_': 1070; async: 441 (41.2%)
+  ... also excluding private modules and private classes: 1036; async: 434 (41.9%)
+      methods: 688 (async 358, 52.0%); module functions: 348 (async 76, 21.8%)
+      of which @asynccontextmanager: 18; async generators/CMs (async def with yield): 19
+  all defs incl. private/nested: 2291; async: 803 (35.1%)
+  public (strict) by top-level subpackage: server=544 (275 async), utilities=144 (31 async), client=110 (66 async), cli=96 (34 async), resources=42 (12 async), (root)=25 (0 async), tools=23 (5 async), contrib=19 (3 async), apps=16 (2 async), prompts=13 (2 async), experimental=4 (4 async)
+
+extra: dynamic / ambient features
+  **<non-name expr> at call site: 9
+  **name at call site: 107
+  ContextVar(...) created: 15
+  _current*.get() ContextVar access: 21
+  _current*.reset() ContextVar access: 7
+  _current*.set() ContextVar access: 9
+  async with: 122
+  await: 1018
+  fastmcp.settings.<x> reads: 39
+  function-local import statements: 264
+  functools.partial: 8
+  getattr: 101
+  hasattr: 46
+  importlib.import_module: 9
+  isinstance: 782
+  module-level __getattr__: 6
+  setattr: 5
+  typing.cast: 92

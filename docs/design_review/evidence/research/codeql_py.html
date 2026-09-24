@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Customizing Library Models for Python &#8212; CodeQL</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=5f7a36bc" />
+    <script src="../../_static/documentation_options.js?v=187304be"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="icon" href="../../_static/favicon.ico"/>
+    <link rel="index" title="Index" href="../../genindex/" />
+    <link rel="search" title="Search" href="../../search/" />
+    <link rel="next" title="CodeQL for Ruby" href="../codeql-for-ruby/" />
+    <link rel="prev" title="Analyzing control flow in Python" href="../analyzing-control-flow-in-python/" />
+
+<title>CodeQL docs</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+<link rel="stylesheet" href="../../_static/primer.css" type="text/css" />
+
+
+  </head><body>
+<header class="Header">
+    <div class="Header-item--full">
+        <a href="https://codeql.github.com/docs" class="Header-link f2 d-flex flex-items-center">
+            <!-- <%= octicon "mark-github", class: "mr-2", height: 32 %> -->
+            <svg height="32" class="octicon octicon-mark-github mr-2" viewBox="0 0 16 16" version="1.1" width="32"
+                aria-hidden="true">
+                <path fill-rule="evenodd"
+                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z">
+                </path>
+            </svg>
+            <span class="hide-sm">CodeQL documentation</span>
+        </a>
+    </div>
+    <div class="Header-item hide-sm hide-md">
+        <script src="https://addsearch.com/js/?key=93b4d287e2fc079a4089412b669785d5&categories=!0xhelp.semmle.com,0xcodeql.github.com,1xdocs,1xcodeql-standard-libraries,1xcodeql-query-help"></script>
+    </div>
+    <div class="Header-item">
+
+        <details class="dropdown details-reset details-overlay d-inline-block">
+            <summary class="btn bg-gray-dark text-white border" aria-haspopup="true">
+                CodeQL resources
+                <div class="dropdown-caret"></div>
+            </summary>
+            <ul class="dropdown-menu dropdown-menu-se dropdown-menu-dark">
+                <li><a class="dropdown-item" href="https://codeql.github.com/docs/codeql-overview">CodeQL overview</a></li>
+                <li class="dropdown-divider" role="separator"></li>
+                <div class="dropdown-header">
+                    CodeQL guides
+                </div>
+                <li><a class="dropdown-item" href="https://codeql.github.com/docs/writing-codeql-queries">Writing CodeQL queries</a></li>
+                <li><a class="dropdown-item" href="https://codeql.github.com/docs/codeql-language-guides">CodeQL language guides</a>
+                <li class="dropdown-divider" role="separator"></li>
+                <div class="dropdown-header">
+                    Reference docs
+                </div>
+                <li><a class="dropdown-item" href="https://codeql.github.com/docs/ql-language-reference/">QL language
+                        reference</a>
+                <li><a class="dropdown-item" href="https://codeql.github.com/codeql-standard-libraries">CodeQL
+                        standard-libraries</a>
+                <li><a class="dropdown-item" href="https://codeql.github.com/codeql-query-help">CodeQL
+                        query help</a>
+                <li class="dropdown-divider" role="separator"></li>
+                <div class="dropdown-header">
+                    Source files
+                </div>
+                <li><a class="dropdown-item" href="https://github.com/github/codeql">CodeQL repository</a>
+                <li class="dropdown-divider" role="separator"></li>
+                <div class="dropdown-header">
+                    Academic
+                </div>
+                <li><a class="dropdown-item" href="https://codeql.github.com/publications">QL publications</a>
+            </ul>
+        </details>
+
+    </div>
+
+</header>
+<main class="bg-gray-light clearfix">
+<nav class="SideNav position-sticky top-0 col-lg-3 col-md-3 float-left p-4 hide-sm hide-md overflow-y-auto">
+
+    <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../codeql-overview/">CodeQL overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../writing-codeql-queries/">Writing CodeQL queries</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../">CodeQL language guides</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-cpp/">CodeQL for C and C++</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-csharp/">CodeQL for C#</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-actions/">CodeQL for GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-go/">CodeQL for Go</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-java/">CodeQL for Java and Kotlin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-javascript/">CodeQL for JavaScript and TypeScript</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../codeql-for-python/">CodeQL for Python</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="../basic-query-for-python-code/">Basic query for Python code</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../codeql-library-for-python/">CodeQL library for Python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../analyzing-data-flow-in-python/">Analyzing data flow in Python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../using-api-graphs-in-python/">Using API graphs in Python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../functions-in-python/">Functions in Python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../expressions-and-statements-in-python/">Expressions and statements in Python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../analyzing-control-flow-in-python/">Analyzing control flow in Python</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Customizing Library Models for Python</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-ruby/">CodeQL for Ruby</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-rust/">CodeQL for Rust</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../codeql-for-swift/">CodeQL for Swift</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../ql-language-reference/">QL language reference</a></li>
+</ul>
+
+
+</nav>
+
+
+<div class="body col-sm-12 col-md-9 col-lg-9 float-left border-left">
+
+    <div class="hide-lg hide-xl px-4 pt-4">
+        
+<div class="related" role="navigation" aria-label="related navigation">
+    <ul>
+        <li class="nav-item nav-item-0"><a href="../../contents/">CodeQL</a> &#187;</li>
+        <li class="nav-item nav-item-1"><a href="../"
+                >CodeQL language guides</a> &#187;</li>
+        <li class="nav-item nav-item-2"><a href="../codeql-for-python/"
+                accesskey="U">CodeQL for Python</a> &#187;</li> 
+    </ul>
+</div>
+    </div>
+
+    <article class="p-4 col-lg-10 col-md-10 col-sm-12">
+        
+  <section id="customizing-library-models-for-python">
+<span id="id1"></span><h1>Customizing Library Models for Python<a class="headerlink" href="#customizing-library-models-for-python" title="Link to this heading">¶</a></h1>
+<blockquote class="pull-quote">
+<div><p>Beta Notice - Unstable API</p>
+<p>Library customization using data extensions is currently in beta and subject to change.</p>
+<p>Breaking changes to this format may occur while in beta.</p>
+</div></blockquote>
+<p>Python analysis can be customized by adding library models in data extension files.</p>
+<p>A data extension for Python is a YAML file of the form:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;name of extensible predicate&gt;</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;tuple1&gt;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;tuple2&gt;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+<p>The CodeQL library for Python exposes the following extensible predicates:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">sourceModel(type,</span> <span class="pre">path,</span> <span class="pre">kind)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">sinkModel(type,</span> <span class="pre">path,</span> <span class="pre">kind)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">typeModel(type1,</span> <span class="pre">type2,</span> <span class="pre">path)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">summaryModel(type,</span> <span class="pre">path,</span> <span class="pre">input,</span> <span class="pre">output,</span> <span class="pre">kind)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">barrierModel(type,</span> <span class="pre">path,</span> <span class="pre">kind)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">barrierGuardModel(type,</span> <span class="pre">path,</span> <span class="pre">acceptingValue,</span> <span class="pre">kind)</span></code></p></li>
+</ul>
+<p>We’ll explain how to use these using a few examples, and provide some reference material at the end of this article.</p>
+<section id="example-taint-sink-in-the-fabric-package">
+<h2>Example: Taint sink in the ‘fabric’ package<a class="headerlink" href="#example-taint-sink-in-the-fabric-package" title="Link to this heading">¶</a></h2>
+<p>In this example, we’ll show how to add the following argument, passed to <code class="docutils literal notranslate"><span class="pre">sudo</span></code> from the <code class="docutils literal notranslate"><span class="pre">fabric</span></code> package, as a command-line injection sink:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">fabric.operations</span><span class="w"> </span><span class="kn">import</span> <span class="n">sudo</span>
+<span class="n">sudo</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span> <span class="c1"># &lt;-- add &#39;cmd&#39; as a taint sink</span>
+</pre></div>
+</div>
+<p>Note that this sink is already recognized by the CodeQL Python analysis, but for this example, you could add a tuple to the
+<code class="docutils literal notranslate"><span class="pre">sinkModel(type,</span> <span class="pre">path,</span> <span class="pre">kind)</span></code> extensible predicate by updating a data extension file.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sinkModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;fabric&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Member[operations].Member[sudo].Argument[0]&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;command-injection&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;fabric&quot;</span></code>, identifies a set of values from which to begin the search for the sink.
+The string <code class="docutils literal notranslate"><span class="pre">&quot;fabric&quot;</span></code> means we start at the places where the codebase imports the package <code class="docutils literal notranslate"><span class="pre">fabric</span></code>.</p></li>
+<li><p>The second column is an access path that is evaluated from left to right, starting at the values that were identified by the first column.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">Member[operations]</span></code> selects accesses to the <code class="docutils literal notranslate"><span class="pre">operations</span></code> module.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Member[sudo]</span></code> selects accesses to the <code class="docutils literal notranslate"><span class="pre">sudo</span></code> function in the <code class="docutils literal notranslate"><span class="pre">operations</span></code> module.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Argument[0]</span></code> selects the first argument to calls to that function.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;command-injection&quot;</span></code> indicates that this is considered a sink for the command injection query.</p></li>
+</ul>
+</section>
+<section id="example-taint-sink-in-the-invoke-package">
+<h2>Example: Taint sink in the ‘invoke’ package<a class="headerlink" href="#example-taint-sink-in-the-invoke-package" title="Link to this heading">¶</a></h2>
+<p>Often sinks are found as arguments to methods rather than functions. In this example, we’ll show how to add the following argument, passed to <code class="docutils literal notranslate"><span class="pre">run</span></code> from the <code class="docutils literal notranslate"><span class="pre">invoke</span></code> package, as a command-line injection sink:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">invoke</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">invoke</span><span class="o">.</span><span class="n">Context</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span> <span class="c1"># &lt;-- add &#39;cmd&#39; as a taint sink</span>
+</pre></div>
+</div>
+<p>Note that this sink is already recognized by the CodeQL Python analysis, but for this example, you could add a tuple to the
+<code class="docutils literal notranslate"><span class="pre">sinkModel(type,</span> <span class="pre">path,</span> <span class="pre">kind)</span></code> extensible predicate by updating a data extension file.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sinkModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;invoke&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Member[Context].Instance.Member[run].Argument[0]&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;command-injection&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;invoke&quot;</span></code>, begins the search at places where the codebase imports the package <code class="docutils literal notranslate"><span class="pre">invoke</span></code>.</p></li>
+<li><p>The second column is an access path that is evaluated from left to right, starting at the values that were identified by the first column.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">Member[Context]</span></code> selects accesses to the <code class="docutils literal notranslate"><span class="pre">Context</span></code> class.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Instance</span></code> selects instances of the <code class="docutils literal notranslate"><span class="pre">Context</span></code> class.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Member[run]</span></code> selects accesses to the <code class="docutils literal notranslate"><span class="pre">run</span></code> method in the <code class="docutils literal notranslate"><span class="pre">Context</span></code> class.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Argument[0]</span></code> selects the first argument to calls to that method.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;command-injection&quot;</span></code> indicates that this is considered a sink for the command injection query.</p></li>
+</ul>
+<p>Note that the <code class="docutils literal notranslate"><span class="pre">Instance</span></code> component is used to select instances of a class, including instances of its subclasses.
+Since methods on instances are common targets, we have a more compact syntax for selecting them. The first column, the type, is allowed to contain a dotted path ending in a class name.
+This will begin the search at instances of that class. Using this syntax, the previous example could be written as:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sinkModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;invoke.Context&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Member[run].Argument[0]&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;command-injection&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+<section id="continued-example-multiple-ways-to-obtain-a-type">
+<h2>Continued example: Multiple ways to obtain a type<a class="headerlink" href="#continued-example-multiple-ways-to-obtain-a-type" title="Link to this heading">¶</a></h2>
+<p>The invoke package provides multiple ways to obtain a <code class="docutils literal notranslate"><span class="pre">Context</span></code> instance. The following example shows how to add a new way to obtain a <code class="docutils literal notranslate"><span class="pre">Context</span></code> instance:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">invoke</span><span class="w"> </span><span class="kn">import</span> <span class="n">context</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">Context</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span> <span class="c1"># &lt;-- add &#39;cmd&#39; as a taint sink</span>
+</pre></div>
+</div>
+<p>Comparing to the previous Python snippet, the <code class="docutils literal notranslate"><span class="pre">Context</span></code> class is now found as <code class="docutils literal notranslate"><span class="pre">invoke.context.Context</span></code> instead of <code class="docutils literal notranslate"><span class="pre">invoke.Context</span></code>.
+We could add a data extension similar to the previous one, but with the type <code class="docutils literal notranslate"><span class="pre">invoke.context.Context</span></code>.
+However, we can also use the <code class="docutils literal notranslate"><span class="pre">typeModel(type1,</span> <span class="pre">type2,</span> <span class="pre">path)</span></code> extensible predicate to describe how to reach <code class="docutils literal notranslate"><span class="pre">invoke.Context</span></code> from <code class="docutils literal notranslate"><span class="pre">invoke.context.Context</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">typeModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;invoke.Context&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;invoke.context.Context&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;invoke.Context&quot;</span></code>, is the name of the type to reach.</p></li>
+<li><p>The second column, <code class="docutils literal notranslate"><span class="pre">&quot;invoke.context.Context&quot;</span></code>, is the name of the type from which to evaluate the path.</p></li>
+<li><p>The third column is just an empty string, indicating that any instance of <code class="docutils literal notranslate"><span class="pre">invoke.context.Context</span></code> is also an instance of <code class="docutils literal notranslate"><span class="pre">invoke.Context</span></code>.</p></li>
+</ul>
+<p>Combining this with the sink model we added earlier, the sink in the example is detected by the model.</p>
+</section>
+<section id="example-taint-sources-from-django-upload-to-argument">
+<h2>Example: Taint sources from Django ‘upload_to’ argument<a class="headerlink" href="#example-taint-sources-from-django-upload-to-argument" title="Link to this heading">¶</a></h2>
+<p>This example is a bit more advanced, involving both a callback function and a class constructor.
+The Django web framework allows you to specify a function that determines the path where uploaded files are stored (see the <a class="reference external" href="https://docs.djangoproject.com/en/5.0/ref/models/fields/#django.db.models.FileField.upload_to">Django documentation</a>).
+This function is passed as an argument to the <code class="docutils literal notranslate"><span class="pre">FileField</span></code> constructor.
+The function is called with two arguments: the instance of the model and the filename of the uploaded file.
+This filename is what we want to mark as a taint source. An example use looks as follows:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">django.db</span><span class="w"> </span><span class="kn">import</span> <span class="n">models</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">user_directory_path</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span> <span class="c1"># &lt;-- add &#39;filename&#39; as a taint source</span>
+  <span class="c1"># file will be uploaded to MEDIA_ROOT/user_&lt;id&gt;/&lt;filename&gt;</span>
+  <span class="k">return</span> <span class="s2">&quot;user_</span><span class="si">{0}</span><span class="s2">/</span><span class="si">{1}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">instance</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyModel</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+  <span class="n">upload</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">FileField</span><span class="p">(</span><span class="n">upload_to</span><span class="o">=</span><span class="n">user_directory_path</span><span class="p">)</span> <span class="c1"># &lt;-- the &#39;upload_to&#39; parameter defines our custom function</span>
+</pre></div>
+</div>
+<p>Note that this source is already recognized by the CodeQL Python analysis, but for this example, you could add a tuple to the
+<code class="docutils literal notranslate"><span class="pre">sourceModel(type,</span> <span class="pre">path,</span> <span class="pre">kind)</span></code> extensible predicate by updating a data extension file.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sourceModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span>
+<span class="w">          </span><span class="s">&quot;django.db.models.FileField!&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Call.Argument[0,upload_to:].Parameter[1]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;remote&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul>
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;django.db.models.FileField!&quot;</span></code>, is a dotted path to the <code class="docutils literal notranslate"><span class="pre">FileField</span></code> class from the <code class="docutils literal notranslate"><span class="pre">django.db.models</span></code> package.
+The <code class="docutils literal notranslate"><span class="pre">!</span></code> at the end of the type name indicates that we are looking for the class itself rather than instances of this class.</p></li>
+<li><p>The second column is an access path that is evaluated from left to right, starting at the values that were identified by the first column.</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Call</span></code> selects calls to the class. That is, constructor calls.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Argument[0,upload_to:]</span></code> selects the first positional argument, or the named argument named <code class="docutils literal notranslate"><span class="pre">upload_to</span></code>. Note that the colon at the end of the argument name indicates that we are looking for a named argument.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Parameter[1]</span></code> selects the second parameter of the callback function, which is the parameter receiving the filename.</p></li>
+</ul>
+</div></blockquote>
+</li>
+<li><p>Finally, the kind <code class="docutils literal notranslate"><span class="pre">&quot;remote&quot;</span></code> indicates that this is considered a source of remote flow.</p></li>
+</ul>
+</section>
+<section id="example-adding-flow-through-re-compile">
+<h2>Example: Adding flow through ‘re.compile’<a class="headerlink" href="#example-adding-flow-through-re-compile" title="Link to this heading">¶</a></h2>
+<p>In this example, we’ll show how to add flow through calls to <code class="docutils literal notranslate"><span class="pre">re.compile</span></code>.
+<code class="docutils literal notranslate"><span class="pre">re.compile</span></code> returns a compiled regular expression for efficient evaluation, but the pattern to be compiled is stored in the <code class="docutils literal notranslate"><span class="pre">pattern</span></code> attribute of the resulting object.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+
+<span class="n">let</span> <span class="n">y</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">pattern</span> <span class="o">=</span> <span class="n">x</span><span class="p">);</span> <span class="o">//</span> <span class="n">add</span> <span class="n">value</span> <span class="n">flow</span> <span class="kn">from</span><span class="w"> </span><span class="s1">&#39;x&#39;</span> <span class="n">to</span> <span class="s1">&#39;y.pattern&#39;</span>
+</pre></div>
+</div>
+<p>Note that this flow is already recognized by the CodeQL Python analysis, but for this example, you could add a tuple to the
+<code class="docutils literal notranslate"><span class="pre">summaryModel(type,</span> <span class="pre">path,</span> <span class="pre">input,</span> <span class="pre">output,</span> <span class="pre">kind)</span></code> extensible predicate by updating a data extension file.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">summaryModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span>
+<span class="w">          </span><span class="s">&quot;re&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Member[compile]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Argument[0,pattern:]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;ReturnValue.Attribute[pattern]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;value&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;re&quot;</span></code>, begins the search for relevant calls at places where the <code class="docutils literal notranslate"><span class="pre">re</span></code> package is imported.</p></li>
+<li><p>The second column, <code class="docutils literal notranslate"><span class="pre">&quot;Member[compile]&quot;</span></code>, is a path leading to the function calls we wish to model.
+In this case, we select references to the <code class="docutils literal notranslate"><span class="pre">compile</span></code> function from the <code class="docutils literal notranslate"><span class="pre">re</span></code> package.</p></li>
+<li><p>The third column, <code class="docutils literal notranslate"><span class="pre">&quot;Argument[0,pattern:]&quot;</span></code>, indicates the input of the flow. In this case, either the first argument to the function call or the argument named <code class="docutils literal notranslate"><span class="pre">pattern</span></code>.</p></li>
+<li><p>The fourth column, <code class="docutils literal notranslate"><span class="pre">&quot;ReturnValue.Attribute[pattern]&quot;</span></code>, indicates the output of the flow. In this case, the <code class="docutils literal notranslate"><span class="pre">pattern</span></code> attribute of the return value of the function call.</p></li>
+<li><p>The last column, <code class="docutils literal notranslate"><span class="pre">&quot;value&quot;</span></code>, indicates the kind of flow to add. The value <code class="docutils literal notranslate"><span class="pre">value</span></code> means the input value is unchanged as
+it flows to the output.</p></li>
+</ul>
+</section>
+<section id="example-adding-flow-through-sorted">
+<h2>Example: Adding flow through ‘sorted’<a class="headerlink" href="#example-adding-flow-through-sorted" title="Link to this heading">¶</a></h2>
+<p>In this example, we’ll show how to add flow through calls to the built-in function <code class="docutils literal notranslate"><span class="pre">sorted</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">y</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="c1"># add taint flow from &#39;x&#39; to &#39;y&#39;</span>
+</pre></div>
+</div>
+<p>Note that this flow is already recognized by the CodeQL Python analysis, but for this example, you could add a tuple to the
+<code class="docutils literal notranslate"><span class="pre">summaryModel(type,</span> <span class="pre">path,</span> <span class="pre">input,</span> <span class="pre">output,</span> <span class="pre">kind)</span></code> extensible predicate by updating a data extension file.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">summaryModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span>
+<span class="w">          </span><span class="s">&quot;builtins&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Member[sorted]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Argument[0]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;ReturnValue&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;taint&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;builtins&quot;</span></code>, begins the search for relevant calls among references to the built-in names.
+In Python, many built-in functions are available. Technically, most of these are part of the <code class="docutils literal notranslate"><span class="pre">builtins</span></code> package, but they can be accessed without an explicit import. When we write <code class="docutils literal notranslate"><span class="pre">builtins</span></code> in the first column, we will find both the implicit and explicit references to the built-in functions.</p></li>
+<li><p>The second column, <code class="docutils literal notranslate"><span class="pre">&quot;Member[sorted]&quot;</span></code>, selects references to the <code class="docutils literal notranslate"><span class="pre">sorted</span></code> function from the <code class="docutils literal notranslate"><span class="pre">builtins</span></code> package; that is, the built-in function <code class="docutils literal notranslate"><span class="pre">sorted</span></code>.</p></li>
+<li><p>The third column, <code class="docutils literal notranslate"><span class="pre">&quot;Argument[0]&quot;</span></code>, indicates the input of the flow. In this case, the first argument to the function call.</p></li>
+<li><p>The fourth column, <code class="docutils literal notranslate"><span class="pre">&quot;ReturnValue&quot;</span></code>, indicates the output of the flow. In this case, the return value of the function call.</p></li>
+<li><p>The last column, <code class="docutils literal notranslate"><span class="pre">&quot;taint&quot;</span></code>, indicates the kind of flow to add. The value <code class="docutils literal notranslate"><span class="pre">taint</span></code> means the output is not necessarily equal
+to the input, but was derived from the input in a taint-preserving way.</p></li>
+</ul>
+<p>We might also provide a summary stating that the elements of the input list are preserved in the output list:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">summaryModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span>
+<span class="w">          </span><span class="s">&quot;builtins&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Member[sorted]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Argument[0].ListElement&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;ReturnValue.ListElement&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;value&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>The tracking of list elements is imprecise in that the analysis does not know where in the list the tracked value is found.
+So this summary simply states that if the value is found somewhere in the input list, it will also be found somewhere in the output list, unchanged.</p>
+</section>
+<section id="example-taint-barrier-using-the-escape-function">
+<h2>Example: Taint barrier using the ‘escape’ function<a class="headerlink" href="#example-taint-barrier-using-the-escape-function" title="Link to this heading">¶</a></h2>
+<p>In this example, we’ll show how to add the return value of <code class="docutils literal notranslate"><span class="pre">html.escape</span></code> as a barrier for XSS.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">html</span>
+<span class="n">escaped</span> <span class="o">=</span> <span class="n">html</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="n">unknown</span><span class="p">)</span> <span class="c1"># The return value of this function is safe for XSS.</span>
+</pre></div>
+</div>
+<p>We need to add a tuple to the <code class="docutils literal notranslate"><span class="pre">barrierModel(type,</span> <span class="pre">path,</span> <span class="pre">kind)</span></code> extensible predicate by updating a data extension file.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">barrierModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;html&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Member[escape].ReturnValue&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;html-injection&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;html&quot;</span></code>, begins the search at places where the <code class="docutils literal notranslate"><span class="pre">html</span></code> module is imported.</p></li>
+<li><p>The second column, <code class="docutils literal notranslate"><span class="pre">Member[escape].ReturnValue</span></code>, selects the return value of the <code class="docutils literal notranslate"><span class="pre">escape</span></code> function from the <code class="docutils literal notranslate"><span class="pre">html</span></code> module.</p></li>
+<li><p>The third column, <code class="docutils literal notranslate"><span class="pre">&quot;html-injection&quot;</span></code>, is the kind of the barrier.</p></li>
+</ul>
+</section>
+<section id="example-add-a-barrier-guard">
+<h2>Example: Add a barrier guard<a class="headerlink" href="#example-add-a-barrier-guard" title="Link to this heading">¶</a></h2>
+<p>This example shows how to model a barrier guard that stops the flow of taint when a conditional check is performed on data.
+A barrier guard model is used when a function returns a boolean that indicates whether the data is safe to use.
+Consider the function <code class="docutils literal notranslate"><span class="pre">url_has_allowed_host_and_scheme</span></code> from the <code class="docutils literal notranslate"><span class="pre">django.utils.http</span></code> package which returns <code class="docutils literal notranslate"><span class="pre">true</span></code> when the URL is in a safe domain.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="n">url_has_allowed_host_and_scheme</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">allowed_hosts</span><span class="o">=...</span><span class="p">):</span> <span class="c1"># The check guards the use of &#39;url&#39;, so it is safe.</span>
+    <span class="n">redirect</span><span class="p">(</span><span class="n">url</span><span class="p">)</span> <span class="c1"># This is safe.</span>
+</pre></div>
+</div>
+<p>We need to add a tuple to the <code class="docutils literal notranslate"><span class="pre">barrierGuardModel(type,</span> <span class="pre">path,</span> <span class="pre">acceptingValue,</span> <span class="pre">kind)</span></code> extensible predicate by updating a data extension file.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">barrierGuardModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span>
+<span class="w">          </span><span class="s">&quot;django&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Member[utils].Member[http].Member[url_has_allowed_host_and_scheme].Argument[0,url:]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;true&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;url-redirection&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>The first column, <code class="docutils literal notranslate"><span class="pre">&quot;django&quot;</span></code>, begins the search at places where the <code class="docutils literal notranslate"><span class="pre">django</span></code> package is imported.</p></li>
+<li><p>The second column, <code class="docutils literal notranslate"><span class="pre">Member[utils].Member[http].Member[url_has_allowed_host_and_scheme].Argument[0,url:]</span></code>, selects the first argument (or the keyword argument <code class="docutils literal notranslate"><span class="pre">url</span></code>) of the <code class="docutils literal notranslate"><span class="pre">url_has_allowed_host_and_scheme</span></code> function in the <code class="docutils literal notranslate"><span class="pre">django.utils.http</span></code> module. This is the value being validated.</p></li>
+<li><p>The third column, <code class="docutils literal notranslate"><span class="pre">&quot;true&quot;</span></code>, is the accepting value of the barrier guard. This is the value that the conditional check must return for the barrier to apply.</p></li>
+<li><p>The fourth column, <code class="docutils literal notranslate"><span class="pre">&quot;url-redirection&quot;</span></code>, is the kind of the barrier guard. The barrier guard kind is used to define the queries where the barrier guard is in scope.</p></li>
+</ul>
+</section>
+<section id="reference-material">
+<h2>Reference material<a class="headerlink" href="#reference-material" title="Link to this heading">¶</a></h2>
+<p>The following sections provide reference material for extensible predicates, access paths, types, and kinds.</p>
+</section>
+<section id="extensible-predicates">
+<h2>Extensible predicates<a class="headerlink" href="#extensible-predicates" title="Link to this heading">¶</a></h2>
+<section id="sourcemodel-type-path-kind">
+<h3>sourceModel(type, path, kind)<a class="headerlink" href="#sourcemodel-type-path-kind" title="Link to this heading">¶</a></h3>
+<p>Adds a new taint source. Most taint-tracking queries will use the new source.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">type</span></code>: Name of a type from which to evaluate <code class="docutils literal notranslate"><span class="pre">path</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">path</span></code>: Access path leading to the source.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kind</span></code>: Kind of source to add. Currently only <code class="docutils literal notranslate"><span class="pre">remote</span></code> is used.</p></li>
+</ul>
+<p>Example:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sourceModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;flask&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Member[request]&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;remote&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+<section id="sinkmodel-type-path-kind">
+<h3>sinkModel(type, path, kind)<a class="headerlink" href="#sinkmodel-type-path-kind" title="Link to this heading">¶</a></h3>
+<p>Adds a new taint sink. Sinks are query-specific and will typically affect one or two queries.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">type</span></code>: Name of a type from which to evaluate <code class="docutils literal notranslate"><span class="pre">path</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">path</span></code>: Access path leading to the sink.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kind</span></code>: Kind of sink to add. See the section on sink kinds for a list of supported kinds.</p></li>
+</ul>
+<p>Example:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sinkModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;builtins&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Member[exec].Argument[0]&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;code-injection&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+<section id="summarymodel-type-path-input-output-kind">
+<h3>summaryModel(type, path, input, output, kind)<a class="headerlink" href="#summarymodel-type-path-input-output-kind" title="Link to this heading">¶</a></h3>
+<p>Adds flow through a function call.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">type</span></code>: Name of a type from which to evaluate <code class="docutils literal notranslate"><span class="pre">path</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">path</span></code>: Access path leading to a function call.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">input</span></code>: Path relative to the function call that leads to input of the flow.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">output</span></code>: Path relative to the function call leading to the output of the flow.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kind</span></code>: Kind of summary to add. Can be <code class="docutils literal notranslate"><span class="pre">taint</span></code> for taint-propagating flow, or <code class="docutils literal notranslate"><span class="pre">value</span></code> for value-preserving flow.</p></li>
+</ul>
+<p>Example:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">      </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">summaryModel</span>
+<span class="w">    </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span>
+<span class="w">          </span><span class="s">&quot;builtins&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Member[reversed]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;Argument[0]&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;ReturnValue&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">          </span><span class="s">&quot;taint&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+<section id="typemodel-type1-type2-path">
+<h3>typeModel(type1, type2, path)<a class="headerlink" href="#typemodel-type1-type2-path" title="Link to this heading">¶</a></h3>
+<p>A description of how to reach <code class="docutils literal notranslate"><span class="pre">type1</span></code> from <code class="docutils literal notranslate"><span class="pre">type2</span></code>.
+If this is the only way to reach <code class="docutils literal notranslate"><span class="pre">type1</span></code>, for instance if <code class="docutils literal notranslate"><span class="pre">type1</span></code> is a name we made up to represent the inner workings of a library, we think of this as a definition of <code class="docutils literal notranslate"><span class="pre">type1</span></code>.
+In the context of instances, this describes how to obtain an instance of <code class="docutils literal notranslate"><span class="pre">type1</span></code> from an instance of <code class="docutils literal notranslate"><span class="pre">type2</span></code>.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">type1</span></code>: Name of the type to reach.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">type2</span></code>: Name of the type from which to evaluate <code class="docutils literal notranslate"><span class="pre">path</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">path</span></code>: Access path leading from <code class="docutils literal notranslate"><span class="pre">type2</span></code> to <code class="docutils literal notranslate"><span class="pre">type1</span></code>.</p></li>
+</ul>
+<p>Example:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extensions</span><span class="p">:</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">addsTo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pack</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">codeql/python-all</span>
+<span class="w">    </span><span class="nt">extensible</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">typeModel</span>
+<span class="w">  </span><span class="nt">data</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span>
+<span class="w">        </span><span class="s">&quot;flask.Response&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="s">&quot;flask&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">        </span><span class="s">&quot;Member[jsonify].ReturnValue&quot;</span><span class="p p-Indicator">,</span>
+<span class="w">      </span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="types">
+<h2>Types<a class="headerlink" href="#types" title="Link to this heading">¶</a></h2>
+<p>A type is a string that identifies a set of values.
+In each of the extensible predicates mentioned in previous section, the first column is always the name of a type.
+A type can be defined by adding <code class="docutils literal notranslate"><span class="pre">typeModel</span></code> tuples for that type. Additionally, the following built-in types are available:</p>
+<ul class="simple">
+<li><p>The name of a package matches imports of that package. For example, the type <code class="docutils literal notranslate"><span class="pre">django</span></code> matches the expression <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">django</span></code>.</p></li>
+<li><p>The type <code class="docutils literal notranslate"><span class="pre">builtins</span></code> identifies the builtins package. In Python, all built-in values are found in this package, so they can be identified using this type.</p></li>
+<li><p>A dotted path ending in a class name identifies instances of that class. If the suffix <code class="docutils literal notranslate"><span class="pre">!</span></code> is added, the type refers to the class itself.</p></li>
+</ul>
+</section>
+<section id="access-paths">
+<h2>Access paths<a class="headerlink" href="#access-paths" title="Link to this heading">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">path</span></code>, <code class="docutils literal notranslate"><span class="pre">input</span></code>, and <code class="docutils literal notranslate"><span class="pre">output</span></code> columns consist of a <code class="docutils literal notranslate"><span class="pre">.</span></code>-separated list of components, which is evaluated from left to right, with each step selecting a new set of values derived from the previous set of values.</p>
+<p>The following components are supported:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Argument[</span></code><code class="docutils literal notranslate"><span class="pre">number</span></code><code class="docutils literal notranslate"><span class="pre">]</span></code> selects the argument at the given index.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Argument[</span></code><code class="docutils literal notranslate"><span class="pre">name</span></code>:<code class="docutils literal notranslate"><span class="pre">]</span></code> selects the argument with the given name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Argument[this]</span></code> selects the receiver of a method call.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Parameter[</span></code><code class="docutils literal notranslate"><span class="pre">number</span></code><code class="docutils literal notranslate"><span class="pre">]</span></code> selects the parameter at the given index.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Parameter[</span></code><code class="docutils literal notranslate"><span class="pre">name</span></code>:<code class="docutils literal notranslate"><span class="pre">]</span></code> selects the named parameter with the given name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Parameter[this]</span></code> selects the <code class="docutils literal notranslate"><span class="pre">this</span></code> parameter of a function.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ReturnValue</span></code> selects the return value of a function or call.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Member[</span></code><code class="docutils literal notranslate"><span class="pre">name</span></code><code class="docutils literal notranslate"><span class="pre">]</span></code> selects the function/method/class/value with the given name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Instance</span></code> selects instances of a class, including instances of its subclasses.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Attribute[</span></code><code class="docutils literal notranslate"><span class="pre">name</span></code><code class="docutils literal notranslate"><span class="pre">]</span></code> selects the attribute with the given name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ListElement</span></code> selects an element of a list.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">SetElement</span></code> selects an element of a set.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TupleElement[</span></code><code class="docutils literal notranslate"><span class="pre">number</span></code><code class="docutils literal notranslate"><span class="pre">]</span></code> selects the subscript at the given index.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DictionaryElement[</span></code><code class="docutils literal notranslate"><span class="pre">name</span></code><code class="docutils literal notranslate"><span class="pre">]</span></code> selects the subscript at the given name.</p></li>
+</ul>
+<p>Additional notes about the syntax of operands:</p>
+<ul class="simple">
+<li><p>Multiple operands may be given to a single component, as a shorthand for the union of the operands. For example, <code class="docutils literal notranslate"><span class="pre">Member[foo,bar]</span></code> matches the union of <code class="docutils literal notranslate"><span class="pre">Member[foo]</span></code> and <code class="docutils literal notranslate"><span class="pre">Member[bar]</span></code>.</p></li>
+<li><p>Numeric operands to <code class="docutils literal notranslate"><span class="pre">Argument</span></code>, <code class="docutils literal notranslate"><span class="pre">Parameter</span></code>, and <code class="docutils literal notranslate"><span class="pre">WithArity</span></code> may be given as an interval. For example, <code class="docutils literal notranslate"><span class="pre">Argument[0..2]</span></code> matches argument 0, 1, or 2.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Argument[N-1]</span></code> selects the last argument of a call, and <code class="docutils literal notranslate"><span class="pre">Parameter[N-1]</span></code> selects the last parameter of a function, with <code class="docutils literal notranslate"><span class="pre">N-2</span></code> being the second-to-last and so on.</p></li>
+</ul>
+</section>
+<section id="kinds">
+<h2>Kinds<a class="headerlink" href="#kinds" title="Link to this heading">¶</a></h2>
+<section id="source-kinds">
+<h3>Source kinds<a class="headerlink" href="#source-kinds" title="Link to this heading">¶</a></h3>
+<p>See documentation below for <a class="reference internal" href="#threat-models-python"><span class="std std-ref">Threat models</span></a>.</p>
+</section>
+<section id="sink-kinds">
+<h3>Sink kinds<a class="headerlink" href="#sink-kinds" title="Link to this heading">¶</a></h3>
+<p>Unlike sources, sinks tend to be highly query-specific, rarely affecting more than one or two queries. Not every query supports customizable sinks. If the following sinks are not suitable for your use case, you should add a new query.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">code-injection</span></code>: A sink that can be used to inject code, such as in calls to <code class="docutils literal notranslate"><span class="pre">exec</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">command-injection</span></code>: A sink that can be used to inject shell commands, such as in calls to <code class="docutils literal notranslate"><span class="pre">os.system</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">path-injection</span></code>: A sink that can be used for path injection in a file system access, such as in calls to <code class="docutils literal notranslate"><span class="pre">flask.send_from_directory</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">sql-injection</span></code>: A sink that can be used for SQL injection, such as in a MySQL <code class="docutils literal notranslate"><span class="pre">query</span></code> call.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">html-injection</span></code>: A sink that can be used for HTML injection, such as a server response body.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">js-injection</span></code>: A sink that can be used for JS injection, such as a server response body.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">url-redirection</span></code>: A sink that can be used to redirect the user to a malicious URL.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unsafe-deserialization</span></code>: A deserialization sink that can lead to code execution or other unsafe behavior, such as an unsafe YAML parser.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">log-injection</span></code>: A sink that can be used for log injection, such as in a <code class="docutils literal notranslate"><span class="pre">logging.info</span></code> call.</p></li>
+</ul>
+</section>
+<section id="summary-kinds">
+<h3>Summary kinds<a class="headerlink" href="#summary-kinds" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">taint</span></code>: A summary that propagates taint. This means the output is not necessarily equal to the input, but it was derived from the input in an unrestrictive way. An attacker who controls the input will have significant control over the output as well.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">value</span></code>: A summary that preserves the value of the input or creates a copy of the input such that all of its object properties are preserved.</p></li>
+</ul>
+</section>
+</section>
+<section id="threat-models">
+<span id="threat-models-python"></span><h2>Threat models<a class="headerlink" href="#threat-models" title="Link to this heading">¶</a></h2>
+<blockquote class="pull-quote">
+<div><p>Note</p>
+<p>Threat models are currently in beta and subject to change. During the beta, threat models are supported only by Java, C#, Python and JavaScript/TypeScript analysis.</p>
+</div></blockquote>
+<p>A threat model is a named class of dataflow sources that can be enabled or disabled independently. Threat models allow you to control the set of dataflow sources that you want to consider unsafe. For example, one codebase may only consider remote HTTP requests to be tainted, whereas another may also consider data from local files to be unsafe. You can use threat models to ensure that the relevant taint sources are used in a CodeQL analysis.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">kind</span></code> property of the <code class="docutils literal notranslate"><span class="pre">sourceModel</span></code> determines which threat model a source is associated with. There are two main categories:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">remote</span></code> which represents requests and responses from the network.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">local</span></code> which represents data from local files (<code class="docutils literal notranslate"><span class="pre">file</span></code>), command-line arguments (<code class="docutils literal notranslate"><span class="pre">commandargs</span></code>), database reads (<code class="docutils literal notranslate"><span class="pre">database</span></code>), environment variables(<code class="docutils literal notranslate"><span class="pre">environment</span></code>), standard input (<code class="docutils literal notranslate"><span class="pre">stdin</span></code>) and Windows registry values (“windows-registry”). Currently, Windows registry values are used by C# only.</p></li>
+</ul>
+<p>Note that subcategories can be turned included or excluded separately, so you can specify <code class="docutils literal notranslate"><span class="pre">local</span></code> without <code class="docutils literal notranslate"><span class="pre">database</span></code>, or just <code class="docutils literal notranslate"><span class="pre">commandargs</span></code> and <code class="docutils literal notranslate"><span class="pre">environment</span></code> without the rest of <code class="docutils literal notranslate"><span class="pre">local</span></code>.</p>
+<p>The less commonly used categories are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">android</span></code> which represents reads from external files in Android (<code class="docutils literal notranslate"><span class="pre">android-external-storage-dir</span></code>) and parameter of an entry-point method declared in a <code class="docutils literal notranslate"><span class="pre">ContentProvider</span></code> class (<code class="docutils literal notranslate"><span class="pre">contentprovider</span></code>). Currently only used by Java/Kotlin.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">database-access-result</span></code> which represents a database access. Currently only used by JavaScript.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">file-write</span></code> which represents opening a file in write mode. Currently only used in C#.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">reverse-dns</span></code> which represents reverse DNS lookups. Currently only used in Java.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">view-component-input</span></code> which represents inputs to a React, Vue, or Angular component (also known as “props”). Currently only used by JavaScript/TypeScript.</p></li>
+</ul>
+<p>When running a CodeQL analysis, the <code class="docutils literal notranslate"><span class="pre">remote</span></code> threat model is included by default. You can optionally include other threat models as appropriate when using the CodeQL CLI and in GitHub code scanning. For more information, see <a class="reference external" href="https://docs.github.com/code-security/codeql-cli/getting-started-with-the-codeql-cli/analyzing-your-code-with-codeql-queries#including-model-packs-to-add-potential-sources-of-tainted-data">Analyzing your code with CodeQL queries</a> and <a class="reference external" href="https://docs.github.com/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning#extending-codeql-coverage-with-threat-models">Customizing your advanced setup for code scanning</a>.</p>
+</section>
+</section>
+
+
+    </article>
+
+    <!-- GitHub footer, with links to terms and privacy statement -->
+    <div class="px-3 px-md-6 f6 py-4 d-sm-flex flex-justify-between flex-row-reverse flex-items-center border-top">
+        <ul class="list-style-none d-flex flex-items-center mb-3 mb-sm-0 lh-condensed-ultra">
+            <li class="mr-3">
+                <a href="https://twitter.com/github" title="GitHub on Twitter" style="color: #959da5;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 273.5 222.3" class="d-block" height="18">
+                        <path
+                            d="M273.5 26.3a109.77 109.77 0 0 1-32.2 8.8 56.07 56.07 0 0 0 24.7-31 113.39 113.39 0 0 1-35.7 13.6 56.1 56.1 0 0 0-97 38.4 54 54 0 0 0 1.5 12.8A159.68 159.68 0 0 1 19.1 10.3a56.12 56.12 0 0 0 17.4 74.9 56.06 56.06 0 0 1-25.4-7v.7a56.11 56.11 0 0 0 45 55 55.65 55.65 0 0 1-14.8 2 62.39 62.39 0 0 1-10.6-1 56.24 56.24 0 0 0 52.4 39 112.87 112.87 0 0 1-69.7 24 119 119 0 0 1-13.4-.8 158.83 158.83 0 0 0 86 25.2c103.2 0 159.6-85.5 159.6-159.6 0-2.4-.1-4.9-.2-7.3a114.25 114.25 0 0 0 28.1-29.1"
+                            fill="currentColor"></path>
+                    </svg>
+                </a>
+            </li>
+            <li class="mr-3">
+                <a href="https://www.facebook.com/GitHub" title="GitHub on Facebook" style="color: #959da5;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15.3 15.4" class="d-block" height="18">
+                        <path
+                            d="M14.5 0H.8a.88.88 0 0 0-.8.9v13.6a.88.88 0 0 0 .8.9h7.3v-6h-2V7.1h2V5.4a2.87 2.87 0 0 1 2.5-3.1h.5a10.87 10.87 0 0 1 1.8.1v2.1h-1.3c-1 0-1.1.5-1.1 1.1v1.5h2.3l-.3 2.3h-2v5.9h3.9a.88.88 0 0 0 .9-.8V.8a.86.86 0 0 0-.8-.8z"
+                            fill="currentColor"></path>
+                    </svg>
+                </a>
+            </li>
+            <li class="mr-3">
+                <a href="https://www.youtube.com/github" title="GitHub on YouTube" style="color: #959da5;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 19.17 13.6" class="d-block" height="16">
+                        <path
+                            d="M18.77 2.13A2.4 2.4 0 0 0 17.09.42C15.59 0 9.58 0 9.58 0a57.55 57.55 0 0 0-7.5.4A2.49 2.49 0 0 0 .39 2.13 26.27 26.27 0 0 0 0 6.8a26.15 26.15 0 0 0 .39 4.67 2.43 2.43 0 0 0 1.69 1.71c1.52.42 7.5.42 7.5.42a57.69 57.69 0 0 0 7.51-.4 2.4 2.4 0 0 0 1.68-1.71 25.63 25.63 0 0 0 .4-4.67 24 24 0 0 0-.4-4.69zM7.67 9.71V3.89l5 2.91z"
+                            fill="currentColor"></path>
+                    </svg>
+                </a>
+            </li>
+            <li class="mr-3 flex-self-start">
+                <a href="https://www.linkedin.com/company/github" title="GitHub on Linkedin" style="color: #959da5;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 19 18" class="d-block" height="18">
+                        <path
+                            d="M3.94 2A2 2 0 1 1 2 0a2 2 0 0 1 1.94 2zM4 5.48H0V18h4zm6.32 0H6.34V18h3.94v-6.57c0-3.66 4.77-4 4.77 0V18H19v-7.93c0-6.17-7.06-5.94-8.72-2.91z"
+                            fill="currentColor"></path>
+                    </svg>
+                </a>
+            </li>
+            <li>
+                <a href="https://github.com/github" title="GitHub's organization" style="color: #959da5;">
+                    <svg version="1.1" width="20" height="20" viewBox="0 0 16 16" class="octicon octicon-mark-github"
+                        aria-hidden="true">
+                        <path fill-rule="evenodd"
+                            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+                        </path>
+                    </svg>
+                </a>
+            </li>
+        </ul>
+        <ul class="list-style-none d-flex text-gray">
+            <li class="mr-3">&copy;
+                <script type="text/javascript">document.write(new Date().getFullYear());</script> GitHub, Inc.</li>
+            <li class="mr-3"><a
+                    href="https://docs.github.com/site-policy/github-terms/github-terms-of-service"
+                    class="link-gray">Terms </a></li>
+            <li><a href="https://docs.github.com/site-policy/privacy-policies/github-privacy-statement"
+                    class="link-gray">Privacy </a></li>
+        </ul>
+    </div>
+</div>
+</main>
+
+<script type="text/javascript">
+    $(document).ready(function () {
+        $(".toggle > *").hide();
+        $(".toggle .name").show();
+        $(".toggle .name").click(function () {
+            $(this).parent().children().not(".name").toggle(400);
+            $(this).parent().children(".name").toggleClass("open");
+        })
+    });
+</script>
+
+  </body>
+</html>
