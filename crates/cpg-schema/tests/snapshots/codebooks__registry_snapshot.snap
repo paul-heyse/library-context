@@ -574,3 +574,7 @@ attribute_value_kind
   1 expression
   2 bare
   3 spread
+unfollowed_reason
+  0 rebound
+  1 computed
+  2 unmapped

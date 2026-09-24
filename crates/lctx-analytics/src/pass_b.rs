@@ -25,7 +25,7 @@ use arrow_array::{
 };
 use cpg_schema::codebook::{
     ArcKind, Codebook, CoverageStatus, FindingKind, InvocationPhase, MemberRole, Modality,
-    StopReason,
+    StopReason, UnfollowedReason,
 };
 use cpg_schema::findings::{
     FINDING_STATUS, FindingMembersRow, FindingsRow, MemberKey, StepKey, WitnessesRow,
@@ -78,13 +78,13 @@ pub struct Read {
 
 impl Read {
     /// Why the worklist does not follow this read.
-    pub fn reason(&self) -> &'static str {
+    pub fn reason(&self) -> UnfollowedReason {
         if self.rebound {
-            "rebound"
+            UnfollowedReason::Rebound
         } else if self.bare || self.unpacked {
-            "unmapped"
+            UnfollowedReason::Unmapped
         } else {
-            "computed"
+            UnfollowedReason::Computed
         }
     }
 }
@@ -475,7 +475,7 @@ pub fn run(
         }
     }
     // Reads of a reached formal the worklist does not follow (review F4), within the depth bound.
-    let mut unfollowed: BTreeSet<(Id, Id, Id, &'static str)> = BTreeSet::new();
+    let mut unfollowed: BTreeSet<(Id, Id, Id, UnfollowedReason)> = BTreeSet::new();
     for (&(callable, formal, source), path) in &visited {
         if path.len() as u32 >= max_depth {
             continue;
@@ -516,7 +516,7 @@ pub fn run(
                         .to_owned(),
                 ));
             }
-            members.push((MemberRole::Reason, None, reason.to_owned()));
+            members.push((MemberRole::Reason, None, reason.text().to_owned()));
             drafts.push(Draft {
                 kind: FindingKind::UnfollowedArgument,
                 related: read.target,

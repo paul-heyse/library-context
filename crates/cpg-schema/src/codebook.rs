@@ -1112,6 +1112,20 @@ impl FactFamily {
     }
 }
 
+codebook!(
+    /// Why Pass B does not follow a parameter read (§9.2; the holistic assessment's A2(d)): kept
+    /// as its text in `finding_members.label` (role `reason`), read back through this codebook so
+    /// every reason is matched by name, never by a default.
+    UnfollowedReason = "unfollowed_reason" {
+        /// The caller rebinds the parameter before the call.
+        Rebound = 0 => "rebound",
+        /// The value is computed from the parameter (an expression).
+        Computed = 1 => "computed",
+        /// The value is unpacked, or no single formal takes it.
+        Unmapped = 2 => "unmapped",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1168,6 +1182,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ArcKind>(),
         CodebookEntry::of::<ComponentForm>(),
         CodebookEntry::of::<AttributeValueKind>(),
+        CodebookEntry::of::<UnfollowedReason>(),
     ]
 }
 

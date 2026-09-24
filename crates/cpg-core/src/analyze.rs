@@ -13,6 +13,7 @@ use cpg_schema::codebook::{
     AnalyticMethod, Codebook, CoverageStatus, DeclarationKind, ExtractionMode, FindingKind,
     MemberRole, NodeKind, SourceRole,
 };
+use cpg_schema::communities::LayerSpec;
 use cpg_schema::findings::{
     AnalysisInvocationsRow, FindingMembersRow, FindingsRow, PublicPathsRow, WitnessesRow,
     recipe as findings,
@@ -411,6 +412,17 @@ struct CommunityParameters<'a> {
     extra_layers: Vec<(&'a str, &'a str)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     weight_rule: Option<&'a str>,
+    /// The kNN layer's lineage (the holistic assessment's A2(c)): the embedding spec and the
+    /// search parameters behind its pairs. Absent without that layer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    knn_layer: Option<KnnLayerLineage>,
+}
+
+#[derive(Serialize)]
+struct KnnLayerLineage {
+    spec_hash: String,
+    k: usize,
+    min_similarity: f64,
 }
 
 #[derive(Serialize)]
@@ -598,16 +610,16 @@ pub async fn run(
         // A variant's extra layers (slice 3.2; §9.4): shared declared parameter types, doc
         // co-mentions (C5 O1) and API–API embedding neighbours.
         let mut extra: Vec<communities::ExtraLayer> = Vec::new();
-        for (on, name, policy, sql) in [
+        for (on, spec, policy, sql) in [
             (
                 techniques.type_layer,
-                "type",
+                LayerSpec::Type,
                 communities::TYPE_LAYER_POLICY,
                 cpg_schema::communities::shared_types_sql(),
             ),
             (
                 techniques.mention_layer,
-                "mention",
+                LayerSpec::Mention,
                 communities::MENTION_LAYER_POLICY,
                 cpg_schema::communities::co_mention_sql(),
             ),
@@ -620,16 +632,20 @@ pub async fn run(
                 )
                 .await?;
                 extra.push(communities::ExtraLayer {
-                    name,
+                    spec,
                     policy,
                     pairs: communities::scope_pairs(&rows, |_| true)
                         .map_err(|e| CoreError::Analysis(e.to_string()))?,
                 });
             }
         }
-        if let (true, Some((_, apis, _))) = (techniques.knn_layer, &embedded) {
+        if let (true, Some((embedder, apis, _))) = (techniques.knn_layer, &embedded) {
             extra.push(communities::ExtraLayer {
-                name: "knn",
+                spec: LayerSpec::Knn {
+                    spec_hash: embedder.spec().hash().hex(),
+                    k: knn.k,
+                    min_similarity: knn.min_similarity,
+                },
                 policy: communities::KNN_LAYER_POLICY,
                 pairs: neighbours::api_neighbours(apis, knn.k, knn.min_similarity)
                     .into_iter()
@@ -650,19 +666,31 @@ pub async fn run(
             &extra,
         )
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
-        let layer_names: Vec<&str> = extra.iter().map(|l| l.name).collect();
+        let layers: Vec<LayerSpec> = extra.iter().map(|l| l.spec.clone()).collect();
         let community_digest = if extra.is_empty() {
             community_digest
         } else {
-            cpg_schema::communities::extra_digest(community_digest, &layer_names)
+            cpg_schema::communities::extra_digest(community_digest, &layers)
         };
         let params = communities::Params::preregistered();
         let parameters = serde_json::to_string(&CommunityParameters {
             communities: &params,
             module_prefixes: &config.subsystem.module_prefixes,
             public_roots: &config.subsystem.public_roots,
-            extra_layers: extra.iter().map(|l| (l.name, l.policy)).collect(),
+            extra_layers: extra.iter().map(|l| (l.spec.name(), l.policy)).collect(),
             weight_rule: (!extra.is_empty()).then_some(communities::EXTRA_WEIGHT_RULE),
+            knn_layer: layers.iter().find_map(|l| match l {
+                LayerSpec::Knn {
+                    spec_hash,
+                    k,
+                    min_similarity,
+                } => Some(KnnLayerLineage {
+                    spec_hash: spec_hash.clone(),
+                    k: *k,
+                    min_similarity: *min_similarity,
+                }),
+                LayerSpec::Type | LayerSpec::Mention => None,
+            }),
         })
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
         let parameters_digest = content_digest(parameters.as_bytes());

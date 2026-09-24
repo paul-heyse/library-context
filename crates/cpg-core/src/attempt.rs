@@ -84,6 +84,10 @@ pub fn compiler_digest_of(
 /// relation, the pre-registered community parameters (slice 2.3),
 /// every table contract and every validation rule. Stored on each `snapshots` row and folded into
 /// `content_digest`.
+/// The digest of the compiler's sources (`build.rs`): every `.rs` file of `cpg-core`,
+/// `lctx-analytics` and `cpg-schema`.
+pub const SOURCE_DIGEST: &str = env!("LCTX_SOURCE_DIGEST");
+
 pub fn compiler_digest() -> Digest {
     let rules: Vec<(String, String)> = rules().into_iter().map(|r| (r.name, r.sql)).collect();
     let mut queries = derivations();
@@ -91,6 +95,8 @@ pub fn compiler_digest() -> Digest {
         queries.push((spec.name, spec.digest().hex()));
     }
     queries.push(("pass_b_relations", cpg_schema::flows::digest().hex()));
+    // The compiler's own sources (the holistic assessment's A2(e); `build.rs`).
+    queries.push(("compiler_sources", SOURCE_DIGEST.to_owned()));
     // The one public-path authority (the holistic assessment's A1): seeds resolve by it.
     for relation in cpg_schema::public::all() {
         queries.push((relation.name, relation.sql));
@@ -646,6 +652,44 @@ pub async fn publish(root: &Path, snapshot_id: Id, rows: &[SnapshotsRow]) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The holistic assessment's A2(e): every `.rs` file of the three source trees is in the
+    /// source digest, so no module can change the compiler's output without moving it.
+    #[test]
+    fn every_compiler_source_is_hashed() {
+        fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(root, &path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(
+                        path.strip_prefix(root)
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+            }
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let mut found = Vec::new();
+        for tree in [
+            "crates/cpg-core/src",
+            "crates/lctx-analytics/src",
+            "crates/cpg-schema/src",
+        ] {
+            walk(&root, &root.join(tree), &mut found);
+        }
+        found.sort();
+        let hashed: Vec<&str> = env!("LCTX_SOURCE_FILES").split(';').collect();
+        assert_eq!(found, hashed);
+        assert!(hashed.contains(&"crates/cpg-core/src/synth.rs"));
+        assert_eq!(SOURCE_DIGEST.len(), 64);
+    }
 
     #[test]
     fn the_compiler_digest_follows_each_input() {

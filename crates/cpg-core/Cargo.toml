@@ -36,5 +36,8 @@ insta.workspace = true
 petgraph.workspace = true
 tempfile.workspace = true
 
+[build-dependencies]
+blake3.workspace = true
+
 [lints]
 workspace = true

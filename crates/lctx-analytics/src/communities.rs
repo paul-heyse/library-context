@@ -202,10 +202,10 @@ pub fn variant_policies() -> String {
 /// A layer's raw pairs by id, each with the site or scope behind it.
 pub type Pairs = Vec<(Id, Id, Id)>;
 
-/// A variant's extra layer (slice 3.2): its name, what it counts, and its raw pairs.
+/// A variant's extra layer (slice 3.2): which layer, what it counts, and its raw pairs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtraLayer {
-    pub name: &'static str,
+    pub spec: cpg_schema::communities::LayerSpec,
     pub policy: &'static str,
     pub pairs: Pairs,
 }
@@ -274,7 +274,7 @@ impl Input {
             .iter()
             .map(|l| {
                 (
-                    l.name,
+                    l.spec.name(),
                     l.pairs
                         .iter()
                         .copied()

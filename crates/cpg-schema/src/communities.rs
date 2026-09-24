@@ -70,16 +70,49 @@ pub fn co_mention_sql() -> String {
     )
 }
 
-/// The extra layers' identity, joined to the community relations' when a variant enables them.
-pub fn extra_digest(base: Digest, layers: &[&str]) -> Digest {
+/// A variant's extra community layer (slice 3.2), with what makes it (the holistic assessment's
+/// A2(c)): the type and mention layers are their relations; the kNN layer is the embedding spec
+/// and the search parameters that produced its pairs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayerSpec {
+    Type,
+    Mention,
+    Knn {
+        spec_hash: String,
+        k: usize,
+        min_similarity: f64,
+    },
+}
+
+impl LayerSpec {
+    /// The name a layer is recorded by (in the consensus's parameters and diagnostics).
+    pub fn name(&self) -> &'static str {
+        match self {
+            LayerSpec::Type => "type",
+            LayerSpec::Mention => "mention",
+            LayerSpec::Knn { .. } => "knn",
+        }
+    }
+}
+
+/// The extra layers' identity, joined to the community relations' when a variant enables them:
+/// each layer's name and what makes it, so two embedding specs never share a digest.
+pub fn extra_digest(base: Digest, layers: &[LayerSpec]) -> Digest {
     let mut h = IdHasher::new("community-extra-layers");
     h.digest_field(base);
     for layer in layers {
-        h.str(layer);
-        match *layer {
-            "type" => h.str(&shared_types_sql()),
-            "mention" => h.str(&co_mention_sql()),
-            _ => &mut h,
+        h.str(layer.name());
+        match layer {
+            LayerSpec::Type => h.str(&shared_types_sql()),
+            LayerSpec::Mention => h.str(&co_mention_sql()),
+            LayerSpec::Knn {
+                spec_hash,
+                k,
+                min_similarity,
+            } => h
+                .str(spec_hash)
+                .bytes(&(*k as u64).to_le_bytes())
+                .f64(*min_similarity),
         };
     }
     h.finish_digest()
@@ -127,8 +160,33 @@ pub mod schemas {
 
 #[cfg(test)]
 mod tests {
-    use super::digest_with;
+    use super::{LayerSpec, digest_with, extra_digest};
     use crate::id::content_digest;
+
+    /// The holistic assessment's A2(c): the kNN layer's digest follows its embedding spec and its
+    /// search parameters, so two specs never share a community invocation id.
+    #[test]
+    fn the_knn_layer_digest_follows_its_lineage() {
+        let base = content_digest(b"relations");
+        let knn = |spec: &str, k: usize, min_similarity: f64| {
+            extra_digest(
+                base,
+                &[LayerSpec::Knn {
+                    spec_hash: spec.to_owned(),
+                    k,
+                    min_similarity,
+                }],
+            )
+        };
+        let a = knn("a", 3, 0.5);
+        assert_ne!(a, knn("b", 3, 0.5));
+        assert_ne!(a, knn("a", 4, 0.5));
+        assert_ne!(a, knn("a", 3, 0.6));
+        assert_ne!(
+            extra_digest(base, &[LayerSpec::Type]),
+            extra_digest(base, &[LayerSpec::Mention])
+        );
+    }
 
     /// A change to the invocation projection moves the community relations' digest, and so each
     /// community invocation's `projection_digest`.

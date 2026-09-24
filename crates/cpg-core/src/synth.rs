@@ -20,7 +20,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
     ArcKind, AssertionKind, AttributeValueKind, BriefSection, Codebook, DeclarationKind,
     EvidenceKind, EvidenceStatus, ExtractionMode, FindingKind, InvocationPhase, MemberRole,
-    MentionClass, Modality, ParameterKind, ReviewState, StopReason, SupportRole,
+    MentionClass, Modality, ParameterKind, ReviewState, StopReason, SupportRole, UnfollowedReason,
 };
 use cpg_schema::findings::recipe::{self, AssertionKey};
 use cpg_schema::findings::{
@@ -1652,10 +1652,18 @@ pub async fn run(
                 } else {
                     String::new()
                 };
-                let why = match member(f, MemberRole::Reason).as_str() {
-                    "rebound" => "after it is rebound",
-                    "unmapped" => "unpacked, or where no single parameter takes it",
-                    _ => "inside an expression",
+                let reason = member(f, MemberRole::Reason);
+                let why = match UnfollowedReason::all().iter().find(|r| r.text() == reason) {
+                    Some(UnfollowedReason::Rebound) => "after it is rebound",
+                    Some(UnfollowedReason::Unmapped) => {
+                        "unpacked, or where no single parameter takes it"
+                    }
+                    Some(UnfollowedReason::Computed) => "inside an expression",
+                    None => {
+                        return Err(CoreError::Analysis(format!(
+                            "an unfollowed argument with no known reason ({reason:?})"
+                        )));
+                    }
                 };
                 let item = format!("`{target}`{via} ({why})");
                 if !items.contains(&item) {
