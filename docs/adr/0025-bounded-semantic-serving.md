@@ -18,6 +18,11 @@ user-supplied condition, and later definitions need implication. Precomputing ev
 query would be unbounded. Python must not independently reimplement the Rust condition semantics.
 The file-based generation and one embedding spec remain useful.
 
+The focused [entry-value bridge probe](../design_review/evidence/2026-09-24_entry-value-bridge/README.md)
+shows a direct guard reaching its formal, an explicit rebind reaching an assignment, and a
+post-call guard whose static reaching row still names the formal. Reaching alone therefore
+cannot certify the needed value stability across a call.
+
 ## Options
 
 1. **Precompute more combinations.** This is the simplest server change, but it cannot cover an
@@ -52,6 +57,11 @@ The file-based generation and one embedding spec remain useful.
   ids and effect-model digest. Its producer is the Rust flow/summary pass; initially it can
   certify only direct paths without calls or writes, then summaries can add modeled
   identity-preserving transfers. A merely pure transform does not establish value identity.
+  The direct proof needs the exact leaf-to-tested-use attribution, a unique entry-formal
+  reaching witness and an effect-checked path from entry to that use. The same formal appearing
+  in a reaching row after a callback is insufficient. Rebinding, an unknown reaching source or
+  an unmodeled effect withholds the link; any later call-crossing proof cites the specific
+  identity-preserving summary and effect-model revision.
   The shared publication validator recomputes referenced identities and rejects
   a leaf atom absent from its cited leaf row's condition support, missing/ambiguous bindings,
   alias uncertainty, an unmodeled call/write, mixed snapshots or a

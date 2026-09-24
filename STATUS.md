@@ -19,6 +19,7 @@ _Updated 2026-09-24 under the handoff skill. Work is on `main`; no push was requ
 | `CARGO_TARGET_DIR="$PWD/target" cargo run --locked --manifest-path docs/design_review/evidence/2026-09-24_bdd-pilot-survey/Cargo.toml -- build/store ecf8b9cdc11ebaf4c1dae61fa9b35dee` | passed: 13,775/13,775 stated conditions converted and validated in 0.97 s; p95 8, max 53 nodes per root; 23,760 unique node ids; one `SourceOverBudget` sentinel |
 | `cargo test -p cpg-flow --test flow_shapes --quiet` | passed: 28/28 existing Stage 2 flow shape checks; the read-only test-leaf join probe inspected pilot compound and fixture `match` cases |
 | `lctx query --store build/store --snapshot ecf8b9cdc11ebaf4c1dae61fa9b35dee` duplicate-`flow_uses.use_id` count | passed: 0 duplicate IDs in this pilot snapshot; source-use role remains unproved |
+| `target/release/lctx flow docs/design_review/evidence/2026-09-24_entry-value-bridge/probe.py` | passed: direct, rebind, post-call and nonlocal-write cases inspected; reaching alone does not establish cross-call value stability |
 | `just adr lint`; `just adr revisit`; `git diff --check` | passed: 25 ADR records, dependency revisit check, no whitespace errors |
 | `just check` for this design-only slice | not_run: operator chose ADRs and focused probes; the last broader gate is the `just test-all` result above |
 
@@ -31,4 +32,4 @@ _Updated 2026-09-24 under the handoff skill. Work is on `main`; no push was requ
 
 ## Next
 
-Probe exact source-use attribution for compound and synthetic pattern atoms against the proposed `flow_test_leaves` row contract; keep unproven mappings unknown. Then design the direct, call/write-blocked `flow_test_value_links` cases. Keep broad packaging gates for the later product checkpoint.
+Probe exact source-use attribution for compound and synthetic pattern atoms against the proposed `flow_test_leaves` row contract; keep unproven mappings unknown. Then implement only the reviewed direct/no-effect proof in the later product slice. Keep broad packaging gates for the later product checkpoint.

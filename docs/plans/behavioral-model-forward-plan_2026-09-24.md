@@ -369,6 +369,10 @@ boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for co
 - Its input is anchored to the operation's entry formal; a checked entry-to-test value/stability
   bridge is required before comparing with a persisted predicate. Missing bridges return
   `unknown`, and compatibility means may-model non-refutation, not concrete feasibility.
+- The focused [entry-value bridge probe](../design_review/evidence/2026-09-24_entry-value-bridge/README.md)
+  fixes the first producer cases: direct formal reach may link after exact operand and effect
+  checks; explicit rebind, unknown source or an unmodeled call/write withholds the link. A
+  post-call reaching row that still names the formal does not prove stability.
 - Supersede ADR-0010's lookup-only materialized executor. The Python FastMCP layer loads an
   in-process Rust/PyO3 semantic executor against one immutable generation. Typed compatibility,
   implication, effect/role filtering and bounded witness traversal may run at query time; row,
