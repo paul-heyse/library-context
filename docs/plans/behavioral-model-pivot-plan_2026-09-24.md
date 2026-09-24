@@ -1,5 +1,10 @@
 # Plan: the behavioral-model pivot
 
+> **Superseded (2026-09-24)** by
+> [`behavioral-model-forward-plan_2026-09-24.md`](behavioral-model-forward-plan_2026-09-24.md).
+> Stages 0–2 below are built; the forward plan carries their open follow-ups and Stages 3–5, and
+> integrates the external review's assessment. This document is kept as the record.
+
 **Source:** [`design_review_behavioral-model-pivot_2026-09-24.md`](../design_review/reviews/design_review_behavioral-model-pivot_2026-09-24.md)
 (deep review, decision **Revise**) of [`docs/behavioral_model_pivot.md`](../behavioral_model_pivot.md).
 **Date:** 2026-09-24. **Status:** Proposed. It is blocked on the operator decisions D-1 to D-9 (§4).
