@@ -628,6 +628,7 @@ pub async fn run(
     snapshot_id: Id,
     analysis: &Analysis,
     compiler: CompilerRun,
+    stages: &mut cpg_schema::metrics::Stages,
 ) -> Result<AnalysisRows, CoreError> {
     let config = &analysis.config;
     let spec = projection::invocation();
@@ -643,6 +644,7 @@ pub async fn run(
                 .is_some_and(|m| config.in_subsystem(m))
     });
     let mut rows = AnalysisRows::default();
+    stages.mark("analyze: projection");
     // Communities (§9.4): Leiden over the subsystem's invocation and co-use layers, at the
     // pre-registered resolutions and seeds; the consensus's communities cite it.
     let community_digest = cpg_schema::communities::digest();
@@ -664,6 +666,7 @@ pub async fn run(
     let preferred = lctx_analytics::communities::preferred_paths(&public)
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
     let techniques = analysis.techniques;
+    stages.mark("analyze: public callables");
     // E0 (§9.7; slice 3.1): the corpus passages and the subsystem's public APIs embedded through
     // the cache, in windows under the document cap, when kNN or the kNN layer reads them.
     let knn = neighbours::Params::preregistered();
@@ -752,6 +755,7 @@ pub async fn run(
             .collect();
         embedded = Some((embedder, apis, passages));
     }
+    stages.mark("analyze: embed (E0)");
     if techniques.communities {
         // A variant's extra layers (slice 3.2; §9.4): shared declared parameter types, doc
         // co-mentions (C5 O1) and API–API embedding neighbours.
@@ -902,6 +906,7 @@ pub async fn run(
         rows.findings.extend(outcome.findings);
         rows.members.extend(outcome.members);
     }
+    stages.mark("analyze: communities");
     // Direct usage (§9.5; the increment-2 review's U1): each public API's definite calls from the
     // official usage code.
     let usage_digest = ranking::usage_digest(spec.digest());
@@ -946,6 +951,7 @@ pub async fn run(
         diagnostics: Some(usage.diagnostics.clone()),
     });
     rows.findings.extend(usage.findings.iter().cloned());
+    stages.mark("analyze: direct usage");
     if techniques.pagerank {
         // Centrality (§9.5): PageRank over the usage projection; each public API's rank.
         let usage_digest = ranking::projection_digest(spec.digest());
@@ -999,6 +1005,7 @@ pub async fn run(
         });
         rows.findings.extend(ranked.findings);
     }
+    stages.mark("analyze: pagerank");
     // kNN (§9.7; slice 3.1): exact kNN links each API to its nearest passages and labels each
     // community by its centroid's nearest heading.
     if let (true, Some((embedder, apis, passages))) = (techniques.knn, &embedded) {
@@ -1062,6 +1069,7 @@ pub async fn run(
         rows.findings.extend(found.findings);
         rows.members.extend(found.members);
     }
+    stages.mark("analyze: kNN");
     // Seed selection (§9.4, §9.5; the increment-2 review's U1): the configured seeds, then, while
     // the brief budget allows, the eligible public APIs by rank (direct usage, or PageRank in its
     // variant), each community capped at its share (`lctx_analytics::selection`).
@@ -1216,6 +1224,7 @@ pub async fn run(
         ),
     });
     let resolved = resolve_seeds(ctx, &seeds).await?;
+    stages.mark("analyze: seed selection");
     // Two seeds naming one declaration would be one subject twice (ADR-0019 review F1): the
     // config is wrong, so the attempt stops and says which.
     let mut by_node: BTreeMap<Id, &str> = BTreeMap::new();
@@ -1283,6 +1292,7 @@ pub async fn run(
         rows.members.extend(result.members);
         rows.witnesses.extend(result.witnesses);
     }
+    stages.mark("analyze: Pass A");
     // Pass B (§9.2) over the declared flows and guards, from every seed.
     let flows_digest = cpg_schema::flows::digest();
     let flow_rows = collect(
@@ -1365,6 +1375,7 @@ pub async fn run(
         rows.members.extend(result.members);
         rows.witnesses.extend(result.witnesses);
     }
+    stages.mark("analyze: Pass B");
     // Pass C (§9.3): handoffs in the official usage code, from every seed.
     let handoffs = Handoffs::build(
         &collect(
@@ -1424,6 +1435,7 @@ pub async fn run(
         rows.findings.extend(result.findings);
         rows.members.extend(result.members);
     }
+    stages.mark("analyze: Pass C");
     // Concepts (§9.6): FCA of each seed's structural scope, the public APIs of the exported class
     // or module namespace that its access path names (`fastmcp.FastMCP` for
     // `fastmcp.FastMCP.tool`). A scope is its node (the increment-2 review's F1): paths naming
@@ -1651,6 +1663,7 @@ pub async fn run(
     }
     // Two seeds may reach the same finding only with different subjects, so ids are unique; the
     // key rules check it.
+    stages.mark("analyze: concepts");
     Ok(rows)
 }
 

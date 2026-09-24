@@ -450,11 +450,13 @@ async fn finish(
 
     // Stage E (ADR-0019): the analyses read the session, and their rows are written like any
     // other table's, one commit each.
+    // Each technique marks its own stage (the holistic assessment's D1).
     let found = match analysis {
-        Some((a, compiler)) => crate::analyze::run(&ctx, root, snapshot_id, a, compiler).await?,
+        Some((a, compiler)) => {
+            crate::analyze::run(&ctx, root, snapshot_id, a, compiler, &mut written.stages).await?
+        }
         None => AnalysisRows::default(),
     };
-    written.stages.mark("analyze (Pass A)");
     use cpg_schema::findings::{AnalysisInvocations, FindingMembers, Findings, Witnesses};
     write_analysis::<AnalysisInvocations>(
         &ctx,
