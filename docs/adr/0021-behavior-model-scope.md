@@ -52,14 +52,22 @@ B1).
   - a named `unknown` where the analysis stopped.
 
   Briefs remain as one rendering, for a curated subset (D-6).
-- **The universe** is `public_paths`. Every analysis runs per public callable; a seed traversal
+- **The universe** is `public_paths` under the config's public roots. Every analysis runs per
+  public callable, and its scan follows parameters into any release function; a seed traversal
   becomes a query.
+- **The subsystem scopes briefs only** (the standard review's F1): seed selection and the seed
+  passes behind briefs. On the pilot, 1,107 of the 1,534 public nodes lie outside its prefixes,
+  and the behavior model covers them.
 - **Unchanged:**
   - programmatic synthesis, with no generative model in the pipeline or the query path (§B11);
   - immutable, byte-identical generations (§B7, §B12);
   - one pinned generation per server process (§B13);
   - the gold is evaluation-only, never a compiler input;
-  - `analytics.toml` stays pre-registered and frozen; editing it needs an amendment to this ADR.
+  - **Every freeze ADR-0004 held is this ADR's** (the standard review's F3), with the disclosure
+    clause that an edit names the gold its author has seen. That covers `analytics.toml`, the
+    code parameters (communities, PageRank, FCA, kNN), the selection parameters and the variant
+    policies. They are recorded in `eval/gold/analytics-freeze.json`, and an edit to any of them
+    is an amendment to this ADR.
 - **The pilot** stays FastMCP 4.0.5 (`libraries/fastmcp`), with the same subsystem and analytics
   config ADR-0004 chose. It restates ADR-0004's evaluation-only gold rule and its review cadence
   (`deep` after increments 1, 3 and 5; `compact` after 2 and 4).
@@ -78,6 +86,15 @@ B1).
   stay a record for briefs.
 - **§9's technique rule** changes from "a named consumer in the brief" to "a named consumer in the
   served model": a tool's output or a brief.
+- **The keep criterion** (the standard review's F4; DESIGN §9.8).
+  - **Turned on by default** only if the structured evaluation of the stage that introduces the
+    variant's tool consumer shows three things:
+    - it supplies at least one target item, rated present or partial, that the default lacks;
+    - it introduces no item rated incorrect or misleading;
+    - it pushes no target operation or item out of a tool's first page.
+  - **Deleted by ADR,** with its tests and frozen parameters, if it has no tool consumer by the end
+    of increment 5, or fails the criterion at two consecutive stages.
+  - **Communities have no tool consumer today.**
 
 ## Consequences
 

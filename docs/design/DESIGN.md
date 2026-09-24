@@ -151,8 +151,10 @@ and alias analysis". Both are now in scope, as stated above.
 - **Gold reference.** The skill's reviewed capability families are used **only to evaluate**
   (§12). Nothing under `.claude/skills/` is ever a compiler input: acquisition fetches its own
   pinned artifacts, even when identical bytes exist in a skill's cache. Analytics parameters (§9)
-  are pre-registered. The gold serves only as the development metric for keeping or removing
-  techniques (§9.8), never for tuning parameters.
+  are pre-registered. The gold was the development metric for keeping or removing techniques
+  under ADR-0020's rule. Since ADR-0021, its scores (§12(a)–(c)) are a record of brief
+  retrieval, and a technique is judged by the structured evaluation (§9.8). The gold is never
+  used to tune parameters.
 - **One version.** The gold and the analysis name one FastMCP: `scripts/check_gold.py`
   (`just gold`, run by `just test-all`) fails when the skill's install line or its resolved release versions differ from
   `libraries/fastmcp`. The move from 4.0.3 is not cosmetic. The 4.0.3 → 4.0.5 source diff
@@ -163,8 +165,16 @@ and alias analysis". Both are now in scope, as stated above.
   reviewed claims are re-reviewed against it.
 - **Serving.** The agent interface runs on FastMCP from the project's own environment
   (ADR-0010), which today is also 4.0.5. That environment is never an analysis input.
-- **Unchanged by ADR-0021:** the pilot, the subsystem and analytics config, and the
-  evaluation-only gold.
+- **Unchanged by ADR-0021:** the pilot, the analytics config and the evaluation-only gold.
+- **The subsystem scopes briefs only** (ADR-0021, as revised by its standard review's F1): seed
+  selection and the seed passes behind briefs.
+  - The behavior model's universe is `public_paths` under the config's public roots: 1,534 nodes
+    on the pilot, 1,107 of them outside the subsystem's prefixes (Measured, 2026-09-24).
+  - Its scan follows parameters into any release function (§9's opening).
+- **Every freeze ADR-0004 held is ADR-0021's**, with the disclosure clause: an edit names the gold
+  its author has seen. That covers the config, the code parameters, the selection parameters and
+  the variant policies (`eval/gold/analytics-freeze.json`), and an edit to any of them is an
+  ADR-0021 amendment.
 
 > Decision: ADR-0021, ADR-0013
 
@@ -214,7 +224,7 @@ handoff) each have an end-to-end example. Each example must show:
     15–25 briefs: the primary seed's brief first for every alias of its family, with
     `just ranking-check <generation> vllm` exiting 0. It is re-run with live vectors at 3.3.
 
-In addition:
+**Still in force for briefs** (ADR-0021 keeps them as a rendering; D-6):
 - the §12 evaluation must have run;
 - no brief may reach publication by bypassing the analytics. A brief that is honestly explained
   by documentation alone is allowed, and is labelled that way.
@@ -294,7 +304,8 @@ rule can prove is stated in §8 (its edit guards counted apart).
 | leiden-rs | Community detection (§9.4), fed a normalized, sorted edge list |
 | Our own code | Weighted PageRank with convergence diagnostics (§9.5; petgraph's `page_rank` takes no weights, miscounts parallel arcs and reports no convergence: the library-leverage review, D1); formal and relational concept analysis (§9.6); condensation from `kosaraju_scc` membership (iterative; petgraph's `condensation` merges parallel edges) |
 
-- **Each algorithm has a named consumer in the brief** (§9).
+- **Each algorithm has a named consumer in the served model**, a tool's output or a brief (§9;
+  ADR-0021).
 - **A relationship does not need a graph algorithm** just because it has two endpoints.
 - **What runs by default is decided by the §9.8 keep rule** (ADR-0020, Measured 2026-09-23):
   Passes A–C, direct usage and selection. Communities (leiden-rs), FCA, kNN, PageRank, RCA and
@@ -410,7 +421,8 @@ Excluded in stage 1:
 - neural reranking;
 - graph embeddings.
 
-**Allowed:** text embeddings, and a *rebuildable* search projection of published briefs (§B12).
+**Allowed:** text embeddings, and a *rebuildable* search projection of the published generation
+(§B12): briefs and, from ADR-0021, operations.
 
 **Not a solver** (ADR-0022). The behavior model's closed condition language (§3.9) decides the
 compatibility of two conditions with a finite-domain evaluator: compatible, incompatible, or
@@ -453,9 +465,10 @@ compatibility of two conditions with a finite-domain evaluator: compatible, inco
   (ADR-0010 amendment, 2026-09-24; **Proposed**).
 - It reads files only: no Delta, no DataFusion, and no compiler code.
 - **Its executor** is pyarrow compute over **materialized** rows. No SQL string is built and
-  nothing recurses at serve time, results carry row caps, a `truncated` flag and cursors, and
-  predicate semantics are never re-implemented in Python. The condition evaluator's twin is held
-  to a shared known-answer corpus (§3.9).
+  nothing recurses at serve time. Results carry row caps, a `truncated` flag and cursors.
+  **No semantic decision is re-implemented in Python.** Compatibility that a question needs is
+  materialized at compile time. A serve-time condition filter would need its own ADR (the ADR
+  review's F12).
 
 > Decision: ADR-0010
 
@@ -473,8 +486,9 @@ compatibility of two conditions with a finite-domain evaluator: compatible, inco
   - A spec is one model, one vector space.
   - A view (signature and docstring, source body, and later others) is a template id and version
     inside the input's identity, and a column of the served vectors.
-  - `semantic:one-embedding-spec` holds per model, and two views of one operation have distinct
-    keys.
+  - `semantic:one-embedding-spec` holds as written, one spec per snapshot. The view is a column
+    of `operation_documents`. Two views with the same text share a vector, correctly, because one
+    text has one vector per spec.
 
 > Decision: ADR-0010
 
@@ -602,7 +616,7 @@ the semantics are in §3.9):
 
 | Family | Tables | Stage |
 |---|---|---|
-| `behavior` | Derived: Stage C/D declared SQL, persisted, one coverage row per public callable. First today's in-session relations: `argument_flows`, `guards`, `parameter_reads` and `handoffs` (`cpg_schema::flows`); then `delegations` (depth-1 call arcs with modality) and `control_fates` (per public operation parameter: forwarded to which formal, transformed, literal, unfollowed with a reason, or no read). From Stage 2, generalized over the flow IR: `value_flows`, `field_writes`/`field_reads`, `guards` by control dependence, `raises`, `handlers`, `callbacks`, `resources`, `ambient_reads` | 1, then 2 |
+| `behavior` | Derived: Stage C/D declared SQL, persisted, one coverage row per public callable. First today's in-session relations: `argument_flows`, `guards`, `parameter_reads` and `handoffs` (`cpg_schema::flows`); then `delegations` (depth-1 call arcs with modality) and `behaviors` with the control fates Pass B finds (per public operation parameter: forwarded to which formal, a literal supplied to a callee's formal, raises when, or unfollowed with a reason). **No negative fate:** Stage 1 sees parameter reads only at call arguments, so a parameter with no fate is `not_analyzed` for its other channels (stores, returns, tests), never "unused" (the ADR review's F2). From Stage 2, generalized over the flow IR: `value_flows`, `field_writes`/`field_reads`, `guards` by control dependence, `raises`, `handlers`, `callbacks`, `resources`, `ambient_reads` | 1, then 2 |
 | `flow` | CPG-constructing, from the flow-IR provider (§B5): `flow_defs`, `flow_uses`, `flow_reaching` (use → reaching definition, with a condition), `flow_exits`, `flow_regions`, `conditions`, `condition_atoms` | 2 |
 
 *Superseded:* "Deferred: CFG, dataflow and alias tables (§1.3, §13)". Flow and bounded places are
@@ -1089,7 +1103,7 @@ rules are generated from (DM-52).
 - a local name;
 - `self.f` or `self.f.g` (at most two fields below `self`);
 - a module global, settings singletons included (`fastmcp.settings.<field>`);
-- a ContextVar object;
+- a ContextVar object (from Stage 5, with the framework models that read it; the ADR review's F14);
 - an attribute of a function object (`fn.__fastmcp__`).
 
 Anything deeper, or reached through a subscript or a computed name, is a boundary
@@ -1107,7 +1121,17 @@ whichever provider builds the IR.
   exactly when their normal forms are. That is syntactic equivalence, and it is declared.
 - **Compatibility** of two conditions is decided by a finite-domain evaluator: **compatible**,
   **incompatible**, or **unknown** whenever an opaque atom decides. This is not a solver (§B10).
-- The Rust evaluator and its Python twin are held to `specs/serving/conditions.json`.
+- The evaluator is Rust, and it runs at compile time only. Known answers live in a Rust test and in
+  `specs/serving/conditions.json` for the day a serve-time consumer exists. There is no Python twin
+  (the ADR review's F12).
+- **Open until Stage 2's review** (ADR-0022 stays `proposed`; the ADR review's F5, F6, F9, F11):
+  - polarity and disjunction in the normal form, and the encoding of places and literals;
+  - whether a budget cut is `unknown` or `not_analyzed`, and a record's verdict under an opaque
+    condition;
+  - the refutation premise's region, and a `boundary_reason` for dynamic access;
+  - the relation of verdicts to `modality` and `evidence_status`;
+  - the flow provider's identity;
+  - the runtime view of the CPG layers the IR composes with.
 
 **Verdicts** (codebook `verdict`, append-only). Every behavioral answer carries exactly one, never
 a null:
@@ -2601,9 +2625,9 @@ review, the `+pagerank` variant's method:
   - reruns with the same `content_digest` give identical output.
 - **Ablation is mechanical.** Disable one technique and diff the published assertions, briefs
   and boundaries. This is a join on content IDs (§3.4.1).
-- **Keep rule.** Keep a technique only if it **changes published output and** improves the
-  pre-registered development metric (§12(b)) without lowering §12(a) or (c). Otherwise it is
-  removed by ADR.
+- **Keep rule (ADR-0020, for briefs; superseded by the criterion below).** Keep a technique only
+  if it **changes published output and** improves the pre-registered development metric
+  (§12(b)) without lowering §12(a) or (c).
 - **Unbiased check.** Using the gold for this choice makes it a development set. The unbiased
   check is the increment-5 held-out evaluation.
 - **Agent-based evaluation** is reserved for the raw-vs-compiled comparison (§12). *Superseded
@@ -2612,8 +2636,18 @@ review, the `+pagerank` variant's method:
 - **Under ADR-0021** (the ADR-0020 amendment, 2026-09-24):
   - A technique is judged by its consumer in the served model, through the pre-registered
     behavioral question sets. Brief retrieval (§12(b)) no longer decides.
-  - The holistic plan's deletion exit is paused. Communities, FCA and kNN stay as variants, with
-    new consumers in §9.9.
+  - The holistic plan's deletion exit is paused. Communities, FCA and kNN stay as variants.
+  - **The criterion** (ADR-0021, the ADR review's F4). A variant is turned on by default only if
+    the structured evaluation of the stage that introduces its tool consumer shows three things:
+    - it supplies at least one target item, rated present or partial, that the default lacks;
+    - it introduces no item rated incorrect or misleading;
+    - it does not push a target operation or item out of a tool's first page.
+  - **The exit.** A variant with no tool consumer by the end of increment 5, or that fails the
+    criterion at two consecutive stages, is deleted by ADR, with its tests and frozen
+    parameters.
+  - **Named consumers today:** FCA over behavioral attributes (facet suggestions, Stage 4) and
+    kNN vectors (`search_operations`' ranking, Stage 1, as views). **Communities have none**; no
+    tool takes or returns them.
 
 **The ablation, Measured in slice 3.3** (2026-09-23; ADR-0020; deviation log D42, D43). Every
 variant was compiled at budget 20 with live vectors, scored by `scripts/score_gold.py --embedder
@@ -2706,10 +2740,14 @@ over all 44 gold aliases:
   witness.
 - **Rules:**
   - every member cites a definition digest and a witness;
-  - SKOS integrity: one `prefLabel` per language; `broader` acyclic (a recursive CTE); `related`
+  - SKOS integrity: `broader` acyclic (a recursive CTE); `related`
     disjoint from the `broader` closure.
 - **Discovery nominates, definitions decide.** FCA over behavioral attributes suggests facets;
-  communities serve navigation; vectors per view rank. None of them writes `concept_members`.
+  vectors per view rank. Communities have no tool consumer (§9.8). None of them writes
+  `concept_members`.
+- **`lookup_concepts`** returns every concept with its labels and scope notes while the catalog is
+  small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
+  F14).
 
 > Decision: ADR-0022
 
@@ -2999,7 +3037,15 @@ template, dimensions, output dtype and normalization.
   space after `Query:`. Documents take no prefix.
 - **Document text** is the deterministic brief projection (IP L2666–L2689): outcome, applicable
   case (when one exists), public APIs, controls, usage description and limits, capped at 2,048
-  tokens. An over-long document is chunked at whole parts under its header, never truncated
+  tokens. From ADR-0021 it is also each public callable's **views** (`operation_documents`):
+  signature and docstring, and source body. Views are cut into windows of at most 4,096 bytes at
+  line ends, like E0's windows (§9.7), so they stay under the cap without a token count.
+  - **One spec for both** (the ADR review's F10). Documents take no prefix, so a spec hash
+    identifies one vector space for briefs and views alike.
+  - **One query instruction for now.** `search_operations` embeds its query with the spec's one
+    instruction, which names capability briefs. A per-tool instruction would change `spec_hash`,
+    and so every cached key. It waits for its trigger: the structured evaluation attributes
+    operation-search misses to the wording. An over-long document is chunked at whole parts under its header, never truncated
   (§10.3; the increment-2 review's F8).
   - The limits are the capability's own: Limits-section kinds other than `analysis_boundary`.
   - What the analysis did not follow (dependency and synthetic boundaries, unresolved sites, the
@@ -3085,8 +3131,9 @@ usage patterns, by deterministic lookup. It never depends on a second search.
 - Hybrid ranking with **real** vectors is 1.9's check. The fixture's fake vectors carry no
   meaning.
 
-**LanceDB.** LanceDB 0.39.0 (Python) is **deferred behind a trigger**: corpus above a few
-thousand briefs, or ANN / managed FTS needed.
+**LanceDB.** LanceDB 0.39.0 is **deferred behind §13's trigger**: more than ~10⁵ vectors at
+4,096 dimensions, or filtered ANN together with managed FTS. When it lands, it goes in an isolated
+workspace (the ADR-0002 amendment).
 - Its hybrid, FTS and RRF call chain is Interface-checked.
 - Its wheel isolates its own Arrow 58 / DataFusion 54, so it would not affect §B9.
 
@@ -3153,6 +3200,39 @@ thousand briefs, or ANN / managed FTS needed.
 All return objects with read-only annotations, and follow the error contract above. The executor
 is pyarrow over materialized rows (§B13).
 
+**Semantics** (the ADR review's F8):
+
+**`where`** is a conjunction of terms. Each term is one of:
+- `{facet, value}`: exact equality on an `operation_facets` row;
+- `{kind}`: function, method or class;
+- `{path_prefix}`.
+
+There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
+claims. Unknown facets and values are invalid params, and the error names the valid ones.
+
+**Two facet classes**, which decide what `complete` means:
+- **Declared facets** are stated by the release's text: `parameter`, `parameter_type`, `returns`,
+  `decorator`, `async`, `kind`, `module`, and `raises`, which means a `raise` directly in the body.
+  They are complete under the stated model, so a result over declared facets alone has
+  `complete = true`.
+- **Behavioral facets** are `forwards_to`, `delegates_to`, `hands_off_to` and `takes_from`. They
+  are found by bounded analysis. A result that filters on one has `complete = true` only when no
+  operation in the queried universe has an `unknown` row of that facet's kind:
+  - an unfollowed read, for `forwards_to`;
+  - a candidate (override-open) arc, for `delegates_to`.
+
+  The operations that break completeness are returned as `unknown`, capped at 50 with a count and
+  a flag.
+
+**`complete` is never "not truncated".** Truncation has its own flag.
+
+**Cursor and snapshot.** The cursor is opaque and binds the generation key, the request's canonical
+hash and an offset. A cursor from another generation or request is invalid params. Every result
+names its `snapshot_id`.
+
+**`explain`** returns the one derivation stored with the claim: a behavior row's site, its witness
+steps and the rule's name. It never reconstructs trees at request time (§1.3).
+
 > Decision: ADR-0010, ADR-0013
 
 ---
@@ -3172,8 +3252,9 @@ is pyarrow over materialized rows (§B13).
 `authoring_sha256`, `operations`, `task_aliases` and static-evidence spans. Scores:
 - (a) best-match Jaccard between each gold family's `operations` and the public members of the
   compiled briefs;
-- (b) hit@5 of `search_capabilities` on the gold `task_aliases`. This is the pre-registered
-  **development metric** for the §9.8 keep rule, never for parameter tuning;
+- (b) hit@5 of `search_capabilities` on the gold `task_aliases`. It was the pre-registered
+  **development metric** for ADR-0020's keep rule. Since ADR-0021 it is a record of brief
+  retrieval (§9.8), and it is never used for parameter tuning;
 - (c) recall of gold static-evidence spans by compiled evidence.
 
 **The matcher, version 2** (pre-registered 2026-09-24 in ADR-0010's amendment, before any rescore;

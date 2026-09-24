@@ -119,7 +119,7 @@ capability is absent.
   - `compact` at the end of a slice that adds or changes a fact family, extractor, projection or
     analytic
   - `standard` for an ADR that changes a §B decision
-  - at increment ends: `deep` after increments 1, 3 and 5, `compact` after 2 and 4 (ADR-0004)
+  - at increment ends: `deep` after increments 1, 3 and 5, `compact` after 2 and 4 (ADR-0021, carried over from ADR-0004)
 - **Findings** become an ADR, a test or `rules/` entry, or a Deferred row in the review.
 
 ## Git

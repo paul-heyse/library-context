@@ -1,5 +1,5 @@
 {
- "adr": "ADR-0004",
+ "adr": "ADR-0021",
  "community_parameters": "fa465073c42edda7128d2f314cad6a7e4381ca18e8ad88d1a5bfa5c1a10b4970",
  "fca_parameters": "a0100e5477d064cb4a503c0313e86584d7e0ed372e701fcc46e636c6b969c53b",
  "frozen": "2026-09-23",
@@ -10,6 +10,7 @@
  "parameters_note": "The community, PageRank, FCA and kNN parameters are code (deviation log D28, D29, D32, D35), frozen here by the digest of their canonical JSON (communities and PageRank from the ADR-0011 review's fixes, FCA from slice 2.5, kNN from slice 3.1; 2026-09-23), before the first gold scoring (3.3). lctx-analytics' the_parameters_match_their_gold_freeze checks them; an edit is an ADR-0004 amendment, like the config's.",
  "selection_note": "Stage E's and Stage F's choices (lctx_analytics::selection::Params: the selection rule and its community share, the direct-usage policy, the shared-signature floor and name cap, the implication and Related caps), frozen on 2026-09-23 after the increment-2 review's U1 and U2 (F7). The first gold scoring (3.3 groundwork, generation 91828e4c) ran with nothing selected (budget = seeds); its briefs carried the pre-U2 Applicable-case and Related lines. U1 and U2 follow the review's recommendations, which the reviewer made without gold, not a score (deviation log D37, D38). An edit is an ADR-0004 amendment.",
  "selection_parameters": "cdee134632527c50b75b3de2b28588ffb1585833e8a10003e80ed6f262c76882",
+ "supersession_note": "Since 2026-09-24 ADR-0021 (superseding ADR-0004) holds every freeze here, with the disclosure clause: an edit is an ADR-0021 amendment naming the gold its author has seen. The notes above say ADR-0004 because they were written before the supersession.",
  "variant_note": "The slice 3.2 variants' policies (RCA's scaling, the type, mention and kNN layers, the equal-weight rule; lctx_analytics::communities::variant_policies), frozen on 2026-09-23 before any variant was scored (deviation log D41). An edit is an ADR-0004 amendment.",
  "variant_policies": "e005aa1b58541fe26c7ff3b0cf6572ab6c56685d08519fa3466419f40115d212"
 }

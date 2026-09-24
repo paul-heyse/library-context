@@ -61,6 +61,17 @@ def main() -> int:
     # (ADR-0004 amendment, increment-1 deep review O1): an edit is an ADR amendment, then a new
     # recorded digest.
     freeze = json.loads((ROOT / "eval" / "gold" / "analytics-freeze.json").read_text())
+    # The freeze answers to an active record (the ADR set's standard review, F3): never a
+    # superseded or rejected one.
+    record = next((ROOT / "docs" / "adr").glob(f"{freeze['adr'][4:]}-*.md"), None)
+    status = None
+    if record is not None:
+        for line in record.read_text(encoding="utf-8").splitlines():
+            if line.startswith("status:"):
+                status = line.split(":", 1)[1].strip()
+                break
+    if status not in ("accepted", "proposed"):
+        found.append(f"the freeze names {freeze['adr']}, whose status is {status}")
     for path, digest in freeze.items():
         if path.endswith(".toml"):
             actual = hashlib.sha256((ROOT / path).read_bytes()).hexdigest()

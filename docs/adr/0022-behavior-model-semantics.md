@@ -49,6 +49,8 @@ semantics must close:
     parity rule, or our own builder. It is recorded here by amendment. Pyrefly's binding graph is
     a parity oracle only.
 - **Conditions are data in a closed language.**
+  - **Places:** ContextVar places land with Stage 5's framework models, which read them, not in
+    Stage 2 (the standard review's F14).
   - **Atoms over places:** `is None`, `is not None`, `== literal`, `in {literals}`, truthiness,
     `isinstance(C)`. Anything else is an **opaque** atom.
   - **Normal form:** sorted conjuncts of normalized atoms. Two conditions are equal when their
@@ -56,8 +58,10 @@ semantics must close:
   - **Compatibility of two conditions** is decided by a finite-domain evaluator as
     **compatible**, **incompatible** or **unknown**. It is unknown whenever an opaque atom
     decides.
-  - This is not a constraint solver (§B10 unchanged). The Rust evaluator and its Python twin are
-    held to one shared known-answer corpus.
+  - This is not a constraint solver (§B10 unchanged).
+  - **The evaluator is Rust and runs at compile time only.** There is no Python twin (the standard
+    review's F12): no tool takes a condition, and compatibility that a question needs is
+    materialized. A serve-time condition filter would need its own ADR.
 - **Five verdicts, never a null.** Codebook `verdict`, append-only:
 
   | Verdict | When |
@@ -78,8 +82,18 @@ semantics must close:
     substitution, conditions and exception handling. A call alone never propagates a capability.
 - **Materialized at compile time.** Every predicate, summary and concept membership is computed in
   the compile, in DataFusion or in `lctx-analytics` kernels, before publication. The server never
-  re-implements predicate semantics; only the condition evaluator has a twin, held to the shared
-  corpus.
+  re-implements a semantic decision.
+- **Open until the start of Stage 2** (the standard review's F5, F6, F9, F11). They are decided
+  after the provider spike, with a `standard` review, and this ADR stays `proposed` until then:
+  - polarity and disjunction in the normal form, and the encoding of places and literals;
+  - whether a budget cut is `unknown` or `not_analyzed`, and a record's verdict under an opaque
+    condition;
+  - the refutation premise's region, and a `boundary_reason` for dynamic access;
+  - the relation of verdicts to `modality` and `evidence_status`;
+  - the flow provider's revision and settings in `producer_id` and `context_id`, and the
+    registry's labels in identity;
+  - the runtime view of the CPG layers the IR composes with (the exports seed and Pysa's call
+    graph).
 
 ## Consequences
 

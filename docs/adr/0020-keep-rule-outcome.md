@@ -112,3 +112,5 @@ margin, and none is added after the fact: that would tune the rule on the scores
     deleted a technique that fails the rule. Communities, FCA and kNN get new consumers (ADR-0011's
     amendment), so they stay as variants.
   - The record stays `proposed` until those consumers are evaluated.
+- 2026-09-24, the ADR set's standard review (F4): the criterion that replaces this rule, and its
+  exit, are ADR-0021's. A variant is judged at the stage that introduces its tool consumer.

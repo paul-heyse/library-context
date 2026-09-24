@@ -212,3 +212,8 @@ The header's `evidence: Interface-checked` is the record's floor: FCA is still o
 
     RCA, when it returns, runs over behavioral contexts at the declared least fixed point
     (Euzenat 2025). None of them writes concept membership.
+- 2026-09-24, the ADR set's standard review (F4): **communities have no tool consumer.**
+  - This corrects the amendment above's "communities for navigation".
+  - They stay an off-by-default variant under ADR-0021's criterion and exit.
+  - FCA over behavioral attributes (facet suggestions) and vectors per view (ranking) are the named
+    consumers.

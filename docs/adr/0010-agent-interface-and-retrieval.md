@@ -244,3 +244,15 @@ all passed):
   maintained continuation of `httpx`, with the same API under `import httpx2`. FastMCP 4.0.5
   already depends on it, so the server's lock drops `httpx` 0.28.1. The request bytes are
   unchanged (`content=`, never `json=`), and the conformance tests pass as before.
+- 2026-09-24, the ADR set's standard review (F8, F10, F12):
+  - **`find_operations`.**
+    - `where` is a conjunction of facet equalities, `kind` and `path_prefix`, with no negation.
+    - `complete` is true for declared facets. For a behavioral facet it is true only when no
+      operation in the queried universe has an `unknown` row of that kind; those operations are
+      returned, capped at 50.
+    - The cursor binds the generation key, the request's hash and an offset.
+  - **`explain`** returns the stored derivation only.
+  - **The spec.** One spec covers briefs and operation views, and `search_operations` uses its one
+    query instruction until a trigger justifies a per-tool one.
+  - **No Python condition evaluator.** This corrects the amendment above. No tool takes a
+    condition.

@@ -541,3 +541,30 @@ Details and versions are in review §8.3.
   (D-9).
 - `analytics.toml` is frozen; editing it needs an ADR-0004 amendment, which becomes an amendment to
   its successor.
+
+## 15. Amendments after the Stage 0 standard review (2026-09-24)
+
+The ADR set's standard review (`design_review_behavioral-model-adrs_2026-09-24.md`) changes the
+plan as follows. Its §12 has the full disposition.
+
+**Stage 1**
+- The scan covers `public_paths` into any release function; the subsystem scopes briefs only (F1).
+- Stage 1 emits no negative fate. A parameter with no fate is `not_analyzed` for its other
+  channels (F2).
+- `find_operations` follows DESIGN §11.3's semantics: conjunction only, two facet classes, a
+  capped `unknown` list, a bound cursor (F8).
+- `search_operations` uses the spec's one query instruction (F10).
+
+**Stage 2**
+- There is no Python condition evaluator (F12).
+- ContextVar places move to Stage 5 (F14).
+- It begins by deciding F5, F6, F9 and F11 after the provider spike, with a `standard` review.
+
+**Stage 4**
+- No per-language SKOS rule.
+- `lookup_concepts` lists every concept while the catalog is small (F14).
+
+**Reviews.** Where a stage review and an increment review coincide (Stages 1, 3 and 5), one review
+at the increment's depth covers both (F14).
+
+**The keep criterion and exit** are in ADR-0021 and DESIGN §9.8 (F4).
