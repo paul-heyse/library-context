@@ -1,0 +1,59 @@
+//! The extraction boundary must pass our lexical import resolution to the independent ty flow
+//! provider. The provider's direct tests supply spans; this test checks the real join.
+
+mod common;
+
+use std::collections::HashMap;
+
+use common::{cell, fixture, run};
+
+#[test]
+fn flow_runtime_decisions_follow_lexical_imports() {
+    let (_dir, out) = run("flow_shapes");
+    let source =
+        std::fs::read_to_string(fixture("flow_shapes").join("release/flowpkg/shapes.py")).unwrap();
+    let conditions = out.table("conditions").unwrap();
+    let encodings: HashMap<String, String> = (0..conditions.num_rows())
+        .map(|i| {
+            (
+                cell(conditions, "condition_id", i),
+                cell(conditions, "encoding", i),
+            )
+        })
+        .collect();
+    let regions = out.table("flow_regions").unwrap();
+    let condition_at = |function: &str, statement: &str| {
+        let start = source.find(function).unwrap();
+        let byte = start + source[start..].find(statement).unwrap();
+        let row = (0..regions.num_rows())
+            .find(|&i| cell(regions, "start_byte", i) == byte.to_string())
+            .unwrap_or_else(|| panic!("no region at {statement}"));
+        encodings[&cell(regions, "condition_id", row)].clone()
+    };
+    assert!(
+        condition_at("def choose", "return \"parameter\"").starts_with("truthy(TYPE_CHECKING)#")
+    );
+    assert!(
+        condition_at("def config_check", "return \"ordinary attribute\"")
+            .starts_with("truthy(config.TYPE_CHECKING)#")
+    );
+    assert_eq!(
+        condition_at("def checking_alias", "return \"checker only\""),
+        "false"
+    );
+    assert_eq!(
+        condition_at("def checking_module_alias", "return \"checker only\""),
+        "false"
+    );
+    assert_eq!(condition_at("def version_prefix", "above = True"), "true");
+    assert_eq!(
+        condition_at("def version_prefix", "at_most = True"),
+        "false"
+    );
+    let coverage = out.table("coverage").unwrap();
+    assert!((0..coverage.num_rows()).any(|i| {
+        let detail = cell(coverage, "detail", i);
+        detail.contains("skipped_reaching_runtime_view=")
+            && detail.contains("skipped_value_branches_runtime_view=")
+    }));
+}

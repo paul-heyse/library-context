@@ -634,6 +634,7 @@ condition_atom
   3 truthy
   4 isinstance
   5 opaque
+  6 is_value
 flow_sink
   0 definition
   1 argument

@@ -3,6 +3,8 @@
 import os
 import sys
 from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as TC
+import typing as typing_alias
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -208,3 +210,159 @@ def alias_fallback(stateless=None, stateless_http=None):
     if stateless_http is None:
         stateless_http = settings.stateless
     return stateless_http
+
+
+def two_calls(probe):
+    if probe():
+        if not probe():
+            return "second call changed"
+    return "other"
+
+
+def two_ranges(n, m):
+    found = -1
+    for i in range(n):
+        found = i
+    for j in range(m):
+        found = j
+    return found
+
+
+def mutated(self):
+    if self.x is None:
+        self.reset()
+        if self.x is not None:
+            return "mutated"
+    return "other"
+
+
+def cleared(items):
+    if items:
+        items.clear()
+        if not items:
+            return "cleared"
+    return "other"
+
+
+def eq_vs_is(x):
+    if x == True:
+        if x is not True:
+            return "equal, not identical"
+    return "other"
+
+
+def eq_none(x):
+    if x == None:
+        if x is not None:
+            return "equal, not identical"
+    return "other"
+
+
+def same_line_bindings(x, y):
+    if x is None:
+        x = y; x = None
+    if x is None:
+        return x
+    return y
+
+
+def merged_definitions(x, choose):
+    if choose:
+        x = None
+    if x is None:
+        return "merge"
+    return "other"
+
+
+def choose(TYPE_CHECKING):
+    if TYPE_CHECKING:
+        return "parameter"
+    return "other"
+
+
+def checking_alias():
+    if TC:
+        return "checker only"
+    return "runtime"
+
+
+def checking_module_alias():
+    if typing_alias.TYPE_CHECKING:
+        return "checker only"
+    return "runtime"
+
+
+def config_check(config):
+    if config.TYPE_CHECKING:
+        return "ordinary attribute"
+    return "other"
+
+
+def version_prefix():
+    if sys.version_info > (3, 14):
+        above = True
+    else:
+        above = False
+    if sys.version_info >= (3, 14):
+        at_least = True
+    else:
+        at_least = False
+    if sys.version_info <= (3, 14):
+        at_most = True
+    else:
+        at_most = False
+    if sys.version_info == (3, 14):
+        equal = True
+    else:
+        equal = False
+    return above, at_least, at_most, equal
+
+
+def version_micro_prefix():
+    if sys.version_info > (3, 14, 7):
+        above_micro = True
+    else:
+        above_micro = False
+    if sys.version_info <= (3, 14, 7):
+        at_most_micro = True
+    else:
+        at_most_micro = False
+    if sys.version_info == (3, 14, 7):
+        equal_micro = True
+    else:
+        equal_micro = False
+    return above_micro, at_most_micro, equal_micro
+
+
+def rebound_isinstance_class(x):
+    C = int
+    if isinstance(x, C):
+        C = str
+        if not isinstance(x, C):
+            return "rebound class"
+    return "other"
+
+
+def non_singleton_identity(x):
+    if x is 1000:
+        if x is not 1000:
+            return "different literal object"
+    return "other"
+
+
+def nonlocal_change():
+    x = None
+
+    def change():
+        nonlocal x
+        x = 1
+
+    if x is None:
+        change()
+        if x is not None:
+            return "changed nonlocal"
+    return "other"
+
+
+def value_runtime_branch(x, y):
+    return x if TYPE_CHECKING else y

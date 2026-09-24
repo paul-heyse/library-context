@@ -1277,6 +1277,8 @@ codebook!(
         IsInstance = 4 => "isinstance",
         /// Any other test, as its source text.
         Opaque = 5 => "opaque",
+        /// `p is v` for a literal `v` (negated: `p is not v`).
+        IsValue = 6 => "is_value",
     }
 );
 

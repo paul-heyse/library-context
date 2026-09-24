@@ -26,10 +26,11 @@
 mod db;
 mod predicate;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub use cpg_schema::codebook::{BindingKind, LexicalScopeKind};
 pub use cpg_schema::condition::Condition;
+use cpg_schema::id::IdHasher;
 use ruff_db::files::system_path_to_file;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
 use ruff_db::system::DbWithWritableSystem;
@@ -37,6 +38,7 @@ use ruff_python_ast_ty::token::TokenKind;
 use ruff_python_ast_ty::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
 use ruff_python_ast_ty::{self as ast, AnyNodeRef, Expr, ExprContext, PySourceType, Stmt};
 use ruff_text_size_ty::{Ranged, TextRange};
+use serde::{Deserialize, Serialize};
 use ty_python_core::ast_ids::HasScopedUseId;
 use ty_python_core::definition::{Definition, DefinitionKind, DefinitionState};
 use ty_python_core::place::PlaceExpr;
@@ -47,7 +49,7 @@ use ty_python_core::scope::{NodeWithScopeKind, NodeWithScopeRef};
 use ty_python_core::{FileScopeId, ProgramFile, UseDefMap, semantic_index};
 
 use crate::db::FlowDb;
-use crate::predicate::{Translator, diagram};
+use crate::predicate::{Translator, diagram, runtime_in_diagram, synthetic_identity};
 
 /// The provider, as `producers.revision` names it (ADR-0022 §Identity).
 pub const PROVIDER: &str = "ty_python_core 0.0.14 (ruff 0.0.14, salsa 0.28.2)";
@@ -67,10 +69,22 @@ pub struct RuntimeContext {
 pub struct Input {
     pub path: String,
     pub text: String,
+    /// Name-load spans whose lexical resolution proves a runtime-special binding.
+    pub runtime: RuntimeBindings,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RuntimeBindings {
+    pub checking_names: BTreeSet<Span>,
+    pub typing_modules: BTreeSet<Span>,
+    pub sys_modules: BTreeSet<Span>,
+    pub os_modules: BTreeSet<Span>,
 }
 
 /// A byte span of the module's text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Span {
     pub start: u32,
     pub end: u32,
@@ -194,6 +208,42 @@ pub struct ModuleFlow {
     /// other family's do.
     pub syntax_errors: usize,
     pub error: Option<String>,
+    /// Counted branches discarded because their translated condition is `false`.
+    pub skips: SkipCounts,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SkipCounts {
+    pub reaching_ty_false: u32,
+    pub reaching_runtime_view: u32,
+    pub reaching_stable_contradiction: u32,
+    /// These count candidate value-source branches, before expansion into uses.
+    pub values_runtime_view: u32,
+    pub values_stable_contradiction: u32,
+}
+
+#[derive(Clone, Copy)]
+enum SkipCause {
+    Ty,
+    Runtime,
+    Stable,
+}
+
+impl SkipCounts {
+    fn reach(&mut self, cause: SkipCause) {
+        match cause {
+            SkipCause::Ty => self.reaching_ty_false += 1,
+            SkipCause::Runtime => self.reaching_runtime_view += 1,
+            SkipCause::Stable => self.reaching_stable_contradiction += 1,
+        }
+    }
+
+    fn value(&mut self, cause: SkipCause) {
+        match cause {
+            SkipCause::Runtime => self.values_runtime_view += 1,
+            SkipCause::Ty | SkipCause::Stable => self.values_stable_contradiction += 1,
+        }
+    }
 }
 
 /// Rename every `TYPE_CHECKING` name token to [`SENTINEL`] (ADR-0022 §The flow provider).
@@ -252,7 +302,21 @@ pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
         .zip(prepared)
         .map(|(input, prepared)| {
             let result = prepared.and_then(|(path, n)| {
-                module(&db, program, &path, &input.text, context).map(|flow| (flow, n))
+                let module_key = IdHasher::new("flow-evaluation-module")
+                    .str(&input.path)
+                    .str(&input.text)
+                    .finish_id()
+                    .hex();
+                module(
+                    &db,
+                    program,
+                    &path,
+                    &input.text,
+                    &module_key,
+                    &input.runtime,
+                    context,
+                )
+                .map(|flow| (flow, n))
             });
             match result {
                 Ok((flow, n)) => ModuleFlow {
@@ -275,6 +339,8 @@ fn module(
     program: Program<'_>,
     path: &str,
     original: &str,
+    module_key: &str,
+    runtime: &RuntimeBindings,
     context: &RuntimeContext,
 ) -> Result<ModuleFlow, String> {
     let file = system_path_to_file(db, path).map_err(|e| e.to_string())?;
@@ -287,9 +353,8 @@ fn module(
         module: &parsed,
         original,
         context,
-        index,
-        pf,
-        versions: Default::default(),
+        runtime,
+        module_key: module_key.to_owned(),
     };
     let mut w = Walk {
         db,
@@ -301,6 +366,7 @@ fn module(
         use_of: HashMap::new(),
         def_of: HashMap::new(),
         diagrams: HashMap::new(),
+        runtime_diagrams: HashMap::new(),
         regions: HashMap::new(),
         in_annotation: false,
     };
@@ -335,7 +401,7 @@ fn module(
     for scope in index.scope_ids() {
         let fid = scope.file_scope_id(db);
         let Some(sc) = w.scope(fid) else { continue };
-        for p in index.use_def_map(fid).predicates().iter() {
+        for (predicate_id, p) in index.use_def_map(fid).predicates().iter_enumerated() {
             let (span, condition) = match &p.node {
                 PredicateNode::Expression(x)
                 | PredicateNode::Condition(x)
@@ -345,7 +411,8 @@ fn module(
                 }
                 PredicateNode::Pattern(pattern) => {
                     let subject = pattern.subject(db).node_ref(db).node(&parsed);
-                    let mut c = t.pattern(subject, pattern.kind(db));
+                    let evaluation = synthetic_identity(module_key, fid, predicate_id);
+                    let mut c = t.pattern(subject, pattern.kind(db), &evaluation);
                     if let Some(guard) = pattern.guard(db) {
                         c = c.and(&t.test(guard.node_ref(db).node(&parsed)));
                     }
@@ -379,6 +446,7 @@ struct Walk<'a, 'db> {
     use_of: HashMap<Span, u32>,
     def_of: HashMap<Definition<'db>, Option<u32>>,
     diagrams: HashMap<FileScopeId, HashMap<ScopedReachabilityConstraintId, Condition>>,
+    runtime_diagrams: HashMap<FileScopeId, HashMap<ScopedReachabilityConstraintId, bool>>,
     /// Per scope, its range-reachability entries in recording order.
     regions: HashMap<FileScopeId, Vec<(TextRange, Condition)>>,
     /// The visitor is inside an annotation.
@@ -565,7 +633,19 @@ impl<'db> Walk<'_, 'db> {
     fn condition(&mut self, fid: FileScopeId, id: ScopedReachabilityConstraintId) -> Condition {
         let map = self.index.use_def_map(fid);
         let memo = self.diagrams.entry(fid).or_default();
-        diagram(self.t, map, memo, id)
+        diagram(self.t, fid, map, memo, id)
+    }
+
+    fn skip_cause(&mut self, fid: FileScopeId, id: ScopedReachabilityConstraintId) -> SkipCause {
+        if id == ScopedReachabilityConstraintId::ALWAYS_FALSE {
+            return SkipCause::Ty;
+        }
+        let memo = self.runtime_diagrams.entry(fid).or_default();
+        if runtime_in_diagram(self.t, self.index.use_def_map(fid), memo, id) {
+            SkipCause::Runtime
+        } else {
+            SkipCause::Stable
+        }
     }
 
     /// Record a use and the definitions reaching it.
@@ -599,6 +679,8 @@ impl<'db> Walk<'_, 'db> {
         for (state, reach) in bindings {
             let condition = self.condition(fid, reach);
             if condition.is_never() {
+                let cause = self.skip_cause(fid, reach);
+                self.flow.skips.reach(cause);
                 continue;
             }
             match state {
@@ -685,16 +767,24 @@ impl<'db> Walk<'_, 'db> {
     }
 
     /// The value sources of `e` (see the crate docs).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "source traversal carries its sink, path, and skip provenance"
+    )]
     fn sources(
         &mut self,
         sink: Sink,
         sink_span: Span,
         e: &Expr,
         cond: &Condition,
+        false_cause: Option<SkipCause>,
         identity: bool,
         through_call: bool,
     ) {
         if cond.is_never() {
+            self.flow
+                .skips
+                .value(false_cause.unwrap_or(SkipCause::Stable));
             return;
         }
         match e {
@@ -714,11 +804,35 @@ impl<'db> Walk<'_, 'db> {
                 // The receiver or container is read to compute the value.
                 match e {
                     Expr::Attribute(a) => {
-                        self.sources(sink, sink_span, &a.value, cond, false, through_call);
+                        self.sources(
+                            sink,
+                            sink_span,
+                            &a.value,
+                            cond,
+                            false_cause,
+                            false,
+                            through_call,
+                        );
                     }
                     Expr::Subscript(s) => {
-                        self.sources(sink, sink_span, &s.value, cond, false, through_call);
-                        self.sources(sink, sink_span, &s.slice, cond, false, through_call);
+                        self.sources(
+                            sink,
+                            sink_span,
+                            &s.value,
+                            cond,
+                            false_cause,
+                            false,
+                            through_call,
+                        );
+                        self.sources(
+                            sink,
+                            sink_span,
+                            &s.slice,
+                            cond,
+                            false_cause,
+                            false,
+                            through_call,
+                        );
                     }
                     _ => {}
                 }
@@ -726,9 +840,38 @@ impl<'db> Walk<'_, 'db> {
             Expr::If(i) => {
                 let test = self.t.test(&i.test);
                 let (body, orelse) = (cond.and(&test), cond.and(&test.not()));
-                self.sources(sink, sink_span, &i.body, &body, identity, through_call);
-                self.sources(sink, sink_span, &i.orelse, &orelse, identity, through_call);
-                self.sources(sink, sink_span, &i.test, cond, false, through_call);
+                let cause = if self.t.runtime_decides(&i.test) {
+                    Some(SkipCause::Runtime)
+                } else {
+                    false_cause
+                };
+                self.sources(
+                    sink,
+                    sink_span,
+                    &i.body,
+                    &body,
+                    cause,
+                    identity,
+                    through_call,
+                );
+                self.sources(
+                    sink,
+                    sink_span,
+                    &i.orelse,
+                    &orelse,
+                    cause,
+                    identity,
+                    through_call,
+                );
+                self.sources(
+                    sink,
+                    sink_span,
+                    &i.test,
+                    cond,
+                    false_cause,
+                    false,
+                    through_call,
+                );
             }
             Expr::BoolOp(b) => {
                 // `a or b`: `a` when truthy, else `b`; `a and b`: `a` when falsy, else `b`.
@@ -745,7 +888,15 @@ impl<'db> Walk<'_, 'db> {
                         }
                     };
                     let here = cond.and(&here);
-                    self.sources(sink, sink_span, v, &here, identity, through_call);
+                    self.sources(
+                        sink,
+                        sink_span,
+                        v,
+                        &here,
+                        false_cause,
+                        identity,
+                        through_call,
+                    );
                     before = match b.op {
                         ast::BoolOp::Or => before.and(&truth.not()),
                         ast::BoolOp::And => before.and(&truth),
@@ -753,7 +904,15 @@ impl<'db> Walk<'_, 'db> {
                 }
             }
             Expr::Named(n) => {
-                self.sources(sink, sink_span, &n.value, cond, identity, through_call);
+                self.sources(
+                    sink,
+                    sink_span,
+                    &n.value,
+                    cond,
+                    false_cause,
+                    identity,
+                    through_call,
+                );
             }
             _ => {
                 // Computed: each sub-expression's uses, derived, under the conditions nested
@@ -761,7 +920,15 @@ impl<'db> Walk<'_, 'db> {
                 // a call is through it.
                 let through_call = through_call || matches!(e, Expr::Call(_));
                 for child in children(e) {
-                    self.sources(sink, sink_span, child, cond, false, through_call);
+                    self.sources(
+                        sink,
+                        sink_span,
+                        child,
+                        cond,
+                        false_cause,
+                        false,
+                        through_call,
+                    );
                 }
             }
         }
@@ -797,6 +964,7 @@ impl Visitor<'_, '_, '_> {
             e.range().into(),
             e,
             &Condition::always(),
+            None,
             identity,
             false,
         );
@@ -917,6 +1085,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                     a.value.range().into(),
                     &a.target,
                     &Condition::always(),
+                    None,
                     false,
                     false,
                 );
@@ -981,6 +1150,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                             a.range().into(),
                             &s.value,
                             &Condition::always(),
+                            None,
                             false,
                             false,
                         ),

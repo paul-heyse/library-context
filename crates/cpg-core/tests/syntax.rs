@@ -1765,7 +1765,9 @@ async fn all_techniques_guard() {
     // delegations), then Stage 2's evaluation (deviation B15: `flow_values.through_call` and
     // `value_flows.through_call`, `call_transfer`, the extractor output version), then the Stage 2
     // end review (`flow_tests`, `flow_attribute_loads`, `raise_sites.escapes`, `abstract_body`,
-    // the extractor output version). The analysis ledger (Stage E/F's own output) did not move.
-    const GUARD: &str = "f55cbc210471d7e5a33423bd31c001ca5a0f1f5a2d702985ee5d006b18adcc85";
+    // the extractor output version), then Stage 2.9's evaluation identity and resolved runtime
+    // view (`condition_atom.is_value`, `EXTRACTOR_OUTPUT_VERSION` 23). The analysis ledger (Stage
+    // E/F's own output) did not move.
+    const GUARD: &str = "6d68c9648cb09f7e8d98e2bf385b6c3ecd33fbeeb777d4c0192bed3fdccbec6d";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }

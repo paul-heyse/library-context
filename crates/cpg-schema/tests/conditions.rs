@@ -43,7 +43,7 @@ const NORMAL: &[(&str, &str)] = &[
         "member_of(t,{\"sse\",\"http\",\"sse\"})",
         "member_of(t,{\"http\",\"sse\"})",
     ),
-    ("member_of(t,{\"x\"})", "equals(t,\"x\")"),
+    ("member_of(t,{\"x\"})", "member_of(t,{\"x\"})"),
     (
         "opaque(\"f(x)  and g\") & truthy(y)",
         "opaque(\"f(x) and g\") & truthy(y)",

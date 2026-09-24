@@ -90,7 +90,34 @@ async fn table(ctx: &SessionContext, statement: &str) -> String {
         .collect()
         .await
         .unwrap();
-    pretty_format_batches(&batches).unwrap().to_string()
+    readable_conditions(&pretty_format_batches(&batches).unwrap().to_string())
+}
+
+/// Most of these known answers assert the condition's readable predicate and verdict. The flow
+/// tests and schema snapshots assert the new identity-bearing persisted encoding separately.
+fn readable_conditions(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('#') {
+        out.push_str(&rest[..at]);
+        let suffix = &rest[at + 1..];
+        let identity = suffix.get(..33).is_some_and(|prefix| {
+            prefix.as_bytes()[..32].iter().all(u8::is_ascii_hexdigit)
+                && prefix.as_bytes()[32] == b':'
+        });
+        if !identity {
+            out.push('#');
+            rest = suffix;
+            continue;
+        }
+        let len = suffix
+            .bytes()
+            .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b',' | b'-'))
+            .count();
+        rest = &suffix[len..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// An operation's status and first boundary, by preferred path.

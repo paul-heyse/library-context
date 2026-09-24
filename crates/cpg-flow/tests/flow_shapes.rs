@@ -5,7 +5,34 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use cpg_flow::{BindingKind, Input, ModuleFlow, RuntimeContext, Sink};
+use cpg_flow::{BindingKind, Input, ModuleFlow, RuntimeBindings, RuntimeContext, Sink, Span};
+use cpg_schema::condition::{Atom, Condition};
+
+/// These older behavioral assertions inspect readable labels. The pinned snapshot below retains
+/// the full identity-bearing encoding; dedicated cases assert identity itself.
+fn labels(c: &Condition) -> String {
+    match c {
+        Condition::OverBudget => "over_budget".to_owned(),
+        Condition::Dnf(parts) if parts.is_empty() => "false".to_owned(),
+        Condition::Dnf(parts) if parts.len() == 1 && parts[0].is_empty() => "true".to_owned(),
+        Condition::Dnf(parts) => parts
+            .iter()
+            .map(|conj| {
+                conj.iter()
+                    .map(|lit| {
+                        let atom = match &lit.atom {
+                            Atom::Evaluated { atom, .. } => atom.as_ref(),
+                            other => other,
+                        };
+                        format!("{}{}", if lit.positive { "" } else { "!" }, atom.encode())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" & ")
+            })
+            .collect::<Vec<_>>()
+            .join(" | "),
+    }
+}
 
 fn text() -> &'static str {
     static TEXT: OnceLock<String> = OnceLock::new();
@@ -19,13 +46,58 @@ fn text() -> &'static str {
 fn flow() -> &'static ModuleFlow {
     static FLOW: OnceLock<ModuleFlow> = OnceLock::new();
     FLOW.get_or_init(|| {
+        let mut runtime = RuntimeBindings::default();
+        for (at, _) in text().match_indices("if TYPE_CHECKING:") {
+            if at > text().find("def choose(TYPE_CHECKING)").unwrap() {
+                continue;
+            }
+            let start = (at + 3) as u32;
+            runtime.checking_names.insert(Span {
+                start,
+                end: start + 13,
+            });
+        }
+        for (at, _) in text().match_indices("sys.") {
+            let start = at as u32;
+            runtime.sys_modules.insert(Span {
+                start,
+                end: start + 3,
+            });
+        }
+        for (at, _) in text().match_indices("os.") {
+            let start = at as u32;
+            runtime.os_modules.insert(Span {
+                start,
+                end: start + 2,
+            });
+        }
+        for (at, _) in text().match_indices("if TC:") {
+            let start = (at + 3) as u32;
+            runtime.checking_names.insert(Span {
+                start,
+                end: start + 2,
+            });
+        }
+        let at = text().find("x if TYPE_CHECKING else y").unwrap() + 5;
+        runtime.checking_names.insert(Span {
+            start: at as u32,
+            end: at as u32 + 13,
+        });
+        for (at, _) in text().match_indices("typing_alias.TYPE_CHECKING") {
+            let start = at as u32;
+            runtime.typing_modules.insert(Span {
+                start,
+                end: start + 12,
+            });
+        }
         let mut out = cpg_flow::index(
             &[Input {
                 path: "flowpkg/shapes.py".to_owned(),
                 text: text().to_owned(),
+                runtime,
             }],
             &RuntimeContext {
-                python_version: (3, 14, 0),
+                python_version: (3, 14, 7),
                 platform: "linux".to_owned(),
             },
         );
@@ -83,11 +155,11 @@ fn reaching(u: u32) -> Vec<(String, Option<BindingKind>, String, bool)> {
                 (
                     shown.to_owned(),
                     Some(d.kind),
-                    r.condition.encode(),
+                    labels(&r.condition),
                     r.loop_carried,
                 )
             }
-            None => ("<unbound>".to_owned(), None, r.condition.encode(), false),
+            None => ("<unbound>".to_owned(), None, labels(&r.condition), false),
         })
         .collect();
     out.sort();
@@ -99,12 +171,13 @@ fn region(needle: &str, after: &str) -> String {
     let start = text().find(after).unwrap();
     let at = (start + text()[start..].find(needle).unwrap()) as u32;
     let f = flow();
-    f.regions
+    let condition = &f
+        .regions
         .iter()
         .find(|r| r.span.start == at)
         .unwrap_or_else(|| panic!("no region at {needle:?}"))
-        .condition
-        .encode()
+        .condition;
+    labels(condition)
 }
 
 #[test]
@@ -134,7 +207,7 @@ fn a_fallback_rebinding_carries_the_value_under_its_test() {
             (
                 slice(u.span.start, u.span.end).to_owned(),
                 s.identity,
-                s.condition.encode(),
+                labels(&s.condition),
             )
         })
         .collect();
@@ -194,7 +267,7 @@ fn a_boolean_operand_is_an_identity_source_under_its_truth() {
         .filter(|s| s.sink == Sink::Return && s.span.start == at)
         .map(|s| {
             let u = &f.uses[s.use_ix as usize];
-            (u.place.clone(), s.identity, s.condition.encode())
+            (u.place.clone(), s.identity, labels(&s.condition))
         })
         .collect();
     assert!(sources.contains(&("a".to_owned(), true, "truthy(a)".to_owned())));
@@ -215,7 +288,7 @@ fn a_nested_fallback_keeps_its_test_and_a_call_is_a_transfer() {
                     u.place.clone(),
                     s.identity,
                     s.through_call,
-                    s.condition.encode(),
+                    labels(&s.condition),
                 )
             })
             .collect()
@@ -264,48 +337,156 @@ fn a_nested_fallback_keeps_its_test_and_a_call_is_a_transfer() {
 }
 
 #[test]
-fn a_test_after_a_rebinding_reads_a_versioned_place() {
-    // The second test reads the value the alias binding may have supplied: its atom is versioned
-    // by that binding's line, so the path through the alias is not a contradiction.
-    let alias = line_of("stateless_http = stateless", "def alias_fallback");
+fn a_test_after_a_rebinding_has_a_distinct_evaluation_site() {
+    // The second test may read the parameter or the alias binding. Its site differs from the
+    // first test, so the two tests cannot be collapsed into one Boolean variable.
     let u = use_ix(
         "stateless_http",
         "return stateless_http",
         "def alias_fallback",
     );
     let r = reaching(u);
-    let v = format!("stateless_http@{alias}");
-    assert_eq!(
-        r,
-        vec![
-            (
-                "settings.stateless".to_owned(),
-                Some(BindingKind::Assignment),
-                format!("is_none({v})"),
-                false
-            ),
-            (
-                "stateless".to_owned(),
-                Some(BindingKind::Assignment),
-                format!("!is_none(stateless) & !is_none({v}) & is_none(stateless_http)"),
-                false
-            ),
-            (
-                "stateless_http".to_owned(),
-                Some(BindingKind::Parameter),
-                format!(
-                    "!is_none(stateless_http) & !is_none({v}) | !is_none({v}) & is_none(stateless)"
-                ),
-                false
-            ),
-        ],
-        "{r:?}"
-    );
-    // The first test reads the parameter as received: plain.
+    assert_eq!(r.len(), 3, "{r:?}");
+    assert!(r.iter().all(|row| row.2 != "false"), "{r:?}");
+    let f = flow();
+    let atom_ids: Vec<String> = f
+        .tests
+        .iter()
+        .filter(|t| slice(t.span.start, t.span.end).contains("stateless_http is None"))
+        .map(|t| t.condition.encode())
+        .collect();
+    assert_eq!(atom_ids.len(), 2, "{atom_ids:?}");
+    assert_ne!(atom_ids[0], atom_ids[1]);
+    assert!(atom_ids.iter().all(|id| id.contains(":s")), "{atom_ids:?}");
     assert_eq!(
         region("stateless_http = stateless", "def alias_fallback"),
         "!is_none(stateless) & is_none(stateless_http)"
     );
+}
+
+#[test]
+fn distinct_evaluations_admit_the_external_reviews_feasible_paths() {
+    for (function, statement) in [
+        ("def two_calls", "return \"second call changed\""),
+        ("def mutated", "return \"mutated\""),
+        ("def cleared", "return \"cleared\""),
+        ("def eq_vs_is", "return \"equal, not identical\""),
+        ("def eq_none", "return \"equal, not identical\""),
+    ] {
+        let at = text().find(function).unwrap();
+        let statement_at = at + text()[at..].find(statement).unwrap();
+        let condition = &flow()
+            .regions
+            .iter()
+            .find(|r| r.span.start == statement_at as u32)
+            .unwrap_or_else(|| panic!("no region for {function}"))
+            .condition;
+        assert!(!condition.is_never(), "{function}: {}", condition.encode());
+    }
+    let u = use_ix("found", "return found", "def two_ranges");
+    let reached: Vec<_> = reaching(u).into_iter().map(|r| r.0).collect();
+    assert!(reached.iter().any(|r| r == "i"), "{reached:?}");
+    assert!(reached.iter().any(|r| r == "j"), "{reached:?}");
+}
+
+#[test]
+fn same_line_and_merged_bindings_keep_distinct_site_identity() {
+    for function in ["def same_line_bindings", "def merged_definitions"] {
+        let at = text().find(function).unwrap();
+        let end = text()[at..].find("\n\n").map_or(text().len(), |n| at + n);
+        let conditions: Vec<_> = flow()
+            .tests
+            .iter()
+            .filter(|t| {
+                (at as u32..end as u32).contains(&t.span.start)
+                    && slice(t.span.start, t.span.end) == "x is None"
+            })
+            .map(|t| t.condition.encode())
+            .collect();
+        if function == "def same_line_bindings" {
+            assert_eq!(conditions.len(), 2, "{function}: {conditions:?}");
+            assert_ne!(conditions[0], conditions[1], "{function}");
+        } else {
+            assert_eq!(conditions.len(), 1, "{function}: {conditions:?}");
+        }
+        assert!(
+            conditions.iter().all(|c| c.contains(":s")),
+            "{function}: {conditions:?}"
+        );
+    }
+}
+
+#[test]
+fn the_runtime_view_requires_a_resolved_binding_and_compares_full_tuples() {
+    assert_eq!(
+        region("return \"parameter\"", "def choose"),
+        "truthy(TYPE_CHECKING)"
+    );
+    assert_eq!(
+        region("return \"checker only\"", "def checking_alias"),
+        "false"
+    );
+    assert_eq!(
+        region("return \"checker only\"", "def checking_module_alias"),
+        "false"
+    );
+    assert_eq!(
+        region("return \"ordinary attribute\"", "def config_check"),
+        "truthy(config.TYPE_CHECKING)"
+    );
+    for (statement, expected) in [
+        ("above = True", "true"),
+        ("at_least = True", "true"),
+        ("at_most = True", "false"),
+        ("equal = True", "false"),
+    ] {
+        assert_eq!(
+            region(statement, "def version_prefix"),
+            expected,
+            "{statement}"
+        );
+    }
+    for (statement, expected) in [
+        ("above_micro = True", "true"),
+        ("at_most_micro = True", "false"),
+        ("equal_micro = True", "false"),
+    ] {
+        assert_eq!(
+            region(statement, "def version_micro_prefix"),
+            expected,
+            "{statement}"
+        );
+    }
+}
+
+#[test]
+fn rebinding_an_isinstance_class_and_distinct_literal_objects_keep_paths_open() {
+    assert_ne!(
+        region("return \"rebound class\"", "def rebound_isinstance_class"),
+        "false"
+    );
+    assert_ne!(
+        region("return \"changed nonlocal\"", "def nonlocal_change"),
+        "false"
+    );
+    let at = text().find("def non_singleton_identity").unwrap() as u32;
+    let tests: Vec<_> = flow()
+        .tests
+        .iter()
+        .filter(|t| t.span.start > at && labels(&t.condition).contains("is_value(x,1000)"))
+        .map(|t| t.condition.encode())
+        .collect();
+    assert_eq!(tests.len(), 2, "{tests:?}");
+    assert_ne!(tests[0], tests[1]);
+}
+
+#[test]
+fn discarded_flow_branches_are_counted_by_cause() {
+    let skips = &flow().skips;
+    assert!(skips.reaching_runtime_view > 0, "{skips:?}");
+    assert!(skips.reaching_ty_false > 0, "{skips:?}");
+    assert_eq!(skips.reaching_stable_contradiction, 0, "{skips:?}");
+    assert!(skips.values_runtime_view > 0, "{skips:?}");
 }
 
 #[test]
@@ -512,7 +693,11 @@ fn the_flow_facts_are_pinned() {
             line(u.span.start),
             u.place,
             slice(u.span.start, u.span.end),
-            defs.join("; ")
+            if defs.is_empty() {
+                "<none>".to_owned()
+            } else {
+                defs.join("; ")
+            }
         ));
     }
     for v in &f.values {

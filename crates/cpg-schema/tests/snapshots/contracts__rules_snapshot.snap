@@ -577,7 +577,7 @@ codebook:flow_regions.scope_kind
 codebook:flow_tests.scope_kind
   SELECT scope_kind FROM flow_tests WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
 codebook:condition_literals.atom
-  SELECT atom FROM condition_literals WHERE atom IS NOT NULL AND atom NOT IN (0, 1, 2, 3, 4, 5)
+  SELECT atom FROM condition_literals WHERE atom IS NOT NULL AND atom NOT IN (0, 1, 2, 3, 4, 5, 6)
 codebook:coverage.scope_kind
   SELECT scope_kind FROM coverage WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3)
 codebook:coverage.fact_family

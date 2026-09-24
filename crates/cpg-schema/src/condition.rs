@@ -6,7 +6,8 @@
 //! `is_none(p)`, `equals(p,v)`, `member_of(p,{v…})`, `truthy(p)`, `isinstance(p,C)`; any other
 //! test is `opaque("text")`.
 //!
-//! **Encoding** (the id's input, DM-15). A literal is `[!]kind(place[,value])`; values are `None`,
+//! **Encoding** (the id's input, DP-04). A translated literal is
+//! `[!]kind(place[,value])#module:source`; values are `None`,
 //! `True`, `False`, decimal integers and JSON strings; a `member_of` set is sorted and
 //! deduplicated. A conjunction's literals are sorted and deduplicated and joined by ` & `; a
 //! disjunction's conjunctions are sorted, deduplicated and absorbed (a conjunction containing
@@ -65,6 +66,10 @@ pub enum Atom {
     IsNone {
         place: String,
     },
+    IsValue {
+        place: String,
+        value: Value,
+    },
     Equals {
         place: String,
         value: Value,
@@ -81,30 +86,110 @@ pub enum Atom {
         place: String,
         class: String,
     },
-    /// Any other test, as its source text with whitespace runs collapsed. `version`: the line of
-    /// the latest rebinding of a place it reads, where its scope tests that place at more than
-    /// one value (as a versioned place's `@line`; ADR-0022 §Places), encoded `opaque("…")@line`.
+    /// Any other test, as its source text with whitespace runs collapsed. `version` is retained
+    /// only to parse prior Stage 2 encodings; translated tests carry evaluation identity.
     Opaque {
         text: String,
         version: Option<usize>,
     },
+    /// The identity of an evaluation. A definition set permits sharing only for stable tests;
+    /// all other tests keep their source site. The inner atom supplies the readable label.
+    Evaluated {
+        atom: Box<Atom>,
+        identity: EvaluationIdentity,
+    },
+}
+
+/// Identity beyond the test's printed operands. The module key includes the relative path and
+/// source content; definition offsets are sorted and deduplicated before construction.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum EvaluationIdentity {
+    Site {
+        module: String,
+        start: u32,
+        end: u32,
+    },
+    Definitions {
+        module: String,
+        starts: Vec<u32>,
+    },
+    Synthetic {
+        module: String,
+        predicate: String,
+    },
+}
+
+impl EvaluationIdentity {
+    fn encode(&self) -> String {
+        match self {
+            Self::Site { module, start, end } => format!("{module}:s{start}-{end}"),
+            Self::Definitions { module, starts } => format!(
+                "{module}:d{}",
+                starts
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            Self::Synthetic { module, predicate } => format!("{module}:p{predicate}"),
+        }
+    }
+
+    fn parse(text: &str) -> Result<Self, String> {
+        let (module, rest) = text.split_once(':').ok_or("identity needs a module")?;
+        if module.len() != 32 || !module.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("identity needs a 16-byte module hex key".to_owned());
+        }
+        if let Some(site) = rest.strip_prefix('s') {
+            let (start, end) = site.split_once('-').ok_or("site needs a span")?;
+            return Ok(Self::Site {
+                module: module.to_owned(),
+                start: start.parse().map_err(|e| format!("site start: {e}"))?,
+                end: end.parse().map_err(|e| format!("site end: {e}"))?,
+            });
+        }
+        if let Some(defs) = rest.strip_prefix('d') {
+            let starts = defs
+                .split(',')
+                .map(|x| x.parse::<u32>().map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            if starts.is_empty() || starts.windows(2).any(|x| x[0] >= x[1]) {
+                return Err("definition offsets must be nonempty, sorted and unique".to_owned());
+            }
+            return Ok(Self::Definitions {
+                module: module.to_owned(),
+                starts,
+            });
+        }
+        if let Some(predicate) = rest.strip_prefix('p') {
+            if predicate.len() != 32 || !predicate.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("predicate identity needs a 16-byte hex key".to_owned());
+            }
+            return Ok(Self::Synthetic {
+                module: module.to_owned(),
+                predicate: predicate.to_owned(),
+            });
+        }
+        Err("unknown evaluation identity".to_owned())
+    }
 }
 
 impl Atom {
-    /// A `member_of` atom with its values in canonical order; a single value is `equals`.
+    pub fn evaluated(self, identity: EvaluationIdentity) -> Atom {
+        Atom::Evaluated {
+            atom: Box::new(self),
+            identity,
+        }
+    }
+
+    /// A `member_of` atom with its values in canonical order. Membership keeps its operator even
+    /// for a one-element container: Python may dispatch equality with different operands.
     pub fn member_of(place: impl Into<String>, values: impl IntoIterator<Item = Value>) -> Atom {
         let mut values: Vec<Value> = values.into_iter().collect();
         values.sort_by_key(Value::encode);
         values.dedup();
         let place = place.into();
-        if values.len() == 1 {
-            Atom::Equals {
-                place,
-                value: values.pop().expect("one value"),
-            }
-        } else {
-            Atom::MemberOf { place, values }
-        }
+        Atom::MemberOf { place, values }
     }
 
     /// An opaque atom over `text`, whitespace runs collapsed to one space.
@@ -123,11 +208,13 @@ impl Atom {
     pub fn kind(&self) -> ConditionAtom {
         match self {
             Atom::IsNone { .. } => ConditionAtom::IsNone,
+            Atom::IsValue { .. } => ConditionAtom::IsValue,
             Atom::Equals { .. } => ConditionAtom::Equals,
             Atom::MemberOf { .. } => ConditionAtom::MemberOf,
             Atom::Truthy { .. } => ConditionAtom::Truthy,
             Atom::IsInstance { .. } => ConditionAtom::IsInstance,
             Atom::Opaque { .. } => ConditionAtom::Opaque,
+            Atom::Evaluated { atom, .. } => atom.kind(),
         }
     }
 
@@ -135,11 +222,13 @@ impl Atom {
     pub fn place(&self) -> Option<&str> {
         match self {
             Atom::IsNone { place }
+            | Atom::IsValue { place, .. }
             | Atom::Equals { place, .. }
             | Atom::MemberOf { place, .. }
             | Atom::Truthy { place }
             | Atom::IsInstance { place, .. } => Some(place),
             Atom::Opaque { .. } => None,
+            Atom::Evaluated { atom, .. } => atom.place(),
         }
     }
 
@@ -149,6 +238,7 @@ impl Atom {
         match self {
             Atom::IsNone { .. } | Atom::Truthy { .. } => None,
             Atom::Equals { value, .. } => Some(value.encode()),
+            Atom::IsValue { value, .. } => Some(value.encode()),
             Atom::MemberOf { values, .. } => Some(format!(
                 "{{{}}}",
                 values
@@ -165,10 +255,14 @@ impl Atom {
                     None => text,
                 })
             }
+            Atom::Evaluated { atom, .. } => atom.argument(),
         }
     }
 
     pub fn encode(&self) -> String {
+        if let Atom::Evaluated { atom, identity } = self {
+            return format!("{}#{}", atom.encode(), identity.encode());
+        }
         let kind = crate::Codebook::text(self.kind());
         if let Atom::Opaque { text, version } = self {
             let text = serde_json::to_string(text).expect("a string serializes");
@@ -254,7 +348,7 @@ impl Condition {
             Condition::Dnf(d) => d
                 .iter()
                 .flatten()
-                .any(|l| matches!(l.atom, Atom::Opaque { .. })),
+                .any(|l| l.atom.kind() == ConditionAtom::Opaque),
             Condition::OverBudget => false,
         }
     }
@@ -554,6 +648,15 @@ fn parse_literal(text: &str) -> Result<Literal, String> {
         Some(r) => (false, r),
         None => (true, text),
     };
+    // The identity suffix follows the closing parenthesis (and any legacy opaque version).
+    // A `)#` inside an opaque JSON string is label text, not an identity suffix.
+    let (rest, identity) = match rest.rsplit_once(")#") {
+        Some((head, suffix)) => match EvaluationIdentity::parse(suffix) {
+            Ok(identity) => (format!("{head})"), Some(identity)),
+            Err(_) => (rest.to_owned(), None),
+        },
+        None => (rest.to_owned(), None),
+    };
     let open = rest.find('(').ok_or_else(|| format!("no `(` in {text}"))?;
     let kind = &rest[..open];
     // A versioned opaque atom: `opaque("…")@line`.
@@ -575,6 +678,10 @@ fn parse_literal(text: &str) -> Result<Literal, String> {
     let place = || args[0].clone();
     let atom = match kind {
         "is_none" => Atom::IsNone { place: place() },
+        "is_value" => Atom::IsValue {
+            place: place(),
+            value: parse_value(args.get(1).ok_or("is_value needs a value")?)?,
+        },
         "truthy" => Atom::Truthy { place: place() },
         "equals" => Atom::Equals {
             place: place(),
@@ -602,7 +709,13 @@ fn parse_literal(text: &str) -> Result<Literal, String> {
         ),
         other => return Err(format!("unknown atom kind {other}")),
     };
-    Ok(Literal::new(atom, positive))
+    Ok(Literal::new(
+        match identity {
+            Some(i) => atom.evaluated(i),
+            None => atom,
+        },
+        positive,
+    ))
 }
 
 #[cfg(test)]
@@ -622,9 +735,57 @@ mod tests {
         assert_eq!(a.id(), b.id());
         let m = c("member_of(t,{\"sse\",\"http\",\"sse\"})");
         assert_eq!(m.encode(), "member_of(t,{\"http\",\"sse\"})");
-        assert_eq!(c("member_of(t,{\"x\"})").encode(), "equals(t,\"x\")");
+        assert_eq!(c("member_of(t,{\"x\"})").encode(), "member_of(t,{\"x\"})");
         let o = c("opaque(\"a  and\\n b\")");
         assert_eq!(Condition::atom(Atom::opaque("a  and\n b")), o);
+        assert_eq!(c("opaque(\"x)#y\")").encode(), "opaque(\"x)#y\")");
+    }
+
+    #[test]
+    fn evaluations_keep_operator_and_site_identity() {
+        let module = "0123456789abcdef0123456789abcdef".to_owned();
+        let site = |start| EvaluationIdentity::Site {
+            module: module.clone(),
+            start,
+            end: start + 7,
+        };
+        let a = Condition::atom(
+            Atom::Equals {
+                place: "x".into(),
+                value: Value::None,
+            }
+            .evaluated(site(4)),
+        );
+        let b = Condition::atom(
+            Atom::Equals {
+                place: "x".into(),
+                value: Value::None,
+            }
+            .evaluated(site(20)),
+        );
+        let identity = Condition::atom(Atom::IsNone { place: "x".into() }.evaluated(site(4)));
+        let definitions = Condition::atom(Atom::Truthy { place: "x".into() }.evaluated(
+            EvaluationIdentity::Definitions {
+                module: module.clone(),
+                starts: vec![4, 20],
+            },
+        ));
+        let synthetic = Condition::atom(
+            Atom::Opaque {
+                text: "unknown branch".into(),
+                version: None,
+            }
+            .evaluated(EvaluationIdentity::Synthetic {
+                module,
+                predicate: "fedcba9876543210fedcba9876543210".into(),
+            }),
+        );
+        assert_ne!(a.id(), b.id());
+        assert_ne!(a.id(), identity.id());
+        assert!(!a.and(&b.not()).is_never());
+        for c in [a, b, identity, definitions, synthetic] {
+            assert_eq!(Condition::parse(&c.encode()).unwrap(), c);
+        }
     }
 
     #[test]

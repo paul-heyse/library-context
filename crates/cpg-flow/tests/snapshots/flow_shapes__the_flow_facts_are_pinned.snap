@@ -2,292 +2,506 @@
 source: crates/cpg-flow/tests/flow_shapes.rs
 expression: out
 ---
-use 7:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
-use 14:sys sys <- sys [import] if true
-use 14:sys.version_info sys.version_info <- <unbound> [unbound] if true
-use 19:object object <- <unbound> [unbound] if true
-use 23:timeout timeout <- timeout [parameter] if !is_none(timeout)
-use 23:timeout timeout <- timeout [parameter] if true
-use 24:timeout timeout <- timeout if timeout is not None else 30 [assignment] if true
-use 28:host host <- host [parameter] if true
-use 29:settings settings <- <unbound> [unbound] if is_none(host)
-use 29:settings.host settings.host <- <unbound> [unbound] if is_none(host)
-use 30:host host <- host [parameter] if !is_none(host); settings.host [assignment] if is_none(host)
-use 34:path path <- path [parameter] if true
-use 35:ValueError ValueError <- <unbound> [unbound] if !truthy(path)
-use 36:strict strict <- strict [parameter] if truthy(path)
-use 37:path path <- path [parameter] if truthy(path) & truthy(strict)
-use 37:path.upper path.upper <- <unbound> [unbound] if truthy(path) & truthy(strict)
-use 38:path path <- path [parameter] if !truthy(strict) & truthy(path)
-use 42:a a <- a [parameter] if true
-use 42:b b <- b [parameter] if !truthy(a)
-use 46:len len <- <unbound> [unbound] if true
-use 46:items items <- items [parameter] if true
-use 47:n n <- len(items) [walrus] if opaque("(n := len(items)) > 3")
-use 52:prefix prefix <- <unbound> [unbound] if true
-use 52:n n <- names [comprehension_target] if true
-use 52:names names <- names [parameter] if true
-use 57:values values <- values [parameter] if true
-use 58:v v <- values [for_target] if true
-use 60:v v <- values [for_target] if !is_none(v)
-use 62:total total <- 0 [assignment] if !equals(v,"stop") & !is_none(v); total + v [assignment, loop-carried] if !equals(v,"stop") & !is_none(v)
-use 62:v v <- values [for_target] if !equals(v,"stop") & !is_none(v)
-use 65:total total <- -1 [assignment] if true; 0 [assignment] if !is_none(v) & equals(v,"stop"); total + v [assignment, loop-carried] if !is_none(v) & equals(v,"stop")
-use 71:fn fn <- fn [parameter] if true
-use 72:KeyError KeyError <- <unbound> [unbound] if true
-use 73:error error <- error [except_handler] if true
-use 76:result result <- error [assignment] if true; fn() [assignment] if true
-use 76:cleanup cleanup <- True [assignment] if true
-use 81:cm cm <- cm [parameter] if true
-use 82:compute compute <- compute [parameter] if true
-use 83:value value <- 1 [assignment] if opaque("<the context manager suppresses the exception>"); compute() [assignment] if true
-use 87:command command <- command [parameter] if true
-use 94:state state <- -1 [assignment] if !equals(command,"start") & !is_none(command); 0 [assignment] if !equals(command,"start") & is_none(command); 1 [assignment] if equals(command,"start")
-use 102:counter counter <- <unbound> [unbound] if true
-use 103:counter counter <- counter + 1 [assignment] if true
-use 111:level level <- <unbound> [unbound] if true
-use 112:level level <- level + 1 [assignment] if true
-use 114:inner inner <- inner [function_def] if true
-use 118:data data <- data [parameter] if true
+use 9:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
+use 16:sys sys <- sys [import] if true
+use 16:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 21:object object <- <unbound> [unbound] if true
+use 25:timeout timeout <- timeout [parameter] if !is_none(timeout)
+use 25:timeout timeout <- timeout [parameter] if true
+use 26:timeout timeout <- timeout if timeout is not None else 30 [assignment] if true
+use 30:host host <- host [parameter] if true
+use 31:settings settings <- <unbound> [unbound] if is_none(host)
+use 31:settings.host settings.host <- <unbound> [unbound] if is_none(host)
+use 32:host host <- host [parameter] if !is_none(host); settings.host [assignment] if is_none(host)
+use 36:path path <- path [parameter] if true
+use 37:ValueError ValueError <- <unbound> [unbound] if !truthy(path)
+use 38:strict strict <- strict [parameter] if truthy(path)
+use 39:path path <- path [parameter] if truthy(path) & truthy(strict)
+use 39:path.upper path.upper <- <unbound> [unbound] if truthy(path) & truthy(strict)
+use 40:path path <- path [parameter] if !truthy(strict) & truthy(path)
+use 44:a a <- a [parameter] if true
+use 44:b b <- b [parameter] if !truthy(a)
+use 48:len len <- <unbound> [unbound] if true
+use 48:items items <- items [parameter] if true
+use 49:n n <- len(items) [walrus] if opaque("(n := len(items)) > 3")
+use 54:prefix prefix <- <unbound> [unbound] if true
+use 54:n n <- names [comprehension_target] if true
+use 54:names names <- names [parameter] if true
+use 59:values values <- values [parameter] if true
+use 60:v v <- values [for_target] if true
+use 62:v v <- values [for_target] if !is_none(v)
+use 64:total total <- 0 [assignment] if !equals(v,"stop") & !is_none(v); total + v [assignment, loop-carried] if !equals(v,"stop") & !is_none(v)
+use 64:v v <- values [for_target] if !equals(v,"stop") & !is_none(v)
+use 67:total total <- -1 [assignment] if true; 0 [assignment] if !is_none(v) & equals(v,"stop"); total + v [assignment, loop-carried] if !is_none(v) & equals(v,"stop")
+use 73:fn fn <- fn [parameter] if true
+use 74:KeyError KeyError <- <unbound> [unbound] if true
+use 75:error error <- error [except_handler] if true
+use 78:result result <- error [assignment] if true; fn() [assignment] if true
+use 78:cleanup cleanup <- True [assignment] if true
+use 83:cm cm <- cm [parameter] if true
+use 84:compute compute <- compute [parameter] if true
+use 85:value value <- 1 [assignment] if opaque("<the context manager suppresses the exception>"); compute() [assignment] if true
+use 89:command command <- command [parameter] if true
+use 96:state state <- -1 [assignment] if !equals(command,"start") & !is_none(command); 0 [assignment] if !equals(command,"start") & is_none(command); 1 [assignment] if equals(command,"start")
+use 104:counter counter <- <unbound> [unbound] if true
+use 105:counter counter <- counter + 1 [assignment] if true
+use 113:level level <- <unbound> [unbound] if true
+use 114:level level <- level + 1 [assignment] if true
+use 116:inner inner <- inner [function_def] if true
 use 120:data data <- data [parameter] if true
-use 124:transport transport <- transport [parameter] if true
-use 125:host host <- host [parameter] if member_of(transport,{"http","sse"})
-use 130:TYPE_CHECKING TYPE_CHECKING <- <unbound> [unbound] if true
-use 132:value value <- value [parameter] if true
-use 136:n n <- n [parameter] if true
-use 137:n n <- 1 [aug_assignment] if true
-use 141:os os <- <unbound> [unbound] if true
-use 141:os.name os.name <- <unbound> [unbound] if true
-use 149:item item <- 
-use 150:last last <- None [assignment] if true
-use 154:mode mode <- mode [parameter] if true
-use 156:mode mode <- mode [parameter] if !equals(mode,"a")
-use 160:result result <- 1 [assignment] if equals(mode,"a"); 2 [assignment] if !equals(mode,"a") & equals(mode,"b"); 3 [assignment] if !equals(mode,"a") & !equals(mode,"b")
-use 167:KeyboardInterrupt KeyboardInterrupt <- 
-use 169:marker_value marker_value <- 1 [assignment] if true
-use 172:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
-use 174:int int <- 
-use 174:int int <- 
-use 179:x x <- x [parameter] if true
-use 183:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
-use 187:flag flag <- flag [parameter] if true
-use 193:a a <- a [parameter] if true
-use 194:b b <- b [parameter] if true
-use 195:a a <- a [parameter] if opaque("a > b")
-use 196:b b <- b [parameter] if !opaque("a > b")
-use 200:level level <- level [parameter] if !is_none(level)
-use 200:level level <- level [parameter] if true
-use 200:settings settings <- <unbound> [unbound] if is_none(level)
-use 200:settings.level settings.level <- <unbound> [unbound] if is_none(level)
-use 201:name name <- name [parameter] if true
-use 202:fallback fallback <- <unbound> [unbound] if true
-use 202:name name <- name [parameter] if true
-use 202:chosen chosen <- (level if level is not None else settings.level).lower() [assignment] if true
-use 202:label label <- f"[{name}]" [assignment] if true
-use 206:stateless stateless <- stateless [parameter] if true
-use 206:stateless_http stateless_http <- stateless_http [parameter] if !is_none(stateless)
-use 207:stateless stateless <- stateless [parameter] if !is_none(stateless) & is_none(stateless_http)
-use 208:stateless_http stateless_http <- stateless [assignment] if !is_none(stateless) & is_none(stateless_http); stateless_http [parameter] if !is_none(stateless_http) | is_none(stateless)
-use 209:settings settings <- <unbound> [unbound] if is_none(stateless_http@207)
-use 209:settings.stateless settings.stateless <- <unbound> [unbound] if is_none(stateless_http@207)
-use 210:stateless_http stateless_http <- settings.stateless [assignment] if is_none(stateless_http@207); stateless [assignment] if !is_none(stateless) & !is_none(stateless_http@207) & is_none(stateless_http); stateless_http [parameter] if !is_none(stateless_http) & !is_none(stateless_http@207) | !is_none(stateless_http@207) & is_none(stateless)
-value Definition 19 <- object (through a call) if true
-value Definition 23 <- timeout (identity) if !is_none(timeout)
-value Definition 23 <- timeout (derived) if true
-value Return 24 <- timeout (identity) if true
-value Definition 29 <- settings.host (identity) if true
-value Definition 29 <- settings (derived) if true
-value Return 30 <- host (identity) if true
-value Raise 35 <- ValueError (through a call) if true
-value Return 37 <- path.upper (through a call) if true
-value Return 37 <- path (through a call) if true
-value Return 38 <- path (identity) if true
-value Return 42 <- a (identity) if truthy(a)
-value Return 42 <- b (identity) if !truthy(a)
-value Argument 46 <- items (identity) if true
-value Definition 46 <- len (through a call) if true
-value Definition 46 <- items (through a call) if true
-value Return 47 <- n (identity) if true
-value Definition 52 <- names (derived) if true
-value Return 52 <- prefix (derived) if true
-value Return 52 <- n (derived) if true
-value Return 52 <- names (derived) if true
-value Definition 62 <- total (derived) if true
-value Definition 62 <- v (derived) if true
-value Definition 57 <- values (derived) if true
-value Return 65 <- total (identity) if true
-value Definition 71 <- fn (through a call) if true
-value Definition 73 <- error (identity) if true
-value Return 76 <- result (derived) if true
-value Return 76 <- cleanup (derived) if true
-value Definition 82 <- compute (through a call) if true
-value Definition 81 <- cm (derived) if true
-value Return 83 <- value (identity) if true
-value Return 94 <- state (identity) if true
-value Definition 102 <- counter (derived) if true
-value Return 103 <- counter (identity) if true
-value Definition 111 <- level (derived) if true
-value Return 112 <- level (identity) if true
-value Return 114 <- inner (identity) if true
-value Definition 118 <- data (identity) if true
-value Return 120 <- data (identity) if true
-value Return 125 <- host (identity) if true
-value Return 132 <- value (identity) if true
-value Definition 136 <- n (derived) if true
-value Return 137 <- n (identity) if true
-value Definition 149 <- item (identity) if true
-value Return 150 <- last (identity) if true
-value Return 160 <- result (identity) if true
-value Return 169 <- marker_value (identity) if true
-value Return 179 <- x (identity) if true
-value Definition 183 <- TYPE_CHECKING (derived) if true
-value Return 195 <- a (identity) if true
-value Return 196 <- b (identity) if true
-value Definition 200 <- level (through a call) if !is_none(level)
-value Definition 200 <- settings.level (through a call) if is_none(level)
-value Definition 200 <- settings (through a call) if is_none(level)
-value Definition 200 <- level (through a call) if true
-value Definition 201 <- name (derived) if true
-value Argument 202 <- name (identity) if true
-value Return 202 <- fallback (through a call) if true
-value Return 202 <- name (through a call) if true
-value Return 202 <- chosen (derived) if true
-value Return 202 <- label (derived) if true
-value Definition 207 <- stateless (identity) if true
-value Definition 209 <- settings.stateless (identity) if true
-value Definition 209 <- settings (derived) if true
-value Return 210 <- stateless_http (identity) if true
+use 122:data data <- data [parameter] if true
+use 126:transport transport <- transport [parameter] if true
+use 127:host host <- host [parameter] if member_of(transport,{"http","sse"})
+use 132:TYPE_CHECKING TYPE_CHECKING <- <unbound> [unbound] if true
+use 134:value value <- value [parameter] if true
+use 138:n n <- n [parameter] if true
+use 139:n n <- 1 [aug_assignment] if true
+use 143:os os <- <unbound> [unbound] if true
+use 143:os.name os.name <- <unbound> [unbound] if true
+use 151:item item <- <none>
+use 152:last last <- None [assignment] if true
+use 156:mode mode <- mode [parameter] if true
+use 158:mode mode <- mode [parameter] if !equals(mode,"a")
+use 162:result result <- 1 [assignment] if equals(mode,"a"); 2 [assignment] if !equals(mode,"a") & equals(mode,"b"); 3 [assignment] if !equals(mode,"a") & !equals(mode,"b")
+use 169:KeyboardInterrupt KeyboardInterrupt <- <none>
+use 171:marker_value marker_value <- 1 [assignment] if true
+use 174:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
+use 176:int int <- <none>
+use 176:int int <- <none>
+use 181:x x <- x [parameter] if true
+use 185:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [from_import] if true
+use 189:flag flag <- flag [parameter] if true
+use 195:a a <- a [parameter] if true
+use 196:b b <- b [parameter] if true
+use 197:a a <- a [parameter] if opaque("a > b")
+use 198:b b <- b [parameter] if !opaque("a > b")
+use 202:level level <- level [parameter] if !is_none(level)
+use 202:level level <- level [parameter] if true
+use 202:settings settings <- <unbound> [unbound] if is_none(level)
+use 202:settings.level settings.level <- <unbound> [unbound] if is_none(level)
+use 203:name name <- name [parameter] if true
+use 204:fallback fallback <- <unbound> [unbound] if true
+use 204:name name <- name [parameter] if true
+use 204:chosen chosen <- (level if level is not None else settings.level).lower() [assignment] if true
+use 204:label label <- f"[{name}]" [assignment] if true
+use 208:stateless stateless <- stateless [parameter] if true
+use 208:stateless_http stateless_http <- stateless_http [parameter] if !is_none(stateless)
+use 209:stateless stateless <- stateless [parameter] if !is_none(stateless) & is_none(stateless_http)
+use 210:stateless_http stateless_http <- stateless [assignment] if !is_none(stateless) & is_none(stateless_http); stateless_http [parameter] if !is_none(stateless_http) | is_none(stateless)
+use 211:settings settings <- <unbound> [unbound] if is_none(stateless_http)
+use 211:settings.stateless settings.stateless <- <unbound> [unbound] if is_none(stateless_http)
+use 212:stateless_http stateless_http <- settings.stateless [assignment] if is_none(stateless_http); stateless [assignment] if !is_none(stateless) & !is_none(stateless_http) & is_none(stateless_http); stateless_http [parameter] if !is_none(stateless_http) & !is_none(stateless_http) | !is_none(stateless_http) & is_none(stateless)
+use 216:probe probe <- probe [parameter] if true
+use 217:probe probe <- probe [parameter] if opaque("probe()")
+use 224:range range <- <unbound> [unbound] if true
+use 224:n n <- n [parameter] if true
+use 225:i i <- range(n) [for_target] if opaque("<the iterable is non-empty>")
+use 226:range range <- <unbound> [unbound] if true
+use 226:m m <- m [parameter] if true
+use 227:j j <- range(m) [for_target] if opaque("<the iterable is non-empty>")
+use 228:found found <- -1 [assignment] if !opaque("<the iterable is non-empty>") & !opaque("<the iterable is non-empty>"); i [assignment] if !opaque("<the iterable is non-empty>") & opaque("<the iterable is non-empty>"); j [assignment] if opaque("<the iterable is non-empty>")
+use 232:self self <- self [parameter] if true
+use 232:self.x self.x <- <unbound> [unbound] if true
+use 233:self self <- self [parameter] if is_none(self.x)
+use 233:self.reset self.reset <- <unbound> [unbound] if is_none(self.x)
+use 234:self self <- self [parameter] if is_none(self.x)
+use 234:self.x self.x <- <unbound> [unbound] if is_none(self.x)
+use 240:items items <- items [parameter] if true
+use 241:items items <- items [parameter] if truthy(items)
+use 241:items.clear items.clear <- <unbound> [unbound] if truthy(items)
+use 242:items items <- items [parameter] if truthy(items)
+use 248:x x <- x [parameter] if true
+use 249:x x <- x [parameter] if equals(x,True)
+use 255:x x <- x [parameter] if true
+use 256:x x <- x [parameter] if equals(x,None)
+use 262:x x <- x [parameter] if true
+use 263:y y <- y [parameter] if is_none(x)
+use 264:x x <- None [assignment] if is_none(x); x [parameter] if !is_none(x)
+use 265:x x <- None [assignment] if is_none(x) & is_none(x); x [parameter] if !is_none(x) & is_none(x)
+use 266:y y <- y [parameter] if !is_none(x)
+use 270:choose choose <- choose [parameter] if true
+use 272:x x <- None [assignment] if truthy(choose); x [parameter] if !truthy(choose)
+use 278:TYPE_CHECKING TYPE_CHECKING <- TYPE_CHECKING [parameter] if true
+use 284:TC TC <- <unbound> [unbound] if true
+use 290:typing_alias typing_alias <- <unbound> [unbound] if true
+use 290:typing_alias.TYPE_CHECKING typing_alias.TYPE_CHECKING <- <unbound> [unbound] if true
+use 296:config config <- config [parameter] if true
+use 296:config.TYPE_CHECKING config.TYPE_CHECKING <- <unbound> [unbound] if true
+use 302:sys sys <- <unbound> [unbound] if true
+use 302:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 306:sys sys <- <unbound> [unbound] if true
+use 306:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 310:sys sys <- <unbound> [unbound] if true
+use 310:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 314:sys sys <- <unbound> [unbound] if true
+use 314:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 318:above above <- True [assignment] if true
+use 318:at_least at_least <- True [assignment] if true
+use 318:at_most at_most <- False [assignment] if true
+use 318:equal equal <- False [assignment] if true
+use 322:sys sys <- <unbound> [unbound] if true
+use 322:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 326:sys sys <- <unbound> [unbound] if true
+use 326:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 330:sys sys <- <unbound> [unbound] if true
+use 330:sys.version_info sys.version_info <- <unbound> [unbound] if true
+use 334:above_micro above_micro <- True [assignment] if true
+use 334:at_most_micro at_most_micro <- False [assignment] if true
+use 334:equal_micro equal_micro <- False [assignment] if true
+use 338:int int <- <unbound> [unbound] if true
+use 339:isinstance isinstance <- <unbound> [unbound] if true
+use 339:x x <- x [parameter] if true
+use 339:C C <- int [assignment] if true
+use 340:str str <- <unbound> [unbound] if isinstance(x,C)
+use 341:isinstance isinstance <- <unbound> [unbound] if isinstance(x,C)
+use 341:x x <- x [parameter] if isinstance(x,C)
+use 341:C C <- str [assignment] if isinstance(x,C)
+use 347:x x <- x [parameter] if true
+use 348:x x <- x [parameter] if is_value(x,1000)
+use 360:x x <- <unbound> [unbound] if true; None [assignment] if true
+use 361:change change <- change [function_def] if is_none(x)
+use 362:x x <- <unbound> [unbound] if is_none(x); None [assignment] if is_none(x)
+use 368:x x <- <none>
+use 368:TYPE_CHECKING TYPE_CHECKING <- <unbound> [unbound] if true
+use 368:y y <- y [parameter] if true
+value Definition 21 <- object (through a call) if true
+value Definition 25 <- timeout (identity) if !is_none(timeout)#4bf3bbd57890721e6b08d6b731a53cbf:s489-508
+value Definition 25 <- timeout (derived) if true
+value Return 26 <- timeout (identity) if true
+value Definition 31 <- settings.host (identity) if true
+value Definition 31 <- settings (derived) if true
+value Return 32 <- host (identity) if true
+value Raise 37 <- ValueError (through a call) if true
+value Return 39 <- path.upper (through a call) if true
+value Return 39 <- path (through a call) if true
+value Return 40 <- path (identity) if true
+value Return 44 <- a (identity) if truthy(a)#4bf3bbd57890721e6b08d6b731a53cbf:s814-815
+value Return 44 <- b (identity) if !truthy(a)#4bf3bbd57890721e6b08d6b731a53cbf:s814-815
+value Argument 48 <- items (identity) if true
+value Definition 48 <- len (through a call) if true
+value Definition 48 <- items (through a call) if true
+value Return 49 <- n (identity) if true
+value Definition 54 <- names (derived) if true
+value Return 54 <- prefix (derived) if true
+value Return 54 <- n (derived) if true
+value Return 54 <- names (derived) if true
+value Definition 64 <- total (derived) if true
+value Definition 64 <- v (derived) if true
+value Definition 59 <- values (derived) if true
+value Return 67 <- total (identity) if true
+value Definition 73 <- fn (through a call) if true
+value Definition 75 <- error (identity) if true
+value Return 78 <- result (derived) if true
+value Return 78 <- cleanup (derived) if true
+value Definition 84 <- compute (through a call) if true
+value Definition 83 <- cm (derived) if true
+value Return 85 <- value (identity) if true
+value Return 96 <- state (identity) if true
+value Definition 104 <- counter (derived) if true
+value Return 105 <- counter (identity) if true
+value Definition 113 <- level (derived) if true
+value Return 114 <- level (identity) if true
+value Return 116 <- inner (identity) if true
+value Definition 120 <- data (identity) if true
+value Return 122 <- data (identity) if true
+value Return 127 <- host (identity) if true
+value Return 134 <- value (identity) if true
+value Definition 138 <- n (derived) if true
+value Return 139 <- n (identity) if true
+value Definition 151 <- item (identity) if true
+value Return 152 <- last (identity) if true
+value Return 162 <- result (identity) if true
+value Return 171 <- marker_value (identity) if true
+value Return 181 <- x (identity) if true
+value Definition 185 <- TYPE_CHECKING (derived) if true
+value Return 197 <- a (identity) if true
+value Return 198 <- b (identity) if true
+value Definition 202 <- level (through a call) if !is_none(level)#4bf3bbd57890721e6b08d6b731a53cbf:s3137-3154
+value Definition 202 <- settings.level (through a call) if is_none(level)#4bf3bbd57890721e6b08d6b731a53cbf:s3137-3154
+value Definition 202 <- settings (through a call) if is_none(level)#4bf3bbd57890721e6b08d6b731a53cbf:s3137-3154
+value Definition 202 <- level (through a call) if true
+value Definition 203 <- name (derived) if true
+value Argument 204 <- name (identity) if true
+value Return 204 <- fallback (through a call) if true
+value Return 204 <- name (through a call) if true
+value Return 204 <- chosen (derived) if true
+value Return 204 <- label (derived) if true
+value Definition 209 <- stateless (identity) if true
+value Definition 211 <- settings.stateless (identity) if true
+value Definition 211 <- settings (derived) if true
+value Return 212 <- stateless_http (identity) if true
+value Argument 224 <- n (identity) if true
+value Definition 225 <- i (identity) if true
+value Definition 224 <- range (through a call) if true
+value Definition 224 <- n (through a call) if true
+value Argument 226 <- m (identity) if true
+value Definition 227 <- j (identity) if true
+value Definition 226 <- range (through a call) if true
+value Definition 226 <- m (through a call) if true
+value Return 228 <- found (identity) if true
+value Definition 263 <- y (identity) if true
+value Return 265 <- x (identity) if true
+value Return 266 <- y (identity) if true
+value Return 318 <- above (derived) if true
+value Return 318 <- at_least (derived) if true
+value Return 318 <- at_most (derived) if true
+value Return 318 <- equal (derived) if true
+value Return 334 <- above_micro (derived) if true
+value Return 334 <- at_most_micro (derived) if true
+value Return 334 <- equal_micro (derived) if true
+value Definition 338 <- int (identity) if true
+value Argument 339 <- x (identity) if true
+value Argument 339 <- C (identity) if true
+value Definition 340 <- str (identity) if true
+value Argument 341 <- x (identity) if true
+value Argument 341 <- C (identity) if true
+value Return 368 <- y (identity) if true
+value Return 368 <- TYPE_CHECKING (derived) if true
 region 1 """One function per shape; each test in `cpg-flow` names its function and line.""" if true
 region 3 import os if true
 region 4 import sys if true
 region 5 from typing import TYPE_CHECKING if true
-region 7 if TYPE_CHECKING: if true
-region 8 from collections.abc import Callable if false
-region 10 marker = "checker" if false
-region 12 marker = "runtime" if true
-region 14 if sys.version_info >= (3, 12): if true
-region 15 version_branch = "new" if true
-region 17 version_branch = "old" if false
-region 19 settings = object() if true
-region 22 def fallback(timeout=None): if true
-region 23 timeout = timeout if timeout is not None else 30 if true
-region 24 return timeout if true
-region 27 def settings_fallback(host=None): if true
-region 28 if host is None: if true
-region 29 host = settings.host if is_none(host)
-region 30 return host if true
-region 33 def guarded(path, strict=False): if true
-region 34 if not path: if true
-region 35 raise ValueError("empty") if !truthy(path)
-region 36 if strict: if truthy(path)
-region 37 return path.upper() if truthy(path) & truthy(strict)
-region 38 return path if !truthy(strict) & truthy(path)
-region 41 def either(a, b): if true
-region 42 return a or b if true
-region 45 def walrus(items): if true
-region 46 if (n := len(items)) > 3: if true
-region 47 return n if opaque("(n := len(items)) > 3")
-region 48 return 0 if !opaque("(n := len(items)) > 3")
-region 51 def comprehension(prefix, names): if true
-region 52 return [prefix + n for n in names] if true
-region 55 def loop(values): if true
-region 56 total = 0 if true
-region 57 for v in values: if true
-region 58 if v is None: if true
-region 59 continue if is_none(v)
-region 60 if v == "stop": if !is_none(v)
-region 61 break if !is_none(v) & equals(v,"stop")
-region 62 total = total + v if !equals(v,"stop") & !is_none(v)
-region 64 total = -1 if true
-region 65 return total if true
-region 68 def handled(fn): if true
-region 69 result = None if true
-region 70 try: if true
-region 71 result = fn() if true
-region 73 result = error if true
-region 75 cleanup = True if true
-region 76 return result, cleanup if true
-region 79 def suppressed(cm, compute): if true
-region 80 value = 1 if true
-region 81 with cm: if true
-region 82 value = compute() if true
-region 83 return value if true
-region 86 def matched(command): if true
-region 87 match command: if true
-region 89 state = 1 if equals(command,"start")
-region 91 state = 0 if !equals(command,"start") & is_none(command)
-region 93 state = -1 if !equals(command,"start") & !is_none(command)
-region 94 return state if true
-region 97 counter = 0 if true
-region 100 def bump(): if true
-region 101 global counter if true
-region 102 counter = counter + 1 if true
-region 103 return counter if true
-region 106 def outer(): if true
-region 107 level = 1 if true
-region 109 def inner(): if true
-region 110 nonlocal level if true
-region 111 level = level + 1 if true
-region 112 return level if true
-region 114 return inner if true
-region 117 def deleted(data): if true
-region 118 copy = data if true
-region 119 del copy if true
-region 120 return data if true
-region 123 def modes(transport, host=None): if true
-region 124 if transport in ("http", "sse"): if true
-region 125 return host if member_of(transport,{"http","sse"})
-region 126 return None if !member_of(transport,{"http","sse"})
-region 129 def type_checking_flag(value): if true
-region 130 if TYPE_CHECKING: if true
-region 131 value = "checker" if false
-region 132 return value if true
-region 135 def augmented(n): if true
-region 136 n += 1 if true
-region 137 return n if true
-region 140 def platform_branch(): if true
-region 141 if os.name == "nt": if true
-region 142 return "windows" if false
-region 143 return "posix" if true
-region 146 def empty_loop(): if true
-region 147 last = None if true
-region 148 for item in []: if true
-region 149 last = item if false
-region 150 return last if true
-region 153 def elif_chain(mode): if true
-region 154 if mode == "a": if true
-region 155 result = 1 if equals(mode,"a")
-region 157 result = 2 if !equals(mode,"a") & equals(mode,"b")
-region 159 result = 3 if !equals(mode,"a") & !equals(mode,"b")
-region 160 return result if true
-region 163 def safe_try(): if true
-region 164 marker_value = 0 if true
-region 165 try: if true
-region 166 marker_value = 1 if true
-region 168 marker_value = 2 if false
-region 169 return marker_value if true
-region 172 if TYPE_CHECKING: if true
-region 174 def both(x: int) -> int: ... if false
-region 174 ... if true
-region 178 def both(x): if true
-region 179 return x if true
-region 182 TEXT_WITH_WORD = "TYPE_CHECKING" if true
-region 183 F_TEXT = f"{TYPE_CHECKING}" if true
-region 186 def string_mode(flag): if true
-region 187 if flag == "TYPE_CHECKING":  # a comment if true
-region 188 return 1 if equals(flag,"TYPE_CHECKING")
-region 189 return 0 if !equals(flag,"TYPE_CHECKING")
-region 192 def commented(a, b): if true
-region 193 if (a  # first if true
-region 195 return a if opaque("a > b")
-region 196 return b if !opaque("a > b")
-region 199 def nested_fallback(level=None, name=None): if true
-region 200 chosen = (level if level is not None else settings.level).lower() if true
-region 201 label = f"[{name}]" if true
-region 202 return fallback(name), chosen, label if true
-region 205 def alias_fallback(stateless=None, stateless_http=None): if true
-region 206 if stateless is not None and stateless_http is None: if true
-region 207 stateless_http = stateless if !is_none(stateless) & is_none(stateless_http)
-region 208 if stateless_http is None: if true
-region 209 stateless_http = settings.stateless if is_none(stateless_http@207)
-region 210 return stateless_http if true
+region 6 from typing import TYPE_CHECKING as TC if true
+region 7 import typing as typing_alias if true
+region 9 if TYPE_CHECKING: if true
+region 10 from collections.abc import Callable if false
+region 12 marker = "checker" if false
+region 14 marker = "runtime" if true
+region 16 if sys.version_info >= (3, 12): if true
+region 17 version_branch = "new" if true
+region 19 version_branch = "old" if false
+region 21 settings = object() if true
+region 24 def fallback(timeout=None): if true
+region 25 timeout = timeout if timeout is not None else 30 if true
+region 26 return timeout if true
+region 29 def settings_fallback(host=None): if true
+region 30 if host is None: if true
+region 31 host = settings.host if is_none(host)#4bf3bbd57890721e6b08d6b731a53cbf:s579-591
+region 32 return host if true
+region 35 def guarded(path, strict=False): if true
+region 36 if not path: if true
+region 37 raise ValueError("empty") if !truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688
+region 38 if strict: if truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688
+region 39 return path.upper() if truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688 & truthy(strict)#4bf3bbd57890721e6b08d6b731a53cbf:s731-737
+region 40 return path if !truthy(strict)#4bf3bbd57890721e6b08d6b731a53cbf:s731-737 & truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688
+region 43 def either(a, b): if true
+region 44 return a or b if true
+region 47 def walrus(items): if true
+region 48 if (n := len(items)) > 3: if true
+region 49 return n if opaque("(n := len(items)) > 3")#4bf3bbd57890721e6b08d6b731a53cbf:s849-870
+region 50 return 0 if !opaque("(n := len(items)) > 3")#4bf3bbd57890721e6b08d6b731a53cbf:s849-870
+region 53 def comprehension(prefix, names): if true
+region 54 return [prefix + n for n in names] if true
+region 57 def loop(values): if true
+region 58 total = 0 if true
+region 59 for v in values: if true
+region 60 if v is None: if true
+region 61 continue if is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052
+region 62 if v == "stop": if !is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052
+region 63 break if !is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052 & equals(v,"stop")#4bf3bbd57890721e6b08d6b731a53cbf:s1086-1097
+region 64 total = total + v if !equals(v,"stop")#4bf3bbd57890721e6b08d6b731a53cbf:s1086-1097 & !is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052
+region 66 total = -1 if true
+region 67 return total if true
+region 70 def handled(fn): if true
+region 71 result = None if true
+region 72 try: if true
+region 73 result = fn() if true
+region 75 result = error if true
+region 77 cleanup = True if true
+region 78 return result, cleanup if true
+region 81 def suppressed(cm, compute): if true
+region 82 value = 1 if true
+region 83 with cm: if true
+region 84 value = compute() if true
+region 85 return value if true
+region 88 def matched(command): if true
+region 89 match command: if true
+region 91 state = 1 if equals(command,"start")#4bf3bbd57890721e6b08d6b731a53cbf:pd5ab94f9410e80a0144904eb7140daba
+region 93 state = 0 if !equals(command,"start")#4bf3bbd57890721e6b08d6b731a53cbf:pd5ab94f9410e80a0144904eb7140daba & is_none(command)#4bf3bbd57890721e6b08d6b731a53cbf:p303b7eab56e4284760a3ceec0c34ea4f
+region 95 state = -1 if !equals(command,"start")#4bf3bbd57890721e6b08d6b731a53cbf:pd5ab94f9410e80a0144904eb7140daba & !is_none(command)#4bf3bbd57890721e6b08d6b731a53cbf:p303b7eab56e4284760a3ceec0c34ea4f
+region 96 return state if true
+region 99 counter = 0 if true
+region 102 def bump(): if true
+region 103 global counter if true
+region 104 counter = counter + 1 if true
+region 105 return counter if true
+region 108 def outer(): if true
+region 109 level = 1 if true
+region 111 def inner(): if true
+region 112 nonlocal level if true
+region 113 level = level + 1 if true
+region 114 return level if true
+region 116 return inner if true
+region 119 def deleted(data): if true
+region 120 copy = data if true
+region 121 del copy if true
+region 122 return data if true
+region 125 def modes(transport, host=None): if true
+region 126 if transport in ("http", "sse"): if true
+region 127 return host if member_of(transport,{"http","sse"})#4bf3bbd57890721e6b08d6b731a53cbf:s1993-2021
+region 128 return None if !member_of(transport,{"http","sse"})#4bf3bbd57890721e6b08d6b731a53cbf:s1993-2021
+region 131 def type_checking_flag(value): if true
+region 132 if TYPE_CHECKING: if true
+region 133 value = "checker" if false
+region 134 return value if true
+region 137 def augmented(n): if true
+region 138 n += 1 if true
+region 139 return n if true
+region 142 def platform_branch(): if true
+region 143 if os.name == "nt": if true
+region 144 return "windows" if false
+region 145 return "posix" if true
+region 148 def empty_loop(): if true
+region 149 last = None if true
+region 150 for item in []: if true
+region 151 last = item if false
+region 152 return last if true
+region 155 def elif_chain(mode): if true
+region 156 if mode == "a": if true
+region 157 result = 1 if equals(mode,"a")#4bf3bbd57890721e6b08d6b731a53cbf:s2417-2428
+region 159 result = 2 if !equals(mode,"a")#4bf3bbd57890721e6b08d6b731a53cbf:s2417-2428 & equals(mode,"b")#4bf3bbd57890721e6b08d6b731a53cbf:s2458-2469
+region 161 result = 3 if !equals(mode,"a")#4bf3bbd57890721e6b08d6b731a53cbf:s2417-2428 & !equals(mode,"b")#4bf3bbd57890721e6b08d6b731a53cbf:s2458-2469
+region 162 return result if true
+region 165 def safe_try(): if true
+region 166 marker_value = 0 if true
+region 167 try: if true
+region 168 marker_value = 1 if true
+region 170 marker_value = 2 if false
+region 171 return marker_value if true
+region 174 if TYPE_CHECKING: if true
+region 176 def both(x: int) -> int: ... if false
+region 176 ... if true
+region 180 def both(x): if true
+region 181 return x if true
+region 184 TEXT_WITH_WORD = "TYPE_CHECKING" if true
+region 185 F_TEXT = f"{TYPE_CHECKING}" if true
+region 188 def string_mode(flag): if true
+region 189 if flag == "TYPE_CHECKING":  # a comment if true
+region 190 return 1 if equals(flag,"TYPE_CHECKING")#4bf3bbd57890721e6b08d6b731a53cbf:s2910-2933
+region 191 return 0 if !equals(flag,"TYPE_CHECKING")#4bf3bbd57890721e6b08d6b731a53cbf:s2910-2933
+region 194 def commented(a, b): if true
+region 195 if (a  # first if true
+region 197 return a if opaque("a > b")#4bf3bbd57890721e6b08d6b731a53cbf:s3009-3035
+region 198 return b if !opaque("a > b")#4bf3bbd57890721e6b08d6b731a53cbf:s3009-3035
+region 201 def nested_fallback(level=None, name=None): if true
+region 202 chosen = (level if level is not None else settings.level).lower() if true
+region 203 label = f"[{name}]" if true
+region 204 return fallback(name), chosen, label if true
+region 207 def alias_fallback(stateless=None, stateless_http=None): if true
+region 208 if stateless is not None and stateless_http is None: if true
+region 209 stateless_http = stateless if !is_none(stateless)#4bf3bbd57890721e6b08d6b731a53cbf:s3315-3336 & is_none(stateless_http)#4bf3bbd57890721e6b08d6b731a53cbf:s3341-3363
+region 210 if stateless_http is None: if true
+region 211 stateless_http = settings.stateless if is_none(stateless_http)#4bf3bbd57890721e6b08d6b731a53cbf:s3407-3429
+region 212 return stateless_http if true
+region 215 def two_calls(probe): if true
+region 216 if probe(): if true
+region 217 if not probe(): if opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3532-3539
+region 218 return "second call changed" if !opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3556-3563 & opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3532-3539
+region 219 return "other" if !opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3532-3539 | opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3556-3563
+region 222 def two_ranges(n, m): if true
+region 223 found = -1 if true
+region 224 for i in range(n): if true
+region 225 found = i if opaque("<the iterable is non-empty>")#4bf3bbd57890721e6b08d6b731a53cbf:p5c9dad1b102c48e018107de007bfd8cb
+region 226 for j in range(m): if true
+region 227 found = j if opaque("<the iterable is non-empty>")#4bf3bbd57890721e6b08d6b731a53cbf:pf0b35ef6468acd2fe3b008e2ea9b1bdc
+region 228 return found if true
+region 231 def mutated(self): if true
+region 232 if self.x is None: if true
+region 233 self.reset() if is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805
+region 234 if self.x is not None: if is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805
+region 235 return "mutated" if !is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3839-3857 & is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805
+region 236 return "other" if !is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805 | is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3839-3857
+region 239 def cleared(items): if true
+region 240 if items: if true
+region 241 items.clear() if truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941
+region 242 if not items: if truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941
+region 243 return "cleared" if !truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3980-3985 & truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941
+region 244 return "other" if !truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941 | truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3980-3985
+region 247 def eq_vs_is(x): if true
+region 248 if x == True: if true
+region 249 if x is not True: if equals(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4061-4070
+region 250 return "equal, not identical" if !is_value(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4083-4096 & equals(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4061-4070
+region 251 return "other" if !equals(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4061-4070 | is_value(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4083-4096
+region 254 def eq_none(x): if true
+region 255 if x == None: if true
+region 256 if x is not None: if equals(x,None)#4bf3bbd57890721e6b08d6b731a53cbf:s4184-4193
+region 257 return "equal, not identical" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4206-4219 & equals(x,None)#4bf3bbd57890721e6b08d6b731a53cbf:s4184-4193
+region 258 return "other" if !equals(x,None)#4bf3bbd57890721e6b08d6b731a53cbf:s4184-4193 | is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4206-4219
+region 261 def same_line_bindings(x, y): if true
+region 262 if x is None: if true
+region 263 x = y if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4321-4330
+region 263 x = None if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4321-4330
+region 264 if x is None: if true
+region 265 return x if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4363-4372
+region 266 return y if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4363-4372
+region 269 def merged_definitions(x, choose): if true
+region 270 if choose: if true
+region 271 x = None if truthy(choose)#4bf3bbd57890721e6b08d6b731a53cbf:s4448-4454
+region 272 if x is None: if true
+region 273 return "merge" if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4480-4489
+region 274 return "other" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4480-4489
+region 277 def choose(TYPE_CHECKING): if true
+region 278 if TYPE_CHECKING: if true
+region 279 return "parameter" if truthy(TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4569-4582
+region 280 return "other" if !truthy(TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4569-4582
+region 283 def checking_alias(): if true
+region 284 if TC: if true
+region 285 return "checker only" if false
+region 286 return "runtime" if true
+region 289 def checking_module_alias(): if true
+region 290 if typing_alias.TYPE_CHECKING: if true
+region 291 return "checker only" if false
+region 292 return "runtime" if true
+region 295 def config_check(config): if true
+region 296 if config.TYPE_CHECKING: if true
+region 297 return "ordinary attribute" if truthy(config.TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4868-4888
+region 298 return "other" if !truthy(config.TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4868-4888
+region 301 def version_prefix(): if true
+region 302 if sys.version_info > (3, 14): if true
+region 303 above = True if true
+region 305 above = False if false
+region 306 if sys.version_info >= (3, 14): if true
+region 307 at_least = True if true
+region 309 at_least = False if false
+region 310 if sys.version_info <= (3, 14): if true
+region 311 at_most = True if false
+region 313 at_most = False if true
+region 314 if sys.version_info == (3, 14): if true
+region 315 equal = True if false
+region 317 equal = False if true
+region 318 return above, at_least, at_most, equal if true
+region 321 def version_micro_prefix(): if true
+region 322 if sys.version_info > (3, 14, 7): if true
+region 323 above_micro = True if true
+region 325 above_micro = False if false
+region 326 if sys.version_info <= (3, 14, 7): if true
+region 327 at_most_micro = True if false
+region 329 at_most_micro = False if true
+region 330 if sys.version_info == (3, 14, 7): if true
+region 331 equal_micro = True if false
+region 333 equal_micro = False if true
+region 334 return above_micro, at_most_micro, equal_micro if true
+region 337 def rebound_isinstance_class(x): if true
+region 338 C = int if true
+region 339 if isinstance(x, C): if true
+region 340 C = str if isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843
+region 341 if not isinstance(x, C): if isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843
+region 342 return "rebound class" if !isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5876-5892 & isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843
+region 343 return "other" if !isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843 | isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5876-5892
+region 346 def non_singleton_identity(x): if true
+region 347 if x is 1000: if true
+region 348 if x is not 1000: if is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s5988-5997
+region 349 return "different literal object" if !is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s6010-6023 & is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s5988-5997
+region 350 return "other" if !is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s5988-5997 | is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s6010-6023
+region 353 def nonlocal_change(): if true
+region 354 x = None if true
+region 356 def change(): if true
+region 357 nonlocal x if true
+region 358 x = 1 if true
+region 360 if x is None: if true
+region 361 change() if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197
+region 362 if x is not None: if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197
+region 363 return "changed nonlocal" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6227-6240 & is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197
+region 364 return "other" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197 | is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6227-6240
+region 367 def value_runtime_branch(x, y): if true
+region 368 return x if TYPE_CHECKING else y if true

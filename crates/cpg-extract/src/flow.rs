@@ -2,26 +2,117 @@
 //! every UTF-8 release module, from the text Pyrefly parsed, as fact rows. A module ty cannot
 //! index says why in its coverage row; the others are unaffected.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
-use cpg_flow::{Input, RuntimeContext, Scope, Sink};
-use cpg_schema::codebook::{ExtractionMode, Fidelity, FlowSink, Modality, Origin};
+use cpg_flow::{Input, RuntimeBindings, RuntimeContext, Scope, Sink, SkipCounts, Span};
+use cpg_schema::codebook::{
+    ExportSyntaxKind, ExtractionMode, Fidelity, FlowSink, Modality, Origin,
+};
 use cpg_schema::condition::Condition;
 use cpg_schema::id::{Id, IdHasher};
 use cpg_schema::tables::{
-    ConditionLiterals, ConditionLiteralsRow, Conditions, ConditionsRow, FlowAttributeLoads,
-    FlowAttributeLoadsRow, FlowDefinitions, FlowDefinitionsRow, FlowReaching, FlowReachingRow,
-    FlowRegions, FlowRegionsRow, FlowTests, FlowTestsRow, FlowUses, FlowUsesRow, FlowValues,
-    FlowValuesRow,
+    ConditionLiterals, ConditionLiteralsRow, Conditions, ConditionsRow, ExportSyntaxRow,
+    FlowAttributeLoads, FlowAttributeLoadsRow, FlowDefinitions, FlowDefinitionsRow, FlowReaching,
+    FlowReachingRow, FlowRegions, FlowRegionsRow, FlowTests, FlowTestsRow, FlowUses, FlowUsesRow,
+    FlowValues, FlowValuesRow,
 };
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
+use crate::lexical::LexicalOut;
 
 /// One module handed to the provider.
 pub(crate) struct FlowModule {
     pub node_id: Id,
     pub path: String,
     pub text: String,
+    pub runtime: RuntimeBindings,
+}
+
+/// The runtime override is allowed only where every lexical candidate is the same recognized
+/// import. The import alias's syntax id is the lexical binding's site id.
+pub(crate) fn runtime_bindings(lex: &LexicalOut, imports: &[ExportSyntaxRow]) -> RuntimeBindings {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Special {
+        Checking,
+        Typing,
+        Sys,
+        Os,
+    }
+    let by_site: HashMap<Id, Special> = imports
+        .iter()
+        .filter_map(|row| {
+            let target = match (
+                row.kind,
+                row.resolved_module.as_deref(),
+                row.imported_name.as_deref(),
+            ) {
+                (
+                    ExportSyntaxKind::ImportFrom,
+                    Some("typing" | "typing_extensions"),
+                    Some("TYPE_CHECKING"),
+                ) => Special::Checking,
+                (ExportSyntaxKind::Import, Some("typing" | "typing_extensions"), None) => {
+                    Special::Typing
+                }
+                (ExportSyntaxKind::Import, Some("sys"), None) => Special::Sys,
+                (ExportSyntaxKind::Import, Some("os"), None) => Special::Os,
+                _ => return None,
+            };
+            Some((row.node_id, target))
+        })
+        .collect();
+    let binding: HashMap<Id, Special> = lex
+        .bindings
+        .iter()
+        .filter_map(|b| {
+            by_site
+                .get(&b.site_node_id)
+                .copied()
+                .map(|target| (b.node_id, target))
+        })
+        .collect();
+    let mut candidates: HashMap<Id, Vec<Option<Special>>> = HashMap::new();
+    for resolution in &lex.resolutions {
+        candidates.entry(resolution.reference_id).or_default().push(
+            resolution
+                .binding_id
+                .and_then(|id| binding.get(&id).copied()),
+        );
+    }
+    let mut out = RuntimeBindings::default();
+    for reference in &lex.references {
+        let Some(found) = candidates.get(&reference.node_id) else {
+            continue;
+        };
+        let Some(Some(special)) = found.first() else {
+            continue;
+        };
+        if !found.iter().all(|item| *item == Some(*special)) {
+            continue;
+        }
+        let Ok(start) = u32::try_from(reference.start_byte) else {
+            continue;
+        };
+        let Ok(end) = u32::try_from(reference.end_byte) else {
+            continue;
+        };
+        let span = Span { start, end };
+        match special {
+            Special::Checking => {
+                out.checking_names.insert(span);
+            }
+            Special::Typing => {
+                out.typing_modules.insert(span);
+            }
+            Special::Sys => {
+                out.sys_modules.insert(span);
+            }
+            Special::Os => {
+                out.os_modules.insert(span);
+            }
+        }
+    }
+    out
 }
 
 #[derive(Default)]
@@ -39,6 +130,7 @@ pub(crate) struct FlowOut {
     pub errors: BTreeMap<Id, String>,
     /// Modules indexed from a recovered tree, with their syntax error counts.
     pub recovered: BTreeMap<Id, usize>,
+    pub skips: BTreeMap<Id, SkipCounts>,
     /// `TYPE_CHECKING` names renamed across the release.
     pub renamed: u32,
 }
@@ -88,6 +180,7 @@ pub(crate) fn run(
         .map(|m| Input {
             path: m.path.clone(),
             text: m.text.clone(),
+            runtime: m.runtime.clone(),
         })
         .collect();
     let flows = cpg_flow::index(&inputs, context);
@@ -107,6 +200,7 @@ pub(crate) fn run(
         if flow.syntax_errors > 0 {
             out.recovered.insert(m.node_id, flow.syntax_errors);
         }
+        out.skips.insert(m.node_id, flow.skips.clone());
         let module = m.node_id;
         let use_ids: Vec<Id> = flow
             .uses

@@ -597,13 +597,6 @@ fn run_release(
             .expect("loaded at Require::Everything");
         let ast = txn.get_ast(&m.handle).expect("kept at Require::Everything");
         let text = info.lined_buffer().contents().clone();
-        if families.contains(&FactFamily::Flow) {
-            flow_modules.push(flow::FlowModule {
-                node_id: m.node_id,
-                path: m.path.clone(),
-                text: text.to_string(),
-            });
-        }
         let ctx = ModuleCtx {
             release_id: input.release.release_id,
             path: &m.path,
@@ -641,6 +634,14 @@ fn run_release(
         let stars = star_imports(&txn, m, &ast);
         let mut module_walk = walk::walk_module(&ctx, &ast, &mut sink, &outside, &stars);
         let lex = std::mem::take(&mut module_walk.lexical);
+        if families.contains(&FactFamily::Flow) {
+            flow_modules.push(flow::FlowModule {
+                node_id: m.node_id,
+                path: m.path.clone(),
+                text: text.to_string(),
+                runtime: flow::runtime_bindings(&lex, &module_walk.export_syntax),
+            });
+        }
         builtins_used.extend(lex.builtins_used);
         lexical_out.scopes.extend(lex.scopes);
         lexical_out.bindings.extend(lex.bindings);
@@ -837,6 +838,11 @@ fn run_release(
             },
         );
         for m in &flow_modules {
+            let skip_detail = flow_out.skips.get(&m.node_id).map(|s| format!(
+                "skipped_reaching_ty_false={};skipped_reaching_runtime_view={};skipped_reaching_stable_contradiction={};skipped_value_branches_runtime_view={};skipped_value_branches_stable_contradiction={}",
+                s.reaching_ty_false, s.reaching_runtime_view, s.reaching_stable_contradiction,
+                s.values_runtime_view, s.values_stable_contradiction,
+            ));
             let (status, reason, detail) = match (
                 flow_out.errors.get(&m.node_id),
                 flow_out.recovered.get(&m.node_id),
@@ -849,9 +855,9 @@ fn run_release(
                 (None, Some(_)) => (
                     CoverageStatus::Partial,
                     Some(BoundaryReason::SyntaxError),
-                    None,
+                    skip_detail.clone(),
                 ),
-                (None, None) => (CoverageStatus::CompleteUnderStatedModel, None, None),
+                (None, None) => (CoverageStatus::CompleteUnderStatedModel, None, skip_detail),
             };
             report.cover(&sink, m.node_id, FactFamily::Flow, status, reason, detail);
         }

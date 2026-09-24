@@ -16,6 +16,7 @@ ruff_python_ast_ty.workspace = true
 ruff_text_size_ty.workspace = true
 ruff_python_parser_ty.workspace = true
 salsa.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
