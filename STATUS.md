@@ -1,61 +1,54 @@
 # Status
 
-_Updated 2026-09-23 by the handoff skill (increment 2 close-out)._
+_Updated 2026-09-24 by the handoff skill (the behavioral-model plan, Stage 2.1 and Stage 1's revise)._
 
 ## Where we are
 
-- **Increments 1 and 2 are done** (DESIGN §1.2). Increment 2 added:
-  - Pass B and parameter docs (2.1), Pass C and usage patterns (2.2);
-  - Leiden communities with seed consensus, where ADR-0011 was accepted (2.3);
-  - PageRank (2.4), FCA in a structural scope (2.5), and selection plus Related (2.6).
-  - Its compact review (`design_review_inc2-compact_2026-09-23.md`, Revise small) is
-    dispositioned at `5ccd38f`: direct usage now ranks selection, delegation PageRank is the
-    `+pagerank` variant, FCA scopes are nodes, concepts are shared signatures (D37–D40).
-- **Increment 3 is in progress.** 3.1 (embeddings in analytics) is done. So is the 3.2/3.3
-  groundwork: `lctx compile --analytics <variant>` and the gold scorer `scripts/score_gold.py`.
-  Next is 3.2: RCA and the extra community layers, behind variants.
-- The plan is `~/.claude/plans/we-have-not-yet-pure-swing.md`. The operator's instruction is to
-  run straight through, logging every judgment call in
-  `docs/design_review/reviews/deviations_remaining-scope_2026-09-23.md` (D1–D40) for review at
-  the end.
+- **The pivot (ADR-0021, accepted):** the behavioral model of the whole public surface is the
+  product; briefs are one rendering. The plan is
+  `docs/plans/behavioral-model-pivot-plan_2026-09-24.md`, run straight through under the operator's
+  instruction, with every judgment call logged in
+  `docs/design_review/reviews/deviations_behavioral-model_2026-09-24.md` (B1–B14).
+- **Stage 1 is done and revised.** Increment 3's deep review (Revise) is dispositioned at `f6f00b7`:
+  one verdict per arc, the status over the scan's region, served facet completeness, persisted
+  steps, `FORMAT` 4.
+- **Stage 2.1 is done** (`b00a69d`): the ty flow provider (`cpg-flow`), the condition language
+  (`cpg_schema::condition`) and the `flow_shapes` known answers. ADR-0022 was revised in place after
+  its Stage 2 standard review (Revise) and stays **proposed** until Stage 2's oracles pass.
+- **Next is Stage 2.3:** wire `cpg-flow` into extraction as the `flow` family, with the two-way parity
+  rules; then 2.6's L2 relations (value flows, field and settings reads, `negative_premises`).
 - **Unpushed:** every commit since `origin/main`. Push only when asked.
 
-## Last verified (2026-09-23)
+## Last verified (2026-09-24)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` (at `5ccd38f`) | passed: nextest 194/194, pytest 52, rule tests, adr lint 19, deps, gold (with the analytics and selection freezes) |
-| `just pilot` (at `5ccd38f`) | passed: snapshot `a8591982`, generation `4a789baa`, 5 briefs, smoke 5/5; 35.1 s, peak about 3.9 GiB |
-| `just pilot-live` (3.1, snapshot `89d3d4d0`) | passed: 957 doc links, 29/29 communities labelled; the vLLM service was stopped afterwards |
-| §1.5 ranking check (live vectors, 3.1) | failed: `FastMCP.tool` is first for 0 of 2 `fm.register` aliases (ranks 4 and 2). The 3.3 evaluation judges it |
-| First gold scoring (3.3 groundwork, generation `91828e4c`, lexical only) | mean best Jaccard 0.022, 4 of 22 families touched; hit@1 5/8, hit@5 6/8; span recall 2/157 |
+| `just test-all` (at `f6f00b7`) | passed: nextest 250/250, pytest 79, rule tests 7/7, lint-agents, adr lint (22), fixtures-check, deps (with the declared ty family), gold |
+| `just pilot` (at `f6f00b7`) | passed: snapshot `eb444ac5`, generation `0af33db8`, 36.8 s, smoke 20/20; 570 operations established, 601 unknown, 363 classes not analyzed |
+| `cargo nextest run -p cpg-flow` | passed: 21/21 `flow_shapes` known answers, facts pinned by a snapshot |
+| The Stage 2.1 spike (FastMCP 4.0.5, 275 modules) | measured: 213 ms, 47 MiB peak; parity and reaching-definition results in deviation B11 |
+| `just pilot-live` | not_run since increment 3.1: the GPU was not checked this session |
 
 ## Known gaps
 
-- **`build/`** is local. The disk is shared and at about 90%; `target/debug/incremental` and
-  stale `target/debug/deps` can be regenerated.
-- **Brief content:** the Applicable-case slot is absent on every brief by decision (U2; no
-  input-or-mode source in v1). Usage patterns fill only where official code shows a handoff.
-- **Pilot selection is idle:** the brief budget equals the five seeds, so nothing is selected
-  until 3.4 raises the budget (an ADR-0004 amendment).
+- **Disk:** the volume is at about 99% (12 GB free after `target/debug/incremental` was removed,
+  deviation B14). Two moved-aside stores are kept for the operator: `build/store-pre-stage1-2026-09-24`
+  (1.5 GB) and `build/store-pre-revise-2026-09-24`.
+- **Stage 1's evaluation** (`structured_eval_stage1_2026-09-24.md`, "met in part") awaits the
+  operator's review (B10). Stages 2, 3 and 5 now have pre-registered pass/fail exit rules.
+- **The source-body view** stays under a trigger: Q23 and Q24 at Stage 2's evaluation (B13).
 
 ## Open decisions
 
-- **The LLM-trigger ADR** (5.4) will stay `proposed` for the operator.
-- **Deferred rows**, with triggers:
-  - ADR-0011 review F6 and the property-getter row: rerun the SQL when 3.4 raises the budget;
-  - FCA time on large scopes;
-  - the deep review's O2–O6 and O9;
-  - older C- and H1 rows.
-- **The review's O2**: implications are the ablation candidate in 3.3.
-- **`just adr revisit`**: nothing has fired. ADR-0017's "a relational diff" trigger is due at 3.3's
-  `lctx diff`; check it there.
+- **ADR-0022** (proposed): accepted when Stage 2's implementation meets its oracles (the review's §12).
+- **ADR-0020** (proposed) and the LLM-trigger ADR stay `proposed` for the operator.
+- **`just adr revisit`:** nothing has fired. ADR-0021's trigger (an exit criterion failing twice)
+  can now fire, because exit rules exist.
+- **Deferred rows:** the deep review's O2, O5–O7 and the Stage 2 review's O2, each with its trigger.
 
 ## Next
 
-Slice 3.2 adds two variants, both off by default:
-- RCA: ∃-scaled `calls X` and `hands off to X` attributes in the same FCA;
-- the extra community layers: type, mention (C5 O1) and kNN.
-
-Then 3.3: `lctx diff`, variant compiles and gold scoring (a)–(c), live vectors when the GPU is
-free, and the keep rule.
+Stage 2.3: run `cpg_flow::index` inside `run_release` over the release modules' text, write the
+`flow` family (definitions, uses, reaching, value sources, regions, conditions and atoms) as facts
+with coverage rows, add the parity and reaching-within-candidates rules with injected cases, and
+put `cpg_flow::PROVIDER` into the producer revision (bumping `EXTRACTOR_OUTPUT_VERSION`).
