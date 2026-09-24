@@ -33,6 +33,12 @@ source checks, not a Stage 3 proof-relation implementation.
    `flow_test_value_links` producer must withhold a cross-site link through an
    unmodeled call or write, even if the place spelling or static type matches.
 
+The extractor hashes `flow_uses.use_id` from module node id and exact byte range.
+A read-only pilot query found **0 duplicate use IDs** across the published
+`flow_uses` rows. This supports use-id addressing in the proposed proof row for
+this snapshot; it does not prove that a candidate use plays the `tested_place`
+role for a particular leaf.
+
 The pilot read-only queries were:
 
 ```sql
@@ -50,6 +56,10 @@ JOIN source_files s ON s.module_node_id = u.module_node_id
 WHERE s.path = 'fastmcp/resources/base.py'
   AND u.start_byte >= 11597 AND u.end_byte <= 11833 AND NOT u.annotation
 ORDER BY u.start_byte, u.end_byte;
+
+SELECT count(*) AS duplicated_use_ids FROM (
+  SELECT use_id FROM flow_uses GROUP BY use_id HAVING count(*) > 1
+);
 ```
 
 **Design consequence.** `flow_test_leaves` owns leaf attribution; `flow_tests`

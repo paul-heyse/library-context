@@ -82,6 +82,21 @@ synthetic atoms share the same subject span.
   not the proof authority. Only a stated root with validated leaf support can authorize a
   proof row. A leaf without a justified operand-use mapping remains available as a Boolean
   atom but cannot support a typed exclusion.
+  The Arrow row has `snapshot_id`, `fact_id`, `module_node_id`, scope kind/name span,
+  `predicate_key`, test start/end, `condition_id`, `atom_id`, full encoded atom and leaf
+  start/end. `predicate_key` is exactly `H("flow-synthetic-predicate", format!("{fid:?}"),
+  format!("{predicate_id:?}"))`, the current synthetic identity's predicate digest;
+  snapshot and module scope are separate row columns. The unique source key is
+  `(snapshot_id, module_node_id, predicate_key, atom_id)`.
+  `atom_id` is a domain-separated hash of the full evaluated `Atom::encode()`, including its
+  site/synthetic identity; BDD nodes still persist the full atom string. Equal spellings at
+  different sites do not merge. A `Site` leaf span must equal the
+  atom's encoded site span; a synthetic pattern leaf records its subject span and its
+  encoded predicate key must equal the row's. The validator recomputes the atom's module key
+  from the cited source path and original text using `flow-evaluation-module`; a matching
+  span or predicate hash with a foreign module key is insufficient. Producer and validator
+  reject duplicate keys, invalid source spans, mismatched identities, missing condition roots or
+  an atom outside that root's support. A bounded/unstated root cannot authorize a proof row.
 - A new attributed test-use observation joins `flow_test_leaves` to the exact place-use span and
   its Pyrefly type term. The current `type_observations` roles do not supply this join. The typed
   theory's exact-type proof origins are a closed whitelist: a modeled source literal or a
@@ -94,18 +109,23 @@ synthetic atoms share the same subject span.
   unknown. The raw Boolean condition id is independent of theory-conditioned verdicts; the
   latter cite the theory revision and proof witness. No arbitrary Python expression is evaluated.
 - The `flow_test_types` relation cites `flow_test_leaves.fact_id` and its leaf evaluation atom
-  identity, exact `flow_uses.use_id` and operand span, type-term id, proof-origin code and cited
-  fact ids. A test-span id alone cannot identify which BDD variable the proof constrains. Its
-  Rust producer queries Pyrefly's
-  expression trace at the exact operand-use span and joins by source identity in the same
-  module/snapshot; the
-  current `type_observations` table alone is insufficient. An ambiguous or absent trace emits
-  no positive proof.
+  identity, exact `flow_uses.use_id`, operand span and role (`tested_place`), type-term id,
+  proof-origin code and cited fact ids. A test-span id alone cannot identify which BDD variable
+  the proof constrains. Its Rust producer queries Pyrefly's expression trace at the exact
+  operand-use span and joins by source identity in the same module/snapshot; the current
+  `type_observations` table alone is insufficient. An ambiguous or absent trace emits no
+  positive proof.
+  The `tested_place` join is a structural match from the atom's modeled operator to the
+  corresponding operand AST node and its `flow_uses` row, not a choice of any use contained
+  by the test span. For a synthetic pattern, the provider predicate id and pattern subject
+  node must establish the mapping separately. Annotation uses and sibling operands are never
+  candidates by proximity alone.
   A shared publication validator checks the leaf row's unique predicate/atom identity and that
   its atom is in its own condition root's support. It checks the same-snapshot/module use,
-  operand/leaf spans and role, type term, origin whitelist and cited facts before an exclusion
-  may use it. A synthetic pattern atom receives no place-use proof merely because its subject
-  span contains a use; ambiguous attribution stays unknown.
+  requiring exactly one `flow_uses` row for the proof's use id, operand span and decoded
+  `tested_place`; it also checks leaf span, type term, origin whitelist and cited facts before
+  an exclusion may use it. A synthetic pattern atom receives no place-use
+  proof merely because its subject span contains a use; ambiguous attribution stays unknown.
 - An `approximated` flag records ty's ambiguous terminal or another stated assumption. Query
   results report budgets and whether approximation affected them.
 

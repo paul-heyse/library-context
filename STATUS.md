@@ -18,16 +18,17 @@ _Updated 2026-09-24 under the handoff skill. Work is on `main`; no push was requ
 | `just pilot` at `f2549cb` | passed: snapshot `ecf8b9cdc11ebaf4c1dae61fa9b35dee`, generation `88660525d69030df`, 20/20 FastMCP smoke; 44.9 s total, 4,227 MiB peak RSS. Compiler still uses Stage 2 DNF |
 | `CARGO_TARGET_DIR="$PWD/target" cargo run --locked --manifest-path docs/design_review/evidence/2026-09-24_bdd-pilot-survey/Cargo.toml -- build/store ecf8b9cdc11ebaf4c1dae61fa9b35dee` | passed: 13,775/13,775 stated conditions converted and validated in 0.97 s; p95 8, max 53 nodes per root; 23,760 unique node ids; one `SourceOverBudget` sentinel |
 | `cargo test -p cpg-flow --test flow_shapes --quiet` | passed: 28/28 existing Stage 2 flow shape checks; the read-only test-leaf join probe inspected pilot compound and fixture `match` cases |
+| `lctx query --store build/store --snapshot ecf8b9cdc11ebaf4c1dae61fa9b35dee` duplicate-`flow_uses.use_id` count | passed: 0 duplicate IDs in this pilot snapshot; source-use role remains unproved |
 | `just adr lint`; `just adr revisit`; `git diff --check` | passed: 25 ADR records, dependency revisit check, no whitespace errors |
 | `just check` for this design-only slice | not_run: operator chose ADRs and focused probes; the last broader gate is the `just test-all` result above |
 
 ## Open boundaries
 
 - The single Stage 2 `over_budget` condition row is referenced by 237 `flow_regions` and 846 `flow_reaching` facts across modules. Materialized-row conversion cannot recover those distinct source expressions. Construct BDDs in `cpg-flow` **before** DNF truncation, migrate `flow_model` with the root/node schema, then measure whether the 66 recorded `budget_reached` claims fall.
-- BDD nodes are not yet a published Delta or serving-bundle relation; per-predicate `flow_test_leaves`, typed test-use observations, exact-value/effect-stability proofs, generation-pinned semantic queries, models catalog, handlers/callbacks/resources, SCC summaries, Pysa differential, and Stage 3 structured exit evaluation are **not_run/not implemented**. The native `probe_*` calls are developer smoke only, not FastMCP verdicts.
+- BDD nodes are not yet a published Delta or serving-bundle relation; the proposed `flow_test_leaves` row/key contract, typed test-use observations, exact-value/effect-stability proofs, generation-pinned semantic queries, models catalog, handlers/callbacks/resources, SCC summaries, Pysa differential, and Stage 3 structured exit evaluation are **not_run/not implemented**. The native `probe_*` calls are developer smoke only, not FastMCP verdicts.
 - ADR-0024/0025 remain proposed; ADR-0020 remains proposed on its separate increment-5 trigger. No new manual revisit trigger was established by this session. The standalone survey's own lock may differ in unrelated transitive packages from the product lock, so it is design evidence, not product acceptance.
 - Uncommitted edits in `AGENTS.md`, `docs/pins.md` and `.claude/skills/README.md` are outside this slice and were preserved.
 
 ## Next
 
-Specify the `flow_test_leaves` Arrow row contract and exact source-use attribution for compound and synthetic pattern atoms; keep unproven mappings unknown. Then design the direct, call/write-blocked `flow_test_value_links` cases. Keep broad packaging gates for the later product checkpoint.
+Probe exact source-use attribution for compound and synthetic pattern atoms against the proposed `flow_test_leaves` row contract; keep unproven mappings unknown. Then design the direct, call/write-blocked `flow_test_value_links` cases. Keep broad packaging gates for the later product checkpoint.

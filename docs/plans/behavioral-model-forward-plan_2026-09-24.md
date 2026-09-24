@@ -308,10 +308,15 @@ outcome.
    Include provider predicate identity, test span, condition root and leaf atom/span so separate
    `match` arms sharing a subject span remain distinct. Then produce `flow_test_types` against
    that leaf row and the exact `flow_uses` operand; join Pyrefly's trace by operand-use span.
+   Freeze the Arrow row and uniqueness contract in ADR-0024 first: snapshot/module/scope,
+   provider predicate key, test/root, full encoded atom plus atom id and leaf span. Validate
+   root support, recomputed source-module key, `Site` or `Synthetic` identity and exact-one
+   use-row match before any proof row is admitted.
    Add only the closed exact-runtime-origin cases and effect-stability witnesses; an
    absent/ambiguous mapping leaves atoms independent. The later `flow_test_value_links` bridge
    cites the same leaf row and requires its own justified subject-use mapping for synthetic
-   pattern predicates. Pin compound Boolean and two-arm `match` cases before pilot measurement.
+   pattern predicates. Pin compound Boolean and two-arm `match` cases, plus sibling-operand,
+   annotation-use and call/write counterexamples, before pilot measurement.
    The read-only [test-leaf join probe](../design_review/evidence/2026-09-24_test-leaf-proof-joins/README.md)
    establishes the source identity gap; it does not validate the proposed new relation.
 6. Run focused source counterexamples first, then the product pilot and the registered Stage 3
