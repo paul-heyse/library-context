@@ -103,6 +103,15 @@ analytics that read them stay in their increments, and every family names its co
   `content_digest`. For evaluation, this surface is expected to correspond to gold families
   `fm.register`, `fm.inputs`, `fm.outputs`, `fm.errors`, `fm.resources` and `fm.middleware`
   (about 30 operations). That correspondence is measured (§12), never used as input.
+  **Measured** (slice 3.3, 2026-09-23, snapshot `1a7244fe`; the gold's operations joined to the
+  public-callables relation and `exports`, each declaration's module tested against the config's
+  prefixes). The six families hold 30 operations. 25 resolve to release declarations; the other
+  five are `pydantic` and `mcp` names outside the release. 22 of the 25 lie in the subsystem, and
+  every miss is a `fastmcp.Client` method, which the config's rule excludes. By family, in
+  subsystem / operations: `fm.register` 6/6, `fm.inputs` 3/4, `fm.outputs` 2/4, `fm.errors` 3/4,
+  `fm.resources` 4/8, `fm.middleware` 4/4. The kept default's 20 briefs touch `fm.register`,
+  `fm.inputs` and `fm.resources` among the six. Each brief is one operation (§10.3), so a family's
+  best Jaccard is at most 1 / |operations|.
 - **Gold reference.** The skill's reviewed capability families are used **only to evaluate**
   (§12). Nothing under `.claude/skills/` is ever a compiler input: acquisition fetches its own
   pinned artifacts, even when identical bytes exist in a skill's cache. Analytics parameters (§9)
