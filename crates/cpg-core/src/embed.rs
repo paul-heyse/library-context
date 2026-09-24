@@ -12,7 +12,6 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use arrow_array::cast::AsArray;
 use cpg_schema::embedding::{EmbeddingCache, EmbeddingCacheRow};
 use cpg_schema::findings::BriefDocumentsRow;
 use cpg_schema::id::{Digest, Id, IdHasher};
@@ -343,6 +342,35 @@ async fn embed_batches(
     (rows, None)
 }
 
+// The embedding cache's relations (the holistic assessment's A4): the spec and keys bound, never
+// spliced as `X'…'` literals.
+cpg_schema::relations! {
+    inventory relations;
+    /// Every cached vector of one spec (`$spec`).
+    cache_relation = "embedding_cache_vectors",
+        deps = ["embedding_cache"],
+        sql = "SELECT input_hash, vector FROM embedding_cache WHERE spec_hash = $spec".to_owned();
+    /// The keys of one spec (`$spec`) the cache holds among `$keys`.
+    keys_relation = "embedding_cache_keys",
+        deps = ["embedding_cache"],
+        sql = "SELECT input_hash FROM embedding_cache \
+               WHERE spec_hash = $spec AND array_has($keys, input_hash)"
+            .to_owned();
+}
+
+cpg_schema::query_row! {
+    struct CachedRow {
+        input_hash: Digest,
+        vector: Vec<f32>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct KeyRow {
+        input_hash: Digest,
+    }
+}
+
 /// Every cached vector of `spec_hash`, by key (the global read mode).
 async fn cached_vectors(
     root: &std::path::Path,
@@ -356,25 +384,14 @@ async fn cached_vectors(
     let ctx = crate::snapshot::empty_session();
     table.update_datafusion_session(&ctx.state())?;
     ctx.register_table(EmbeddingCache::NAME, table.table_provider().await?)?;
-    let query = format!(
-        "SELECT input_hash, vector FROM embedding_cache WHERE spec_hash = X'{}'",
-        spec_hash.hex()
-    );
-    for b in crate::sql::query(&ctx, &query).await?.collect().await? {
-        let keys = arrow_cast::cast(b.column(0), &arrow_schema::DataType::Binary)?;
-        let keys = keys.as_binary::<i32>();
-        let lists = b.column(1).as_list::<i32>();
-        for i in 0..b.num_rows() {
-            let (Ok(key), false) = (
-                <[u8; 32]>::try_from(keys.value(i)),
-                arrow_array::Array::is_null(lists, i),
-            ) else {
-                continue;
-            };
-            let values = lists.value(i);
-            let floats = values.as_primitive::<arrow_array::types::Float32Type>();
-            out.insert(Digest(key), floats.values().to_vec());
-        }
+    for r in crate::sql::fetch::<CachedRow>(
+        &ctx,
+        &cache_relation(),
+        crate::sql::Params::new().digest("spec", spec_hash),
+    )
+    .await?
+    {
+        out.insert(r.input_hash, r.vector);
     }
     Ok(out)
 }
@@ -386,7 +403,7 @@ async fn cached_keys(
     spec_hash: Digest,
     wanted: impl Iterator<Item = Digest>,
 ) -> Result<std::collections::BTreeSet<Digest>, CoreError> {
-    let wanted: Vec<String> = wanted.map(|k| format!("X'{}'", k.hex())).collect();
+    let wanted: Vec<Digest> = wanted.collect();
     let mut out = std::collections::BTreeSet::new();
     if wanted.is_empty() || !root.join(EmbeddingCache::NAME).join("_delta_log").exists() {
         return Ok(out);
@@ -395,18 +412,16 @@ async fn cached_keys(
     let ctx = crate::snapshot::empty_session();
     table.update_datafusion_session(&ctx.state())?;
     ctx.register_table(EmbeddingCache::NAME, table.table_provider().await?)?;
-    let query = format!(
-        "SELECT input_hash FROM embedding_cache WHERE spec_hash = X'{}' AND input_hash IN ({})",
-        spec_hash.hex(),
-        wanted.join(", ")
-    );
-    for b in crate::sql::query(&ctx, &query).await?.collect().await? {
-        let col = arrow_cast::cast(b.column(0), &arrow_schema::DataType::Binary)?;
-        for v in col.as_binary::<i32>().iter().flatten() {
-            if let Ok(bytes) = <[u8; 32]>::try_from(v) {
-                out.insert(Digest(bytes));
-            }
-        }
+    for r in crate::sql::fetch::<KeyRow>(
+        &ctx,
+        &keys_relation(),
+        crate::sql::Params::new()
+            .digest("spec", spec_hash)
+            .digests("keys", wanted),
+    )
+    .await?
+    {
+        out.insert(r.input_hash);
     }
     Ok(out)
 }

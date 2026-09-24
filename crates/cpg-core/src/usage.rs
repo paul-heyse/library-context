@@ -18,15 +18,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use arrow_array::{Array, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch, StringArray};
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
     BindingKind, Codebook, EdgeKind, Modality, SourceRole, SyntaxField, SyntaxKind,
 };
 use cpg_schema::id::Id;
 use datafusion::prelude::SessionContext;
 
-use crate::delta::to_schema;
 use crate::{CoreError, sql};
 
 /// How many candidate sites per seed are tried, in candidate order.
@@ -57,71 +54,144 @@ pub struct Pattern {
     pub sites: BTreeSet<Id>,
 }
 
-const ID: DataType = DataType::FixedSizeBinary(16);
-
-fn schema(fields: &[(&str, DataType)]) -> SchemaRef {
-    std::sync::Arc::new(Schema::new(
-        fields
-            .iter()
-            .map(|(n, t)| Field::new(*n, t.clone(), true))
-            .collect::<Vec<_>>(),
-    ))
+// The usage-pattern relations (the holistic assessment's A4, B2): ids bound as `$ids`, rows read
+// as `query_row!` types whose non-null columns may not be null (A8).
+cpg_schema::relations! {
+    inventory relations;
+    /// Every official-usage call site targeting a seed, ranked example, doc block, test.
+    candidates_relation = "usage_candidates",
+        deps = ["edges", "syntax_nodes", "source_files", "facts"],
+        sql = format!(
+            "SELECT DISTINCT e.dst_node_id AS seed, e.src_node_id AS site, sn.module_node_id, \
+                    sf.role, sf.path, sn.start_byte, \
+                    CASE sf.role WHEN {example} THEN 0 WHEN {doc} THEN 1 ELSE 2 END AS rank \
+             FROM edges e JOIN syntax_nodes sn ON sn.node_id = e.src_node_id \
+             JOIN ({usage}) sf ON sf.module_node_id = sn.module_node_id \
+             JOIN facts f ON f.fact_id = e.evidence_fact_id \
+             WHERE e.edge_kind IN ({call_target}, {site_target}) \
+               AND array_has($ids, e.dst_node_id) \
+               AND f.modality IN ({definite}, {candidate}) \
+             ORDER BY seed, rank, sf.path, sn.start_byte, site",
+            usage = cpg_schema::flows::usage_files_sql(),
+            example = SourceRole::Example.code(),
+            doc = SourceRole::DocBlock.code(),
+            call_target = EdgeKind::CallTarget.code(),
+            site_target = EdgeKind::SiteTarget.code(),
+            definite = Modality::Definite.code(),
+            candidate = Modality::Candidate.code(),
+        );
+    /// Each usage module's syntax nodes.
+    syntax_relation = "usage_syntax",
+        deps = ["syntax_nodes"],
+        sql = "SELECT module_node_id, node_id, parent_node_id, kind, field, ordinal, start_byte, \
+                      end_byte FROM syntax_nodes WHERE array_has($ids, module_node_id)"
+            .to_owned();
+    /// Each usage module's bindings.
+    bindings_relation = "usage_bindings",
+        deps = ["bindings"],
+        sql = "SELECT module_node_id, node_id, kind, site_node_id, start_byte, end_byte \
+               FROM bindings WHERE array_has($ids, module_node_id)"
+            .to_owned();
+    /// Each usage module's name reads and what each resolves to.
+    reads_relation = "usage_reads",
+        deps = ["references", "reference_resolutions"],
+        sql = "SELECT rf.module_node_id, rf.start_byte, rf.end_byte, rr.binding_id, \
+                      rr.builtin_name \
+               FROM references rf JOIN reference_resolutions rr ON rr.reference_id = rf.node_id \
+               WHERE array_has($ids, rf.module_node_id)"
+            .to_owned();
+    /// Each usage module's call sites.
+    calls_relation = "usage_calls",
+        deps = ["call_syntax"],
+        sql = "SELECT module_node_id, node_id, start_byte, end_byte FROM call_syntax \
+               WHERE array_has($ids, module_node_id)"
+            .to_owned();
+    /// The analyzed Pythons' versions (`3.x`), for the builtins.
+    versions_relation = "usage_python_versions",
+        deps = ["contexts"],
+        sql = "SELECT DISTINCT python_version FROM contexts".to_owned();
+    /// Each usage module's text.
+    texts_relation = "usage_texts",
+        deps = ["source_files"],
+        sql = "SELECT module_node_id, text FROM source_files WHERE array_has($ids, module_node_id)"
+            .to_owned();
 }
 
-async fn rows(
-    ctx: &SessionContext,
-    query: &str,
-    fields: &[(&str, DataType)],
-) -> Result<Vec<RecordBatch>, CoreError> {
-    let s = schema(fields);
-    sql::query(ctx, query)
-        .await?
-        .collect()
-        .await?
-        .iter()
-        .map(|b| to_schema(b, &s))
-        .collect()
-}
-
-fn id(b: &RecordBatch, name: &str, i: usize) -> Option<Id> {
-    let a = b
-        .column_by_name(name)?
-        .as_any()
-        .downcast_ref::<FixedSizeBinaryArray>()?;
-    (!a.is_null(i)).then(|| Id(<[u8; 16]>::try_from(a.value(i)).expect("16 bytes")))
-}
-
-fn int(b: &RecordBatch, name: &str, i: usize) -> Option<i64> {
-    let a = b
-        .column_by_name(name)?
-        .as_any()
-        .downcast_ref::<Int64Array>()?;
-    (!a.is_null(i)).then(|| a.value(i))
-}
-
-fn small(b: &RecordBatch, name: &str, i: usize) -> Option<i16> {
-    let a = b
-        .column_by_name(name)?
-        .as_any()
-        .downcast_ref::<Int16Array>()?;
-    (!a.is_null(i)).then(|| a.value(i))
-}
-
-fn text(b: &RecordBatch, name: &str, i: usize) -> Option<String> {
-    let a = b
-        .column_by_name(name)?
-        .as_any()
-        .downcast_ref::<StringArray>()?;
-    (!a.is_null(i)).then(|| a.value(i).to_owned())
-}
-
-fn hex_list(ids: impl IntoIterator<Item = Id>) -> String {
-    let list: Vec<String> = ids.into_iter().map(|i| format!("X'{}'", i.hex())).collect();
-    if list.is_empty() {
-        "NULL".to_owned()
-    } else {
-        list.join(", ")
+cpg_schema::query_row! {
+    struct CandidateRow {
+        seed: Id,
+        site: Id,
+        module_node_id: Id,
+        role: SourceRole,
+        path: String,
+        start_byte: i64,
+        rank: i64,
     }
+}
+
+cpg_schema::query_row! {
+    struct SyntaxRow {
+        module_node_id: Id,
+        node_id: Id,
+        parent_node_id: Id,
+        kind: SyntaxKind,
+        field: SyntaxField,
+        ordinal: i64,
+        start_byte: i64,
+        end_byte: i64,
+    }
+}
+
+cpg_schema::query_row! {
+    struct BindingRow {
+        module_node_id: Id,
+        node_id: Id,
+        kind: BindingKind,
+        site_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ReadRow {
+        module_node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        binding_id: Option<Id>,
+        builtin_name: Option<String>,
+    }
+}
+
+cpg_schema::query_row! {
+    struct CallRow {
+        module_node_id: Id,
+        node_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+    }
+}
+
+cpg_schema::query_row! {
+    struct VersionRow {
+        python_version: String,
+    }
+}
+
+cpg_schema::query_row! {
+    struct TextRow {
+        module_node_id: Id,
+        text: Option<String>,
+    }
+}
+
+/// Fetch a usage relation over a set of node ids.
+async fn over<R: cpg_schema::query::QueryRow>(
+    ctx: &SessionContext,
+    relation: cpg_schema::query::Relation,
+    ids: impl IntoIterator<Item = Id>,
+) -> Result<Vec<R>, CoreError> {
+    sql::fetch(ctx, &relation, sql::Params::new().ids("ids", ids)).await
 }
 
 #[derive(Debug, Clone)]
@@ -192,55 +262,11 @@ async fn candidates(
     ctx: &SessionContext,
     seeds: &[Id],
 ) -> Result<BTreeMap<Id, Vec<(Id, Id, SourceRole, String)>>, CoreError> {
-    let statement = format!(
-        "SELECT DISTINCT e.dst_node_id AS seed, e.src_node_id AS site, sn.module_node_id, \
-                sf.role, sf.path, sn.start_byte, \
-                CASE sf.role WHEN {example} THEN 0 WHEN {doc} THEN 1 ELSE 2 END AS rank \
-         FROM edges e JOIN syntax_nodes sn ON sn.node_id = e.src_node_id \
-         JOIN ({usage}) sf ON sf.module_node_id = sn.module_node_id \
-         JOIN facts f ON f.fact_id = e.evidence_fact_id \
-         WHERE e.edge_kind IN ({call_target}, {site_target}) AND e.dst_node_id IN ({seeds}) \
-           AND f.modality IN ({definite}, {candidate}) \
-         ORDER BY seed, rank, sf.path, sn.start_byte, site",
-        usage = cpg_schema::flows::usage_files_sql(),
-        example = SourceRole::Example.code(),
-        doc = SourceRole::DocBlock.code(),
-        call_target = EdgeKind::CallTarget.code(),
-        site_target = EdgeKind::SiteTarget.code(),
-        definite = Modality::Definite.code(),
-        candidate = Modality::Candidate.code(),
-        seeds = hex_list(seeds.iter().copied()),
-    );
     let mut out: BTreeMap<Id, Vec<(Id, Id, SourceRole, String)>> = BTreeMap::new();
-    for b in rows(
-        ctx,
-        &statement,
-        &[
-            ("seed", ID),
-            ("site", ID),
-            ("module_node_id", ID),
-            ("role", DataType::Int16),
-            ("path", DataType::Utf8),
-            ("start_byte", DataType::Int64),
-            ("rank", DataType::Int64),
-        ],
-    )
-    .await?
-    {
-        for i in 0..b.num_rows() {
-            let (Some(seed), Some(site), Some(module), Some(role), Some(path)) = (
-                id(&b, "seed", i),
-                id(&b, "site", i),
-                id(&b, "module_node_id", i),
-                small(&b, "role", i).and_then(SourceRole::from_code),
-                text(&b, "path", i),
-            ) else {
-                continue;
-            };
-            out.entry(seed)
-                .or_default()
-                .push((site, module, role, path));
-        }
+    for r in over::<CandidateRow>(ctx, candidates_relation(), seeds.iter().copied()).await? {
+        out.entry(r.seed)
+            .or_default()
+            .push((r.site, r.module_node_id, r.role, r.path));
     }
     Ok(out)
 }
@@ -249,153 +275,52 @@ async fn modules(
     ctx: &SessionContext,
     ids: &BTreeSet<Id>,
 ) -> Result<BTreeMap<Id, Module>, CoreError> {
-    let list = hex_list(ids.iter().copied());
     let mut out: BTreeMap<Id, Module> = BTreeMap::new();
-    for b in rows(
-        ctx,
-        &format!(
-            "SELECT module_node_id, node_id, parent_node_id, kind, field, ordinal, start_byte, \
-                    end_byte FROM syntax_nodes WHERE module_node_id IN ({list})"
-        ),
-        &[
-            ("module_node_id", ID),
-            ("node_id", ID),
-            ("parent_node_id", ID),
-            ("kind", DataType::Int16),
-            ("field", DataType::Int16),
-            ("ordinal", DataType::Int64),
-            ("start_byte", DataType::Int64),
-            ("end_byte", DataType::Int64),
-        ],
-    )
-    .await?
-    {
-        for i in 0..b.num_rows() {
-            let (Some(m), Some(n)) = (id(&b, "module_node_id", i), id(&b, "node_id", i)) else {
-                continue;
-            };
-            out.entry(m).or_default().nodes.insert(
-                n,
-                Node {
-                    parent: id(&b, "parent_node_id", i),
-                    kind: small(&b, "kind", i).unwrap_or(-1),
-                    field: small(&b, "field", i).unwrap_or(-1),
-                    ordinal: int(&b, "ordinal", i).unwrap_or(0),
-                    start: int(&b, "start_byte", i).unwrap_or(0) as usize,
-                    end: int(&b, "end_byte", i).unwrap_or(0) as usize,
-                },
-            );
-        }
+    for r in over::<SyntaxRow>(ctx, syntax_relation(), ids.iter().copied()).await? {
+        out.entry(r.module_node_id).or_default().nodes.insert(
+            r.node_id,
+            Node {
+                parent: Some(r.parent_node_id),
+                kind: r.kind.code(),
+                field: r.field.code(),
+                ordinal: r.ordinal,
+                start: r.start_byte as usize,
+                end: r.end_byte as usize,
+            },
+        );
     }
-    for b in rows(
-        ctx,
-        &format!(
-            "SELECT module_node_id, node_id, kind, site_node_id, start_byte, end_byte \
-             FROM bindings WHERE module_node_id IN ({list})"
-        ),
-        &[
-            ("module_node_id", ID),
-            ("node_id", ID),
-            ("kind", DataType::Int16),
-            ("site_node_id", ID),
-            ("start_byte", DataType::Int64),
-            ("end_byte", DataType::Int64),
-        ],
-    )
-    .await?
-    {
-        for i in 0..b.num_rows() {
-            let (Some(m), Some(n), Some(kind), Some(site)) = (
-                id(&b, "module_node_id", i),
-                id(&b, "node_id", i),
-                small(&b, "kind", i).and_then(BindingKind::from_code),
-                id(&b, "site_node_id", i),
-            ) else {
-                continue;
-            };
-            out.entry(m).or_default().bindings.insert(
-                n,
-                Binding {
-                    kind,
-                    site,
-                    span: (
-                        int(&b, "start_byte", i).unwrap_or(0) as usize,
-                        int(&b, "end_byte", i).unwrap_or(0) as usize,
-                    ),
-                },
-            );
-        }
+    for r in over::<BindingRow>(ctx, bindings_relation(), ids.iter().copied()).await? {
+        out.entry(r.module_node_id).or_default().bindings.insert(
+            r.node_id,
+            Binding {
+                kind: r.kind,
+                site: r.site_node_id,
+                span: (r.start_byte as usize, r.end_byte as usize),
+            },
+        );
     }
-    for b in rows(
-        ctx,
-        &format!(
-            "SELECT rf.module_node_id, rf.start_byte, rf.end_byte, rr.binding_id, \
-                    rr.builtin_name \
-             FROM references rf JOIN reference_resolutions rr ON rr.reference_id = rf.node_id \
-             WHERE rf.module_node_id IN ({list})"
-        ),
-        &[
-            ("module_node_id", ID),
-            ("start_byte", DataType::Int64),
-            ("end_byte", DataType::Int64),
-            ("binding_id", ID),
-            ("builtin_name", DataType::Utf8),
-        ],
-    )
-    .await?
-    {
-        for i in 0..b.num_rows() {
-            let Some(m) = id(&b, "module_node_id", i) else {
-                continue;
-            };
-            let read = match (id(&b, "binding_id", i), text(&b, "builtin_name", i)) {
-                (Some(binding), _) => Read::Binding(binding),
-                (None, Some(_)) => Read::Builtin,
-                (None, None) => Read::Unresolved,
-            };
-            out.entry(m).or_default().reads.push((
-                int(&b, "start_byte", i).unwrap_or(0) as usize,
-                int(&b, "end_byte", i).unwrap_or(0) as usize,
-                read,
-            ));
-        }
+    for r in over::<ReadRow>(ctx, reads_relation(), ids.iter().copied()).await? {
+        let read = match (r.binding_id, r.builtin_name) {
+            (Some(binding), _) => Read::Binding(binding),
+            (None, Some(_)) => Read::Builtin,
+            (None, None) => Read::Unresolved,
+        };
+        out.entry(r.module_node_id).or_default().reads.push((
+            r.start_byte as usize,
+            r.end_byte as usize,
+            read,
+        ));
     }
-    for b in rows(
-        ctx,
-        &format!(
-            "SELECT module_node_id, node_id, start_byte, end_byte FROM call_syntax \
-             WHERE module_node_id IN ({list})"
-        ),
-        &[
-            ("module_node_id", ID),
-            ("node_id", ID),
-            ("start_byte", DataType::Int64),
-            ("end_byte", DataType::Int64),
-        ],
-    )
-    .await?
-    {
-        for i in 0..b.num_rows() {
-            if let (Some(m), Some(n)) = (id(&b, "module_node_id", i), id(&b, "node_id", i)) {
-                out.entry(m).or_default().calls.push((
-                    n,
-                    int(&b, "start_byte", i).unwrap_or(0) as usize,
-                    int(&b, "end_byte", i).unwrap_or(0) as usize,
-                ));
-            }
-        }
+    for r in over::<CallRow>(ctx, calls_relation(), ids.iter().copied()).await? {
+        out.entry(r.module_node_id).or_default().calls.push((
+            r.node_id,
+            r.start_byte as usize,
+            r.end_byte as usize,
+        ));
     }
-    for b in rows(
-        ctx,
-        &format!("SELECT module_node_id, text FROM source_files WHERE module_node_id IN ({list})"),
-        &[("module_node_id", ID), ("text", DataType::Utf8)],
-    )
-    .await?
-    {
-        for i in 0..b.num_rows() {
-            if let (Some(m), Some(t)) = (id(&b, "module_node_id", i), text(&b, "text", i)) {
-                out.entry(m).or_default().text = t;
-            }
+    for r in over::<TextRow>(ctx, texts_relation(), ids.iter().copied()).await? {
+        if let Some(t) = r.text {
+            out.entry(r.module_node_id).or_default().text = t;
         }
     }
     Ok(out)
@@ -702,19 +627,14 @@ pub fn free_names(code: &str, minor: u8) -> Option<BTreeSet<String>> {
 /// The analyzed Python's least minor version (the contexts' `3.x`), for the builtins.
 async fn python_minor(ctx: &SessionContext) -> Result<u8, CoreError> {
     let mut least: Option<u8> = None;
-    for b in rows(
-        ctx,
-        "SELECT DISTINCT python_version FROM contexts",
-        &[("python_version", DataType::Utf8)],
-    )
-    .await?
-    {
-        for i in 0..b.num_rows() {
-            if let Some(minor) = text(&b, "python_version", i)
-                .and_then(|v| v.split('.').nth(1).and_then(|m| m.parse::<u8>().ok()))
-            {
-                least = Some(least.map_or(minor, |l| l.min(minor)));
-            }
+    for r in sql::fetch::<VersionRow>(ctx, &versions_relation(), sql::Params::new()).await? {
+        if let Some(minor) = r
+            .python_version
+            .split('.')
+            .nth(1)
+            .and_then(|m| m.parse::<u8>().ok())
+        {
+            least = Some(least.map_or(minor, |l| l.min(minor)));
         }
     }
     Ok(least.unwrap_or(10))

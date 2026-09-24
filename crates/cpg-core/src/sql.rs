@@ -1,8 +1,8 @@
 //! The one SQL entry point (DESIGN §4.3; review F7): DDL, DML and statements are disallowed, so no
 //! query can write to a table and bypass `DeltaTable::write`'s CHECK and invariant validation.
 
-use cpg_schema::Id;
 use cpg_schema::query::{QueryRow, Relation};
+use cpg_schema::{Digest, Id};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::ScalarValue;
 use datafusion::dataframe::DataFrame;
@@ -56,6 +56,31 @@ impl Params {
                 &values,
                 &DataType::BinaryView,
             )),
+        ));
+        self
+    }
+
+    /// `$name` as a list of 32-byte digests, bound like [`Params::ids`].
+    pub fn digests(mut self, name: &str, digests: impl IntoIterator<Item = Digest>) -> Self {
+        let values: Vec<ScalarValue> = digests
+            .into_iter()
+            .map(|d| ScalarValue::BinaryView(Some(d.0.to_vec())))
+            .collect();
+        self.0.push((
+            name.to_owned(),
+            ScalarValue::List(ScalarValue::new_list_nullable(
+                &values,
+                &DataType::BinaryView,
+            )),
+        ));
+        self
+    }
+
+    /// `$name` as one 32-byte digest.
+    pub fn digest(mut self, name: &str, digest: Digest) -> Self {
+        self.0.push((
+            name.to_owned(),
+            ScalarValue::BinaryView(Some(digest.0.to_vec())),
         ));
         self
     }
