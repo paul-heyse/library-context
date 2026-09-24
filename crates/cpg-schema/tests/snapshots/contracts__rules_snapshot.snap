@@ -122,6 +122,8 @@ key:graph_gaps
   SELECT snapshot_id, gap_fact_id, count(*) AS n FROM graph_gaps GROUP BY snapshot_id, gap_fact_id HAVING count(*) > 1
 key:edge_kinds
   SELECT snapshot_id, edge_kind, count(*) AS n FROM edge_kinds GROUP BY snapshot_id, edge_kind HAVING count(*) > 1
+key:public_paths
+  SELECT snapshot_id, node_id, access_path, count(*) AS n FROM public_paths GROUP BY snapshot_id, node_id, access_path HAVING count(*) > 1
 key:analysis_invocations
   SELECT snapshot_id, invocation_id, count(*) AS n FROM analysis_invocations GROUP BY snapshot_id, invocation_id HAVING count(*) > 1
 key:findings
@@ -540,6 +542,8 @@ codebook:edge_kinds.edge_kind
   SELECT edge_kind FROM edge_kinds WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35)
 codebook:edge_kinds.derivation
   SELECT derivation FROM edge_kinds WHERE derivation IS NOT NULL AND derivation NOT IN (0, 1, 2, 3)
+codebook:public_paths.kind
+  SELECT kind FROM public_paths WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
 codebook:analysis_invocations.extraction_mode
   SELECT extraction_mode FROM analysis_invocations WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:analysis_invocations.method
@@ -652,6 +656,12 @@ semantic:support-cites-one
   SELECT assertion_id FROM assertion_support WHERE (finding_id IS NULL) = (evidence_id IS NULL)
 semantic:evidence-text-bytes
   SELECT evidence_id FROM evidence WHERE text IS NOT NULL AND start_byte IS NOT NULL AND end_byte IS NOT NULL AND octet_length(text) <> end_byte - start_byte
+semantic:public-path-exported
+  SELECT p.node_id, p.access_path FROM public_paths p LEFT ANTI JOIN (SELECT q.node_id, q.access_path FROM public_paths q JOIN declarations d ON d.node_id = q.node_id AND d.kind = q.kind JOIN exports e ON e.export_node_id = q.export_node_id AND (q.access_path = e.access_path OR q.access_path = e.access_path || '.' || d.name)) ok ON ok.node_id = p.node_id AND ok.access_path = p.access_path
+semantic:public-path-preferred
+  SELECT node_id FROM public_paths GROUP BY node_id HAVING sum(CASE WHEN preferred THEN 1 ELSE 0 END) <> 1
+semantic:public-path-own
+  SELECT p.node_id, p.access_path FROM public_paths p JOIN declarations d ON d.node_id = p.node_id JOIN (SELECT DISTINCT export_node_id, declaration_node_id FROM exports) e ON e.export_node_id = p.export_node_id WHERE p.own <> COALESCE(e.declaration_node_id = p.node_id OR e.declaration_node_id = d.parent_node_id, false)
 semantic:brief-member-exported
   SELECT m.brief_id, m.access_path FROM brief_members m JOIN declarations d ON d.node_id = m.declaration_node_id LEFT ANTI JOIN exports e ON e.export_node_id = m.export_node_id AND (m.access_path = e.access_path OR (starts_with(m.access_path, e.access_path || '.') AND ends_with(m.access_path, '.' || d.name)))
 semantic:brief-cites-analysis

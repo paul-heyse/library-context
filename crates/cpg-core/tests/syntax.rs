@@ -1512,3 +1512,100 @@ async fn pass_c_and_usage_patterns_are_identical_across_location_and_module_orde
         assert_eq!(lines(&a, &q).await, lines(&b, &q).await, "{table}");
     }
 }
+
+cpg_schema::query_row! {
+    struct Declared {
+        node_id: Id,
+        qualified_name: String,
+    }
+}
+
+/// The holistic assessment's A1: `public_paths` on `public_shapes` names each function and class
+/// by every public spelling, own and inherited, by the rule `member()` resolves seeds with, and
+/// refuses where it refuses: past an unresolved base, past an ancestor outside the release, and
+/// where a class binds the name by an assignment. The seed rank picks the implementation over its
+/// `@overload` stubs; a private name or segment is never a path, but `__init__` is.
+#[tokio::test(flavor = "multi_thread")]
+async fn public_paths_follow_the_member_rule() {
+    let (ctx, _dir) = published_fixture("public_shapes").await;
+    let rows = public_rows(&ctx).await;
+    let declared: BTreeMap<Id, String> = sql::fetch::<Declared>(
+        &ctx,
+        &cpg_schema::query::Relation {
+            name: "declared",
+            sql: "SELECT node_id, qualified_name FROM declarations".to_owned(),
+            deps: &["declarations"],
+        },
+        sql::Params::new(),
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|d| (d.node_id, d.qualified_name))
+    .collect();
+    let mut text = String::from("path | node | kind | own | preferred\n");
+    let mut sorted: Vec<_> = rows.iter().collect();
+    sorted.sort_by(|a, b| a.access_path.cmp(&b.access_path));
+    for r in sorted {
+        text += &format!(
+            "{} | {} | {} | {} | {}\n",
+            r.access_path,
+            declared[&r.node_id],
+            r.kind.text(),
+            r.own,
+            r.preferred
+        );
+    }
+    insta::assert_snapshot!(text);
+    let path = |p: &str| rows.iter().find(|r| r.access_path == p);
+    // Inherited through a public subclass: `Base.run`'s node, not own.
+    let inherited = path("pub.Child.run").expect("Child inherits run");
+    assert_eq!(declared[&inherited.node_id], "pub.core.Base.run");
+    assert!(!inherited.own);
+    assert!(path("pub.Child.stop").is_some_and(|r| r.own));
+    // Refused: rebound, and past an ancestor outside the release. An undefined base leaves no
+    // ancestry row (Pyrefly drops it), so `Unresolved` inherits as `member()` would.
+    assert!(path("pub.Rebinds.run").is_none());
+    assert!(path("pub.Rebinds.stop").is_some());
+    assert!(
+        !rows
+            .iter()
+            .any(|r| r.access_path.starts_with("pub.External."))
+    );
+    assert!(path("pub.Unresolved.run").is_some());
+    // Classes are rows; private names and segments are not; `__init__` is.
+    assert!(
+        path("pub.Unresolved")
+            .is_some_and(|r| r.kind == cpg_schema::codebook::DeclarationKind::Class)
+    );
+    assert!(path("pub.Base.__init__").is_some());
+    assert!(path("pub.Base.__repr__").is_none() && path("pub.Base._hidden").is_none());
+    assert!(!rows.iter().any(|r| {
+        r.access_path
+            .split('.')
+            .any(|s| s.starts_with('_') && !cpg_schema::public::DUNDER_MEMBERS.contains(&s))
+    }));
+    // One preferred path per node.
+    let mut preferred: BTreeMap<Id, usize> = BTreeMap::new();
+    for r in rows.iter().filter(|r| r.preferred) {
+        *preferred.entry(r.node_id).or_default() += 1;
+    }
+    assert!(preferred.values().all(|&n| n == 1));
+    assert_eq!(
+        preferred.len(),
+        rows.iter()
+            .map(|r| r.node_id)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    );
+}
+
+async fn public_rows(ctx: &SessionContext) -> Vec<cpg_schema::findings::PublicPathsRow> {
+    sql::fetch(
+        ctx,
+        &cpg_schema::public::public_paths(),
+        sql::Params::new().texts("roots", ["pub"]),
+    )
+    .await
+    .unwrap()
+}

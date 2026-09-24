@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table public_paths
+family findings
+key snapshot_id, node_id, access_path
+@lctx.family=findings
+@lctx.table=public_paths
+snapshot_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+access_path: Utf8 NOT NULL
+export_node_id: FixedSizeBinary(16) NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=declaration_kind]
+own: Boolean NOT NULL
+preferred: Boolean NOT NULL

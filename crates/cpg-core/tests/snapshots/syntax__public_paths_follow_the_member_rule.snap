@@ -1,0 +1,47 @@
+---
+source: crates/cpg-core/tests/syntax.rs
+expression: text
+---
+path | node | kind | own | preferred
+pub.Base | pub.core.Base | class | true | true
+pub.Base.__init__ | pub.core.Base.__init__ | function | true | true
+pub.Base.run | pub.core.Base.run | function | true | true
+pub.Base.stop | pub.core.Base.stop | function | true | true
+pub.Child | pub.core.Child | class | true | true
+pub.Child.__init__ | pub.core.Base.__init__ | function | false | false
+pub.Child.run | pub.core.Base.run | function | false | false
+pub.Child.stop | pub.core.Child.stop | function | true | true
+pub.External | pub.core.External | class | true | true
+pub.Outer | pub.core.Outer | class | true | true
+pub.Outer.Inner | pub.core.Outer.Inner | class | true | true
+pub.Over | pub.core.Over | class | true | true
+pub.Over.f | pub.core.Over.f | function | true | true
+pub.Rebinds | pub.core.Rebinds | class | true | true
+pub.Rebinds.__init__ | pub.core.Base.__init__ | function | false | false
+pub.Rebinds.stop | pub.core.Base.stop | function | false | false
+pub.Unresolved | pub.core.Unresolved | class | true | true
+pub.Unresolved.__init__ | pub.core.Base.__init__ | function | false | false
+pub.Unresolved.run | pub.core.Base.run | function | false | false
+pub.Unresolved.stop | pub.core.Base.stop | function | false | false
+pub.core.Base | pub.core.Base | class | true | false
+pub.core.Base.__init__ | pub.core.Base.__init__ | function | true | false
+pub.core.Base.run | pub.core.Base.run | function | true | false
+pub.core.Base.stop | pub.core.Base.stop | function | true | false
+pub.core.Child | pub.core.Child | class | true | false
+pub.core.Child.__init__ | pub.core.Base.__init__ | function | false | false
+pub.core.Child.run | pub.core.Base.run | function | false | false
+pub.core.Child.stop | pub.core.Child.stop | function | true | false
+pub.core.External | pub.core.External | class | true | false
+pub.core.Outer | pub.core.Outer | class | true | false
+pub.core.Outer.Inner | pub.core.Outer.Inner | class | true | false
+pub.core.Over | pub.core.Over | class | true | false
+pub.core.Over.f | pub.core.Over.f | function | true | false
+pub.core.Rebinds | pub.core.Rebinds | class | true | false
+pub.core.Rebinds.__init__ | pub.core.Base.__init__ | function | false | false
+pub.core.Rebinds.stop | pub.core.Base.stop | function | false | false
+pub.core.Unresolved | pub.core.Unresolved | class | true | false
+pub.core.Unresolved.__init__ | pub.core.Base.__init__ | function | false | false
+pub.core.Unresolved.run | pub.core.Base.run | function | false | false
+pub.core.Unresolved.stop | pub.core.Base.stop | function | false | false
+pub.core.helper | pub.core.helper | function | true | false
+pub.helper | pub.core.helper | function | true | true

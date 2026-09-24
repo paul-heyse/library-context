@@ -18,6 +18,7 @@ pub mod id;
 pub mod metrics;
 pub mod neighbours;
 pub mod projection;
+pub mod public;
 pub mod query;
 pub mod rules;
 pub mod table;

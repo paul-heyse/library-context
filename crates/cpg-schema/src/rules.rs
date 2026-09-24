@@ -536,6 +536,38 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
+            // The holistic assessment's A1: a public path is its export's path, or that path and
+            // the node's own name, and names the node's kind.
+            "semantic:public-path-exported",
+            "SELECT p.node_id, p.access_path FROM public_paths p \
+             LEFT ANTI JOIN (SELECT q.node_id, q.access_path FROM public_paths q \
+               JOIN declarations d ON d.node_id = q.node_id AND d.kind = q.kind \
+               JOIN exports e ON e.export_node_id = q.export_node_id \
+                 AND (q.access_path = e.access_path \
+                      OR q.access_path = e.access_path || '.' || d.name)) ok \
+               ON ok.node_id = p.node_id AND ok.access_path = p.access_path"
+                .to_owned(),
+        ),
+        (
+            // A1: one preferred path per node, the name every consumer shows it by.
+            "semantic:public-path-preferred",
+            "SELECT node_id FROM public_paths GROUP BY node_id \
+             HAVING sum(CASE WHEN preferred THEN 1 ELSE 0 END) <> 1"
+                .to_owned(),
+        ),
+        (
+            // A1: `own` exactly when the path's export declares the node (it is the node, or the
+            // class that defines it).
+            "semantic:public-path-own",
+            "SELECT p.node_id, p.access_path FROM public_paths p \
+             JOIN declarations d ON d.node_id = p.node_id \
+             JOIN (SELECT DISTINCT export_node_id, declaration_node_id FROM exports) e \
+               ON e.export_node_id = p.export_node_id \
+             WHERE p.own <> COALESCE(e.declaration_node_id = p.node_id \
+                                     OR e.declaration_node_id = d.parent_node_id, false)"
+                .to_owned(),
+        ),
+        (
             // §10.4: every public symbol a brief names is an export's access path, or extends one
             // with the declaration's own name (slice 1.5 review O3).
             "semantic:brief-member-exported",

@@ -378,6 +378,55 @@ async fn a_seed_that_could_name_another_method_is_refused() {
     }
 }
 
+/// The holistic assessment's A1: `public_paths` agrees with the seed resolution (`member()`) on
+/// every fixture seed: each brief's seed path is a row naming its seed node. It refuses where
+/// `member()` refuses: `pkg.Shadowed.run` (a base outside the release) and `pkg.Aliased.tool` (an
+/// assignment) have no row.
+#[tokio::test(flavor = "multi_thread")]
+async fn public_paths_agree_with_the_seed_resolution() {
+    let (ctx, _dir) = analyzed("public", false).await;
+    let disagree = text(
+        &ctx,
+        "SELECT b.access_path FROM briefs b LEFT ANTI JOIN public_paths p \
+           ON p.access_path = b.access_path AND p.node_id = b.seed_node_id",
+    )
+    .await;
+    assert_eq!(
+        disagree.lines().filter(|l| l.contains("pkg")).count(),
+        0,
+        "{disagree}"
+    );
+    let briefs = text(&ctx, "SELECT access_path FROM briefs").await;
+    assert!(
+        briefs.lines().filter(|l| l.contains("pkg")).count() >= 3,
+        "{briefs}"
+    );
+    let refused = text(
+        &ctx,
+        "SELECT access_path FROM public_paths \
+         WHERE access_path IN ('pkg.Shadowed.run', 'pkg.Aliased.tool')",
+    )
+    .await;
+    assert_eq!(
+        refused.lines().filter(|l| l.contains("pkg")).count(),
+        0,
+        "{refused}"
+    );
+    // Each brief member is a public path of its seed (step 5 serves them from the table).
+    let members = text(
+        &ctx,
+        "SELECT m.access_path FROM brief_members m JOIN briefs b ON b.brief_id = m.brief_id \
+         LEFT ANTI JOIN public_paths p ON p.access_path = m.access_path \
+           AND p.node_id = b.seed_node_id",
+    )
+    .await;
+    assert_eq!(
+        members.lines().filter(|l| l.contains("pkg")).count(),
+        0,
+        "{members}"
+    );
+}
+
 /// Slice 1.5 review F3: each template says what its finding's fields show. Under a witness cap of
 /// one, a call-site count is a floor. A boundary below a callee is not the seed's own call. The
 /// override-open hop is the one named.
@@ -1223,6 +1272,7 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
 async fn the_analysis_rules_reject_their_violations() {
     let (ctx, _dir) = analyzed("one", false).await;
     for table in [
+        "public_paths",
         "analysis_invocations",
         "findings",
         "finding_members",
@@ -1373,6 +1423,26 @@ async fn the_analysis_rules_reject_their_violations() {
             "SELECT snapshot_id, evidence_id, evidence_kind, cited_fact_id, node_id, \
                     module_node_id, start_byte, end_byte + 1 AS end_byte, text \
              FROM evidence_published",
+        ),
+        // The holistic assessment's A1: a path its export does not spell, a node with two
+        // preferred paths, and an inherited path claimed as the node's own.
+        (
+            "semantic:public-path-exported",
+            "public_paths",
+            "SELECT snapshot_id, node_id, access_path || '_elsewhere' AS access_path, \
+                    export_node_id, kind, own, preferred FROM public_paths_published",
+        ),
+        (
+            "semantic:public-path-preferred",
+            "public_paths",
+            "SELECT snapshot_id, node_id, access_path, export_node_id, kind, own, \
+                    true AS preferred FROM public_paths_published",
+        ),
+        (
+            "semantic:public-path-own",
+            "public_paths",
+            "SELECT snapshot_id, node_id, access_path, export_node_id, kind, NOT own AS own, \
+                    preferred FROM public_paths_published",
         ),
         (
             "semantic:brief-member-exported",

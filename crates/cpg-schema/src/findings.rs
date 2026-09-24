@@ -12,9 +12,9 @@
 //! unchanged result keeps its id when a parameter changes and an ablation diff is a join.
 
 use crate::codebook::{
-    AnalyticMethod, ArcKind, AssertionKind, BriefSection, CoverageStatus, EvidenceKind,
-    EvidenceStatus, ExtractionMode, FindingKind, InvocationPhase, MemberRole, Modality,
-    ReviewState, StopReason, SupportRole,
+    AnalyticMethod, ArcKind, AssertionKind, BriefSection, CoverageStatus, DeclarationKind,
+    EvidenceKind, EvidenceStatus, ExtractionMode, FindingKind, InvocationPhase, MemberRole,
+    Modality, ReviewState, StopReason, SupportRole,
 };
 use crate::id::{Digest, Id, IdHasher, kind};
 use crate::table::table;
@@ -260,6 +260,28 @@ table!(
 );
 
 table!(
+    /// Every public path of the release (the holistic assessment's A1; `cpg_schema::public`): its
+    /// node, the export it extends, the node's kind, whether the export declares the node, and
+    /// whether it is the node's one preferred path. Computed from the snapshot and the analytics
+    /// config's public roots, so an analysis table (ADR-0019's amendment), written before Stage E.
+    PublicPaths, PublicPathsRow = "public_paths",
+    family = Findings,
+    key = [snapshot_id, node_id, access_path],
+    checks = [],
+    {
+        snapshot_id: Id,
+        node_id: Id,
+        access_path: String,
+        /// The export node whose access path this path is or extends.
+        export_node_id: Id,
+        kind: DeclarationKind,
+        /// The export's declaration declares the node.
+        own: bool,
+        preferred: bool,
+    }
+);
+
+table!(
     /// The public access paths a brief is about: `symbol_map` (§6.4) is built from them.
     BriefMembers, BriefMembersRow = "brief_members",
     family = Findings,
@@ -454,6 +476,7 @@ pub fn section_of(kind: AssertionKind) -> BriefSection {
 macro_rules! for_each_analysis_table {
     ($mac:ident) => {
         $mac!(
+            $crate::findings::PublicPaths,
             $crate::findings::AnalysisInvocations,
             $crate::findings::Findings,
             $crate::findings::FindingMembers,

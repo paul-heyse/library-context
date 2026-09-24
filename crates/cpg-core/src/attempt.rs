@@ -444,6 +444,28 @@ async fn finish(
         cpg_schema::for_each_derived_table!(derive_all);
     }
 
+    // The one public-path authority (the holistic assessment's A1; ADR-0019's amendment): from the
+    // snapshot and the config's public roots, written before Stage E, which reads it.
+    let public = match analysis {
+        Some((a, _)) => {
+            crate::sql::fetch::<cpg_schema::findings::PublicPathsRow>(
+                &ctx,
+                &cpg_schema::public::public_paths(),
+                crate::sql::Params::new().texts("roots", &a.config.subsystem.public_roots),
+            )
+            .await?
+        }
+        None => Vec::new(),
+    };
+    write_analysis::<cpg_schema::findings::PublicPaths>(
+        &ctx,
+        root,
+        snapshot_id,
+        &public,
+        &mut written,
+    )
+    .await?;
+
     // Stage E (ADR-0019): the analyses read the session, and their rows are written like any
     // other table's, one commit each.
     // Each technique marks its own stage (the holistic assessment's D1).
