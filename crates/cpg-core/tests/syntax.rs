@@ -1702,3 +1702,56 @@ async fn documentation_statements_are_anchored_to_their_seed() {
     }
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
+
+/// The holistic assessment's plan, Phase 3's second guard: every analysis table's rows on
+/// `docs_shapes` under all eight techniques and the words embedder, invocations included, pinned
+/// by one digest. The analysis ledger covers `analysis_shapes` only and leaves invocations out;
+/// this covers the docs, the layers, PageRank, RCA and kNN. A refactor leaves it unchanged. An
+/// output change repins it and says why. Run and producer ids are left out: the compiler's source
+/// digest (A2(e)) moves them with every edit.
+#[tokio::test(flavor = "multi_thread")]
+async fn all_techniques_guard() {
+    let (ctx, _dir) = docs_shapes_variant(
+        "guard",
+        Some(std::sync::Arc::new(WordsEmbedder::new())),
+        cpg_core::analyze::Techniques::parse(
+            "+communities,+fca,+knn,+pagerank,+rca,+type-layer,+mention-layer,+knn-layer",
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+    let mut tables: Vec<(&'static str, Vec<String>, &'static [&'static str])> = Vec::new();
+    macro_rules! collect {
+        ($($t:ty),+) => {$(
+            tables.push((
+                <$t as cpg_schema::Table>::NAME,
+                <$t as cpg_schema::Table>::schema()
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().clone())
+                    .filter(|n| !["snapshot_id", "run_id", "model_id"].contains(&n.as_str()))
+                    .collect(),
+                <$t as cpg_schema::Table>::key(),
+            ));
+        )+};
+    }
+    cpg_schema::for_each_analysis_table!(collect);
+    let mut text = String::new();
+    for (name, columns, key) in tables {
+        text += &format!("## {name}\n");
+        text += &sql::render(
+            &ctx,
+            &format!(
+                "SELECT {} FROM {name} ORDER BY {}",
+                columns.join(", "),
+                key.join(", ")
+            ),
+        )
+        .await
+        .unwrap();
+    }
+    let digest = cpg_schema::id::content_digest(text.as_bytes()).hex();
+    const GUARD: &str = "342b9d8805b618ae9e9087235ee36d8fdd1ff5304015bf726d03938037cbea13";
+    assert_eq!(digest, GUARD, "the all-techniques guard moved");
+}
