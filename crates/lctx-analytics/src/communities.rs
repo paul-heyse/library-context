@@ -23,7 +23,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, RecordBatch, StringArray};
+use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use cpg_schema::codebook::{Codebook, CoverageStatus, FindingKind, MemberRole, NodeKind};
 use cpg_schema::findings::{
     FINDING_STATUS, FindingMembersRow, FindingsRow, MemberKey, recipe::FindingKey,
@@ -238,36 +238,6 @@ pub fn scope_pairs(
     Ok(out)
 }
 
-/// Each public callable's preferred path (`cpg_schema::communities::public_callables_sql`'s
-/// `preferred` rows; the increment-2 review's F4): the one name every consumer shows it by.
-pub fn preferred_paths(public: &[RecordBatch]) -> Result<BTreeMap<Id, String>, AnalyticsError> {
-    let mut out = BTreeMap::new();
-    for b in public {
-        let node = ids(b, "node_id")?;
-        let path = b
-            .column_by_name("access_path")
-            .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-            .ok_or_else(|| AnalyticsError::Column("access_path".to_owned()))?;
-        let preferred = b
-            .column_by_name("preferred")
-            .and_then(|c| c.as_any().downcast_ref::<BooleanArray>())
-            .ok_or_else(|| AnalyticsError::Column("preferred".to_owned()))?;
-        for i in 0..b.num_rows() {
-            if preferred.value(i)
-                && out
-                    .insert(id_at(node, i), path.value(i).to_owned())
-                    .is_some()
-            {
-                return Err(AnalyticsError::Graph(format!(
-                    "two preferred paths for one callable ({})",
-                    path.value(i)
-                )));
-            }
-        }
-    }
-    Ok(out)
-}
-
 fn ids<'a>(b: &'a RecordBatch, name: &str) -> Result<&'a FixedSizeBinaryArray, AnalyticsError> {
     b.column_by_name(name)
         .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
@@ -285,7 +255,7 @@ impl Input {
         projection: &Projection,
         subsystem: &FixedBitSet,
         co_use: &[RecordBatch],
-        public: &[RecordBatch],
+        public: &BTreeMap<Id, String>,
         extra: &[ExtraLayer],
     ) -> Result<Self, AnalyticsError> {
         let function =
@@ -339,7 +309,7 @@ impl Input {
             }
             out.extra.push((name, layer));
         }
-        out.public = preferred_paths(public)?;
+        out.public = public.clone();
         Ok(out)
     }
 

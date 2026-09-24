@@ -22,7 +22,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use arrow_array::RecordBatch;
 use cpg_schema::codebook::{ArcKind, Codebook, CoverageStatus, FindingKind, NodeKind, SourceRole};
 use cpg_schema::findings::{FINDING_STATUS, FindingsRow, recipe::FindingKey};
 use cpg_schema::id::{Digest, Id, IdHasher, content_digest};
@@ -106,16 +105,15 @@ pub struct Usage {
     pub findings: Vec<FindingsRow>,
 }
 
-/// Each public API (`public`: `cpg_schema::communities::public_callables_sql`'s rows) that official
-/// usage calls directly is a `direct_usage` finding whose score is its count.
+/// Each public API (`paths`: each public callable's preferred path, `cpg_schema::public`) that
+/// official usage calls directly is a `direct_usage` finding whose score is its count.
 pub fn run_usage(
     projection: &Projection,
     subsystem: &FixedBitSet,
-    public: &[RecordBatch],
+    paths: &BTreeMap<Id, String>,
     snapshot_id: Id,
     invocation_id: Id,
 ) -> Result<Usage, AnalyticsError> {
-    let paths = crate::communities::preferred_paths(public)?;
     let all = usage_counts(projection, subsystem);
     let status = FINDING_STATUS
         .iter()
@@ -333,15 +331,14 @@ pub struct Outcome {
 }
 
 /// Rank the usage graph; each public API among its functions is a `centrality` finding whose
-/// score is its rank (`public`: `cpg_schema::communities::public_callables_sql`'s rows).
+/// score is its rank (`paths`: each public callable's preferred path, `cpg_schema::public`).
 pub fn run(
     graph: &UsageGraph,
-    public: &[RecordBatch],
+    paths: &BTreeMap<Id, String>,
     params: &Params,
     snapshot_id: Id,
     invocation_id: Id,
 ) -> Result<Outcome, AnalyticsError> {
-    let paths = crate::communities::preferred_paths(public)?;
     let n = graph.vertices.len();
     let ranks = pagerank(n, &graph.arcs, params);
     let status = FINDING_STATUS

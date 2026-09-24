@@ -91,6 +91,10 @@ pub fn compiler_digest() -> Digest {
         queries.push((spec.name, spec.digest().hex()));
     }
     queries.push(("pass_b_relations", cpg_schema::flows::digest().hex()));
+    // The one public-path authority (the holistic assessment's A1): seeds resolve by it.
+    for relation in cpg_schema::public::all() {
+        queries.push((relation.name, relation.sql));
+    }
     queries.push((
         "community_relations",
         cpg_schema::communities::digest().hex(),
@@ -471,7 +475,16 @@ async fn finish(
     // Each technique marks its own stage (the holistic assessment's D1).
     let found = match analysis {
         Some((a, compiler)) => {
-            crate::analyze::run(&ctx, root, snapshot_id, a, compiler, &mut written.stages).await?
+            crate::analyze::run(
+                &ctx,
+                root,
+                snapshot_id,
+                a,
+                compiler,
+                &public,
+                &mut written.stages,
+            )
+            .await?
         }
         None => AnalysisRows::default(),
     };

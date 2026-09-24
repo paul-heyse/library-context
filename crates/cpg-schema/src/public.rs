@@ -132,3 +132,27 @@ crate::relations! {
         ],
         sql = public_paths_sql();
 }
+
+/// The kinds a public **callable** has: what communities, ranking, selection and kNN name.
+pub const CALLABLE_KINDS: &[DeclarationKind] =
+    &[DeclarationKind::Function, DeclarationKind::AsyncFunction];
+
+/// Each public callable's preferred path, the one name every consumer shows it by. Two preferred
+/// paths for one node is an error (the rule `semantic:public-path-preferred` checks the table).
+pub fn preferred_callables(
+    rows: &[crate::findings::PublicPathsRow],
+) -> Result<std::collections::BTreeMap<crate::id::Id, String>, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for r in rows
+        .iter()
+        .filter(|r| r.preferred && CALLABLE_KINDS.contains(&r.kind))
+    {
+        if out.insert(r.node_id, r.access_path.clone()).is_some() {
+            return Err(format!(
+                "two preferred paths for one callable ({})",
+                r.access_path
+            ));
+        }
+    }
+    Ok(out)
+}

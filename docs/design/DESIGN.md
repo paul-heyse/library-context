@@ -1843,12 +1843,16 @@ beside the config's (ADR-0011 review F4). Defaults below are starting budgets, n
 hand-worked projection (`pass_a_finds_delegations_boundaries_and_gaps_with_witnesses`,
 `budgets_truncate_and_say_so`), and on `fixtures/python/analysis_shapes` through the whole attempt,
 identical across module order and location (`pass_a_is_identical_across_module_order_and_location`).
-Seeds resolve through `exports`, then each remaining name as a member of its own body or MRO. The
-walk covers the whole MRO, external ancestors included, and **fails closed** (slice 1.4 review F2):
-the compile is refused when an ancestor is unresolved, when a class in the chain binds the name
-other than by `def` or `class` (an assignment or import in its body), or when a non-release class
-comes before the definition (it could define the name, and we cannot see it). Tested:
-`a_seed_that_could_name_another_method_is_refused`.
+A seed is its **`public_paths` row** (§9's opening; the holistic assessment's A1, 2026-09-24), and
+its aliases are the rows naming its node through the same container (the same exported class, or
+the module level for a direct export). The relation carries the member rule that `member()` used
+to walk here (a whole-MRO walk, external ancestors included, that **fails closed**; slice 1.4
+review F2): nothing is inherited past an unresolved ancestor or a non-release class before the
+definition, nor where a class in the chain binds the name other than by `def` or `class`. A seed
+with no row is refused, naming it. Tested: `a_seed_that_could_name_another_method_is_refused`,
+`public_paths_agree_with_the_seed_resolution`. On the pilot the lookup replaced about 0.9 s of
+seed-resolution queries (Measured: "analyze: seed selection" 0.89 s before, 0.02 s after,
+2026-09-24).
 
 - **Question.** Which public API exposes the mechanism, and what does it already coordinate?
 - **Method.**
@@ -2060,9 +2064,8 @@ log D24, D25, D30):
 - **Relations** (`cpg_schema::communities`, digested with the invocation projection's digest into
   every community invocation's `projection_digest`). The co-use occurrences (each usage-code call
   to a function with its enclosing scope, over the flows' call targets) and the public callables
-  (functions exported under a public root by a path with no private segment, and each public
-  method, `__init__` or `__call__` an exported class declares or inherits along its MRO, the
-  nearest definition winning; no `@overload` stub).
+  (the function and async-function rows of `public_paths`, §9's opening; before 2026-09-24 a
+  relation of their own, which the holistic assessment's A1 folded into it).
 - **Layers**, each a named policy in `Params` (review F3). *Invocation:* every
   invocation-projection arc between two distinct subsystem functions (calls, property accesses and
   definitions; definite and candidate), 1 per arc. On the pilot, 370 of its 712 pairs come from
@@ -2100,9 +2103,12 @@ log D24, D25, D30):
   server surface (co-assignment 0.831); `custom_route` (declared on `TransportMixin`) is in no
   reported community. The profile's mean ARI is 0.700, 0.749, 0.793 and 0.739 at γ = 0.5, 1, 2
   and 4.
-- **Deferred** (the review's F6, before a second library): the public-callables relation's MRO
-  walk skips unresolved or outside ancestors and class-level rebindings, where §9.1's `member()`
-  refuses. No pilot instance.
+- **Closed** (the review's F6; the holistic assessment's A1, 2026-09-24): the public-callables
+  relation's MRO walk skipped unresolved or outside ancestors and class-level rebindings, where
+  §9.1's `member()` refused. Both now read `public_paths`, which refuses as `member()` did. On the
+  pilot the move changed no published output (`lctx diff` `5dc48895` → `3c2be6da`); it dropped one
+  unpublished `direct_usage` finding, `FastMCP.instructions`' getter, because a property's getter
+  and setter share one path and the seed rank names the setter (deviation log D48).
 
 **Extra layers, Implemented and Tested in slice 3.2** as variants, off by default (2026-09-23;
 D41):
@@ -2149,8 +2155,7 @@ by the increment-2 review** (U1; ADR-0011 amendment; deviation log D37):
   review showed would fill a larger budget with helpers (F3).
 - **The preferred path** (the review's F4). A public callable is shown by one path wherever it is
   named (community members, Related, selected seeds, kNN texts):
-  `cpg_schema::communities::public_callables_sql`'s `preferred` column, read by
-  `lctx_analytics::communities::preferred_paths`. It is a path through the class that declares
+  `public_paths`' `preferred` column, read by `cpg_schema::public::preferred_callables`. It is a path through the class that declares
   the method first, so a classmethod is never named through a subclass it would bind
   differently, then the fewest segments, then the least. *Superseded:* the least path, which
   named `Tool.from_function` as `FastMCPProviderTool.from_function` on the pilot.

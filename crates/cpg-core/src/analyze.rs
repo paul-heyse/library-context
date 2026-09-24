@@ -7,14 +7,15 @@
 
 use std::collections::BTreeMap;
 
-use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, RecordBatch, StringArray};
+use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use cpg_schema::codebook::{
-    AnalyticMethod, Codebook, CoverageStatus, ExtractionMode, FindingKind, MemberRole, NodeKind,
-    SourceRole,
+    AnalyticMethod, Codebook, CoverageStatus, DeclarationKind, ExtractionMode, FindingKind,
+    MemberRole, NodeKind, SourceRole,
 };
 use cpg_schema::findings::{
-    AnalysisInvocationsRow, FindingMembersRow, FindingsRow, WitnessesRow, recipe as findings,
+    AnalysisInvocationsRow, FindingMembersRow, FindingsRow, PublicPathsRow, WitnessesRow,
+    recipe as findings,
 };
 use cpg_schema::id::{Digest, Id, IdHasher, content_digest, recipe};
 use cpg_schema::projection::{self, ProjectionSpec, schemas};
@@ -284,230 +285,50 @@ fn schema(fields: &[(&str, DataType)]) -> SchemaRef {
     ))
 }
 
-/// One export row: an access path naming a declaration.
-struct ExportRow {
-    access_path: String,
-    declaration: Id,
-    is_stub: bool,
-}
-
-/// A seed resolved to its declaration and the access paths that name it (DESIGN §9.1 step 1):
-/// the longest exported prefix of the seed's path names a declaration, and each remaining name is
-/// that declaration's member, found in its own body or else along its MRO. Among several `def`s
-/// of one name, the exports seed rank decides: an implementation before an `@overload` stub, then
-/// the one Pysa describes, then the last in source order.
-async fn resolve_seeds(
-    ctx: &SessionContext,
+/// Each seed resolved to its declaration and the access paths that name it (DESIGN §9.1 step 1):
+/// its `public_paths` row (the holistic assessment's A1). The paths naming it through the same
+/// container, the same exported class (or, for a direct export, the module level), are its
+/// aliases, each with the export it extends, sorted by path. A name with no row is refused, never
+/// guessed: it is private or unexported, or `public_paths` refuses it (an unresolved or
+/// outside-release base before its definition, or a class binding it by an assignment).
+fn resolve_seeds(
+    public: &[PublicPathsRow],
     seeds: &[String],
 ) -> Result<BTreeMap<String, Seed>, CoreError> {
-    let prefixes: Vec<String> = seeds
-        .iter()
-        .flat_map(|s| {
-            let parts: Vec<&str> = s.split('.').collect();
-            (1..=parts.len())
-                .map(|k| parts[..k].join("."))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    let export_schema = schema(&[
-        ("access_path", DataType::Utf8),
-        ("declaration_node_id", DataType::FixedSizeBinary(16)),
-        ("is_stub", DataType::Boolean),
-    ]);
-    let exports_sql = format!(
-        "SELECT e.access_path, e.declaration_node_id, s.is_stub \
-         FROM exports e JOIN declarations d ON d.node_id = e.declaration_node_id \
-         JOIN source_files s ON s.module_node_id = d.module_node_id \
-         WHERE e.access_path IN ({}) \
-         ORDER BY e.access_path, s.is_stub, e.declaration_node_id",
-        quoted(prefixes)
-    );
-    let mut exports: Vec<ExportRow> = Vec::new();
-    for b in collect(ctx, &exports_sql, &export_schema).await? {
-        let path = str_col(&b, "access_path")?;
-        let decl = id_col(&b, "declaration_node_id")?;
-        let stub = b
-            .column_by_name("is_stub")
-            .and_then(|c| c.as_any().downcast_ref::<BooleanArray>())
-            .ok_or_else(|| CoreError::Analysis("column is_stub".to_owned()))?;
-        for (i, declaration) in decl.into_iter().enumerate() {
-            exports.push(ExportRow {
-                access_path: path.value(i).to_owned(),
-                declaration,
-                is_stub: stub.value(i),
-            });
-        }
-    }
-
+    let by_path: BTreeMap<&str, &PublicPathsRow> =
+        public.iter().map(|r| (r.access_path.as_str(), r)).collect();
+    let container = |path: &str| {
+        path.rsplit_once('.')
+            .and_then(|(c, _)| by_path.get(c))
+            .filter(|r| r.kind == DeclarationKind::Class)
+            .map(|r| r.node_id)
+    };
     let mut out = BTreeMap::new();
     for seed in seeds {
-        let parts: Vec<&str> = seed.split('.').collect();
-        let (k, container) = (1..=parts.len())
-            .rev()
-            .find_map(|k| {
-                let prefix = parts[..k].join(".");
-                exports
-                    .iter()
-                    .filter(|e| e.access_path == prefix)
-                    .min_by_key(|e| e.is_stub)
-                    .map(|e| (k, e.declaration))
-            })
-            .ok_or_else(|| CoreError::Analysis(format!("seed {seed}: no exported prefix")))?;
-        let mut node = container;
-        for name in &parts[k..] {
-            node = member(ctx, node, name)
-                .await?
-                .ok_or_else(|| CoreError::Analysis(format!("seed {seed}: no member {name}")))?;
-        }
-        // The access paths naming the exported container, each extended by the rest of the path.
-        let rest: String = parts[k..].iter().map(|p| format!(".{p}")).collect();
-        let mut aliases: BTreeMap<String, Id> = BTreeMap::new();
-        let alias_sql = format!(
-            "SELECT access_path, export_node_id FROM exports WHERE declaration_node_id = X'{}' \
-             ORDER BY access_path, export_node_id",
-            container.hex()
-        );
-        let alias_schema = schema(&[
-            ("access_path", DataType::Utf8),
-            ("export_node_id", DataType::FixedSizeBinary(16)),
-        ]);
-        for b in collect(ctx, &alias_sql, &alias_schema).await? {
-            let path = str_col(&b, "access_path")?;
-            let node = id_col(&b, "export_node_id")?;
-            for (i, export) in node.into_iter().enumerate() {
-                aliases
-                    .entry(format!("{}{rest}", path.value(i)))
-                    .or_insert(export);
-            }
-        }
+        let row = by_path.get(seed.as_str()).ok_or_else(|| {
+            CoreError::Analysis(format!(
+                "seed {seed}: not a public path (private or unexported; or a member past an \
+                 unresolved or outside-release base, or bound by an assignment)"
+            ))
+        })?;
+        let owner = container(seed);
+        let aliases: BTreeMap<&str, Id> = public
+            .iter()
+            .filter(|r| r.node_id == row.node_id && container(&r.access_path) == owner)
+            .map(|r| (r.access_path.as_str(), r.export_node_id))
+            .collect();
         out.insert(
             seed.clone(),
             Seed {
-                node,
-                aliases: aliases.into_iter().map(|(p, n)| (n, p)).collect(),
+                node: row.node_id,
+                aliases: aliases
+                    .into_iter()
+                    .map(|(p, n)| (n, p.to_owned()))
+                    .collect(),
             },
         );
     }
     Ok(out)
-}
-
-/// A declaration's member of a name (DESIGN §9.1 step 1): its own `def` or `class` by the seed
-/// rank, else, for a class, the first ancestor along its MRO that declares it. The walk **refuses**
-/// rather than guesses (slice 1.4 review F2) when an ancestor it would pass is outside the release
-/// or unresolved (the name may be defined there), or when a class along the way binds the name by
-/// anything but a `def` or `class` (an assignment such as `tool = helper`).
-async fn member(ctx: &SessionContext, owner: Id, name: &str) -> Result<Option<Id>, CoreError> {
-    let refuse = |why: String| Err(CoreError::Analysis(format!("member {name}: {why}")));
-    let mro_schema = schema(&[
-        ("ancestor_node_id", DataType::FixedSizeBinary(16)),
-        ("ordinal", DataType::Int64),
-    ]);
-    let mro_sql = format!(
-        "SELECT t.ancestor_node_id, a.ordinal FROM ancestry_targets t \
-         JOIN class_ancestry a ON a.fact_id = t.ancestry_fact_id \
-         WHERE t.class_node_id = X'{}' AND a.relation = {} \
-         ORDER BY a.ordinal, t.ancestor_node_id",
-        owner.hex(),
-        cpg_schema::codebook::AncestryRelation::Mro.code()
-    );
-    let mut chain: Vec<Option<Id>> = vec![Some(owner)];
-    for b in collect(ctx, &mro_sql, &mro_schema).await? {
-        let a = b
-            .column_by_name("ancestor_node_id")
-            .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
-            .ok_or_else(|| CoreError::Analysis("column ancestor_node_id".to_owned()))?;
-        for i in 0..a.len() {
-            chain.push(
-                (!a.is_null(i))
-                    .then(|| <[u8; 16]>::try_from(a.value(i)).map(Id))
-                    .transpose()
-                    .map_err(|_| CoreError::Analysis("column ancestor_node_id".to_owned()))?,
-            );
-        }
-    }
-    chain.dedup();
-    let known: Vec<Id> = chain.iter().flatten().copied().collect();
-    let decl_schema = schema(&[
-        ("node_id", DataType::FixedSizeBinary(16)),
-        ("parent_node_id", DataType::FixedSizeBinary(16)),
-        ("rank", DataType::Int64),
-    ]);
-    let decl_sql = format!(
-        "SELECT d.node_id, d.parent_node_id, \
-                CAST(CASE WHEN d.is_overload THEN 0 ELSE 2 END \
-                   + CASE WHEN m.node_id IS NULL THEN 0 ELSE 1 END AS BIGINT) AS rank \
-         FROM declarations d LEFT JOIN provider_node_map m ON m.node_id = d.node_id \
-         WHERE d.parent_node_id IN ({}) AND d.name = '{name}' \
-         ORDER BY d.parent_node_id, rank DESC, d.start_byte DESC, d.node_id",
-        hex_list(known.iter().copied())
-    );
-    let mut best: BTreeMap<Id, Id> = BTreeMap::new();
-    for b in collect(ctx, &decl_sql, &decl_schema).await? {
-        let node = id_col(&b, "node_id")?;
-        let parent = id_col(&b, "parent_node_id")?;
-        for (i, n) in node.into_iter().enumerate() {
-            // Rows arrive best-first per parent; keep the first.
-            best.entry(parent[i]).or_insert(n);
-        }
-    }
-    // Which chain entries are release classes, and which classes bind the name otherwise.
-    let class_sql = format!(
-        "SELECT node_id FROM declarations WHERE node_id IN ({}) AND kind = {}",
-        hex_list(known.iter().copied()),
-        cpg_schema::codebook::DeclarationKind::Class.code()
-    );
-    let mut classes = std::collections::BTreeSet::new();
-    for b in collect(
-        ctx,
-        &class_sql,
-        &schema(&[("node_id", DataType::FixedSizeBinary(16))]),
-    )
-    .await?
-    {
-        classes.extend(id_col(&b, "node_id")?);
-    }
-    let bound_sql = format!(
-        "SELECT s.owner_node_id FROM bindings b JOIN scopes s ON s.node_id = b.scope_id \
-         WHERE s.owner_node_id IN ({}) AND s.kind = {} AND b.name = '{name}' \
-           AND b.kind NOT IN ({}, {}, {})",
-        hex_list(known.iter().copied()),
-        cpg_schema::codebook::LexicalScopeKind::Class.code(),
-        cpg_schema::codebook::BindingKind::FunctionDef.code(),
-        cpg_schema::codebook::BindingKind::ClassDef.code(),
-        cpg_schema::codebook::BindingKind::AnnotationOnly.code()
-    );
-    let mut rebound = std::collections::BTreeSet::new();
-    for b in collect(
-        ctx,
-        &bound_sql,
-        &schema(&[("owner_node_id", DataType::FixedSizeBinary(16))]),
-    )
-    .await?
-    {
-        rebound.extend(id_col(&b, "owner_node_id")?);
-    }
-    for (at, entry) in chain.iter().enumerate() {
-        let Some(c) = *entry else {
-            return refuse("an unresolved base precedes any definition of it".to_owned());
-        };
-        if rebound.contains(&c) {
-            return refuse(format!(
-                "{} binds it by an assignment or import, not a def",
-                c.hex()
-            ));
-        }
-        if let Some(found) = best.get(&c) {
-            return Ok(Some(*found));
-        }
-        // A module or function owner has no MRO; an ancestor outside the release may define it.
-        if at > 0 && !classes.contains(&c) {
-            return refuse(format!(
-                "ancestor {} is outside the analyzed release and may define it",
-                c.hex()
-            ));
-        }
-    }
-    Ok(None)
 }
 
 /// Pass A's parameters, as recorded on each invocation (fixed field order): every config field
@@ -653,6 +474,7 @@ pub async fn run(
     snapshot_id: Id,
     analysis: &Analysis,
     compiler: CompilerRun,
+    public: &[PublicPathsRow],
     stages: &mut cpg_schema::metrics::Stages,
 ) -> Result<AnalysisRows, CoreError> {
     let config = &analysis.config;
@@ -673,23 +495,14 @@ pub async fn run(
     // Communities (§9.4): Leiden over the subsystem's invocation and co-use layers, at the
     // pre-registered resolutions and seeds; the consensus's communities cite it.
     let community_digest = cpg_schema::communities::digest();
-    let public = collect(
-        ctx,
-        &cpg_schema::communities::public_callables_sql(&config.subsystem.public_roots),
-        &cpg_schema::communities::schemas::public_callables(),
-    )
-    .await?;
-    let mut paths: Vec<(Id, String)> = Vec::new();
-    for b in &public {
-        let nodes = id_col(b, "node_id")?;
-        let access = str_col(b, "access_path")?;
-        for (i, node) in nodes.into_iter().enumerate() {
-            paths.push((node, access.value(i).to_owned()));
-        }
-    }
-    // One name per public callable (the increment-2 review's F4).
-    let preferred = lctx_analytics::communities::preferred_paths(&public)
-        .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    // Every public callable's paths (the holistic assessment's A1: `public_paths`, written before
+    // Stage E), and the one name each is shown by (the increment-2 review's F4).
+    let paths: Vec<(Id, String)> = public
+        .iter()
+        .filter(|r| cpg_schema::public::CALLABLE_KINDS.contains(&r.kind))
+        .map(|r| (r.node_id, r.access_path.clone()))
+        .collect();
+    let preferred = cpg_schema::public::preferred_callables(public).map_err(CoreError::Analysis)?;
     let techniques = analysis.techniques;
     stages.mark("analyze: public callables");
     // E0 (§9.7; slice 3.1): the corpus passages and the subsystem's public APIs embedded through
@@ -833,7 +646,7 @@ pub async fn run(
                 &cpg_schema::communities::schemas::co_use(),
             )
             .await?,
-            &public,
+            &preferred,
             &extra,
         )
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
@@ -949,7 +762,7 @@ pub async fn run(
         None,
         None,
     );
-    let usage = ranking::run_usage(&p, &subsystem, &public, snapshot_id, usage_invocation)
+    let usage = ranking::run_usage(&p, &subsystem, &preferred, snapshot_id, usage_invocation)
         .map_err(|e| CoreError::Analysis(e.to_string()))?;
     rows.invocations.push(AnalysisInvocationsRow {
         snapshot_id,
@@ -998,7 +811,7 @@ pub async fn run(
         );
         let ranked = ranking::run(
             &ranking::UsageGraph::build(&p, &subsystem),
-            &public,
+            &preferred,
             &rank_params,
             snapshot_id,
             invocation_id,
@@ -1101,7 +914,7 @@ pub async fn run(
     let choices = selection::Params::preregistered();
     let configured = config.seeds();
     let configured_nodes: Vec<Id> = {
-        let resolved = resolve_seeds(ctx, &configured).await?;
+        let resolved = resolve_seeds(public, &configured)?;
         configured.iter().map(|n| resolved[n].node).collect()
     };
     let community_of: BTreeMap<Id, Id> = rows
@@ -1190,7 +1003,7 @@ pub async fn run(
     let resolved_chosen = if named.is_empty() {
         BTreeMap::new()
     } else {
-        resolve_seeds(ctx, &named).await?
+        resolve_seeds(public, &named)?
     };
     // A path already chosen (a property's getter and setter share one) or resolving to another
     // declaration is dropped and recorded, never a second seed.
@@ -1249,7 +1062,7 @@ pub async fn run(
             .map_err(|e| CoreError::Analysis(e.to_string()))?,
         ),
     });
-    let resolved = resolve_seeds(ctx, &seeds).await?;
+    let resolved = resolve_seeds(public, &seeds)?;
     stages.mark("analyze: seed selection");
     // Two seeds naming one declaration would be one subject twice (ADR-0019 review F1): the
     // config is wrong, so the attempt stops and says which.
@@ -1471,28 +1284,12 @@ pub async fn run(
         .iter()
         .filter_map(|(name, _)| name.rsplit_once('.').map(|(c, _)| c.to_owned()))
         .collect();
-    let mut scope_nodes: BTreeMap<String, Id> = BTreeMap::new();
-    for b in collect(
-        ctx,
-        &format!(
-            "SELECT access_path, declaration_node_id FROM exports WHERE access_path IN ({}) \
-             ORDER BY access_path, declaration_node_id",
-            quoted(containers.iter().cloned())
-        ),
-        &schema(&[
-            ("access_path", DataType::Utf8),
-            ("declaration_node_id", DataType::FixedSizeBinary(16)),
-        ]),
-    )
-    .await?
-    {
-        let access = str_col(&b, "access_path")?;
-        for (i, node) in id_col(&b, "declaration_node_id")?.into_iter().enumerate() {
-            scope_nodes
-                .entry(access.value(i).to_owned())
-                .or_insert(node);
-        }
-    }
+    // An exported class is its public-path row (the holistic assessment's A1).
+    let mut scope_nodes: BTreeMap<String, Id> = public
+        .iter()
+        .filter(|r| r.kind == DeclarationKind::Class && containers.contains(&r.access_path))
+        .map(|r| (r.access_path.clone(), r.node_id))
+        .collect();
     // A namespace no export names (a package's own path) is its module.
     for b in collect(
         ctx,

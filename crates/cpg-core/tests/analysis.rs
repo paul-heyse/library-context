@@ -358,12 +358,14 @@ async fn pass_a_finds_the_known_answers_on_analysis_shapes() {
 }
 
 /// Slice 1.4 review F2: seed resolution refuses rather than guesses when a member may come from a
-/// base outside the release, or is rebound by an assignment in a class body.
+/// base outside the release, or is rebound by an assignment in a class body. Since the holistic
+/// assessment's A1 a seed is a `public_paths` row, and the relation holds none for either
+/// (`public_paths_agree_with_the_seed_resolution`), so the compile stops naming the seed.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_seed_that_could_name_another_method_is_refused() {
     for (seed, why) in [
-        ("pkg.Shadowed.run", "outside the analyzed release"),
-        ("pkg.Aliased.tool", "assignment"),
+        ("pkg.Shadowed.run", "not a public path"),
+        ("pkg.Aliased.tool", "not a public path"),
     ] {
         let config = CONFIG.replace(
             r#"distractors = ["pkg.helper", "pkg.Server.route", "pkg.describe", "pkg.configure", "pkg.Catalog.add_tool"]"#,
