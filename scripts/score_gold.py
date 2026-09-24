@@ -78,6 +78,10 @@ async def score(generation: Path, embedder_name: str, url: str, sources: Path) -
         ops = set(f["operations"])
         best[f["id"]] = max((jaccard(ops, p) for p in paths.values()), default=0.0)
     touched = [fid for fid, j in best.items() if j > 0]
+    # Operations outside the release's public root no brief can name (plan 3.3): reported apart.
+    unreachable = sorted(
+        {o for f in families for o in f["operations"] if o.split(".")[0] != gen.library}
+    )
 
     # (b)
     retrieval: dict[str, dict] = {}
@@ -140,6 +144,9 @@ async def score(generation: Path, embedder_name: str, url: str, sources: Path) -
             "touched": len(touched),
             "mean_best_jaccard": round(sum(best.values()) / len(best), 4) if best else 0.0,
             "best_jaccard": {k: round(v, 4) for k, v in sorted(best.items()) if v > 0},
+            "operations": sum(len(f["operations"]) for f in families),
+            "unreachable_operations": len(unreachable),
+            "unreachable_roots": sorted({o.split(".")[0] for o in unreachable}),
         },
         "b": {
             "families": len(retrieval),
@@ -173,7 +180,8 @@ def main() -> None:
     )
     print(
         f"(a) best-match Jaccard: mean {a['mean_best_jaccard']} over {a['families']} families; "
-        f"{a['touched']} touched"
+        f"{a['touched']} touched; {a['unreachable_operations']} of {a['operations']} operations "
+        f"are outside the release ({', '.join(a['unreachable_roots'])})"
     )
     print(
         f"(b) retrieval ({out['mode']}): hit@1 {b['hit@1']}/{b['aliases']}, "

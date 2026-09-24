@@ -93,7 +93,7 @@ enum Cmd {
         generations: PathBuf,
         /// The analytics variant (DESIGN §9.8's ablation): `default`, or changes to it such as
         /// `-knn` or `+rca,+type-layer`.
-        #[arg(long, default_value = "default")]
+        #[arg(long, default_value = "default", allow_hyphen_values = true)]
         analytics: String,
     },
     /// Build a published snapshot's serving generation (DESIGN §6.4): `<out>/<key>/`.
@@ -107,6 +107,21 @@ enum Cmd {
         /// The generations directory.
         #[arg(long, default_value = "build/generations")]
         out: PathBuf,
+    },
+    /// Compare two published snapshots by content id (DESIGN §9.8's ablation diff).
+    Diff {
+        /// The Delta store.
+        #[arg(long)]
+        store: PathBuf,
+        /// The snapshot compared from: 32 hex digits.
+        #[arg(long, value_parser = parse_id)]
+        from: Id,
+        /// The snapshot compared to.
+        #[arg(long, value_parser = parse_id)]
+        to: Id,
+        /// Write the comparison as JSON here too.
+        #[arg(long)]
+        json: Option<PathBuf>,
     },
     /// Read-only SQL over a published snapshot (its tables by name).
     Query {
@@ -562,6 +577,21 @@ fn run() -> anyhow::Result<()> {
             unpublished,
             sql,
         } => query(&absolute(&store)?, snapshot, &sql, unpublished),
+        Cmd::Diff {
+            store,
+            from,
+            to,
+            json,
+        } => {
+            let store = absolute(&store)?;
+            let diff =
+                tokio::runtime::Runtime::new()?.block_on(cpg_core::diff::diff(&store, from, to))?;
+            print!("{}", diff.render());
+            if let Some(path) = json {
+                std::fs::write(path, diff.to_json())?;
+            }
+            Ok(())
+        }
         Cmd::Compile {
             name,
             store,

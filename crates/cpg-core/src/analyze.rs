@@ -45,10 +45,12 @@ pub struct Analysis {
 }
 
 /// The analytics techniques a compile runs (DESIGN §9.8; slices 3.2, 3.3). The default is the
-/// kept set; a variant adds or removes techniques by name (`-knn`, `+rca`), and its label joins
-/// the compiler run's config digest, so a variant's snapshot never shares a content digest with
-/// the default's. Finding and assertion ids do not depend on it, so ablation diffs are joins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// kept set: since the keep rule (ADR-0020), Passes A–C, direct usage and selection only, every
+/// technique here off. A variant adds or removes techniques by name (`+communities,+fca`), and
+/// its label joins the compiler run's config digest, so a variant's snapshot never shares a
+/// content digest with the default's. Finding and assertion ids do not depend on it, so ablation
+/// diffs are joins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Techniques {
     pub communities: bool,
     /// Delegation PageRank orders seeds and Related instead of direct usage (§9.5; the
@@ -64,21 +66,6 @@ pub struct Techniques {
     pub mention_layer: bool,
     /// A community layer of API–API embedding neighbours (§9.4, §9.7, 3.2).
     pub knn_layer: bool,
-}
-
-impl Default for Techniques {
-    fn default() -> Self {
-        Techniques {
-            communities: true,
-            pagerank: false,
-            fca: true,
-            knn: true,
-            rca: false,
-            type_layer: false,
-            mention_layer: false,
-            knn_layer: false,
-        }
-    }
 }
 
 impl Techniques {
@@ -1675,15 +1662,15 @@ mod tests {
     fn a_variant_is_the_default_changed_by_name_and_labelled_canonically() {
         assert_eq!(Techniques::parse("default"), Ok(Techniques::default()));
         assert_eq!(Techniques::default().label(), None);
-        let v = Techniques::parse("+rca, -knn,+type-layer").unwrap();
-        assert!(v.rca && !v.knn && v.type_layer && v.fca);
+        let v = Techniques::parse("+rca, +communities,+type-layer").unwrap();
+        assert!(v.rca && v.communities && v.type_layer && !v.fca && !v.knn);
         // The label is in declaration order, whatever the spelling's order.
-        assert_eq!(v.label().as_deref(), Some("-knn,+rca,+type-layer"));
+        assert_eq!(v.label().as_deref(), Some("+communities,+rca,+type-layer"));
         assert_eq!(Techniques::parse(&v.label().unwrap()), Ok(v));
         // Setting a technique to its default is no change.
-        assert_eq!(Techniques::parse("+fca").unwrap().label(), None);
+        assert_eq!(Techniques::parse("-fca").unwrap().label(), None);
         assert!(Techniques::parse("knn").is_err());
         assert!(Techniques::parse("-louvain").is_err());
-        assert!(Techniques::parse("-communities,+knn-layer").is_err());
+        assert!(Techniques::parse("+knn-layer").is_err());
     }
 }

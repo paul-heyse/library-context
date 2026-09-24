@@ -1,0 +1,161 @@
+{
+ "date": "2026-09-23",
+ "library": "fastmcp 4.0.5",
+ "budget": 20,
+ "embedder": "Qwen3-Embedding-8B (live, just embed-serve)",
+ "scorer": "scripts/score_gold.py --embedder vllm",
+ "aliases": 44,
+ "spans": 157,
+ "families": 22,
+ "note": "Slice 3.3's ablation (DESIGN \u00a79.8, ADR-0020). Hits count over all gold aliases. Variants are relative to the default of the time (communities, FCA and kNN on); 'kept' is the default ADR-0020 adopts, and the final live pilot (snapshot 1a7244fe) equals it by lctx diff.",
+ "variants": [
+  {
+   "variant": "default (communities, fca, knn on)",
+   "snapshot": "641a3e94cfa13403583c6abc5e2bfbf0",
+   "generation": "3f1781ffc836e686",
+   "hit@5": 14,
+   "hit@1": 7,
+   "a_mean_best_jaccard": 0.0444,
+   "a_touched": 8,
+   "c_spans_recalled": 4
+  },
+  {
+   "variant": "+pagerank",
+   "snapshot": "aaf502e2b78d1d1d825ef895bd05da88",
+   "generation": "f20226a3d0cf4dd2",
+   "hit@5": 13,
+   "hit@1": 8,
+   "a_mean_best_jaccard": 0.0442,
+   "a_touched": 8,
+   "c_spans_recalled": 4,
+   "vs_default": {
+    "briefs_added": 10,
+    "briefs_removed": 10,
+    "briefs_changed": 7,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "-communities",
+   "snapshot": "d89968db56ce164d7c7e393a531f459d",
+   "generation": "288490f9ebcd6535",
+   "hit@5": 13,
+   "hit@1": 9,
+   "a_mean_best_jaccard": 0.043,
+   "a_touched": 7,
+   "c_spans_recalled": 5,
+   "vs_default": {
+    "briefs_added": 12,
+    "briefs_removed": 12,
+    "briefs_changed": 7,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "-fca",
+   "snapshot": "b57dbce6158c88689fc666221ff3fcb4",
+   "generation": "8b39be026e14aefa",
+   "hit@5": 14,
+   "hit@1": 7,
+   "a_mean_best_jaccard": 0.0444,
+   "a_touched": 8,
+   "c_spans_recalled": 4,
+   "vs_default": {
+    "briefs_added": 0,
+    "briefs_removed": 0,
+    "briefs_changed": 14,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "-knn",
+   "snapshot": "9f6d4517409e7cbe319608f8db877ae4",
+   "generation": "86f94ee43716ccda",
+   "hit@5": 14,
+   "hit@1": 7,
+   "a_mean_best_jaccard": 0.0444,
+   "a_touched": 8,
+   "c_spans_recalled": 4,
+   "vs_default": {
+    "briefs_added": 0,
+    "briefs_removed": 0,
+    "briefs_changed": 20,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "+rca",
+   "snapshot": "d580cc871850b3d29711177913783f5d",
+   "generation": "8d1e1b8243c70fac",
+   "hit@5": 14,
+   "hit@1": 7,
+   "a_mean_best_jaccard": 0.0444,
+   "a_touched": 8,
+   "c_spans_recalled": 4,
+   "vs_default": {
+    "briefs_added": 0,
+    "briefs_removed": 0,
+    "briefs_changed": 10,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "+type-layer",
+   "snapshot": "35d8ee14e802bdbde17ffce0c6775df4",
+   "generation": "4b9a2ecd8a7930e3",
+   "hit@5": 14,
+   "hit@1": 8,
+   "a_mean_best_jaccard": 0.0509,
+   "a_touched": 9,
+   "c_spans_recalled": 6,
+   "vs_default": {
+    "briefs_added": 3,
+    "briefs_removed": 3,
+    "briefs_changed": 17,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "+mention-layer",
+   "snapshot": "5d64b0a1734a0601a0e6b778f09a5346",
+   "generation": "7cd6376eb50a9f7e",
+   "hit@5": 14,
+   "hit@1": 7,
+   "a_mean_best_jaccard": 0.0444,
+   "a_touched": 8,
+   "c_spans_recalled": 4,
+   "vs_default": {
+    "briefs_added": 0,
+    "briefs_removed": 0,
+    "briefs_changed": 18,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "+knn-layer",
+   "snapshot": "f0e8d5c8785878c81d1e1a5d1ed86d21",
+   "generation": "20b65702690a943b",
+   "hit@5": 13,
+   "hit@1": 7,
+   "a_mean_best_jaccard": 0.0444,
+   "a_touched": 8,
+   "c_spans_recalled": 4,
+   "vs_default": {
+    "briefs_added": 1,
+    "briefs_removed": 1,
+    "briefs_changed": 19,
+    "changes_published_output": true
+   }
+  },
+  {
+   "variant": "-communities,-fca,-knn",
+   "snapshot": "2c6b84072e4dba6662bf78bfe6f51305",
+   "generation": "7e6580700af404bb",
+   "hit@5": 13,
+   "hit@1": 9,
+   "a_mean_best_jaccard": 0.043,
+   "a_touched": 7,
+   "c_spans_recalled": 5
+  }
+ ]
+}

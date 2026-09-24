@@ -231,8 +231,12 @@ rule can prove is stated in §8 (its edit guards counted apart).
 
 - **Each algorithm has a named consumer in the brief** (§9).
 - **A relationship does not need a graph algorithm** just because it has two endpoints.
+- **What runs by default is decided by the §9.8 keep rule** (ADR-0020, Measured 2026-09-23):
+  Passes A–C, direct usage and selection. Communities (leiden-rs), FCA, kNN, PageRank, RCA and
+  the extra layers are variants, off by default; each is reachable with `lctx compile
+  --analytics`.
 
-> Decision: ADR-0011
+> Decision: ADR-0011, ADR-0020
 
 ### §B5 Python semantics are custom Rust passes
 
@@ -1986,6 +1990,8 @@ log D24, D25, D30):
 
 ### §9.4 Community detection
 
+**Off by default since ADR-0020** (the §9.8 keep rule, 2026-09-23): the `+communities` variant. Its record below stands as the variant's.
+
 - **Label.** Implemented and Tested (slice 2.3, revised by the ADR-0011 standard review;
   ADR-0011 accepted with it).
 - **Consumers:**
@@ -2200,6 +2206,8 @@ review, the `+pagerank` variant's method:
 
 ### §9.6 Formal and relational concept analysis
 
+**Off by default since ADR-0020** (the §9.8 keep rule, 2026-09-23): the `+fca` variant, with `+rca`. The record below stands as the variants'.
+
 - **Consumer.** Applicable cases and modes, shared controls, and implication-style assertions
   (e.g. "every writer accepting `filesystem` also accepts `format`").
 - **FCA (increment 2).**
@@ -2309,6 +2317,8 @@ review, the `+pagerank` variant's method:
 
 ### §9.7 Embeddings in analytics
 
+**Off by default since ADR-0020** (the §9.8 keep rule, 2026-09-23): the `+knn` variant. The record below stands as the variant's.
+
 - **Consumers:**
   - linking doc passages to APIs, supplementing explicit mentions;
   - labelling communities by their nearest doc heading;
@@ -2365,11 +2375,41 @@ review, the `+pagerank` variant's method:
   check is the increment-5 held-out evaluation.
 - **Agent-based evaluation** is reserved for the raw-vs-compiled comparison (§12).
 
+**The ablation, Measured in slice 3.3** (2026-09-23; ADR-0020; deviation log D42, D43). Every
+variant was compiled at budget 20 with live vectors, scored by `scripts/score_gold.py --embedder
+vllm` (deterministic: two rescorings were identical) and diffed by `lctx diff`. Hits are counted
+over all 44 gold aliases:
+
+| Variant | hit@5 | hit@1 | (a) | touched | (c) | briefs +/−/~ |
+|---|---|---|---|---|---|---|
+| default then (communities, FCA, kNN) | 14 | 7 | 0.0444 | 8 | 4 | — |
+| `-communities` | 13 | 9 | 0.0430 | 7 | 5 | 12/12/7 |
+| `-fca` | 14 | 7 | 0.0444 | 8 | 4 | 0/0/14 |
+| `-knn` | 14 | 7 | 0.0444 | 8 | 4 | 0/0/20 |
+| `+pagerank` | 13 | 8 | 0.0442 | 8 | 4 | 10/10/7 |
+| `+rca` | 14 | 7 | 0.0444 | 8 | 4 | 0/0/10 |
+| `+type-layer` | 14 | 8 | 0.0509 | 9 | 6 | 3/3/17 |
+| `+mention-layer` | 14 | 7 | 0.0444 | 8 | 4 | 0/0/18 |
+| `+knn-layer` | 13 | 7 | 0.0444 | 8 | 4 | 1/1/19 |
+| `-communities,-fca,-knn` (the kept set) | 13 | 9 | 0.0430 | 7 | 5 | — |
+
+- **Keep decisions.** Communities improve hit@5 by one and lower (c) by one, so they are not kept.
+  FCA and kNN change output but leave hit@5 unchanged, so they are not kept. No off-by-default
+  variant improves hit@5, so none is adopted. **The default is now Passes A–C, direct usage and
+  selection** (ADR-0020); the rest are variants.
+- **Every difference is one or two units.** No margin is added after the fact. The increment-5
+  held-out evaluation is the unbiased check, and it is ADR-0020's revisit trigger.
+- **The §1.5 ranking check** is **failed** on both the old default (`FastMCP.tool` first for 1 of
+  2 `fm.register` aliases) and the kept set (0 of 2).
+
+> Decision: ADR-0020
+
 **Variants, Implemented in slices 3.2 and 3.3 groundwork** (2026-09-23; deviation log D41):
 - `lctx compile --analytics <variant>`: `default`, or changes to it by name, `+name`/`-name`
-  (`cpg_core::analyze::Techniques`). On by default: `communities`, `fca`, `knn`. Off by
-  default: `pagerank` (the increment-2 review's U1), `rca`, `type-layer`, `mention-layer` and
-  `knn-layer`. A community layer needs `communities`, and the kNN layer needs an embedder.
+  (`cpg_core::analyze::Techniques`). Since ADR-0020, every technique is off by default:
+  `communities`, `fca`, `knn`, `pagerank` (the increment-2 review's U1), `rca`, `type-layer`,
+  `mention-layer` and `knn-layer`. A community layer needs `communities`, and the kNN layer needs
+  an embedder.
 - A variant's canonical label (`-knn,+rca`) joins the compiler run's config digest, so a variant
   snapshot never shares a content digest with the default's. Its invocations record what it
   changed (`rca` in the FCA parameters; `extra_layers` and the weight rule in the consensus's),
@@ -2771,7 +2811,15 @@ thousand briefs, or ANN / managed FTS needed.
 - (c) recall of gold static-evidence spans by compiled evidence.
 
 **Ablation** (§9.8). Diff the published output with each technique disabled, apply the keep
-rule, and record the result in the increment-3 review.
+rule, and record the result in the increment-3 review. **Done in slice 3.3** (2026-09-23): the
+table and the keep decisions are in §9.8 and ADR-0020.
+
+**Gold scoring, Measured** (2026-09-23, `scripts/score_gold.py`, live vectors, budget 20): the
+old default scored (a) 0.0444 over 22 families, 8 touched; (b) hit@5 14 and hit@1 7 of 44
+aliases; (c) 4 of 157 spans. The kept default scores (a) 0.0430, 7 touched; (b) hit@5 13 and
+hit@1 9; (c) 5 of 157. 19 of the gold's 125 operations are outside the release (`mcp`,
+`mcp_types`, `fastmcp_tasks`, `pydantic`, `starlette`, `uncalled_for`), so no brief can name
+them; the scorer reports them apart, and they count against (a).
 
 **Agent evaluation** (increment 5).
 - About 20 held-out task prompts and 5–10 usage fixtures.
@@ -2784,7 +2832,7 @@ rule, and record the result in the increment-3 review.
 If the increment-5 evaluation attributes failures to those slots, an ADR adds a local generation
 model under §10.4 grounding.
 
-> Decision: ADR-0004, ADR-0013
+> Decision: ADR-0004, ADR-0013, ADR-0020
 
 ---
 
@@ -2855,5 +2903,6 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-23 | Slice 2.5: FCA (`cpg_schema::concepts`, `lctx_analytics::concepts`: NextClosure concepts and the Duquenne–Guigues basis), `applicable_case` and `implication` findings and assertions, the applicable case in the brief document, over-cap documents split into chunks (§9.6, §10.2, §10.3) | ADR-0011; deviation log D32 |
 | 2026-09-23 | Slice 2.6: seed selection within the brief budget (`lctx_analytics::selection`, a `seed_selection` invocation), Related from communities and centrality, the statistical-policy cases (§9.4, §10.3) | ADR-0011; deviation log D34 |
 | 2026-09-23 | Slice 3.1: embeddings in analytics: E0 through the cache (`embed_texts`), exact kNN (`lctx_analytics::neighbours`), `doc_link` and `community_label` findings, the doc-link assertion and the Related label (§9.7) | ADR-0011; deviation log D35 |
+| 2026-09-23 | Slice 3.3: `lctx diff`; the budget raised to 20 (ADR-0004 amendment); the ablation with live vectors; the keep rule applied, so communities, FCA and kNN are off by default and no variant is adopted (§B4, §9.4, §9.6, §9.7, §9.8) | ADR-0020; ADR-0004 amendment; deviation log D42, D43 |
 | 2026-09-23 | Slice 3.2: RCA (`+rca`) and the type, mention and kNN community layers as analytics variants, off by default (§9.4, §9.6, §9.7, §9.8) | ADR-0011; deviation log D41 |
 | 2026-09-23 | Increment-2 compact review fixes: direct usage as the default ranking and selection by it with a community cap (§9.4, §9.5; U1), the PageRank variant, one preferred path per callable (F4), FCA scopes keyed by node (F1), attributes from term structure (F2), the concept as a shared signature under Related with the Applicable-case slot absent (§9.6, §10.2, §10.3; U2), Stage E/F choices frozen (F7), the finding-kind-by-method rule; stale sentences fixed (F8) | ADR-0011 amendment; ADR-0019 amendment; deviation log D37–D40 |

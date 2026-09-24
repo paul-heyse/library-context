@@ -117,3 +117,15 @@ The operator chose:
   their output. `the_parameters_match_their_gold_freeze` fails on an edit, which is then an
   amendment here, like a config edit. The author of these parameters has seen the gold families
   (D3, D21); the parameters are generic graph settings, not tuned to them.
+- 2026-09-23, slice 3.3 (deviation log D42): **`[briefs] budget` goes from 5 to 20.** Twenty is the
+  midpoint of increment 3's designed 15–25 pilot briefs (DESIGN §1.2). It is set before any
+  compile at a raised budget, so before any selection output, brief or score exists at it. The
+  15 added seeds come from the pre-registered, frozen selection rule (`selection::Params`: direct
+  usage, a docstring summary, a community cap of ⌈20 / 3⌉ = 7), not by hand. The ablation (§9.8)
+  runs at this budget, because selection, Related and the communities' cap only act beyond the
+  configured seeds.
+  - **Gold seen by the author.** The gold catalog, whose families name operations (D3, D21), and
+    one scoring of generation `91828e4c` (5 briefs, lexical only): mean best Jaccard 0.022, 4 of 22
+    families touched; hit@1 5/8 and hit@5 6/8 aliases; span recall 2/157.
+  - The increment-2 review's U1 and U2 decisions and the selection freeze came before this edit
+    (D37, D38).

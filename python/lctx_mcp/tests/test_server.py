@@ -58,10 +58,9 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert result["mode"] == "hybrid" and result["degraded_reason"] is None
         assert result["library"] == LIBRARY and len(result["generation"]) == 16
         # Passes A, B and C for each of 5 configured seeds (the fixture has no usage code, so
-        # selection adds none: the increment-2 review's U1), 40 Leiden runs and their consensus
-        # (2.3), the direct-usage count, the selection, FCA of the seeds' two scopes (2.5), and
-        # the kNN (3.1).
-        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 61}
+        # selection adds none: the increment-2 review's U1), the direct-usage count and the
+        # selection. Communities, FCA and kNN are off by default (ADR-0020).
+        assert result["coverage"]["invocations"] == {"complete_under_stated_model": 17}
         assert 1 <= len(result["hits"]) <= 5
         tool = next(h for h in result["hits"] if h["title"] == "pkg.Server.tool")
         brief = await client.call_tool(

@@ -132,5 +132,8 @@ max_vertices = 128
 max_edges = 512
 max_witnesses = 3
 
+# Slice 3.3 (2026-09-23; ADR-0004 amendment, deviation log D42): budget 5 -> 20, the midpoint of
+# increment 3's 15-25 pilot briefs, set before any compile at a raised budget. The added seeds come
+# from the frozen selection rule (direct usage, a docstring summary, a community cap).
 [briefs]
-budget = 5
+budget = 20

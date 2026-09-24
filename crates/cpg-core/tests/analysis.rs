@@ -61,7 +61,7 @@ async fn compile_config(
     Result<cpg_core::attempt::Published, cpg_core::CoreError>,
     tempfile::TempDir,
 ) {
-    compile_variant(sub, config, platform, Techniques::default()).await
+    compile_variant(sub, config, platform, kernels()).await
 }
 
 /// [`compile_config`] with an analytics variant (§9.8).
@@ -75,12 +75,24 @@ async fn compile_variant(
     tempfile::TempDir,
 ) {
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join(sub);
+    let result = compile_at(dir.path(), sub, Id([7; 16]), config, platform, techniques).await;
+    (result, dir)
+}
+
+/// The fixture extracted under `dir/sub` as snapshot `s` and compiled into `dir/store`.
+async fn compile_at(
+    dir: &Path,
+    sub: &str,
+    s: Id,
+    config: &str,
+    platform: &str,
+    techniques: Techniques,
+) -> Result<cpg_core::attempt::Published, cpg_core::CoreError> {
+    let base = dir.join(sub);
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/analysis_shapes");
     copy(&fixture.join("release"), &base.join("release"));
     copy(&fixture.join("site"), &base.join("venv/site-packages"));
-    let s = Id([7; 16]);
     let out = extract(&ExtractInput {
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(base.join("release")).unwrap(),
@@ -102,8 +114,13 @@ async fn compile_variant(
         embedder: None,
         techniques,
     };
-    let result = compile_analyzed(&dir.path().join("store"), s, &out.tables, Some(&analysis)).await;
-    (result, dir)
+    compile_analyzed(&dir.join("store"), s, &out.tables, Some(&analysis)).await
+}
+
+/// The variant these tests exercise the kernels through: the techniques the keep rule turned off
+/// by default (ADR-0020) are still reviewed code, frozen and reachable as variants.
+fn kernels() -> Techniques {
+    Techniques::parse("+communities,+fca,+knn").unwrap()
 }
 
 /// The fixture extracted and compiled with the analytics config; the session reads the published
@@ -138,7 +155,7 @@ async fn analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDi
     let analysis = Analysis {
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
-        techniques: Default::default(),
+        techniques: kernels(),
     };
     let store = dir.path().join("store");
     compile_analyzed(&store, s, &out.tables, Some(&analysis))
@@ -583,7 +600,7 @@ async fn public_apis_are_ranked_over_the_usage_projection() {
         "pagerank",
         CONFIG,
         "linux",
-        Techniques::parse("+pagerank").unwrap(),
+        Techniques::parse("+communities,+fca,+knn,+pagerank").unwrap(),
     )
     .await;
     result.unwrap();
@@ -763,7 +780,7 @@ async fn variants_add_relational_attributes_and_layers() {
         "variant",
         CONFIG,
         "linux",
-        Techniques::parse("+rca,+type-layer,+mention-layer").unwrap(),
+        Techniques::parse("+communities,+fca,+knn,+rca,+type-layer,+mention-layer").unwrap(),
     )
     .await;
     let (default, variant) = (default.unwrap(), variant.unwrap());
@@ -816,6 +833,52 @@ async fn variants_add_relational_attributes_and_layers() {
         .contains("extra_layers")
     );
     assert!(cpg_core::validate::validate(&b).await.unwrap().is_empty());
+}
+
+/// `lctx diff` (§9.8, slice 3.3): the kernels variant with and without FCA, compiled into one
+/// store, differ exactly in FCA's findings and what the briefs state from them; Pass A's findings
+/// are common to both, and a snapshot compared with itself changes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_diff_is_a_join_on_content_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (Id([7; 16]), Id([8; 16]));
+    compile_at(dir.path(), "a", a, CONFIG, "linux", kernels())
+        .await
+        .unwrap();
+    compile_at(
+        dir.path(),
+        "b",
+        b,
+        CONFIG,
+        "linux",
+        Techniques::parse("+communities,+knn").unwrap(),
+    )
+    .await
+    .unwrap();
+    let store = dir.path().join("store");
+    let diff = cpg_core::diff::diff(&store, a, b).await.unwrap();
+    assert!(diff.changes_published_output());
+    let findings = &diff.tables[0];
+    assert!(findings.only_from > 0 && findings.only_to == 0 && findings.common > 0);
+    // Only FCA's statements go: implications (13) and shared signatures (15).
+    for change in &diff.changed {
+        assert!(change.added.is_empty(), "{change:?}");
+        assert!(
+            change
+                .removed
+                .iter()
+                .all(|(kind, _, _)| kind == "13" || kind == "15"),
+            "{change:?}"
+        );
+    }
+    insta::assert_snapshot!("diff_minus_fca", diff.render());
+    let same = cpg_core::diff::diff(&store, a, a).await.unwrap();
+    assert!(!same.changes_published_output());
+    assert!(
+        same.tables
+            .iter()
+            .all(|t| t.only_from == 0 && t.only_to == 0)
+    );
 }
 
 /// ADR-0019 review F4 through the whole attempt: a vertex budget truncates the invocation, which is

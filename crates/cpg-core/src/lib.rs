@@ -6,6 +6,7 @@ pub mod attempt;
 pub mod bundle;
 pub mod delta;
 pub mod derive;
+pub mod diff;
 pub mod embed;
 pub mod snapshot;
 pub mod sql;

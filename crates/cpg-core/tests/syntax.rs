@@ -1092,7 +1092,7 @@ budget = {budget}
         ))
         .unwrap(),
         embedder,
-        techniques: Default::default(),
+        techniques: cpg_core::analyze::Techniques::parse("+communities,+fca,+knn").unwrap(),
     };
     let store = base.join("store");
     cpg_core::attempt::compile_analyzed(&store, s, &out.tables, Some(&analysis))
@@ -1257,7 +1257,7 @@ async fn mention_and_knn_layers_come_from_the_corpus() {
     let (ctx, _dir) = docs_shapes_variant(
         "layers",
         Some(std::sync::Arc::new(WordsEmbedder::new())),
-        cpg_core::analyze::Techniques::parse("+mention-layer,+knn-layer").unwrap(),
+        cpg_core::analyze::Techniques::parse("+communities,+mention-layer,+knn-layer").unwrap(),
     )
     .await
     .unwrap();
@@ -1273,7 +1273,7 @@ async fn mention_and_knn_layers_come_from_the_corpus() {
     let refused = docs_shapes_variant(
         "refused",
         None,
-        cpg_core::analyze::Techniques::parse("+knn-layer").unwrap(),
+        cpg_core::analyze::Techniques::parse("+communities,+knn-layer").unwrap(),
     )
     .await;
     assert!(
