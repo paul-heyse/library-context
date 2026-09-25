@@ -1139,6 +1139,43 @@ table!(
 );
 
 table!(
+    /// A two-step source-to-return candidate: a pinned whole-assignment model result reaches
+    /// an identity return through one cited, condition-checked definition. The call's normal
+    /// completion, target closure and any enclosing exit actions remain unresolved here.
+    ModeledAssignmentReturnPaths, ModeledAssignmentReturnPathsRow = "modeled_assignment_return_paths",
+    family = Findings,
+    key = [snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [("decision_or_boundary", "(compatible_under_atoms IS NULL AND boundary_reason IS NOT NULL) OR (compatible_under_atoms IS NOT NULL AND boundary_reason IS NULL)")],
+    {
+        snapshot_id: Id,
+        successor_fact_id: Id,
+        predecessor_fact_id: Id,
+        reaching_fact_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        call_site_node_id: Id,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        predecessor_condition_id: Id,
+        reaching_condition_id: Id,
+        successor_condition_id: Id,
+        compatible_under_atoms: Option<bool>,
+        boundary_reason: Option<BoundaryReason>,
+        transfer: ModelTransferKind,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
+        predecessor_raw_approximated: bool,
+        reaching_approximated: bool,
+        successor_raw_approximated: bool,
+    }
+);
+
+table!(
     /// A conservative, cited identity bridge from a public operation's entry formal to the
     /// exact operand use of one source test. A Pyrefly type observation is not this proof.
     /// The initial origin permits only one direct reaching formal and no intervening effect.
@@ -1732,6 +1769,45 @@ crate::relations! {
              WHERE c.upstream_through_call AND c.parameter_node_id IS NOT NULL \
                AND c.function_node_id = c.sink_function_node_id",
             definition_sink = FlowSink::Definition.code(),
+        );
+
+    /// Preserve each cited assignment-to-return path separately. An identity raw return use
+    /// excludes computed outer expressions; the predecessor's whole value has the exact pinned
+    /// model step. Compatibility is only a may-path check, not normal completion.
+    modeled_assignment_return_paths = "behavior:modeled_assignment_return_paths",
+        deps = ["value_flow_predecessor_candidates", "value_flow_predecessor_compatibility",
+                "modeled_exact_value_transfers", "flow_values"],
+        sql = format!(
+            "SELECT p.snapshot_id, p.successor_fact_id, p.predecessor_fact_id, \
+                    p.reaching_fact_id, p.function_node_id, p.parameter_node_id, \
+                    m.call_site_node_id, m.call_fact_id, m.pysa_fact_id, m.model_id, m.rule_id, \
+                    m.target_definition_fact_id, p.predecessor_condition_id, \
+                    p.reaching_condition_id, p.successor_condition_id, \
+                    c.compatible_under_atoms, c.boundary_reason, m.transfer, \
+                    m.target_modality, m.model_modality, \
+                    m.candidate_set_complete_under_model, m.has_unresolved_remainder, \
+                    p.predecessor_raw_approximated, p.reaching_approximated, \
+                    p.successor_raw_approximated \
+             FROM value_flow_predecessor_candidates p \
+             JOIN value_flow_predecessor_compatibility c \
+               ON c.snapshot_id = p.snapshot_id \
+              AND c.successor_fact_id = p.successor_fact_id \
+              AND c.predecessor_fact_id = p.predecessor_fact_id \
+              AND c.source_key = p.source_key \
+              AND c.reaching_fact_id = p.reaching_fact_id \
+             JOIN modeled_exact_value_transfers m \
+               ON m.snapshot_id = p.snapshot_id \
+              AND m.flow_value_fact_id = p.predecessor_fact_id \
+              AND m.parameter_node_id = p.parameter_node_id \
+              AND m.function_node_id = p.function_node_id \
+              AND m.use_id = p.predecessor_use_id \
+              AND m.condition_id = p.predecessor_condition_id \
+              AND m.sink = {definition_sink} \
+             JOIN flow_values s ON s.fact_id = p.successor_fact_id \
+               AND s.sink = {return_sink} AND s.identity AND NOT s.through_call \
+               AND s.use_id = p.successor_use_id",
+            definition_sink = FlowSink::Definition.code(),
+            return_sink = FlowSink::Return.code(),
         );
 
     /// A subjectless effect stays unqualified; a parameter subject needs an exact binding.

@@ -184,6 +184,8 @@ key:value_flow_predecessor_candidates
   SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_candidates GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
 key:value_flow_predecessor_compatibility
   SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_compatibility GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
+key:modeled_assignment_return_paths
+  SELECT snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_assignment_return_paths GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:flow_test_value_links
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_value_links GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:model_targets
@@ -428,6 +430,34 @@ ref:value_flow_predecessor_compatibility.successor_condition_id->analysis_condit
   SELECT f.successor_condition_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.successor_condition_id = r.k WHERE f.successor_condition_id IS NOT NULL
 ref:value_flow_predecessor_compatibility.reaching_condition_id->conditions
   SELECT f.reaching_condition_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.reaching_condition_id = r.k WHERE f.reaching_condition_id IS NOT NULL
+ref:modeled_assignment_return_paths.successor_fact_id->flow_values
+  SELECT f.successor_fact_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.successor_fact_id = r.k WHERE f.successor_fact_id IS NOT NULL
+ref:modeled_assignment_return_paths.predecessor_fact_id->flow_values
+  SELECT f.predecessor_fact_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.predecessor_fact_id = r.k WHERE f.predecessor_fact_id IS NOT NULL
+ref:modeled_assignment_return_paths.reaching_fact_id->facts
+  SELECT f.reaching_fact_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.reaching_fact_id = r.k WHERE f.reaching_fact_id IS NOT NULL
+ref:modeled_assignment_return_paths.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:modeled_assignment_return_paths.parameter_node_id->parameter_syntax
+  SELECT f.parameter_node_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
+ref:modeled_assignment_return_paths.call_site_node_id->call_syntax
+  SELECT f.call_site_node_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT node_id AS k FROM call_syntax) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:modeled_assignment_return_paths.call_fact_id->facts
+  SELECT f.call_fact_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.call_fact_id = r.k WHERE f.call_fact_id IS NOT NULL
+ref:modeled_assignment_return_paths.pysa_fact_id->facts
+  SELECT f.pysa_fact_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:modeled_assignment_return_paths.model_id->model_targets
+  SELECT f.model_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:modeled_assignment_return_paths.rule_id->model_transfers
+  SELECT f.rule_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_transfers) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:modeled_assignment_return_paths.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:modeled_assignment_return_paths.predecessor_condition_id->analysis_conditions
+  SELECT f.predecessor_condition_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.predecessor_condition_id = r.k WHERE f.predecessor_condition_id IS NOT NULL
+ref:modeled_assignment_return_paths.reaching_condition_id->conditions
+  SELECT f.reaching_condition_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.reaching_condition_id = r.k WHERE f.reaching_condition_id IS NOT NULL
+ref:modeled_assignment_return_paths.successor_condition_id->analysis_conditions
+  SELECT f.successor_condition_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.successor_condition_id = r.k WHERE f.successor_condition_id IS NOT NULL
 ref:model_exceptions.class_node_id->context_definitions
   SELECT f.class_node_id AS value FROM model_exceptions f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
 ref:model_exceptions.class_fact_id->facts
@@ -1240,6 +1270,14 @@ codebook:value_flows.sink
   SELECT sink FROM value_flows WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
 codebook:value_flow_predecessor_compatibility.boundary_reason
   SELECT boundary_reason FROM value_flow_predecessor_compatibility WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:modeled_assignment_return_paths.boundary_reason
+  SELECT boundary_reason FROM modeled_assignment_return_paths WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:modeled_assignment_return_paths.transfer
+  SELECT transfer FROM modeled_assignment_return_paths WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
+codebook:modeled_assignment_return_paths.target_modality
+  SELECT target_modality FROM modeled_assignment_return_paths WHERE target_modality IS NOT NULL AND target_modality NOT IN (0, 1, 2)
+codebook:modeled_assignment_return_paths.model_modality
+  SELECT model_modality FROM modeled_assignment_return_paths WHERE model_modality IS NOT NULL AND model_modality NOT IN (0, 1, 2)
 codebook:flow_test_value_links.origin
   SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
 codebook:model_targets.transfer_coverage

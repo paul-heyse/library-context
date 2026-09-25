@@ -1454,6 +1454,29 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM modeled_assignment_return_paths p \
+             JOIN declarations d ON d.node_id = p.function_node_id \
+             WHERE d.name = 'indirect_identity' AND p.compatible_under_atoms \
+               AND p.boundary_reason IS NULL",
+        )
+        .await,
+        1,
+        "the exact assignment model step reaches an identity return through one cited definition"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_assignment_return_paths p \
+             JOIN declarations d ON d.node_id = p.function_node_id \
+             WHERE d.name IN ('nested_identity', 'computed_identity')",
+        )
+        .await,
+        0,
+        "a nested call or computed outer return has no exact two-step model path"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             &format!(
                 "SELECT count(*) FROM modeled_transfer_sites s \
                  JOIN declarations d ON d.node_id = s.function_node_id \
@@ -2056,6 +2079,31 @@ budget = 1
     );
     ctx.deregister_table("modeled_exact_value_transfers").unwrap();
     ctx.register_table("modeled_exact_value_transfers", original_exact_transfers)
+        .unwrap();
+
+    let original_assignment_paths = sql::query(&ctx, "SELECT * FROM modeled_assignment_return_paths")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_assignment_paths = sql::query(
+        &ctx,
+        "SELECT * FROM modeled_assignment_return_paths WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_assignment_return_paths").unwrap();
+    ctx.register_table("modeled_assignment_return_paths", missing_assignment_paths)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-assignment-return-path-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_assignment_return_paths").unwrap();
+    ctx.register_table("modeled_assignment_return_paths", original_assignment_paths)
         .unwrap();
 
     let original_predecessors = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_candidates")

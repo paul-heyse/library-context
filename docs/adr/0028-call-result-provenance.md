@@ -59,6 +59,13 @@ cite the assignment's model step and a separate reaching-definition
 predecessor candidate; compatibility and completion still have to be proved
 before it becomes a summary.
 
+`modeled_assignment_return_paths` now joins that whole-definition model step
+to an identity raw return use through the cited reaching definition and its
+bounded compatibility row. It retains the Pysa candidate fact, model rule,
+three condition ids, approximation flags and target openness. A computed
+outer return or unmatched model step has no row. This is still a may-path
+candidate: neither call completion nor an operation-level return fate follows.
+
 For an inherited call, the next bridge joins the successor raw fact's use to
 each cited `flow_reaching` definition, that definition's value span to earlier
 raw `flow_values` facts, and the same source parameter's unmerged contribution.

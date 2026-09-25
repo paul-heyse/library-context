@@ -17,7 +17,7 @@ use cpg_schema::behavior::{
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
-    ModeledTransferSitesRow, ModeledExactValueTransfersRow,
+    ModeledTransferSitesRow, ModeledExactValueTransfersRow, ModeledAssignmentReturnPathsRow,
     ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
@@ -120,6 +120,7 @@ pub async fn validate_costed(
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
     violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
     violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
+    violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -163,6 +164,9 @@ cpg_schema::relations! {
     stored_modeled_exact_value_transfers = "validate_stored_modeled_exact_value_transfers",
         deps = ["modeled_exact_value_transfers"],
         sql = "SELECT * FROM modeled_exact_value_transfers".to_owned();
+    stored_modeled_assignment_return_paths = "validate_stored_modeled_assignment_return_paths",
+        deps = ["modeled_assignment_return_paths"],
+        sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     value_flow_snapshot = "validate_value_flow_snapshot", deps = ["releases"],
         sql = "SELECT snapshot_id FROM releases".to_owned();
     value_flow_analysis_count = "validate_value_flow_analysis_count", deps = ["analysis_invocations"],
@@ -275,6 +279,46 @@ async fn validate_modeled_exact_value_transfers(
             rule: "modeled-exact-value-transfer-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} direct transfers; derived {}", actual.len(), expected.len()),
+        }])
+    }
+}
+
+/// Rebuild the two-step source/model path; no missing or forged candidate may publish.
+async fn validate_modeled_assignment_return_paths(
+    ctx: &SessionContext,
+) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<ModeledAssignmentReturnPathsRow> = sql::fetch(
+        ctx,
+        &stored_modeled_assignment_return_paths(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected: Vec<ModeledAssignmentReturnPathsRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_assignment_return_paths(),
+        sql::Params::new(),
+    )
+    .await?;
+    let key = |r: &ModeledAssignmentReturnPathsRow| {
+        (
+            r.successor_fact_id,
+            r.predecessor_fact_id,
+            r.reaching_fact_id,
+            r.parameter_node_id,
+            r.pysa_fact_id,
+            r.model_id,
+            r.rule_id,
+        )
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "modeled-assignment-return-path-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} paths; derived {}", actual.len(), expected.len()),
         }])
     }
 }

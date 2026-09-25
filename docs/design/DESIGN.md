@@ -3354,6 +3354,16 @@ The compatibility check does not choose a reaching definition or prove the
 modeled call's transfer or completion. Publication reconstructs every row.
 `COMPILER_OUTPUT_VERSION` is 51; integrated Stage 3 testing is `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, two-step model path):**
+`modeled_assignment_return_paths` joins an exact whole-assignment modeled
+value step to a later raw identity return via one cited reaching definition.
+It keeps every separate candidate and its bounded BDD compatibility result,
+three condition ids, approximations, model provenance and open target status.
+A computed outer return cannot take this route. A true compatibility result
+admits only a may-path; call completion, handler/finally action and complete
+candidate selection still need L3. Publication reconstructs the relation.
+`COMPILER_OUTPUT_VERSION` is 53; integrated Stage 3 testing remains `not_run`.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a

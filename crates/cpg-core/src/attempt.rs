@@ -75,7 +75,8 @@ pub struct Published {
 /// 50: a direct modeled return requires the call result to be the entire sink expression.
 /// 51: bounded BDD compatibility of cited predecessor-path conditions.
 /// 52: exact model-call steps apply to whole definition values as well as whole returns.
-pub const COMPILER_OUTPUT_VERSION: u32 = 52;
+/// 53: cite a condition-checked identity return from a whole-assignment modeled value.
+pub const COMPILER_OUTPUT_VERSION: u32 = 53;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -761,7 +762,7 @@ async fn finish(
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
             HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
-            ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, NegativePremises,
+            ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
             RaiseSites, Singletons, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
         };
@@ -823,6 +824,20 @@ async fn finish(
             root,
             snapshot_id,
             &modeled_exact_value_transfers,
+            w,
+        )
+        .await?;
+        let modeled_assignment_return_paths = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::modeled_assignment_return_paths(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ModeledAssignmentReturnPaths>(
+            &ctx,
+            root,
+            snapshot_id,
+            &modeled_assignment_return_paths,
             w,
         )
         .await?;
