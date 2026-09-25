@@ -1,33 +1,32 @@
 # Status
 
-_Updated 2026-09-24 under the [handoff skill](.claude/skills/handoff/SKILL.md); work is on `main`._
+_Updated 2026-09-25 under the [handoff skill](.claude/skills/handoff/SKILL.md); work is on `main`._
 
 ## Increment and slice
 
-- Active scope: [Stage 3 of increment 4](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 2.9 is complete. Stage 3.0 has bounded BDD conditions, attributed entry-value proofs and focused primitive refutation. No served compatibility verdict exists.
-- Committed Stage 3.1 (`3e676dc`–`9a3606e`): typed catalog, pinned context target and Pysa formal bindings, authored transfer rows and shared publication validation. The CrossHair receipt covers the `int` specialization of `typing.cast` only.
-- Committed Stage 3.2: `6110afd` adds attributed return/raise/finally source sites; `000542f` adds except clauses and direct handler actions. Their focused tests, schema migrations, validators and compact reviews passed. These rows do not prove an exception is caught or an action completes.
-- Dirty, uncommitted Stage 3.1 effect slice: `ModelEffectKind`, `model_effects`, `builtins.print` and its fixture, shared formal checks and compiler output version 26. Its focused Nextest command was interrupted without a result. Schema/codebook/rule snapshots, Clippy, design review and commit are still due. Preserve this work in place across the restart.
+- Active: [Stage 3 of increment 4](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 3.0 has bounded BDD conditions, attributed entry-value proofs and focused primitive refutation, but no served compatibility verdict.
+- Stage 3.1's committed model compiler (`dd5341f`–`0a7333b`) parses a tagged catalog, binds pinned external definitions/formals and publishes typed transfer, effect, callback, resource and exception rules with per-channel coverage. The CrossHair receipt covers only the `int` specialization of `typing.cast`.
+- Stage 3.2's structural exit/handler sources (`6110afd`, `000542f`, `d2183e5`, `fd7e690`/ADR-0027) cite return/raise/finally, handler clauses/actions and pinned handler type sources. Unresolved enclosing frames withhold a definite raise-escape conclusion.
+- Source/model bridge (`3878aeb`–`fa8d134`) applies pinned model targets at source calls, binds exact explicit arguments across every signature, and publishes candidate callback, resource, transfer and effect sites. Each has shared reconstruction, positive/withholding/tamper checks and a compact review. Candidate action rows preserve modality/open dispatch and are not whole-operation fates.
+- The working tree was clean after `fa8d134` before this handoff update. `STATUS.md` is the only intended new edit at this checkpoint.
 
-## Last verified (2026-09-24)
+## Last verified (2026-09-25)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` at `d61a497` | passed: the last recorded complete integrated gate, before later Stage 3 commits. |
-| `just pilot build/store-stage3-entry-links-v2-2026-09-24` at `d61a497` | passed: snapshot `fc9dc0f3bc6007fc26ceae6619f2996a`, 102 positive links, 20/20 smoke briefs; before later Stage 3 commits. |
-| Focused release Nextest selections for `6110afd` and `000542f` | passed: 7/7 each, including positive/withholding/tamper, snapshots, table count and ledger. |
-| `cargo clippy --release -p cpg-schema -p cpg-core --all-targets -- -D warnings` at each Stage 3.2 slice | passed. |
-| `cargo fmt --all` on the dirty effect slice | passed; formatting only, no behavioral result. |
-| Focused `cargo nextest run --release -p cpg-core -p cpg-schema -E 'test(pinned_cast_model_requires_and_publishes_its_real_formal) | test(committed_catalog_has_typed_identity_path_and_digest)' --no-tests=pass` on the dirty effect slice | not_run to completion: turn interruption left no reported result; no Cargo/Nextest/rustc process remained. |
-| `just adr index`; `just adr revisit`; `git diff --check` | passed; ADR-0002's automatic `just deps` trigger passed, other reported triggers require manual evidence. |
-| `just test-all`; fresh `just pilot` after `d61a497`; Stage 3 Q01/Q03/Q05/Q09; clean wheel/native query | not_run: reserved for the assembled Stage 3 end at operator direction. |
+| Focused `INSTA_UPDATE=no cargo nextest run --release -p cpg-schema -p cpg-core -E '…' --no-tests=pass --no-fail-fast` at each of `d0eb167`, `a6222ee`, `fa8d134` | `passed`: 6/6, 7/7 and 7/7 respectively, covering source cases, tamper, schema/rules and output ledger. Earlier Stage 3 slices recorded their focused outcomes in commit messages/reviews. |
+| `cargo clippy --release -p cpg-core -p cpg-schema --all-targets -- -D warnings` after each of those slices | `passed`. |
+| `cargo fmt --all -- --check`; `git diff --check` before those commits | `passed`. |
+| `just adr index`; `just adr revisit` | `passed`: ADR-0002's `just deps` trigger passed; other triggers are manual. |
+| `just test-all` at `d61a497`; `just pilot build/store-stage3-entry-links-v2-2026-09-24` at `d61a497` | `passed` historically, before subsequent Stage 3 changes; they do not certify current HEAD. |
+| `just check`; current-HEAD `just test-all`; fresh-store `just pilot`; Q01/Q03/Q05/Q09; clean wheel/native query | `not_run`: the operator requires integrated tests only after the full functional scope is implemented. |
 
 ## Known failures, decisions and blocks
 
-- No current product-test failure is established for the dirty effect slice; it is **unverified**. The fixture assumes `builtins.print` resolves to a pinned definition with complete signatures, and the test expects two targets. Check that assumption before accepting snapshots; retain fail-closed formal validation if it does not hold.
-- ADR-0020, ADR-0024 and ADR-0025 remain proposed. Reviews defer generic model semantics and pilot binding (M02–M04), exception catch/completion (X02, H01–H02), and final pilot cost/counts (X03, H03).
-- Remaining Stage 3: broader models, resolved handler fates, callbacks/resources, finite summaries, Pysa/Hypothesis oracles, FORMAT 7 serving and the pre-registered exit questions. Source observations and authored model rows cannot be promoted to behavioral verdicts without these proofs.
+- No current focused test failure is known. The integrated Stage 3 result remains **unverified**; no pilot counts, performance or served compatibility result can be claimed for current HEAD.
+- ADR-0020, ADR-0024 and ADR-0025 remain proposed. The Stage 3 source reviews defer handler catch/completion, runtime resource identity/release, candidate-call normal completion, source effect subjects, and L3/serving evidence closure.
+- Remaining functional scope: broaden the pinned model catalog and CrossHair oracle; resolve L2 handler, callback and resource fates; compose bounded SCC summaries that discharge `call_transfer`; run Pysa and CPython/Hypothesis oracles; implement FORMAT 7 native/PyO3 serving and filters; then evaluate Q01/Q03/Q05/Q09 and run the clean wheel and integrated gates.
 
 ## Next
 
-Finish and verify the dirty `model_effects` slice in place: run its focused positive/tamper case, inspect and accept schema/codebook/rule snapshots, run focused ledger and Clippy, then update DESIGN/review and commit. Keep the integrated tests and pilot at the assembled Stage 3 end.
+Derive an attributed modeled exception source and resolved handler/raise matching boundary before L3 summary composition. Keep `just test-all`, `just pilot` and structured evaluation deferred until all Stage 3 functional scope is assembled.
