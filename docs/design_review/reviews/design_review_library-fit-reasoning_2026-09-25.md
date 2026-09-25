@@ -328,6 +328,8 @@ Evidence labels are core §D, dated 2026-09-25 unless stated otherwise.
 
 ## 11. Authority changes and dispositions
 
+**Transferred 2026-09-25.** F01–F16 are scheduled in the forward plan; [its §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition) is their single current disposition owner. The table below is this review's dated recommendation, not current status.
+
 None of these findings is transferred to the active plan yet. Until the operator schedules them,
 this review owns them as **open**, per binding §4. Once scheduled, the plan's findings table becomes
 the owner and this section keeps only the link.

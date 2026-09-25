@@ -388,6 +388,21 @@ and the working tree in the final cleanup commit; Git retains execution detail. 
 docs checks against that resulting tree. Keep commits scoped, preserve concurrent work, and do
 not push or deploy as a side effect of documentation cleanup.
 
+## Temporary execution checklist
+
+Deleted at completion. Pre-removal revision: `df52bafb27bc7ff40658a81108f03e145280820c`
+(pushed; LFS fsck passed; no production change since `acbcee5`).
+
+- [x] M0: inputs committed and recoverable; consumers of retirement candidates triaged (code/test
+  consumers: `2026-09-25_pysa-tito-rule`, `2026-09-24_z3-5-migration`; one comment in
+  `cpg-schema/src/behavior.rs`).
+- [x] M1: forward plan revised; 27 findings in §6; both reviews marked transferred.
+- [ ] M2: lifecycle ADR, ADR tooling, process instructions.
+- [ ] M3: section owners and consolidated rationale.
+- [ ] M4: retirement.
+- [ ] M5: publication.
+- [ ] M6: acceptance and handoff.
+
 ## 5. Ongoing lifecycle after migration
 
 - A change updates the owner whose meaning changed. A routine internal implementation change

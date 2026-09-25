@@ -156,7 +156,7 @@ Flow/provider probes are [recorded here](../evidence/2026-09-25_library-fit-foll
 
 ### 7.2 Additional findings
 
-Each ID below is local to **this** review; its current disposition is in [§11](#11-authority-changes-and-dispositions).
+Each ID below is local to **this** review; its current disposition is in the [forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition).
 
 <a id="F01"></a>**F01 — Catalog budgets count shared storage, while hydration retains expanded per-root diagrams.**
 
@@ -436,9 +436,11 @@ further leads, not established findings in this review.
 
 ## 11. Authority changes and dispositions
 
+**Transferred 2026-09-25.** This review's F01–F08, the source review's F01–F16 and ARC-01–03 are scheduled in the forward plan; [its §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition) is their single current disposition owner. The table below is this review's dated recommendation, not current status.
+
 No source finding is scheduled by this review. Original F01–F16 remain owned by
 [source review §11](design_review_library-fit-reasoning_2026-09-25.md#11-authority-changes-and-dispositions).
-ARC-01–03 remain owned by [forward plan §9.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#92-current-architectural-dispositions).
+ARC-01–03 remain owned by [forward plan §9.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition).
 The table below is the single current disposition owner for this review's **new** findings until
 the operator schedules them. Deferred means implementation was outside this task; it does not
 make failed supported behavior acceptable.

@@ -283,7 +283,7 @@ particular historical test run passed or failed. No generated artifact was loade
 ## 11. Authority changes and dispositions
 
 This report owns the dated findings. **Transferred 2026-09-25** after coordinating-session
-source inspection: the [active plan §9.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#92-current-architectural-dispositions)
+source inspection: the [active plan §9.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)
 owns current execution status, sequencing and closure evidence. Transfer does not assert an
 implemented correction or change this review's judgment.
 

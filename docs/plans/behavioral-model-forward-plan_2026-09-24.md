@@ -1,854 +1,315 @@
 # Plan: the behavioral model, going forward
 
-**Supersedes:** [`behavioral-model-pivot-plan_2026-09-24.md`](behavioral-model-pivot-plan_2026-09-24.md).
-Its Stages 0–2 are built. This plan carries forward their open follow-ups and the rest of its
-scope (Stages 3–5).
+**Status:** Active; the sole product execution plan. **Revised:** 2026-09-25 (documentation
+migration: the reasoning reviews reconciled and earlier plans internalized).
+**Authority.** The [architecture map](../design/README.md), DESIGN and its section owners own
+contracts and accepted targets; current ADRs own rationale. This plan owns execution order, the
+current disposition of scheduled findings (§6) and deferred triggers. A change to a §B decision
+lands its ADR and a design/target review first (binding under ADR-0040).
 
-**Integrates:**
-- the external review [`docs/full_cpg_pipeline_external_review.md`](../full_cpg_pipeline_external_review.md),
-  as assessed in
-  [`design_review_external-review-assessment_2026-09-24.md`](../design_review/reviews/design_review_external-review-assessment_2026-09-24.md)
-  (decision **Revise**; findings X1–X6; recommendations E1–E25);
-- the Stage 2 end review,
-  [`design_review_stage2-end_2026-09-24.md`](../design_review/reviews/design_review_stage2-end_2026-09-24.md)
-  (**Revise**; R1–R11, dispositioned in its §12).
+## 1. Current state and qualification boundary
 
-**Date:** 2026-09-24. **Status:** Active. The operator approved the direction on 2026-09-24: keep
-ty as the flow provider and Pysa as the cross-check (deviation B21), and adopt the assessment's
-recommendations, including decisions D-10 to D-13 (§11; deviation B23).
+Production checkpoint `acbcee5` on `main` (no `crates/` or `python/` change since). Increment 4
+(Stages 2.9–3) is in progress. Stages 0–2.9 are built: the whole-surface operation catalog, the
+`flow` family from ty, the condition language, five verdicts and Stage 2's behaviors. **Stage 3 is
+functionally incomplete and integrated qualification is outstanding.**
 
-**Authority.** DESIGN and ADRs own architecture and decisions. This plan owns execution
-sequencing and current finding disposition (§9). A stage that
-changes a §B decision lands its ADR, and a design/target review of it, first.
-
-### Restart checkpoint (2026-09-25, Stage 3 in progress)
-
-This checkpoint builds through `4af94e8` on `main`: ADR-0039's BDD-incompatible predecessor
-screen, schema-key and multi-release validation repairs, accepted snapshots, and deferred
-formatting.
-This records execution state, not a change to the Stage 3 target below. The operator considers
-the present tests sufficient and assumes the remaining gate will pass; that assumption is not
-a completed `just test-all` or fresh-pilot receipt.
-
-| Scope | Current state | Evidence and remaining boundary |
+| Scope | State (2026-09-25) | Remaining boundary |
 |---|---|---|
-| Stage 3.0 conditions | **Partially Implemented; focused tests passed** | Bounded BDD catalogs, exact entry-value links, narrow primitive refutation and per-path native work accounting exist (`00323e8`). Flow-recomposed roots remain separate from provider roots. No operation-wide compatibility verdict exists. |
-| Stage 3.1 pinned models | **Partially Implemented; focused tests passed** | Typed transfer/effect/callback/resource/exception assertions and exact source applications publish with shared validation. `typing.cast` and `typing.assert_type` assert total normal return. A Pydantic 2.13.5 `TypeAdapter.validate_python` potential transform is authored but dormant in the empty-site fixture (`5b86f0e`); real dependency binding is untested. Pure/helper, async/context and HTTP/server families remain narrow or absent. |
-| Stage 3.2 L2 fates | **Partially Implemented and Tested** | Handler clauses, pinned class/MRO candidates, direct handler `return None` and candidate modeled-exception paths are cited. A bounded chain of sole literal `finally: pass` suites now has ordered source proof steps (`e97e6ba`); a separate CPython monitoring control observed the pending return. Other finalizers, context-manager exits, handler propagation, callback fate and resource acquire/release pairing remain unknown. |
-| Stage 3.3 source paths and summaries | **Partially Implemented; focused tests passed** | Finite direct, modeled, unique-assignment and unconditional acyclic local-wrapper value paths have canonical ordered proofs and source-equality validation. Petgraph yields callee-first SCC components; recursive members retain unknown value paths pending a bounded worklist (`87bd3a9`). ADR-0039 replaces ADR-0038's byte-only screen: a prior call is ignored only if its ty region is definitely BDD-incompatible with the return; a compatible, missing, approximate or capped call withholds the direct positive. A same-key open sibling remains in `summary_boundaries` (`6f009d2`). Preceding-statement normal completion, recursive worklist, effect/exception/role summaries, path-specific boundary identity and `call_transfer` discharge remain. |
-| Stage 3.4–3.6 and exit | **Partially Implemented; provisional gate only** | Targeted matched-source Pysa TITO and CPython value/exit oracles passed; FORMAT 7 structural condition/summary data and a partial native value-path executor exist. Full proof source spans, typed operation-wide compatibility/effect/role filters, broader independent challenges, Q01/Q03/Q05/Q09, structured evaluation, clean wheel and increment-end review remain. A `just test-all` attempt observed 313/313 release Rust tests passed and 110/112 Python tests passed; the two failures were a stale expected tool list. `uv run pytest -q python/lctx_mcp/tests/test_server.py` subsequently passed 12/12 after adding `inspect_value_paths`. A full rerun was started and stopped at operator direction before completion. Fresh `just pilot` remains `not_run` for this tree. |
+| L1/L1.5 conditions | **Implemented; focused tests passed.** Bounded BDD catalogs, exact entry-value links, narrow primitive refutation, per-path native work accounting | Operation-wide compatibility; decision/support/aggregate budget defects (W6); membership and integer equality (W11) |
+| L4 pinned models | **Implemented; focused tests passed.** Typed transfer/effect/callback/resource/exception assertions and exact source applications. `typing.cast`/`typing.assert_type` assert total normal return. A Pydantic `TypeAdapter.validate_python` potential transform is dormant | Pure/helper, I/O, async/context, pydantic and HTTP/server families; a dynamic-schema representation before any validation effect |
+| L2 fates | **Implemented and Tested in focused cases.** Handler clauses, pinned class/MRO candidates, direct handler `return None`, modeled-exception paths, ordered literal `finally: pass` chains | Effectful finalizers, context-manager exits, handler propagation, callback fate and resource pairing remain unknown |
+| L3 summaries | **Implemented; focused tests passed.** Direct, exact modeled, unique-assignment and unconditional acyclic wrapper value paths with canonical ordered proofs; petgraph SCC schedule; recursive members withheld; an earlier call is ignored only when its region is BDD-incompatible with the return | Normal-completion witnesses for compatible predecessors, recursive composition, effect/exception/role summaries, path-specific boundary identity, `call_transfer` discharge |
+| L7 serving | **Partially implemented.** FORMAT 7 structural condition/summary data; native `inspect_value_paths` gives path-local inspection only | Typed operation-wide compatibility/effect/role filters, full proof spans, verdict/citation fidelity (W2, W3), clean-wheel query |
+| Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Next dependency:** address the architectural calibration dispositions in [§9.2](#92-current-architectural-dispositions):
-repair shared native proof-kind admission, then expose the summary transformation's inputs and
-typed outcomes before extending its policy. Within that boundary, finish source-path normal-completion witnesses for compatible preceding
-calls, other preceding statements, inner/outer exit frames and unresolved operations; region
-truth and BDD compatibility do not prove that an earlier action returns. Then compose finite
-path summaries over petgraph SCCs with BDD condition, modality, handler and budget boundaries.
-Extend the remaining model and L2 families before interpreting summary silence as a negative.
-The earlier targeted-only restriction was lifted for this checkpoint: `just fmt` ran and a
-provisional `just test-all` exposed and drove independent contract repairs. The operator now
-directs documentation without further test execution. A complete Stage 3 exit still requires
-the order-10 acceptance below.
+**Accepted schema migrations at this checkpoint:** `value_flow_contributions` keys include the
+local/upstream transfer flags (extractor output version 74); multi-release validation selects one
+distinct snapshot; MRO validation compares distinct ancestor facts with provenance.
 
-**Provisional gate evidence and repair (2026-09-25):** `just fmt` passed. The first full
-`just test-all` found 31 Rust failures: raw contribution key collisions, a validator that
-mistook a corpus's second release for a second snapshot, an MRO rule that counted duplicated
-library/corpus ancestry as conflicting, missing corruption-test recognition, and stale
-snapshots/version expectations. The corrected gate reached 313/313 release Rust tests passed;
-Python then reported only the two stale MCP tool-list expectations. The targeted server test
-passed after that correction. The last full gate was interrupted, so the operator's expectation
-of a pass is recorded as an assumption, not a `passed` outcome. Schema migration: the
-`value_flow_contributions` key now includes local/upstream transfer flags (output version 74);
-its contract/rule snapshots and the finalizer-step codebook snapshot were inspected and
-accepted. `just pilot`, structured evaluation and clean-wheel acceptance are `not_run` here.
+**Next dependency:** W1 (ARC-01). Derive native proof-kind admission from the schema codebook and
+verify a real finalizer-bearing generation through the native executor. Then W4 (access
+normalization) and W5 (explicit summary inputs and typed refusals, ARC-02/03) before any new SCC
+or limit policy.
 
-### Detailed remaining Stage 3 execution queue (2026-09-25)
+**Measurement baseline** (pilot snapshot `162bda5a0fe39cc1cedadbfaa8efd1f9`, 2026-09-24, fake
+embedder; Measured): 1,534 public declarations; 15,415 behaviors (4,276 established, 3,554
+conditional, 19 refuted); unknown by reason: **6,137 `call_transfer`**, 1,347 `override_dispatch`,
+42 `budget_reached`, 39 `abstract_body`, 1 `runtime_unreachable`; pilot compile 40.4 s. Stage 3
+reports its exit against these counts. No reduction is claimed before that run.
 
-This queue makes the current dependency order explicit. Every intermediate outcome is a cited
-positive candidate or `unknown`; no absence becomes `refuted_under_model` before all five model
-channels and relevant source paths are closed. A slice uses focused compilation, one positive
-and one withholding fixture, its schema/rule snapshots and the shared publication validator.
-The final column names a *targeted* check, not an integrated acceptance run.
+## 2. Product target and principles
 
-**Architectural prerequisites (Proposed corrections, 2026-09-25):** [§9.2](#92-current-architectural-dispositions)
-owns the calibration findings. ARC-01 precedes further proof-kind/native integration; ARC-02
-and ARC-03 shape order 1's summary contract and must precede additional SCC/limit policy in
-order 6. These corrections use the existing component boundaries; they add no new framework.
-
-| Order | Build and proof boundary | Library-first implementation and targeted acceptance |
-|---|---|---|
-| 1 | **Call-site and predecessor evaluation.** For every relevant argument and preceding statement on a proposed return path, distinguish an already evaluated direct value, a cited normal outcome, a possible raise, and an unsupported/unresolved expression. Tie the proof to Ruff syntax, ty's exact use/region facts and the call/return sites. Preserve evaluation order; a modeled target's `normal_return` starts only after arguments are evaluated. In particular, `return x` after a recursive or opaque call is not completed merely because the return region is true. | DataFusion joins and Arrow contracts; no second Python expression evaluator. A direct formal and a raising sibling argument must diverge; a terminating branch before recursion and an unconditional self-call before return must diverge. The shared validator rejects a forged completion row. |
-| 2 | **Exit and L2 fate.** Extend `exit_sites`/handler candidates to nested `try`/`finally` and `with` frame order, normal/exceptional completion and suppression boundaries. Derive callback stored/invoked/forwarded/registered and resource acquire/release only with an execution and exit witness. Keep generators/coroutines at the Stage 5 deferred-execution boundary. | Reuse Ruff syntax identity, ty flow, pinned context and DataFusion relations. Run focused nesting, early-return, re-raise, suppressor, callback-not-run and unreleased-resource cases; do not substitute lexical containment for execution. |
-| 3 | **Summary proof identity.** Migrate `summary_flows` from a raw-fact-only key to a canonical proof identity with ordered, typed call/model/flow/exit steps. A finite witness DAG or compact step relation should retain parallel paths without duplicating all prefixes. The step table must support later SCC composition and same-snapshot evidence closure; a one-call-only nullable tuple is insufficient. | Author one Arrow key/step contract and validator, with source/evidence references; reuse BDD root IDs and existing `lctx_id` derivation. Check two distinct calls sharing endpoints, reordered inputs and a forged/missing intermediate step. An ADR and design/target review precede a §B5/§B6 identity pivot. |
-| 4 | **First positive modeled result.** Admit an exact whole-return `typing.cast`/`typing.assert_type` identity path only when the source target set is closed and sole, target/model modalities are definite, all arguments reach the call, the pinned target asserts normal return, the BDD condition is admitted and the enclosing return exit is proven. The two-step assignment predecessor follows only after its reaching definition is unambiguous and condition-compatible. Otherwise retain a specific `summary_boundaries` reason. | Relational candidate selection in DataFusion, finite condition/step composition in `lctx-analytics`. Focused direct, shadowed, nested-call, fallback expression, alternate target, raising argument and assignment cases; shared source equality rejects a forged summary. |
-| 5 | **Broaden model data by semantic family.** Pure constructors and value helpers; I/O/serialization/compression; async/timeouts/context; pydantic/settings; HTTP/server entry points. Record each target's exact pin, signature/formal mapping, independent channel coverage, invocation phase and normal-return assertion only when source-backed. A model family without an in-scope consumer remains a candidate model, not a positive behavior. | Start with the pinned local library and Python source, then Context7/official docs and the relevant capability skill; CrossHair checks pure models in isolated workers. Targeted per-family positive/withholding fixtures and model-catalog equality checks. |
-| 6 | **Finite interprocedural summaries.** The attributed caller→callee graph and canonical petgraph `tarjan_scc` schedule are built. Replace the current conservative recursive-member refusal with a monotone bounded worklist per SCC that admits a cited finite base path. Compose value/transform/effect/exception/role paths with BDD `and` and declared modality. A depth, BDD-node, pair-work or iteration cap writes an explicit boundary; an open override/unresolved candidate blocks negative closure. | Petgraph owns SCCs, DataFusion owns candidate joins, biodivine-lib-bdd owns Boolean operations; no all-path closure. Focused acyclic, terminating base, unconditional self-recursion, mutual-recursion, parallel-edge, open-override and cap fixtures; compare shuffled input byte-for-byte. Trigger the Ascent spike only after three recursive rule families repeat the worklist shape. |
-| 7 | **Behavior claim discharge.** Reconstruct `summary_flows`, `summary_effects` and `summary_boundaries` through shared validators. Update behavior derivation so `call_transfer` changes to established/conditional only with the matching proof; a refutation requires complete source/model/handler coverage. Keep unrelated or ambiguous call candidates unknown. | Use the existing five-verdict codebook and DataFusion invariants; focused `behavior_shapes` part 2 includes logging-only and disabled-option wrappers. No pilot count is claimed before the final run. |
-| 8 | **Independent challenge.** Compare pure model instances with exhausted CrossHair `diffbehavior`; Pysa TITO with an actual source→sink rule and pinned Pyrefly binary; CPython 3.14 `sys.monitoring` + Hypothesis for observed flow, exception and exit admission. Disagreement becomes a fixture or an explicit unresolved boundary. | Keep oracles out of compiler inputs and the gold out of analysis. Run only targeted oracle cases while implementing; batch the preregistered full comparison at the integrated end. |
-| 9 | **FORMAT 7 and native serving.** Migrate one snapshot to validated structural condition/proof/summary tables, load them into one immutable PyO3 executor per FastMCP process, and expose typed compatibility plus effect/role filters. Resolve a request's operation/formal and exact primitive origin before BDD evaluation. Unsupported proof, caps and cursor exhaustion return explicit unknown/truncated with work accounting. | Reuse Arrow/DataFusion for generation, the BDD kernel for condition operations and FastMCP's structured result API. Targeted editable-import and native query cases first; only after all functionality lands run the clean-wheel query. |
-| 10 | **Integrated exit, after orders 1–9.** Run `just fmt`, `just test-all`, a fresh-store `just pilot`, Q01/Q03/Q05/Q09 and the structured Stage 3 evaluation, then one clean-wheel generation-pinned FastMCP/native query and the increment-end design review. A material fix repeats only the affected gate plus any invalidated integrated acceptance. | Report each command `passed`, `failed`, `blocked` or `not_run`, exact pilot `call_transfer` before/after counts, condition budget counts, compile time/RSS and serving bounds. The 2026-09-25 preliminary formatting/gate run was an operator-directed checkpoint, not this exit. |
-
-The additional architectural constraint over the original plan is proof-path identity before SCC
-composition: the current `summary_flows` key can cite one raw return fact but cannot distinguish
-two modeled call chains that arrive there. A compact proof DAG preserves parallel evidence and
-gives FORMAT 7 a stable join target. The library leverage is deliberately split by operation:
-DataFusion for bounded joins/validation, petgraph for SCC topology, biodivine-lib-bdd for
-condition algebra, and FastMCP/PyO3 for a single immutable generation. None of those libraries
-is treated as a provider of Python runtime semantics.
-
-**Further Stage 3 model constraint (2026-09-25, Interface-checked):** a Pydantic
-`TypeAdapter.validate_python` instance selects its schema at runtime. The current authored
-`validate(schema)` action requires a named schema, so the candidate model may carry only a
-potential input-to-return transform. Do not populate `schema` with the adapter class name or
-equate a validation call with a particular schema. A typed dynamic-schema case, with a source
-witness if one can be proved, must precede any validation-effect or negative-coverage claim.
-
-**Implementation deviations and carry-forward decisions (2026-09-25):**
-
-| Planned order | What changed and why | What the next agent must preserve or finish |
-|---|---|---|
-| 1, 3, 4 | Canonical ordered summary proof identity (ADR-0034) and a separate pinned total-normal-return assertion (ADR-0033) landed before the full predecessor-execution relation. They let narrow direct/model/assignment paths publish without treating a transfer rule or a reachable region as call completion. | Keep the exact source argument/target counts and shared reconstruction validator. Add typed normal-outcome steps for every compatible predecessor; no generic `return x` positive after an unproved call. |
-| 2 | ADR-0036's single pass-only finalizer proof became ADR-0037's ordered nested pass chain after CPython monitoring showed pending returns survive those frames. | Keep effectful finalizers and `with` unknown until their frame actions and suppression are cited; do not generalize the pass-only proof. |
-| 5 | A pinned Pydantic candidate was authored as a potential transform, but its runtime-selected schema cannot satisfy the current named-schema validation action. | Test actual Pydantic binding and add a typed dynamic-schema representation before any definite validation effect. Expand the remaining model families only from pinned source evidence. |
-| 6 | Recursive SCC members were first withheld wholesale (`87bd3a9`), then a source-order screen (ADR-0038) recovered a base return before recursion. ADR-0039 superseded that screen with bounded BDD disjointness, recovering an alternate-branch return while still withholding compatible prior calls. | Replace this interim screen with an execution-ordered, condition-compatible predecessor witness and bounded SCC worklist. Preserve explicit unknowns for missing/approximate/capped evidence. |
-| 9 | A partial FORMAT 7/native `inspect_value_paths` tool and path-local work counts were implemented before operation-wide compatibility/effect/role claims. | Keep it labeled as path-local inspection; complete source spans, typed operation/formal resolution, effect/role filters and clean-wheel generation-pinned query. |
-| 10 | At the operator's later request, formatting and a preliminary full gate ran before Stage 3 functionality was complete. They exposed a raw-contribution key migration and multi-release/MRO validator mistakes in addition to stale snapshots and tool-list expectations. | Treat accepted snapshots as reviewed schema/codebook migrations. The post-fix complete gate and fresh pilot are not observed; repeat them at final integrated exit. |
-
----
-
-## 1. Purpose and target
-
-**The product** (unchanged, ADR-0021) is an **evidence-carrying behavioral model of a pinned
-library's whole public surface**. An agent asks which operations accept X, pass it to Y, under
-which configuration, raising what, needing which lifecycle. It gets:
-- **exhaustive answers** where the analysis is complete;
-- **ranked candidates** where only discovery applies;
-- **a named unknown** where the analysis stopped.
-
-Each claim carries evidence and a derivation. Briefs stay, as one rendering.
-
-**What changes in the target.** The external review and its assessment showed that the weak point
-is no longer which provider to use. It is **the translation from provider facts into our
-conditions**. An atom is identified by its text, so distinct evaluations merge, and feasible paths
-are dropped. Eight shapes reproduce this, and CPython executes every "impossible" statement
-(assessment §5). The target therefore adds three things:
-
-1. **A sound semantic bridge.**
-   - A condition atom is an **evaluation**: its kind, with the Python operator preserved, its
-     operands, and its site.
-   - Atoms are shared across sites only where the observed value is provably stable.
-   - The runtime view is decided by **resolved bindings**, not spelling.
-2. **A condition kernel.** Conditions are Boolean functions in a **BDD** over those atoms,
-   persisted losslessly. DNF becomes a bounded rendering. Implication and compatibility become
-   exact over the atoms, with a typed theory for primitive places.
-3. **An independent execution oracle.** Generated and curated programs run on the pinned CPython
-   under `sys.monitoring`. **Every observed execution must be admitted by the model.**
-
-**Kept, unchanged:**
-- programmatic synthesis; no generative model in the pipeline or the query path (§B11);
-- immutable, byte-identical generations (§B7, §B12);
-- declared dependency families (ADR-0002 amendment);
-- structured, qualitative evaluation with pre-registered targets; no API-agent evaluation;
-- the gold (`.claude/skills/`) is never a compiler input;
-- licence is never a criterion.
-
-## 2. Where we start
-
-**Built** (Stages 0–2 of the superseded plan): the whole-surface behavior relations, the operation
-catalog, bundle `FORMAT` 5, the three operation tools, the `flow` family from ty, the condition
-language, five verdicts, and Stage 2's behaviors. Evaluation v0 is pre-registered in
-`eval/behavior/fastmcp-4.0.5.toml`.
-
-**Baseline** (Measured, pilot snapshot `162bda5a0fe39cc1cedadbfaa8efd1f9`, 2026-09-24, fake
-embedder, uncommitted Stage 2 end-review fixes):
-
-| Quantity | Value |
-|---|---|
-| Public declarations | 1,534. Operation status: 636 established, 535 unknown, 363 not analyzed (classes) |
-| Behaviors | 15,415 |
-| Behaviors by verdict | 4,276 established; 3,554 conditional; 19 refuted |
-| Unknown behaviors, by reason | **6,137 `call_transfer`**; 1,347 `override_dispatch`; 42 `budget_reached`; 39 `abstract_body`; 1 `runtime_unreachable` |
-| Flow facts | 66,954 uses; 69,010 reaching rows; 53,466 value sources; 6,148 tests; 13,764 attribute loads; 11,184 conditions |
-| Behavior tables | 22,565 value flows; 52 ambient reads; 790 raise sites (35 may be caught) |
-| Pilot compile | 40.4 s; the flow model takes 1.73 s |
-
-**Open follow-ups from what is built:**
-
-| Item | State | Where it lands |
-|---|---|---|
-| The Stage 2 end review's fixes (R1–R11, O5): new rules, probes, ADR-0022 and DESIGN amendments | Implemented and tested (nextest 262/262; `just pilot` passed), **uncommitted**. Part of it is in the operator's commit `3129c7c` | 2.9.1 |
-| Test attribution follows identity and derived transfers only, not call transfers | Proposed; the edit was not applied | 2.9.1 |
-| The Stage 2 exit rule, re-applied to the final Stage 2 build | Passed on `85304572`, before the end review's fixes | 2.9.8 |
-| ADR-0022's acceptance | Proposed; blocked on the re-review | 2.9.9 |
-| `STATUS.md` | Stale (last written at `90eadeb`) | 2.9.10 |
-| Operator reviews | Pending: the Stage 1 and Stage 2 evaluations; deviations B1–B22; the moved-aside stores `build/store-pre-*` (about 11 GB) | §11 |
-
-## 3. Principles
-
-T1–T9 carry over from the superseded plan. T5 is restated, and T10–T11 are new.
+The product (ADR-0021) is an **evidence-carrying behavioral model of a pinned library's whole
+public surface**. An agent asks which operations accept X, pass it to Y, under which
+configuration, raising what, needing which lifecycle, and receives exhaustive answers where the
+analysis is complete, ranked candidates where only discovery applies, and a named unknown where the
+analysis stopped. Each claim carries evidence and a derivation; briefs remain one rendering.
+[§3.9](../design/sections/behavior-model.md) owns conditions, places and verdicts;
+[§9.9](../design/sections/behavioral-analysis.md) owns models, summaries and the registry.
 
 | # | Principle | Without it |
 |---|---|---|
 | T1 | The whole public surface is the universe; analysis runs per callable, bottom-up | Silence about most operations |
 | T2 | Relations first, sentences last: typed, persisted relations with in-row provenance | Knowledge locked in templates |
-| T3 | Our abstraction, stated: the flow IR is our declared runtime model (§B5) | Checker views relabelled as runtime flow |
-| T4 | Meaning comes from models, propagation from summaries | "Calls X, so can X" |
-| **T5** | **Conditions are Boolean functions over evaluation atoms, held in a decision-diagram kernel.** Propositional reasoning, plus a typed theory for primitive places, is allowed. **No theory solver** (§B10) | Merged evaluations drop feasible paths (X1); budget cuts lose structure (X4) |
+| T3 | The flow IR is our declared runtime model (§B5), whichever provider builds it | Checker views relabelled as runtime flow |
+| T4 | Meaning comes from models, propagation from summaries; never "calls X, so can X" | Unsupported transitive claims |
+| T5 | Conditions are Boolean functions over evaluation atoms in a bounded decision-diagram kernel, plus a typed theory for primitive places; no theory solver (§B10) | Merged evaluations drop feasible paths; budget cuts lose structure |
 | T6 | Five verdicts, never a null; a negative verdict only inside complete coverage | Unsupported negatives |
-| T7 | Materialize source facts at compile time; run bounded semantic selections in the pinned Rust executor | A second, unproven serve-time condition semantics in Python |
-| T8 | Discovery nominates, definitions decide | Statistical membership |
+| T7 | Materialize source facts at compile time; run bounded semantic selections in the pinned Rust executor | A second, unproven serve-time semantics |
+| T8 | Discovery nominates, definitions decide; FCA, RCA, communities and embeddings never write membership | Statistical membership |
 | T9 | Pre-registered behavioral question sets, plus mechanical known-answer fixtures | Circular evaluation |
-| **T10** | **Providers observe; our semantic layer concludes.** Provider facts are observations under the provider's model. What they justify is decided by our rules, which are stated and tested | Provider artefacts become claims |
-| **T11** | **Execution checks admission.** Within the stated model, every observed execution is admitted by the analysis. A violation is a counterexample to the analysis. A finite pass is evidence, not proof | Translation defects stay invisible (X6) |
+| T10 | Providers observe; our semantic layer concludes under stated, tested rules | Provider artefacts become claims |
+| T11 | Execution checks admission: within the stated model every observed execution is admitted; a violation is a counterexample; a finite pass is evidence, not proof | Translation defects stay invisible |
 
-## 4. Target architecture
+Kept unchanged: programmatic synthesis with no generative model in the pipeline or query path
+(§B11); immutable, byte-identical generations (§B7, §B12); declared dependency families
+(ADR-0002); the gold under `.claude/skills/` is never a compiler input; licence is never a
+criterion.
 
-| Layer | What | State | Changes in this plan |
-|---|---|---|---|
-| L0 | The CPG | Built | — |
-| **L1** | Flow facts (`flow` family, ty through `cpg-flow`) | Built | Evaluation atoms; the runtime view by resolution; lossless conditions; counted skips (Stage 2.9, 3.0) |
-| **L1.5** | **The condition kernel** | New | A BDD over atoms with a typed theory; implication and compatibility; bounded rendering (Stage 3.0) |
-| **L2** | Behavior relations | Built in part | Adds `handlers`, `callbacks`, `resources` and exits (Stage 3.2) |
-| **L3** | Transfer summaries | Planned | Resolves `call_transfer` (Stage 3.3) |
-| **L4** | Models catalog | Planned | CrossHair as its oracle (Stage 3.1) |
-| **L5** | Capability registry and membership | Planned | Definitions use the kernel's compatibility (Stage 4) |
-| L6 | Discovery (FCA, RCA, communities, views) | Built | New consumers in Stage 4 |
-| **L7** | Serving | `FORMAT` 5; three tools | Kernel-backed filters (Stage 3.6); `lookup_concepts`, `explain` (Stage 4) |
-| L8 | Structured evaluation | Built | Stage exit rules continue |
-| **L9** | **The validation lane** | New | Runtime soundness oracle (Stage 2.9); CrossHair model checks (Stage 3.1); Pysa differential (Stage 3.4) |
-
-### 4.1 The condition model (the target; ADR-0022, amended in Stage 2.9; new ADR in Stage 3.0)
-
-**Atoms are evaluations.**
-- An atom is a kind, with the Python operator kept (`is`, `==`, `in`, truthiness, `isinstance`),
-  its operands, and the **evaluation site** of the test that produced it.
-- Its source text is a label, never its identity.
-- `x == None` is equality, not `is None`. `x is True` is an identity atom (a codebook append), not
-  `== True`.
-
-**Sharing across sites requires a proof of the same runtime value.** Stage 2.9 keeps all source
-tests per site. Its first definition-set rule was superseded by the compact review's executable
-counterexample: a nested call can rebind a `nonlocal` without changing the use-def set. Stage 3.0
-may share equality, membership or truthiness only when it also proves no intervening write or
-effect can change the name's value; a Pyrefly builtin immutable-scalar type at each use is
-necessary for the typed theory but insufficient for cross-site sharing.
-
-These remain per site unless that proof is added:
-- calls and other opaque tests;
-- attribute places (a call may mutate them);
-- object state such as a container's truthiness;
-- the synthetic predicates (non-empty iterable, context-manager suppression, finally, undecided).
-
-`place@line` is retired. Reaching-definition sets remain flow facts, but are not atom identities
-without an effect-stability proof.
-
-**The runtime view** decides a test only where our reference resolution binds the name:
-- the `TYPE_CHECKING` sentinel, where the name resolves to `typing.TYPE_CHECKING` (aliases
-  included);
-- `sys.version_info`, `sys.platform` and `os.name`, where `sys` or `os` resolve to the stdlib
-  modules.
-
-Elsewhere the name is an ordinary atom. Version tuples compare as Python compares them: the
-five-field `sys.version_info` is greater than an equal prefix of up to three fields. A longer
-literal stays undecided until release level and serial are modeled. The rename stays, only to
-stop ty deciding the name by spelling.
-
-**The kernel** (Stage 3.0) is biodivine-lib-bdd 0.6.3.
-- **Variable order:** deterministic, with atoms sorted by identity.
-- **Operations:** composition, restriction, existential projection, and exact implication and
-  compatibility over atoms.
-- **Typed theory:** constraints between shared atoms on one stable value (`x == "a"` excludes
-  `x == "b"`).
-- **Persistence:** lossless, as a node table over the atom table, with content ids from the
-  canonical BDD. The DNF encoding is a rendering with a display budget. A node limit, not a DNF
-  budget, is the only point where information is cut, and that is `unknown` (`budget_reached`).
-- **Normal-path factoring** nominates a quotient with the bounded Stage 2 rule and accepts it only
-  after checking `F == N ∧ G` with the bounded diagram kernel. If the check cannot establish that
-  equality, F remains authoritative with `not_factored` (ADR-0024).
-
-**The approximation direction** is stated in ADR-0022 §Verdicts and in the tool descriptions:
-- positive verdicts are may-behavior the model admits (AMBIGUOUS read as true; calls assumed to
-  return; operators, f-strings and containers over primitive operands; context managers other
-  than `suppress` assumed not to suppress);
-- a negative verdict holds under a complete may-analysis.
-
-An `approximated` flag on regions and reaching rows whose diagram path crossed AMBIGUOUS or an
-assumed return lands with the kernel.
-
-### 4.2 The validation lane (L9)
-
-The lane has three instruments, each with one purpose.
-
-| Instrument | Checks | Where it runs |
+| Layer | What | State |
 |---|---|---|
-| **Runtime soundness oracle** | Every executed statement's region is admitted (not `false`); every observed reaching definition is present; from Stage 3.5, every observed value flow is admitted | Programs from the two reviews' shapes, plus Hypothesis-generated ones from a grammar (tests, rebindings, loops, `try`/`with`, calls, mutation), run on the pinned CPython 3.14.7 under `sys.monitoring`, with inputs driving each branch. They live outside `fixtures/python/`, which is never executed, and run in an isolated worker. A pytest, in `just check` |
-| **CrossHair** (`diffbehavior`) | A model of a pure callable in the catalog (Stage 3.1) agrees with the real function; a canonical-form assumption holds | An isolated worker, with timeouts; replayed concretely before a counterexample becomes a fixture |
-| **Pysa** (pyre-check 0.10.0, `--pyrefly-binary` pinned) | `summary_flows` against Pysa's taint-in-taint-out (TITO) models; each disagreement explained, or turned into a fixture; Pysa's obscure-callee default never copied | Offline, on the pinned library (Stage 3.4) |
+| L0 | The CPG | Built |
+| L1 | Flow facts (`flow` family, ty through `cpg-flow`) | Built |
+| L1.5 | The condition kernel (bounded BDDs, typed primitive theory) | Built in part |
+| L2 | Behavior relations, including handlers, callbacks, resources and exits | Built in part |
+| L3 | Transfer summaries resolving `call_transfer` | Built in part |
+| L4 | Models catalog | Built in part |
+| L5 | Capability registry and membership | Stage 4 |
+| L6 | Discovery (FCA, RCA, communities, views) | Built; consumers in Stage 4 |
+| L7 | Serving (FastMCP tools, native executor) | Built in part |
+| L8 | Structured evaluation | Built; stage exit rules continue |
+| L9 | Validation lane (runtime soundness oracle, CrossHair, Pysa) | Built in part; order 8 extends it |
 
-Outputs are test results and findings. They never change a static conclusion directly (T10).
+## 3. Stage 3 execution queue
 
-## 5. Stages
+Every intermediate outcome is a cited positive candidate or `unknown`. No absence becomes
+`refuted_under_model` before the model channels and relevant source paths are closed. A slice
+uses focused compilation, one positive and one withholding fixture, its schema/rule snapshots and
+the shared publication validator; the last column names a targeted check, not integrated
+acceptance. Findings are identified in §6; their priority follows the follow-up review's §12.
 
-During design and implementation, use focused checks and small commits that state the check
-outcome (`not_run` where appropriate). Run `just test-all` and `just pilot` once at the end of the
-integrated Stage 3 scope, with stage timings and peak RSS. Keep the planned reviews and handoffs;
-where a stage review coincides with an increment's end, one design review covers both
-at the depth required by impact and uncertainty (binding under ADR-0040). This cadence supersedes the earlier per-stage full-gate wording (operator direction,
-2026-09-24).
+### 3.1 Contract repairs before extension
 
-**Increments** (DESIGN §1.2):
-- increment 4 is Stages 2.9–3, ending with an assembled design/target review;
-- increment 5 is Stages 4–5 and the held-out evaluation, ending with an assembled design/target review.
+| Order | Work (§6 item) | Targeted acceptance |
+|---|---|---|
+| A1 | Native proof-kind admission from the schema contract; one owned typed decoder for generation tables (W1: ARC-01, RF/F13) | A finalizer-bearing generation loads and queries through the real native executor; an unknown kind is rejected; a schema drift test between generation and native reader |
+| A2 | One resolved attribute-access contract (W4: RFU/F05, RF/F09) | Bare, qualified and aliased builtin access, computed names and shadowed builtins under the real provider; qualified/aliased literal reads withhold no-read claims; one corrected premise traced through publication and serving |
+| A3 | Served claim fidelity (W2: RFU/F02; W3: RFU/F03) | A facet with established and unknown values keeps both in lookup and agrees with filtering; a finding-only claim is followed to its model and source span in the served generation, identically in structured and Markdown forms |
+| A4 | Explicit summary inputs and typed refusals (W5: ARC-02, ARC-03) with the next normal-completion witness | The production transformation runs without extraction, embedding, Delta or server setup; an actual depth/BDD cap and an unsupported case keep specific causes through producer, snapshot and native response |
+| A5 | `Model::reach` fixed point with a work bound (W7: RF/F05) | The query-order reproduction gives the same contributions A-first and B-first; the acyclic and finite-base controls hold; a dense SCC hits its cap with a boundary; shuffled input is byte-identical |
+| A6 | Kernel decisions, effective support and aggregate preparation bounds (W6: RF/F01, RF/F02, RFU/F01) | The tests named in W6; a bounded refusal stays unknown |
+| A7 | Analyzer input identity and canonical cache fill (W8: RFU/F07; W9: RFU/F06) | The helper edit/addition and cache race/over-cap controls named in W8 and W9 |
 
-### Stage 2.9: harden the semantic bridge, and close Stage 2
+A1–A5 precede further proof-kind, native or SCC extension. A6 precedes raising catalog limits or
+extending summary catalogs. A7 precedes a hermetic corpus/run-identity or cache-conformance claim;
+it is independent of A1–A6.
 
-1. **Commit the Stage 2 end review's fixes.** First decide and apply the test-attribution rule:
-   only identity and derived transfers name a parameter, and a call transfer is the callee's
-   question. Then run `just test-all` and commit, naming R1–R11 and deviations B21–B22, with the
-   migrations declared (`flow_tests`, `flow_attribute_loads`, `raise_sites.escapes`,
-   `abstract_body`, `EXTRACTOR_OUTPUT_VERSION` 22).
-2. **Evaluation identity (X1, E3, E4, E8).**
-   - Atom identity as §4.1: operators preserved; the `is <literal>` atom (a `condition_atom`
-     append); per-site synthetic predicates; definition-set versions; the stable-sharing rule for
-     names.
-   - `flow_shapes` cases for each of the assessment's P1 shapes, and for same-line bindings and
-     merged definitions.
-   - `EXTRACTOR_OUTPUT_VERSION` is bumped, and the snapshots move as declared migrations.
-3. **The runtime view by resolution (X2, E5, E7).** `cpg-extract` passes, per module, the spans
-   our resolution binds to `typing.TYPE_CHECKING`, the stdlib `sys` and `os`. The translator
-   decides only those. Version tuples compare with Python's semantics. Cases: a `TYPE_CHECKING`
-   parameter, an alias, `config.TYPE_CHECKING`, and the four comparison operators against a
-   two-part tuple.
-4. **Counted skips (X3).** Each module's coverage row records how many reaching rows and value
-   sources were skipped as `false`, and why: ty's own always-false, the runtime view, or a
-   stable-atom contradiction.
-5. **The runtime soundness oracle (X6, E21).** Build the §4.2 oracle for regions and reaching
-   definitions:
-   - a small `lctx flow` developer command (flow facts of one file as JSON);
-   - a pytest driver with Hypothesis (a new Python dev dependency) and `sys.monitoring`;
-   - the reviews' shapes as its seed corpus.
+### 3.2 Functional completion
 
-   It runs in `just check`.
-6. **The stated model (X5, E18).** ADR-0022 §Verdicts states the approximation direction and its
-   assumptions, and the tool descriptions say what `established` means.
-7. **ADR-0022, amended in place:**
-   - §Conditions: atoms, operators, sharing, skips;
-   - §Places: definition-set versions, mutation, impure calls;
-   - §Composed layers: the runtime view by resolution and version semantics;
-   - §Verdicts: the direction.
+| Order | Build and proof boundary | Targeted acceptance |
+|---|---|---|
+| 1 | **Call-site and predecessor evaluation.** For each argument and preceding statement on a proposed return path, distinguish an evaluated direct value, a cited normal outcome, a possible raise and an unresolved expression, tied to Ruff syntax, ty use/region facts and the call/return sites. Preserve evaluation order; a modeled target's normal return starts after its arguments. A true return region does not prove that an earlier call returned | A direct formal and a raising sibling argument diverge; a terminating branch before recursion and an unconditional self-call before return diverge; the shared validator rejects a forged completion row |
+| 2 | **Exit and L2 fate.** Nested `try`/`finally` and `with` frame order, normal/exceptional completion and suppression; callback stored/invoked/forwarded/registered and resource acquire/release only with an execution and exit witness. Generators/coroutines stay at the Stage 5 deferred-execution boundary. ty's `end_of_scope_reachability` may add one append-only implicit-exit kind | Nesting, early-return, re-raise, suppressor, callback-not-run and unreleased-resource cases; lexical containment never substitutes for execution |
+| 3 | **Proof identity for composition.** The canonical ordered proof identity (ADR-0034) extends to the call/model/flow/exit steps order 6 composes, retaining parallel paths without duplicating prefixes | Two calls sharing endpoints, reordered inputs, a forged or missing step |
+| 4 | **Positive modeled results.** Admit an exact whole-return identity path only when the target set is closed and sole, modalities are definite, all arguments reach the call, the pinned target asserts normal return, the condition is admitted and the return exit is proven. An assignment predecessor follows only when its reaching definition is unambiguous and condition-compatible; otherwise a specific `summary_boundaries` reason | Direct, shadowed, nested-call, fallback, alternate-target, raising-argument and assignment cases; a forged summary is rejected |
+| 5 | **Model families** (§3.3). Record each target's exact pin, formal mapping, independent channel coverage, invocation phase and a normal-return assertion only when source-backed. A family without an in-scope consumer stays a candidate model | Per-family positive/withholding fixtures; model-catalog equality; CrossHair for pure models in an isolated worker (a timeout or unexplored path is inconclusive) |
+| 6 | **Finite interprocedural summaries.** Replace the recursive-member refusal with bounded SCC composition that admits a cited finite base path; compose value/transform/effect/exception/role paths with BDD conjunction and declared modality. Depth, node, pair-work and iteration caps write explicit boundaries; an open override blocks negative closure. The engine is chosen by the W12 comparison; SCC routine and ownership by W13 | Acyclic, terminating base, self- and mutual recursion, parallel edge, open override and cap fixtures; shuffled input byte-identical; a cap's specific cause reaches `summary_boundaries` |
+| 7 | **Claim discharge.** Reconstruct `summary_flows`, `summary_effects` and `summary_boundaries` through shared validators; `call_transfer` becomes established/conditional only with the matching proof; a refutation requires complete source/model/handler coverage | `behavior_shapes` part 2: logging-only and disabled-option wrappers; unrelated or ambiguous candidates stay unknown |
+| 8 | **Independent challenge** (W11's independent controls). CrossHair `diffbehavior` for pure models; Pysa TITO with a real source→sink rule and the pinned Pyrefly binary; CPython 3.14 `sys.monitoring` with Hypothesis for flow, exception and exit admission, including an ignored predecessor followed by the cited return. Disagreement becomes a fixture or an explicit boundary | Targeted oracle cases while implementing; the preregistered full comparison at the integrated end. Oracles never write facts; the gold never enters analysis |
+| 9 | **FORMAT 7 native serving.** Validated structural condition/proof/summary tables, one immutable PyO3 executor per process, typed compatibility plus effect/role filters. Resolve the operation/formal and exact primitive origin before BDD evaluation; string membership and integer equality (W11) are needed for Q09. Unsupported proof, caps and cursor exhaustion return explicit unknown/truncated with work accounting | Editable-import and native query cases, then one clean-wheel generation-pinned query after functionality lands |
+| 10 | **Integrated exit.** `just fmt`, `just test-all`, fresh-store `just pilot`, Q01/Q03/Q05/Q09 and the structured Stage 3 evaluation, the clean-wheel query and the increment-end design/target review | Each command `passed`/`failed`/`blocked`/`not_run`; `call_transfer` before/after, condition budget counts, compile time/RSS and serving bounds. A material fix repeats only the affected gate plus invalidated acceptance |
 
-   DESIGN §3.9 follows.
-8. **Re-apply Stage 2's pre-registered exit rule** to the hardened generation (Q04, Q10, Q21–Q24;
-   live vectors for Q23 and Q24 when the GPU has ≥30 GB free, and vLLM is stopped afterwards).
-   The assessment goes in the Stage 2 evaluation document as a dated addendum. A failure is fixed
-   here.
-9. **A `compact` re-review** of R1–R8 and X1–X3 and X6 (the `design-reviewer` subagent). Then
-   **accept ADR-0022**.
-10. **Handoff** (`STATUS.md`).
+**Stage 3 exit:** `behavior_shapes` part 2 passes and Stage 3's pre-registered exit rule (Q01, Q03,
+Q05, Q09) passes; then increment 4's assembled design/target review.
 
-**Exit:**
-- `flow_shapes` (including the P1 shapes), `behavior_shapes` and its probes, and the runtime oracle
-  all pass;
-- Stage 2's exit rule passes on the hardened build;
-- ADR-0022 is accepted.
+**Carry-forward constraints.**
+- Keep exact source argument/target counts and the shared reconstruction validator for proofs.
+  No generic `return x` positive after an unproved call.
+- The ordered nested pass-finalizer proof does not generalize: effectful finalizers and `with`
+  stay unknown until frame actions and suppression are cited.
+- A Pydantic `TypeAdapter` selects its schema at runtime. Do not populate the named-schema
+  `validate(schema)` action with the adapter class name; a typed dynamic-schema case, with a source
+  witness where one can be proved, precedes any validation-effect or negative-coverage claim.
+- The BDD-incompatibility screen for earlier calls is interim; order 1's condition-compatible
+  predecessor witness replaces it. Missing, approximate or capped evidence stays an explicit unknown.
+- `inspect_value_paths` is path-local inspection, never an operation-wide verdict.
+- Accepted snapshots are reviewed migrations; the post-fix complete gate and fresh pilot are
+  outstanding.
 
-**Closes:** X1, X2, X3, X5, X6; R1–R11.
+### 3.3 Models catalog v1
 
-### Stage 3: the condition kernel, models and summaries
+Authored from pinned library source and official docs, append-only model ids, typed data with the
+catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
-**0. The condition kernel (X4, E10, E12).**
-- **A new ADR:** conditions as Boolean functions in a decision-diagram kernel over evaluation
-  atoms. It amends §B10's "not a solver" wording: propositional diagrams and a typed theory for
-  primitive places are allowed; theory solvers stay excluded. It also amends DESIGN §3.9 and
-  §9.9. A design/target review follows the repository binding.
-- **A spike, with exit tests:**
-  - canonical ids reproduce the `conditions.rs` known answers under a fixed variable order;
-  - normal-path factoring by equivalence reproduces Stage 2's `given` results;
-  - determinism under shuffled input;
-  - a node-limit case;
-  - on the pilot, `budget_reached` falls, and the node limit's hits and compile time are reported.
-- **Then, in the product:**
-  - construct and compose BDDs in `cpg-flow` before the Stage 2 DNF limit. The read-only
-    2026-09-24 pilot survey converted all 13,775 stated condition rows but found one
-    `over_budget` sentinel shared by 237 regions and 846 reaching facts across modules;
-    post-extraction conversion cannot recover those separate expressions. Measure any
-    reduction in the 66 recorded budget claims on a product pilot. Migrate the flow-model
-    consumer with the same root/node schema;
-  - lossless conditions (a node table in the `flow` family), with the DNF encoding as a bounded
-    rendering;
-  - an attributed test-use/type-term observation and the typed theory: only exact builtin
-    runtime values under the stated type-trust model, with stable-value evidence across sites;
-    broad annotations and possible subclasses stay undecided;
-  - the kernel's `implies`/`compatible` API, which Stage 3.6's filters and Stage 4's definitions
-    use;
-  - the `approximated` flag.
+| Family | Targets |
+|---|---|
+| Pure identity/value | `typing.cast`, `typing.assert_type` (built); `str`, `dict`, `list`, `tuple`; `functools.partial`, `functools.wraps` |
+| I/O and serialization | `open`/`io`/`pathlib`, `json`, `gzip`/`zlib`, logging |
+| Async, timeouts, context | asyncio and anyio (`fail_after`, `move_on_after`, `to_thread`, task groups); `contextvars`; `contextlib` |
+| Validation and settings | pydantic `BaseModel`, `Field`, `TypeAdapter.validate_python` (dynamic schema, above); pydantic-settings `BaseSettings` (environment prefix) |
+| HTTP and servers | httpx timeouts; the starlette and uvicorn entry points |
 
-**Stage 3.0 implementation order after design/probe sign-off:**
-1. In `cpg-schema::condition_kernel`, add direct construction from a typed evaluation atom and
-   an explicit boundary-bearing result. The BDD is the producer's Boolean authority; a capped
-   DNF rendering is output only. Test `false`/`true` plus a budget boundary, 17 independent OR
-   sites, source-order shuffles, `given` equivalence and corrupt-node refusal.
-2. Replace `cpg-flow`'s use of Stage 2 `Condition::and`/`or`/`not` at predicate creation and
-   region/value/reaching composition. Preserve ADR-0022's per-evaluation identity. Carry a
-   boundary reason and `approximated` status; never turn a failed apply into `false` or a
-   negative claim. The 17-site case must stay stated before any persistence work starts.
-3. Migrate `conditions` to structural root/condition ids and add the lossless node relation in
-   the `flow` family. Update `cpg-extract::flow` deduplication, the extractor output version,
-   Arrow contract snapshots and the flow consumer in `cpg-core::flow_model` together. The
-   consumer must read the validated root/node closure for decisions, not parse display text.
-   Old DNF ids never silently join new ids.
-4. Add one shared graph validator used by publication and native generation load. It checks
-   format, root closure, terminal and Merkle ids, atom order/support, reduction and budgets.
-   Tamper a published-node fixture through the Delta path; a malformed generation is rejected
-   before a query can run. Keep the node-format handshake in the manifest.
-5. Emit `flow_test_leaves` per provider predicate and atom before `flow_tests`' span-only dedup.
-   Include provider predicate identity, test span, condition root and leaf atom/span so separate
-   `match` arms sharing a subject span remain distinct. Then produce `flow_test_types` against
-   that leaf row and the exact `flow_uses` operand; join Pyrefly's trace by operand-use span.
-   Freeze the Arrow row and uniqueness contract in ADR-0024 first: snapshot/module/scope,
-   provider predicate key, test/root, full encoded atom plus atom id and leaf span. Validate
-   root support, recomputed source-module key, `Site` or `Synthetic` identity and exact-one
-   use-row match before any proof row is admitted.
-   Add only the closed exact-runtime-origin cases and effect-stability witnesses; an
-   absent/ambiguous mapping leaves atoms independent. The later `flow_test_value_links` bridge
-   cites the same leaf row and requires its own justified subject-use mapping for synthetic
-   pattern predicates. Pin compound Boolean and two-arm `match` cases, plus sibling-operand,
-   annotation-use and call/write counterexamples, before pilot measurement.
-   The read-only [test-leaf join probe](../design_review/evidence/2026-09-24_test-leaf-proof-joins/README.md)
-   establishes the source identity gap; it does not validate the proposed new relation.
-6. Run focused source counterexamples first, then the product pilot and the registered Stage 3
-   condition questions. Report the old 66 `budget_reached` claims against the new count, node
-   and work-limit hits, condition roots/nodes, compile time and RSS. The read-only conversion
-   survey's 23,760 unique nodes and 53-node maximum are a sizing baseline, not an exit result.
+## 4. Stages 4 and 5
 
-**1. Models catalog v1** (the superseded plan's D-7 list, unchanged).
-- **Stdlib and dependencies:** `open`/`io`/`pathlib`, `json`, `gzip`/`zlib`, logging; asyncio and
-  anyio (`fail_after`, `move_on_after`, `to_thread`, task groups); contextvars;
-  `functools.partial`/`wraps`; `contextlib`; pydantic `BaseModel`, `Field`,
-  `TypeAdapter.validate_python`; pydantic-settings `BaseSettings`; httpx timeouts; the starlette
-  and uvicorn entry points.
-- **Added:** `typing.cast` (identity) and the builtins that carry a value (`str`, `dict`, `list`,
-  `tuple`).
-- **Guards:** the catalog's digest joins `compiler_digest`; no model cites `.claude/skills`.
-- **CrossHair** checks each model of a pure callable in an isolated worker (E22).
+### Stage 4: the capability registry
 
-**2. The remaining L2 relations** (Stage 2's unbuilt part):
-- `handlers`: caught types, and the action (re-raise, convert, swallow, value);
-- `callbacks`: stored, invoked, forwarded or registered;
-- `resources`: acquire and release;
-- exits: normal, exceptional, `finally` (E19).
-
-**3. The summary kernel** `lctx_analytics::summaries` (L3).
-- **Call results as intermediate values:** a callee's summary (formal → `ReturnValue`, field
-  writes, `Raise[T]`) resolves each `call_transfer` claim to `established`, `conditional`,
-  `refuted_under_model` (a complete summary with no transfer), or `unknown` with its boundary.
-- **Composition:** SCC bottom-up (`tarjan_scc`, callees first). A fixpoint per SCC, bounded by
-  path depth k and the kernel's node limit, widening to `unknown`. Joins over override-open
-  candidates. Exception conversion through `handlers`. Invocation rows record budgets.
-- **Tables:** `summary_flows`, `summary_effects`, `summary_boundaries`.
-- **Reported:** the `call_transfer` count, against 6,137 today.
-
-**4. Ascent spike**, only on its trigger (three or more recursive rule families repeating the
-worklist shape). ascent 0.8.1 must match the hand kernel on `behavior_shapes`, with timings. The
-boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for contracts (E14).
-
-**5. The Pysa oracle** (§4.2).
-
-**6. `behavior_shapes` part 2:**
-- the "used only for logging" case;
-- a wrapper that disables an option of its callee;
-- the runtime oracle, extended to observed value flows.
-
-**7. Tools:**
-- summarized flows and effects in `get_operation`;
-- effect and role filters in `find_operations`;
-- a compatibility filter ("fates compatible with `transport == 'sse'`"), because Q09 needs one.
-- Its input is anchored to the operation's entry formal; a checked entry-to-test value/stability
-  bridge is required before comparing with a persisted predicate. Missing bridges return
-  `unknown`, and compatibility means may-model non-refutation, not concrete feasibility.
-- The focused [entry-value bridge probe](../design_review/evidence/2026-09-24_entry-value-bridge/README.md)
-  fixes the first producer cases: direct formal reach may link after exact operand and effect
-  checks; explicit rebind, unknown source or an unmodeled call/write withholds the link. A
-  post-call reaching row that still names the formal does not prove stability.
-- Supersede ADR-0010's lookup-only materialized executor. The Python FastMCP layer loads an
-  in-process Rust/PyO3 semantic executor against one immutable generation. Typed compatibility,
-  implication, effect/role filtering and bounded witness traversal may run at query time; row,
-  node, pair-work and depth limits produce explicit `unknown` and `truncated`. Direct lookups and
-  ranked retrieval keep their existing materialized routes. A design/target review covers the §B13
-  pivot (ADR-0025) before acceptance.
-- **Design-phase loop:** use focused kernel/translator tests, editable `uv run` import and
-  targeted probes while the node relation, proof contracts and served API are being designed.
-  Run the broader repository and pilot gates at the integrated Stage 3 end. At Stage 3.6 acceptance,
-  after the generation format and served API settle, build and clean-install one wheel and
-  exercise a generation-pinned FastMCP/native query; repeat that check for release.
-
-**Exit:** `behavior_shapes` part 2 passes, and Stage 3's pre-registered exit rule (Q01, Q03, Q05,
-Q09) passes. Then increment 4's assembled design/target review.
-
-**Closes:** X4; the superseded plan's F4 (the models part) and F8 (the data-file part).
-
-#### Stage 3 execution contract (Proposed, 2026-09-24)
-
-This section resolves the implementation order and representation boundaries of items 0–7.
-It does not widen their exit rule. The first direct entry-formal → test-use relation is
-**Implemented and Tested**; its 2026-09-24 pilot published 102 positive links. No typed
-contradiction or served compatibility result follows from that count.
-
-The next source slice is **Implemented and Tested** on a focused fixture (2026-09-24): resolved
-builtin `type(x) is C` yields an attributed atom, a guarded entry-value link and a separate
-exact-class origin conditional on that atom being true. Shadowed builtin names and a preceding
-unknown call withhold the origin. That first origin by itself does not establish stability at a
-later use or a served negative verdict. The integrated repository and pilot gates remain for
-the Stage 3 end.
-
-The narrow later-use extension is also **Implemented and Tested** on a focused nested fixture:
-the unique reaching fact's path condition must imply the exact guard atom, and all other effects
-and predicates remain barriers. An unknown call inside the guard withholds the link. The
-query-supplied exact-literal evaluator uses only checked links to assign source atoms and can
-refute when the bounded diagram becomes false; a satisfiable remainder remains unknown. This
-has no serving consumer yet, and the integrated gate remains `not_run`.
-
-1. **Finish identity before theory.** Keep `flow_test_types` as Pyrefly observation and
-   `flow_test_value_links` as a separate positive proof. Extend the link origin codebook only
-   for a transfer whose entry formal, operand use, condition and intervening effects have cited
-   witnesses. A missing, ambiguous or capped join stays `unknown`. Do not infer identity from
-   parameter spelling, type annotation, enclosing span alone, or a post-call reaching row.
-   Preserve the current direct origin's exact no-effect contract as a stable baseline.
-2. **Give exact runtime origins their own relation.** Admit a literal value or a runtime
-   `type(value) is <builtin>` guard only with exact operand attribution, a cited branch
-   condition, and a same-value witness from the guard's use to the later use. `isinstance`, a
-   narrowed Pyrefly type, an annotation, and a protocol are not exact class origins. Extend the
-   closed atom language with a typed exact-type test if the guard cannot be represented without
-   opaque text; append its codebook entry and migrate the condition format explicitly. The
-   origin row cites the test leaf, operand use, condition root, runtime class/value, and the
-   value-stability link. Keep an unproved origin absent, never a broad fallback.
-   Resolve both `type` and its class operand to the intended builtins using lexical/reference
-   facts; the spelling alone is insufficient. The trusted one-argument builtin `type(value)`
-   call is effect-free for the argument value; document that exemption in the same effect-rule
-   digest as the link producer. A later use across this guard needs a path-specific stability
-   witness instead of the current blanket prior-predicate barrier. A default literal is not an
-   exact entry-formal value when callers may pass an argument; a query-supplied literal is a
-   separate exact query origin.
-3. **Use the existing BDD for the primitive theory.** Derive bounded constraints only for
-   atoms proved to concern the same stable entry value. Safe initial exclusions are `is_none`
-   against a proved non-`None` singleton, and unequal string equality tests when the value is
-   proved to be exact builtin `str`. Do not treat `==` like `is`, or assume distinct integer
-   and Boolean literals compare unequal (`1 == True`). A query-supplied exact primitive input
-   can assign source atoms with checked links to that operation/formal without introducing a
-   synthetic query variable. Other comparisons still need independently cited equivalences or
-   exclusions. Conjoin these
-   constraints with the existing diagram through the kernel's node- and pair-work-capped apply.
-   A cap, unproved link or unproved exact origin returns `unknown` with a boundary; it never
-   becomes `false`. This uses biodivine-lib-bdd 0.6.3's bounded Boolean operations instead of
-   introducing Z3 for a small, closed primitive theory. Add Z3 only if a registered question
-   requires arithmetic, order or another theory that the Boolean constraints cannot express.
-4. **Compile models as typed data, not a third string interpreter.** Parse committed TOML with
-   serde's unknown-field rejection into tagged input/output path, transfer, effect, callback,
-   resource and exception variants. One canonical renderer emits the DESIGN §9.9 access-path
-   spelling for Arrow and display; model authors do not hand-author another free-text grammar.
-   Model identity includes file bytes, target callable identity, target library pin and model
-   revision. The catalog digest joins `compiler_digest`; malformed or unresolved referenced
-   targets fail before publication, while unreferenced models remain dormant. Distinguish a model of a dependency callable from an observation of the
-   analyzed release, and keep `synthetic_model` provenance on its derived effects. Author the
-   Stage 3.1 list in small families (pure identity/value constructors; I/O and serialization;
-   async/timeouts/context; pydantic and HTTP), using pinned library source/docs. CrossHair
-   checks pure models in an isolated worker; a timeout or unexplored path is inconclusive.
-
-   **Partial implementation (Tested, 2026-09-24):** the Serde/TOML parser, typed access paths,
-   canonical renderer, catalog digest and first `typing.cast` identity model are present. The
-   catalog is validated before an analyzed attempt writes Delta. The first target-binding
-   boundary now resolves applicable stdlib and dependency models to pinned context definitions
-   and writes cited `model_targets` rows; release targets remain deliberately unsupported.
-   Applicable authored transfers are compiled into typed `model_transfers` rows after every
-   pinned Pysa signature resolves their formal paths; rule families without a table/consumer
-   fail closed. The rest of the model list, broader CrossHair checks and summary application remain open; model rows alone do
-   not establish behavioral findings. One isolated CrossHair control/diffbehavior probe exhausted
-   paths for the `int` specialization of `typing.cast` identity, not the generic model.
-
-   **Restart boundary (uncommitted and unverified, 2026-09-24):** the working tree extends this
-   compiler with typed `model_effects` and an authored `builtins.print` I/O-write effect. It has
-   no accepted schema snapshots or completed focused test result yet. The committed guarantee
-   remains the target/transfer boundary above until the effect slice is checked and committed.
-
-5. **Derive the remaining L2 relations before summaries.** `handlers` names caught types and
-   the action on each normal and exceptional exit; `callbacks` distinguishes storage,
-   registration, forwarding and invocation; `resources` names acquire/release and the exit path;
-   `exits` distinguishes normal return, raise and `finally`. Keep candidate/open dispatch and
-   suppressing context managers as boundaries until a model proves an action. Use Ruff syntax
-   identity, ty flow and DataFusion joins for local relations; do not infer a handled exception
-   or invoked callback from syntactic containment. Each relation gets a schema, codebook where
-   needed, publication validator and one positive plus one withholding case.
-
-   **Partial implementation (Tested, 2026-09-24):** `exit_sites` records explicit return/raise
-   statements and direct finally-body actions with a ty region citation for every compile.
-   The shared validator reconstructs all rows. A focused `flow_shapes` case exercises a raise,
-   a finally action, withholding outside finally, and span tampering. This is a structural
-   source relation only; handler outcomes, exception escape, callbacks and resources remain
-   unimplemented.
-
-   **Further partial implementation (Tested, 2026-09-24):** `handler_clauses` and
-   `handler_actions` now cite the authored except type expression, direct body statements and
-   their source/flow facts. A focused case verifies a typed handler and its one direct action,
-   withholds a non-handler and a finally assignment, and rejects a doctored clause ordinal.
-   Resolved caught-class identities and match/fate decisions remain open, so these rows cannot
-   yet convert an exception in a summary.
-6. **Compose finite summaries with existing graph and condition kernels.** Resolve call targets
-   relationally, use petgraph's SCC decomposition with callees first, then a monotone worklist
-   within each SCC. Canonical summary keys contain callable, input/output resolved paths,
-   effect or transfer kind, condition root and cited call/model facts. Cap path depth, BDD nodes,
-   pair work and SCC iterations; exhaustion writes `summary_boundaries` and makes dependent
-   verdicts `unknown`. A complete summary may refute a transfer only when all candidate calls,
-   handlers and modeled effects are closed. Keep DataFusion for joins and petgraph for SCCs;
-   add Ascent only on the plan's repeated-recursive-rule trigger. Record the initial 6,137
-   `call_transfer` claims and the exact number discharged or still unknown on the end pilot.
-7. **Check independent claims with the matching oracle.** CrossHair `diffbehavior` checks pure
-   model semantics; only exhausted paths support an equivalence claim. Pysa runs on the pinned
-   source with a rule that actually joins source and sink and with its pyrefly binary specified;
-   compare TITO sets, treating `obscure` and silence as inconclusive. Hypothesis drives small
-   generated Python programs under CPython 3.14 `sys.monitoring` for observed flow/exits; it
-   uses a private tool id, explicit profile, bounded examples, temporary storage and a timeout.
-   The generated programs are isolated; analyzed libraries and `fixtures/python/` are never
-   executed. These oracles disagree independently with the Rust producer; none writes facts.
-8. **Serve one validated FORMAT 7 generation.** Add structural condition ids, proof rows and
-   summary rows to the serving projection and manifest, all tied to one snapshot and checked
-   before the native executor admits them. PyO3 owns one immutable indexed executor per process;
-   the Python FastMCP layer only validates requests and shapes structured results. A
-   compatibility request names a real public operation/formal and a typed primitive predicate.
-   The result carries the verdict, model revision, proof ids and source spans, plus explicit
-   `unknown`, `truncated`, work count and cursor fields. Missing proof is `unknown` even if raw
-   BDD atoms happen to be compatible. Row, node, pair-work and depth bounds are checked before
-   allocation/traversal. Search and direct lookup continue using their materialized routes.
-
-**Design-phase verification policy (operator direction, 2026-09-24):** use focused compile and
-counterexample probes while these contracts are settled. Do not run `just test-all` or the full
-`just pilot` after each slice. At the end of the integrated Stage 3 implementation, run
-`just fmt`, `just test-all`, the fresh-store `just pilot` and Stage 3 structured evaluation,
-then the clean wheel/generation-pinned FastMCP-native query and increment-end review. Release
-profile Rust artifacts are cached across ordinary test invocations; a test's data store may be
-fresh, reused or empty according to that test's purpose. The opt-in build-measurement campaign
-continues to measure cold compilation and is not an acceptance-test recipe.
-
-### Stage 4: the capability registry (unchanged in scope; the superseded plan's §15 applies)
-
-1. **The registry** in `cpg-schema` (TOML, `deny_unknown_fields`, compiled to Arrow): append-only
+1. **Registry** in `cpg-schema` (TOML with `deny_unknown_fields`, compiled to Arrow): append-only
    concept ids, labels with their sources, `broader`/`related`, scope notes, facets. Definitions
-   are a Rust enum AST compiled to DataFusion SQL, digested. **Definitions over conditions use the
-   kernel's compatibility and implication.**
+   are a Rust enum AST compiled to DataFusion SQL and digested; definitions over conditions use
+   the kernel's compatibility and implication.
 2. **Integrity:** `broader` is acyclic (DataFusion `WITH RECURSIVE` with `UNION`); `related` is
-   disjoint from the `broader` closure. There is no per-language rule.
-3. **The vocabulary**, seeded by a one-off script whose output the operator reviews. Its
-   candidates: Stack Overflow tag synonyms, Wikidata and EDAM `closeMatch`, method stereotypes.
-   20–40 concepts are authored.
-4. **Membership:** `concept_members` materialized, with role bindings, condition, verdict and
-   witness. Every member cites a definition digest and a witness; FCA never writes membership.
-5. **`lookup_concepts`** lists every concept while the catalog is small. Ranked lookup (bm25s,
-   PyStemmer, vectors, RRF) waits until the catalog outgrows one page.
-6. **`explain`:** a witness chain of rule id, premises and spans. Each derived row stores its rule
-   id and proof height.
+   disjoint from the `broader` closure. No per-language label rule.
+3. **Vocabulary** seeded by a one-off script whose output the operator reviews: Stack Overflow tag
+   synonyms (candidates only; they merge opposites), Wikidata and EDAM `closeMatch`, method
+   stereotypes. Author 20–40 concepts.
+4. **Membership:** `concept_members` materialized with role bindings, condition, verdict and
+   witness; every member cites a definition digest and a witness; a test shows FCA never writes
+   membership.
+5. **`lookup_concepts`** lists every concept while the catalog is small; ranked lookup (bm25s,
+   PyStemmer, vectors, RRF) waits until it outgrows one page.
+6. **`explain`** returns the stored witness chain: rule id, premises and spans; each derived row
+   stores its rule id and proof height.
 7. **FCA over behavioral attributes** per structural scope, as candidate facets. RCA only if the
-   structured evaluation shows value.
-8. **Query schema authority** (schemars → JSON Schema → pydantic), only if Rust needs the request
-   types.
+   structured evaluation shows value, and only after W10 gives attributes typed meaning.
+8. **Query schema authority** (schemars → JSON Schema → pydantic) only if Rust needs the request types.
 
-**Exit:** the structured evaluation of concept queries, with targets pre-registered before this
-stage's output is read.
-
-**Closes:** the superseded plan's F7 and F12.
+**Exit:** the structured evaluation of concept queries, with targets pre-registered in
+`eval/behavior/` before this stage's output is read.
 
 ### Stage 5: frameworks, protocols, lifecycle
 
 1. **Framework models:** registries dispatched by name; middleware `call_next` chains; lifespan;
-   ContextVar places and state (moved here by the superseded plan's §15); function-object metadata
-   such as `__fastmcp__`.
-2. **Deferred execution** (E19): a coroutine or generator's creation is distinct from its
-   execution, suspension and completion. The read phase distinguishes "when called" from "when it
-   runs", because Q07, Q08 and Q11 need it.
-3. **Protocol operations** (E18), on their trigger: operators, truthiness and formatting lowered
-   to semantic operations with possible implicit calls, where an evaluation item turns on a dunder
-   method.
-4. **Protocols as partial orders** mined from official usage by generalizing Pass C. They are
-   labelled *observed pattern*.
+   ContextVar places and state; function-object metadata such as `__fastmcp__`.
+2. **Deferred execution:** a coroutine or generator's creation is distinct from its execution,
+   suspension and completion; the read phase distinguishes "when called" from "when it runs"
+   (Q07, Q08, Q11).
+3. **Protocol operations**, on their trigger: operators, truthiness and formatting lowered to
+   semantic operations with possible implicit calls, when an evaluation item turns on a dunder.
+4. **Protocols as partial orders** mined from official usage by generalizing Pass C, labelled
+   *observed pattern*, never *enforced protocol*.
 5. **Rules parameterized by user code** (Q02, Q11): conditional records keyed on predicates about
    the user's annotations, coroutines and generators.
-6. **Graph-FCA offline** on a bounded projection, judged by the structured evaluation; it never
-   enters the pipeline.
+6. **Graph-FCA offline** on a bounded projection, judged by the structured evaluation; never in
+   the pipeline.
 
-**Exit:** Q02, Q06, Q07, Q08, Q11 and Q12 answered under Stage 5's exit rule.
+**Exit:** Q02, Q06, Q07, Q08, Q11 and Q12 under Stage 5's exit rule. **Then, to close
+increment 5:** unseal `eval/heldout/` and verify its manifest; write each task's target before
+running anything; run the structured packet on the final generation and assess it in the same
+rubric; decide the §B11 generative-model trigger; an assembled design/target review.
 
-**Then, to close increment 5:**
-- unseal `eval/heldout/` and verify its manifest;
-- write each task's target return before running anything;
-- run the structured packet on the final generation;
-- assess it in the same rubric;
-- decide on the §B11 LLM trigger (its ADR stays `proposed` until then);
-- an assembled design/target review at the depth required by the binding.
+## 5. Evaluation and tooling
 
-## 6. Evaluation
-
-| Stage | Pre-registered questions | Exit rule |
+| Stage | Pre-registered questions (`eval/behavior/fastmcp-4.0.5.toml`) | Exit rule |
 |---|---|---|
-| 2.9 (re-applied) | Q04, Q10, Q21–Q24 | Stage 2's, in `eval/behavior/fastmcp-4.0.5.toml` |
-| 3 | Q01 (`tool` options), Q03 (`tasks=`, strict validation), Q05 (error masking), Q09 (transport option conflicts) | Stage 3's |
+| 3 | Q01 (`tool` options), Q03 (`tasks=`, strict validation), Q05 (error masking), Q09 (transport option conflicts) | No positive item incorrect or misleading; no negative claimed; at least half the positives present or partial |
 | 4 | Concept queries, written before Stage 4's output is read | Added then |
-| 5 | Q02, Q06, Q07, Q08, Q11, Q12 | Stage 5's |
+| 5 | Q02, Q06, Q07, Q08, Q11, Q12 | As Stage 3 |
 | End of increment 5 | `eval/heldout/` | The same rubric |
 
-**The evaluation and the validation lane answer different questions.**
-- The structured evaluation asks whether answers are useful and correct on real questions.
-- The lane (L9) asks whether the analysis admits what really executes.
+The packet is `just structured-eval <generation> <stage> [embed_url]`; the author assesses it with
+the rubric present/partial/absent/incorrect/misleading, per item, never as a percentage; no API
+agents evaluate content. The structured evaluation asks whether answers are useful and correct;
+the validation lane asks whether the analysis admits what really executes.
 
-## 7. Tooling by stage
+| Library | Decision | Trigger or qualification |
+|---|---|---|
+| biodivine-lib-bdd 0.6.3 | **Expand** (W6, W11): bounded decisions, effective-support normalization, cube restriction | Keep structural ids and one union vocabulary; `check_binary_op`'s `None` is unknown |
+| Ascent 0.8.1, datafrog 2.0.1, a small SCC worklist | **Compare** at order 6 after W5 (W12); none is adopted | Same semantic state and refusal contract for all three; timeouts are not deterministic budgets; measure compile/run cost after parity |
+| OxiDD 0.12 | **Deferred migration** | A measured production case (pilot evidence that biodivine is too slow or large), compared on capacity, GC, retained memory and stable-id adapters |
+| z3 0.21.1 on Z3 5.1.0 | **Deferred** | A registered query whose correctly linked theory constraints are impractical or inexpressible in the bounded finite lowering; it would sit behind `primitive_theory`, never become the kernel |
+| fcars 0.2.2 | **Dev-only oracle** | Add a sparse context above 64 attributes if bitset coverage grows; concept-set agreement does not test attribute fidelity (W10) |
+| rustworkx-core | **Keep bespoke** keyed ordering (W13) | A consumer for centralities beyond the current ones |
+| Pysa, CrossHair, Hypothesis + `sys.monitoring` | **Oracles** (order 8) | Pysa's call graph is Pyrefly's, so only its TITO result is independent |
+| PyStemmer, DataFusion `WITH RECURSIVE` (compile time), schemars | Stage 4 adopt | schemars only if Rust needs request types |
+| Graph-FCA | Stage 5 offline spike | Never in the pipeline |
 
-| Stage | Adopt | Spike, with its exit test | Defer (trigger) | Avoid |
+Avoid: crepe, DDlog, cozo, differential-dataflow; LinkML, OWL/RDF stacks, taxonomy induction,
+BERTopic or UMAP in the pipeline; rust-bert, ort, fastembed.
+
+## 6. Findings disposition
+
+This table is the **single current disposition owner** for the findings below. Source reviews
+keep their dated evidence and link here; STATUS links here. Qualified ids name the source:
+**ARC** the 2026-09-25 core-3.0 calibration reviews; **RF** the
+[reasoning review](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md);
+**RFU** its [follow-up](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md),
+whose §7.1 qualifications govern where the two disagree. Evidence is Interface-checked or Tested
+as stated in the source; corrections are **Proposed**. A deferred item keeps its trigger; closure
+needs the named evidence, never an accepted ADR or a moved row.
+
+| Item | Component | Consequence and intended correction | Disposition · dependency | Closure check |
 |---|---|---|---|---|
-| 2.9 | Hypothesis 6.168.x (Python dev); `sys.monitoring` (stdlib, 3.14) | — | CPython bytecode CFG, via `dis` or `bytecode` 0.19 (a region defect runtime inputs cannot exercise) | A ty patch for runtime-aware indexing, while resolution suffices (E6) |
-| 3 | biodivine-lib-bdd 0.6.3 (after its spike); PyO3 (pinned in-process semantic executor); CrossHair 0.0.110 (validation lane); pyre-check 0.10.0 / Pysa (oracle; Pyrefly binary pinned); heck, aho-corasick, regex, strsim for identifier splitting | ascent 0.8.1 (on its trigger) | OxiDD 0.12 (biodivine measured too slow or too large); z3 0.21 on the system libz3 (a query the kernel plus typed theory cannot decide); Soufflé or Nemo as rule oracles | crepe, DDlog, cozo, differential-dataflow |
-| 4 | PyStemmer; DataFusion `WITH RECURSIVE` (compile time only); schemars (if needed) | — | oxttl SKOS export; FCA oracles (dev-only) | LinkML; OWL/RDF stacks; taxonomy induction; BERTopic or UMAP in the pipeline |
-| 5 | — | Graph-FCA offline | Qwen3-Reranker (a §B10 ADR) | rust-bert, ort, fastembed |
-| Any | — | — | Lance / LanceDB (more than ~10⁵ vectors at 4,096-d, or filtered ANN); ty type inference as a second type provider (a question Pyrefly's types cannot answer, E2); ty saturation exposure (a scope measurably degraded, E11); `mypy.stubtest` (a native-extension library, E23) | Scalpel as a component (E24) |
+| <a id="ARC-01"></a>**W1 · ARC-01**, [RF/F13](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F13) | `cpg-schema` (`SummaryFlowStepKind`), `lctx_semantics` loader | The native loader re-whitelists proof kinds and decodes positional string tuples, so the compiler's finalizer proof kind is rejected and every new kind or column edits both sides. Derive admission from the schema contract and centralize one typed projection decoder; choose transport (Arrow IPC or other) by total conversion cost. IPC bytes alone do not make decoders agree | **Open** · A1; precedes further proof-kind or native acceptance | A1's acceptance; an unknown-kind rejection control; a generation/reader schema drift test |
+| **W2 · [RFU/F02](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F02)** | Python operation response (`operations.py`) | Lookup discards each facet value's verdict, so an `unknown` value reads like an established one. Return typed `{value, verdict}` entries, keeping separate completeness | **Open** · A3; before treating lookup facets as behavioral facts | A mixed established/unknown facet agrees between lookup and filtering; the generated response schema shows the verdict |
+| **W3 · [RFU/F03](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F03)** | Bundle support projection, Python rendering | Finding-backed claims lose their evidence/model closure; Markdown drops the citation. Export a bounded canonical support closure and render the same support edges everywhere; at minimum keep support ids and report unavailable resolution | **Open** · A3; before a serving evidence-closure acceptance claim; ADR/DESIGN if the projection contract changes | A finding-only coordinates claim resolves to its model and source span; structured and resource forms agree; missing support is rejected or unknown |
+| **W4 · [RFU/F05](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F05)**, [RF/F09](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F09) | `cpg-flow` / `cpg-core::flow_model` access boundary | Qualified and aliased builtin `getattr` produce no read or dynamic boundary and a true no-read premise (Tested); a quote-prefix test also treats computed names as literals. One resolved access contract with literal/dynamic status, receiver provenance and unsupported outcome; a literal-node fix alone does not close the defect | **Open** · A2; before relying on field/global no-read claims | Real-provider controls for all three spellings, computed names and shadowed builtins; a genuinely unread field stays distinguishable; one premise traced through publication and serving |
+| <a id="ARC-02"></a>**W5 · ARC-02** | `lctx-analytics::summaries`, `cpg-core` | Summary policy acquires its own session, so it cannot be tested or composed without acquisition. `cpg-core` prepares relations; the analytics owner exposes finite composition over explicit inputs and outcomes, without a new crate or provider framework | **Open** · A4; with the next normal-completion witness, before SCC rules | An admitted case and an independent withholding control run the production transformation with no extraction, embedding, Delta or server |
+| <a id="ARC-03"></a>**W5 · ARC-03** | Summary producer, boundary publication | Refusal causes are discarded and later inferred generically from an absent flow. The producer owns typed admitted/refused outcomes and publication preserves the cause; coordinate with path-specific boundary identity; ADR/DESIGN if persisted meaning changes | **Open** · A4; before new SCC budgets | An actual depth/BDD cap and a distinct unsupported case keep specific causes through producer, snapshot and native response; neither becomes a negative; any codebook change is append-only |
+| **W6 · [RF/F01](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F01), [RF/F02](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F02), [RFU/F01](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F01)** | `cpg-schema::condition_kernel`, native generation preparation | F01: decisions build the full result under a node cap, so decidable compatibility/implication answer `NodeLimit` (Tested on actual source). F02: declared support never shrinks, so admission depends on construction history (Tested). RFU/F01: catalog caps count shared storage while hydration retains per-root expansions (256 roots → 17,152 owned nodes, Tested). Decide with bounded non-allocating checks while keeping transfer/support admission; normalize effective support; add an aggregate preparation/retention budget with deterministic refusal | **Open** · A6; before raising catalog limits or extending summary catalogs | F01: an admitted pair over 50k result nodes decides; an over-preflight contradiction decides; a task-limit control stays unknown. F02: redundant composition stays under the limit and live support equals hydrated support. RFU/F01: shared-tail and disjoint controls refuse before large allocation; native diagnostics distinguish stored from retained counts |
+| **W7 · [RF/F05](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F05)** | `cpg-core::flow_model` | `Model::reach` is not a fixed point at a cycle head: a query-order reproduction loses a transfer variant, with no work bound (Tested). Missing contributions affect seed and boundary coverage; the review's broader negative-premise consequence was not established. SCC fixed point with a work cap writing `BudgetReached` | **Open** · A5; before engine selection | A5's acceptance |
+| **W8 · [RFU/F07](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F07)** | `cpg-extract` acquisition/context | The corpus run's import root is outside context identity: an unselected helper imported by an example can change facts without changing any identity. Ordinary site-packages are already hashed; do not generalize. Include every analyzer-readable root's content and membership, or enforce an immutable verified tree; ADR if acquisition policy changes | **Open** · A7; before a hermetic corpus/run-identity claim | Editing and adding an unselected helper changes identity or is refused before extraction; relocation invariance holds; facts equal a clean recomputation |
+| **W9 · [RFU/F06](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F06)** | `cpg-core::embed` | Two cache-fill entry points apply different admission, and one returns locally computed vectors instead of the committed winner. One cache-fill operation owns token admission, batching, insert-only merge and versioned readback | **Open** · A7; before embedding-cache conformance or kNN replay claims | Two attempts with distinct valid vectors return exactly the committed values; an over-cap embedder is rejected through both entry points before insertion. Fake-embedder doubles qualify cache semantics only |
+| **W10 · [RFU/F04](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F04)** | Attribute schema, `lctx-analytics::concepts`, Stage F | FCA/RCA attributes are English labels; candidate calls render as "calls X". Typed attribute keys with modality and evidence, rendered after analysis; an interim fix keeps may-call meaning in one owned rendering and rejects unknown forms | **Deferred** · trigger: before claiming candidate-derived `+rca` behavior or extending FCA/RCA (Stage 4.7) | Candidate-only and definite controls keep distinct meaning in shared-signature and implication output; relabeling does not change membership |
+| **W11 · [RF/F03](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F03), [RF/F04](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F04), [RF/F12](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F12)** | `condition_kernel`, `primitive_theory`, validation lane | F04: `MemberOf`/`Equals{Int}` return unknown, blocking Q09; add exact string membership and non-bool integer equality (keep `True in {1}` unknown); this alone does not complete operation-wide Q09. F03: `given` still nominates from DNF; use cube restriction as a candidate generator while keeping `factor ∧ quotient == original`; restriction is not factor division; link minimization is an optional improvement with a total work budget. F12: add truth-table kernel tests, Python-lowering controls and served round trips | **Open** · F04 at order 9; F03 and F12 with A6 and order 8 | F04: a `transport.py`-shaped fixture with the bool/int control. F03: an over-budget DNF factor now factors with the equality gate; existing theory fixtures unchanged. F12: truth tables over ≤10 atoms in kernel tests; order 8 records disagreements as fixtures |
+| **W12 · [RF/F06](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F06)** | `lctx-analytics::summaries` | The engine decision was sequenced after bespoke loops. Compare Ascent, datafrog and the smallest SCC worklist at the first genuinely shared recursive contract, after W5, on one semantic state and refusal contract; no unconditional adoption | **Open** · order 6; ADR if an engine is adopted | Order 6's fixtures under the chosen engine; shuffled-input identity; a cap cause in `summary_boundaries`; measured compile-time delta |
+| **W13 · [RF/F07](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F07), [RF/F08](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F08)** | `cpg-schema` recursive CTEs; `lctx-analytics::summaries` SCC | F07: type-term walks use `UNION ALL` and rely on extraction's depth cap; F08: summaries use recursive `tarjan_scc` while earlier records named `kosaraju_scc`. Resolve closure row identity/provenance and SCC ownership before substituting; no blind `UNION` or routine swap. The analytics owner records the current routine and the open stack-safety question | **Open** · order 6 | Cyclic type-term fixture terminates with unchanged identity; existing SCC and component-order tests; a recorded stack-safety decision |
+| **W14 · [RF/F10](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F10), [RF/F11](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F11), [RF/F14](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F14), [RF/F15](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F15)** | `cpg-extract`, `cpg-flow`, `lctx-analytics` Pass B, `cpg-core` derivation | F10: abstract/stub status from decorator text; use Pyrefly's resolved flags (a schema migration), keeping Protocol semantics. F11: ty runs with empty program settings; construct them from the run context. F14: Pass B's suppression-sensitive property is absent from its visited key. F15: SQL-only tables round-trip through Rust rows | **Open**: F10, F11, F14 at the next edit of their owner. **Deferred**: F15 until the next edit of `attempt.rs` table construction | F10: aliased-decorator and Protocol fixtures. F11: a provider operation actually affected by settings (e.g. resolution). F14: a fixture where the clean path is found second. F15: identical snapshots; independent rederivations kept |
+| **W15 · [RF/F16](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F16)** | DESIGN §6.3; `cpg-core::delta` | §6.3 claimed merge migrations no code performs; `verify` rejects any drift. The documentation migration corrects the prose; the supported migration/rebuild policy for older snapshots is an open choice | **In progress** (documentation) · open choice: the first schema change that must keep older snapshots readable | §6.3 states implemented strict verification; a migration mechanism, if chosen, has an ADR |
+| **W16 · [RFU/F08](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F08)** | Embedding spec, `just embed-serve`, Rust/Python clients | The launch recipe repeats revision/dtype from the hashed spec, and clients accept an endpoint by model name, so the running deployment is not established by spec-hash equality. Derive controlled launch arguments from the spec and declare the supported endpoint contract, or limit the claim to the operator-controlled launch; ADR/DESIGN if endpoint guarantees change | **Deferred** · trigger: the next model, tokenizer or serving upgrade, or accepting another endpoint | A revision change moves launch configuration and cache identity together; a mismatched endpoint identity is refused or explicitly unsupported |
 
-## 8. Verification and measurement
+Both reviews' tool-placement conclusions are in §5. No review finding is closed by documentation
+cleanup; W15 closes only its documentation mismatch.
 
-| Claim | Check | Expected | Stage |
-|---|---|---|---|
-| No feasible path is dropped by the translation | `flow_shapes` P1 cases; the runtime soundness oracle | Every executed statement admitted | 2.9 |
-| The runtime view follows resolution and Python's semantics | `flow_shapes` cases; the oracle, on the pinned interpreter | Pass | 2.9 |
-| Skipped rows are accounted for | Coverage counts asserted in `flow_shapes` | Counts by cause | 2.9 |
-| One condition, one id, whatever its construction | Kernel known answers; shuffle determinism | Identical ids | 3.0 |
-| Structure is not lost at extraction | Pilot `budget_reached` count, and the node limit's hits | Falls from the current 66; hits reported | 3.0 |
-| Summaries resolve call transfers | Pilot `call_transfer` count; `behavior_shapes` part 2; the Pysa differential | Falls from 6,137; disagreements explained | 3 |
-| Models agree with the functions they model | CrossHair `diffbehavior` in an isolated worker | No counterexample, or a fixture | 3.1 |
-| No negative claim outside complete coverage | `semantic:refuted-needs-complete-region`, `refuted-not-overridden`, `premise-no-attribute-load` | Violations rejected | continuing |
-| Membership comes only from definitions | A rule on `concept_members`; a test that FCA writes none | Pass | 4 |
-| Determinism | Shuffle and relocate over every new table | Byte-identical | 2.9–5 |
-| Cost | `just pilot` stage timings and peak RSS; serving p50/p95 | Reported; **no target claimed** | 2.9–5 |
-| Agents get better answers | The structured packet against pre-registered targets | Rubric per item; operator review | each stage |
-
-## 9. Findings disposition
-
-**Implemented tracking policy (ADR-0040, 2026-09-25).** This section owns current execution
-status for findings assigned to this plan. Source reviews retain dated evidence and link here;
-STATUS summarizes the checkpoint and links here. An accepted ADR does not close implementation.
-Rows with a shared structural cause collect source IDs under one responsible component and
-closure condition. Preserve closed/superseded rows and their evidence. Unscheduled findings
-remain explicitly deferred in their source review until transferred.
-
-### 9.1 Historical scheduling map
-
-The inherited rows below identify planned resolution stages and checks. They are retained as
-historical scheduling evidence, **not current open/closed assertions**. The current functional
-checkpoint above distinguishes implemented behavior from remaining scope; a later disposition
-of one of these findings must cite its source and closure evidence in §9.2.
-
-| Finding | Planned resolution stage | Proposed check |
-|---|---|---|
-| X1: atoms merge distinct evaluations | 2.9.2 | P1 cases; runtime oracle |
-| X2: the runtime view by spelling; version tuples | 2.9.3 | Cases; runtime oracle |
-| X3: silent skips | 2.9.4 | Coverage counts; runtime oracle |
-| X4: DNF-only conditions | 3.0 | Kernel known answers; pilot counts |
-| X5: approximation direction | 2.9.6 (prose); 3.0 (the flag) | Prose; a flag case |
-| X6: no execution oracle | 2.9.5 | The oracle itself |
-| R1–R11 (Stage 2 end review) | 2.9.1 and 2.9.9 (re-review) | Its §12 |
-| Superseded plan F4 (models), F8 (data files) | 3.1 | `behavior_shapes` part 2; digest tests |
-| Superseded plan F7, F12 | 4 | Membership rule; FCA test |
-| Superseded plan F10 (exit criteria) | This plan's staging | Stage exit rules |
-
-### 9.2 Current architectural dispositions
-
-The two core-3.0 calibration reviews were triaged on **2026-09-25** against production revision
-`1b86c50`. Their causes are **Interface-checked** by source inspection; corrections and closure
-checks below remain **Proposed**. No runtime failure was reproduced or production fix made by
-the process revision. Local ARC IDs group source findings without replacing their IDs. This
-table is the sole current disposition owner; source reviews retain their dated judgments.
-
-| Disposition / source findings | Status | Responsible component and correction | Closure evidence and sequencing |
-|---|---|---|---|
-| <a id="ARC-01"></a>**ARC-01 — shared proof vocabulary**. [Slice F01](../design_review/reviews/design_review_v3_nested_finalizers_calibration_2026-09-25.md#F01); [architecture F01](../design_review/reviews/design_review_v3_stage3_architecture_calibration_2026-09-25.md#F01) | **Open** | `cpg-schema` owns `SummaryFlowStepKind`; the native loader must derive recognized kinds from that contract and remove its independent whitelist. Keep any consumer-specific support policy explicit. This repairs an existing authority boundary; it does not introduce new proof semantics. | Before another proof-kind extension or native acceptance claim: compile a finalizer-bearing generation and load/query it through the real native executor; retain an unknown-kind rejection control. Cite the correction and observed commands here. |
-| <a id="ARC-02"></a>**ARC-02 — isolated summary transformation**. [Architecture F02](../design_review/reviews/design_review_v3_stage3_architecture_calibration_2026-09-25.md#F02) | **Open** | `cpg-core` acquires prepared relations; the existing `lctx-analytics::summaries` owner exposes finite composition over explicit inputs and outcomes. Remove session acquisition from the policy operation; reuse the existing summary boundary without a new crate or generic provider framework. | Establish with the next normal-completion witness, before adding SCC rules. An admitted case and independent withholding control exercise the production transformation without extraction, embedding, Delta or server setup; retain publication/native integration checks at the appropriate boundary. |
-| <a id="ARC-03"></a>**ARC-03 — preserved refusal causes**. [Architecture F03](../design_review/reviews/design_review_v3_stage3_architecture_calibration_2026-09-25.md#F03) | **Open** | The summary producer owns typed admitted/refused outcomes; boundary publication preserves its specific cause instead of inferring a generic cause from an absent flow. Coordinate with existing path-specific boundary identity work. Use an ADR and DESIGN amendment if persisted meaning or identity changes. | Design with ARC-02 before new SCC budgets. Trace an actual depth/BDD cap and a distinct unsupported case through producer, published snapshot and native response; verify specific causes survive and neither becomes a negative claim. Declare any schema/codebook migration and retain append-only codes. |
-
-The historical slice's F01 and current architecture's F01 share one correction and one closure
-receipt. Closing this row will not rewrite either review's historical decision. The Stage 3
-functional remainder and integrated exit remain in the execution queue above.
-
-## 10. Risks
-
-| Risk | Mitigation |
-|---|---|
-| **Per-site atoms lose simplification** (fewer contradictions found, longer rendered conditions) | Sound by construction; the typed theory (3.0) restores sharing for primitive places; rendered-condition sizes measured on the pilot |
-| **BDD blow-up** on unstructured conditions (a random 32×8 over 40 atoms did not finish in 10 minutes in the probe) | A node limit per operation (`binary_op_with_limit`), widening to `unknown`; a deterministic order; the spike measures pilot conditions, which are structured |
-| **The oracle executes code** | Generated programs only, outside `fixtures/python/`; an isolated worker; no network; timeouts. The library under analysis is never executed by the oracle |
-| **The typed theory depends on Pyrefly's types and value stability** | A builtin immutable scalar at the use is necessary, and cross-site sharing also needs an effect-stability witness. An unknown type or intervening effect keeps sites independent |
-| ty churn and salsa skew | Exact pins; `--precise` locks; parity tests on upgrade |
-| Summaries lose precision or fail to terminate | A finite domain with widening; `unknown` rates reported per stage |
-| Scope creep | Exit criteria per stage; §12's deferred list; nothing starts before its stage |
-| Disk and GPU | One pilot store; moved-aside stores kept only for the operator's review; live legs only with ≥30 GB free, with vLLM stopped afterwards |
-
-## 11. Operator decisions and reviews
-
-**Review policy (Implemented, ADR-0040, 2026-09-25).** The repository binding owns cadence.
-Review Stage 3's assembled architecture against expected model, analytic, serving and test
-changes; bounded slice acceptance does not certify it. Use target reviews for new architectural
-choices and conformance reviews for implementation within accepted boundaries. Follow §9 for
-current finding disposition. Functional test-all and pilot acceptance remain at the integrated end.
-
-**New decisions, approved by the operator on 2026-09-24** as recommended (the assessment's §11):
-
-| # | Decision | Approved |
-|---|---|---|
-| D-10 | Evaluation identity for condition atoms | Adopt §4.1, in ADR-0022 before acceptance |
-| D-11 | A decision-diagram condition kernel, amending §B10's wording | Adopt biodivine-lib-bdd 0.6.3 after Stage 3.0's spike; theory solvers stay excluded |
-| D-12 | The validation lane executes generated programs | Allowed: isolated, generated inputs only, never the analyzed library, never `fixtures/python/` |
-| D-13 | A typed theory from Pyrefly's types | Adopt for builtin immutable scalars only |
-
-**Outstanding reviews for the operator:**
-- the Stage 1 and Stage 2 structured evaluations;
-- deviations B1–B22;
-- the moved-aside stores (`build/store-pre-*`, about 11 GB) for deletion;
-- this plan.
-
-## 12. Deferred, each with a trigger
+## 7. Deferred, each with a trigger
 
 | Item | Trigger |
 |---|---|
-| Points-to sets, memory versions, strong and weak updates (E17) | A Stage 3 summary whose field effect needs aliasing |
-| Per-claim assumption records (X5) | A served claim misread because of an assumption the flag does not show |
+| Points-to sets, memory versions, strong and weak updates | A Stage 3 summary whose field effect needs aliasing |
+| Per-claim assumption records | A served claim misread because of an assumption the `approximated` flag does not show |
 | A per-iteration unrolled loop model | An evaluation item graded `partial` for a loop condition |
-| Pyrefly-typed receivers for dynamic access; per-run largest-scope and residue reports (R10) | A refutation on a field read through a typed non-`self` receiver, or a report consumer |
-| The strongest-transfer filter; decorators and lambdas as value sources (Stage 2 end review O3, O4) | Stage 3's summaries touch transfers |
-| An unmapped argument at a multi-callee site (O6); a lambda read's phase (O1); inherited methods counted as field reads (O2) | A pilot or fixture row appears |
-| z3 (E15), OxiDD (E13), ty type inference (E2), ty patches (E6, E11), the bytecode CFG (E20) | See §7 |
-| Graph-FCA in the pipeline | An offline experiment yields templates the structured evaluation rates useful |
+| Pyrefly-typed receivers for dynamic access; per-run largest-scope and residue reports | A refutation on a field read through a typed non-`self` receiver, or a report consumer |
+| The strongest-transfer filter; decorators and lambdas as value sources | Stage 3's summaries touch transfers |
+| An unmapped argument at a multi-callee site; a lambda read's phase; inherited methods counted as field reads | A pilot or fixture row appears |
+| ty type inference as a second type provider; ty patches; the CPython bytecode CFG (`bytecode` 0.19) | A question Pyrefly's types cannot answer; a measurably degraded scope; an effectful-frame case runtime inputs cannot exercise (order 2) |
+| Analytics technique retention (ADR-0020's keep-rule outcome); deleting FCA, RCA, communities or kNN variants | Stage 4 gives them consumers; decide on that evidence |
+| Stage F brief-builder restructuring | A rendering consumer needs it; briefs remain one rendering |
+| Graph-FCA in the pipeline | An offline experiment yields templates the evaluation rates useful |
 | On-demand RCA at serve time | Materialized membership proves too coarse |
 | Lance / LanceDB | More than ~10⁵ vectors at 4,096-d, or filtered ANN with managed FTS |
 | spaCy in compile | Regex directive tagging misses conditions the evaluation needs |
 | A neural reranker | An ADR under §B10 after a measured need |
 | Native-extension bodies | A pilot question needs one |
 
-**Carried from the holistic plan** (unchanged):
-- Phase 4's deletion exit stays paused, because FCA, RCA, communities and kNN get consumers in
-  Stage 4.
-- Phase 5 B3/B6 (the Stage F builders) stays paused.
-- ADR-0020 stays `proposed`.
+## 8. Risks
 
-## 13. Standing conventions
+| Risk | Mitigation |
+|---|---|
+| Per-site atoms lose simplification | Sound by construction; the typed theory restores sharing for proven-stable primitive places; rendered sizes measured on the pilot |
+| BDD blow-up on unstructured conditions | Per-operation node and pair-work caps widening to `unknown`; W6's aggregate preparation budget; deterministic order |
+| The validation lane executes code | Generated programs only, outside `fixtures/python/`; isolated worker, no network, timeouts; the analyzed library is never executed |
+| Summaries lose precision or fail to terminate | Finite domains with explicit caps and typed refusals (W5); `unknown` rates reported |
+| ty churn and salsa skew | Exact pins; parity tests on upgrade |
+| Scope creep | Stage exit rules; §7's triggers; nothing starts before its stage |
+| Disk and GPU | One pilot store; live GPU legs only with ≥30 GB free and vLLM stopped afterwards |
 
-- Small commits to `main`, each naming its stage and ADR and stating the observed check outcome;
-  a preliminary gate cannot certify the Stage 3 end while orders 1–9 remain open.
-  Never push, force-push or `reset --hard`.
-- Snapshot changes: read the `.snap.new`, then `cargo insta accept`; a schema snapshot change is a
-  declared migration. Never run `cargo insta review`.
-- Codebooks are append-only (`verdict`, `boundary_reason`, `condition_atom`, the effect kinds,
-  concept ids, model ids).
-- Report every check as `passed`, `failed`, `blocked` (naming the prerequisite) or `not_run`,
-  with its command. A mocked provider is never a pass. Label every design claim with a principles §D
-  label, and date it.
-- The gold is never a compiler input. `eval/heldout/` stays sealed until increment 5's end. No
-  API agents evaluate content.
-- `fixtures/python/` is never executed; the validation lane uses its own generated programs.
-- Licence is never a criterion. Extra dependency families are allowed when declared and isolated.
-- `analytics.toml` is frozen; an edit needs an amendment to ADR-0021.
-- Live GPU legs only with ≥30 GB free, and vLLM is stopped afterwards
-  (`pkill -f "[v]llm serve Qwen"`).
-- Judgment calls go to the deviation log (`deviations_behavioral-model_2026-09-24.md`), from B23
-  onward.
+## 9. Standing conventions
+
+- Small commits to `main`, each naming its stage/item and any ADR and stating the observed check
+  outcome; a preliminary gate cannot certify the Stage 3 end. Never push unasked, force-push or
+  `reset --hard`.
+- Judgment calls go in the commit message; a scope change updates this plan; an architectural
+  change gets an ADR.
+- Snapshot changes: read the `.snap.new`, then `cargo insta accept --workspace`; a schema snapshot
+  change is a declared migration. Never `cargo insta review`. A schema migration needs a fresh
+  store: move `build/store` aside and copy its `embedding_cache` and `embedding_specs` into the new one.
+- Codebooks are append-only (`verdict`, `boundary_reason`, `condition_atom`, effect kinds, concept
+  ids, model ids). `libraries/fastmcp/analytics.toml` is frozen; an edit needs an ADR.
+- `fixtures/python/` is never executed; `eval/heldout/` stays sealed until increment 5's end.
+- Pitfalls already hit: `just test-all` stops at its first failure, so rerun before reporting;
+  edits made through Python or shell bypass the format hook, so run `just fmt` first; the Python
+  suite runs against the `analysis_shapes` fixture generation, and the analysis diff snapshot
+  counts its behaviors, so attribution changes move both; `pkill -f` can match its own command
+  line (use `[v]llm`).
+- Operator housekeeping: the moved-aside stores `build/store-pre-*` and `build/store-stage3-*` are
+  kept until the operator deletes them.
