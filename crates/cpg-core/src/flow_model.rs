@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use cpg_schema::behavior::{
-    AmbientReadsRow, DynamicAccessesRow, FieldAccessesRow, NegativePremisesRow, RaiseSitesRow,
+    AmbientReadsRow, AnalysisConditionNodesRow, AnalysisConditionsRow, DynamicAccessesRow, FieldAccessesRow, NegativePremisesRow, RaiseSitesRow,
     SingletonsRow, ValueFlowContributionsRow, ValueFlowsRow,
 };
 use cpg_schema::codebook::{
@@ -551,6 +551,46 @@ pub struct FlowModelRows {
     /// Compile-local exact conditions for derived rows; display text is never parsed back into
     /// the semantic authority by the behavior scan.
     pub condition_models: HashMap<Id, ModelCondition>,
+}
+
+/// Persist the exact bounded diagrams the analysis created while composing source paths.
+/// Node ids deduplicate across conditions; display DNF is deliberately not an input.
+pub fn condition_catalog_rows(
+    snapshot_id: Id,
+    models: &HashMap<Id, ModelCondition>,
+) -> (Vec<AnalysisConditionsRow>, Vec<AnalysisConditionNodesRow>) {
+    let mut roots = Vec::with_capacity(models.len());
+    let mut nodes = BTreeMap::new();
+    for (&condition_id, condition) in models {
+        match condition.diagram() {
+            Ok(diagram) => {
+                let (root_id, closure) = diagram.root_and_nodes();
+                roots.push(AnalysisConditionsRow {
+                    snapshot_id,
+                    condition_id,
+                    root_id: Some(root_id),
+                    boundary_reason: None,
+                });
+                for node in closure {
+                    nodes.insert(node.node_id, AnalysisConditionNodesRow {
+                        snapshot_id,
+                        node_id: node.node_id,
+                        atom: node.atom,
+                        low_id: node.low,
+                        high_id: node.high,
+                    });
+                }
+            }
+            Err(reason) => roots.push(AnalysisConditionsRow {
+                snapshot_id,
+                condition_id,
+                root_id: None,
+                boundary_reason: Some(reason.code().to_owned()),
+            }),
+        }
+    }
+    roots.sort_by_key(|row| row.condition_id);
+    (roots, nodes.into_values().collect())
 }
 
 /// Where a value comes from: a parameter, or a field of a method's receiver read with no local

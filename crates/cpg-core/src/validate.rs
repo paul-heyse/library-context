@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cpg_schema::behavior::{
-    ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
+    AnalysisConditionsRow, AnalysisConditionNodesRow, ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
     HandlerClausesRow, HandlerReturnNoneSitesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
@@ -147,6 +147,12 @@ cpg_schema::relations! {
     stored_value_flow_contributions = "validate_stored_value_flow_contributions",
         deps = ["value_flow_contributions"],
         sql = "SELECT * FROM value_flow_contributions".to_owned();
+    stored_analysis_conditions = "validate_stored_analysis_conditions",
+        deps = ["analysis_conditions"],
+        sql = "SELECT * FROM analysis_conditions".to_owned();
+    stored_analysis_condition_nodes = "validate_stored_analysis_condition_nodes",
+        deps = ["analysis_condition_nodes"],
+        sql = "SELECT * FROM analysis_condition_nodes".to_owned();
     stored_value_flow_predecessor_candidates = "validate_stored_value_flow_predecessor_candidates",
         deps = ["value_flow_predecessor_candidates"],
         sql = "SELECT * FROM value_flow_predecessor_candidates".to_owned();
@@ -253,6 +259,10 @@ async fn validate_value_flow_contributions(ctx: &SessionContext) -> Result<Vec<V
         sql::Params::new(),
     )
     .await?;
+    let mut actual_conditions: Vec<AnalysisConditionsRow> =
+        sql::fetch(ctx, &stored_analysis_conditions(), sql::Params::new()).await?;
+    let mut actual_nodes: Vec<AnalysisConditionNodesRow> =
+        sql::fetch(ctx, &stored_analysis_condition_nodes(), sql::Params::new()).await?;
     let invocation_count: Vec<ValueFlowAnalysisCountRow> = sql::fetch(
         ctx,
         &value_flow_analysis_count(),
@@ -260,33 +270,65 @@ async fn validate_value_flow_contributions(ctx: &SessionContext) -> Result<Vec<V
     )
     .await?;
     if invocation_count[0].count == 0 {
-        return if actual.is_empty() {
+        return if actual.is_empty() && actual_conditions.is_empty() && actual_nodes.is_empty() {
             Ok(Vec::new())
         } else {
             Ok(vec![Violation {
                 rule: "value-flow-contributions-without-analysis".to_owned(),
-                rows: actual.len(),
-                sample: "contributions exist without an analysis invocation".to_owned(),
+                rows: actual.len() + actual_conditions.len() + actual_nodes.len(),
+                sample: "flow analysis rows exist without an analysis invocation".to_owned(),
             }])
         };
     }
-    let mut expected = crate::flow_model::run(ctx, snapshots[0].snapshot_id)
-        .await?
-        .value_flow_contributions;
+    let model = crate::flow_model::run(ctx, snapshots[0].snapshot_id).await?;
+    let mut expected = model.value_flow_contributions;
+    let (expected_conditions, expected_nodes) =
+        crate::flow_model::condition_catalog_rows(snapshots[0].snapshot_id, &model.condition_models);
     let key = |r: &ValueFlowContributionsRow| {
         (r.flow_value_fact_id, r.use_id, r.source_key.clone(), r.identity, r.through_call)
     };
     actual.sort_by_key(key);
     expected.sort_by_key(key);
-    if actual == expected {
-        Ok(Vec::new())
-    } else {
-        Ok(vec![Violation {
+    let mut violations = Vec::new();
+    if actual != expected {
+        violations.push(Violation {
             rule: "value-flow-contribution-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} contributions; derived {}", actual.len(), expected.len()),
-        }])
+        });
     }
+    actual_conditions.sort_by_key(|r| r.condition_id);
+    actual_nodes.sort_by_key(|r| r.node_id);
+    if actual_conditions != expected_conditions || actual_nodes != expected_nodes {
+        violations.push(Violation {
+            rule: "analysis-condition-source-equality".to_owned(),
+            rows: actual_conditions.len().abs_diff(expected_conditions.len())
+                + actual_nodes.len().abs_diff(expected_nodes.len()).max(1),
+            sample: format!(
+                "stored {} roots/{} nodes; derived {} roots/{} nodes",
+                actual_conditions.len(), actual_nodes.len(), expected_conditions.len(), expected_nodes.len()
+            ),
+        });
+    }
+    let roots: Vec<ConditionRoot> = actual_conditions.iter().map(|r| ConditionRoot {
+        condition_id: r.condition_id,
+        root_id: r.root_id,
+        boundary_reason: r.boundary_reason.clone(),
+    }).collect();
+    let nodes: Vec<DiagramNode> = actual_nodes.iter().map(|r| DiagramNode {
+        node_id: r.node_id,
+        atom: r.atom.clone(),
+        low: r.low_id,
+        high: r.high_id,
+    }).collect();
+    if let Err(error) = hydrate_catalog(&roots, &nodes) {
+        violations.push(Violation {
+            rule: "analysis-condition-graph".to_owned(),
+            rows: 1,
+            sample: error,
+        });
+    }
+    Ok(violations)
 }
 
 /// Publication and consumers use the same derivation as the compiler. Equality also rejects a

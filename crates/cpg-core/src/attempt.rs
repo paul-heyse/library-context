@@ -71,7 +71,8 @@ pub struct Published {
 /// 46: candidate modeled raises compose through a direct first handler to a return-None path.
 /// 47: direct one-call return candidates join raw parameter flows to pinned model transfers.
 /// 48: raw predecessor candidates retain reaching-definition identity and separate conditions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 48;
+/// 49: persist the BDD closures of recomposed flow-analysis conditions.
+pub const COMPILER_OUTPUT_VERSION: u32 = 49;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -753,7 +754,7 @@ async fn finish(
     };
     {
         use cpg_schema::behavior::{
-            AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
+            AmbientReads, AnalysisConditions, AnalysisConditionNodes, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
             HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
@@ -763,6 +764,18 @@ async fn finish(
         };
         let w = &mut written;
         let m = &flow_model;
+        let (analysis_conditions, analysis_condition_nodes) =
+            crate::flow_model::condition_catalog_rows(snapshot_id, &m.condition_models);
+        write_analysis::<AnalysisConditions>(&ctx, root, snapshot_id, &analysis_conditions, w)
+            .await?;
+        write_analysis::<AnalysisConditionNodes>(
+            &ctx,
+            root,
+            snapshot_id,
+            &analysis_condition_nodes,
+            w,
+        )
+        .await?;
         write_analysis::<ValueFlows>(&ctx, root, snapshot_id, &m.value_flows, w).await?;
         write_analysis::<ValueFlowContributions>(
             &ctx,

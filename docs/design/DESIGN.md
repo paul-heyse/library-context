@@ -1452,7 +1452,17 @@ validator. **Proposed:** L3 must withhold a positive transfer if a step is unmat
 relabelled as an argument, or the argument value is derived from its use. Existing
 `through_call` remains an unknown boundary until each modeled hop is proved.
 
-> Decision: ADR-0022, ADR-0027, ADR-0028
+**Implemented and Tested in focused cases (ADR-0032, 2026-09-25):**
+`analysis_conditions` and `analysis_condition_nodes` persist the structural
+roots and reachable BDD nodes recomposed by the flow analysis. Provider
+`conditions` remain source facts; analysis roots have their own authority and
+are reconstructed and hydrated by the shared publication validator. Display
+DNF is not parsed to answer a condition question. Approximation remains on
+path rows because Boolean identity does not encode it. A boundary root
+continues to mean `unknown`. L3 must check this catalog before composing any
+derived condition.
+
+> Decision: ADR-0022, ADR-0027, ADR-0028, ADR-0032
 
 ---
 
@@ -3307,8 +3317,20 @@ not acquire an invented predecessor. The shared validator reconstructs the
 relation and rejects missing rows. This edge does not establish condition
 compatibility, uniqueness, transfer or completion. Recomposed analysis
 condition ids may lack rows in provider `conditions`; L3 must persist their
-structural BDD roots before composing them. `COMPILER_OUTPUT_VERSION` is 48;
-integrated Stage 3 testing is `not_run`.
+structural BDD roots before composing them. `COMPILER_OUTPUT_VERSION` was 48
+for this candidate relation; integrated Stage 3 testing is `not_run`.
+
+**Implemented and Tested in focused cases (ADR-0032, 2026-09-25):**
+the flow analysis's recomposed condition ids now have a separate,
+content-addressed root/node catalog (`analysis_conditions`,
+`analysis_condition_nodes`). The producer serializes the existing BDD objects;
+publication reconstructs every row and uses the same `hydrate_catalog`
+structural checks as the provider and native loader. `modeled_direct_return_transfers`
+and `value_flow_predecessor_candidates` reference this catalog for recomposed
+conditions, while a raw reaching condition still references provider
+`conditions`. This closes the cited persistence prerequisite, not condition
+compatibility or summary completion. `COMPILER_OUTPUT_VERSION` is 49;
+integrated Stage 3 testing remains `not_run`.
 
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
@@ -3329,7 +3351,7 @@ integrated Stage 3 testing is `not_run`.
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030
+> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0032
 
 ---
 
@@ -4021,3 +4043,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | A bounded direct `try` and sole `return None` handler yields only a candidate-local conditional modeled-exception path, with nested frames and finalizers withheld (§9.9) | ADR-0031 |
 | 2026-09-25 | The first source-to-model direct-return bridge requires one exact call step and matching argument/result nodes, with inherited and nested call paths withheld (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Reaching definitions now cite raw predecessor value facts for inherited call paths, while independent conditions and approximation flags remain unresolved pending structural BDD persistence (§B5, §9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | Recomposed flow-analysis conditions now persist in a separate structural BDD catalog with shared hydration validation, giving L3 an authority for condition composition (§3.9, §9.9) | ADR-0032 |

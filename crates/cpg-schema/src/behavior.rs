@@ -1009,6 +1009,36 @@ table!(
 );
 
 table!(
+    /// The structural BDD authority for a condition recomposed by the flow analysis. These
+    /// identities may not occur in the provider's `conditions` table.
+    AnalysisConditions, AnalysisConditionsRow = "analysis_conditions",
+    family = Findings,
+    key = [snapshot_id, condition_id],
+    checks = [("root_iff_stated", "(root_id IS NOT NULL AND boundary_reason IS NULL) OR (root_id IS NULL AND boundary_reason IS NOT NULL)")],
+    {
+        snapshot_id: Id,
+        condition_id: Id,
+        root_id: Option<Id>,
+        boundary_reason: Option<String>,
+    }
+);
+
+table!(
+    /// Deduplicated content-addressed nodes for `analysis_conditions`; terminals are implicit.
+    AnalysisConditionNodes, AnalysisConditionNodesRow = "analysis_condition_nodes",
+    family = Findings,
+    key = [snapshot_id, node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        node_id: Id,
+        atom: String,
+        low_id: Id,
+        high_id: Id,
+    }
+);
+
+table!(
     /// Where a function's parameter goes (Stage 2.6; ADR-0022): per sink (a call argument, a
     /// `return`, a `raise`, a stored field or dict entry), the parameter whose value reaches it
     /// through the flow IR's reaching definitions and value sources, **identity** (unchanged),

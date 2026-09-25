@@ -1369,6 +1369,17 @@ budget = 1
         "source value uses inside calls retain their ordered raw call steps"
     );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 4);
+    assert!(count(&ctx, "SELECT count(*) FROM analysis_conditions").await > 0);
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_direct_return_transfers t \
+             LEFT ANTI JOIN analysis_conditions c ON c.condition_id = t.condition_id",
+        )
+        .await,
+        0,
+        "direct model candidates resolve their recomposed BDD conditions"
+    );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
         9,
@@ -2035,6 +2046,26 @@ budget = 1
     );
     ctx.deregister_table("value_flow_predecessor_candidates").unwrap();
     ctx.register_table("value_flow_predecessor_candidates", original_predecessors)
+        .unwrap();
+
+    let original_analysis_conditions = sql::query(&ctx, "SELECT * FROM analysis_conditions")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_analysis_conditions = sql::query(&ctx, "SELECT * FROM analysis_conditions WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("analysis_conditions").unwrap();
+    ctx.register_table("analysis_conditions", missing_analysis_conditions)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "analysis-condition-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("analysis_conditions").unwrap();
+    ctx.register_table("analysis_conditions", original_analysis_conditions)
         .unwrap();
 
     let original_effect_sites = sql::query(&ctx, "SELECT * FROM modeled_effect_sites")

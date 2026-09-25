@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table analysis_conditions
+family findings
+key snapshot_id, condition_id
+check root_iff_stated: (root_id IS NOT NULL AND boundary_reason IS NULL) OR (root_id IS NULL AND boundary_reason IS NOT NULL)
+@lctx.family=findings
+@lctx.table=analysis_conditions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+root_id: FixedSizeBinary(16) NULL
+boundary_reason: Utf8 NULL

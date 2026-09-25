@@ -155,6 +155,7 @@ pub const REFERENCES: &[Reference] = &[
     r("modeled_direct_return_transfers", "function_node_id", &[("declarations", "node_id")]),
     r("modeled_direct_return_transfers", "parameter_node_id", &[("parameter_syntax", "node_id")]),
     r("modeled_direct_return_transfers", "use_id", &[("flow_uses", "use_id")]),
+    r("modeled_direct_return_transfers", "condition_id", &[("analysis_conditions", "condition_id")]),
     r("modeled_direct_return_transfers", "pysa_fact_id", FACT),
     r("modeled_direct_return_transfers", "target_node_id", &[("model_targets", "target_node_id")]),
     r("modeled_direct_return_transfers", "model_id", &[("model_targets", "model_id")]),
@@ -170,6 +171,8 @@ pub const REFERENCES: &[Reference] = &[
     r("value_flow_predecessor_candidates", "reaching_condition_id", &[("conditions", "condition_id")]),
     r("value_flow_predecessor_candidates", "definition_id", &[("flow_definitions", "definition_id")]),
     r("value_flow_predecessor_candidates", "definition_fact_id", FACT),
+    r("value_flow_predecessor_candidates", "successor_condition_id", &[("analysis_conditions", "condition_id")]),
+    r("value_flow_predecessor_candidates", "predecessor_condition_id", &[("analysis_conditions", "condition_id")]),
     r(
         "model_exceptions",
         "class_node_id",

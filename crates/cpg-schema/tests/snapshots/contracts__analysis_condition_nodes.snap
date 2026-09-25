@@ -1,0 +1,14 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table analysis_condition_nodes
+family findings
+key snapshot_id, node_id
+@lctx.family=findings
+@lctx.table=analysis_condition_nodes
+snapshot_id: FixedSizeBinary(16) NOT NULL
+node_id: FixedSizeBinary(16) NOT NULL
+atom: Utf8 NOT NULL
+low_id: FixedSizeBinary(16) NOT NULL
+high_id: FixedSizeBinary(16) NOT NULL
