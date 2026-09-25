@@ -2978,13 +2978,16 @@ write. Target-to-pinned-source resolution, Arrow model rows, remaining model fam
 CrossHair oracle checks and summary application are still Proposed. No behavior claim derives
 from this catalog yet.
 
-**Implemented, focused verification pending (2026-09-24, Stage 3.1 target boundary):** an
+**Implemented and Tested (2026-09-24, Stage 3.1 target/transfer boundary):** an
 analyzed compile binds an applicable committed model to `context_definitions` only when its
 `context_modules` origin and exact Python or distribution pin match. The `model_targets` row
 cites both source facts and carries `synthetic_model` provenance; a pinned module that lacks the
-callable fails before any Delta write. A model for another pin is dormant. Model rule paths,
-effects and transfers are not yet applied; this target relation cannot support a behavior
-verdict by itself.
+callable fails before any Delta write. A model for another pin is dormant. Authored transfer
+rules for bound targets become typed `model_transfers` rows with canonical paths, a stable rule
+identity and synthetic-model provenance. Unimplemented rule families fail closed before writes.
+Formal path resolution against signatures, effect/other rule families, CrossHair checks and
+summary composition remain Proposed. A transfer row is an authored model claim, not a composed
+behavior verdict.
 
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
 - **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions

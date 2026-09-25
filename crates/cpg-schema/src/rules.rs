@@ -128,6 +128,12 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("model_targets", "target_module_fact_id", FACT),
     r("model_targets", "target_definition_fact_id", FACT),
+    r(
+        "model_transfers",
+        "target_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_transfers", "target_definition_fact_id", FACT),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
     r("provider_class_map", "pysa_fact_id", FACT),
@@ -280,6 +286,18 @@ fn semantic() -> Vec<Rule> {
                  LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id \
                    AND m.module_node_id = d.module_node_id \
                  WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-transfer-target",
+            format!(
+                "SELECT t.rule_id FROM model_transfers t \
+                 LEFT JOIN model_targets m ON m.model_id = t.model_id \
+                   AND m.target_node_id = t.target_node_id \
+                   AND m.target_definition_fact_id = t.target_definition_fact_id \
+                   AND m.revision = t.revision \
+                 WHERE m.model_id IS NULL OR t.origin <> {}",
                 crate::codebook::Origin::SyntheticModel.code()
             ),
         ),

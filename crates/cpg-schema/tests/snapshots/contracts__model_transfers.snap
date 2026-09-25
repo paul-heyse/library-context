@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table model_transfers
+family findings
+key snapshot_id, model_id, target_node_id, rule_id
+check revision_positive: revision > 0
+@lctx.family=findings
+@lctx.table=model_transfers
+snapshot_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+target_definition_fact_id: FixedSizeBinary(16) NOT NULL
+revision: Int64 NOT NULL
+input_path: Utf8 NOT NULL
+output_path: Utf8 NOT NULL
+transfer: Int16 NOT NULL [lctx.codebook=model_transfer_kind]
+origin: Int16 NOT NULL [lctx.codebook=origin]

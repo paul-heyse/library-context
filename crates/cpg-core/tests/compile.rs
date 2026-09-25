@@ -13,9 +13,10 @@ use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
 use cpg_schema::behavior::{
-    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargets, ModelTargetsRow,
+    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargets, ModelTargetsRow, ModelTransfers,
+    ModelTransfersRow,
 };
-use cpg_schema::codebook::{Codebook, Origin};
+use cpg_schema::codebook::{Codebook, ModelTransferKind, Origin};
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::Id;
@@ -276,6 +277,32 @@ async fn model_target_requires_its_cited_pinned_definition() {
     ctx.register_batch("model_targets", forged).unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     let (expected,) = ("semantic:model-target-provenance",);
+    assert!(
+        violations.iter().any(|v| v.rule == expected),
+        "{violations:?}"
+    );
+
+    ctx.deregister_table("model_targets").unwrap();
+    ctx.register_batch("model_targets", ModelTargets::to_batch(&[]).unwrap())
+        .unwrap();
+    let forged_transfer = ModelTransfers::to_batch(&[ModelTransfersRow {
+        snapshot_id: snapshot,
+        model_id: Id([1; 16]),
+        target_node_id: Id([2; 16]),
+        rule_id: Id([5; 16]),
+        target_definition_fact_id: Id([4; 16]),
+        revision: 1,
+        input_path: "Parameter[val]".into(),
+        output_path: "ReturnValue".into(),
+        transfer: ModelTransferKind::Identity,
+        origin: Origin::SyntheticModel,
+    }])
+    .unwrap();
+    ctx.deregister_table("model_transfers").unwrap();
+    ctx.register_batch("model_transfers", forged_transfer)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (expected,) = ("semantic:model-transfer-target",);
     assert!(
         violations.iter().any(|v| v.rule == expected),
         "{violations:?}"

@@ -1312,6 +1312,14 @@ codebook!(
 );
 
 codebook!(
+    /// How an authored model maps an input value to an output place (DESIGN §9.9).
+    ModelTransferKind = "model_transfer_kind" {
+        Identity = 0 => "identity",
+        Transform = 1 => "transform",
+    }
+);
+
+codebook!(
     /// What a flow value source's sink is (ADR-0022 §The flow provider; `cpg_flow::Sink`).
     FlowSink = "flow_sink" {
         /// A definition's value: an assignment's right-hand side, a walrus's value, an
@@ -1433,6 +1441,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<OperationFacet>(),
         CodebookEntry::of::<EmbeddingView>(),
         CodebookEntry::of::<ConditionAtom>(),
+        CodebookEntry::of::<ModelTransferKind>(),
         CodebookEntry::of::<FlowSink>(),
         CodebookEntry::of::<ReadPhase>(),
         CodebookEntry::of::<DynamicKind>(),

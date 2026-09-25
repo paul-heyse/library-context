@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 
-use crate::behavior::ModelTargetsRow;
-use crate::codebook::{DefinitionKind, ModuleOrigin, Origin};
+use crate::behavior::{ModelTargetsRow, ModelTransfersRow};
+use crate::codebook::{DefinitionKind, ModelTransferKind, ModuleOrigin, Origin};
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextsRow};
 
@@ -462,6 +462,53 @@ impl Catalog {
         }
         Ok(out.into_values().collect())
     }
+
+    /// Compile only rules whose targets have a source-fact binding. Unsupported rule families
+    /// fail closed until their own typed Arrow contract and consumer exist.
+    pub fn compile_transfers(
+        &self,
+        targets: &[ModelTargetsRow],
+    ) -> Result<Vec<ModelTransfersRow>, String> {
+        let by_id: BTreeMap<Id, &Model> = self
+            .models
+            .iter()
+            .map(|compiled| (compiled.model_id, &compiled.model))
+            .collect();
+        let mut out = Vec::new();
+        for target in targets {
+            let model = by_id
+                .get(&target.model_id)
+                .ok_or_else(|| format!("unknown model id {}", target.model_id.hex()))?;
+            for (index, rule) in model.rules.iter().enumerate() {
+                let Rule::Transfer { from, to, transfer } = rule else {
+                    return Err(format!(
+                        "model rule family lacks a compiled contract: {} rule {index}",
+                        target.target_key
+                    ));
+                };
+                let rule_id = IdHasher::new("behavior-model-rule")
+                    .opt_id(Some(target.model_id))
+                    .i64(index as i64)
+                    .finish_id();
+                out.push(ModelTransfersRow {
+                    snapshot_id: target.snapshot_id,
+                    model_id: target.model_id,
+                    target_node_id: target.target_node_id,
+                    rule_id,
+                    target_definition_fact_id: target.target_definition_fact_id,
+                    revision: target.revision,
+                    input_path: from.render(),
+                    output_path: to.render(),
+                    transfer: match transfer {
+                        Transfer::Identity => ModelTransferKind::Identity,
+                        Transfer::Transform => ModelTransferKind::Transform,
+                    },
+                    origin: Origin::SyntheticModel,
+                });
+            }
+        }
+        Ok(out)
+    }
 }
 
 fn identifier(value: &str) -> bool {
@@ -530,6 +577,12 @@ mod tests {
         assert_eq!(bound[0].target_node_id, definition.symbol_node_id);
         assert_eq!(bound[0].target_definition_fact_id, definition.fact_id);
         assert_eq!(bound[0].origin, Origin::SyntheticModel);
+        let transfers = catalog.compile_transfers(&bound).unwrap();
+        assert_eq!(transfers.len(), 1);
+        assert_eq!(transfers[0].target_node_id, definition.symbol_node_id);
+        assert_eq!(transfers[0].input_path, "Parameter[val]");
+        assert_eq!(transfers[0].output_path, "ReturnValue");
+        assert_eq!(transfers[0].transfer, ModelTransferKind::Identity);
 
         assert!(
             catalog

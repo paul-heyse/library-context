@@ -644,6 +644,9 @@ condition_atom
   5 opaque
   6 is_value
   7 type_is
+model_transfer_kind
+  0 identity
+  1 transform
 flow_sink
   0 definition
   1 argument

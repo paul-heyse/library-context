@@ -29,8 +29,8 @@
 
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
-    ExactValueOrigin, FlowSink, InvocationPhase, Modality, OperationFacet, Origin, PremiseKind,
-    ReadPhase, SourceRole, TestValueLinkOrigin, ValueClass, Verdict,
+    ExactValueOrigin, FlowSink, InvocationPhase, Modality, ModelTransferKind, OperationFacet,
+    Origin, PremiseKind, ReadPhase, SourceRole, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -50,6 +50,28 @@ table!(
         target_definition_fact_id: Id,
         target_key: String,
         revision: i64,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// An authored unconditional transfer for a pinned target. Paths are written only by the
+    /// typed catalog renderer; the original TOML rule and its revision determine `rule_id`.
+    /// This is model evidence, not a source-observed flow or a composed summary.
+    ModelTransfers, ModelTransfersRow = "model_transfers",
+    family = Findings,
+    key = [snapshot_id, model_id, target_node_id, rule_id],
+    checks = [("revision_positive", "revision > 0")],
+    {
+        snapshot_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        revision: i64,
+        input_path: String,
+        output_path: String,
+        transfer: ModelTransferKind,
         origin: Origin,
     }
 );
