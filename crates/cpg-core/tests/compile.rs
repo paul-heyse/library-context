@@ -18,11 +18,11 @@ use cpg_schema::behavior::{
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
 use cpg_schema::codebook::{
-    Codebook, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink, HandlerTypeStatus,
-    Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
-    ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
-    ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
-    ModeledHandlerClassMatch, Origin,
+    Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink,
+    HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
+    ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
+    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
+    ModelTransferKind, ModeledHandlerClassMatch, Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -325,7 +325,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        53 + 22 + 54,
+        54 + 22 + 54,
         "every raw, derived and analysis table"
     );
 
@@ -670,11 +670,28 @@ budget = 1
     .await
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM context_class_mro m \
+                 JOIN context_definitions c ON c.symbol_node_id = m.class_node_id \
+                 JOIN context_definitions a ON a.module_name = m.ancestor_module \
+                   AND a.key = m.ancestor_key AND a.kind = {} \
+                 WHERE c.module_name = 'builtins' AND c.qualified_name = 'OSError' \
+                   AND a.qualified_name = 'Exception' AND NOT m.cyclic",
+                DefinitionKind::Class.code()
+            )
+        )
+        .await,
+        1,
+        "the pinned Pyrefly MRO relates OSError to the referenced Exception class"
+    );
     for (name, class_match, expected) in [
         ("exact_handler", ModeledHandlerClassMatch::SameClass, 1),
         (
             "broader_handler",
-            ModeledHandlerClassMatch::ClassRelationUnknown,
+            ModeledHandlerClassMatch::PinnedAncestor,
             1,
         ),
         ("bare_handler", ModeledHandlerClassMatch::Bare, 1),
@@ -705,6 +722,19 @@ budget = 1
         .await;
         assert_eq!(found, expected, "{name}");
     }
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_exception_handler_candidates c \
+             JOIN syntax_nodes s ON s.node_id = c.call_site_node_id \
+             JOIN declarations d ON d.node_id = s.owner_node_id \
+             JOIN context_class_mro m ON m.fact_id = c.class_mro_fact_id \
+             WHERE d.name = 'broader_handler' AND m.ancestor_name = 'Exception'"
+        )
+        .await,
+        1,
+        "the broader handler cites the exact pinned MRO fact"
+    );
     assert_eq!(
         count(
             &ctx,
@@ -739,6 +769,11 @@ budget = 1
         "every modeled raise has a walk coverage row"
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let original_candidates =
+        sql::query(&ctx, "SELECT * FROM modeled_exception_handler_candidates")
+            .await
+            .unwrap()
+            .into_view();
     let doctored = sql::query(
         &ctx,
         &format!(
@@ -759,6 +794,24 @@ budget = 1
         violations
             .iter()
             .any(|v| v.rule == "modeled-exception-handler-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_exception_handler_candidates")
+        .unwrap();
+    ctx.register_table("modeled_exception_handler_candidates", original_candidates)
+        .unwrap();
+    let missing_mro = sql::query(&ctx, "SELECT * FROM context_class_mro WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", missing_mro)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:context-class-mro-coverage"),
         "{violations:?}"
     );
 }

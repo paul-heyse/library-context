@@ -1535,6 +1535,7 @@ codebook!(
         Bare = 1 => "bare",
         ClassRelationUnknown = 2 => "class_relation_unknown",
         HandlerTypeUnknown = 3 => "handler_type_unknown",
+        PinnedAncestor = 4 => "pinned_ancestor",
     }
 );
 

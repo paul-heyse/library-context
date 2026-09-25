@@ -22,6 +22,8 @@ key:context_definitions
   SELECT snapshot_id, symbol_node_id, fact_id, count(*) AS n FROM context_definitions GROUP BY snapshot_id, symbol_node_id, fact_id HAVING count(*) > 1
 key:context_parameters
   SELECT snapshot_id, symbol_node_id, signature_index, fact_id, count(*) AS n FROM context_parameters GROUP BY snapshot_id, symbol_node_id, signature_index, fact_id HAVING count(*) > 1
+key:context_class_mro
+  SELECT snapshot_id, class_node_id, fact_id, count(*) AS n FROM context_class_mro GROUP BY snapshot_id, class_node_id, fact_id HAVING count(*) > 1
 key:declarations
   SELECT snapshot_id, module_node_id, start_byte, end_byte, node_id, count(*) AS n FROM declarations GROUP BY snapshot_id, module_node_id, start_byte, end_byte, node_id HAVING count(*) > 1
 key:export_syntax
@@ -388,6 +390,8 @@ ref:modeled_exception_handler_candidates.handler_class_node_id->context_definiti
   SELECT f.handler_class_node_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.handler_class_node_id = r.k WHERE f.handler_class_node_id IS NOT NULL
 ref:modeled_exception_handler_candidates.handler_class_fact_id->facts
   SELECT f.handler_class_fact_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.handler_class_fact_id = r.k WHERE f.handler_class_fact_id IS NOT NULL
+ref:modeled_exception_handler_candidates.class_mro_fact_id->facts
+  SELECT f.class_mro_fact_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.class_mro_fact_id = r.k WHERE f.class_mro_fact_id IS NOT NULL
 ref:modeled_exception_handler_walks.call_site_node_id->model_applications
   SELECT f.call_site_node_id AS value FROM modeled_exception_handler_walks f LEFT ANTI JOIN (SELECT call_site_node_id AS k FROM model_applications) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
 ref:modeled_exception_handler_walks.pysa_fact_id->facts
@@ -652,6 +656,10 @@ ref:context_parameters.symbol_node_id->context_definitions
   SELECT f.symbol_node_id AS value FROM context_parameters f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.symbol_node_id = r.k WHERE f.symbol_node_id IS NOT NULL
 ref:context_parameters.module_node_id->context_modules
   SELECT f.module_node_id AS value FROM context_parameters f LEFT ANTI JOIN (SELECT module_node_id AS k FROM context_modules) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
+ref:context_class_mro.class_node_id->context_definitions
+  SELECT f.class_node_id AS value FROM context_class_mro f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
+ref:context_class_mro.module_node_id->context_modules
+  SELECT f.module_node_id AS value FROM context_class_mro f LEFT ANTI JOIN (SELECT module_node_id AS k FROM context_modules) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
 ref:provider_node_map.pysa_fact_id->facts
   SELECT f.pysa_fact_id AS value FROM provider_node_map f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
 ref:provider_node_map.declaration_fact_id->facts
@@ -704,6 +712,10 @@ fact:context_parameters
   SELECT t.fact_id FROM context_parameters t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'context_parameters'
 fact-payload:context_parameters
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN context_parameters t ON t.fact_id = f.fact_id WHERE f.table_name = 'context_parameters'
+fact:context_class_mro
+  SELECT t.fact_id FROM context_class_mro t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'context_class_mro'
+fact-payload:context_class_mro
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN context_class_mro t ON t.fact_id = f.fact_id WHERE f.table_name = 'context_class_mro'
 fact:declarations
   SELECT t.fact_id FROM declarations t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'declarations'
 fact-payload:declarations
@@ -873,7 +885,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_value_calls', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'context_class_mro', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_value_calls', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -1237,7 +1249,7 @@ codebook:handler_types.reason
 codebook:modeled_exception_handler_candidates.handler_type_status
   SELECT handler_type_status FROM modeled_exception_handler_candidates WHERE handler_type_status IS NOT NULL AND handler_type_status NOT IN (0, 1, 2)
 codebook:modeled_exception_handler_candidates.class_match
-  SELECT class_match FROM modeled_exception_handler_candidates WHERE class_match IS NOT NULL AND class_match NOT IN (0, 1, 2, 3)
+  SELECT class_match FROM modeled_exception_handler_candidates WHERE class_match IS NOT NULL AND class_match NOT IN (0, 1, 2, 3, 4)
 codebook:modeled_exception_handler_walks.reason
   SELECT reason FROM modeled_exception_handler_walks WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:handler_actions.action_kind
@@ -1334,6 +1346,12 @@ semantic:flow-value-call-path
   WITH steps AS (SELECT c.*, v.module_node_id AS value_module, v.use_id AS value_use, v.through_call, v.sink_start_byte, v.sink_end_byte, u.start_byte AS use_start, u.end_byte AS use_end, row_number() OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) - 1 AS expected_step, lag(c.operand_start_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_start, lag(c.operand_end_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_end, lead(c.step) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS next_step FROM flow_value_calls c JOIN flow_values v ON v.fact_id = c.flow_value_fact_id JOIN flow_uses u ON u.use_id = c.use_id) SELECT fact_id FROM steps WHERE module_node_id <> value_module OR use_id <> value_use OR NOT through_call OR step <> expected_step OR (step = 0 AND (call_start_byte < sink_start_byte OR call_end_byte > sink_end_byte)) OR (step > 0 AND (call_start_byte < parent_start OR call_end_byte > parent_end)) OR (next_step IS NULL AND (use_start < operand_start_byte OR use_end > operand_end_byte)) UNION ALL SELECT v.fact_id FROM flow_values v LEFT JOIN flow_value_calls c ON c.flow_value_fact_id = v.fact_id GROUP BY v.fact_id, v.through_call HAVING (v.through_call AND count(c.fact_id) = 0) OR (NOT v.through_call AND count(c.fact_id) > 0) OR count(DISTINCT c.step) <> count(c.fact_id)
 semantic:flow-call-link-source-equality
   WITH expected AS (WITH call_candidates AS ( SELECT f.fact_id AS step_fact_id, count(c.fact_id) AS n, any_value(c.node_id) AS node_id, any_value(c.fact_id) AS fact_id FROM flow_value_calls f LEFT JOIN call_syntax c ON c.module_node_id = f.module_node_id AND c.start_byte = f.call_start_byte AND c.end_byte = f.call_end_byte GROUP BY f.fact_id), argument_candidates AS ( SELECT f.fact_id AS step_fact_id, count(a.fact_id) AS n, any_value(a.node_id) AS node_id, any_value(a.fact_id) AS fact_id FROM flow_value_calls f JOIN call_candidates c ON c.step_fact_id = f.fact_id LEFT JOIN arguments a ON c.n = 1 AND f.role = 1 AND a.call_node_id = c.node_id AND a.value_start_byte = f.operand_start_byte AND a.value_end_byte = f.operand_end_byte GROUP BY f.fact_id) SELECT f.fact_id AS flow_value_call_fact_id, f.flow_value_fact_id, CASE WHEN c.n = 1 THEN c.node_id END AS call_node_id, CASE WHEN c.n = 1 THEN c.fact_id END AS call_fact_id, CASE WHEN c.n = 1 AND a.n = 1 AND f.role = 1 THEN a.node_id END AS argument_node_id, CASE WHEN c.n = 1 AND a.n = 1 AND f.role = 1 THEN a.fact_id END AS argument_fact_id, CAST(CASE WHEN c.n = 0 THEN 2 WHEN c.n > 1 THEN 3 WHEN f.role = 0 THEN 0 WHEN a.n = 0 THEN 4 WHEN a.n > 1 THEN 5 ELSE 1 END AS SMALLINT) AS status FROM flow_value_calls f JOIN call_candidates c ON c.step_fact_id = f.fact_id JOIN argument_candidates a ON a.step_fact_id = f.fact_id) SELECT coalesce(e.flow_value_call_fact_id, l.flow_value_call_fact_id) AS step_fact_id FROM expected e FULL OUTER JOIN flow_value_call_links l ON e.flow_value_call_fact_id = l.flow_value_call_fact_id WHERE e.flow_value_call_fact_id IS NULL OR l.flow_value_call_fact_id IS NULL OR (e.flow_value_fact_id IS DISTINCT FROM l.flow_value_fact_id) OR (e.call_node_id IS DISTINCT FROM l.call_node_id) OR (e.call_fact_id IS DISTINCT FROM l.call_fact_id) OR (e.argument_node_id IS DISTINCT FROM l.argument_node_id) OR (e.argument_fact_id IS DISTINCT FROM l.argument_fact_id) OR (e.status IS DISTINCT FROM l.status)
+semantic:context-class-mro-coverage
+  SELECT d.symbol_node_id FROM context_definitions d LEFT ANTI JOIN context_class_mro m ON m.class_node_id = d.symbol_node_id WHERE d.kind = 1
+semantic:context-class-mro-shape
+  SELECT class_node_id FROM context_class_mro GROUP BY class_node_id HAVING SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) > 1 OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 1 AND count(*) > 1) OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 0 AND (MIN(ordinal) <> 0 OR MAX(ordinal) <> count(*) - 1))
+semantic:context-class-mro-identity
+  SELECT m.class_node_id FROM context_class_mro m JOIN context_definitions d ON d.symbol_node_id = m.class_node_id WHERE d.module_node_id <> m.module_node_id OR d.kind <> 1
 semantic:model-target-provenance
   SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
 semantic:modeled-callback-site-shape

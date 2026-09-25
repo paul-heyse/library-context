@@ -357,6 +357,10 @@ rule can prove is stated in §8 (its edit guards counted apart).
   exception class binds to one pinned context class fact before its candidate source call is
   published. Class spelling is display, not handler-match authority. An absent or ambiguous
   class fails the model compile; a dormant model remains dormant.
+- **Implemented and Tested in focused cases (ADR-0030, 2026-09-25):** a different pinned handler
+  class can be a positive ancestor candidate only when the pinned Pyrefly context MRO cites it.
+  MRO nonmembership is unknown for a model class that may denote a subclass family; no handler
+  completion or exception fate follows from this relationship.
 
 **Implemented and Tested in focused cases (ADR-0028, 2026-09-25):** the flow producer retains
 each value use's ordered, outer-to-inner call path with callee/argument roles and exact byte spans.
@@ -375,7 +379,7 @@ role span. A keyword value excludes the `name=` prefix; a direct positional argu
 equal role and value spans. The schema enforces value-span containment and the extractor
 output version is 27. This alone identifies no flow-call path or completed transfer.
 
-> Decision: ADR-0022, ADR-0028, ADR-0029
+> Decision: ADR-0022, ADR-0028, ADR-0029, ADR-0030
 
 ### §B6 Facts are first-class assertions with provenance
 
@@ -680,7 +684,13 @@ retains a class definition named by a committed exception model when its module 
 described. This lets the model compiler cite a pinned class identity even if the analyzed source
 does not itself mention that class. Context capture does not assert an exception occurrence.
 
-> Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019, ADR-0022, ADR-0029
+**Implemented and Tested in focused cases (ADR-0030, 2026-09-25):** each retained context class
+also has an attributed, ordered Pyrefly MRO relation. Resolved-empty and cyclic MROs have
+explicit marker rows; publication checks coverage, order and child identity. An ancestor is
+identified by Pyrefly's module and class key and only becomes a handler class identity through
+its pinned `context_definitions` row. `EXTRACTOR_OUTPUT_VERSION` is 30 for this migration.
+
+> Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019, ADR-0022, ADR-0029, ADR-0030
 
 ### §3.3 Physical profiles
 
@@ -3159,9 +3169,18 @@ class, bare handler, unresolved relationship between different pinned classes, o
 handler type. `modeled_exception_handler_walks` records one coverage row per modeled raise;
 missing source syntax and a 128-edge ancestry cap produce explicit reasons. Absence from the
 candidate relation is interpretable only when its walk is complete. Publication reconstructs
-and validates both relations. The
-relation does not decide which clause runs, whether a subclass matches, whether the call raises,
+and validates both relations. The relation does not decide which clause runs, whether a subclass
+matches, whether the call raises,
 or whether a handler completes. Those L2 fate decisions and integrated testing remain open.
+
+**Implemented and Tested in focused cases (ADR-0030, 2026-09-25):**
+`context_class_mro` retains Pyrefly's resolved ancestor identities or an empty/cyclic marker
+for each pinned context class. When a modeled raised class's MRO contains the pinned handler
+class, `modeled_exception_handler_candidates` records `pinned_ancestor` and the source MRO
+fact. A missing, unbound or cyclic relationship stays `class_relation_unknown`; absence from
+the MRO is not a negative match because a model class can denote possible subclasses. This is
+still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 40; integrated Stage 3 tests
+remain `not_run`.
 
 **Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
 proved, an explicit raise inside a `try` or `with` body has no definite escape witness. The
@@ -3218,7 +3237,7 @@ composition and negative claims.
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029
+> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030
 
 ---
 
@@ -3900,3 +3919,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Stage 3 narrows raise escape to explicit unframed source sites; an unresolved `try` or `with` withholds definite escape until L2 proves the frame action (§3.9, §9.9) | ADR-0027 (supersedes ADR-0022's raise-escape shortcut; retains its other decisions) |
 | 2026-09-25 | Proposed call-result provenance for Stage 3 summaries: ordered nested call steps and argument value spans preserve the source-to-model join (§B5, §3.9, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Model-authored exception classes bind to pinned context definitions before source application; the extractor producer identity includes model catalog bytes (§B5, §3.2, §4.0, §9.9) | ADR-0029 |
+| 2026-09-25 | Positive modeled exception ancestor relationships use pinned Pyrefly context MRO facts; nonmembership stays unknown (§B5, §3.2, §9.9) | ADR-0030 |

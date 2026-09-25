@@ -221,6 +221,11 @@ pub const REFERENCES: &[Reference] = &[
         FACT,
     ),
     r(
+        "modeled_exception_handler_candidates",
+        "class_mro_fact_id",
+        FACT,
+    ),
+    r(
         "modeled_exception_handler_walks",
         "call_site_node_id",
         &[("model_applications", "call_site_node_id")],
@@ -668,6 +673,16 @@ pub const REFERENCES: &[Reference] = &[
         "module_node_id",
         &[("context_modules", "module_node_id")],
     ),
+    r(
+        "context_class_mro",
+        "class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r(
+        "context_class_mro",
+        "module_node_id",
+        &[("context_modules", "module_node_id")],
+    ),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
     r("provider_class_map", "pysa_fact_id", FACT),
@@ -860,6 +875,34 @@ fn semantic() -> Vec<Rule> {
         ),
     ];
     flow_rules.into_iter().chain([
+        (
+            "semantic:context-class-mro-coverage",
+            format!(
+                "SELECT d.symbol_node_id FROM context_definitions d \
+                 LEFT ANTI JOIN context_class_mro m ON m.class_node_id = d.symbol_node_id \
+                 WHERE d.kind = {}",
+                crate::codebook::DefinitionKind::Class.code(),
+            ),
+        ),
+        (
+            "semantic:context-class-mro-shape",
+            "SELECT class_node_id FROM context_class_mro \
+             GROUP BY class_node_id \
+             HAVING SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) > 1 \
+                OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 1 AND count(*) > 1) \
+                OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 0 \
+                   AND (MIN(ordinal) <> 0 OR MAX(ordinal) <> count(*) - 1))"
+                .to_owned(),
+        ),
+        (
+            "semantic:context-class-mro-identity",
+            format!(
+                "SELECT m.class_node_id FROM context_class_mro m \
+                 JOIN context_definitions d ON d.symbol_node_id = m.class_node_id \
+                 WHERE d.module_node_id <> m.module_node_id OR d.kind <> {}",
+                crate::codebook::DefinitionKind::Class.code(),
+            ),
+        ),
         (
             "semantic:model-target-provenance",
             format!(

@@ -21,10 +21,11 @@ use cpg_schema::id::{Id, recipe};
 use cpg_schema::metrics::Stages;
 use cpg_schema::models::{Catalog, Rule};
 use cpg_schema::tables::{
-    ContextDefinitions, ContextDefinitionsRow, ContextModules, ContextModulesRow,
-    ContextParameters, ContextParametersRow,
+    ContextClassMro, ContextClassMroRow, ContextDefinitions, ContextDefinitionsRow, ContextModules,
+    ContextModulesRow, ContextParameters, ContextParametersRow,
 };
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
+use pyrefly::report::pysa::class::PysaClassMro;
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
 use pyrefly::report::pysa::export_module_definitions;
 use pyrefly::report::pysa::override_graph::create_reversed_override_graph_for_module;
@@ -45,6 +46,7 @@ pub(crate) struct ContextOut {
     pub modules: Vec<ContextModulesRow>,
     pub definitions: Vec<ContextDefinitionsRow>,
     pub parameters: Vec<ContextParametersRow>,
+    pub mro: Vec<ContextClassMroRow>,
 }
 
 fn provenance(fidelity: Fidelity) -> Provenance {
@@ -364,6 +366,58 @@ pub(crate) fn context_facts(
             .filter(|d| d.module_node_id == module_node_id)
             .map(|d| d.symbol_node_id)
             .collect();
+        for (cid, class) in &defs.class_definitions {
+            let class_node_id = recipe::external_symbol(
+                module_node_id,
+                cpg_schema::Codebook::code(DefinitionKind::Class),
+                &cid.to_int().to_string(),
+            );
+            if !included.contains(&class_node_id) {
+                continue;
+            }
+            match &class.mro {
+                PysaClassMro::Resolved(ancestors) if !ancestors.is_empty() => {
+                    for (ordinal, ancestor) in ancestors.iter().enumerate() {
+                        out.mro.push(fact_row!(
+                            sink,
+                            ContextClassMro,
+                            provenance(Fidelity::ReportProjection),
+                            ContextClassMroRow {
+                                snapshot_id: Id::ZERO,
+                                fact_id: Id::ZERO,
+                                class_node_id,
+                                module_node_id,
+                                ordinal: Some(ordinal as i64),
+                                ancestor_module: Some(
+                                    ancestor.class.module_name().as_str().to_owned()
+                                ),
+                                ancestor_key: Some(ancestor.class_id.to_int().to_string()),
+                                ancestor_name: Some(ancestor.class.name().as_str().to_owned()),
+                                cyclic: false,
+                            }
+                        ));
+                    }
+                }
+                PysaClassMro::Resolved(_) | PysaClassMro::Cyclic => {
+                    out.mro.push(fact_row!(
+                        sink,
+                        ContextClassMro,
+                        provenance(Fidelity::ReportProjection),
+                        ContextClassMroRow {
+                            snapshot_id: Id::ZERO,
+                            fact_id: Id::ZERO,
+                            class_node_id,
+                            module_node_id,
+                            ordinal: None,
+                            ancestor_module: None,
+                            ancestor_key: None,
+                            ancestor_name: None,
+                            cyclic: matches!(&class.mro, PysaClassMro::Cyclic),
+                        }
+                    ));
+                }
+            }
+        }
         for (fid, def) in defs.function_definitions.as_map() {
             let symbol_node_id = recipe::external_symbol(
                 module_node_id,

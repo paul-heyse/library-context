@@ -448,6 +448,7 @@ table!(
         handler_type_status: HandlerTypeStatus,
         handler_class_node_id: Option<Id>,
         handler_class_fact_id: Option<Id>,
+        class_mro_fact_id: Option<Id>,
         class_match: ModeledHandlerClassMatch,
     }
 );
@@ -1572,17 +1573,18 @@ crate::relations! {
     /// `try` and whose field is its body is inside that frame. The explicit depth cap keeps a
     /// malformed/cyclic syntax relation finite; absence of a row never proves no handler.
     modeled_exception_handler_candidates = "behavior:modeled_exception_handler_candidates",
-        deps = ["modeled_exception_sites", "syntax_nodes", "handler_clauses", "handler_types"],
+        deps = ["modeled_exception_sites", "syntax_nodes", "handler_clauses", "handler_types", "context_definitions", "context_class_mro"],
         sql = format!(
             "{climb} SELECT e.snapshot_id, e.call_site_node_id, e.pysa_fact_id, e.model_id, e.rule_id, \
                     e.call_fact_id, e.class_node_id AS raised_class_node_id, \
                     e.class_fact_id AS raised_class_fact_id, h.try_node_id, h.handler_node_id, \
                     h.handler_fact_id, c.depth AS frame_depth, h.ordinal AS handler_ordinal, \
                     t.status AS handler_type_status, t.class_node_id AS handler_class_node_id, \
-                    t.class_fact_id AS handler_class_fact_id, \
+                    t.class_fact_id AS handler_class_fact_id, cm.fact_id AS class_mro_fact_id, \
                     CAST(CASE WHEN t.status = {bare} THEN {bare_match} \
                               WHEN t.status <> {pinned} THEN {unknown_type} \
                               WHEN t.class_node_id = e.class_node_id THEN {same_class} \
+                              WHEN cm.fact_id IS NOT NULL THEN {pinned_ancestor} \
                               ELSE {unknown_relation} END AS SMALLINT) AS class_match \
              FROM climb c JOIN handler_clauses h \
                ON h.try_node_id = c.parent_node_id AND h.function_node_id = c.function_node_id \
@@ -1590,6 +1592,11 @@ crate::relations! {
              JOIN modeled_exception_sites e \
                ON e.call_site_node_id = c.call_site_node_id AND e.pysa_fact_id = c.pysa_fact_id \
               AND e.model_id = c.model_id AND e.rule_id = c.rule_id \
+             LEFT JOIN context_definitions d ON d.symbol_node_id = t.class_node_id \
+               AND d.fact_id = t.class_fact_id \
+             LEFT JOIN context_class_mro cm ON cm.class_node_id = e.class_node_id \
+               AND cm.ancestor_module = d.module_name AND cm.ancestor_key = d.key \
+               AND NOT cm.cyclic \
              WHERE c.field = {body}",
             climb = modeled_handler_climb_sql(),
             bare = HandlerTypeStatus::Bare.code(),
@@ -1598,6 +1605,7 @@ crate::relations! {
             unknown_type = ModeledHandlerClassMatch::HandlerTypeUnknown.code(),
             same_class = ModeledHandlerClassMatch::SameClass.code(),
             unknown_relation = ModeledHandlerClassMatch::ClassRelationUnknown.code(),
+            pinned_ancestor = ModeledHandlerClassMatch::PinnedAncestor.code(),
             body = crate::codebook::SyntaxField::Body.code(),
         );
 

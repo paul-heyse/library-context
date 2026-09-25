@@ -24,4 +24,5 @@ handler_ordinal: Int64 NOT NULL
 handler_type_status: Int16 NOT NULL [lctx.codebook=handler_type_status]
 handler_class_node_id: FixedSizeBinary(16) NULL
 handler_class_fact_id: FixedSizeBinary(16) NULL
+class_mro_fact_id: FixedSizeBinary(16) NULL
 class_match: Int16 NOT NULL [lctx.codebook=modeled_handler_class_match]

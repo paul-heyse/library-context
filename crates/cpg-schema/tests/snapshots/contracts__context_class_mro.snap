@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table context_class_mro
+family provenance
+key snapshot_id, class_node_id, fact_id
+check ordinal_nonnegative: ordinal IS NULL OR ordinal >= 0
+check marker_shape: (ordinal IS NULL AND ancestor_module IS NULL AND ancestor_key IS NULL AND ancestor_name IS NULL) OR (ordinal IS NOT NULL AND ancestor_module IS NOT NULL AND ancestor_key IS NOT NULL AND ancestor_name IS NOT NULL AND NOT cyclic)
+@lctx.family=provenance
+@lctx.table=context_class_mro
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+class_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NULL
+ancestor_module: Utf8 NULL
+ancestor_key: Utf8 NULL
+ancestor_name: Utf8 NULL
+cyclic: Boolean NOT NULL

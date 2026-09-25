@@ -34,15 +34,15 @@ use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
-    ConditionLiterals, ConditionNodes, Conditions, ContextDefinitions, ContextModules,
-    ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
-    DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents, ExportSyntax,
-    Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions, FlowTestLeaves,
-    FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues, Mentions, ParameterDocs,
-    ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls,
-    PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions, References, Releases,
-    ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations,
-    TypeTermArgs, TypeTerms,
+    ConditionLiterals, ConditionNodes, Conditions, ContextClassMro, ContextDefinitions,
+    ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
+    Distributions, DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
+    ExportSyntax, Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
+    FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues, Mentions,
+    ParameterDocs, ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow,
+    PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions,
+    References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow,
+    SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -1087,6 +1087,10 @@ fn run_release(
         (
             ContextParameters::NAME,
             ContextParameters::to_sorted_batch(&context_out.parameters)?,
+        ),
+        (
+            ContextClassMro::NAME,
+            ContextClassMro::to_sorted_batch(&context_out.mro)?,
         ),
         (
             Declarations::NAME,

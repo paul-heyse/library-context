@@ -246,6 +246,30 @@ table!(
     }
 );
 
+table!(
+    /// Pysa's pinned MRO for a retained dependency class. Resolved ancestors have dense ordinals;
+    /// an empty resolved MRO or a cyclic MRO has one marker row with no ancestor. This is a
+    /// provider assertion under the pinned context, not a claim about runtime class mutation.
+    ContextClassMro, ContextClassMroRow = "context_class_mro",
+    family = Provenance,
+    key = [snapshot_id, class_node_id, fact_id],
+    checks = [
+        ("ordinal_nonnegative", "ordinal IS NULL OR ordinal >= 0"),
+        ("marker_shape", "(ordinal IS NULL AND ancestor_module IS NULL AND ancestor_key IS NULL AND ancestor_name IS NULL) OR (ordinal IS NOT NULL AND ancestor_module IS NOT NULL AND ancestor_key IS NOT NULL AND ancestor_name IS NOT NULL AND NOT cyclic)"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        class_node_id: Id,
+        module_node_id: Id,
+        ordinal: Option<i64>,
+        ancestor_module: Option<String>,
+        ancestor_key: Option<String>,
+        ancestor_name: Option<String>,
+        cyclic: bool,
+    }
+);
+
 // ---------------------------------------------------------------- exports
 
 table!(
@@ -1484,6 +1508,7 @@ macro_rules! for_each_table {
             $crate::tables::ContextModules,
             $crate::tables::ContextDefinitions,
             $crate::tables::ContextParameters,
+            $crate::tables::ContextClassMro,
             $crate::tables::Declarations,
             $crate::tables::ExportSyntax,
             $crate::tables::PublicNames,

@@ -754,3 +754,4 @@ modeled_handler_class_match
   1 bare
   2 class_relation_unknown
   3 handler_type_unknown
+  4 pinned_ancestor
