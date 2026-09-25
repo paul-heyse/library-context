@@ -3030,6 +3030,19 @@ candidate-local model action, not evidence of callback invocation or a whole-ope
 Publication reconstructs it; other callback and resource sources and L3 composition remain
 Proposed.
 
+**Implemented and Tested in focused cases (2026-09-25, modeled resource source):**
+`model_resources` now carries the path kind compiled from its tagged AST, independent of
+the rendered access-path string. `modeled_resource_sites` applies an authored resource action
+to a pinned source call target. A `ReturnValue` path identifies the call expression as the
+source of the returned resource; a parameter path can identify an argument only through the
+exact `model_argument_bindings` relation. Field and global paths, failed argument bindings
+and open dispatch remain explicit boundaries. The row retains the action, exit and both
+modalities, so `builtins.open` yields a candidate `acquire` on normal return but a shadowed
+`open` does not. A call-expression id is not a runtime resource identity, and this relation
+does not prove the call completed or that any release happened. The shared validator
+reconstructs these rows and rejects a doctored source status. L2 lifecycle pairing and L3
+summary composition remain Proposed; the integrated gate is `not_run`.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic

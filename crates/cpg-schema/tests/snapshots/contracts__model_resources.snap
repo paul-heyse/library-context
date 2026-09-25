@@ -17,6 +17,7 @@ revision: Int64 NOT NULL
 resource_path_id: FixedSizeBinary(16) NOT NULL
 resource_path: Utf8 NOT NULL
 resource_role: Int16 NOT NULL [lctx.codebook=model_path_role]
+resource_path_kind: Int16 NOT NULL [lctx.codebook=model_path_kind]
 action: Int16 NOT NULL [lctx.codebook=model_resource_action]
 exit: Int16 NOT NULL [lctx.codebook=model_exit]
 modality: Int16 NOT NULL [lctx.codebook=modality]

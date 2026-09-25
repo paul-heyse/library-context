@@ -14,7 +14,7 @@ use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
     HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
-    ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow,
+    ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledResourceSitesRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -239,6 +239,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM model_argument_bindings".to_owned();
     modeled_callback_sites = "validate_modeled_callback_sites", deps = ["modeled_callback_sites"],
         sql = "SELECT * FROM modeled_callback_sites".to_owned();
+    modeled_resource_sites = "validate_modeled_resource_sites", deps = ["modeled_resource_sites"],
+        sql = "SELECT * FROM modeled_resource_sites".to_owned();
     model_transfers = "validate_model_transfers", deps = ["model_transfers"],
         sql = "SELECT * FROM model_transfers".to_owned();
     model_effects = "validate_model_effects", deps = ["model_effects"],
@@ -274,6 +276,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_argument_bindings(), sql::Params::new()).await?;
     let mut actual_callback_sites: Vec<ModeledCallbackSitesRow> =
         sql::fetch(ctx, &modeled_callback_sites(), sql::Params::new()).await?;
+    let mut actual_resource_sites: Vec<ModeledResourceSitesRow> =
+        sql::fetch(ctx, &modeled_resource_sites(), sql::Params::new()).await?;
     let mut actual_transfers: Vec<ModelTransfersRow> =
         sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
     let mut actual_effects: Vec<ModelEffectsRow> =
@@ -289,6 +293,7 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         && actual_formals.is_empty()
         && actual_arguments.is_empty()
         && actual_callback_sites.is_empty()
+        && actual_resource_sites.is_empty()
         && actual_transfers.is_empty()
         && actual_effects.is_empty()
         && actual_callbacks.is_empty()
@@ -331,6 +336,12 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
     let mut expected_callback_sites: Vec<ModeledCallbackSitesRow> = sql::fetch(
         ctx,
         &cpg_schema::behavior::modeled_callback_sites(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected_resource_sites: Vec<ModeledResourceSitesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_resource_sites(),
         sql::Params::new(),
     )
     .await?;
@@ -386,6 +397,22 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         )
     });
     actual_callback_sites.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
+            row.rule_id,
+        )
+    });
+    expected_resource_sites.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
+            row.rule_id,
+        )
+    });
+    actual_resource_sites.sort_by_key(|row| {
         (
             row.call_site_node_id,
             row.pysa_fact_id,
@@ -482,6 +509,20 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
                 "expected {} modeled callback sites, stored {}",
                 expected_callback_sites.len(),
                 actual_callback_sites.len()
+            ),
+        });
+    }
+    if expected_resource_sites != actual_resource_sites {
+        violations.push(Violation {
+            rule: "modeled-resource-site-source-equality".into(),
+            rows: actual_resource_sites
+                .len()
+                .abs_diff(expected_resource_sites.len())
+                .max(1),
+            sample: format!(
+                "expected {} modeled resource sites, stored {}",
+                expected_resource_sites.len(),
+                actual_resource_sites.len()
             ),
         });
     }

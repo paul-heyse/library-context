@@ -1449,6 +1449,25 @@ codebook!(
 );
 
 codebook!(
+    /// Typed location of a modeled resource, independent of its display spelling.
+    ModelPathKind = "model_path_kind" {
+        Parameter = 0 => "parameter",
+        ReceiverField = 1 => "receiver_field",
+        Global = 2 => "global",
+        ReturnValue = 3 => "return_value",
+    }
+);
+
+codebook!(
+    /// Source expression identified for a candidate modeled resource action.
+    ModelResourceSourceStatus = "model_resource_source_status" {
+        CallResult = 0 => "call_result",
+        BoundArgument = 1 => "bound_argument",
+        Unknown = 2 => "unknown",
+    }
+);
+
+codebook!(
     /// Completeness of one authored model channel under its pinned runtime contract. Only
     /// `complete` permits an absent rule to refute that channel in a composed summary.
     ModelChannelCoverage = "model_channel_coverage" {
@@ -1555,6 +1574,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelExit>(),
         CodebookEntry::of::<ModelExceptionAction>(),
         CodebookEntry::of::<ModelPathRole>(),
+        CodebookEntry::of::<ModelPathKind>(),
+        CodebookEntry::of::<ModelResourceSourceStatus>(),
         CodebookEntry::of::<ModelChannelCoverage>(),
         CodebookEntry::of::<HandlerTypeStatus>(),
         CodebookEntry::of::<ModelArgumentStatus>(),

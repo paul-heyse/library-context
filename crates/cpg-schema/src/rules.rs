@@ -235,6 +235,45 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("modeled_callback_sites", "argument_fact_id", FACT),
     r(
+        "modeled_resource_sites",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r(
+        "modeled_resource_sites",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r("modeled_resource_sites", "call_fact_id", FACT),
+    r("modeled_resource_sites", "pysa_fact_id", FACT),
+    r(
+        "modeled_resource_sites",
+        "target_node_id",
+        &[("model_targets", "target_node_id")],
+    ),
+    r(
+        "modeled_resource_sites",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r(
+        "modeled_resource_sites",
+        "rule_id",
+        &[("model_resources", "rule_id")],
+    ),
+    r("modeled_resource_sites", "target_definition_fact_id", FACT),
+    r(
+        "modeled_resource_sites",
+        "resource_path_id",
+        &[("model_resources", "resource_path_id")],
+    ),
+    r(
+        "modeled_resource_sites",
+        "source_expression_node_id",
+        &[("call_syntax", "node_id"), ("arguments", "node_id")],
+    ),
+    r("modeled_resource_sites", "source_expression_fact_id", FACT),
+    r(
         "model_transfers",
         "target_node_id",
         &[("context_definitions", "symbol_node_id")],
@@ -553,6 +592,32 @@ fn semantic() -> Vec<Rule> {
                  OR origin <> {synthetic}",
                 bound = crate::codebook::ModelArgumentStatus::Bound.code(),
                 unknown = crate::codebook::ModelArgumentStatus::Unknown.code(),
+                synthetic = crate::codebook::Origin::SyntheticModel.code(),
+            ),
+        ),
+        (
+            "semantic:modeled-resource-site-shape",
+            format!(
+                "SELECT rule_id FROM modeled_resource_sites WHERE \
+                 (source_status IN ({call_result}, {bound_argument}) \
+                   AND (source_expression_node_id IS NULL \
+                     OR source_expression_fact_id IS NULL OR source_reason IS NOT NULL)) \
+                 OR (source_status = {unknown} \
+                   AND (source_expression_node_id IS NOT NULL \
+                     OR source_expression_fact_id IS NOT NULL OR source_reason IS NULL)) \
+                 OR (source_status = {call_result} \
+                   AND (resource_path_kind <> {return_value} \
+                     OR source_expression_node_id <> call_site_node_id \
+                     OR source_expression_fact_id <> call_fact_id)) \
+                 OR (source_status = {bound_argument} \
+                   AND resource_path_kind <> {parameter}) \
+                 OR (candidate_set_complete_under_model AND has_unresolved_remainder) \
+                 OR origin <> {synthetic}",
+                call_result = crate::codebook::ModelResourceSourceStatus::CallResult.code(),
+                bound_argument = crate::codebook::ModelResourceSourceStatus::BoundArgument.code(),
+                unknown = crate::codebook::ModelResourceSourceStatus::Unknown.code(),
+                return_value = crate::codebook::ModelPathKind::ReturnValue.code(),
+                parameter = crate::codebook::ModelPathKind::Parameter.code(),
                 synthetic = crate::codebook::Origin::SyntheticModel.code(),
             ),
         ),

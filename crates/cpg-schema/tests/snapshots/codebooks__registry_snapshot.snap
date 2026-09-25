@@ -710,6 +710,15 @@ model_exception_action
 model_path_role
   0 input
   1 output
+model_path_kind
+  0 parameter
+  1 receiver_field
+  2 global
+  3 return_value
+model_resource_source_status
+  0 call_result
+  1 bound_argument
+  2 unknown
 model_channel_coverage
   0 complete
   1 partial

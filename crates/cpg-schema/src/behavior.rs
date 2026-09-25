@@ -31,9 +31,10 @@ use crate::codebook::{
     ArgumentKind, BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind,
     EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowSink, HandlerTypeStatus, ImplicitReceiver,
     InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
-    ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction,
-    ModelTransferKind, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole,
-    SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
+    ModelResourceAction, ModelResourceSourceStatus, ModelTransferKind, OperationFacet, Origin,
+    ParameterKind, PremiseKind, ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass,
+    Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -213,9 +214,45 @@ table!(
         resource_path_id: Id,
         resource_path: String,
         resource_role: ModelPathRole,
+        resource_path_kind: ModelPathKind,
         action: ModelResourceAction,
         exit: ModelExit,
         modality: Modality,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// A candidate modeled resource action at a source call. `source_expression_node_id`
+    /// identifies the call expression for a return value or an exact argument expression; it
+    /// is never a runtime resource identity or proof of acquisition/release completion.
+    ModeledResourceSites, ModeledResourceSitesRow = "modeled_resource_sites",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        function_node_id: Option<Id>,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        target_node_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        resource_path_id: Id,
+        resource_role: ModelPathRole,
+        resource_path_kind: ModelPathKind,
+        source_expression_node_id: Option<Id>,
+        source_expression_fact_id: Option<Id>,
+        source_status: ModelResourceSourceStatus,
+        source_reason: Option<BoundaryReason>,
+        action: ModelResourceAction,
+        exit: ModelExit,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
         origin: Origin,
     }
 );
@@ -1100,6 +1137,50 @@ crate::relations! {
             unknown = ModelArgumentStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
             input = ModelPathRole::Input.code(),
+        );
+
+    /// Model a resource at a cited call. A return path identifies the call expression; a
+    /// parameter path uses only an exact pinned-signature argument binding. Field and global
+    /// paths need a separate value proof and remain explicit unknowns.
+    modeled_resource_sites = "behavior:modeled_resource_sites",
+        deps = ["model_applications", "model_resources", "model_argument_bindings"],
+        sql = format!(
+            "SELECT a.snapshot_id, a.call_site_node_id, a.function_node_id, \
+                    a.call_fact_id, a.pysa_fact_id, a.target_node_id, a.model_id, \
+                    m.rule_id, m.target_definition_fact_id, m.resource_path_id, \
+                    m.resource_role, m.resource_path_kind, \
+                    CASE WHEN m.resource_path_kind = {return_value} THEN a.call_site_node_id \
+                         WHEN m.resource_path_kind = {parameter} AND b.status = {bound} \
+                           THEN b.argument_node_id END AS source_expression_node_id, \
+                    CASE WHEN m.resource_path_kind = {return_value} THEN a.call_fact_id \
+                         WHEN m.resource_path_kind = {parameter} AND b.status = {bound} \
+                           THEN b.argument_fact_id END AS source_expression_fact_id, \
+                    CAST(CASE WHEN m.resource_path_kind = {return_value} THEN {call_result} \
+                              WHEN m.resource_path_kind = {parameter} AND b.status = {bound} \
+                                THEN {bound_argument} ELSE {unknown} END AS SMALLINT) AS source_status, \
+                    CAST(CASE WHEN m.resource_path_kind = {return_value} \
+                               OR (m.resource_path_kind = {parameter} AND b.status = {bound}) \
+                                THEN NULL ELSE COALESCE(b.reason, {outside}) END \
+                      AS SMALLINT) AS source_reason, \
+                    m.action, m.exit, a.target_modality, m.modality AS model_modality, \
+                    a.candidate_set_complete_under_model, a.has_unresolved_remainder, m.origin \
+             FROM model_applications a \
+             JOIN model_resources m ON m.model_id = a.model_id \
+               AND m.target_node_id = a.target_node_id \
+               AND m.target_definition_fact_id = a.target_definition_fact_id \
+               AND m.revision = a.revision \
+             LEFT JOIN model_argument_bindings b \
+               ON b.call_site_node_id = a.call_site_node_id \
+              AND b.pysa_fact_id = a.pysa_fact_id \
+              AND b.model_id = a.model_id AND b.rule_id = m.rule_id \
+              AND b.path_id = m.resource_path_id AND b.path_role = m.resource_role",
+            return_value = ModelPathKind::ReturnValue.code(),
+            parameter = ModelPathKind::Parameter.code(),
+            bound = ModelArgumentStatus::Bound.code(),
+            call_result = ModelResourceSourceStatus::CallResult.code(),
+            bound_argument = ModelResourceSourceStatus::BoundArgument.code(),
+            unknown = ModelResourceSourceStatus::Unknown.code(),
+            outside = BoundaryReason::OutsideProviderModel.code(),
         );
 
     /// Except clauses with their authored type expression and the try-entry region.

@@ -19,8 +19,8 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     Codebook, ExitSiteKind, HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction,
-    ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole,
-    ModelResourceAction, ModelTransferKind, Origin,
+    ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathKind,
+    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferKind, Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -114,7 +114,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 48,
+        52 + 21 + 49,
         "every raw, derived and analysis table"
     );
 
@@ -673,6 +673,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         resource_path_id: Id([10; 16]),
         resource_path: "ReturnValue".into(),
         resource_role: ModelPathRole::Output,
+        resource_path_kind: ModelPathKind::ReturnValue,
         action: ModelResourceAction::Acquire,
         exit: ModelExit::Normal,
         modality: Modality::Definite,
@@ -766,6 +767,33 @@ budget = 1
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM modeled_resource_sites").await,
+        1,
+        "only the resolved builtins.open call carries the authored resource action"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_resource_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'acquire' AND s.resource_role = {} \
+                   AND s.resource_path_kind = {} AND s.source_status = {} \
+                   AND s.source_expression_node_id = s.call_site_node_id \
+                   AND s.source_expression_fact_id = s.call_fact_id \
+                   AND s.source_reason IS NULL AND s.action = {} AND s.exit = {}",
+                ModelPathRole::Output.code(),
+                ModelPathKind::ReturnValue.code(),
+                ModelResourceSourceStatus::CallResult.code(),
+                ModelResourceAction::Acquire.code(),
+                ModelExit::Normal.code(),
+            )
+        )
+        .await,
+        1,
+        "a return resource identifies the call expression, not a runtime object"
+    );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_formal_paths").await,
         3,
@@ -1055,6 +1083,41 @@ budget = 1
     );
     ctx.deregister_table("modeled_callback_sites").unwrap();
     ctx.register_table("modeled_callback_sites", original_callback_sites)
+        .unwrap();
+
+    let original_resource_sites = sql::query(&ctx, "SELECT * FROM modeled_resource_sites")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_resource_sites = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (source_status), CAST({} AS SMALLINT) AS source_status \
+             FROM modeled_resource_sites",
+            ModelResourceSourceStatus::Unknown.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_resource_sites").unwrap();
+    ctx.register_table("modeled_resource_sites", doctored_resource_sites)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:modeled-resource-site-shape"),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-resource-site-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_resource_sites").unwrap();
+    ctx.register_table("modeled_resource_sites", original_resource_sites)
         .unwrap();
 
     let doctored = sql::query(

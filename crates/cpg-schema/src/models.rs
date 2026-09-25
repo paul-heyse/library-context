@@ -15,8 +15,8 @@ use crate::behavior::{
 };
 use crate::codebook::{
     DefinitionKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
-    ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction, ModelTransferKind,
-    ModuleOrigin, Origin, SignatureForm,
+    ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction,
+    ModelTransferKind, ModuleOrigin, Origin, SignatureForm,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
@@ -346,6 +346,35 @@ pub enum ResourcePath {
 }
 
 impl ResourcePath {
+    pub fn kind(&self) -> ModelPathKind {
+        match self {
+            Self::Input {
+                path: InputPath::Parameter { .. },
+            }
+            | Self::Output {
+                path: OutputPath::Parameter { .. },
+            } => ModelPathKind::Parameter,
+            Self::Input {
+                path: InputPath::ReceiverField { .. },
+            }
+            | Self::Output {
+                path: OutputPath::ReceiverField { .. },
+            } => ModelPathKind::ReceiverField,
+            Self::Input {
+                path: InputPath::Global { .. },
+            }
+            | Self::Output {
+                path: OutputPath::Global { .. },
+            } => ModelPathKind::Global,
+            Self::Output {
+                path: OutputPath::ReturnValue,
+            } => ModelPathKind::ReturnValue,
+            Self::Output {
+                path: OutputPath::Raise { .. },
+            } => unreachable!("validated resource path"),
+        }
+    }
+
     fn formal(&self) -> Option<&str> {
         match self {
             Self::Input { path } => path.formal(),
@@ -868,6 +897,7 @@ impl Catalog {
                             resource_path_id: resource.id(),
                             resource_path: resource.render(),
                             resource_role: resource.role(),
+                            resource_path_kind: resource.kind(),
                             action: action.codebook(),
                             exit: exit.codebook(),
                             modality: modality.codebook(),
