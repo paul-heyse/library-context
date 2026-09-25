@@ -22,23 +22,54 @@ changes a §B decision lands its ADR, and a `standard` review of it, first.
 
 ### Restart checkpoint (2026-09-25, Stage 3 in progress)
 
-The latest committed slice is `0cef120` on `main`; the working tree was clean at this checkpoint.
+The latest committed slice is `fb9020a` on `main`; the working tree was clean at this checkpoint.
 This updates execution state, not the Stage 3 target below.
 
 | Scope | Current state | Evidence and remaining boundary |
 |---|---|---|
 | Stage 3.0 conditions | **Partially Implemented and Tested** | Bounded BDD catalogs, exact entry-value links and a narrow primitive refutation are focused-tested. `analysis_conditions` now persists flow-recomposed roots separately from provider roots (`b640347`). No served compatibility verdict exists. |
-| Stage 3.1 pinned models | **Partially Implemented and Tested** | Typed transfer/effect/callback/resource/exception assertions and exact source applications publish with shared validation. The committed catalog is still narrow (`typing.cast`, `typing.assert_type`, `print`, JSON, `open`, `atexit.register`); CrossHair covers only an `int` specialization of `typing.cast`. Other listed families remain. |
+| Stage 3.1 pinned models | **Partially Implemented and Tested** | Typed transfer/effect/callback/resource/exception assertions and exact source applications publish with shared validation. `0021fc7` added source-backed normal-return assertions only for `typing.cast` and `typing.assert_type`; `fb9020a` carries that assertion and the actual resolved target count on each application. The catalog is still narrow; CrossHair covers only an `int` specialization of `typing.cast`. Other listed families remain. |
 | Stage 3.2 L2 fates | **Partially Implemented and Tested** | Handler clauses, pinned class/MRO candidate matches, direct handler `return None`, and candidate modeled-exception paths are cited. Nested frame propagation, normal/exceptional completion, callback fate and resource acquire/release pairing remain unknown. |
 | Stage 3.3 source path and summary base | **Partially Implemented and Tested** | Raw contributions and inherited predecessor facts remain separate; a bounded BDD checks predecessor compatibility. Whole-expression pinned model steps cover direct return and assignment values (`3357e5f`); `4f1d8b4` cites assignment-to-return candidates. `7eed4e5` writes finite direct synchronous identity-return `summary_flows`; `0cef120` writes explicit `summary_boundaries` for the remaining same-callable parameter-origin return facts. Candidate paths are not completed transfers. SCC composition, effect summaries, closure and `call_transfer` discharge remain. |
 | Stage 3.4–3.6 and exit | **Not implemented / not run** | Broader independent Pysa and CPython/Hypothesis value-flow oracles, FORMAT 7 generation/native serving, effect/role/compatibility filters, Q01/Q03/Q05/Q09, clean-wheel acceptance and increment-end review remain. The last complete `just test-all` and fresh pilot were at `d61a497`; neither certifies current HEAD. |
 
-**Next dependency:** establish a cited normal-return/completion and complete-target contract for
-modeled calls, then compose finite call-path summaries over petgraph SCCs while preserving each
-candidate's condition, modality, handler and budget boundaries. Finish the remaining L2 and model
-families before interpreting summary silence as a negative. The operator requires only targeted
-checks until all Stage 3 functional scope is implemented; `just fmt`, `just test-all`, fresh-store
-`just pilot`, structured evaluation and clean wheel/native query follow only at the integrated end.
+**Next dependency:** a pinned target assertion and actual source candidate count now exist, but
+neither proves argument evaluation or the enclosing exit. Establish those local witnesses and a
+typed multi-step summary proof identity before promoting a candidate path. Then compose finite
+call-path summaries over petgraph SCCs while retaining each candidate's condition, modality,
+handler and budget boundaries. Finish the remaining L2 and model families before interpreting
+summary silence as a negative. The operator requires only targeted checks until all Stage 3
+functional scope is implemented; `just fmt`, `just test-all`, fresh-store `just pilot`, structured
+evaluation and clean wheel/native query follow only at the integrated end.
+
+### Detailed remaining Stage 3 execution queue (2026-09-25)
+
+This queue makes the current dependency order explicit. Every intermediate outcome is a cited
+positive candidate or `unknown`; no absence becomes `refuted_under_model` before all five model
+channels and relevant source paths are closed. A slice uses focused compilation, one positive
+and one withholding fixture, its schema/rule snapshots and the shared publication validator.
+The final column names a *targeted* check, not an integrated acceptance run.
+
+| Order | Build and proof boundary | Library-first implementation and targeted acceptance |
+|---|---|---|
+| 1 | **Call-site evaluation.** For every relevant argument, distinguish already evaluated direct values, a cited normal outcome, a possible raise, and an unsupported/unresolved expression. Tie the proof to Ruff's argument syntax, ty's exact use/region facts and the call site. Preserve evaluation order; a modeled target's `normal_return` starts only after arguments are evaluated. | DataFusion joins and Arrow contracts; no second Python expression evaluator. A direct formal and a raising sibling argument must diverge in a focused fixture. The shared validator rejects a forged completion row. |
+| 2 | **Exit and L2 fate.** Extend `exit_sites`/handler candidates to nested `try`/`finally` and `with` frame order, normal/exceptional completion and suppression boundaries. Derive callback stored/invoked/forwarded/registered and resource acquire/release only with an execution and exit witness. Keep generators/coroutines at the Stage 5 deferred-execution boundary. | Reuse Ruff syntax identity, ty flow, pinned context and DataFusion relations. Run focused nesting, early-return, re-raise, suppressor, callback-not-run and unreleased-resource cases; do not substitute lexical containment for execution. |
+| 3 | **Summary proof identity.** Migrate `summary_flows` from a raw-fact-only key to a canonical proof identity with ordered, typed call/model/flow/exit steps. A finite witness DAG or compact step relation should retain parallel paths without duplicating all prefixes. The step table must support later SCC composition and same-snapshot evidence closure; a one-call-only nullable tuple is insufficient. | Author one Arrow key/step contract and validator, with source/evidence references; reuse BDD root IDs and existing `lctx_id` derivation. Check two distinct calls sharing endpoints, reordered inputs and a forged/missing intermediate step. An ADR and standard review precede a §B5/§B6 identity pivot. |
+| 4 | **First positive modeled result.** Admit an exact whole-return `typing.cast`/`typing.assert_type` identity path only when the source target set is closed and sole, target/model modalities are definite, all arguments reach the call, the pinned target asserts normal return, the BDD condition is admitted and the enclosing return exit is proven. The two-step assignment predecessor follows only after its reaching definition is unambiguous and condition-compatible. Otherwise retain a specific `summary_boundaries` reason. | Relational candidate selection in DataFusion, finite condition/step composition in `lctx-analytics`. Focused direct, shadowed, nested-call, fallback expression, alternate target, raising argument and assignment cases; shared source equality rejects a forged summary. |
+| 5 | **Broaden model data by semantic family.** Pure constructors and value helpers; I/O/serialization/compression; async/timeouts/context; pydantic/settings; HTTP/server entry points. Record each target's exact pin, signature/formal mapping, independent channel coverage, invocation phase and normal-return assertion only when source-backed. A model family without an in-scope consumer remains a candidate model, not a positive behavior. | Start with the pinned local library and Python source, then Context7/official docs and the relevant capability skill; CrossHair checks pure models in isolated workers. Targeted per-family positive/withholding fixtures and model-catalog equality checks. |
+| 6 | **Finite interprocedural summaries.** Build caller→callee graph from attributed source targets, use petgraph `tarjan_scc` (callee-first for that edge orientation), sort members and ties by canonical IDs, then run a monotone bounded worklist per SCC. Compose value/transform/effect/exception/role paths with BDD `and` and declared modality. A depth, BDD-node, pair-work or iteration cap writes an explicit boundary; an open override/unresolved candidate blocks negative closure. | Petgraph owns SCCs, DataFusion owns candidate joins, biodivine-lib-bdd owns Boolean operations; no all-path closure. Focused acyclic, mutual-recursion, parallel-edge, open-override and cap fixtures; compare shuffled input byte-for-byte. Trigger the Ascent spike only after three recursive rule families repeat the worklist shape. |
+| 7 | **Behavior claim discharge.** Reconstruct `summary_flows`, `summary_effects` and `summary_boundaries` through shared validators. Update behavior derivation so `call_transfer` changes to established/conditional only with the matching proof; a refutation requires complete source/model/handler coverage. Keep unrelated or ambiguous call candidates unknown. | Use the existing five-verdict codebook and DataFusion invariants; focused `behavior_shapes` part 2 includes logging-only and disabled-option wrappers. No pilot count is claimed before the final run. |
+| 8 | **Independent challenge.** Compare pure model instances with exhausted CrossHair `diffbehavior`; Pysa TITO with an actual source→sink rule and pinned Pyrefly binary; CPython 3.14 `sys.monitoring` + Hypothesis for observed flow, exception and exit admission. Disagreement becomes a fixture or an explicit unresolved boundary. | Keep oracles out of compiler inputs and the gold out of analysis. Run only targeted oracle cases while implementing; batch the preregistered full comparison at the integrated end. |
+| 9 | **FORMAT 7 and native serving.** Migrate one snapshot to validated structural condition/proof/summary tables, load them into one immutable PyO3 executor per FastMCP process, and expose typed compatibility plus effect/role filters. Resolve a request's operation/formal and exact primitive origin before BDD evaluation. Unsupported proof, caps and cursor exhaustion return explicit unknown/truncated with work accounting. | Reuse Arrow/DataFusion for generation, the BDD kernel for condition operations and FastMCP's structured result API. Targeted editable-import and native query cases first; only after all functionality lands run the clean-wheel query. |
+| 10 | **Integrated exit, after orders 1–9.** Run `just fmt`, `just test-all`, a fresh-store `just pilot`, Q01/Q03/Q05/Q09 and the structured Stage 3 evaluation, then one clean-wheel generation-pinned FastMCP/native query and the increment-end design review. A material fix repeats only the affected gate plus any invalidated integrated acceptance. | Report each command `passed`, `failed`, `blocked` or `not_run`, exact pilot `call_transfer` before/after counts, condition budget counts, compile time/RSS and serving bounds. No integrated/formatting command runs during orders 1–9 by operator direction. |
+
+The additional architectural constraint over the original plan is proof-path identity before SCC
+composition: the current `summary_flows` key can cite one raw return fact but cannot distinguish
+two modeled call chains that arrive there. A compact proof DAG preserves parallel evidence and
+gives FORMAT 7 a stable join target. The library leverage is deliberately split by operation:
+DataFusion for bounded joins/validation, petgraph for SCC topology, biodivine-lib-bdd for
+condition algebra, and FastMCP/PyO3 for a single immutable generation. None of those libraries
+is treated as a provider of Python runtime semantics.
 
 ---
 
