@@ -1,7 +1,7 @@
 """A referenced stdlib callable for the Stage 3 authored-model binding fixture."""
 
 import atexit
-from typing import Callable, cast
+from typing import Callable, assert_type, cast
 
 
 def identity(value: object) -> object:
@@ -34,3 +34,7 @@ def on_shutdown_unpacked(callbacks):
 
 def identity_keyword(value: object) -> object:
     return cast(typ=object, val=value)
+
+
+def asserted_type(value: object) -> object:
+    return assert_type(value, object)

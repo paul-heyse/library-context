@@ -13,6 +13,20 @@ to = { kind = "return_value" }
 transfer = "identity"
 modality = "definite"
 
+# Python 3.14 typing.assert_type is a static checker directive. At runtime it performs no
+# check and returns val unchanged (CPython Doc/library/typing.rst, pinned context binding).
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "assert_type" }
+coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "val" }
+to = { kind = "return_value" }
+transfer = "identity"
+modality = "definite"
+
 # Python 3.14 print() writes text to a stream (sys.stdout by default, or file.write).
 # The stream identity is call-dependent, so this model claims the I/O effect without a subject.
 [[models]]

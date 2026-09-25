@@ -3050,8 +3050,9 @@ resource actions identify their exit. Each target declares transfer, effect, cal
 and exception coverage independently as complete, partial or unspecified. Only complete
 coverage can later support a negative summary conclusion. The shared publication validator
 reconstructs every model row from the committed catalog and pinned context, rejecting missing,
-extra or altered rows. `typing.cast`, `builtins.print`, `builtins.open` and `atexit.register` are
-the first authored targets. These rows remain model assertions: source L2 linkage, summary
+extra or altered rows. `typing.cast`, `typing.assert_type`, `builtins.print`, `builtins.open`
+and `atexit.register` are the first authored targets. These rows remain model assertions:
+source L2 linkage, summary
 application, broader pure-model oracles and served behavioral claims remain Proposed. Focused
 release Nextest and Clippy passed; the integrated gate and fresh pilot are reserved for the
 assembled Stage 3 end.
@@ -3113,7 +3114,8 @@ For a parameter input it takes the exact source argument only from
 `model_argument_bindings`; for a `ReturnValue` output it identifies the call expression and
 call fact. Unsupported paths or argument shapes keep the endpoint `unknown` with a reason.
 The row retains the transfer kind, target and model modalities, candidate-set completeness,
-and unresolved remainder. `typing.cast` and `atexit.register` produce candidate identity
+and unresolved remainder. `typing.cast`, `typing.assert_type` and `atexit.register` produce
+candidate identity
 transfers when their inputs bind; invalid keyword or unpacked arguments do not acquire a
 false source value. Shared publication validation reconstructs the relation and rejects a
 forged endpoint status. This is not yet a summary flow or a whole-operation verdict:
@@ -3145,6 +3147,10 @@ integrated Stage 3 gate remains `not_run`.
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic
 model or its use in a summary. [Evidence](../design_review/evidence/2026-09-24_typing_cast_model_oracle/README.md).
+**Tested, narrow oracle (2026-09-25):** an isolated CrossHair 0.0.110 probe exhausted
+paths for the pure `int` specialization of `typing.assert_type` versus identity; a wrong
+control returned `value=0`. The generic model and summary use remain unproved.
+[Evidence](../design_review/evidence/2026-09-25_typing_assert_type_model_oracle/README.md).
 
 **Implemented and Tested (2026-09-24, Stage 3 L2 structural exits only):** every compile
 derives `exit_sites` from Ruff `syntax_nodes` and ty `flow_regions`. Explicit `return` and
@@ -3935,3 +3941,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Model-authored exception classes bind to pinned context definitions before source application; the extractor producer identity includes model catalog bytes (§B5, §3.2, §4.0, §9.9) | ADR-0029 |
 | 2026-09-25 | Positive modeled exception ancestor relationships use pinned Pyrefly context MRO facts; nonmembership stays unknown (§B5, §3.2, §9.9) | ADR-0030 |
 | 2026-09-25 | Stage 3 source provenance retains raw value-flow contributions and distinguishes local from inherited call crossing; candidate handlers apply within-frame clause order only, conditional on raise reaching the frame (§B5, §9.9) | ADR-0028 (proposed), ADR-0030 boundary |
+| 2026-09-25 | Added the pinned `typing.assert_type` identity model, with exact source argument binding and an exhausted narrow CrossHair oracle (§9.9) | — |

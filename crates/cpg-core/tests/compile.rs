@@ -1206,7 +1206,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn pinned_cast_model_requires_and_publishes_its_real_formal() {
+async fn pinned_identity_models_require_and_publish_their_real_formals() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([52; 16]);
     let analysis = Analysis {
@@ -1242,16 +1242,16 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert_eq!(targets, 4, "cast, print, open and atexit.register");
+    assert_eq!(targets, 5, "cast, assert_type, print, open and atexit.register");
     assert!(
         count(&ctx, "SELECT count(*) FROM flow_value_calls").await > 0,
         "source value uses inside calls retain their ordered raw call steps"
     );
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 2);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 3);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        5,
-        "the cast and atexit transfer rules apply to their resolved source calls"
+        6,
+        "the cast, assert_type and atexit transfers apply to their resolved source calls"
     );
     assert_eq!(
         count(
@@ -1273,6 +1273,25 @@ budget = 1
         .await,
         1,
         "the keyword cast transfer cites its exact input and call-result expressions"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_transfer_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'asserted_type' AND s.transfer = {} \
+                   AND s.input_status = {} AND s.input_expression_node_id IS NOT NULL \
+                   AND s.output_status = {} AND s.output_expression_node_id = s.call_site_node_id \
+                   AND s.candidate_set_complete_under_model",
+                ModelTransferKind::Identity.code(),
+                ModelTransferEndpointStatus::BoundArgument.code(),
+                ModelTransferEndpointStatus::CallResult.code(),
+            )
+        )
+        .await,
+        1,
+        "the assert_type identity cites the exact val argument and returned call expression"
     );
     assert_eq!(
         count(
@@ -1349,8 +1368,8 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_formal_paths").await,
-        3,
-        "the cast input and two atexit func paths are compiled from typed model ASTs"
+        4,
+        "the cast/assert_type inputs and two atexit func paths use typed model ASTs"
     );
     assert_eq!(
         count(
@@ -1493,7 +1512,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        7,
+        8,
         "each pinned model applies only at its resolved source call"
     );
     assert_eq!(
