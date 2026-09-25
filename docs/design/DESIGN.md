@@ -359,9 +359,11 @@ each value use's ordered, outer-to-inner call path with callee/argument roles an
 The raw `flow_value_calls` relation cites its parent `flow_values` fact; `through_call` is derived
 from path presence. Shared publication validation checks dense ordinals, nested containment,
 use attribution and the boolean/path equivalence. The extractor output version is 28. A nested
-fixture and path tamper passed focused checks. **Proposed:** bind each path span to unique Ruff
-call/argument facts before L3 composition; missing or ambiguous joins remain unknown. The raw
-path alone cannot identify a completed modeled transfer.
+fixture and path tamper passed focused checks. **Implemented and Tested in focused cases
+(2026-09-25):** DataFusion derives `flow_value_call_links` with one row per step, a unique Ruff
+call/argument citation or a typed missing/ambiguous status. Shared validation recomputes the
+relation, including withheld and absent rows. The compiler output version is 37. This source
+bridge cannot by itself identify a completed modeled transfer.
 
 **Implemented and Tested in focused cases (2026-09-25, first ADR-0028 source seam):**
 `arguments` persists the argument expression's value span separately from its authored
@@ -1404,10 +1406,13 @@ A read reached from module scope through calls is Stage 3's.
 inside calls has raw, ordered outer-to-inner `flow_value_calls` steps. A step cites its parent
 value fact, byte span and callee/argument operand role; publication checks the path and rejects
 a skipped ordinal. A nested keyword path joins the same module's Ruff `call_syntax` and
-`arguments` facts by exact spans in a focused fixture. **Proposed:** persist the unique source
-join or an explicit unknown for every step; then L3 must withhold a positive transfer if a step
-is unmatched, a callee is relabelled as an argument, or the argument value is derived from its
-use. Existing `through_call` remains an unknown boundary until each modeled hop is proved.
+`arguments` facts by exact spans in a focused fixture. **Implemented and Tested in focused cases
+(2026-09-25):** `flow_value_call_links` persists the unique source join or an explicit
+missing/ambiguous status for every step. Focused cases cover matched nested keyword and callee
+roles, removed source calls, doubled source calls and a doctored status rejected by the shared
+validator. **Proposed:** L3 must withhold a positive transfer if a step is unmatched, a callee is
+relabelled as an argument, or the argument value is derived from its use. Existing
+`through_call` remains an unknown boundary until each modeled hop is proved.
 
 > Decision: ADR-0022, ADR-0027, ADR-0028
 

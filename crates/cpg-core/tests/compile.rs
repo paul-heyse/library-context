@@ -18,8 +18,8 @@ use cpg_schema::behavior::{
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
 use cpg_schema::codebook::{
-    Codebook, ExitSiteKind, FlowCallOperandRole, FlowSink, HandlerTypeStatus, Modality,
-    ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
+    Codebook, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink, HandlerTypeStatus,
+    Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
     ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
     ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
     Origin,
@@ -162,6 +162,157 @@ async fn nested_flow_call_steps_survive_publication_with_exact_source_coordinate
         1,
         "the callee use is never relabeled as an input argument"
     );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM flow_value_call_links").await,
+        count(&ctx, "SELECT count(*) FROM flow_value_calls").await,
+        "the derived bridge retains every raw path step"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM flow_value_call_links l \
+                 JOIN flow_value_calls c ON c.fact_id = l.flow_value_call_fact_id \
+                 JOIN arguments a ON a.node_id = l.argument_node_id \
+                 WHERE c.step = 1 AND a.keyword = 'data' AND l.status = {} \
+                   AND l.argument_fact_id = a.fact_id",
+                FlowCallLinkStatus::BoundArgument.code()
+            )
+        )
+        .await,
+        1,
+        "the persisted inner step cites the unique keyword value argument"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM flow_value_call_links l \
+                 JOIN flow_value_calls c ON c.fact_id = l.flow_value_call_fact_id \
+                 JOIN flow_uses u ON u.use_id = c.use_id \
+                 WHERE u.place = 'func' AND l.status = {} \
+                   AND l.call_node_id IS NOT NULL AND l.argument_node_id IS NULL",
+                FlowCallLinkStatus::BoundCallee.code()
+            )
+        )
+        .await,
+        1,
+        "a callee source link cannot masquerade as an argument transfer"
+    );
+
+    let original_links = sql::query(&ctx, "SELECT * FROM flow_value_call_links")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_links = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (status), CAST({} AS SMALLINT) AS status \
+             FROM flow_value_call_links",
+            FlowCallLinkStatus::MissingCall.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("flow_value_call_links").unwrap();
+    ctx.register_table("flow_value_call_links", doctored_links)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:flow-call-link-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("flow_value_call_links").unwrap();
+    ctx.register_table("flow_value_call_links", original_links)
+        .unwrap();
+
+    let original_calls = sql::query(&ctx, "SELECT * FROM call_syntax")
+        .await
+        .unwrap()
+        .into_view();
+    let removed_steps = count(
+        &ctx,
+        "SELECT count(*) FROM flow_value_calls f \
+         JOIN call_syntax c ON c.module_node_id = f.module_node_id \
+           AND c.start_byte = f.call_start_byte AND c.end_byte = f.call_end_byte \
+         WHERE c.node_id IN (SELECT call_node_id FROM arguments WHERE keyword = 'data')",
+    )
+    .await;
+    assert!(removed_steps > 0);
+    let missing_calls = sql::query(
+        &ctx,
+        "SELECT * FROM call_syntax WHERE node_id NOT IN \
+         (SELECT call_node_id FROM arguments WHERE keyword = 'data')",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("call_syntax").unwrap();
+    ctx.register_table("call_syntax", missing_calls).unwrap();
+    assert!(count(&ctx, "SELECT count(*) FROM call_syntax").await > 0);
+    let link_query =
+        <cpg_schema::derived::FlowValueCallLinks as cpg_schema::derived::Derived>::sql();
+    assert_eq!(
+        count(
+            &ctx,
+            &format!("WITH bridge AS ({link_query}) SELECT count(*) FROM bridge")
+        )
+        .await,
+        count(&ctx, "SELECT count(*) FROM flow_value_calls").await,
+        "the recomputed bridge keeps every step when source calls disappear"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "WITH bridge AS ({link_query}) SELECT count(*) FROM bridge WHERE status = {}",
+                FlowCallLinkStatus::MissingCall.code()
+            )
+        )
+        .await,
+        removed_steps,
+        "every missing source call remains an explicit unknown link; {}",
+        text(
+            &ctx,
+            &format!(
+                "WITH bridge AS ({link_query}) SELECT status, count(*) AS n FROM bridge GROUP BY status"
+            )
+        )
+        .await
+    );
+    ctx.deregister_table("call_syntax").unwrap();
+    ctx.register_table("call_syntax", original_calls).unwrap();
+
+    let duplicate_calls = sql::query(
+        &ctx,
+        "SELECT * FROM call_syntax UNION ALL SELECT * FROM call_syntax",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    let original_calls = sql::query(&ctx, "SELECT * FROM call_syntax")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("call_syntax").unwrap();
+    ctx.register_table("call_syntax", duplicate_calls).unwrap();
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "WITH bridge AS ({link_query}) SELECT count(*) FROM bridge WHERE status = {}",
+                FlowCallLinkStatus::AmbiguousCall.code()
+            )
+        )
+        .await,
+        count(&ctx, "SELECT count(*) FROM flow_value_calls").await,
+        "a doubled call coordinate cannot become an arbitrary single source identity"
+    );
+    ctx.deregister_table("call_syntax").unwrap();
+    ctx.register_table("call_syntax", original_calls).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -174,7 +325,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        53 + 21 + 51,
+        53 + 22 + 51,
         "every raw, derived and analysis table"
     );
 

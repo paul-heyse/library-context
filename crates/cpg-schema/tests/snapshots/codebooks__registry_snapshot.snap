@@ -656,6 +656,13 @@ flow_sink
 flow_call_operand_role
   0 callee
   1 argument
+flow_call_link_status
+  0 bound_callee
+  1 bound_argument
+  2 missing_call
+  3 ambiguous_call
+  4 missing_argument
+  5 ambiguous_argument
 read_phase
   0 import
   1 construction

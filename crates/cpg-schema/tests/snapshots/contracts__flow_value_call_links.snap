@@ -1,0 +1,17 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_value_call_links
+family findings
+key snapshot_id, flow_value_call_fact_id
+@lctx.family=findings
+@lctx.table=flow_value_call_links
+snapshot_id: FixedSizeBinary(16) NOT NULL
+flow_value_call_fact_id: FixedSizeBinary(16) NOT NULL
+flow_value_fact_id: FixedSizeBinary(16) NOT NULL
+call_node_id: FixedSizeBinary(16) NULL
+call_fact_id: FixedSizeBinary(16) NULL
+argument_node_id: FixedSizeBinary(16) NULL
+argument_fact_id: FixedSizeBinary(16) NULL
+status: Int16 NOT NULL [lctx.codebook=flow_call_link_status]

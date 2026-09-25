@@ -60,7 +60,9 @@ pub struct Published {
 /// 30: cited model applications at source call sites. 31: typed model formal paths.
 /// 32: exact per-signature model formal to source-argument bindings.
 /// 33: candidate-local modeled callback sites and binding boundaries.
-pub const COMPILER_OUTPUT_VERSION: u32 = 36;
+/// 34: candidate-local modeled resource sites. 35: candidate-local modeled transfer sites.
+/// 36: candidate-local modeled effect sites. 37: exact flow-call source links (ADR-0028).
+pub const COMPILER_OUTPUT_VERSION: u32 = 37;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

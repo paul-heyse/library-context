@@ -136,6 +136,8 @@ key:identifier_targets
   SELECT snapshot_id, pysa_fact_id, count(*) AS n FROM identifier_targets GROUP BY snapshot_id, pysa_fact_id HAVING count(*) > 1
 key:import_targets
   SELECT snapshot_id, import_fact_id, count(*) AS n FROM import_targets GROUP BY snapshot_id, import_fact_id HAVING count(*) > 1
+key:flow_value_call_links
+  SELECT snapshot_id, flow_value_call_fact_id, count(*) AS n FROM flow_value_call_links GROUP BY snapshot_id, flow_value_call_fact_id HAVING count(*) > 1
 key:type_class_targets
   SELECT snapshot_id, term_node_id, count(*) AS n FROM type_class_targets GROUP BY snapshot_id, term_node_id HAVING count(*) > 1
 key:type_binders
@@ -312,6 +314,18 @@ ref:flow_value_calls.flow_value_fact_id->flow_values
   SELECT f.flow_value_fact_id AS value FROM flow_value_calls f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.flow_value_fact_id = r.k WHERE f.flow_value_fact_id IS NOT NULL
 ref:flow_value_calls.use_id->flow_uses
   SELECT f.use_id AS value FROM flow_value_calls f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.use_id = r.k WHERE f.use_id IS NOT NULL
+ref:flow_value_call_links.flow_value_call_fact_id->flow_value_calls
+  SELECT f.flow_value_call_fact_id AS value FROM flow_value_call_links f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_value_calls) r ON f.flow_value_call_fact_id = r.k WHERE f.flow_value_call_fact_id IS NOT NULL
+ref:flow_value_call_links.flow_value_fact_id->flow_values
+  SELECT f.flow_value_fact_id AS value FROM flow_value_call_links f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.flow_value_fact_id = r.k WHERE f.flow_value_fact_id IS NOT NULL
+ref:flow_value_call_links.call_node_id->call_syntax
+  SELECT f.call_node_id AS value FROM flow_value_call_links f LEFT ANTI JOIN (SELECT node_id AS k FROM call_syntax) r ON f.call_node_id = r.k WHERE f.call_node_id IS NOT NULL
+ref:flow_value_call_links.call_fact_id->facts
+  SELECT f.call_fact_id AS value FROM flow_value_call_links f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.call_fact_id = r.k WHERE f.call_fact_id IS NOT NULL
+ref:flow_value_call_links.argument_node_id->arguments
+  SELECT f.argument_node_id AS value FROM flow_value_call_links f LEFT ANTI JOIN (SELECT node_id AS k FROM arguments) r ON f.argument_node_id = r.k WHERE f.argument_node_id IS NOT NULL
+ref:flow_value_call_links.argument_fact_id->facts
+  SELECT f.argument_fact_id AS value FROM flow_value_call_links f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.argument_fact_id = r.k WHERE f.argument_fact_id IS NOT NULL
 ref:assertions.run_id->runs
   SELECT f.run_id AS value FROM assertions f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:assertions.subject_node_id->nodes
@@ -934,6 +948,8 @@ codebook:identifier_targets.reason
   SELECT reason FROM identifier_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:import_targets.reason
   SELECT reason FROM import_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:flow_value_call_links.status
+  SELECT status FROM flow_value_call_links WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3, 4, 5)
 codebook:type_class_targets.reason
   SELECT reason FROM type_class_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:type_binders.reason
@@ -1230,6 +1246,8 @@ semantic:flow-reaching-within-candidates
   SELECT fr.use_id FROM flow_reaching fr JOIN flow_uses u ON u.use_id = fr.use_id JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte JOIN flow_definitions d ON d.definition_id = fr.definition_id JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte LEFT ANTI JOIN reference_resolutions rr ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id
 semantic:flow-value-call-path
   WITH steps AS (SELECT c.*, v.module_node_id AS value_module, v.use_id AS value_use, v.through_call, v.sink_start_byte, v.sink_end_byte, u.start_byte AS use_start, u.end_byte AS use_end, row_number() OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) - 1 AS expected_step, lag(c.operand_start_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_start, lag(c.operand_end_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_end, lead(c.step) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS next_step FROM flow_value_calls c JOIN flow_values v ON v.fact_id = c.flow_value_fact_id JOIN flow_uses u ON u.use_id = c.use_id) SELECT fact_id FROM steps WHERE module_node_id <> value_module OR use_id <> value_use OR NOT through_call OR step <> expected_step OR (step = 0 AND (call_start_byte < sink_start_byte OR call_end_byte > sink_end_byte)) OR (step > 0 AND (call_start_byte < parent_start OR call_end_byte > parent_end)) OR (next_step IS NULL AND (use_start < operand_start_byte OR use_end > operand_end_byte)) UNION ALL SELECT v.fact_id FROM flow_values v LEFT JOIN flow_value_calls c ON c.flow_value_fact_id = v.fact_id GROUP BY v.fact_id, v.through_call HAVING (v.through_call AND count(c.fact_id) = 0) OR (NOT v.through_call AND count(c.fact_id) > 0) OR count(DISTINCT c.step) <> count(c.fact_id)
+semantic:flow-call-link-source-equality
+  WITH expected AS (WITH call_candidates AS ( SELECT f.fact_id AS step_fact_id, count(c.fact_id) AS n, any_value(c.node_id) AS node_id, any_value(c.fact_id) AS fact_id FROM flow_value_calls f LEFT JOIN call_syntax c ON c.module_node_id = f.module_node_id AND c.start_byte = f.call_start_byte AND c.end_byte = f.call_end_byte GROUP BY f.fact_id), argument_candidates AS ( SELECT f.fact_id AS step_fact_id, count(a.fact_id) AS n, any_value(a.node_id) AS node_id, any_value(a.fact_id) AS fact_id FROM flow_value_calls f JOIN call_candidates c ON c.step_fact_id = f.fact_id LEFT JOIN arguments a ON c.n = 1 AND f.role = 1 AND a.call_node_id = c.node_id AND a.value_start_byte = f.operand_start_byte AND a.value_end_byte = f.operand_end_byte GROUP BY f.fact_id) SELECT f.fact_id AS flow_value_call_fact_id, f.flow_value_fact_id, CASE WHEN c.n = 1 THEN c.node_id END AS call_node_id, CASE WHEN c.n = 1 THEN c.fact_id END AS call_fact_id, CASE WHEN c.n = 1 AND a.n = 1 AND f.role = 1 THEN a.node_id END AS argument_node_id, CASE WHEN c.n = 1 AND a.n = 1 AND f.role = 1 THEN a.fact_id END AS argument_fact_id, CAST(CASE WHEN c.n = 0 THEN 2 WHEN c.n > 1 THEN 3 WHEN f.role = 0 THEN 0 WHEN a.n = 0 THEN 4 WHEN a.n > 1 THEN 5 ELSE 1 END AS SMALLINT) AS status FROM flow_value_calls f JOIN call_candidates c ON c.step_fact_id = f.fact_id JOIN argument_candidates a ON a.step_fact_id = f.fact_id) SELECT coalesce(e.flow_value_call_fact_id, l.flow_value_call_fact_id) AS step_fact_id FROM expected e FULL OUTER JOIN flow_value_call_links l ON e.flow_value_call_fact_id = l.flow_value_call_fact_id WHERE e.flow_value_call_fact_id IS NULL OR l.flow_value_call_fact_id IS NULL OR (e.flow_value_fact_id IS DISTINCT FROM l.flow_value_fact_id) OR (e.call_node_id IS DISTINCT FROM l.call_node_id) OR (e.call_fact_id IS DISTINCT FROM l.call_fact_id) OR (e.argument_node_id IS DISTINCT FROM l.argument_node_id) OR (e.argument_fact_id IS DISTINCT FROM l.argument_fact_id) OR (e.status IS DISTINCT FROM l.status)
 semantic:model-target-provenance
   SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
 semantic:modeled-callback-site-shape

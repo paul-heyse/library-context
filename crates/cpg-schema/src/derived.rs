@@ -8,9 +8,9 @@
 
 use crate::codebook::{
     BindingKind, BoundaryReason, Codebook, DeclarationKind, DefinitionKind, ExportSyntaxKind,
-    LexicalScopeKind, ModuleOrigin, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
-    PysaUnresolvedReason, ResolutionDomain, ResolutionStatus, SignatureForm, SymbolKind,
-    SyntaxKind,
+    FlowCallLinkStatus, FlowCallOperandRole, LexicalScopeKind, ModuleOrigin, PysaCalleeKind,
+    PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, ResolutionDomain, ResolutionStatus,
+    SignatureForm, SymbolKind, SyntaxKind,
 };
 use crate::id::Id;
 use crate::table::{Table, table};
@@ -1086,6 +1086,75 @@ impl Derived for ImportTargets {
     }
 }
 
+table!(
+    /// Exact source binding for one raw `flow_value_calls` step. A row is kept for every step;
+    /// missing/nonunique call or argument matches have a typed status and null source ids.
+    /// The call id alone never proves a value transfer or normal completion.
+    FlowValueCallLinks, FlowValueCallLinksRow = "flow_value_call_links",
+    family = Findings,
+    key = [snapshot_id, flow_value_call_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        flow_value_call_fact_id: Id,
+        flow_value_fact_id: Id,
+        call_node_id: Option<Id>,
+        call_fact_id: Option<Id>,
+        argument_node_id: Option<Id>,
+        argument_fact_id: Option<Id>,
+        status: FlowCallLinkStatus,
+    }
+);
+
+impl Derived for FlowValueCallLinks {
+    fn sql() -> String {
+        format!(
+            "WITH call_candidates AS ( \
+               SELECT f.fact_id AS step_fact_id, count(c.fact_id) AS n, \
+                      any_value(c.node_id) AS node_id, any_value(c.fact_id) AS fact_id \
+               FROM flow_value_calls f LEFT JOIN call_syntax c \
+                 ON c.module_node_id = f.module_node_id \
+                AND c.start_byte = f.call_start_byte AND c.end_byte = f.call_end_byte \
+               GROUP BY f.fact_id), \
+             argument_candidates AS ( \
+               SELECT f.fact_id AS step_fact_id, count(a.fact_id) AS n, \
+                      any_value(a.node_id) AS node_id, any_value(a.fact_id) AS fact_id \
+               FROM flow_value_calls f \
+               JOIN call_candidates c ON c.step_fact_id = f.fact_id \
+               LEFT JOIN arguments a ON c.n = 1 AND f.role = {argument} \
+                 AND a.call_node_id = c.node_id \
+                 AND a.value_start_byte = f.operand_start_byte \
+                 AND a.value_end_byte = f.operand_end_byte \
+               GROUP BY f.fact_id) \
+             SELECT f.fact_id AS flow_value_call_fact_id, \
+                    f.flow_value_fact_id, \
+                    CASE WHEN c.n = 1 THEN c.node_id END AS call_node_id, \
+                    CASE WHEN c.n = 1 THEN c.fact_id END AS call_fact_id, \
+                    CASE WHEN c.n = 1 AND a.n = 1 AND f.role = {argument} \
+                         THEN a.node_id END AS argument_node_id, \
+                    CASE WHEN c.n = 1 AND a.n = 1 AND f.role = {argument} \
+                         THEN a.fact_id END AS argument_fact_id, \
+                    CAST(CASE WHEN c.n = 0 THEN {missing_call} \
+                              WHEN c.n > 1 THEN {ambiguous_call} \
+                              WHEN f.role = {callee} THEN {bound_callee} \
+                              WHEN a.n = 0 THEN {missing_argument} \
+                              WHEN a.n > 1 THEN {ambiguous_argument} \
+                              ELSE {bound_argument} END AS SMALLINT) AS status \
+             FROM flow_value_calls f \
+             JOIN call_candidates c ON c.step_fact_id = f.fact_id \
+             JOIN argument_candidates a ON a.step_fact_id = f.fact_id",
+            argument = c(FlowCallOperandRole::Argument),
+            callee = c(FlowCallOperandRole::Callee),
+            missing_call = c(FlowCallLinkStatus::MissingCall),
+            ambiguous_call = c(FlowCallLinkStatus::AmbiguousCall),
+            bound_callee = c(FlowCallLinkStatus::BoundCallee),
+            missing_argument = c(FlowCallLinkStatus::MissingArgument),
+            ambiguous_argument = c(FlowCallLinkStatus::AmbiguousArgument),
+            bound_argument = c(FlowCallLinkStatus::BoundArgument),
+        )
+    }
+}
+
 /// Invoke `$mac!(Table, …)` with every derived table, in dependency order: each query reads only
 /// raw tables and the derived tables before it.
 #[macro_export]
@@ -1106,6 +1175,7 @@ macro_rules! for_each_derived_table {
             $crate::derived::SiteTargets,
             $crate::derived::IdentifierTargets,
             $crate::derived::ImportTargets,
+            $crate::derived::FlowValueCallLinks,
             $crate::derived::TypeClassTargets,
             $crate::derived::TypeBinders,
             $crate::derived::MentionTargets,

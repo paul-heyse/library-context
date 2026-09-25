@@ -1343,6 +1343,19 @@ codebook!(
 );
 
 codebook!(
+    /// Exact Ruff source binding of one flow call-path step. A bound callee does not imply an
+    /// argument transfer; missing and nonunique source matches remain distinct unknowns.
+    FlowCallLinkStatus = "flow_call_link_status" {
+        BoundCallee = 0 => "bound_callee",
+        BoundArgument = 1 => "bound_argument",
+        MissingCall = 2 => "missing_call",
+        AmbiguousCall = 3 => "ambiguous_call",
+        MissingArgument = 4 => "missing_argument",
+        AmbiguousArgument = 5 => "ambiguous_argument",
+    }
+);
+
+codebook!(
     /// When a setting is read (ADR-0022 §Verdicts, the Stage 2 review's F8): decided by the
     /// reading site's scope.
     ReadPhase = "read_phase" {
@@ -1592,6 +1605,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelTransferKind>(),
         CodebookEntry::of::<FlowSink>(),
         CodebookEntry::of::<FlowCallOperandRole>(),
+        CodebookEntry::of::<FlowCallLinkStatus>(),
         CodebookEntry::of::<ReadPhase>(),
         CodebookEntry::of::<DynamicKind>(),
         CodebookEntry::of::<PremiseKind>(),

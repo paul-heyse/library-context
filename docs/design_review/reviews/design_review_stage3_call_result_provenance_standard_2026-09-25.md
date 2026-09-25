@@ -65,7 +65,7 @@ The producer must preserve separate callee and argument roles even for `obj.meth
 
 ## 7. Findings and principle verdicts
 
-**D01, required implementation boundary:** `flow_values.through_call` names no call. At review baseline, `arguments` stored only the authored role span; the first ADR-0028 source seam added a separately validated value span. The later raw-path slice published ordered call steps and validated their shape, but a summary join on the boolean still cannot discharge a specific call transfer. Until each step is uniquely bound to a source call and argument, the verdict remains unknown. **D02, deferred to L3:** an exact nested path still does not prove normal completion, candidate closure or identity through a computed argument. The summary kernel must carry those boundaries independently.
+**D01, implemented source boundary:** `flow_values.through_call` names no call. At review baseline, `arguments` stored only the authored role span; the first ADR-0028 seam added a separately validated value span. The raw-path slice then published ordered call steps, and the exact-source slice now derives a unique Ruff call/argument link or a typed missing/ambiguous status for each. A summary join on the boolean alone still cannot discharge a transfer. **D02, deferred to L3:** even validated links do not prove normal completion, candidate closure or identity through a computed argument. The summary kernel must carry those boundaries independently.
 
 DP-01/02/03/04/05/07/08/09/11/13/14/15/18/19/20/21/22/23/24 and CI-01/02/03/04/05/06/07/08/09/10/12 are satisfied by the proposed contract within this design scope. DP-12 and CI-11/13 require the later SCC and served implementation; no product pass is claimed.
 
@@ -88,7 +88,7 @@ DP-01/02/03/04/05/07/08/09/11/13/14/15/18/19/20/21/22/23/24 and CI-01/02/03/04/0
 
 ## 10. Verification plan
 
-The first value-span seam is **Tested** 2026-09-25: focused `INSTA_UPDATE=no cargo nextest run --release -p cpg-schema -p cpg-core -E '…' --no-tests=pass --no-fail-fast` passed 4/4 after reviewing and accepting the `arguments` schema migration. The raw-path slice is also **Tested** 2026-09-25: the focused six-test schema, producer and publication selection passed 6/6, and the nested fixture selection passed 2/2 with an exact nested keyword join and a skipped-step tamper. `cargo clippy --release -p cpg-flow -p cpg-extract -p cpg-core -p cpg-schema --all-targets -- -D warnings`, formatting and diff checks passed. The extractor output version is 28. Remaining: exact-one persisted source joins with explicit unknown on missing/ambiguous mappings; computed/starred withholding; and a bounded summary fixture for normal return versus raise/open dispatch. Integrated `just test-all`, fresh pilot, Q01/Q03/Q05/Q09 and wheel remain `not_run` until the full Stage 3 functional scope exists, per operator instruction.
+The first value-span seam is **Tested** 2026-09-25: focused `INSTA_UPDATE=no cargo nextest run --release -p cpg-schema -p cpg-core -E '…' --no-tests=pass --no-fail-fast` passed 4/4 after reviewing and accepting the `arguments` schema migration. The raw-path slice is also **Tested** 2026-09-25: the focused six-test schema, producer and publication selection passed 6/6, and the nested fixture selection passed 2/2 with an exact nested keyword join and a skipped-step tamper. The extractor output version is 28. The exact-source bridge is **Tested in focused cases** 2026-09-25: the six-test schema/publication selection passed 6/6 after reviewed snapshots; a targeted fixture passed for exact argument and callee links, removed and doubled source calls, and a doctored status rejected by shared validation. Compiler output version 37. Remaining: computed/starred transfer withholding and a bounded summary fixture for normal return versus raise/open dispatch. Integrated `just test-all`, fresh pilot, Q01/Q03/Q05/Q09 and wheel remain `not_run` until the full Stage 3 functional scope exists, per operator instruction.
 
 ## 11. Authority changes and exceptions
 
@@ -96,4 +96,4 @@ ADR-0028 adds a source-provenance obligation to §B5 without changing ty as prov
 
 ## 12. Decision
 
-**Accept the proposed source-provenance contract for implementation.** The raw call path is implemented and tested in focused cases; call-transfer verdicts remain unknown until the exact source bridge and D02's summary obligations land.
+**Accept the proposed source-provenance contract for implementation.** The raw call path and exact source bridge are implemented and tested in focused cases; call-transfer verdicts remain unknown until D02's summary obligations land.

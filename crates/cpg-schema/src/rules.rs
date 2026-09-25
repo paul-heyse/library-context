@@ -15,6 +15,7 @@ use crate::codebook::{
     PremiseKind, SourceRole, SupportRole, Verdict, registry,
 };
 use crate::column::CODEBOOK_KEY;
+use crate::derived::{Derived, FlowValueCallLinks};
 use crate::table::Table;
 
 /// One validation query and its name.
@@ -93,6 +94,28 @@ pub const REFERENCES: &[Reference] = &[
         &[("flow_values", "fact_id")],
     ),
     r("flow_value_calls", "use_id", &[("flow_uses", "use_id")]),
+    r(
+        "flow_value_call_links",
+        "flow_value_call_fact_id",
+        &[("flow_value_calls", "fact_id")],
+    ),
+    r(
+        "flow_value_call_links",
+        "flow_value_fact_id",
+        &[("flow_values", "fact_id")],
+    ),
+    r(
+        "flow_value_call_links",
+        "call_node_id",
+        &[("call_syntax", "node_id")],
+    ),
+    r("flow_value_call_links", "call_fact_id", FACT),
+    r(
+        "flow_value_call_links",
+        "argument_node_id",
+        &[("arguments", "node_id")],
+    ),
+    r("flow_value_call_links", "argument_fact_id", FACT),
     r("assertions", "run_id", &[("runs", "run_id")]),
     r("assertions", "subject_node_id", NODE),
     r(
@@ -689,6 +712,26 @@ fn semantic() -> Vec<Rule> {
                  OR (NOT v.through_call AND count(c.fact_id) > 0) \
                  OR count(DISTINCT c.step) <> count(c.fact_id)"
                 .to_owned(),
+        ),
+        (
+            // Recompute the source bridge with the same declared DataFusion relation on the
+            // published raw facts. A forged resolved id, withheld unknown, or missing row is a
+            // publication violation, not a later L3 heuristic.
+            "semantic:flow-call-link-source-equality",
+            format!(
+                "WITH expected AS ({expected}) \
+                 SELECT coalesce(e.flow_value_call_fact_id, l.flow_value_call_fact_id) AS step_fact_id \
+                 FROM expected e FULL OUTER JOIN flow_value_call_links l \
+                   ON e.flow_value_call_fact_id = l.flow_value_call_fact_id \
+                 WHERE e.flow_value_call_fact_id IS NULL OR l.flow_value_call_fact_id IS NULL \
+                    OR (e.flow_value_fact_id IS DISTINCT FROM l.flow_value_fact_id) \
+                    OR (e.call_node_id IS DISTINCT FROM l.call_node_id) \
+                    OR (e.call_fact_id IS DISTINCT FROM l.call_fact_id) \
+                    OR (e.argument_node_id IS DISTINCT FROM l.argument_node_id) \
+                    OR (e.argument_fact_id IS DISTINCT FROM l.argument_fact_id) \
+                    OR (e.status IS DISTINCT FROM l.status)",
+                expected = <FlowValueCallLinks as Derived>::sql(),
+            ),
         ),
     ];
     flow_rules.into_iter().chain([
