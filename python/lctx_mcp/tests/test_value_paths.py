@@ -58,6 +58,16 @@ async def test_value_path_inspection_round_trips_as_structured_mcp(generation: P
         assert result.structured_content["paths"][0]["exact_input_result"] == (
             "refuted_under_model"
         )
+        compatible = await client.call_tool(
+            "inspect_value_paths",
+            {"snapshot_id": snapshot, "operation": "pkg.controls.strict",
+             "formal": "value", "exact_input": {"kind": "int", "value": 1}},
+        )
+        assert compatible.structured_content is not None
+        assert compatible.structured_content["paths"][0]["exact_input_result"] == (
+            "compatible_under_model"
+        )
+        assert compatible.structured_content["paths"][0]["value_links"]
         with pytest.raises(ToolError):
             await client.call_tool(
                 "inspect_value_paths",

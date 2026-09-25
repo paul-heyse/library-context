@@ -12,22 +12,25 @@
 
 The native executor pages canonical summary ids and open boundaries for one real public
 operation/formal. Exact primitive requests are type checked before crossing the native boundary.
-The result of BDD refutation is local to each cited path. Python binds the cursor to snapshot,
-generation, canonical operation, formal, exact input and builtin assumption; it shapes the
-native result but does not decide semantic compatibility. The focused fixture and a FastMCP
-client round trip checked both a refuted `None` path and a `call_transfer` boundary.
+The exact-input BDD assessment is local to each cited path. A checked link that leaves the
+diagram satisfiable gives `compatible_under_model`; absent relevant links give `unknown`. This
+is Boolean-model compatibility, not observed Python execution. Python binds the cursor to
+snapshot, generation, canonical operation, formal, exact input and builtin assumption; it
+shapes the native result but does not decide semantic compatibility. The focused fixture and
+FastMCP client round trip checked a refuted `None` path, a compatible exact-integer path and a
+`call_transfer` boundary.
 
 ## 6. Gates
 
 | Gate | Verdict | Evidence or scope reason | Required action |
 |---|---|---|---|
 | G1 Authority | Pass, scoped | One validated native index supplies every path, condition, boundary and exact-input result. | — |
-| G2 Fidelity | Pass, scoped | A refuted path is never promoted to a refuted operation; `unknown` and boundaries are explicit. | Build complete candidate coverage before a compatibility filter. |
+| G2 Fidelity | Pass, scoped | Refutation and compatibility remain path local; `unknown` and boundaries are explicit. | Build complete candidate coverage before a compatibility filter. |
 | G3 Validity | Pass | Typed Pydantic input refuses cross-kind values; the native method rejects unknown paths/formals, bad offsets and limits. | — |
 | G4 Hidden behaviour | Pass | The tool reads its lifespan generation and performs no store access or compilation. | — |
 | G5 Consistency | Pass | Both direct Python and in-process FastMCP calls returned the same native result. | — |
 | G6 Transformation | Pass, scoped | Native ordering and a generation/query-bound cursor make pages deterministic. The response accounts for examined rows. | Add BDD node/pair-work counts for the final compatibility API. |
-| G7 Claims | Pass, scoped | The tool description, result note and fields restrict the claim to a cited summary path. A satisfiable remainder is unknown. | Never treat absence as a negative. |
+| G7 Claims | Pass, scoped | The tool description, result note and fields restrict the claim to a cited summary path. Checked-link satisfiability is a may-model result; missing links stay unknown. | Never treat absence as a negative. |
 | G8 Library leverage | Pass | Pydantic/FastMCP supply request and structured-result schemas; PyO3 uses the shared Rust BDD kernel. | — |
 | CI-G1 Fidelity | Pass, scoped | The operation and formal are resolved before inspecting a summary. | — |
 | CI-G2 Evidence closure | Partial | The path carries ordered proof-step ids and the refuting value-link operand span. Full source spans/text for every step are not yet served. | Add step source evidence before offering an operation-wide explained claim. |
@@ -47,6 +50,7 @@ the Stage 3 serving and behavior scope; this tool is an inspection surface, not 
 ## 12. Decision
 
 **Accept path-local inspection.** On 2026-09-25, focused native load, exact-input, paging,
-request-validation and FastMCP structured-result tests passed; targeted native Clippy passed.
+request-validation and FastMCP structured-result tests passed, including path-local positive,
+negative and withholding cases; targeted native Clippy and shared-kernel tests passed.
 Formatting, `just test-all`, the fresh pilot, structured evaluation and clean-wheel query remain
 `not_run` until all planned Stage 3 functionality is implemented.

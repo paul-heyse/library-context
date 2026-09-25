@@ -105,19 +105,21 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
     assert len(paths) == 1
     summary = paths[0][0]
 
-    verdict, proof, boundary = index.refute_value_path(
+    verdict, proof, boundary = index.assess_value_path(
         "pkg.controls.strict", "value", summary, "none", "", True
     )
     assert verdict == "refuted_under_model" and boundary is None
     assert len(proof) == 1 and proof[0][1] == "pkg/controls.py"
     assert proof[0][2] < proof[0][3]
 
-    # A satisfiable remainder does not establish a positive execution.
-    assert index.refute_value_path(
+    # A satisfiable remainder after a checked link is may-model compatibility only.
+    compatible, linked, boundary = index.assess_value_path(
         "pkg.controls.strict", "value", summary, "int", "1", True
-    ) == ("unknown", [], None)
+    )
+    assert compatible == "compatible_under_model" and len(linked) == 1
+    assert boundary is None
     # `is None` does not depend on a builtin name in the runtime namespace.
-    assert index.refute_value_path(
+    assert index.assess_value_path(
         "pkg.controls.strict", "value", summary, "none", "", False
     )[0] == "refuted_under_model"
 

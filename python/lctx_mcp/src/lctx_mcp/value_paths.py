@@ -59,7 +59,7 @@ class ValuePath(BaseModel):
     source_verdict: str
     condition_id: str
     steps: list[ProofStep]
-    exact_input_result: Literal["refuted_under_model", "unknown"]
+    exact_input_result: Literal["refuted_under_model", "compatible_under_model", "unknown"]
     value_links: list[ValueLinkEvidence]
     boundary_reason: str | None
 
@@ -85,7 +85,8 @@ class ValuePathPage(BaseModel):
     next_cursor: str | None
     note: str = (
         "A refutation applies only to its cited summary path under the exact input model. "
-        "Unknown does not establish execution, and absent paths do not establish absence."
+        "Compatibility means only a satisfiable model after checked value links, not a "
+        "concrete execution. Unknown and absent paths do not establish absence."
     )
 
 

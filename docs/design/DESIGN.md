@@ -4004,15 +4004,17 @@ depth and pair-work budgets have the same unknown/truncated behavior.
 `flow_test_value_links` origin and its publication validator exist. FORMAT 7 carries the checked
 value-link and test-leaf projections, with the exact effect-rule digest in its manifest. The
 native index admits the links only when their leaf atom, source module, condition, place, public
-operation/formal and digest agree. It invokes the shared primitive-theory kernel to refute one
-cited summary path for an exact query input. A satisfiable remainder is `unknown`; no
-operation-wide or served compatibility verdict follows from this path result.
+operation/formal and digest agree. It invokes the shared primitive-theory kernel to assess one
+cited summary path for an exact query input. A checked assignment that leaves the BDD
+satisfiable is `compatible_under_model`; a missing applicable link is `unknown`. An
+unconditionally true path is compatible without a link. These are path-local may-model
+outcomes, never concrete executions or operation-wide verdicts.
 
 **Implemented and Tested (2026-09-25, partial FORMAT 7).** Structural analysis conditions and
 finite value-summary proofs are generation-pinned and load through one native index. The internal
 value-path lookup resolves an actual public operation and formal and reports only cited positive
 paths plus open boundaries. A bounded, cursor-paged `inspect_value_paths` MCP tool now exposes
-path-local exact-input refutation and cited link operand spans; the cursor binds generation and
+path-local exact-input assessment and cited link operand spans; the cursor binds generation and
 query. It does not aggregate an operation-wide compatibility verdict or offer the planned
 cross-operation compatibility/effect/role filters. Proof steps still carry evidence ids rather
 than source text and full step spans.

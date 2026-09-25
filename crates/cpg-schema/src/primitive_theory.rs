@@ -97,6 +97,15 @@ pub struct Refutation {
     pub value_link_ids: Vec<Id>,
 }
 
+/// A satisfiable diagram is only a may-model result when an applicable value link was checked,
+/// or the diagram is unconditionally true. With no bridge, it remains unknown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExactInputOutcome {
+    Refuted(Refutation),
+    CompatibleUnderModel { value_link_ids: Vec<Id> },
+    Unknown,
+}
+
 /// One operation/formal and its exact query value under an explicit builtin namespace model.
 #[derive(Clone, Copy)]
 pub struct ExactInput<'a> {
@@ -115,6 +124,26 @@ pub fn refute_exact_input(
     links: &[ValueLink],
     leaves: &[TestLeaf],
 ) -> Result<Option<Refutation>, TheoryBoundary> {
+    match assess_exact_input(condition, query, links, leaves)? {
+        ExactInputOutcome::Refuted(proof) => Ok(Some(proof)),
+        ExactInputOutcome::CompatibleUnderModel { .. } | ExactInputOutcome::Unknown => Ok(None),
+    }
+}
+
+/// Path-local exact-input assessment. `CompatibleUnderModel` means the checked assignments
+/// leave a Boolean model; it is not a witness of concrete Python execution.
+pub fn assess_exact_input(
+    condition: &Diagram,
+    query: ExactInput<'_>,
+    links: &[ValueLink],
+    leaves: &[TestLeaf],
+) -> Result<ExactInputOutcome, TheoryBoundary> {
+    if condition.is_false() {
+        return Ok(ExactInputOutcome::Refuted(Refutation { value_link_ids: Vec::new() }));
+    }
+    if condition.is_true() {
+        return Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids: Vec::new() });
+    }
     let leaves: BTreeMap<Id, &TestLeaf> =
         leaves.iter().map(|leaf| (leaf.fact_id, leaf)).collect();
     let support: BTreeSet<&str> = condition.support().iter().map(String::as_str).collect();
@@ -181,12 +210,16 @@ pub fn refute_exact_input(
         constrained = constrained.and(&literal).map_err(TheoryBoundary::Kernel)?;
         witnesses.push(link_id);
         if constrained.is_false() {
-            return Ok(Some(Refutation {
+            return Ok(ExactInputOutcome::Refuted(Refutation {
                 value_link_ids: witnesses,
             }));
         }
     }
-    Ok(None)
+    if witnesses.is_empty() {
+        Ok(ExactInputOutcome::Unknown)
+    } else {
+        Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids: witnesses })
+    }
 }
 
 fn evaluate_exact_input(
@@ -334,6 +367,26 @@ mod tests {
             )
             .unwrap()
             .is_none()
+        );
+        assert_eq!(
+            assess_exact_input(
+                &diagram,
+                exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
+                std::slice::from_ref(&link),
+                std::slice::from_ref(&leaf),
+            )
+            .unwrap(),
+            ExactInputOutcome::CompatibleUnderModel { value_link_ids: vec![link.link_id] }
+        );
+        assert_eq!(
+            assess_exact_input(
+                &diagram,
+                exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
+                &[],
+                std::slice::from_ref(&leaf),
+            )
+            .unwrap(),
+            ExactInputOutcome::Unknown
         );
         assert!(
             refute_exact_input(

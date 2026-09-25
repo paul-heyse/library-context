@@ -378,8 +378,9 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         cursor: str | None = None,
     ) -> value_paths.ValuePathPage:
         """Inspect cited value-summary paths for one public formal and exact primitive input.
-        A refuted path is excluded only under that input model; other paths and open boundaries
-        remain possible. The result never asserts an operation-wide negative or an execution."""
+        A refuted path is excluded only under that input model. A compatible path has a
+        satisfiable Boolean model after checked value links, not a concrete execution. Other
+        paths and open boundaries remain possible; there is no operation-wide negative."""
         try:
             return value_paths.inspect(
                 ctx.lifespan_context["served"].generation, snapshot_id, operation, formal,

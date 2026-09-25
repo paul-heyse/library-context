@@ -9,7 +9,8 @@ use cpg_schema::condition_kernel::{
 };
 use cpg_schema::id::{Digest, Id, IdHasher};
 use cpg_schema::primitive_theory::{
-    BuiltinNamespace, ExactInput, TestLeaf, TheoryBoundary, ValueLink, refute_exact_input,
+    BuiltinNamespace, ExactInput, ExactInputOutcome, TestLeaf, TheoryBoundary, ValueLink,
+    assess_exact_input,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -416,7 +417,7 @@ impl SemanticExecutor {
 
     /// An exact primitive input may refute one cited summary path. A satisfiable remainder or
     /// absent value link is unknown, never proof that a Python execution reaches the return.
-    fn refute_value_path(&self, operation_path: &str, formal_name: &str,
+    fn assess_value_path(&self, operation_path: &str, formal_name: &str,
         summary_id: &str, kind: &str, value: &str, standard_builtins: bool)
         -> PyResult<RefutationAnswer>
     {
@@ -451,13 +452,16 @@ impl SemanticExecutor {
                 else { BuiltinNamespace::Unknown },
             effect_model_digest: self.effect_model_digest,
         };
-        match refute_exact_input(diagram, query, links, leaves) {
-            Ok(Some(proof)) => Ok(("refuted_under_model".to_owned(),
-                proof.value_link_ids.iter().map(|link| {
+        let link_evidence = |ids: &[Id]| ids.iter().map(|link| {
                     let (path, start, end) = &self.link_spans[link];
                     (link.hex(), path.clone(), *start, *end)
-                }).collect(), None)),
-            Ok(None) => Ok(("unknown".to_owned(), Vec::new(), None)),
+                }).collect();
+        match assess_exact_input(diagram, query, links, leaves) {
+            Ok(ExactInputOutcome::Refuted(proof)) => Ok(("refuted_under_model".to_owned(),
+                link_evidence(&proof.value_link_ids), None)),
+            Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids }) =>
+                Ok(("compatible_under_model".to_owned(), link_evidence(&value_link_ids), None)),
+            Ok(ExactInputOutcome::Unknown) => Ok(("unknown".to_owned(), Vec::new(), None)),
             Err(reason) => Ok(("unknown".to_owned(), Vec::new(), Some(match reason {
                 TheoryBoundary::Kernel(boundary) => boundary.code().to_owned(),
                 TheoryBoundary::AssignmentBudget => "budget_reached".to_owned(),
@@ -492,7 +496,7 @@ impl SemanticExecutor {
         for index in offset..end {
             if let Some(summary_id) = ids.get(index) {
                 let summary = &self.summaries[summary_id];
-                let (result, links, boundary) = self.refute_value_path(
+                let (result, links, boundary) = self.assess_value_path(
                     operation_path, formal_name, &summary_id.hex(), kind, value,
                     standard_builtins,
                 )?;
