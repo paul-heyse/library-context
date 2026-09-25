@@ -27,6 +27,9 @@ type LeafInput = (String, String, String, String, String, Option<String>, i64, i
 type LinkInput = (String, String, String, String, String, String, String, String,
     String, String, (Option<String>, i64, i64));
 type RefutationAnswer = (String, Vec<(String, Option<String>, i64, i64)>, Option<String>);
+type InspectedPath = (String, String, String, Vec<ProofStep>, String,
+    Vec<(String, Option<String>, i64, i64)>, Option<String>);
+type ValuePathPage = (Vec<InspectedPath>, Vec<Boundary>, usize, bool, usize);
 
 #[pyfunction]
 fn kernel_format() -> u32 {
@@ -259,6 +262,9 @@ impl SemanticExecutor {
             if proof.iter().enumerate().any(|(i, step)| step.0 != i as i64) {
                 return Err(PyValueError::new_err("summary proof ordinals have a gap"));
             }
+            if proof.len() > 64 {
+                return Err(PyValueError::new_err("summary proof exceeds depth limit"));
+            }
             summary.steps = proof.into_iter().map(|(_, kind, evidence, condition)|
                 (kind, evidence, condition)).collect();
         }
@@ -458,6 +464,49 @@ impl SemanticExecutor {
                 TheoryBoundary::ConflictingProof => "conflicting_proof".to_owned(),
             }))),
         }
+    }
+
+    /// Page through one formal's finite summary paths and open boundaries. Each path's exact
+    /// input result is local to that path; the page never claims complete operation behavior.
+    #[allow(clippy::too_many_arguments, reason = "the typed Python request is unpacked at the native boundary")]
+    fn inspect_value_paths(&self, operation_path: &str, formal_name: &str,
+        kind: &str, value: &str, standard_builtins: bool, offset: usize, limit: usize)
+        -> PyResult<ValuePathPage>
+    {
+        if limit == 0 || limit > 50 {
+            return Err(PyValueError::new_err("limit must be between 1 and 50"));
+        }
+        let operation = *self.paths.get(operation_path)
+            .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
+        let formal = *self.formals.get(&(operation, formal_name.to_owned()))
+            .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
+        let ids = self.by_formal.get(&(operation, formal)).map_or(&[][..], Vec::as_slice);
+        let open = self.boundaries.get(&(operation, formal)).map_or(&[][..], Vec::as_slice);
+        let total = ids.len() + open.len();
+        if offset > total {
+            return Err(PyValueError::new_err("cursor offset exceeds result size"));
+        }
+        let end = offset.saturating_add(limit).min(total);
+        let mut paths = Vec::new();
+        let mut boundaries = Vec::new();
+        for index in offset..end {
+            if let Some(summary_id) = ids.get(index) {
+                let summary = &self.summaries[summary_id];
+                let (result, links, boundary) = self.refute_value_path(
+                    operation_path, formal_name, &summary_id.hex(), kind, value,
+                    standard_builtins,
+                )?;
+                paths.push((summary_id.hex(), summary.verdict.clone(),
+                    summary.condition_id.hex(), summary.steps.iter()
+                        .map(|(step_kind, evidence, condition)|
+                            (step_kind.clone(), evidence.hex(), condition.hex())).collect(),
+                    result, links, boundary));
+            } else {
+                let (source, condition, reason) = &open[index - ids.len()];
+                boundaries.push((source.hex(), condition.hex(), reason.clone()));
+            }
+        }
+        Ok((paths, boundaries, total, end < total, end - offset))
     }
 }
 

@@ -3999,7 +3999,11 @@ operation-wide or served compatibility verdict follows from this path result.
 **Implemented and Tested (2026-09-25, partial FORMAT 7).** Structural analysis conditions and
 finite value-summary proofs are generation-pinned and load through one native index. The internal
 value-path lookup resolves an actual public operation and formal and reports only cited positive
-paths plus open boundaries. It does not expose an MCP filter.
+paths plus open boundaries. A bounded, cursor-paged `inspect_value_paths` MCP tool now exposes
+path-local exact-input refutation and cited link operand spans; the cursor binds generation and
+query. It does not aggregate an operation-wide compatibility verdict or offer the planned
+cross-operation compatibility/effect/role filters. Proof steps still carry evidence ids rather
+than source text and full step spans.
 
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
 claims. An unknown facet is invalid params. An unknown **value** is invalid params only where

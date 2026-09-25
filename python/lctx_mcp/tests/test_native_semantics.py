@@ -120,3 +120,49 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
     assert index.refute_value_path(
         "pkg.controls.strict", "value", summary, "none", "", False
     )[0] == "refuted_under_model"
+
+    paths, boundaries, total, truncated, work = index.inspect_value_paths(
+        "pkg.controls.strict", "value", "none", "", True, 0, 1
+    )
+    assert len(paths) == total == work == 1
+    assert paths[0][0] == summary and paths[0][4] == "refuted_under_model"
+    assert boundaries == [] and not truncated
+    assert index.inspect_value_paths(
+        "pkg.controls.strict", "value", "none", "", True, 1, 1
+    ) == ([], [], 1, False, 0)
+    with pytest.raises(ValueError, match="cursor offset"):
+        index.inspect_value_paths("pkg.controls.strict", "value", "none", "", True, 2, 1)
+
+    paths, boundaries, total, truncated, work = index.inspect_value_paths(
+        "pkg.controls.build", "label", "str", "x", True, 0, 1
+    )
+    assert paths == [] and len(boundaries) == total == work == 1
+    assert boundaries[0][2] == "call_transfer" and not truncated
+
+
+def test_native_value_path_page_has_stable_bounded_boundary_order(generation: Path) -> None:
+    loaded = load(generation, None)
+    conditions = [
+        (r["condition_id"].hex(),
+         None if r["root_id"] is None else r["root_id"].hex(), r["boundary_reason"])
+        for r in loaded.tables["conditions"].to_pylist()
+    ]
+    nodes = [
+        (r["node_id"].hex(), r["atom"], r["low_id"].hex(), r["high_id"].hex())
+        for r in loaded.tables["condition_nodes"].to_pylist()
+    ]
+    condition = next(r[0] for r in conditions if r[1] is not None)
+    operation, formal = "01" * 16, "02" * 16
+    index = SemanticExecutor(
+        kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
+        conditions, nodes, [operation], [("pkg.one", operation)],
+        [(operation, formal, "value")], [], [],
+        [(operation, formal, "04" * 16, condition, "call_transfer"),
+         (operation, formal, "03" * 16, condition, "unsupported_control_flow")],
+        [], [],
+    )
+    first = index.inspect_value_paths("pkg.one", "value", "none", "", True, 0, 1)
+    second = index.inspect_value_paths("pkg.one", "value", "none", "", True, 1, 1)
+    assert first[2:] == (2, True, 1)
+    assert second[2:] == (2, False, 1)
+    assert first[1][0][0] == "03" * 16 and second[1][0][0] == "04" * 16

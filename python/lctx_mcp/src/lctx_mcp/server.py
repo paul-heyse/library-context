@@ -29,6 +29,7 @@ from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from lctx_mcp import operations as ops
+from lctx_mcp import value_paths
 from lctx_mcp.embedder import Embedder, EmbedderError
 from lctx_mcp.generation import Generation, load
 from lctx_mcp.retrieval import Lexical, RankSource, fuse, ranks, vector_scores
@@ -42,7 +43,9 @@ INSTRUCTIONS = (
     "line. Capability briefs cover a curated subset: search_capabilities, get_capability. "
     "'established' and 'conditional' admit may-behavior under the stated model; they do not "
     "prove that an execution exists. A negative verdict needs complete may-analysis. "
-    "'unknown' and 'not_analyzed' are never 'no'. A relevance score ranks; it is not proof."
+    "'unknown' and 'not_analyzed' are never 'no'. inspect_value_paths evaluates an exact "
+    "primitive against individual cited value paths; its refutation is path-local only. "
+    "A relevance score ranks; it is not proof."
 )
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False)
@@ -359,6 +362,28 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         try:
             return ops.get_operation(
                 ctx.lifespan_context["served"].generation, snapshot_id, operation
+            )
+        except ops.OperationError as e:
+            raise CapabilityError(str(e)) from e
+
+    @mcp.tool(annotations=READ_ONLY)
+    def inspect_value_paths(
+        snapshot_id: str,
+        operation: Annotated[str, Field(min_length=1, max_length=500)],
+        formal: Annotated[str, Field(min_length=1, max_length=500)],
+        exact_input: value_paths.ExactPrimitive,
+        ctx: Context,
+        standard_builtins: bool = False,
+        limit: Annotated[int, Field(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> value_paths.ValuePathPage:
+        """Inspect cited value-summary paths for one public formal and exact primitive input.
+        A refuted path is excluded only under that input model; other paths and open boundaries
+        remain possible. The result never asserts an operation-wide negative or an execution."""
+        try:
+            return value_paths.inspect(
+                ctx.lifespan_context["served"].generation, snapshot_id, operation, formal,
+                exact_input, standard_builtins, limit, cursor,
             )
         except ops.OperationError as e:
             raise CapabilityError(str(e)) from e
