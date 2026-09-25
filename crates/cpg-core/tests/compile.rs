@@ -1420,12 +1420,11 @@ budget = 1
             &ctx,
             "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
-             WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity', \
-                              'indirect_identity')",
+             WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity')",
         )
         .await,
         0,
-        "deferred execution, finalizers and unproved model-call results cannot seed a positive flow"
+        "deferred execution and finalizers cannot seed a positive flow"
     );
     assert_eq!(
         count(
@@ -1444,6 +1443,38 @@ budget = 1
         .await,
         1,
         "one exact modeled identity call has a finite rule-cited return flow"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
+                 JOIN summary_flow_steps r ON r.summary_id = f.summary_id \
+                   AND r.kind = {} \
+                 JOIN summary_flow_steps v ON v.summary_id = f.summary_id \
+                   AND v.kind = {} AND v.ordinal = r.ordinal + 1 \
+                 JOIN declarations d ON d.node_id = f.function_node_id \
+                 WHERE d.name = 'indirect_identity' AND f.path_depth = 2 \
+                   AND f.verdict <> {} AND f.boundary_reason IS NULL",
+                cpg_schema::codebook::SummaryFlowStepKind::DefinitionReaching.code(),
+                cpg_schema::codebook::SummaryFlowStepKind::ReturnSource.code(),
+                Verdict::Unknown.code(),
+            ),
+        )
+        .await,
+        1,
+        "a unique compatible assignment predecessor yields an ordered two-hop summary"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             WHERE d.name = 'indirect_ambiguous' AND f.path_depth = 2",
+        )
+        .await,
+        0,
+        "competing reaching definitions cannot promote the modeled assignment path"
     );
     assert_eq!(
         count(
@@ -1475,14 +1506,25 @@ budget = 1
             &format!(
                 "SELECT count(*) FROM summary_boundaries b \
                  JOIN declarations d ON d.node_id = b.function_node_id \
-             WHERE d.name = 'indirect_identity' \
+             WHERE d.name = 'identity_dynamic_type' \
                    AND b.reason = {}",
                 BoundaryReason::CallTransfer.code()
             ),
         )
         .await,
-        1,
-        "the inherited result retains a transfer boundary after direct model proof"
+        2,
+        "both parameter-origin paths through a dynamic sibling retain transfer boundaries"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_boundaries b \
+             JOIN declarations d ON d.node_id = b.function_node_id \
+             WHERE d.name = 'indirect_identity'",
+        )
+        .await,
+        0,
+        "the fully proved assignment path no longer has an unresolved return boundary"
     );
     assert_eq!(
         count(
@@ -1594,7 +1636,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        14,
+        15,
         "the pure, JSON and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -1982,7 +2024,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        17,
+        18,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

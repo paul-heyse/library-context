@@ -3445,6 +3445,15 @@ The canonical summary id includes this ordered proof, which the shared validator
 producer does not establish assignment predecessors, broader call compositions, exception or
 effect fates. Compiler output version 61; integrated Stage 3 testing remains `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, assignment return):**
+The same completed model-call proof now admits a two-hop assignment-to-return identity path
+only when the returned use has one reaching-definition row, the provider predecessor is
+compatible, and its BDD condition implies the reaching, successor-value and direct return
+region conditions. Ordered steps cite the source call, model, unique definition edge and
+returned value; a different predecessor changes the summary id. Unproved siblings retain a
+named boundary. This is not recursive composition or general assignment transfer. Compiler
+output version 62; integrated Stage 3 testing remains `not_run`.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a

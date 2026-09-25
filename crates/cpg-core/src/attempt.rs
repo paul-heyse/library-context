@@ -84,7 +84,8 @@ pub struct Published {
 /// 59: each modeled exact-value candidate records ordered argument evaluation evidence.
 /// 60: exact unshadowed builtin names gain local normal-evaluation evidence.
 /// 61: first finite modeled identity-return paths carry complete ordered call proofs.
-pub const COMPILER_OUTPUT_VERSION: u32 = 61;
+/// 62: unique assignment-to-return predecessors gain finite model-call summaries.
+pub const COMPILER_OUTPUT_VERSION: u32 = 62;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

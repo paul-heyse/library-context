@@ -1216,8 +1216,9 @@ table!(
 
 table!(
     /// Finite source-to-output may-flow of one callable, with a lossless condition root and
-    /// source witness. Producers admit direct synchronous parameter identities and exact
-    /// pinned identity-model calls only with their respective call and exit proofs.
+    /// source witness. Producers admit direct synchronous parameter identities, exact pinned
+    /// identity-model calls and unique condition-compatible assignment predecessors only with
+    /// their respective call and exit proofs.
     SummaryFlows, SummaryFlowsRow = "summary_flows",
     family = Findings,
     key = [snapshot_id, summary_id],
@@ -1543,6 +1544,27 @@ fn with_snapshot(sql: &str) -> String {
 }
 
 const MODELED_HANDLER_MAX_ANCESTOR_DEPTH: i64 = 128;
+
+/// Reused CTE because derived relations are queries, not automatically registered views.
+fn modeled_callee_candidates_sql() -> String {
+    format!(
+        "callee_candidates AS ( \
+           SELECT c.node_id AS call_node_id, rr.fact_id AS resolution_fact_id, \
+                  count(*) OVER (PARTITION BY c.node_id) AS candidate_count \
+           FROM call_syntax c \
+           JOIN syntax_nodes s ON s.parent_node_id = c.node_id \
+             AND s.module_node_id = c.module_node_id AND s.field = {callee_field} \
+             AND s.kind = {name_expr} AND s.start_byte = c.callee_start_byte \
+             AND s.end_byte = c.callee_end_byte \
+           JOIN references ref ON ref.name_node_id = s.node_id \
+             AND ref.module_node_id = s.module_node_id \
+           JOIN reference_resolutions rr ON rr.reference_id = ref.node_id \
+             AND rr.reason IS NULL AND (rr.binding_id IS NOT NULL OR rr.builtin_name IS NOT NULL) \
+         )",
+        callee_field = crate::codebook::SyntaxField::Callee.code(),
+        name_expr = SyntaxKind::ExprName.code(),
+    )
+}
 
 fn modeled_handler_climb_sql() -> String {
     format!(
@@ -2040,19 +2062,7 @@ crate::relations! {
                 "call_syntax", "syntax_nodes", "references", "reference_resolutions",
                 "parameter_syntax", "declarations", "exit_sites", "flow_values"],
         sql = format!(
-            "WITH callee_candidates AS ( \
-               SELECT c.node_id AS call_node_id, rr.fact_id AS resolution_fact_id, \
-                      count(*) OVER (PARTITION BY c.node_id) AS candidate_count \
-               FROM call_syntax c \
-               JOIN syntax_nodes s ON s.parent_node_id = c.node_id \
-                 AND s.module_node_id = c.module_node_id AND s.field = {callee_field} \
-                 AND s.kind = {name_expr} AND s.start_byte = c.callee_start_byte \
-                 AND s.end_byte = c.callee_end_byte \
-               JOIN references ref ON ref.name_node_id = s.node_id \
-                 AND ref.module_node_id = s.module_node_id \
-               JOIN reference_resolutions rr ON rr.reference_id = ref.node_id \
-                 AND rr.reason IS NULL AND (rr.binding_id IS NOT NULL OR rr.builtin_name IS NOT NULL) \
-             ) \
+            "WITH {callee_candidates} \
              SELECT DISTINCT m.snapshot_id, m.function_node_id, m.parameter_node_id, \
                     p.name AS parameter_name, m.flow_value_fact_id AS source_flow_fact_id, \
                     m.condition_id, m.call_fact_id, \
@@ -2091,13 +2101,89 @@ crate::relations! {
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
-            callee_field = crate::codebook::SyntaxField::Callee.code(),
-            name_expr = SyntaxKind::ExprName.code(),
+            callee_candidates = modeled_callee_candidates_sql(),
             function_kind = DeclarationKind::Function.code(),
             body_field = crate::codebook::SyntaxField::Body.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             exit_return = ExitSiteKind::Return.code(),
             return_sink = FlowSink::Return.code(),
+            identity = ModelTransferKind::Identity.code(),
+            definite = Modality::Definite.code(),
+            call_phase = InvocationPhase::Call.code(),
+            yield_kind = SyntaxKind::ExprYield.code(),
+            yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
+        );
+
+    /// The two-hop assignment form of the same pinned identity call. The successor must have
+    /// exactly one provider reaching row, and the independent predecessor compatibility check
+    /// must admit it. The kernel still verifies all four condition implications at admission.
+    modeled_assignment_summary_flow_seeds = "behavior:modeled_assignment_summary_flow_seeds",
+        deps = ["modeled_assignment_return_paths", "modeled_exact_value_transfers",
+                "model_applications", "model_transfers", "call_syntax", "references",
+                "reference_resolutions", "parameter_syntax", "declarations",
+                "syntax_nodes", "exit_sites", "flow_values", "flow_reaching"],
+        sql = format!(
+            "WITH {callee_candidates}, reaching_counts AS ( \
+               SELECT use_id, count(*) AS n FROM flow_reaching GROUP BY use_id \
+             ) \
+             SELECT DISTINCT q.snapshot_id, q.function_node_id, q.parameter_node_id, \
+                    p.name AS parameter_name, q.successor_fact_id AS source_flow_fact_id, \
+                    q.predecessor_fact_id AS predecessor_flow_fact_id, \
+                    q.reaching_fact_id, q.predecessor_condition_id, \
+                    q.reaching_condition_id, q.successor_condition_id, \
+                    m.argument_fact_id AS source_argument_fact_id, m.call_fact_id, \
+                    q.pysa_fact_id, q.model_id, q.rule_id, \
+                    cc.resolution_fact_id AS callee_resolution_fact_id, \
+                    c.positional_count + c.keyword_count AS argument_count, \
+                    e.source_fact_id AS return_site_fact_id, \
+                    e.region_fact_id AS return_region_fact_id, \
+                    e.condition_id AS return_condition_id, \
+                    (q.predecessor_raw_approximated OR q.reaching_approximated \
+                     OR q.successor_raw_approximated OR e.approximated) AS approximated \
+             FROM modeled_assignment_return_paths q \
+             JOIN modeled_exact_value_transfers m ON m.flow_value_fact_id = q.predecessor_fact_id \
+               AND m.parameter_node_id = q.parameter_node_id \
+               AND m.pysa_fact_id = q.pysa_fact_id AND m.model_id = q.model_id \
+               AND m.rule_id = q.rule_id AND m.sink = {definition_sink} \
+             JOIN model_applications a ON a.call_site_node_id = m.call_site_node_id \
+               AND a.pysa_fact_id = m.pysa_fact_id AND a.model_id = m.model_id \
+               AND a.target_node_id = m.target_node_id \
+             JOIN model_transfers t ON t.rule_id = m.rule_id AND t.model_id = m.model_id \
+               AND t.target_node_id = m.target_node_id \
+             JOIN call_syntax c ON c.node_id = m.call_site_node_id \
+             JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
+               AND cc.candidate_count = 1 \
+             JOIN parameter_syntax p ON p.node_id = q.parameter_node_id \
+               AND p.function_node_id = q.function_node_id \
+             JOIN declarations d ON d.node_id = q.function_node_id \
+               AND d.kind = {function_kind} \
+             JOIN flow_values s ON s.fact_id = q.successor_fact_id \
+               AND s.sink = {return_sink} \
+             JOIN flow_reaching h ON h.fact_id = q.reaching_fact_id \
+               AND h.use_id = s.use_id \
+             JOIN reaching_counts rc ON rc.use_id = h.use_id AND rc.n = 1 \
+             JOIN syntax_nodes r ON r.owner_node_id = d.node_id \
+               AND r.parent_node_id = d.node_id AND r.field = {body_field} \
+               AND r.kind = {return_kind} AND r.module_node_id = s.module_node_id \
+               AND r.start_byte <= s.sink_start_byte AND r.end_byte >= s.sink_end_byte \
+             JOIN exit_sites e ON e.site_node_id = r.node_id \
+               AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             WHERE q.compatible_under_atoms AND q.boundary_reason IS NULL \
+               AND q.transfer = {identity} AND q.target_modality = {definite} \
+               AND q.model_modality = {definite} \
+               AND q.candidate_set_complete_under_model AND NOT q.has_unresolved_remainder \
+               AND a.target_count = 1 AND a.target_normal_return \
+               AND a.phase = {call_phase} \
+               AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
+                 WHERE y.owner_node_id = d.node_id \
+                   AND y.kind IN ({yield_kind}, {yield_from_kind}))",
+            callee_candidates = modeled_callee_candidates_sql(),
+            definition_sink = FlowSink::Definition.code(),
+            function_kind = DeclarationKind::Function.code(),
+            return_sink = FlowSink::Return.code(),
+            body_field = crate::codebook::SyntaxField::Body.code(),
+            return_kind = SyntaxKind::StmtReturn.code(),
+            exit_return = ExitSiteKind::Return.code(),
             identity = ModelTransferKind::Identity.code(),
             definite = Modality::Definite.code(),
             call_phase = InvocationPhase::Call.code(),

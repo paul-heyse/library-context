@@ -58,6 +58,14 @@ def indirect_identity(value: object) -> object:
     return result
 
 
+def indirect_ambiguous(value: object, choose: bool) -> object:
+    if choose:
+        result = cast(object, value)
+    else:
+        result = value
+    return result
+
+
 def nested_identity(value: object) -> object:
     return cast(object, str(value))
 

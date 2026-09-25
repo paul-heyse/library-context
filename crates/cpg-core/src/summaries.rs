@@ -67,6 +67,62 @@ cpg_schema::query_row! {
 }
 
 cpg_schema::query_row! {
+    struct ModeledAssignmentSummaryFlowSeed {
+        snapshot_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        parameter_name: String,
+        source_flow_fact_id: Id,
+        predecessor_flow_fact_id: Id,
+        reaching_fact_id: Id,
+        predecessor_condition_id: Id,
+        reaching_condition_id: Id,
+        successor_condition_id: Id,
+        source_argument_fact_id: Id,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        callee_resolution_fact_id: Id,
+        argument_count: i64,
+        return_site_fact_id: Id,
+        return_region_fact_id: Id,
+        return_condition_id: Id,
+        approximated: bool,
+    }
+}
+
+struct CallEvidence {
+    flow_fact_id: Id,
+    parameter_node_id: Id,
+    source_argument_fact_id: Id,
+    call_fact_id: Id,
+    pysa_fact_id: Id,
+    model_id: Id,
+    rule_id: Id,
+    callee_resolution_fact_id: Id,
+    argument_count: i64,
+    condition_id: Id,
+}
+
+type ArgumentIndex = HashMap<(Id, Id, Id, Id, Id), Vec<ModeledArgumentEvaluationsRow>>;
+
+struct FinitePath {
+    snapshot_id: Id,
+    function_node_id: Id,
+    parameter_node_id: Id,
+    parameter_name: String,
+    source_flow_fact_id: Id,
+    condition_id: Id,
+    condition_is_true: bool,
+    return_site_fact_id: Id,
+    return_region_fact_id: Id,
+    approximated: bool,
+    path_depth: i64,
+    proof: Vec<recipe::SummaryFlowProofStep>,
+}
+
+cpg_schema::query_row! {
     struct ProviderCondition {
         condition_id: Id,
         root_id: Option<Id>,
@@ -180,6 +236,107 @@ pub fn direct_flow_steps(flows: &[SummaryFlowsRow]) -> Vec<SummaryFlowStepsRow> 
         .collect()
 }
 
+/// One completed candidate call path, shared by direct returns and the first assignment hop.
+/// This is a may-path under the source/model abstraction, not universal normal execution.
+fn modeled_call_proof(
+    seed: &CallEvidence,
+    by_candidate: &ArgumentIndex,
+) -> Option<Vec<recipe::SummaryFlowProofStep>> {
+    let arguments = by_candidate.get(&(
+        seed.flow_fact_id,
+        seed.parameter_node_id,
+        seed.pysa_fact_id,
+        seed.model_id,
+        seed.rule_id,
+    ))?;
+    if arguments.len() != usize::try_from(seed.argument_count).ok()? {
+        return None;
+    }
+    let mut ordered = arguments.clone();
+    ordered.sort_by_key(|argument| argument.ordinal);
+    if ordered.iter().enumerate().any(|(ordinal, argument)| {
+        argument.ordinal != ordinal as i64
+            || argument.status == ModeledArgumentEvaluationStatus::Unknown
+            || argument.evidence_id.is_none()
+            || argument.condition_id != seed.condition_id
+    }) || ordered.iter().filter(|argument| {
+        argument.status == ModeledArgumentEvaluationStatus::SourceOperand
+            && argument.argument_fact_id == seed.source_argument_fact_id
+    }).count() != 1 {
+        return None;
+    }
+    let mut proof = Vec::with_capacity(ordered.len() + 4);
+    proof.push(recipe::SummaryFlowProofStep {
+        kind: SummaryFlowStepKind::CalleeResolution,
+        evidence_id: seed.callee_resolution_fact_id,
+        condition_id: seed.condition_id,
+    });
+    for argument in &ordered {
+        proof.push(recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::ArgumentEvaluation,
+            evidence_id: argument.evidence_id?,
+            condition_id: argument.condition_id,
+        });
+    }
+    for (kind, evidence_id) in [
+        (SummaryFlowStepKind::CallSite, seed.call_fact_id),
+        (SummaryFlowStepKind::CallTarget, seed.pysa_fact_id),
+        (SummaryFlowStepKind::ModelRule, seed.rule_id),
+    ] {
+        proof.push(recipe::SummaryFlowProofStep {
+            kind,
+            evidence_id,
+            condition_id: seed.condition_id,
+        });
+    }
+    Some(proof)
+}
+
+fn push_finite_path(
+    flows: &mut Vec<SummaryFlowsRow>,
+    steps: &mut Vec<SummaryFlowStepsRow>,
+    path: FinitePath,
+) {
+    let input_path = InputPath::Parameter { name: path.parameter_name }.render();
+    let output_path = OutputPath::ReturnValue.render();
+    let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
+        function: path.function_node_id,
+        parameter: path.parameter_node_id,
+        input_path: &input_path,
+        output_path: &output_path,
+        transfer_kind: SummaryFlowKind::Value,
+        condition: path.condition_id,
+        return_site: path.return_site_fact_id,
+        return_region: path.return_region_fact_id,
+        steps: &path.proof,
+    });
+    flows.push(SummaryFlowsRow {
+        snapshot_id: path.snapshot_id,
+        summary_id,
+        function_node_id: path.function_node_id,
+        parameter_node_id: path.parameter_node_id,
+        input_path,
+        output_path,
+        kind: SummaryFlowKind::Value,
+        condition_id: path.condition_id,
+        verdict: if path.condition_is_true { Verdict::Established } else { Verdict::Conditional },
+        boundary_reason: None,
+        source_flow_fact_id: path.source_flow_fact_id,
+        return_site_fact_id: path.return_site_fact_id,
+        return_region_fact_id: path.return_region_fact_id,
+        approximated: path.approximated,
+        path_depth: path.path_depth,
+    });
+    steps.extend(path.proof.into_iter().enumerate().map(|(ordinal, step)| SummaryFlowStepsRow {
+        snapshot_id: path.snapshot_id,
+        summary_id,
+        ordinal: ordinal as i64,
+        kind: step.kind,
+        evidence_id: step.evidence_id,
+        condition_id: step.condition_id,
+    }));
+}
+
 /// Reconstruct all admitted finite paths and their ordered proof steps from published inputs.
 /// The same producer is called at write time and by the shared publication validator.
 pub async fn finite_flows(
@@ -200,8 +357,7 @@ pub async fn finite_flows(
         sql::Params::new(),
     )
     .await?;
-    let mut by_candidate: HashMap<(Id, Id, Id, Id, Id), Vec<ModeledArgumentEvaluationsRow>> =
-        HashMap::new();
+    let mut by_candidate: ArgumentIndex = HashMap::new();
     for evaluation in evaluations {
         by_candidate
             .entry((
@@ -214,7 +370,7 @@ pub async fn finite_flows(
             .or_default()
             .push(evaluation);
     }
-    'seed: for seed in seeds {
+    for seed in seeds {
         let Some(condition) = diagrams.get(&seed.condition_id) else {
             continue;
         };
@@ -224,93 +380,94 @@ pub async fn finite_flows(
         if condition.is_false() || condition.implies(return_condition) != Ok(true) {
             continue;
         }
-        let Some(arguments) = by_candidate.get(&(
-            seed.source_flow_fact_id,
-            seed.parameter_node_id,
-            seed.pysa_fact_id,
-            seed.model_id,
-            seed.rule_id,
-        )) else {
+        let Some(mut proof) = modeled_call_proof(&CallEvidence {
+            flow_fact_id: seed.source_flow_fact_id,
+            parameter_node_id: seed.parameter_node_id,
+            source_argument_fact_id: seed.source_argument_fact_id,
+            call_fact_id: seed.call_fact_id,
+            pysa_fact_id: seed.pysa_fact_id,
+            model_id: seed.model_id,
+            rule_id: seed.rule_id,
+            callee_resolution_fact_id: seed.callee_resolution_fact_id,
+            argument_count: seed.argument_count,
+            condition_id: seed.condition_id,
+        }, &by_candidate) else {
             continue;
         };
-        if arguments.len() != usize::try_from(seed.argument_count).unwrap_or(usize::MAX) {
-            continue;
-        }
-        let mut ordered = arguments.clone();
-        ordered.sort_by_key(|argument| argument.ordinal);
-        if ordered.iter().enumerate().any(|(ordinal, argument)| {
-            argument.ordinal != ordinal as i64
-                || argument.status == ModeledArgumentEvaluationStatus::Unknown
-                || argument.evidence_id.is_none()
-                || argument.condition_id != seed.condition_id
-        }) || ordered.iter().filter(|argument| {
-            argument.status == ModeledArgumentEvaluationStatus::SourceOperand
-                && argument.argument_fact_id == seed.source_argument_fact_id
-        }).count() != 1 {
-            continue;
-        }
-        let mut proof = Vec::with_capacity(ordered.len() + 5);
         proof.push(recipe::SummaryFlowProofStep {
-            kind: SummaryFlowStepKind::CalleeResolution,
-            evidence_id: seed.callee_resolution_fact_id,
-            condition_id: seed.condition_id,
+            kind: SummaryFlowStepKind::ReturnExit,
+            evidence_id: seed.return_site_fact_id,
+            condition_id: seed.return_condition_id,
         });
-        for argument in &ordered {
-            let Some(evidence_id) = argument.evidence_id else {
-                continue 'seed;
-            };
-            proof.push(recipe::SummaryFlowProofStep {
-                kind: SummaryFlowStepKind::ArgumentEvaluation,
-                evidence_id,
-                condition_id: argument.condition_id,
-            });
-        }
-        for (kind, evidence_id, condition_id) in [
-            (SummaryFlowStepKind::CallSite, seed.call_fact_id, seed.condition_id),
-            (SummaryFlowStepKind::CallTarget, seed.pysa_fact_id, seed.condition_id),
-            (SummaryFlowStepKind::ModelRule, seed.rule_id, seed.condition_id),
-            (SummaryFlowStepKind::ReturnExit, seed.return_site_fact_id, seed.return_condition_id),
-        ] {
-            proof.push(recipe::SummaryFlowProofStep { kind, evidence_id, condition_id });
-        }
-        let input_path = InputPath::Parameter { name: seed.parameter_name }.render();
-        let output_path = OutputPath::ReturnValue.render();
-        let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
-            function: seed.function_node_id,
-            parameter: seed.parameter_node_id,
-            input_path: &input_path,
-            output_path: &output_path,
-            transfer_kind: SummaryFlowKind::Value,
-            condition: seed.condition_id,
-            return_site: seed.return_site_fact_id,
-            return_region: seed.return_region_fact_id,
-            steps: &proof,
-        });
-        flows.push(SummaryFlowsRow {
+        push_finite_path(&mut flows, &mut steps, FinitePath {
             snapshot_id: seed.snapshot_id,
-            summary_id,
             function_node_id: seed.function_node_id,
             parameter_node_id: seed.parameter_node_id,
-            input_path,
-            output_path,
-            kind: SummaryFlowKind::Value,
-            condition_id: seed.condition_id,
-            verdict: if condition.is_true() { Verdict::Established } else { Verdict::Conditional },
-            boundary_reason: None,
+            parameter_name: seed.parameter_name,
             source_flow_fact_id: seed.source_flow_fact_id,
+            condition_id: seed.condition_id,
+            condition_is_true: condition.is_true(),
             return_site_fact_id: seed.return_site_fact_id,
             return_region_fact_id: seed.return_region_fact_id,
             approximated: seed.approximated,
             path_depth: 1,
+            proof,
         });
-        steps.extend(proof.into_iter().enumerate().map(|(ordinal, step)| SummaryFlowStepsRow {
+    }
+    let assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_assignment_summary_flow_seeds(),
+        sql::Params::new(),
+    )
+    .await?;
+    for seed in assignment_seeds {
+        let Some(condition) = diagrams.get(&seed.predecessor_condition_id) else {
+            continue;
+        };
+        if condition.is_false() || [
+            seed.reaching_condition_id,
+            seed.successor_condition_id,
+            seed.return_condition_id,
+        ].iter().any(|id| {
+            diagrams.get(id).is_none_or(|other| condition.implies(other) != Ok(true))
+        }) {
+            continue;
+        }
+        let Some(mut proof) = modeled_call_proof(&CallEvidence {
+            flow_fact_id: seed.predecessor_flow_fact_id,
+            parameter_node_id: seed.parameter_node_id,
+            source_argument_fact_id: seed.source_argument_fact_id,
+            call_fact_id: seed.call_fact_id,
+            pysa_fact_id: seed.pysa_fact_id,
+            model_id: seed.model_id,
+            rule_id: seed.rule_id,
+            callee_resolution_fact_id: seed.callee_resolution_fact_id,
+            argument_count: seed.argument_count,
+            condition_id: seed.predecessor_condition_id,
+        }, &by_candidate) else {
+            continue;
+        };
+        for (kind, evidence_id, condition_id) in [
+            (SummaryFlowStepKind::DefinitionReaching, seed.reaching_fact_id, seed.reaching_condition_id),
+            (SummaryFlowStepKind::ReturnSource, seed.source_flow_fact_id, seed.successor_condition_id),
+            (SummaryFlowStepKind::ReturnExit, seed.return_site_fact_id, seed.return_condition_id),
+        ] {
+            proof.push(recipe::SummaryFlowProofStep { kind, evidence_id, condition_id });
+        }
+        push_finite_path(&mut flows, &mut steps, FinitePath {
             snapshot_id: seed.snapshot_id,
-            summary_id,
-            ordinal: ordinal as i64,
-            kind: step.kind,
-            evidence_id: step.evidence_id,
-            condition_id: step.condition_id,
-        }));
+            function_node_id: seed.function_node_id,
+            parameter_node_id: seed.parameter_node_id,
+            parameter_name: seed.parameter_name,
+            source_flow_fact_id: seed.source_flow_fact_id,
+            condition_id: seed.predecessor_condition_id,
+            condition_is_true: condition.is_true(),
+            return_site_fact_id: seed.return_site_fact_id,
+            return_region_fact_id: seed.return_region_fact_id,
+            approximated: seed.approximated,
+            path_depth: 2,
+            proof,
+        });
     }
     Ok((flows, steps))
 }

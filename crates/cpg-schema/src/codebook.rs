@@ -1340,6 +1340,8 @@ codebook!(
         ModelRule = 4 => "model_rule",
         ReturnExit = 5 => "return_exit",
         CallSite = 6 => "call_site",
+        DefinitionReaching = 7 => "definition_reaching",
+        ReturnSource = 8 => "return_source",
     }
 );
 
