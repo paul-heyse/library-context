@@ -1,0 +1,17 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table model_targets
+family findings
+key snapshot_id, model_id, target_node_id
+@lctx.family=findings
+@lctx.table=model_targets
+snapshot_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+target_module_fact_id: FixedSizeBinary(16) NOT NULL
+target_definition_fact_id: FixedSizeBinary(16) NOT NULL
+target_key: Utf8 NOT NULL
+revision: Int64 NOT NULL
+origin: Int16 NOT NULL [lctx.codebook=origin]

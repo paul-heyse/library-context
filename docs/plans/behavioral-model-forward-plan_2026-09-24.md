@@ -462,9 +462,11 @@ has no serving consumer yet, and the integrated gate remains `not_run`.
 
    **Partial implementation (Tested, 2026-09-24):** the Serde/TOML parser, typed access paths,
    canonical renderer, catalog digest and first `typing.cast` identity model are present. The
-   catalog is validated before an analyzed attempt writes Delta. Target binding, Arrow rows,
-   the rest of the model list and CrossHair checks remain open; the current parser does not
-   apply models to behavioral findings.
+   catalog is validated before an analyzed attempt writes Delta. The first target-binding
+   boundary now resolves applicable stdlib and dependency models to pinned context definitions
+   and writes cited `model_targets` rows; release targets remain deliberately unsupported. The
+   rest of the model list, rule-path binding, CrossHair checks and summary application remain
+   open; target rows alone do not establish behavioral findings.
 5. **Derive the remaining L2 relations before summaries.** `handlers` names caught types and
    the action on each normal and exceptional exit; `callbacks` distinguishes storage,
    registration, forwarding and invocation; `resources` names acquire/release and the exit path;

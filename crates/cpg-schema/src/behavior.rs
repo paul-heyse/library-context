@@ -29,11 +29,30 @@
 
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
-    ExactValueOrigin, FlowSink, InvocationPhase, Modality, OperationFacet, PremiseKind, ReadPhase,
-    SourceRole, TestValueLinkOrigin, ValueClass, Verdict,
+    ExactValueOrigin, FlowSink, InvocationPhase, Modality, OperationFacet, Origin, PremiseKind,
+    ReadPhase, SourceRole, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
+
+table!(
+    /// An authored model bound to a definition in the pinned analysis context. This is a target
+    /// proof, not yet an applied transfer or effect summary. Overloads have distinct target nodes.
+    ModelTargets, ModelTargetsRow = "model_targets",
+    family = Findings,
+    key = [snapshot_id, model_id, target_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        target_module_fact_id: Id,
+        target_definition_fact_id: Id,
+        target_key: String,
+        revision: i64,
+        origin: Origin,
+    }
+);
 
 table!(
     /// Pass B's argument flows (§9.2), persisted: each argument of a `call` or `init` arc mapped

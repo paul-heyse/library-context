@@ -168,6 +168,8 @@ key:value_flows
   SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity, count(*) AS n FROM value_flows GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity HAVING count(*) > 1
 key:flow_test_value_links
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_value_links GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
+key:model_targets
+  SELECT snapshot_id, model_id, target_node_id, count(*) AS n FROM model_targets GROUP BY snapshot_id, model_id, target_node_id HAVING count(*) > 1
 key:flow_test_exact_origins
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_exact_origins GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:field_accesses
@@ -298,6 +300,12 @@ ref:brief_documents.brief_id->briefs
   SELECT f.brief_id AS value FROM brief_documents f LEFT ANTI JOIN (SELECT brief_id AS k FROM briefs) r ON f.brief_id = r.k WHERE f.brief_id IS NOT NULL
 ref:brief_documents.spec_hash->embedding_specs
   SELECT f.spec_hash AS value FROM brief_documents f LEFT ANTI JOIN (SELECT spec_hash AS k FROM embedding_specs) r ON f.spec_hash = r.k WHERE f.spec_hash IS NOT NULL
+ref:model_targets.target_node_id->context_definitions
+  SELECT f.target_node_id AS value FROM model_targets f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:model_targets.target_module_fact_id->facts
+  SELECT f.target_module_fact_id AS value FROM model_targets f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_module_fact_id = r.k WHERE f.target_module_fact_id IS NOT NULL
+ref:model_targets.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM model_targets f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
 ref:provider_node_map.pysa_fact_id->facts
   SELECT f.pysa_fact_id AS value FROM provider_node_map f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
 ref:provider_node_map.declaration_fact_id->facts
@@ -710,6 +718,8 @@ codebook:value_flows.sink
   SELECT sink FROM value_flows WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
 codebook:flow_test_value_links.origin
   SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
+codebook:model_targets.origin
+  SELECT origin FROM model_targets WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:flow_test_exact_origins.origin
   SELECT origin FROM flow_test_exact_origins WHERE origin IS NOT NULL AND origin NOT IN (0)
 codebook:ambient_reads.phase
@@ -798,6 +808,8 @@ semantic:binding-is-a-flow-definition
   SELECT b.node_id FROM bindings b JOIN (SELECT scope_node_id AS module_node_id FROM coverage WHERE fact_family = 13 AND status = 0) m ON m.module_node_id = b.module_node_id LEFT ANTI JOIN flow_definitions d ON d.module_node_id = b.module_node_id AND d.start_byte = b.start_byte AND d.end_byte = b.end_byte WHERE b.kind NOT IN (16, 17, 15, 20, 11)
 semantic:flow-reaching-within-candidates
   SELECT fr.use_id FROM flow_reaching fr JOIN flow_uses u ON u.use_id = fr.use_id JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte JOIN flow_definitions d ON d.definition_id = fr.definition_id JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte LEFT ANTI JOIN reference_resolutions rr ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id
+semantic:model-target-provenance
+  SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
 semantic:pysa-signatures-placed
   SELECT m.module_node_id, m.function_key FROM provider_node_map m              JOIN pysa_functions f                ON f.module_node_id = m.module_node_id AND f.function_key = m.function_key              LEFT ANTI JOIN signatures s                ON s.module_node_id = m.module_node_id AND s.function_key = m.function_key              WHERE m.node_id IS NOT NULL AND f.signature_count > 0
 semantic:resolution-has-boundary

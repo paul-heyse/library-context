@@ -9,6 +9,7 @@ use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use cpg_schema::derived::{Derived, derivations};
 use cpg_schema::id::{Digest, Id, IdHasher, kind};
 use cpg_schema::metrics::{Stage, Stages};
+use cpg_schema::query::QueryRow;
 use cpg_schema::rules::rules;
 use cpg_schema::table::{Table, schema_digest};
 use cpg_schema::tables::{Producers, Runs, Snapshots, SnapshotsRow, contracts};
@@ -50,7 +51,8 @@ pub struct Published {
 /// 17: direct entry-formal/test-use links (Stage 3.0). 18: resolved builtin `type(x) is C`
 /// atoms, their guarded entry-value links and exact-class origins. 19: path-stable later-use
 /// links under an exact type guard. 20: committed typed model catalog identity and validation.
-pub const COMPILER_OUTPUT_VERSION: u32 = 20;
+/// 21: pinned-source model target bindings and their publication contract.
+pub const COMPILER_OUTPUT_VERSION: u32 = 21;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -369,16 +371,22 @@ pub async fn compile_analyzed(
     raw: &[(&str, RecordBatch)],
     analysis: Option<&Analysis>,
 ) -> Result<Published, CoreError> {
-    if analysis.is_some() {
-        cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
-    }
+    let model_targets = bind_model_targets(snapshot_id, raw, analysis.is_some())?;
     let mut raw = raw.to_vec();
     let compiler = analysis
         .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
         .transpose()?;
     let mut written = Written::new();
     let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
-    finish(root, snapshot_id, runs, written, analysis.zip(compiler)).await
+    finish(
+        root,
+        snapshot_id,
+        runs,
+        written,
+        analysis.zip(compiler),
+        &model_targets,
+    )
+    .await
 }
 
 /// [`compile_analyzed`], releasing the raw batches once they are written: derivation and
@@ -389,9 +397,7 @@ pub async fn compile_owned(
     mut raw: Vec<(&'static str, RecordBatch)>,
     analysis: Option<&Analysis>,
 ) -> Result<Published, CoreError> {
-    if analysis.is_some() {
-        cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
-    }
+    let model_targets = bind_model_targets(snapshot_id, &raw, analysis.is_some())?;
     let compiler = analysis
         .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
         .transpose()?;
@@ -399,7 +405,46 @@ pub async fn compile_owned(
     let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
     drop(raw);
     written.stages.mark("release raw batches");
-    finish(root, snapshot_id, runs, written, analysis.zip(compiler)).await
+    finish(
+        root,
+        snapshot_id,
+        runs,
+        written,
+        analysis.zip(compiler),
+        &model_targets,
+    )
+    .await
+}
+
+fn bind_model_targets(
+    snapshot_id: Id,
+    raw: &[(&str, RecordBatch)],
+    analyzed: bool,
+) -> Result<Vec<cpg_schema::behavior::ModelTargetsRow>, CoreError> {
+    if !analyzed {
+        return Ok(Vec::new());
+    }
+    fn rows<T: Table>(raw: &[(&str, RecordBatch)]) -> Result<Vec<T::Row>, CoreError>
+    where
+        T::Row: QueryRow,
+    {
+        let batch = raw
+            .iter()
+            .find(|(name, _)| *name == T::NAME)
+            .ok_or_else(|| CoreError::Analysis(format!("missing raw table {}", T::NAME)))?
+            .1
+            .clone();
+        Ok(T::Row::read_batch(&batch)?)
+    }
+    let catalog = cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
+    catalog
+        .bind_targets(
+            snapshot_id,
+            &rows::<cpg_schema::tables::Contexts>(raw)?,
+            &rows::<cpg_schema::tables::ContextModules>(raw)?,
+            &rows::<cpg_schema::tables::ContextDefinitions>(raw)?,
+        )
+        .map_err(CoreError::Analysis)
 }
 
 /// What the raw writes leave for the rest of the attempt.
@@ -450,6 +495,7 @@ async fn finish(
     runs: Vec<Id>,
     mut written: Written,
     analysis: Option<(&Analysis, CompilerRun)>,
+    model_targets: &[cpg_schema::behavior::ModelTargetsRow],
 ) -> Result<Published, CoreError> {
     let ctx = session(root, snapshot_id, &written.versions).await?;
     written.stages.mark("open session");
@@ -485,6 +531,14 @@ async fn finish(
         root,
         snapshot_id,
         &public,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<cpg_schema::behavior::ModelTargets>(
+        &ctx,
+        root,
+        snapshot_id,
+        model_targets,
         &mut written,
     )
     .await?;

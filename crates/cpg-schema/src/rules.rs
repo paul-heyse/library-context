@@ -121,6 +121,13 @@ pub const REFERENCES: &[Reference] = &[
         "spec_hash",
         &[("embedding_specs", "spec_hash")],
     ),
+    r(
+        "model_targets",
+        "target_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_targets", "target_module_fact_id", FACT),
+    r("model_targets", "target_definition_fact_id", FACT),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
     r("provider_class_map", "pysa_fact_id", FACT),
@@ -264,6 +271,18 @@ fn semantic() -> Vec<Rule> {
         ),
     ];
     flow_rules.into_iter().chain([
+        (
+            "semantic:model-target-provenance",
+            format!(
+                "SELECT mt.model_id FROM model_targets mt \
+                 LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id \
+                   AND d.symbol_node_id = mt.target_node_id \
+                 LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id \
+                   AND m.module_node_id = d.module_node_id \
+                 WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
         (
             // F2: every Pysa function with signatures is some signature row's callable.
             "semantic:pysa-signatures-placed",

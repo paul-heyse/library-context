@@ -5,11 +5,14 @@
 //! the sole written form used by Arrow and display. This module parses and validates the
 //! catalog; binding a target to a pinned source callable is the compiler's next boundary.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 
+use crate::behavior::ModelTargetsRow;
+use crate::codebook::{DefinitionKind, ModuleOrigin, Origin};
 use crate::id::{Digest, Id, IdHasher};
+use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextsRow};
 
 pub const FORMAT: u32 = 1;
 
@@ -358,6 +361,107 @@ impl Catalog {
             .bytes(include_bytes!("../models/external.toml"))
             .finish_digest()
     }
+
+    /// Bind each applicable authored target to its pinned context definition. A model for a
+    /// different Python or dependency version is dormant. If its pinned module is present but
+    /// the callable is absent, the catalog is stale and compilation fails before publication.
+    /// This does not apply the model's rules or assert that its formal paths resolve.
+    pub fn bind_targets(
+        &self,
+        snapshot_id: Id,
+        contexts: &[ContextsRow],
+        modules: &[ContextModulesRow],
+        definitions: &[ContextDefinitionsRow],
+    ) -> Result<Vec<ModelTargetsRow>, String> {
+        let mut out: BTreeMap<(Id, Id), ModelTargetsRow> = BTreeMap::new();
+        for compiled in &self.models {
+            let target = &compiled.model.target;
+            let applicable_modules: Vec<_> = modules
+                .iter()
+                .filter(|m| match target {
+                    Target::Stdlib { python, module, .. } => {
+                        m.module_name == *module
+                            && m.origin == ModuleOrigin::BundledTypeshed
+                            && contexts.iter().any(|c| c.python_version == *python)
+                    }
+                    Target::Dependency {
+                        distribution,
+                        version,
+                        module,
+                        ..
+                    } => {
+                        m.module_name == *module
+                            && m.origin == ModuleOrigin::SitePackages
+                            && m.distribution.as_deref() == Some(distribution)
+                            && m.version.as_deref() == Some(version)
+                    }
+                    Target::Release { .. } => false,
+                })
+                .collect();
+            if matches!(target, Target::Release { .. }) {
+                return Err(format!(
+                    "release model target binding is not implemented: {}",
+                    target.key()
+                ));
+            }
+            if applicable_modules.is_empty() {
+                continue;
+            }
+            if matches!(target, Target::Stdlib { .. })
+                && contexts
+                    .iter()
+                    .any(|c| !matches!(target, Target::Stdlib { python, .. } if c.python_version == *python))
+            {
+                return Err(format!(
+                    "mixed Python versions cannot safely bind {}",
+                    target.key()
+                ));
+            }
+            let callable = match target {
+                Target::Stdlib { callable, .. } | Target::Dependency { callable, .. } => callable,
+                Target::Release { .. } => unreachable!(),
+            };
+            for module in applicable_modules {
+                let matches: Vec<_> = definitions
+                    .iter()
+                    .filter(|d| {
+                        d.module_node_id == module.module_node_id
+                            && d.qualified_name == *callable
+                            && matches!(d.kind, DefinitionKind::Function | DefinitionKind::Class)
+                    })
+                    .collect();
+                if matches.is_empty() {
+                    return Err(format!(
+                        "model target {} has no pinned definition in module fact {}",
+                        target.key(),
+                        module.fact_id.hex()
+                    ));
+                }
+                for definition in matches {
+                    let row = ModelTargetsRow {
+                        snapshot_id,
+                        model_id: compiled.model_id,
+                        target_node_id: definition.symbol_node_id,
+                        target_module_fact_id: module.fact_id,
+                        target_definition_fact_id: definition.fact_id,
+                        target_key: target.key(),
+                        revision: i64::from(compiled.model.revision),
+                        origin: Origin::SyntheticModel,
+                    };
+                    let key = (row.model_id, row.target_node_id);
+                    match out.get(&key) {
+                        Some(old)
+                            if (old.target_module_fact_id, old.target_definition_fact_id)
+                                <= (row.target_module_fact_id, row.target_definition_fact_id) => {}
+                        _ => {
+                            out.insert(key, row);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out.into_values().collect())
+    }
 }
 
 fn identifier(value: &str) -> bool {
@@ -375,6 +479,94 @@ fn dotted_name(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binding_requires_the_exact_context_and_a_cited_definition() {
+        let catalog = Catalog::committed().unwrap();
+        let snapshot_id = Id([1; 16]);
+        let module_node_id = Id([2; 16]);
+        let context = ContextsRow {
+            snapshot_id,
+            context_id: Id([3; 16]),
+            python_version: "3.14.7".into(),
+            python_platform: "linux".into(),
+            search_path: Vec::new(),
+            site_package_path: Vec::new(),
+            config_digest: Digest([0; 32]),
+            environment_digest: Digest([0; 32]),
+            lock_digest: None,
+        };
+        let module = ContextModulesRow {
+            snapshot_id,
+            fact_id: Id([4; 16]),
+            module_node_id,
+            module_name: "typing".into(),
+            origin: ModuleOrigin::BundledTypeshed,
+            path: Some("stdlib/typing.pyi".into()),
+            distribution: None,
+            version: None,
+        };
+        let definition = ContextDefinitionsRow {
+            snapshot_id,
+            fact_id: Id([5; 16]),
+            symbol_node_id: Id([6; 16]),
+            module_node_id,
+            module_name: "typing".into(),
+            kind: DefinitionKind::Function,
+            key: "cast-key".into(),
+            name: "cast".into(),
+            qualified_name: "cast".into(),
+            is_top_level: true,
+        };
+        let bound = catalog
+            .bind_targets(
+                snapshot_id,
+                std::slice::from_ref(&context),
+                std::slice::from_ref(&module),
+                std::slice::from_ref(&definition),
+            )
+            .unwrap();
+        assert_eq!(bound.len(), 1);
+        assert_eq!(bound[0].target_node_id, definition.symbol_node_id);
+        assert_eq!(bound[0].target_definition_fact_id, definition.fact_id);
+        assert_eq!(bound[0].origin, Origin::SyntheticModel);
+
+        assert!(
+            catalog
+                .bind_targets(
+                    snapshot_id,
+                    std::slice::from_ref(&context),
+                    std::slice::from_ref(&module),
+                    &[],
+                )
+                .is_err()
+        );
+        let wrong_context = ContextsRow {
+            python_version: "3.14.6".into(),
+            ..context
+        };
+        assert!(
+            catalog
+                .bind_targets(
+                    snapshot_id,
+                    &[wrong_context],
+                    std::slice::from_ref(&module),
+                    &[],
+                )
+                .unwrap()
+                .is_empty()
+        );
+        let wrong_origin = ContextModulesRow {
+            origin: ModuleOrigin::SitePackages,
+            ..module
+        };
+        assert!(
+            catalog
+                .bind_targets(snapshot_id, &[], &[wrong_origin], &[])
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn committed_catalog_has_typed_identity_path_and_digest() {

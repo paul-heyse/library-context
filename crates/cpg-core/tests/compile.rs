@@ -12,8 +12,10 @@ use cpg_core::delta::read_at;
 use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
-use cpg_schema::behavior::{FlowTestExactOriginsRow, FlowTestValueLinksRow};
-use cpg_schema::codebook::Codebook;
+use cpg_schema::behavior::{
+    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargets, ModelTargetsRow,
+};
+use cpg_schema::codebook::{Codebook, Origin};
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::Id;
@@ -246,6 +248,36 @@ async fn published_test_type_link_tamper_is_rejected() {
         violations
             .iter()
             .any(|v| v.rule == "flow-test-type-proof-link"),
+        "{violations:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn model_target_requires_its_cited_pinned_definition() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([48; 16]);
+    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let forged = ModelTargets::to_batch(&[ModelTargetsRow {
+        snapshot_id: snapshot,
+        model_id: Id([1; 16]),
+        target_node_id: Id([2; 16]),
+        target_module_fact_id: Id([3; 16]),
+        target_definition_fact_id: Id([4; 16]),
+        target_key: "stdlib:3.14.7:typing.cast".into(),
+        revision: 1,
+        origin: Origin::SyntheticModel,
+    }])
+    .unwrap();
+    ctx.deregister_table("model_targets").unwrap();
+    ctx.register_batch("model_targets", forged).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (expected,) = ("semantic:model-target-provenance",);
+    assert!(
+        violations.iter().any(|v| v.rule == expected),
         "{violations:?}"
     );
 }

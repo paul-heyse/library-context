@@ -452,8 +452,8 @@ pub async fn stable_after_exact_guards(
         .collect();
     let links: BTreeMap<Id, &FlowTestValueLinksRow> =
         base_links.iter().map(|link| (link.link_id, link)).collect();
-    let mut guards: BTreeMap<(Id, Id), Vec<(&FlowTestExactOriginsRow, &ExactLeaf, Diagram)>> =
-        BTreeMap::new();
+    type GuardWitness<'a> = (&'a FlowTestExactOriginsRow, &'a ExactLeaf, Diagram);
+    let mut guards: BTreeMap<(Id, Id), Vec<GuardWitness<'_>>> = BTreeMap::new();
     for origin in origins {
         let (Some(leaf), Some(link)) = (
             leaves.get(&origin.leaf_fact_id),
