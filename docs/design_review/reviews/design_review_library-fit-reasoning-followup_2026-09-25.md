@@ -438,13 +438,6 @@ further leads, not established findings in this review.
 
 **Transferred 2026-09-25.** This review's F01–F08, the source review's F01–F16 and ARC-01–03 are scheduled in the forward plan; [its §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition) is their single current disposition owner. The table below is this review's dated recommendation, not current status.
 
-No source finding is scheduled by this review. Original F01–F16 remain owned by
-[source review §11](design_review_library-fit-reasoning_2026-09-25.md#11-authority-changes-and-dispositions).
-ARC-01–03 remain owned by [forward plan §9.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition).
-The table below is the single current disposition owner for this review's **new** findings until
-the operator schedules them. Deferred means implementation was outside this task; it does not
-make failed supported behavior acceptable.
-
 | Source | Disposition / owner | Required decision or reopening trigger | Closure / route |
 |---|---|---|---|
 | This F01 | **Deferred** — kernel/native preparation | Before raising catalog limits or extending summary catalogs | Aggregate preparation/retention contract + shared/disjoint controls; ADR if persisted refusal/meaning changes |

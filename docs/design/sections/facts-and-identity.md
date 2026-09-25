@@ -8,7 +8,8 @@ a graph without a second authority. Producers are the extractor and the Stage C/
 ([§8](validation-and-evaluation.md#section-8)), publication and projections
 ([storage and publication](storage-and-publication.md#section-5)), analytics and synthesis. The
 dependency direction is one way: every crate depends on `cpg-schema`, which depends only on
-`arrow-*` and `blake3` (§B2). The executable declarations are authoritative for columns and codes:
+Arrow, id hashing, typed-declaration parsing and the BDD kernel library, never on DataFusion,
+Delta, an async runtime or I/O (§B2). The executable declarations are authoritative for columns and codes:
 `crates/cpg-schema/src/` (`tables.rs`, `derived.rs`, `codebook.rs`, `id.rs`, `graph.rs`,
 `rules.rs`, `findings.rs`, `flows.rs`), with snapshot tests in `crates/cpg-schema/tests/` and
 graph, syntax and corpus tests in `crates/cpg-core/tests/`. Flow semantics are in the

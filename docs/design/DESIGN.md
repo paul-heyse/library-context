@@ -142,7 +142,8 @@ truly concurrent production-code edits. Build performance of this configuration 
   skill's install line or resolved release versions differ from `libraries/fastmcp`.
 - **Freezes.** The analytics config, the analytics and selection parameters in code and the
   variant policies are frozen by digest in `eval/gold/analytics-freeze.json`; `just gold` fails on
-  an edit. Any edit needs an ADR that names the gold its author has seen.
+  an edit. Any edit needs a new ADR that names the gold its author has seen, recorded as the
+  freeze file's `adr` (accepted records are not amended with new decisions, ADR-0042).
 - **Serving** runs FastMCP from the project's own environment; that environment is never an
   analysis input.
 
@@ -247,8 +248,10 @@ and codebook snapshots).
 - `cpg-schema` holds the Arrow `Schema` definitions, append-only codebooks, logical-id newtypes,
   key and reference declarations, the graph registry
   ([§3.8](sections/facts-and-identity.md#section-3-8)), physical storage mappings and
-  Arrow-only batch builders and local validators. Its dependencies are `arrow-*` and `blake3`
-  (id derivation); DataFusion validators live in core crates.
+  Arrow-only batch builders and local validators. Its dependencies are `arrow-*`, `blake3` (ids), `serde`/`serde_json`/`toml` (typed declarations such as the model
+  catalog), `sha2` and `biodivine-lib-bdd` (the condition kernel, whose general allowance is
+  proposed in ADR-0024); never DataFusion, Delta, object_store, an async runtime or I/O. DataFusion
+  validators live in core crates.
 - **No inferred schemas**: none is inferred from JSON or a first batch, including the serving
   generation ([§6.4](sections/storage-and-publication.md#section-6-4)) and the embedding exchange
   ([§11.1](sections/synthesis-and-serving.md#section-11-1)).

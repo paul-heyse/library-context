@@ -231,3 +231,10 @@ land.
   per-contract identity property tests; shuffled input giving byte-identical analysis tables;
   `every_rule_is_exercised_or_declared_an_edit_guard`; the serving schema digests' shared known
   answers.
+
+## Amendments
+
+- 2026-09-25 (factual correction, assembled migration review F01): `cpg-schema` also depends on
+  `serde`, `serde_json`, `toml`, `sha2` and `biodivine-lib-bdd`; the "only `arrow-*` and
+  `blake3`" sentence above understated the implemented boundary. DESIGN §B2 states the current
+  list; no decision changes.
