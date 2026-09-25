@@ -29,12 +29,34 @@
 
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
-    ExactValueOrigin, ExitSiteKind, FlowSink, InvocationPhase, Modality, ModelTransferKind,
-    OperationFacet, Origin, PremiseKind, ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin,
-    ValueClass, Verdict,
+    ExactValueOrigin, ExitSiteKind, FlowSink, InvocationPhase, Modality, ModelEffectKind,
+    ModelTransferKind, OperationFacet, Origin, PremiseKind, ReadPhase, SourceRole, SyntaxKind,
+    TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
+
+table!(
+    /// An authored effect for a pinned external definition. Optional argument and subject path
+    /// keep variant data separate from the closed effect kind. This is a model assertion, not a
+    /// source-observed or composed effect of a release operation.
+    ModelEffects, ModelEffectsRow = "model_effects",
+    family = Findings,
+    key = [snapshot_id, model_id, target_node_id, rule_id],
+    checks = [("revision_positive", "revision > 0")],
+    {
+        snapshot_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        revision: i64,
+        effect: ModelEffectKind,
+        argument: Option<String>,
+        subject_path: Option<String>,
+        origin: Origin,
+    }
+);
 
 table!(
     /// A syntactic except clause and its type expression (null for bare except). The condition

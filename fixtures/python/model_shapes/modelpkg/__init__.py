@@ -5,3 +5,7 @@ from typing import cast
 
 def identity(value: object) -> object:
     return cast(object, value)
+
+
+def display(value: object) -> None:
+    print(value)

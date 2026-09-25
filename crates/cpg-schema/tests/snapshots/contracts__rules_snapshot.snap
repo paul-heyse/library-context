@@ -174,6 +174,8 @@ key:model_targets
   SELECT snapshot_id, model_id, target_node_id, count(*) AS n FROM model_targets GROUP BY snapshot_id, model_id, target_node_id HAVING count(*) > 1
 key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
+key:model_effects
+  SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_effects GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:exit_sites
   SELECT snapshot_id, function_node_id, site_node_id, kind, count(*) AS n FROM exit_sites GROUP BY snapshot_id, function_node_id, site_node_id, kind HAVING count(*) > 1
 key:handler_clauses
@@ -320,6 +322,10 @@ ref:model_transfers.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_transfers.target_definition_fact_id->facts
   SELECT f.target_definition_fact_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:model_effects.target_node_id->context_definitions
+  SELECT f.target_node_id AS value FROM model_effects f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:model_effects.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM model_effects f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
 ref:exit_sites.function_node_id->declarations
   SELECT f.function_node_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
 ref:exit_sites.site_node_id->syntax_nodes
@@ -796,6 +802,10 @@ codebook:model_transfers.transfer
   SELECT transfer FROM model_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:model_transfers.origin
   SELECT origin FROM model_transfers WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:model_effects.effect
+  SELECT effect FROM model_effects WHERE effect IS NOT NULL AND effect NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+codebook:model_effects.origin
+  SELECT origin FROM model_effects WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:exit_sites.kind
   SELECT kind FROM exit_sites WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
 codebook:handler_actions.action_kind
@@ -892,6 +902,8 @@ semantic:model-target-provenance
   SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
 semantic:model-transfer-target
   SELECT t.rule_id FROM model_transfers t LEFT JOIN model_targets m ON m.model_id = t.model_id AND m.target_node_id = t.target_node_id AND m.target_definition_fact_id = t.target_definition_fact_id AND m.revision = t.revision WHERE m.model_id IS NULL OR t.origin <> 4
+semantic:model-effect-target
+  SELECT e.rule_id FROM model_effects e LEFT JOIN model_targets m ON m.model_id = e.model_id AND m.target_node_id = e.target_node_id AND m.target_definition_fact_id = e.target_definition_fact_id AND m.revision = e.revision WHERE m.model_id IS NULL OR e.origin <> 4
 semantic:pysa-signatures-placed
   SELECT m.module_node_id, m.function_key FROM provider_node_map m              JOIN pysa_functions f                ON f.module_node_id = m.module_node_id AND f.function_key = m.function_key              LEFT ANTI JOIN signatures s                ON s.module_node_id = m.module_node_id AND s.function_key = m.function_key              WHERE m.node_id IS NOT NULL AND f.signature_count > 0
 semantic:resolution-has-boundary

@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
-    HandlerClausesRow, ModelTargetsRow, ModelTransfersRow,
+    HandlerClausesRow, ModelEffectsRow, ModelTargetsRow, ModelTransfersRow,
 };
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -208,6 +208,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM model_targets".to_owned();
     model_transfers = "validate_model_transfers", deps = ["model_transfers"],
         sql = "SELECT * FROM model_transfers".to_owned();
+    model_effects = "validate_model_effects", deps = ["model_effects"],
+        sql = "SELECT * FROM model_effects".to_owned();
 }
 
 /// Rebuild model rows from the committed bytes and the pinned context views. A stored row cannot
@@ -227,13 +229,20 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_targets(), sql::Params::new()).await?;
     let mut actual_transfers: Vec<ModelTransfersRow> =
         sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
+    let mut actual_effects: Vec<ModelEffectsRow> =
+        sql::fetch(ctx, &model_effects(), sql::Params::new()).await?;
     let analyzed = producers.iter().any(|p| p.tool == crate::analyze::TOOL);
-    if !analyzed && actual_targets.is_empty() && actual_transfers.is_empty() {
+    if !analyzed
+        && actual_targets.is_empty()
+        && actual_transfers.is_empty()
+        && actual_effects.is_empty()
+    {
         return Ok(Vec::new());
     }
     let Some(snapshot_id) = contexts.first().map(|row| row.snapshot_id) else {
         return Ok(
-            if actual_targets.is_empty() && actual_transfers.is_empty() {
+            if actual_targets.is_empty() && actual_transfers.is_empty() && actual_effects.is_empty()
+            {
                 Vec::new()
             } else {
                 vec![Violation {
@@ -251,10 +260,15 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
     let mut expected_transfers = catalog
         .compile_transfers(&expected_targets, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
+    let mut expected_effects = catalog
+        .compile_effects(&expected_targets, &definitions, &parameters)
+        .map_err(CoreError::Analysis)?;
     expected_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
     actual_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
     expected_transfers.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
     actual_transfers.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    expected_effects.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    actual_effects.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
     let mut violations = Vec::new();
     if !analyzed {
         violations.push(Violation {
@@ -282,6 +296,17 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
                 "expected {} transfer rows, stored {}",
                 expected_transfers.len(),
                 actual_transfers.len()
+            ),
+        });
+    }
+    if expected_effects != actual_effects {
+        violations.push(Violation {
+            rule: "model-catalog-effect-equality".into(),
+            rows: 1,
+            sample: format!(
+                "expected {} effect rows, stored {}",
+                expected_effects.len(),
+                actual_effects.len()
             ),
         });
     }

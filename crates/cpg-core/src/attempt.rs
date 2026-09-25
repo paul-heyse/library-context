@@ -54,8 +54,8 @@ pub struct Published {
 /// 21: pinned-source model target bindings and their publication contract. 22: compiled authored
 /// transfer rows, gated on those target bindings. 23: external Pysa signatures and model formal
 /// path validation. 24: attributed explicit exits and finally-body actions. 25: attributed
-/// except clauses and direct handler actions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 25;
+/// except clauses and direct handler actions. 26: authored typed effects and their pinned binding.
+pub const COMPILER_OUTPUT_VERSION: u32 = 26;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -374,7 +374,7 @@ pub async fn compile_analyzed(
     raw: &[(&str, RecordBatch)],
     analysis: Option<&Analysis>,
 ) -> Result<Published, CoreError> {
-    let (model_targets, model_transfers) = bind_models(snapshot_id, raw, analysis.is_some())?;
+    let models = bind_models(snapshot_id, raw, analysis.is_some())?;
     let mut raw = raw.to_vec();
     let compiler = analysis
         .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
@@ -387,8 +387,7 @@ pub async fn compile_analyzed(
         runs,
         written,
         analysis.zip(compiler),
-        &model_targets,
-        &model_transfers,
+        &models,
     )
     .await
 }
@@ -401,7 +400,7 @@ pub async fn compile_owned(
     mut raw: Vec<(&'static str, RecordBatch)>,
     analysis: Option<&Analysis>,
 ) -> Result<Published, CoreError> {
-    let (model_targets, model_transfers) = bind_models(snapshot_id, &raw, analysis.is_some())?;
+    let models = bind_models(snapshot_id, &raw, analysis.is_some())?;
     let compiler = analysis
         .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
         .transpose()?;
@@ -415,25 +414,25 @@ pub async fn compile_owned(
         runs,
         written,
         analysis.zip(compiler),
-        &model_targets,
-        &model_transfers,
+        &models,
     )
     .await
+}
+
+#[derive(Default)]
+struct BoundModels {
+    targets: Vec<cpg_schema::behavior::ModelTargetsRow>,
+    transfers: Vec<cpg_schema::behavior::ModelTransfersRow>,
+    effects: Vec<cpg_schema::behavior::ModelEffectsRow>,
 }
 
 fn bind_models(
     snapshot_id: Id,
     raw: &[(&str, RecordBatch)],
     analyzed: bool,
-) -> Result<
-    (
-        Vec<cpg_schema::behavior::ModelTargetsRow>,
-        Vec<cpg_schema::behavior::ModelTransfersRow>,
-    ),
-    CoreError,
-> {
+) -> Result<BoundModels, CoreError> {
     if !analyzed {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok(BoundModels::default());
     }
     fn rows<T: Table>(raw: &[(&str, RecordBatch)]) -> Result<Vec<T::Row>, CoreError>
     where
@@ -457,14 +456,18 @@ fn bind_models(
             &definitions,
         )
         .map_err(CoreError::Analysis)?;
+    let parameters = rows::<cpg_schema::tables::ContextParameters>(raw)?;
     let transfers = catalog
-        .compile_transfers(
-            &targets,
-            &definitions,
-            &rows::<cpg_schema::tables::ContextParameters>(raw)?,
-        )
+        .compile_transfers(&targets, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
-    Ok((targets, transfers))
+    let effects = catalog
+        .compile_effects(&targets, &definitions, &parameters)
+        .map_err(CoreError::Analysis)?;
+    Ok(BoundModels {
+        targets,
+        transfers,
+        effects,
+    })
 }
 
 /// What the raw writes leave for the rest of the attempt.
@@ -515,8 +518,7 @@ async fn finish(
     runs: Vec<Id>,
     mut written: Written,
     analysis: Option<(&Analysis, CompilerRun)>,
-    model_targets: &[cpg_schema::behavior::ModelTargetsRow],
-    model_transfers: &[cpg_schema::behavior::ModelTransfersRow],
+    models: &BoundModels,
 ) -> Result<Published, CoreError> {
     let ctx = session(root, snapshot_id, &written.versions).await?;
     written.stages.mark("open session");
@@ -559,7 +561,7 @@ async fn finish(
         &ctx,
         root,
         snapshot_id,
-        model_targets,
+        &models.targets,
         &mut written,
     )
     .await?;
@@ -567,7 +569,15 @@ async fn finish(
         &ctx,
         root,
         snapshot_id,
-        model_transfers,
+        &models.transfers,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<cpg_schema::behavior::ModelEffects>(
+        &ctx,
+        root,
+        snapshot_id,
+        &models.effects,
         &mut written,
     )
     .await?;

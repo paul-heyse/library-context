@@ -678,3 +678,15 @@ exit_site_kind
   0 return
   1 raise
   2 finally_body
+model_effect_kind
+  0 io_read
+  1 io_write
+  2 net
+  3 log
+  4 timeout
+  5 thread_dispatch
+  6 compress
+  7 serialize
+  8 validate
+  9 register
+  10 invoke

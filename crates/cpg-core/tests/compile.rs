@@ -13,10 +13,10 @@ use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
 use cpg_schema::behavior::{
-    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargets, ModelTargetsRow, ModelTransfers,
-    ModelTransfersRow,
+    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelEffects, ModelEffectsRow, ModelTargets,
+    ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
-use cpg_schema::codebook::{Codebook, ExitSiteKind, ModelTransferKind, Origin};
+use cpg_schema::codebook::{Codebook, ExitSiteKind, ModelEffectKind, ModelTransferKind, Origin};
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::Id;
@@ -109,7 +109,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 39,
+        52 + 21 + 40,
         "every raw, derived and analysis table"
     );
 
@@ -459,6 +459,34 @@ async fn model_target_requires_its_cited_pinned_definition() {
             .any(|v| v.rule == "model-catalog-transfer-equality"),
         "{violations:?}"
     );
+
+    let forged_effect = ModelEffects::to_batch(&[ModelEffectsRow {
+        snapshot_id: snapshot,
+        model_id: Id([1; 16]),
+        target_node_id: Id([2; 16]),
+        rule_id: Id([6; 16]),
+        target_definition_fact_id: Id([4; 16]),
+        revision: 1,
+        effect: ModelEffectKind::IoRead,
+        argument: None,
+        subject_path: None,
+        origin: Origin::SyntheticModel,
+    }])
+    .unwrap();
+    ctx.deregister_table("model_effects").unwrap();
+    ctx.register_batch("model_effects", forged_effect).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (expected,) = ("semantic:model-effect-target",);
+    assert!(
+        violations.iter().any(|v| v.rule == expected),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-effect-equality"),
+        "{violations:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -498,11 +526,9 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert!(targets > 0);
-    assert_eq!(
-        count(&ctx, "SELECT count(*) FROM model_transfers").await,
-        targets
-    );
+    assert_eq!(targets, 2, "typing.cast and builtins.print");
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 1);
     assert!(
         count(
             &ctx,
@@ -510,7 +536,7 @@ budget = 1
              ON p.symbol_node_id = t.target_node_id WHERE p.name = 'val'"
         )
         .await
-            >= targets
+            >= 1
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 
@@ -528,6 +554,26 @@ budget = 1
         violations
             .iter()
             .any(|v| v.rule == "model-catalog-transfer-equality"),
+        "{violations:?}"
+    );
+    let doctored_effect = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (effect), CAST({} AS SMALLINT) AS effect FROM model_effects",
+            ModelEffectKind::IoRead.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("model_effects").unwrap();
+    ctx.register_table("model_effects", doctored_effect)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-effect-equality"),
         "{violations:?}"
     );
 }

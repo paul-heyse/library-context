@@ -135,6 +135,12 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("model_transfers", "target_definition_fact_id", FACT),
     r(
+        "model_effects",
+        "target_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_effects", "target_definition_fact_id", FACT),
+    r(
         "exit_sites",
         "function_node_id",
         &[("declarations", "node_id")],
@@ -395,6 +401,18 @@ fn semantic() -> Vec<Rule> {
                    AND m.target_definition_fact_id = t.target_definition_fact_id \
                    AND m.revision = t.revision \
                  WHERE m.model_id IS NULL OR t.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-effect-target",
+            format!(
+                "SELECT e.rule_id FROM model_effects e \
+                 LEFT JOIN model_targets m ON m.model_id = e.model_id \
+                   AND m.target_node_id = e.target_node_id \
+                   AND m.target_definition_fact_id = e.target_definition_fact_id \
+                   AND m.revision = e.revision \
+                 WHERE m.model_id IS NULL OR e.origin <> {}",
                 crate::codebook::Origin::SyntheticModel.code()
             ),
         ),

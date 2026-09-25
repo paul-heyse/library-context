@@ -10,3 +10,13 @@ kind = "transfer"
 from = { kind = "parameter", name = "val" }
 to = { kind = "return_value" }
 transfer = "identity"
+
+# Python 3.14 print() writes text to a stream (sys.stdout by default, or file.write).
+# The stream identity is call-dependent, so this model claims the I/O effect without a subject.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "print" }
+
+[[models.rules]]
+kind = "effect"
+effect = { kind = "io_write" }

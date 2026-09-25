@@ -9,8 +9,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 
-use crate::behavior::{ModelTargetsRow, ModelTransfersRow};
-use crate::codebook::{DefinitionKind, ModelTransferKind, ModuleOrigin, Origin, SignatureForm};
+use crate::behavior::{ModelEffectsRow, ModelTargetsRow, ModelTransfersRow};
+use crate::codebook::{
+    DefinitionKind, ModelEffectKind, ModelTransferKind, ModuleOrigin, Origin, SignatureForm,
+};
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
@@ -124,6 +126,14 @@ pub enum InputPath {
 }
 
 impl InputPath {
+    fn formal(&self) -> Option<&str> {
+        match self {
+            Self::Parameter { name } => Some(name),
+            Self::ReceiverField { root, .. } => Some(root),
+            Self::Global { .. } => None,
+        }
+    }
+
     pub fn render(&self) -> String {
         match self {
             Self::Parameter { name } => format!("Parameter[{name}]"),
@@ -153,6 +163,14 @@ pub enum OutputPath {
 }
 
 impl OutputPath {
+    fn formal(&self) -> Option<&str> {
+        match self {
+            Self::Parameter { name } => Some(name),
+            Self::ReceiverField { root, .. } => Some(root),
+            Self::ReturnValue | Self::Global { .. } | Self::Raise { .. } => None,
+        }
+    }
+
     pub fn render(&self) -> String {
         match self {
             Self::ReturnValue => "ReturnValue".to_owned(),
@@ -245,6 +263,22 @@ pub enum Effect {
 }
 
 impl Effect {
+    fn kind_argument(&self) -> (ModelEffectKind, Option<&str>) {
+        match self {
+            Self::IoRead => (ModelEffectKind::IoRead, None),
+            Self::IoWrite => (ModelEffectKind::IoWrite, None),
+            Self::Net => (ModelEffectKind::Net, None),
+            Self::Log => (ModelEffectKind::Log, None),
+            Self::Timeout => (ModelEffectKind::Timeout, None),
+            Self::ThreadDispatch => (ModelEffectKind::ThreadDispatch, None),
+            Self::Compress { format } => (ModelEffectKind::Compress, Some(format)),
+            Self::Serialize { format } => (ModelEffectKind::Serialize, Some(format)),
+            Self::Validate { schema } => (ModelEffectKind::Validate, Some(schema)),
+            Self::Register { container } => (ModelEffectKind::Register, Some(container)),
+            Self::Invoke { callable } => (ModelEffectKind::Invoke, Some(callable)),
+        }
+    }
+
     fn validate(&self) -> Result<(), String> {
         match self {
             Self::IoRead
@@ -483,52 +517,22 @@ impl Catalog {
                 .filter(|count| *count > 0)
                 .ok_or_else(|| format!("no complete signature for {}", target.target_key))?;
             for (index, rule) in model.rules.iter().enumerate() {
-                let Rule::Transfer { from, to, transfer } = rule else {
-                    return Err(format!(
-                        "model rule family lacks a compiled contract: {} rule {index}",
-                        target.target_key
-                    ));
-                };
-                let input_formal = match from {
-                    InputPath::Parameter { name } => Some(name.as_str()),
-                    InputPath::ReceiverField { root, .. } => Some(root.as_str()),
-                    InputPath::Global { .. } => None,
-                };
-                let output_formal = match to {
-                    OutputPath::Parameter { name } => Some(name.as_str()),
-                    OutputPath::ReceiverField { root, .. } => Some(root.as_str()),
-                    OutputPath::ReturnValue
-                    | OutputPath::Global { .. }
-                    | OutputPath::Raise { .. } => None,
-                };
-                for signature_index in 0..signature_count {
-                    let rows: Vec<_> = parameters
-                        .iter()
-                        .filter(|p| {
-                            p.symbol_node_id == target.target_node_id
-                                && p.signature_index == signature_index
-                        })
-                        .collect();
-                    if rows.is_empty() || rows.iter().any(|p| p.form != SignatureForm::List) {
+                let (from, to, transfer) = match rule {
+                    Rule::Transfer { from, to, transfer } => (from, to, transfer),
+                    Rule::Effect { .. } => continue,
+                    _ => {
                         return Err(format!(
-                            "unresolved signature {signature_index} for {}",
+                            "model rule family lacks a compiled contract: {} rule {index}",
                             target.target_key
                         ));
                     }
-                    for formal in [input_formal, output_formal].into_iter().flatten() {
-                        if rows
-                            .iter()
-                            .filter(|p| p.name.as_deref() == Some(formal))
-                            .count()
-                            != 1
-                        {
-                            return Err(format!(
-                                "unresolved formal {formal} in signature {signature_index} of {}",
-                                target.target_key
-                            ));
-                        }
-                    }
-                }
+                };
+                validate_formals(
+                    target,
+                    signature_count,
+                    parameters,
+                    &[from.formal(), to.formal()],
+                )?;
                 let rule_id = IdHasher::new("behavior-model-rule")
                     .opt_id(Some(target.model_id))
                     .i64(index as i64)
@@ -552,6 +556,108 @@ impl Catalog {
         }
         Ok(out)
     }
+
+    /// Compile authored effects as typed model assertions. The target's complete pinned Pysa
+    /// signatures still witness any subject formal; the effect is not promoted to a release
+    /// summary until a call path applies this model.
+    pub fn compile_effects(
+        &self,
+        targets: &[ModelTargetsRow],
+        definitions: &[ContextDefinitionsRow],
+        parameters: &[ContextParametersRow],
+    ) -> Result<Vec<ModelEffectsRow>, String> {
+        let by_id: BTreeMap<Id, &Model> = self
+            .models
+            .iter()
+            .map(|compiled| (compiled.model_id, &compiled.model))
+            .collect();
+        let mut out = Vec::new();
+        for target in targets {
+            let model = by_id
+                .get(&target.model_id)
+                .ok_or_else(|| format!("unknown model id {}", target.model_id.hex()))?;
+            let definition = definitions
+                .iter()
+                .find(|d| d.fact_id == target.target_definition_fact_id)
+                .ok_or_else(|| format!("missing definition for {}", target.target_key))?;
+            let signature_count = definition
+                .signature_count
+                .filter(|count| *count > 0)
+                .ok_or_else(|| format!("no complete signature for {}", target.target_key))?;
+            for (index, rule) in model.rules.iter().enumerate() {
+                let (effect, subject) = match rule {
+                    Rule::Effect { effect, subject } => (effect, subject),
+                    Rule::Transfer { .. } => continue,
+                    _ => {
+                        return Err(format!(
+                            "model rule family lacks a compiled contract: {} rule {index}",
+                            target.target_key
+                        ));
+                    }
+                };
+                validate_formals(
+                    target,
+                    signature_count,
+                    parameters,
+                    &[subject.as_ref().and_then(InputPath::formal)],
+                )?;
+                let rule_id = IdHasher::new("behavior-model-rule")
+                    .opt_id(Some(target.model_id))
+                    .i64(index as i64)
+                    .finish_id();
+                let (kind, argument) = effect.kind_argument();
+                out.push(ModelEffectsRow {
+                    snapshot_id: target.snapshot_id,
+                    model_id: target.model_id,
+                    target_node_id: target.target_node_id,
+                    rule_id,
+                    target_definition_fact_id: target.target_definition_fact_id,
+                    revision: target.revision,
+                    effect: kind,
+                    argument: argument.map(str::to_owned),
+                    subject_path: subject.as_ref().map(InputPath::render),
+                    origin: Origin::SyntheticModel,
+                });
+            }
+        }
+        Ok(out)
+    }
+}
+
+fn validate_formals(
+    target: &ModelTargetsRow,
+    signature_count: i64,
+    parameters: &[ContextParametersRow],
+    formals: &[Option<&str>],
+) -> Result<(), String> {
+    for signature_index in 0..signature_count {
+        let rows: Vec<_> = parameters
+            .iter()
+            .filter(|p| {
+                p.symbol_node_id == target.target_node_id && p.signature_index == signature_index
+            })
+            .collect();
+        if rows.is_empty() || rows.iter().any(|p| p.form != SignatureForm::List) {
+            return Err(format!(
+                "unresolved signature {signature_index} for {}",
+                target.target_key
+            ));
+        }
+        for formal in formals.iter().flatten() {
+            if rows
+                .iter()
+                .filter(|p| p.name.as_deref() == Some(*formal))
+                .count()
+                != 1
+            {
+                return Err(format!(
+                    "unresolved formal {formal} in signature {signature_index} of {}",
+                    target.target_key
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn identifier(value: &str) -> bool {
@@ -702,8 +808,13 @@ mod tests {
     fn committed_catalog_has_typed_identity_path_and_digest() {
         let catalog = Catalog::committed().unwrap();
         assert_eq!(catalog.digest, Catalog::committed_digest());
-        assert_eq!(catalog.models.len(), 1);
-        let model = &catalog.models[0].model;
+        assert_eq!(catalog.models.len(), 2);
+        let model = &catalog
+            .models
+            .iter()
+            .find(|m| m.model.target.key() == "stdlib:3.14.7:typing.cast")
+            .unwrap()
+            .model;
         assert_eq!(model.target.key(), "stdlib:3.14.7:typing.cast");
         let Rule::Transfer {
             from,

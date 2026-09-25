@@ -1385,6 +1385,24 @@ codebook!(
     }
 );
 
+codebook!(
+    /// The effect family an authored model claims for a pinned callable. Arguments are separate
+    /// typed-model fields and never parsed from this label.
+    ModelEffectKind = "model_effect_kind" {
+        IoRead = 0 => "io_read",
+        IoWrite = 1 => "io_write",
+        Net = 2 => "net",
+        Log = 3 => "log",
+        Timeout = 4 => "timeout",
+        ThreadDispatch = 5 => "thread_dispatch",
+        Compress = 6 => "compress",
+        Serialize = 7 => "serialize",
+        Validate = 8 => "validate",
+        Register = 9 => "register",
+        Invoke = 10 => "invoke",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1457,6 +1475,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<DynamicKind>(),
         CodebookEntry::of::<PremiseKind>(),
         CodebookEntry::of::<ExitSiteKind>(),
+        CodebookEntry::of::<ModelEffectKind>(),
     ]
 }
 
