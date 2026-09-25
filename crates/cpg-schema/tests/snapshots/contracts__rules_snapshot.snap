@@ -166,6 +166,8 @@ key:operation_facet_status
   SELECT snapshot_id, node_id, facet, count(*) AS n FROM operation_facet_status GROUP BY snapshot_id, node_id, facet HAVING count(*) > 1
 key:value_flows
   SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity, count(*) AS n FROM value_flows GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity HAVING count(*) > 1
+key:flow_test_value_links
+  SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_value_links GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:field_accesses
   SELECT snapshot_id, module_node_id, start_byte, end_byte, write, count(*) AS n FROM field_accesses GROUP BY snapshot_id, module_node_id, start_byte, end_byte, write HAVING count(*) > 1
 key:ambient_reads
@@ -704,6 +706,8 @@ codebook:operation_facet_status.verdict
   SELECT verdict FROM operation_facet_status WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:value_flows.sink
   SELECT sink FROM value_flows WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
+codebook:flow_test_value_links.origin
+  SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0)
 codebook:ambient_reads.phase
   SELECT phase FROM ambient_reads WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3)
 codebook:dynamic_accesses.kind

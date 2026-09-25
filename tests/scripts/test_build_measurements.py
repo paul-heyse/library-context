@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -101,6 +102,11 @@ def test_sample_records_a_process_without_running_cargo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(bm, "competing_builds", lambda: [])
+    monkeypatch.setattr(
+        bm.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=(bm.MIN_FREE_GIB + 1) * 1024**3),
+    )
     output = tmp_path / "result"
     target = tmp_path / "target"
     command = [

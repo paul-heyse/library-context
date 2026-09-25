@@ -456,6 +456,8 @@ type_role
   4 raised
 test_type_origin
   0 pyrefly_trace
+test_value_link_origin
+  0 direct_parameter_reach_no_effect
 record_kind
   0 dataclass
   1 attrs

@@ -795,6 +795,14 @@ codebook!(
 );
 
 codebook!(
+    /// The cited reason an operation's entry formal is the value read by a test leaf.
+    /// Further origins are appended only with an effect and identity proof.
+    TestValueLinkOrigin = "test_value_link_origin" {
+        DirectParameterReachNoEffect = 0 => "direct_parameter_reach_no_effect",
+    }
+);
+
+codebook!(
     /// How a mention names an API (C5, `mentions`; DESIGN §3.2 `docs`): the two classes are never
     /// merged.
     MentionClass = "mention_class" {
@@ -1387,6 +1395,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<TypeArgRole>(),
         CodebookEntry::of::<TypeRole>(),
         CodebookEntry::of::<TestTypeOrigin>(),
+        CodebookEntry::of::<TestValueLinkOrigin>(),
         CodebookEntry::of::<RecordKind>(),
         CodebookEntry::of::<MentionClass>(),
         CodebookEntry::of::<MentionSource>(),

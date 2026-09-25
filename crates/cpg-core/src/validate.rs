@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
+use cpg_schema::behavior::FlowTestValueLinksRow;
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -102,7 +103,60 @@ pub async fn validate_costed(
     }
     violations.extend(validate_condition_graph(&cache).await?);
     violations.extend(validate_test_type_links(&cache).await?);
+    violations.extend(validate_test_value_links(&cache).await?);
     Ok((violations, costs))
+}
+
+cpg_schema::query_row! {
+    struct SourceSnapshot {
+        snapshot_id: Id,
+    }
+}
+cpg_schema::relations! {
+    inventory test_value_relations;
+    test_value_links = "validate_test_value_links", deps = ["flow_test_value_links"],
+        sql = "SELECT * FROM flow_test_value_links".to_owned();
+    test_value_source_snapshots = "validate_test_value_source_snapshots", deps = ["flow_uses"],
+        sql = "SELECT DISTINCT snapshot_id FROM flow_uses LIMIT 2".to_owned();
+}
+
+/// Reconstruct every proof from the pinned raw views. This also catches missing, duplicate and
+/// doctored rows; no consumer may treat a persisted link as authority before this check passes.
+async fn validate_test_value_links(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<FlowTestValueLinksRow> =
+        sql::fetch(ctx, &test_value_links(), sql::Params::new()).await?;
+    let sources: Vec<SourceSnapshot> =
+        sql::fetch(ctx, &test_value_source_snapshots(), sql::Params::new()).await?;
+    let mut expected = if let [source] = sources.as_slice() {
+        crate::entry_links::run(ctx, source.snapshot_id).await?
+    } else {
+        Vec::new()
+    };
+    let key = |row: &FlowTestValueLinksRow| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+            row.link_id,
+        )
+    };
+    actual.sort_by_key(&key);
+    expected.sort_by_key(&key);
+    if sources.len() <= 1 && actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "flow-test-value-proof-link".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!(
+                "stored {} links; derived {} from {} source snapshot(s)",
+                actual.len(),
+                expected.len(),
+                sources.len()
+            ),
+        }])
+    }
 }
 
 cpg_schema::query_row! {

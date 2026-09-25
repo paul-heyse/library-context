@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch};
 use cpg_core::CoreError;
-use cpg_core::attempt::{compile, publish};
+use cpg_core::analyze::{Analysis, Techniques};
+use cpg_core::attempt::{compile, compile_analyzed, publish};
 use cpg_core::delta::read_at;
 use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
@@ -17,6 +18,7 @@ use cpg_schema::table::Table;
 use cpg_schema::tables::{Declarations, SnapshotsRow};
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::prelude::SessionContext;
+use lctx_analytics::config::AnalyticsConfig;
 
 fn copy(src: &Path, dst: &Path) {
     std::fs::create_dir_all(dst).unwrap();
@@ -90,7 +92,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        51 + 21 + 32,
+        51 + 21 + 33,
         "every raw, derived and analysis table"
     );
 
@@ -238,6 +240,75 @@ async fn published_test_type_link_tamper_is_rejected() {
         violations
             .iter()
             .any(|v| v.rule == "flow-test-type-proof-link"),
+        "{violations:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn entry_value_links_require_a_direct_uninterrupted_parameter_reach() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([48; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["bridgepkg"]
+public_roots = ["bridgepkg"]
+[seeds]
+primary = ["bridgepkg.entry"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#,
+        )
+        .unwrap(),
+        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw("entry_bridge", snapshot),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    let count_for = |name: &str| {
+        format!(
+            "SELECT count(*) FROM flow_test_value_links l \
+         JOIN declarations d ON d.node_id = l.operation_node_id WHERE d.name = '{name}'"
+        )
+    };
+    assert!(count(&ctx, &count_for("direct")).await > 0);
+    assert!(count(&ctx, &count_for("documented_direct")).await > 0);
+    assert_eq!(count(&ctx, &count_for("rebound")).await, 0);
+    assert_eq!(count(&ctx, &count_for("after_call")).await, 1);
+    assert_eq!(count(&ctx, &count_for("after_operator")).await, 1);
+    assert_eq!(count(&ctx, &count_for("changed_closure")).await, 0);
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    let doctored = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (place), concat(place, '_tampered') AS place FROM flow_test_value_links",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("flow_test_value_links").unwrap();
+    ctx.register_table("flow_test_value_links", doctored)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "flow-test-value-proof-link"),
         "{violations:?}"
     );
 }

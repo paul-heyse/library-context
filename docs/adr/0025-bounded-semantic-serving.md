@@ -96,6 +96,14 @@ acceptance.
 
 ## Consequences
 
+The first direct-link producer and shared publication validator were implemented and exercised
+on 2026-09-24 with direct, documented direct, rebound, post-call, prior-predicate and closure
+counterexamples. The only skipped expression barrier is an exact literal docstring span recorded
+by the extractor; other expression statements remain barriers. A fresh FastMCP pilot published
+102 links and passed its 20-brief smoke check.
+This does not accept the ADR: exact builtin type/value proofs, modeled transfers, native serving,
+generation packaging and the standard review remain open.
+
 Users can ask bounded semantic questions without rebuilding a generation for each predicate.
 The native module adds packaging and ABI checks, and a query can legitimately return
 `unknown` at a budget boundary. No worker lifecycle or cross-process synchronization is

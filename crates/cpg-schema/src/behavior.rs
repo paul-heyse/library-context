@@ -29,8 +29,8 @@
 
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView, FlowSink,
-    InvocationPhase, Modality, OperationFacet, PremiseKind, ReadPhase, SourceRole, ValueClass,
-    Verdict,
+    InvocationPhase, Modality, OperationFacet, PremiseKind, ReadPhase, SourceRole,
+    TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -348,6 +348,37 @@ table!(
         argument_node_id: Option<Id>,
         call_site_node_id: Option<Id>,
         place: Option<String>,
+    }
+);
+
+table!(
+    /// A conservative, cited identity bridge from a public operation's entry formal to the
+    /// exact operand use of one source test. A Pyrefly type observation is not this proof.
+    /// The initial origin permits only one direct reaching formal and no intervening effect.
+    FlowTestValueLinks, FlowTestValueLinksRow = "flow_test_value_links",
+    family = Findings,
+    key = [snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id],
+    checks = [
+        ("operand_span_order", "operand_start_byte >= 0 AND operand_end_byte > operand_start_byte"),
+    ],
+    {
+        snapshot_id: Id,
+        link_id: Id,
+        operation_node_id: Id,
+        formal_node_id: Id,
+        module_node_id: Id,
+        leaf_fact_id: Id,
+        atom_id: Id,
+        use_id: Id,
+        use_fact_id: Id,
+        reaching_fact_id: Id,
+        definition_fact_id: Id,
+        operand_start_byte: i64,
+        operand_end_byte: i64,
+        place: String,
+        condition_id: Id,
+        origin: TestValueLinkOrigin,
+        effect_model_digest: Digest,
     }
 );
 

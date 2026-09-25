@@ -1236,14 +1236,24 @@ span, joins it to the flow use by source identity, and records the leaf evaluati
 closed proof origin and cited facts. An absent or ambiguous trace proves nothing. The shared
 validator checks leaf support in its own root, span, role, type term, origin and facts.
 Runtime-exact origins are modeled literals or an exact `type(x) is builtin` guard.
-Same-evaluation identity proves stability only;
-broad Pyrefly
-annotations alone do not prove exactness. Different sites stay independent until an
+Same-evaluation identity proves stability only; broad Pyrefly annotations alone do not prove
+exactness. Different sites stay independent until an
 effect-stability witness connects them. Raw Boolean ids do not depend on the theory revision;
 theory-conditioned decisions cite a witness and revision. Condition rows name roots in the
 lossless node relation. Publication and native load validate terminals, child closure,
 acyclicity, atom order, reduction and recomputed Merkle ids. The result records whether ty's
 ambiguous terminal or a declared runtime assumption was admitted as `approximated`.
+
+**Implemented and Tested (2026-09-24, direct link only).** `flow_test_value_links` is a separate
+analysis relation, not a promotion of `flow_test_types` to exact-runtime proof. Its first origin
+requires one stated, non-approximated, non-loop-carried parameter reaching fact, an exact
+attributed test operand and no intervening source call, binding, potentially effectful syntax or
+prior predicate evaluation. The sole expression-statement exception is the exact recorded
+literal docstring span, which has no call-time effect. The effect-rule digest and source fact ids
+are stored on each link;
+publication recomputes the entire relation from its pinned raw views. A missing link remains
+unknown. Exact builtin value/type origins, modeled transfers and typed exclusion are still
+Proposed.
 
 > Decision: ADR-0022, ADR-0024
 
@@ -3440,6 +3450,10 @@ never proof of feasible execution. Candidates partition into matched, proven-exc
 source-open and unexamined. Unvisited/undecided operations make `complete = false`; an early
 budget stop returns an unexamined count and a resumable generation/query-bound cursor. Row,
 depth and pair-work budgets have the same unknown/truncated behavior.
+
+**Implemented and Tested (2026-09-24, producer boundary only).** The direct
+`flow_test_value_links` origin and its publication validator exist. The serving generation does
+not yet carry these rows, and there is no served compatibility verdict.
 
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
 claims. An unknown facet is invalid params. An unknown **value** is invalid params only where

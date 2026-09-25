@@ -1,5 +1,6 @@
 # The only command surface agents need. `just` lists recipes.
-# Check recipes never mutate; `fmt` and `adr new|supersede|index` do.
+# Check recipes do not edit source; tests may create their own data fixtures.
+# `fmt` and `adr new|supersede|index` edit the working tree.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -7,7 +8,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
-# The default loop: format check, lints, core tests, rules, ADRs, agent config
+# The default loop: format check, lints, optimized cached core tests, rules, ADRs, agent config
 check: fmt-check lint test py-check rules-scan rules-test lint-agents
     uv run python scripts/adr.py lint
 
@@ -27,12 +28,14 @@ fmt:
 
 # clippy (deny warnings) + ruff lint
 lint:
-    cargo clippy --workspace --all-targets --quiet -- -D warnings
+    cargo clippy --release --workspace --all-targets --quiet -- -D warnings
     uv run ruff check --quiet
 
-# Core Rust tests; snapshots never auto-accept (INSTA_UPDATE=no)
+# Core Rust tests share the release profile with the shipped binary. Cargo rebuilds only changed
+# Rust inputs; repeated runs execute cached optimized test binaries. Tests own their data state.
+# Snapshots never auto-accept (INSTA_UPDATE=no).
 test *args:
-    INSTA_UPDATE=no cargo nextest run --workspace --no-tests=pass {{args}}
+    INSTA_UPDATE=no cargo nextest run --release --workspace --no-tests=pass {{args}}
 
 # Python tests (scripts and lctx_mcp over the fixture generation) + pyrefly
 py-check: py-fixture
@@ -46,7 +49,7 @@ structured-eval generation stage embed_url="":
 
 # The generation the lctx_mcp tests serve: analysis_shapes with fake vectors, into build/py-fixture
 py-fixture:
-    LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail
+    LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail
 
 # Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0012)
 deps:
@@ -73,12 +76,14 @@ fixtures-check:
 # The real-library oracle (ADR-0013): acquire the FastMCP pilot from libraries/fastmcp, then
 # extract, derive, validate and publish a snapshot into build/store. First run needs the network.
 pilot store="build/store":
-    cargo run --release -p lctx -- compile fastmcp --store {{store}} --embedder fake | tee build/pilot.log
+    cargo build --release -p lctx --quiet
+    target/release/lctx compile fastmcp --store {{store}} --embedder fake | tee build/pilot.log
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' build/pilot.log | cut -d' ' -f2)" --embedder fake
 
 # The same compile with live vectors: needs `just embed-serve` running (else `blocked`)
 pilot-live:
-    cargo run --release -p lctx -- compile fastmcp --store build/store --embedder vllm | tee build/pilot-live.log
+    cargo build --release -p lctx --quiet
+    target/release/lctx compile fastmcp --store build/store --embedder vllm | tee build/pilot-live.log
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' build/pilot-live.log | cut -d' ' -f2)" --embedder vllm
 
 # The embedding service (DESIGN §11.1, ADR-0010): vLLM 0.30.0 from the locked services/vllm
@@ -88,7 +93,7 @@ embed-serve port="8000":
 
 # The live leg of the client conformance check (§11.1, E2): needs `just embed-serve` running
 embed-conformance url="http://127.0.0.1:8000":
-    LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
+    LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run --release -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
     uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
 
 # Gold scores of a generation (DESIGN §12; matcher 2, ADR-0010 amendment). Exits 2 when
