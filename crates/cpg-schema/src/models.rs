@@ -36,6 +36,10 @@ pub struct Model {
     pub revision: u32,
     pub target: Target,
     pub coverage: Channels,
+    /// Authored assertion that the pinned callable itself always completes normally after
+    /// argument evaluation. This is separate from transfer modality and call-site dispatch.
+    #[serde(default)]
+    pub normal_return: bool,
     pub rules: Vec<Rule>,
 }
 
@@ -49,7 +53,7 @@ pub struct Channels {
     pub exceptions: ChannelCoverage,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelCoverage {
     Complete,
@@ -601,6 +605,15 @@ impl Catalog {
                 rule.validate()?;
                 model.coverage.validate_rule(rule)?;
             }
+            if model.normal_return
+                && (model.coverage.exceptions != ChannelCoverage::Complete
+                    || model.rules.iter().any(|rule| matches!(rule, Rule::Exception { .. })))
+            {
+                return Err(format!(
+                    "{}: normal_return requires complete no-exception coverage",
+                    model.target.key()
+                ));
+            }
             let key = model.target.key();
             if !seen.insert(key.clone()) {
                 return Err(format!("{source_name}: duplicate model target {key}"));
@@ -704,6 +717,12 @@ impl Catalog {
                     })
                     .collect();
                 for definition in matches {
+                    if compiled.model.normal_return && definition.kind != DefinitionKind::Function {
+                        return Err(format!(
+                            "{}: normal_return requires a function target",
+                            target.key()
+                        ));
+                    }
                     let row = ModelTargetsRow {
                         snapshot_id,
                         model_id: compiled.model_id,
@@ -717,6 +736,7 @@ impl Catalog {
                         callback_coverage: compiled.model.coverage.callbacks.codebook(),
                         resource_coverage: compiled.model.coverage.resources.codebook(),
                         exception_coverage: compiled.model.coverage.exceptions.codebook(),
+                        normal_return: compiled.model.normal_return,
                         origin: Origin::SyntheticModel,
                     };
                     let key = (row.model_id, row.target_node_id);
@@ -1059,7 +1079,15 @@ mod tests {
         assert_eq!(bound.len(), 1);
         assert_eq!(bound[0].target_node_id, definition.symbol_node_id);
         assert_eq!(bound[0].target_definition_fact_id, definition.fact_id);
+        assert!(bound[0].normal_return);
         assert_eq!(bound[0].origin, Origin::SyntheticModel);
+        let class_definition = ContextDefinitionsRow {
+            kind: DefinitionKind::Class,
+            ..definition.clone()
+        };
+        assert!(catalog
+            .bind_targets(snapshot_id, &[context.clone()], &[module.clone()], &[class_definition])
+            .is_err());
         let parameter = ContextParametersRow {
             snapshot_id,
             fact_id: Id([7; 16]),
@@ -1142,7 +1170,7 @@ mod tests {
     fn committed_catalog_has_typed_identity_path_and_digest() {
         let catalog = Catalog::committed().unwrap();
         assert_eq!(catalog.digest, Catalog::committed_digest());
-        assert_eq!(catalog.models.len(), 4);
+        assert_eq!(catalog.models.len(), 7);
         let model = &catalog
             .models
             .iter()
@@ -1150,6 +1178,7 @@ mod tests {
             .unwrap()
             .model;
         assert_eq!(model.target.key(), "stdlib:3.14.7:typing.cast");
+        assert!(model.normal_return);
         let Rule::Transfer {
             from,
             to,
@@ -1249,6 +1278,30 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn normal_return_requires_complete_exception_coverage_without_exception_rules() {
+        let header = r#"version = 1
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
+normal_return = true
+coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "partial" }
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "val" }
+to = { kind = "return_value" }
+transfer = "identity"
+modality = "definite"
+"#;
+        assert!(Catalog::parse("bad.toml", header).is_err());
+        let with_complete = header.replace("exceptions = \"partial\"", "exceptions = \"complete\"");
+        assert!(Catalog::parse("good.toml", &with_complete).is_ok());
+        let with_exception = format!(
+            "{with_complete}\n[[models.rules]]\nkind = \"exception\"\nclass = \"builtins.Exception\"\naction = \"raise\"\nmodality = \"potential\"\n"
+        );
+        assert!(Catalog::parse("bad.toml", &with_exception).is_err());
     }
 
     #[test]

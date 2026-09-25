@@ -585,6 +585,9 @@ table!(
         callback_coverage: ModelChannelCoverage,
         resource_coverage: ModelChannelCoverage,
         exception_coverage: ModelChannelCoverage,
+        /// A pinned authored claim of total normal completion after argument evaluation;
+        /// absence remains unknown. It never resolves call-site dispatch by itself.
+        normal_return: bool,
         origin: Origin,
     }
 );

@@ -353,6 +353,11 @@ rule can prove is stated in §8 (its edit guards counted apart).
   it, are never relabelled as runtime dataflow. Pyrefly's binding graph is a parity oracle only.
 - **Meaning comes from models, propagation from summaries** (§9.9). A call alone never propagates a
   capability.
+- **Implemented and Tested in focused cases (ADR-0033, 2026-09-25):** total normal completion
+  is an explicit pinned model assertion, independent of a value-transfer rule and exception
+  silence. Only an exact function target with complete exception coverage and no authored
+  exception rule may carry it; a source call still needs its own endpoint, target, condition and
+  enclosing-exit proof before it can yield a positive summary.
 - **Implemented and Tested in focused cases (ADR-0029, 2026-09-25):** an applicable authored
   exception class binds to one pinned context class fact before its candidate source call is
   published. Class spelling is display, not handler-match authority. An absent or ambiguous
@@ -398,7 +403,7 @@ role span. A keyword value excludes the `name=` prefix; a direct positional argu
 equal role and value spans. The schema enforces value-span containment and the extractor
 output version is 27. This alone identifies no flow-call path or completed transfer.
 
-> Decision: ADR-0022, ADR-0028, ADR-0029, ADR-0030
+> Decision: ADR-0022, ADR-0028, ADR-0029, ADR-0030, ADR-0033
 
 ### §B6 Facts are first-class assertions with provenance
 
@@ -3053,6 +3058,12 @@ over all 44 gold aliases:
   `functools.partial` and `wraps`, anyio and asyncio, `contextlib` and logging.
 - **Provenance:** origin `synthetic_model`; each file's digest joins `compiler_digest`.
 - **Authorship:** the operator, from library source and docs. **Never from `.claude/skills/`.**
+- **Normal completion** (ADR-0033): an optional authored assertion means that, after its
+  arguments have been evaluated, the pinned function target returns normally. It defaults
+  false (unknown), is permitted only with complete exception coverage and no exception rule,
+  and is carried on the validated `model_targets` row. It is not inferred from a transfer rule
+  or from the absence of modeled exceptions. The first two assertions are for pinned
+  `typing.cast` and `typing.assert_type`, whose CPython 3.14.7 bodies directly return `val`.
 
 **Implemented and Tested in focused cases (2026-09-25, Stage 3.1 model assertion boundary):**
 Serde tagged enums with unknown-field rejection parse the committed `external.toml` catalog;
@@ -3405,7 +3416,7 @@ unknown coverage rather than a negative verdict. `COMPILER_OUTPUT_VERSION` is
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0032
+> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0032, ADR-0033
 
 ---
 
@@ -4101,3 +4112,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | A direct modeled return now requires the call to occupy the entire return-value expression; an outer fallback cannot inherit an identity model (§9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | L3 begins with bounded BDD compatibility over cited predecessor, reaching and successor roots; loops and condition boundaries stay unknown (§9.9) | ADR-0024, ADR-0028 (proposed) |
 | 2026-09-25 | The exact one-call model step now covers whole definition values as well as whole returns, enabling a cited assignment predecessor without promoting it to a summary (§9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | Pinned function models can assert total normal return independently of transfer modality and exception silence; the first assertions cover `typing.cast` and `typing.assert_type`, with source-call composition still conditional (§B5, §9.9) | ADR-0033 |

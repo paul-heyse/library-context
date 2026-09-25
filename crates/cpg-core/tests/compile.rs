@@ -1155,6 +1155,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         callback_coverage: ModelChannelCoverage::Complete,
         resource_coverage: ModelChannelCoverage::Complete,
         exception_coverage: ModelChannelCoverage::Complete,
+        normal_return: true,
         origin: Origin::SyntheticModel,
     }])
     .unwrap();
@@ -1364,6 +1365,32 @@ budget = 1
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
     assert_eq!(targets, 7, "cast, assert_type, print, json, open and atexit.register");
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM model_targets WHERE normal_return").await,
+        2,
+        "only the two pinned typing identity helpers assert total normal return"
+    );
+    let original_model_targets = sql::query(&ctx, "SELECT * FROM model_targets")
+        .await
+        .unwrap()
+        .into_view();
+    let forged_completion = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (normal_return), false AS normal_return FROM model_targets",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("model_targets").unwrap();
+    ctx.register_table("model_targets", forged_completion).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "model-catalog-target-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("model_targets").unwrap();
+    ctx.register_table("model_targets", original_model_targets)
+        .unwrap();
     assert!(
         count(&ctx, "SELECT count(*) FROM flow_value_calls").await > 0,
         "source value uses inside calls retain their ordered raw call steps"

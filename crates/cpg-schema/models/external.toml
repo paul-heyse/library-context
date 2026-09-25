@@ -5,6 +5,7 @@ version = 1
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
 coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
+normal_return = true
 
 [[models.rules]]
 kind = "transfer"
@@ -19,6 +20,7 @@ modality = "definite"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "assert_type" }
 coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
+normal_return = true
 
 [[models.rules]]
 kind = "transfer"
