@@ -161,6 +161,67 @@ pub const REFERENCES: &[Reference] = &[
         &[("conditions", "condition_id")],
     ),
     r(
+        "handler_clauses",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r(
+        "handler_clauses",
+        "try_node_id",
+        &[("syntax_nodes", "node_id")],
+    ),
+    r(
+        "handler_clauses",
+        "handler_node_id",
+        &[("syntax_nodes", "node_id")],
+    ),
+    r(
+        "handler_clauses",
+        "module_node_id",
+        &[("source_files", "module_node_id")],
+    ),
+    r("handler_clauses", "try_fact_id", FACT),
+    r("handler_clauses", "handler_fact_id", FACT),
+    r(
+        "handler_clauses",
+        "type_node_id",
+        &[("syntax_nodes", "node_id")],
+    ),
+    r("handler_clauses", "type_fact_id", FACT),
+    r("handler_clauses", "try_region_fact_id", FACT),
+    r(
+        "handler_clauses",
+        "entry_condition_id",
+        &[("conditions", "condition_id")],
+    ),
+    r(
+        "handler_actions",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r(
+        "handler_actions",
+        "handler_node_id",
+        &[("handler_clauses", "handler_node_id")],
+    ),
+    r(
+        "handler_actions",
+        "action_node_id",
+        &[("syntax_nodes", "node_id")],
+    ),
+    r(
+        "handler_actions",
+        "module_node_id",
+        &[("source_files", "module_node_id")],
+    ),
+    r("handler_actions", "action_fact_id", FACT),
+    r("handler_actions", "region_fact_id", FACT),
+    r(
+        "handler_actions",
+        "condition_id",
+        &[("conditions", "condition_id")],
+    ),
+    r(
         "context_parameters",
         "symbol_node_id",
         &[("context_definitions", "symbol_node_id")],

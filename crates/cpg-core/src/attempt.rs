@@ -53,8 +53,9 @@ pub struct Published {
 /// links under an exact type guard. 20: committed typed model catalog identity and validation.
 /// 21: pinned-source model target bindings and their publication contract. 22: compiled authored
 /// transfer rows, gated on those target bindings. 23: external Pysa signatures and model formal
-/// path validation. 24: attributed explicit exits and finally-body actions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 24;
+/// path validation. 24: attributed explicit exits and finally-body actions. 25: attributed
+/// except clauses and direct handler actions.
+pub const COMPILER_OUTPUT_VERSION: u32 = 25;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -605,9 +606,10 @@ async fn finish(
     {
         use cpg_schema::behavior::{
             AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
-            ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards, Handoffs,
-            NegativePremises, OperationDocuments, OperationFacetStatus, OperationFacets,
-            Operations, ParameterReads, RaiseSites, Singletons, ValueFlows,
+            ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
+            HandlerActions, HandlerClauses, Handoffs, NegativePremises, OperationDocuments,
+            OperationFacetStatus, OperationFacets, Operations, ParameterReads, RaiseSites,
+            Singletons, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -629,6 +631,20 @@ async fn finish(
         )
         .await?;
         write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
+        let handler_clauses = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::handler_clauses(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<HandlerClauses>(&ctx, root, snapshot_id, &handler_clauses, w).await?;
+        let handler_actions = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::handler_actions(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<HandlerActions>(&ctx, root, snapshot_id, &handler_actions, w).await?;
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
         write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
             .await?;

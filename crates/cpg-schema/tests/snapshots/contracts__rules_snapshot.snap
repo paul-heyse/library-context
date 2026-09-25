@@ -176,6 +176,10 @@ key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:exit_sites
   SELECT snapshot_id, function_node_id, site_node_id, kind, count(*) AS n FROM exit_sites GROUP BY snapshot_id, function_node_id, site_node_id, kind HAVING count(*) > 1
+key:handler_clauses
+  SELECT snapshot_id, handler_node_id, count(*) AS n FROM handler_clauses GROUP BY snapshot_id, handler_node_id HAVING count(*) > 1
+key:handler_actions
+  SELECT snapshot_id, handler_node_id, action_node_id, count(*) AS n FROM handler_actions GROUP BY snapshot_id, handler_node_id, action_node_id HAVING count(*) > 1
 key:flow_test_exact_origins
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_exact_origins GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:field_accesses
@@ -328,6 +332,40 @@ ref:exit_sites.region_fact_id->flow_regions
   SELECT f.region_fact_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_regions) r ON f.region_fact_id = r.k WHERE f.region_fact_id IS NOT NULL
 ref:exit_sites.condition_id->conditions
   SELECT f.condition_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
+ref:handler_clauses.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:handler_clauses.try_node_id->syntax_nodes
+  SELECT f.try_node_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT node_id AS k FROM syntax_nodes) r ON f.try_node_id = r.k WHERE f.try_node_id IS NOT NULL
+ref:handler_clauses.handler_node_id->syntax_nodes
+  SELECT f.handler_node_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT node_id AS k FROM syntax_nodes) r ON f.handler_node_id = r.k WHERE f.handler_node_id IS NOT NULL
+ref:handler_clauses.module_node_id->source_files
+  SELECT f.module_node_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT module_node_id AS k FROM source_files) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
+ref:handler_clauses.try_fact_id->facts
+  SELECT f.try_fact_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.try_fact_id = r.k WHERE f.try_fact_id IS NOT NULL
+ref:handler_clauses.handler_fact_id->facts
+  SELECT f.handler_fact_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.handler_fact_id = r.k WHERE f.handler_fact_id IS NOT NULL
+ref:handler_clauses.type_node_id->syntax_nodes
+  SELECT f.type_node_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT node_id AS k FROM syntax_nodes) r ON f.type_node_id = r.k WHERE f.type_node_id IS NOT NULL
+ref:handler_clauses.type_fact_id->facts
+  SELECT f.type_fact_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.type_fact_id = r.k WHERE f.type_fact_id IS NOT NULL
+ref:handler_clauses.try_region_fact_id->facts
+  SELECT f.try_region_fact_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.try_region_fact_id = r.k WHERE f.try_region_fact_id IS NOT NULL
+ref:handler_clauses.entry_condition_id->conditions
+  SELECT f.entry_condition_id AS value FROM handler_clauses f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.entry_condition_id = r.k WHERE f.entry_condition_id IS NOT NULL
+ref:handler_actions.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:handler_actions.handler_node_id->handler_clauses
+  SELECT f.handler_node_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT handler_node_id AS k FROM handler_clauses) r ON f.handler_node_id = r.k WHERE f.handler_node_id IS NOT NULL
+ref:handler_actions.action_node_id->syntax_nodes
+  SELECT f.action_node_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT node_id AS k FROM syntax_nodes) r ON f.action_node_id = r.k WHERE f.action_node_id IS NOT NULL
+ref:handler_actions.module_node_id->source_files
+  SELECT f.module_node_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT module_node_id AS k FROM source_files) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
+ref:handler_actions.action_fact_id->facts
+  SELECT f.action_fact_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.action_fact_id = r.k WHERE f.action_fact_id IS NOT NULL
+ref:handler_actions.region_fact_id->facts
+  SELECT f.region_fact_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.region_fact_id = r.k WHERE f.region_fact_id IS NOT NULL
+ref:handler_actions.condition_id->conditions
+  SELECT f.condition_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:context_parameters.symbol_node_id->context_definitions
   SELECT f.symbol_node_id AS value FROM context_parameters f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.symbol_node_id = r.k WHERE f.symbol_node_id IS NOT NULL
 ref:context_parameters.module_node_id->context_modules
@@ -760,6 +798,8 @@ codebook:model_transfers.origin
   SELECT origin FROM model_transfers WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:exit_sites.kind
   SELECT kind FROM exit_sites WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
+codebook:handler_actions.action_kind
+  SELECT action_kind FROM handler_actions WHERE action_kind IS NOT NULL AND action_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93)
 codebook:flow_test_exact_origins.origin
   SELECT origin FROM flow_test_exact_origins WHERE origin IS NOT NULL AND origin NOT IN (0)
 codebook:ambient_reads.phase

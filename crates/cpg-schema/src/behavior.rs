@@ -30,11 +30,60 @@
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
     ExactValueOrigin, ExitSiteKind, FlowSink, InvocationPhase, Modality, ModelTransferKind,
-    OperationFacet, Origin, PremiseKind, ReadPhase, SourceRole, TestValueLinkOrigin, ValueClass,
-    Verdict,
+    OperationFacet, Origin, PremiseKind, ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin,
+    ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
+
+table!(
+    /// A syntactic except clause and its type expression (null for bare except). The condition
+    /// reaches the try statement, not the handler: this row does not prove a catch.
+    HandlerClauses, HandlerClausesRow = "handler_clauses",
+    family = Findings,
+    key = [snapshot_id, handler_node_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        try_node_id: Id,
+        handler_node_id: Id,
+        ordinal: i64,
+        module_node_id: Id,
+        try_fact_id: Id,
+        handler_fact_id: Id,
+        type_node_id: Option<Id>,
+        type_fact_id: Option<Id>,
+        try_region_fact_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        entry_condition_id: Id,
+        entry_approximated: bool,
+    }
+);
+
+table!(
+    /// A direct statement in a handler body, with ty's local region. Nested actions belong to
+    /// their own syntax parent. A listed action is not evidence it runs to completion.
+    HandlerActions, HandlerActionsRow = "handler_actions",
+    family = Findings,
+    key = [snapshot_id, handler_node_id, action_node_id],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        handler_node_id: Id,
+        action_node_id: Id,
+        action_kind: SyntaxKind,
+        module_node_id: Id,
+        action_fact_id: Id,
+        region_fact_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        condition_id: Id,
+        approximated: bool,
+    }
+);
 
 table!(
     /// Explicit return/raise statements and direct finally-body actions in release functions.
@@ -676,6 +725,58 @@ fn with_snapshot(sql: &str) -> String {
 
 crate::relations! {
     inventory all;
+
+    /// Except clauses with their authored type expression and the try-entry region.
+    handler_clauses = "behavior:handler_clauses",
+        deps = ["syntax_nodes", "flow_regions", "declarations"],
+        sql = format!(
+            "SELECT t.snapshot_id, t.owner_node_id AS function_node_id, \
+                    t.node_id AS try_node_id, h.node_id AS handler_node_id, h.ordinal, \
+                    h.module_node_id, t.fact_id AS try_fact_id, \
+                    h.fact_id AS handler_fact_id, ty.node_id AS type_node_id, \
+                    ty.fact_id AS type_fact_id, r.fact_id AS try_region_fact_id, \
+                    h.start_byte, h.end_byte, r.condition_id AS entry_condition_id, \
+                    r.approximated AS entry_approximated \
+             FROM syntax_nodes t JOIN syntax_nodes h ON h.parent_node_id = t.node_id \
+               AND h.field = {handler_field} AND h.kind = {handler_kind} \
+             LEFT JOIN syntax_nodes ty ON ty.parent_node_id = h.node_id \
+               AND ty.field = {test_field} \
+             JOIN flow_regions r ON r.module_node_id = t.module_node_id \
+               AND r.start_byte = t.start_byte AND r.end_byte = t.end_byte \
+               AND r.scope_kind = {function_scope} \
+             JOIN declarations d ON d.node_id = t.owner_node_id \
+               AND d.kind IN ({function}, {async_function}) \
+               AND r.scope_start_byte = d.name_start_byte \
+               AND r.scope_end_byte = d.name_end_byte \
+             WHERE t.kind = {try_}",
+            handler_field = crate::codebook::SyntaxField::Handler.code(),
+            handler_kind = SyntaxKind::ExceptHandlerExceptHandler.code(),
+            test_field = crate::codebook::SyntaxField::Test.code(),
+            function_scope = crate::codebook::LexicalScopeKind::Function.code(),
+            function = DeclarationKind::Function.code(),
+            async_function = DeclarationKind::AsyncFunction.code(),
+            try_ = SyntaxKind::StmtTry.code(),
+        );
+
+    /// Direct handler-body statements with their own reachability region.
+    handler_actions = "behavior:handler_actions",
+        deps = ["handler_clauses", "syntax_nodes", "flow_regions", "declarations"],
+        sql = format!(
+            "SELECT h.snapshot_id, h.function_node_id, h.handler_node_id, \
+                    a.node_id AS action_node_id, a.kind AS action_kind, a.module_node_id, \
+                    a.fact_id AS action_fact_id, r.fact_id AS region_fact_id, \
+                    a.start_byte, a.end_byte, r.condition_id, r.approximated \
+             FROM handler_clauses h JOIN syntax_nodes a \
+               ON a.parent_node_id = h.handler_node_id AND a.field = {body} \
+             JOIN flow_regions r ON r.module_node_id = a.module_node_id \
+               AND r.start_byte = a.start_byte AND r.end_byte = a.end_byte \
+               AND r.scope_kind = {function_scope} \
+             JOIN declarations d ON d.node_id = h.function_node_id \
+               AND r.scope_start_byte = d.name_start_byte \
+               AND r.scope_end_byte = d.name_end_byte",
+            body = crate::codebook::SyntaxField::Body.code(),
+            function_scope = crate::codebook::LexicalScopeKind::Function.code(),
+        );
 
     /// Source-observed explicit exits and finally-body actions with ty's statement region.
     exit_sites = "behavior:exit_sites",

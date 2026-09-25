@@ -493,6 +493,8 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ModelTargets,
             $crate::behavior::ModelTransfers,
             $crate::behavior::ExitSites,
+            $crate::behavior::HandlerClauses,
+            $crate::behavior::HandlerActions,
             $crate::behavior::FlowTestExactOrigins,
             $crate::behavior::FieldAccesses,
             $crate::behavior::AmbientReads,

@@ -485,6 +485,13 @@ has no serving consumer yet, and the integrated gate remains `not_run`.
    a finally action, withholding outside finally, and span tampering. This is a structural
    source relation only; handler outcomes, exception escape, callbacks and resources remain
    unimplemented.
+
+   **Further partial implementation (Tested, 2026-09-24):** `handler_clauses` and
+   `handler_actions` now cite the authored except type expression, direct body statements and
+   their source/flow facts. A focused case verifies a typed handler and its one direct action,
+   withholds a non-handler and a finally assignment, and rejects a doctored clause ordinal.
+   Resolved caught-class identities and match/fate decisions remain open, so these rows cannot
+   yet convert an exception in a summary.
 6. **Compose finite summaries with existing graph and condition kernels.** Resolve call targets
    relationally, use petgraph's SCC decomposition with callees first, then a monotone worklist
    within each SCC. Canonical summary keys contain callable, input/output resolved paths,

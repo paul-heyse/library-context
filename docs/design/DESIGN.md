@@ -3008,6 +3008,14 @@ analysis configuration; publication reconstructs it from the pinned raw views. I
 prove that a raised exception escapes, a handler catches it, or a `finally` action completes.
 Those fates, callbacks, resources and composed summaries remain Proposed.
 
+**Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**
+`handler_clauses` cites a `try`, each authored `except` clause, its optional type expression,
+and the region reaching the `try`. `handler_actions` cites direct statements in that clause's
+body and their own ty regions. These rows are derived for every compile and reconstructed by
+the publication validator. An authored type expression is not yet a resolved caught class,
+the `try` entry condition is not a handler-match condition, and a body action may fail or
+branch. Exception matching, conversion and completion remain Proposed.
+
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
 - **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
   call the shared bounded diagram kernel. `summary_flows` and `summary_effects` reference

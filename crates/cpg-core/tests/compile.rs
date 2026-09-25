@@ -109,7 +109,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 37,
+        52 + 21 + 39,
         "every raw, derived and analysis table"
     );
 
@@ -333,6 +333,62 @@ async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
         violations
             .iter()
             .any(|v| v.rule == "exit-site-source-equality"),
+        "{violations:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn handler_clauses_and_actions_are_structural_and_validated() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([55; 16]);
+    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM handler_clauses h JOIN declarations d \
+             ON d.node_id = h.function_node_id WHERE d.name = 'handled' AND h.type_node_id IS NOT NULL"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM handler_clauses h JOIN declarations d \
+             ON d.node_id = h.function_node_id WHERE d.name = 'guarded'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM handler_actions a JOIN handler_clauses h \
+             ON h.handler_node_id = a.handler_node_id JOIN declarations d \
+             ON d.node_id = h.function_node_id WHERE d.name = 'handled'"
+        )
+        .await,
+        1,
+        "the finally assignment is outside the except body"
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let doctored = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (ordinal), ordinal + 1 AS ordinal FROM handler_clauses",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("handler_clauses").unwrap();
+    ctx.register_table("handler_clauses", doctored).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "handler-clause-source-equality"),
         "{violations:?}"
     );
 }

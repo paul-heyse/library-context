@@ -1,0 +1,22 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table handler_actions
+family findings
+key snapshot_id, handler_node_id, action_node_id
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+@lctx.family=findings
+@lctx.table=handler_actions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+handler_node_id: FixedSizeBinary(16) NOT NULL
+action_node_id: FixedSizeBinary(16) NOT NULL
+action_kind: Int16 NOT NULL [lctx.codebook=syntax_kind]
+module_node_id: FixedSizeBinary(16) NOT NULL
+action_fact_id: FixedSizeBinary(16) NOT NULL
+region_fact_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+approximated: Boolean NOT NULL

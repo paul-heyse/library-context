@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cpg_schema::behavior::{
-    ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargetsRow,
-    ModelTransfersRow,
+    ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
+    HandlerClausesRow, ModelTargetsRow, ModelTransfersRow,
 };
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -109,6 +109,7 @@ pub async fn validate_costed(
     violations.extend(validate_entry_proofs(&cache).await?);
     violations.extend(validate_models(&cache).await?);
     violations.extend(validate_exit_sites(&cache).await?);
+    violations.extend(validate_handlers(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -116,6 +117,10 @@ cpg_schema::relations! {
     inventory exit_relations;
     stored_exit_sites = "validate_stored_exit_sites", deps = ["exit_sites"],
         sql = "SELECT * FROM exit_sites".to_owned();
+    stored_handler_clauses = "validate_stored_handler_clauses", deps = ["handler_clauses"],
+        sql = "SELECT * FROM handler_clauses".to_owned();
+    stored_handler_actions = "validate_stored_handler_actions", deps = ["handler_actions"],
+        sql = "SELECT * FROM handler_actions".to_owned();
 }
 
 /// Publication and consumers use the same derivation as the compiler. Equality also rejects a
@@ -137,6 +142,54 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
             sample: format!("stored {} sites; derived {}", actual.len(), expected.len()),
         }])
     }
+}
+
+async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual_clauses: Vec<HandlerClausesRow> =
+        sql::fetch(ctx, &stored_handler_clauses(), sql::Params::new()).await?;
+    let mut expected_clauses: Vec<HandlerClausesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::handler_clauses(),
+        sql::Params::new(),
+    )
+    .await?;
+    actual_clauses.sort_by_key(|r| r.handler_node_id);
+    expected_clauses.sort_by_key(|r| r.handler_node_id);
+    let mut actual_actions: Vec<HandlerActionsRow> =
+        sql::fetch(ctx, &stored_handler_actions(), sql::Params::new()).await?;
+    let mut expected_actions: Vec<HandlerActionsRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::handler_actions(),
+        sql::Params::new(),
+    )
+    .await?;
+    let key = |r: &HandlerActionsRow| (r.handler_node_id, r.action_node_id);
+    actual_actions.sort_by_key(key);
+    expected_actions.sort_by_key(key);
+    let mut violations = Vec::new();
+    if actual_clauses != expected_clauses {
+        violations.push(Violation {
+            rule: "handler-clause-source-equality".to_owned(),
+            rows: actual_clauses.len().abs_diff(expected_clauses.len()).max(1),
+            sample: format!(
+                "stored {} clauses; derived {}",
+                actual_clauses.len(),
+                expected_clauses.len()
+            ),
+        });
+    }
+    if actual_actions != expected_actions {
+        violations.push(Violation {
+            rule: "handler-action-source-equality".to_owned(),
+            rows: actual_actions.len().abs_diff(expected_actions.len()).max(1),
+            sample: format!(
+                "stored {} actions; derived {}",
+                actual_actions.len(),
+                expected_actions.len()
+            ),
+        });
+    }
+    Ok(violations)
 }
 
 cpg_schema::relations! {
