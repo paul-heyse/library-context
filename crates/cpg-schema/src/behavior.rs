@@ -33,8 +33,8 @@ use crate::codebook::{
     InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
-    ModelTransferKind, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole,
-    SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    ModelTransferKind, ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind,
+    PremiseKind, ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -419,6 +419,54 @@ table!(
         class_module_fact_id: Option<Id>,
         class_name: Option<String>,
         status: HandlerTypeStatus,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+table!(
+    /// A modeled potential raise lies in the body of an enclosing try with this handler.
+    /// A class comparison nominates a possible catch; neither it nor syntactic nesting proves
+    /// that the call raises, that this handler is selected, or that the handler completes.
+    ModeledExceptionHandlerCandidates, ModeledExceptionHandlerCandidatesRow = "modeled_exception_handler_candidates",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, handler_node_id],
+    checks = [("nonnegative_depth", "frame_depth >= 0")],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        pysa_fact_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        call_fact_id: Id,
+        raised_class_node_id: Id,
+        raised_class_fact_id: Id,
+        try_node_id: Id,
+        handler_node_id: Id,
+        handler_fact_id: Id,
+        frame_depth: i64,
+        handler_ordinal: i64,
+        handler_type_status: HandlerTypeStatus,
+        handler_class_node_id: Option<Id>,
+        handler_class_fact_id: Option<Id>,
+        class_match: ModeledHandlerClassMatch,
+    }
+);
+
+table!(
+    /// Coverage of the bounded syntax-ancestor walk for one modeled potential raise. A missing
+    /// source syntax node or a depth cap is explicit, even when no handler candidate was found.
+    ModeledExceptionHandlerWalks, ModeledExceptionHandlerWalksRow = "modeled_exception_handler_walks",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [("nonnegative_depth", "max_depth >= 0")],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        pysa_fact_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        source_syntax_fact_id: Option<Id>,
+        max_depth: i64,
         reason: Option<BoundaryReason>,
     }
 );
@@ -1110,6 +1158,28 @@ fn with_snapshot(sql: &str) -> String {
     )
 }
 
+const MODELED_HANDLER_MAX_ANCESTOR_DEPTH: i64 = 128;
+
+fn modeled_handler_climb_sql() -> String {
+    format!(
+        "WITH RECURSIVE climb AS ( \
+           SELECT e.snapshot_id, e.call_site_node_id, e.pysa_fact_id, e.model_id, e.rule_id, \
+                  e.function_node_id, s.node_id, s.parent_node_id, s.field, \
+                  CAST(0 AS BIGINT) AS depth \
+           FROM modeled_exception_sites e JOIN syntax_nodes s \
+             ON s.node_id = e.call_site_node_id \
+           WHERE e.action = {raise} \
+           UNION ALL \
+           SELECT c.snapshot_id, c.call_site_node_id, c.pysa_fact_id, c.model_id, c.rule_id, \
+                  c.function_node_id, p.node_id, p.parent_node_id, p.field, c.depth + 1 \
+           FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+           WHERE c.depth < {max_depth} AND p.owner_node_id = c.function_node_id \
+         ) ",
+        raise = ModelExceptionAction::Raise.code(),
+        max_depth = MODELED_HANDLER_MAX_ANCESTOR_DEPTH,
+    )
+}
+
 crate::relations! {
     inventory all;
 
@@ -1496,6 +1566,71 @@ crate::relations! {
             unsupported = BoundaryReason::OutsideProviderModel.code(),
             unresolved = BoundaryReason::UnresolvedTarget.code(),
             missing = BoundaryReason::MissingEvidence.code(),
+        );
+
+    /// Walk only syntax ancestors in the same innermost function. A child whose parent is a
+    /// `try` and whose field is its body is inside that frame. The explicit depth cap keeps a
+    /// malformed/cyclic syntax relation finite; absence of a row never proves no handler.
+    modeled_exception_handler_candidates = "behavior:modeled_exception_handler_candidates",
+        deps = ["modeled_exception_sites", "syntax_nodes", "handler_clauses", "handler_types"],
+        sql = format!(
+            "{climb} SELECT e.snapshot_id, e.call_site_node_id, e.pysa_fact_id, e.model_id, e.rule_id, \
+                    e.call_fact_id, e.class_node_id AS raised_class_node_id, \
+                    e.class_fact_id AS raised_class_fact_id, h.try_node_id, h.handler_node_id, \
+                    h.handler_fact_id, c.depth AS frame_depth, h.ordinal AS handler_ordinal, \
+                    t.status AS handler_type_status, t.class_node_id AS handler_class_node_id, \
+                    t.class_fact_id AS handler_class_fact_id, \
+                    CAST(CASE WHEN t.status = {bare} THEN {bare_match} \
+                              WHEN t.status <> {pinned} THEN {unknown_type} \
+                              WHEN t.class_node_id = e.class_node_id THEN {same_class} \
+                              ELSE {unknown_relation} END AS SMALLINT) AS class_match \
+             FROM climb c JOIN handler_clauses h \
+               ON h.try_node_id = c.parent_node_id AND h.function_node_id = c.function_node_id \
+             JOIN handler_types t ON t.handler_node_id = h.handler_node_id \
+             JOIN modeled_exception_sites e \
+               ON e.call_site_node_id = c.call_site_node_id AND e.pysa_fact_id = c.pysa_fact_id \
+              AND e.model_id = c.model_id AND e.rule_id = c.rule_id \
+             WHERE c.field = {body}",
+            climb = modeled_handler_climb_sql(),
+            bare = HandlerTypeStatus::Bare.code(),
+            pinned = HandlerTypeStatus::PinnedBuiltin.code(),
+            bare_match = ModeledHandlerClassMatch::Bare.code(),
+            unknown_type = ModeledHandlerClassMatch::HandlerTypeUnknown.code(),
+            same_class = ModeledHandlerClassMatch::SameClass.code(),
+            unknown_relation = ModeledHandlerClassMatch::ClassRelationUnknown.code(),
+            body = crate::codebook::SyntaxField::Body.code(),
+        );
+
+    /// One coverage row per modeled raise, including a missing syntax anchor or a capped walk.
+    /// The candidate relation can only be interpreted as complete for a row with null reason.
+    modeled_exception_handler_walks = "behavior:modeled_exception_handler_walks",
+        deps = ["modeled_exception_sites", "syntax_nodes"],
+        sql = format!(
+            "{climb}, stats AS ( \
+               SELECT c.call_site_node_id, c.pysa_fact_id, c.model_id, c.rule_id, \
+                      MAX(c.depth) AS max_depth, \
+                      MAX(CASE WHEN c.depth = {max_depth} AND p.node_id IS NOT NULL \
+                               THEN 1 ELSE 0 END) AS capped \
+               FROM climb c LEFT JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+                 AND p.owner_node_id = c.function_node_id \
+               GROUP BY c.call_site_node_id, c.pysa_fact_id, c.model_id, c.rule_id \
+             ) \
+             SELECT e.snapshot_id, e.call_site_node_id, e.pysa_fact_id, e.model_id, e.rule_id, \
+                    s.fact_id AS source_syntax_fact_id, \
+                    COALESCE(st.max_depth, CAST(0 AS BIGINT)) AS max_depth, \
+                    CAST(CASE WHEN s.fact_id IS NULL THEN {missing} \
+                              WHEN st.capped > 0 THEN {budget} ELSE NULL END AS SMALLINT) AS reason \
+             FROM modeled_exception_sites e \
+             LEFT JOIN syntax_nodes s ON s.node_id = e.call_site_node_id \
+             LEFT JOIN stats st ON st.call_site_node_id = e.call_site_node_id \
+               AND st.pysa_fact_id = e.pysa_fact_id AND st.model_id = e.model_id \
+               AND st.rule_id = e.rule_id \
+             WHERE e.action = {raise}",
+            climb = modeled_handler_climb_sql(),
+            max_depth = MODELED_HANDLER_MAX_ANCESTOR_DEPTH,
+            missing = BoundaryReason::MissingEvidence.code(),
+            budget = BoundaryReason::BudgetReached.code(),
+            raise = ModelExceptionAction::Raise.code(),
         );
 
     /// Direct handler-body statements with their own reachability region.

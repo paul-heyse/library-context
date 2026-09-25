@@ -168,6 +168,79 @@ pub const REFERENCES: &[Reference] = &[
         &[("context_definitions", "symbol_node_id")],
     ),
     r("modeled_exception_sites", "to_class_fact_id", FACT),
+    r(
+        "modeled_exception_handler_candidates",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r("modeled_exception_handler_candidates", "pysa_fact_id", FACT),
+    r(
+        "modeled_exception_handler_candidates",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r(
+        "modeled_exception_handler_candidates",
+        "rule_id",
+        &[("model_exceptions", "rule_id")],
+    ),
+    r("modeled_exception_handler_candidates", "call_fact_id", FACT),
+    r(
+        "modeled_exception_handler_candidates",
+        "raised_class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r(
+        "modeled_exception_handler_candidates",
+        "raised_class_fact_id",
+        FACT,
+    ),
+    r(
+        "modeled_exception_handler_candidates",
+        "try_node_id",
+        &[("handler_clauses", "try_node_id")],
+    ),
+    r(
+        "modeled_exception_handler_candidates",
+        "handler_node_id",
+        &[("handler_clauses", "handler_node_id")],
+    ),
+    r(
+        "modeled_exception_handler_candidates",
+        "handler_fact_id",
+        FACT,
+    ),
+    r(
+        "modeled_exception_handler_candidates",
+        "handler_class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r(
+        "modeled_exception_handler_candidates",
+        "handler_class_fact_id",
+        FACT,
+    ),
+    r(
+        "modeled_exception_handler_walks",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r("modeled_exception_handler_walks", "pysa_fact_id", FACT),
+    r(
+        "modeled_exception_handler_walks",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r(
+        "modeled_exception_handler_walks",
+        "rule_id",
+        &[("model_exceptions", "rule_id")],
+    ),
+    r(
+        "modeled_exception_handler_walks",
+        "source_syntax_fact_id",
+        FACT,
+    ),
     r("assertions", "run_id", &[("runs", "run_id")]),
     r("assertions", "subject_node_id", NODE),
     r(

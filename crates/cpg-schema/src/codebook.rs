@@ -1528,6 +1528,17 @@ codebook!(
 );
 
 codebook!(
+    /// Relationship between a modeled raised class and an enclosing except clause. Even an
+    /// exact class is only a candidate catch until earlier clauses and handler exits are proven.
+    ModeledHandlerClassMatch = "modeled_handler_class_match" {
+        SameClass = 0 => "same_class",
+        Bare = 1 => "bare",
+        ClassRelationUnknown = 2 => "class_relation_unknown",
+        HandlerTypeUnknown = 3 => "handler_type_unknown",
+    }
+);
+
+codebook!(
     /// Whether every pinned signature maps one authored model formal to the same source
     /// argument. Bound is local to a candidate target, not proof that the call dispatches there.
     ModelArgumentStatus = "model_argument_status" {
@@ -1623,6 +1634,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelChannelCoverage>(),
         CodebookEntry::of::<HandlerTypeStatus>(),
         CodebookEntry::of::<ModelArgumentStatus>(),
+        CodebookEntry::of::<ModeledHandlerClassMatch>(),
     ]
 }
 

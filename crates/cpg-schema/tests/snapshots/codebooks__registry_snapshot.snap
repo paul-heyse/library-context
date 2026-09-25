@@ -749,3 +749,8 @@ handler_type_status
 model_argument_status
   0 bound
   1 unknown
+modeled_handler_class_match
+  0 same_class
+  1 bare
+  2 class_relation_unknown
+  3 handler_type_unknown

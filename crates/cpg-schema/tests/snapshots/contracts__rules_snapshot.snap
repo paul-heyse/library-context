@@ -208,6 +208,10 @@ key:handler_clauses
   SELECT snapshot_id, handler_node_id, count(*) AS n FROM handler_clauses GROUP BY snapshot_id, handler_node_id HAVING count(*) > 1
 key:handler_types
   SELECT snapshot_id, handler_node_id, count(*) AS n FROM handler_types GROUP BY snapshot_id, handler_node_id HAVING count(*) > 1
+key:modeled_exception_handler_candidates
+  SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, handler_node_id, count(*) AS n FROM modeled_exception_handler_candidates GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, handler_node_id HAVING count(*) > 1
+key:modeled_exception_handler_walks
+  SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_exception_handler_walks GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:handler_actions
   SELECT snapshot_id, handler_node_id, action_node_id, count(*) AS n FROM handler_actions GROUP BY snapshot_id, handler_node_id, action_node_id HAVING count(*) > 1
 key:flow_test_exact_origins
@@ -360,6 +364,40 @@ ref:modeled_exception_sites.to_class_node_id->context_definitions
   SELECT f.to_class_node_id AS value FROM modeled_exception_sites f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.to_class_node_id = r.k WHERE f.to_class_node_id IS NOT NULL
 ref:modeled_exception_sites.to_class_fact_id->facts
   SELECT f.to_class_fact_id AS value FROM modeled_exception_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.to_class_fact_id = r.k WHERE f.to_class_fact_id IS NOT NULL
+ref:modeled_exception_handler_candidates.call_site_node_id->model_applications
+  SELECT f.call_site_node_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT call_site_node_id AS k FROM model_applications) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:modeled_exception_handler_candidates.pysa_fact_id->facts
+  SELECT f.pysa_fact_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:modeled_exception_handler_candidates.model_id->model_targets
+  SELECT f.model_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:modeled_exception_handler_candidates.rule_id->model_exceptions
+  SELECT f.rule_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_exceptions) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:modeled_exception_handler_candidates.call_fact_id->facts
+  SELECT f.call_fact_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.call_fact_id = r.k WHERE f.call_fact_id IS NOT NULL
+ref:modeled_exception_handler_candidates.raised_class_node_id->context_definitions
+  SELECT f.raised_class_node_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.raised_class_node_id = r.k WHERE f.raised_class_node_id IS NOT NULL
+ref:modeled_exception_handler_candidates.raised_class_fact_id->facts
+  SELECT f.raised_class_fact_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.raised_class_fact_id = r.k WHERE f.raised_class_fact_id IS NOT NULL
+ref:modeled_exception_handler_candidates.try_node_id->handler_clauses
+  SELECT f.try_node_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT try_node_id AS k FROM handler_clauses) r ON f.try_node_id = r.k WHERE f.try_node_id IS NOT NULL
+ref:modeled_exception_handler_candidates.handler_node_id->handler_clauses
+  SELECT f.handler_node_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT handler_node_id AS k FROM handler_clauses) r ON f.handler_node_id = r.k WHERE f.handler_node_id IS NOT NULL
+ref:modeled_exception_handler_candidates.handler_fact_id->facts
+  SELECT f.handler_fact_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.handler_fact_id = r.k WHERE f.handler_fact_id IS NOT NULL
+ref:modeled_exception_handler_candidates.handler_class_node_id->context_definitions
+  SELECT f.handler_class_node_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.handler_class_node_id = r.k WHERE f.handler_class_node_id IS NOT NULL
+ref:modeled_exception_handler_candidates.handler_class_fact_id->facts
+  SELECT f.handler_class_fact_id AS value FROM modeled_exception_handler_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.handler_class_fact_id = r.k WHERE f.handler_class_fact_id IS NOT NULL
+ref:modeled_exception_handler_walks.call_site_node_id->model_applications
+  SELECT f.call_site_node_id AS value FROM modeled_exception_handler_walks f LEFT ANTI JOIN (SELECT call_site_node_id AS k FROM model_applications) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:modeled_exception_handler_walks.pysa_fact_id->facts
+  SELECT f.pysa_fact_id AS value FROM modeled_exception_handler_walks f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:modeled_exception_handler_walks.model_id->model_targets
+  SELECT f.model_id AS value FROM modeled_exception_handler_walks f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:modeled_exception_handler_walks.rule_id->model_exceptions
+  SELECT f.rule_id AS value FROM modeled_exception_handler_walks f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_exceptions) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:modeled_exception_handler_walks.source_syntax_fact_id->facts
+  SELECT f.source_syntax_fact_id AS value FROM modeled_exception_handler_walks f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_syntax_fact_id = r.k WHERE f.source_syntax_fact_id IS NOT NULL
 ref:assertions.run_id->runs
   SELECT f.run_id AS value FROM assertions f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:assertions.subject_node_id->nodes
@@ -1196,6 +1234,12 @@ codebook:handler_types.status
   SELECT status FROM handler_types WHERE status IS NOT NULL AND status NOT IN (0, 1, 2)
 codebook:handler_types.reason
   SELECT reason FROM handler_types WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:modeled_exception_handler_candidates.handler_type_status
+  SELECT handler_type_status FROM modeled_exception_handler_candidates WHERE handler_type_status IS NOT NULL AND handler_type_status NOT IN (0, 1, 2)
+codebook:modeled_exception_handler_candidates.class_match
+  SELECT class_match FROM modeled_exception_handler_candidates WHERE class_match IS NOT NULL AND class_match NOT IN (0, 1, 2, 3)
+codebook:modeled_exception_handler_walks.reason
+  SELECT reason FROM modeled_exception_handler_walks WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:handler_actions.action_kind
   SELECT action_kind FROM handler_actions WHERE action_kind IS NOT NULL AND action_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93)
 codebook:flow_test_exact_origins.origin

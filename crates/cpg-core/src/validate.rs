@@ -15,6 +15,7 @@ use cpg_schema::behavior::{
     HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
+    ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionSitesRow, ModeledResourceSitesRow, ModeledTransferSitesRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
@@ -124,6 +125,12 @@ cpg_schema::relations! {
         sql = "SELECT * FROM handler_clauses".to_owned();
     stored_handler_types = "validate_stored_handler_types", deps = ["handler_types"],
         sql = "SELECT * FROM handler_types".to_owned();
+    stored_modeled_exception_handler_candidates = "validate_stored_modeled_exception_handler_candidates",
+        deps = ["modeled_exception_handler_candidates"],
+        sql = "SELECT * FROM modeled_exception_handler_candidates".to_owned();
+    stored_modeled_exception_handler_walks = "validate_stored_modeled_exception_handler_walks",
+        deps = ["modeled_exception_handler_walks"],
+        sql = "SELECT * FROM modeled_exception_handler_walks".to_owned();
     stored_handler_actions = "validate_stored_handler_actions", deps = ["handler_actions"],
         sql = "SELECT * FROM handler_actions".to_owned();
 }
@@ -170,6 +177,46 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
     .await?;
     actual_types.sort_by_key(|r| r.handler_node_id);
     expected_types.sort_by_key(|r| r.handler_node_id);
+    let mut actual_candidates: Vec<ModeledExceptionHandlerCandidatesRow> = sql::fetch(
+        ctx,
+        &stored_modeled_exception_handler_candidates(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected_candidates: Vec<ModeledExceptionHandlerCandidatesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_exception_handler_candidates(),
+        sql::Params::new(),
+    )
+    .await?;
+    let candidate_key = |r: &ModeledExceptionHandlerCandidatesRow| {
+        (
+            r.call_site_node_id,
+            r.pysa_fact_id,
+            r.model_id,
+            r.rule_id,
+            r.handler_node_id,
+        )
+    };
+    actual_candidates.sort_by_key(candidate_key);
+    expected_candidates.sort_by_key(candidate_key);
+    let mut actual_walks: Vec<ModeledExceptionHandlerWalksRow> = sql::fetch(
+        ctx,
+        &stored_modeled_exception_handler_walks(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected_walks: Vec<ModeledExceptionHandlerWalksRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_exception_handler_walks(),
+        sql::Params::new(),
+    )
+    .await?;
+    let walk_key = |r: &ModeledExceptionHandlerWalksRow| {
+        (r.call_site_node_id, r.pysa_fact_id, r.model_id, r.rule_id)
+    };
+    actual_walks.sort_by_key(walk_key);
+    expected_walks.sort_by_key(walk_key);
     let mut actual_actions: Vec<HandlerActionsRow> =
         sql::fetch(ctx, &stored_handler_actions(), sql::Params::new()).await?;
     let mut expected_actions: Vec<HandlerActionsRow> = sql::fetch(
@@ -212,6 +259,31 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
                 "stored {} handler types; derived {}",
                 actual_types.len(),
                 expected_types.len()
+            ),
+        });
+    }
+    if actual_candidates != expected_candidates {
+        violations.push(Violation {
+            rule: "modeled-exception-handler-source-equality".to_owned(),
+            rows: actual_candidates
+                .len()
+                .abs_diff(expected_candidates.len())
+                .max(1),
+            sample: format!(
+                "stored {} candidates; derived {}",
+                actual_candidates.len(),
+                expected_candidates.len()
+            ),
+        });
+    }
+    if actual_walks != expected_walks {
+        violations.push(Violation {
+            rule: "modeled-exception-handler-walk-source-equality".to_owned(),
+            rows: actual_walks.len().abs_diff(expected_walks.len()).max(1),
+            sample: format!(
+                "stored {} walks; derived {}",
+                actual_walks.len(),
+                expected_walks.len()
             ),
         });
     }

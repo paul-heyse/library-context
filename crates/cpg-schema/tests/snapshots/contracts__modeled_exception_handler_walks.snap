@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table modeled_exception_handler_walks
+family findings
+key snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id
+check nonnegative_depth: max_depth >= 0
+@lctx.family=findings
+@lctx.table=modeled_exception_handler_walks
+snapshot_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+source_syntax_fact_id: FixedSizeBinary(16) NULL
+max_depth: Int64 NOT NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

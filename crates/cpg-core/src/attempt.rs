@@ -63,7 +63,7 @@ pub struct Published {
 /// 34: candidate-local modeled resource sites. 35: candidate-local modeled transfer sites.
 /// 36: candidate-local modeled effect sites. 37: exact flow-call source links (ADR-0028).
 /// 38: pinned exception class identities and candidate-local modeled exception sites.
-pub const COMPILER_OUTPUT_VERSION: u32 = 38;
+pub const COMPILER_OUTPUT_VERSION: u32 = 39;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -747,7 +747,8 @@ async fn finish(
         use cpg_schema::behavior::{
             AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
-            HandlerActions, HandlerClauses, HandlerTypes, Handoffs, NegativePremises,
+            HandlerActions, HandlerClauses, HandlerTypes, Handoffs,
+            ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
             RaiseSites, Singletons, ValueFlows,
         };
@@ -785,6 +786,34 @@ async fn finish(
         )
         .await?;
         write_analysis::<HandlerTypes>(&ctx, root, snapshot_id, &handler_types, w).await?;
+        let exception_handler_candidates = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::modeled_exception_handler_candidates(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ModeledExceptionHandlerCandidates>(
+            &ctx,
+            root,
+            snapshot_id,
+            &exception_handler_candidates,
+            w,
+        )
+        .await?;
+        let exception_handler_walks = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::modeled_exception_handler_walks(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ModeledExceptionHandlerWalks>(
+            &ctx,
+            root,
+            snapshot_id,
+            &exception_handler_walks,
+            w,
+        )
+        .await?;
         let handler_actions = crate::sql::fetch(
             &ctx,
             &cpg_schema::behavior::handler_actions(),

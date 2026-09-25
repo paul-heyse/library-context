@@ -22,7 +22,7 @@ use cpg_schema::codebook::{
     Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
     ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
     ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
-    Origin,
+    ModeledHandlerClassMatch, Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -325,7 +325,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        53 + 22 + 52,
+        53 + 22 + 54,
         "every raw, derived and analysis table"
     );
 
@@ -632,6 +632,135 @@ async fn handler_type_status_is_pinned_or_explicitly_unknown() {
     );
     ctx.deregister_table("handler_types").unwrap();
     ctx.register_table("handler_types", original_types).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn modeled_exception_handler_candidates_follow_exact_try_body_ancestry() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([59; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["handlerpkg"]
+public_roots = ["handlerpkg"]
+[seeds]
+primary = ["handlerpkg.exact_handler"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("model_handler_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    for (name, class_match, expected) in [
+        ("exact_handler", ModeledHandlerClassMatch::SameClass, 1),
+        (
+            "broader_handler",
+            ModeledHandlerClassMatch::ClassRelationUnknown,
+            1,
+        ),
+        ("bare_handler", ModeledHandlerClassMatch::Bare, 1),
+        (
+            "shadowed_handler",
+            ModeledHandlerClassMatch::HandlerTypeUnknown,
+            1,
+        ),
+        ("outside_handler", ModeledHandlerClassMatch::SameClass, 0),
+        ("inner", ModeledHandlerClassMatch::SameClass, 0),
+        ("nested_tries", ModeledHandlerClassMatch::SameClass, 1),
+        (
+            "nested_tries",
+            ModeledHandlerClassMatch::ClassRelationUnknown,
+            1,
+        ),
+    ] {
+        let found = count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_exception_handler_candidates c \
+                 JOIN syntax_nodes s ON s.node_id = c.call_site_node_id \
+                 JOIN declarations d ON d.node_id = s.owner_node_id \
+                 WHERE d.name = '{name}' AND c.class_match = {}",
+                class_match.code(),
+            ),
+        )
+        .await;
+        assert_eq!(found, expected, "{name}");
+    }
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(DISTINCT try_node_id) FROM modeled_exception_handler_candidates c \
+             JOIN syntax_nodes s ON s.node_id = c.call_site_node_id \
+             JOIN declarations d ON d.node_id = s.owner_node_id \
+             WHERE d.name = 'nested_tries'"
+        )
+        .await,
+        2,
+        "both nested try frames remain distinct"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_exception_handler_walks WHERE reason IS NOT NULL"
+        )
+        .await,
+        0,
+        "the focused fixture has a complete syntax-ancestor walk for every modeled raise"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM modeled_exception_handler_walks").await,
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_exception_sites WHERE action = {}",
+                ModelExceptionAction::Raise.code()
+            )
+        )
+        .await,
+        "every modeled raise has a walk coverage row"
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let doctored = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (class_match), CAST({} AS SMALLINT) AS class_match \
+             FROM modeled_exception_handler_candidates",
+            ModeledHandlerClassMatch::Bare.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_exception_handler_candidates")
+        .unwrap();
+    ctx.register_table("modeled_exception_handler_candidates", doctored)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-exception-handler-source-equality"),
+        "{violations:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

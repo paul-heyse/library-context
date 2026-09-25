@@ -1,0 +1,27 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table modeled_exception_handler_candidates
+family findings
+key snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, handler_node_id
+check nonnegative_depth: frame_depth >= 0
+@lctx.family=findings
+@lctx.table=modeled_exception_handler_candidates
+snapshot_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+call_fact_id: FixedSizeBinary(16) NOT NULL
+raised_class_node_id: FixedSizeBinary(16) NOT NULL
+raised_class_fact_id: FixedSizeBinary(16) NOT NULL
+try_node_id: FixedSizeBinary(16) NOT NULL
+handler_node_id: FixedSizeBinary(16) NOT NULL
+handler_fact_id: FixedSizeBinary(16) NOT NULL
+frame_depth: Int64 NOT NULL
+handler_ordinal: Int64 NOT NULL
+handler_type_status: Int16 NOT NULL [lctx.codebook=handler_type_status]
+handler_class_node_id: FixedSizeBinary(16) NULL
+handler_class_fact_id: FixedSizeBinary(16) NULL
+class_match: Int16 NOT NULL [lctx.codebook=modeled_handler_class_match]

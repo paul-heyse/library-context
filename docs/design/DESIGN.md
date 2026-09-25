@@ -3150,6 +3150,19 @@ handler-match condition, and a body action may fail or branch. Exception matchin
 and completion remain Proposed. The integrated repository and pilot gates remain `not_run` for
 Stage 3.
 
+**Implemented and Tested in focused cases (2026-09-25, candidate handler frame):**
+`modeled_exception_handler_candidates` uses a bounded DataFusion recursive syntax-ancestor
+walk, stopping at an innermost-function boundary, to connect a modeled potential raise in a
+`try` body to each authored clause of that frame. It retains nested frames, clause ordinals,
+call/model/class facts and the handler type fact. The class relation is typed as same pinned
+class, bare handler, unresolved relationship between different pinned classes, or unresolved
+handler type. `modeled_exception_handler_walks` records one coverage row per modeled raise;
+missing source syntax and a 128-edge ancestry cap produce explicit reasons. Absence from the
+candidate relation is interpretable only when its walk is complete. Publication reconstructs
+and validates both relations. The
+relation does not decide which clause runs, whether a subclass matches, whether the call raises,
+or whether a handler completes. Those L2 fate decisions and integrated testing remain open.
+
 **Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
 proved, an explicit raise inside a `try` or `with` body has no definite escape witness. The
 flow producer no longer parses handler/raised names from source text or assumes an opaque
