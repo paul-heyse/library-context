@@ -3,6 +3,7 @@
 import atexit
 import gzip
 import json
+import logging
 from typing import Callable, assert_type, cast
 
 
@@ -101,6 +102,18 @@ def decompress_data(value: bytes) -> bytes:
 
 def shadowed_compress(gzip, value: bytes):
     return gzip.compress(value)
+
+
+def warn(value: str) -> None:
+    logging.getLogger(__name__).warning(value)
+
+
+def shadowed_warn(logger, value: str) -> None:
+    logger.warning(value)
+
+
+def warn_unpacked(values: tuple[str, ...]) -> None:
+    logging.getLogger(__name__).warning(*values)
 
 
 def plain_identity(value: object) -> object:

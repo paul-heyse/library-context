@@ -1175,7 +1175,7 @@ mod tests {
     fn committed_catalog_has_typed_identity_path_and_digest() {
         let catalog = Catalog::committed().unwrap();
         assert_eq!(catalog.digest, Catalog::committed_digest());
-        assert_eq!(catalog.models.len(), 10);
+        assert_eq!(catalog.models.len(), 11);
         let model = &catalog
             .models
             .iter()
@@ -1211,6 +1211,16 @@ mod tests {
                     modality: RuleModality::Potential,
                 } if name == formal)), "{target} must retain its exact input formal");
         }
+        let logging = &catalog.models.iter().find(|m| {
+            m.model.target.key() == "stdlib:3.14.7:logging.Logger.warning"
+        }).unwrap().model;
+        assert!(!logging.normal_return);
+        assert!(logging.rules.iter().any(|rule| matches!(rule,
+            Rule::Effect {
+                effect: Effect::Log,
+                subject: Some(InputPath::Parameter { name }),
+                modality: RuleModality::Potential,
+            } if name == "msg")));
     }
 
     #[test]

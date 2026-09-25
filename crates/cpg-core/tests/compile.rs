@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
 use cpg_schema::codebook::{
-    BoundaryReason, Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink,
+    BoundaryReason, Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink, ImplicitReceiver,
     HandlerTypeStatus, Modality, ModelArgumentStatus, ModeledArgumentEvaluationStatus, ModelCallbackAction, ModelChannelCoverage,
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
@@ -1499,7 +1499,7 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert_eq!(targets, 10, "typing, print, JSON, gzip, open and atexit models");
+    assert_eq!(targets, 11, "typing, print, JSON, gzip, logging, open and atexit models");
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_targets WHERE normal_return").await,
         2,
@@ -2005,11 +2005,11 @@ budget = 1
         2,
         "unsupported formals leave the input endpoint unknown, even with a call result"
     );
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 5);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 6);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_effect_sites").await,
-        5,
-        "print, JSON and gzip effects apply to their resolved source calls"
+        7,
+        "print, JSON, gzip and logging effects apply to their resolved source calls"
     );
     assert_eq!(
         count(
@@ -2067,6 +2067,55 @@ budget = 1
         1,
         "the compression effect cites the actual data argument"
     );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_effect_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 JOIN pysa_calls p ON p.fact_id = s.pysa_fact_id \
+                 WHERE d.name = 'warn' AND s.effect = {} \
+                   AND s.subject_status = {} AND s.subject_expression_node_id IS NOT NULL \
+                   AND s.model_modality = {} AND p.implicit_receiver = {}",
+                ModelEffectKind::Log.code(),
+                ModelEffectSubjectStatus::BoundArgument.code(),
+                Modality::Potential.code(),
+                ImplicitReceiver::TrueWithObjectReceiver.code(),
+            ),
+        )
+        .await,
+        1,
+        "a resolved Logger.warning cites the exact message argument"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_effect_sites s \
+             JOIN declarations d ON d.node_id = s.function_node_id \
+             WHERE d.name = 'shadowed_warn'",
+        )
+        .await,
+        0,
+        "an untyped logger argument cannot inherit the pinned Logger model"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_effect_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'warn_unpacked' AND s.effect = {} \
+                   AND s.subject_status = {} AND s.subject_reason = {} \
+                   AND s.subject_expression_node_id IS NULL",
+                ModelEffectKind::Log.code(),
+                ModelEffectSubjectStatus::Unknown.code(),
+                BoundaryReason::UnsupportedUnpacking.code(),
+            ),
+        )
+        .await,
+        1,
+        "a bound Logger call still withholds an unpacked message argument"
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
     assert_eq!(
@@ -2098,8 +2147,8 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_formal_paths").await,
-        12,
-        "typing, JSON, gzip and atexit paths use typed model ASTs"
+        13,
+        "typing, JSON, gzip, logging and atexit paths use typed model ASTs"
     );
     assert_eq!(
         count(
@@ -2242,7 +2291,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        21,
+        23,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

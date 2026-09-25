@@ -127,6 +127,19 @@ to = { kind = "return_value" }
 transfer = "transform"
 modality = "potential"
 
+# A configured Logger may suppress this level entirely or dispatch to user-defined handlers;
+# the message is still an exact source argument when a warning is emitted.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.warning" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
 # A successful open returns a newly acquired file object. Mode-dependent read/write behavior is
 # deliberately not asserted. The returned resource needs an independent close/with witness.
 [[models]]

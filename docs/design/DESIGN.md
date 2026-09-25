@@ -3121,6 +3121,13 @@ support the authored paths; the focused analyzed fixture checks target binding, 
 source application, a shadowed-module withholding case and shared publication equality. These
 rows are candidates, not a positive transform summary or a CrossHair equivalence claim.
 
+**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 logging data):** the pinned
+`logging.Logger.warning(msg)` target asserts a potential `log` effect on its exact message
+formal. Logger configuration can suppress emission, and handlers can execute arbitrary code,
+so the other model channels and normal completion remain open. The source fixture has a
+bound object-receiver call, an untyped logger call and an unpacked message; only the first
+binds its `msg` subject. The method-binding rule is below (ADR-0035).
+
 **Implemented and Tested in focused cases (2026-09-25, Stage 3 source/model bridge):**
 `model_applications` joins each source `call_targets` fact to an exactly pinned `model_targets`
 row, retaining the Pysa target's modality/origin and phase, the model's identity and revision,
@@ -3144,12 +3151,16 @@ rendered path string to fill that gap.
 **Implemented and Tested in focused cases (2026-09-25, model argument boundary):**
 `model_argument_bindings` joins each applied model formal to the source call's explicit
 argument only if every pinned Pysa signature selects the same argument ordinal. It supports
-positional and named keyword binding; an unpacked argument, implicit receiver, absent argument
+positional and named keyword binding. For a direct Ruff attribute callee whose Pysa target
+cites an implicit **object** receiver, the binder shifts positional signature ordinals past
+that receiver. An unpacked argument, class receiver, unsupported callee, absent argument
 or overload disagreement yields `unknown` with a boundary, never an inferred value. The row
 cites the chosen argument and its source fact when bound, and shared publication validation
 reconstructs every row. Binding is still local to one candidate model target. Dispatch
 closure, value stability, effects and summary composition remain Proposed; no served verdict
 follows from this relation alone.
+
+> Decision: ADR-0035
 
 **Implemented and Tested in focused cases (2026-09-25, modeled callback source):**
 `modeled_callback_sites` applies an authored callback action to a cited source call target
@@ -4242,3 +4253,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Finite summary paths gain canonical ids from ordered typed proof steps; the initial raw identity step is cited and source-equality validated, while model-call variants remain pending (§B5, §B6, §9.9) | ADR-0034 |
 | 2026-09-25 | Pinned function models can assert total normal return independently of transfer modality and exception silence; the first assertions cover `typing.cast` and `typing.assert_type`, with source-call composition still conditional (§B5, §9.9) | ADR-0033 |
 | 2026-09-25 | Exact modeled value paths now account for every call argument in source order, citing the selected operand or a direct literal and retaining dynamic siblings as unknown (§9.9) | — |
+| 2026-09-25 | A Pysa object receiver plus a direct Ruff attribute callee shifts pinned model positional formals past `self`; class receivers and unpacking remain unknown. `logging.Logger.warning` adds a potential subject-bound log candidate (§9.9) | ADR-0035 |

@@ -1658,18 +1658,25 @@ crate::relations! {
             init = InvocationPhase::Init.code(),
         );
 
-    /// Bind a modeled formal only when each pinned signature selects the same one explicit
-    /// argument. Any unpacking or implicit receiver withholds this first positive mapping.
+    /// Bind a modeled formal only when each pinned signature selects the same explicit
+    /// argument. A Pysa object receiver on a direct Ruff attribute call shifts positional
+    /// formals past `self`; class receivers and unpacking remain unknown.
     model_argument_bindings = "behavior:model_argument_bindings",
-        deps = ["model_applications", "model_formal_paths", "context_definitions", "context_parameters", "pysa_calls", "arguments"],
+        deps = ["model_applications", "model_formal_paths", "context_definitions", "context_parameters", "pysa_calls", "arguments", "syntax_nodes"],
         sql = format!(
             "WITH unpacked AS ( \
                SELECT call_node_id, COUNT(*) AS n FROM arguments \
                WHERE kind IN ({starred}, {double_starred}) GROUP BY call_node_id \
+             ), attribute_callees AS ( \
+               SELECT DISTINCT parent_node_id AS call_node_id FROM syntax_nodes \
+               WHERE field = {callee_field} AND kind = {attribute_expr} \
              ), base AS ( \
                SELECT a.snapshot_id, a.call_site_node_id, a.pysa_fact_id, a.model_id, \
                       a.target_node_id, f.rule_id, f.path_role, f.path_id, f.formal_name, \
                       d.signature_count, p.implicit_receiver, \
+                      CASE WHEN p.implicit_receiver = {object_receiver} \
+                                  AND ac.call_node_id IS NOT NULL THEN 1 ELSE 0 END \
+                        AS receiver_shift, \
                       COALESCE(u.n, 0) AS unpacked_count \
                FROM model_applications a \
                JOIN model_formal_paths f ON f.model_id = a.model_id \
@@ -1678,6 +1685,7 @@ crate::relations! {
                  AND d.symbol_node_id = a.target_node_id \
                JOIN pysa_calls p ON p.fact_id = a.pysa_fact_id \
                LEFT JOIN unpacked u ON u.call_node_id = a.call_site_node_id \
+               LEFT JOIN attribute_callees ac ON ac.call_node_id = a.call_site_node_id \
              ), matches AS ( \
                SELECT b.*, cp.signature_index, arg.node_id AS matched_node_id, \
                       arg.ordinal AS matched_ordinal \
@@ -1685,21 +1693,23 @@ crate::relations! {
                JOIN context_parameters cp ON cp.symbol_node_id = b.target_node_id \
                  AND cp.name = b.formal_name \
                LEFT JOIN arguments arg ON arg.call_node_id = b.call_site_node_id \
-                 AND ((arg.kind = {positional} AND arg.ordinal = cp.ordinal \
+                 AND ((arg.kind = {positional} \
+                       AND arg.ordinal = cp.ordinal - b.receiver_shift \
+                       AND cp.ordinal >= b.receiver_shift \
                        AND cp.kind IN ({pos_only}, {pos_or_keyword})) \
                    OR (arg.kind = {keyword} AND arg.keyword = b.formal_name \
                        AND cp.kind IN ({pos_or_keyword}, {keyword_only}))) \
              ), grouped AS ( \
                SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, \
                       target_node_id, rule_id, path_role, path_id, formal_name, \
-                      signature_count, implicit_receiver, unpacked_count, \
+                      signature_count, implicit_receiver, receiver_shift, unpacked_count, \
                       COUNT(DISTINCT signature_index) AS signatures_seen, \
                       COUNT(matched_node_id) AS matched_signatures, \
                       COUNT(DISTINCT matched_ordinal) AS distinct_arguments, \
                       MIN(matched_ordinal) AS selected_ordinal \
                FROM matches GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, \
                     model_id, target_node_id, rule_id, path_role, path_id, formal_name, \
-                    signature_count, implicit_receiver, unpacked_count \
+                    signature_count, implicit_receiver, receiver_shift, unpacked_count \
              ) \
              SELECT g.snapshot_id, g.call_site_node_id, g.pysa_fact_id, g.model_id, \
                     g.target_node_id, g.rule_id, g.path_role, g.path_id, g.formal_name, \
@@ -1711,7 +1721,9 @@ crate::relations! {
                     CAST(CASE WHEN {bound_condition} THEN NULL \
                               WHEN g.unpacked_count > 0 THEN {unsupported_unpacking} \
                               WHEN g.implicit_receiver IS NOT NULL \
-                                AND g.implicit_receiver <> {receiver_false} THEN {outside} \
+                                AND g.implicit_receiver <> {receiver_false} \
+                                AND NOT (g.implicit_receiver = {object_receiver} \
+                                  AND g.receiver_shift = 1) THEN {outside} \
                               WHEN g.signatures_seen <> g.signature_count \
                                 OR g.matched_signatures = 0 THEN {missing} \
                               ELSE {ambiguous} END AS SMALLINT) AS reason \
@@ -1726,16 +1738,22 @@ crate::relations! {
             pos_or_keyword = ParameterKind::PositionalOrKeyword.code(),
             keyword_only = ParameterKind::KeywordOnly.code(),
             bound_condition = format!(
-                "g.unpacked_count = 0 AND (g.implicit_receiver IS NULL OR g.implicit_receiver = {}) \
+                "g.unpacked_count = 0 AND (g.implicit_receiver IS NULL \
+                    OR g.implicit_receiver = {} \
+                    OR (g.implicit_receiver = {} AND g.receiver_shift = 1)) \
                  AND g.signature_count = g.signatures_seen \
                  AND g.matched_signatures = g.signature_count \
                  AND g.distinct_arguments = 1",
-                ImplicitReceiver::False.code()
+                ImplicitReceiver::False.code(),
+                ImplicitReceiver::TrueWithObjectReceiver.code(),
             ),
             bound = ModelArgumentStatus::Bound.code(),
             unknown = ModelArgumentStatus::Unknown.code(),
             unsupported_unpacking = BoundaryReason::UnsupportedUnpacking.code(),
             receiver_false = ImplicitReceiver::False.code(),
+            object_receiver = ImplicitReceiver::TrueWithObjectReceiver.code(),
+            callee_field = crate::codebook::SyntaxField::Callee.code(),
+            attribute_expr = SyntaxKind::ExprAttribute.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
             missing = BoundaryReason::MissingEvidence.code(),
             ambiguous = BoundaryReason::AmbiguousBinding.code(),
