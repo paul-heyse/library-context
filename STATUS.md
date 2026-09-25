@@ -11,6 +11,8 @@ _Updated 2026-09-25 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - L2/L3: pass-only nested finalizers have ordered proof steps; other frame fates remain unknown. Direct, exact modeled, unique-assignment and unconditional acyclic wrapper value paths have canonical ordered proofs and shared reconstruction. ADR-0039 ignores a prior call only when its ty region is definitely BDD-incompatible with the return; compatible/missing/approximate/capped predecessors withhold a direct positive. Recursive modeled/assignment members, effect/exception/role summaries and `call_transfer` discharge remain open.
 - FORMAT 7/native `inspect_value_paths` provides path-local inspection, not operation-wide compatibility/effect/role verdicts.
 
+- Documentation-system proposal: [target and adoption sequence](docs/lightweight_architectural_documentation_and_search_proposal.md), **Proposed** on 2026-09-25. It adapts pse-arrow's Markdown/mdBook/Pagefind work to this repository's section identities and ADR-0040 ownership. No publishing implementation or authority change has been adopted.
+
 ## Last verified (2026-09-25)
 
 Functional receipts below are preserved from the preceding Stage 3 session; this process revision did not rerun them.
