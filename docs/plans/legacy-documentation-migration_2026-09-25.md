@@ -398,7 +398,7 @@ Deleted at completion. Pre-removal revision: `df52bafb27bc7ff40658a81108f03e1452
   `cpg-schema/src/behavior.rs`).
 - [x] M1: forward plan revised; 27 findings in §6; both reviews marked transferred.
 - [x] M2: ADR-0042 accepted after target review (F01–F05 applied); ADR tooling and process instructions.
-- [ ] M3: section owners and consolidated rationale.
+- [x] M3: eight section owners rewritten; ADR-0043–0047 consolidate 0010–0014, 0017, 0019, 0022, 0027, 0029–0035, 0037, 0039.
 - [ ] M4: retirement.
 - [ ] M5: publication.
 - [ ] M6: acceptance and handoff.

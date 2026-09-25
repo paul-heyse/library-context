@@ -1,10 +1,10 @@
 ---
 id: ADR-0017
 title: Abort-on-error attempts published by a snapshots append; each pinned read opens its own snapshot's commit
-status: accepted
+status: superseded
 date: 2026-09-23
 supersedes: [ADR-0009]
-superseded-by: null
+superseded-by: ADR-0047
 design: [§B7, §B12, §4.0, §6]
 evidence: Tested
 revisit: One attempt writes a snapshot-qualified table in more than one commit (a streaming or retried write); a reader needs rows of a table across snapshots (a relational diff); or an injected failure test finds a reader seeing unpublished rows.

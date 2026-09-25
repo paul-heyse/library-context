@@ -1,10 +1,10 @@
 ---
 id: ADR-0030
 title: Use pinned Pyrefly MRO for modeled exception class relationships
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§B5, §3.2, §9.9]
 evidence: Tested
 revisit: A required exception match uses a class absent from the pinned context, Pyrefly reports a cyclic MRO, or a negative match is needed for a model class that denotes a family of possible subclasses.

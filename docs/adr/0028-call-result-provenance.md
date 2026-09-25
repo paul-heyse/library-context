@@ -102,3 +102,11 @@ The contribution relation and its full reconstruction validator are implemented
 and focused-tested on 2026-09-25. The direct candidate and predecessor bridges
 are likewise focused-tested. Completed transfer discharge and SCC composition are still
 proposed; the integrated pilot has not run on this change.
+
+**Current role (2026-09-25).** The live choice is that the ordered, source-joined call path, not
+`through_call`, is the authority for which calls a value crosses, and that L3 withholds a
+positive transfer for any unmatched, relabelled or derived step. The persistence prerequisite
+named above is met by the validated analysis condition catalog (ADR-0045). Completed transfer
+discharge and SCC composition remain open in the
+[forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md#3-stage-3-execution-queue)
+(orders 1, 4 and 6); this record stays proposed until that work and its review settle it.

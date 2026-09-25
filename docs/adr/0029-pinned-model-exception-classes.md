@@ -1,10 +1,10 @@
 ---
 id: ADR-0029
 title: Resolve modeled exception classes in the pinned context before source application
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§B5, §3.2, §4.0, §9.9]
 evidence: Tested
 revisit: An applicable exception model names a class in a context module the extractor does not describe, or a Stage 3 handler match needs a class relationship absent from the pinned context facts.

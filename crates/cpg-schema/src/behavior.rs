@@ -1,6 +1,5 @@
-//! The behavior model's Stage 1 tables (ADR-0021, ADR-0022; DESIGN §3.2, §3.9; the plan
-//! `docs/plans/behavioral-model-pivot-plan_2026-09-24.md`, Stage 1): the whole public surface,
-//! not the seeds.
+//! The behavior model's Stage 1 tables (ADR-0021, ADR-0022; DESIGN §3.2, §3.9; behavioral-model
+//! Stage 1): the whole public surface, not the seeds.
 //!
 //! - **Persisted relations.** Pass B's and Pass C's declared relations (`cpg_schema::flows`),
 //!   computed over the whole release on every compile, are written as analysis tables:

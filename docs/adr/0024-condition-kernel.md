@@ -18,7 +18,7 @@ needs compatibility and implication for Q09. A rendered DNF cannot be the author
 decisions: expansion may be much larger than the Boolean function. DESIGN §3.9 declares syntactic
 identity and defers compatibility; §B10 calls the finite evaluator "not a solver". Evaluation
 identity must stay per-site because a call or nonlocal write can change a name even when its
-static definition set is unchanged (Stage 2.9 compact review F01).
+static definition set is unchanged (an executable counterexample at Stage 2.9).
 
 The read-only [pilot conversion survey](../design_review/evidence/2026-09-24_bdd-pilot-survey/README.md)
 measured 13,775 stated condition rows converting to BDDs in 0.97s; the one `over_budget`
@@ -36,8 +36,8 @@ synthetic atoms share the same subject span.
    bound exponential composition or provide implication. Rejected.
 2. **Use a general SMT solver.** It could relate scalar values but adds a broad language before
    the product needs one. Rejected.
-3. **Use `biodivine-lib-bdd` 0.6.3 with a narrow typed theory, chosen.** The 2026-09-24 probe in
-   the forward handoff §7.3 confirmed canonical Boolean equality, factoring, compatibility and
+3. **Use `biodivine-lib-bdd` 0.6.3 with a narrow typed theory, chosen.** A standalone 2026-09-24
+   probe confirmed canonical Boolean equality, factoring, compatibility and
    a node limit; it also found an unbounded stress case that ran past ten minutes. Product
    integration and pilot measurement remain required.
 
@@ -171,3 +171,14 @@ Boolean functions need not be discarded for DNF expansion. Node serialization, s
 proofs and migration checks become new obligations. A capped renderer is deliberately
 incomplete; clients use the diagram-backed result to decide. Old DNF ids cannot silently mix
 with the new scheme.
+
+**Current role (2026-09-25).** This record still carries a live choice: the §B10 allowance for a
+bounded decision-diagram kernel and a narrow typed theory, the move of condition identity from
+the Stage 2 DNF encoding to structural diagram ids, and the kernel's operations and budgets. The
+code implementing it is not a review of it, so it stays proposed until the increment-end
+design/target review accepts, revises or rejects it. Two narrower uses are accepted in ADR-0045:
+the persisted, validated analysis condition catalog and the predecessor compatibility screen.
+Known kernel defects (decisions refused at the node cap, construction-dependent support,
+aggregate hydration retention, DNF-bound factoring, membership and integer equality) are owned by
+the [forward plan §6](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)
+(W6, W11) and must be resolved, or recorded as limits, before acceptance.

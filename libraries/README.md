@@ -1,7 +1,7 @@
 # Analyzed libraries
 
 Every Python library the compiler builds a code property graph for is a small, committed uv project
-here, one directory per library (DESIGN §4.0, ADR-0013). None of them is a dependency of this
+here, one directory per library (DESIGN §4.0, ADR-0046). None of them is a dependency of this
 project; the project's own environment is never an analysis input.
 
 | File | What |

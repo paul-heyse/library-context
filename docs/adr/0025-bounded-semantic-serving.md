@@ -3,17 +3,18 @@ id: ADR-0025
 title: Serve bounded semantic queries through an in-process Rust extension
 status: proposed
 date: 2026-09-24
-supersedes: [ADR-0010]
+supersedes: []
 superseded-by: null
-design: [§B13, §B14, §11.3]
+design: [§B13, §11.3]
 evidence: Proposed
 revisit: Measured pilot query latency or memory exceeds the interactive budget, or the pinned server cannot load a valid native extension.
 ---
 
 ## Context
 
-ADR-0010 and DESIGN §B13 restrict FastMCP to lookups over materialized rows. The operator
-rejected that restriction on 2026-09-24: Stage 3 Q09 asks whether a fate is compatible with a
+ADR-0043's executor clause and DESIGN §B13 restrict FastMCP to lookups over materialized rows.
+This record proposes to replace that one clause of ADR-0043; every other ADR-0043 clause stays in
+force. The operator rejected the lookup-only restriction on 2026-09-24: Stage 3 Q09 asks whether a fate is compatible with a
 user-supplied condition, and later definitions need implication. Precomputing every possible
 query would be unbounded. Python must not independently reimplement the Rust condition semantics.
 The file-based generation and one embedding spec remain useful.
@@ -77,8 +78,8 @@ cannot certify the needed value stability across a call.
   `maturin==1.15.0` from a Cargo workspace crate with `pyo3 = 0.29.2`. It exposes
   `lctx_semantics._native` for pinned CPython 3.14.7. The pure-Python `lctx_mcp` package
   depends on that member. During design and integration, `uv sync`/`uv run` editable loading
-  and focused native tests are the fast gate. At the Stage 3.6 product acceptance checkpoint,
-  after the generation contract and served API settle, one clean wheel install must execute
+  and focused native tests are the fast gate. At Stage 3's native-serving acceptance (forward
+  plan order 9), after the generation contract and served API settle, one clean wheel install must execute
   a generation-pinned FastMCP/native query; repeat that check for release. Startup
   rejects extension/kernel format mismatches against the generation manifest.
 - Results cite row/node ids and verdicts from the pinned generation. The interface has no hard
@@ -89,11 +90,11 @@ cannot certify the needed value stability across a call.
   answer material questions; the full repository and pilot gates run at the integrated Stage 3
   end, not after each slice. Rust test execution uses cached release-profile binaries; data
   setup follows each test's own contract.
-- ADR-0010's embedding model/spec, cached vectors, view policy, conformance rule, lexical
+- ADR-0043's embedding model/spec, cached vectors, view policy, conformance rule, lexical
   degradation, BM25/fusion and exact-symbol promotion continue as DESIGN §B14 and §11.1–§11.2
-  state. This supersession changes the executor boundary only.
+  state. This proposal changes the executor boundary only.
 
-DESIGN §B13, §B14 and §11.3 are amended in the same commit. A standard design review precedes
+DESIGN §B13 and §11.3 state this proposal beside the current executor. A standard design review precedes
 acceptance.
 
 ## Consequences

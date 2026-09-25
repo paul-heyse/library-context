@@ -51,7 +51,7 @@ structured-eval generation stage embed_url="":
 py-fixture:
     LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail
 
-# Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0012)
+# Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0046)
 deps:
     uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources licenses
@@ -59,7 +59,7 @@ deps:
     # A dependency no crate uses pins nothing (H1 O2).
     cargo shear
 
-# The gold reference and the analyzed library name one FastMCP (ADR-0013). Separate from `deps`,
+# The gold reference and the analyzed library name one FastMCP (ADR-0046). Separate from `deps`,
 # so a skill refresh in progress never reads as a dependency-family break (ADR-0002's trigger).
 gold:
     uv run python scripts/check_gold.py
@@ -73,7 +73,7 @@ fixtures-check:
     uv run python -c 'import ast,sys; [ast.parse(open(f,"rb").read(), f) for f in sys.argv[1:]]' "${files[@]}"
     echo "fixtures-check: ${#files[@]} files parse"
 
-# The real-library oracle (ADR-0013): acquire the FastMCP pilot from libraries/fastmcp, then
+# The real-library oracle (ADR-0046): acquire the FastMCP pilot from libraries/fastmcp, then
 # extract, derive, validate and publish a snapshot into build/store. First run needs the network.
 pilot store="build/store":
     cargo build --release -p lctx --quiet
@@ -86,7 +86,7 @@ pilot-live:
     target/release/lctx compile fastmcp --store build/store --embedder vllm | tee build/pilot-live.log
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' build/pilot-live.log | cut -d' ' -f2)" --embedder vllm
 
-# The embedding service (DESIGN §11.1, ADR-0010): vLLM 0.30.0 from the locked services/vllm
+# The embedding service (DESIGN §11.1, ADR-0043): vLLM 0.30.0 from the locked services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
 embed-serve port="8000":
     uv run --project services/vllm --frozen vllm serve Qwen/Qwen3-Embedding-8B --revision 1d8ad4ca9b3dd8059ad90a75d4983776a23d44af --runner pooling --max-model-len 8192 --dtype bfloat16 --gpu-memory-utilization 0.80 --port {{port}}
@@ -96,12 +96,12 @@ embed-conformance url="http://127.0.0.1:8000":
     LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run --release -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
     uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
 
-# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0010 amendment). Exits 2 when
+# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0043). Exits 2 when
 # `vllm` was asked for and any alias degraded (`blocked`)
 score generation embedder="none":
     uv run python scripts/score_gold.py {{generation}} --embedder {{embedder}} --json build/score-$(basename {{generation}})-{{embedder}}.json
 
-# The §1.5 retrieval check over a generation (ADR-0010 amendment): exits 1 on a miss. Only
+# The §1.5 retrieval check over a generation (ADR-0043): exits 1 on a miss. Only
 # `--embedder vllm` (with `just embed-serve` running) makes a hybrid result evidence
 ranking-check generation embedder="none":
     uv run python scripts/ranking_check.py {{generation}} --embedder {{embedder}}

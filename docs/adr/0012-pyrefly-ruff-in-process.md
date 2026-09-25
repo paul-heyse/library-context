@@ -1,10 +1,10 @@
 ---
 id: ADR-0012
 title: Pyrefly 1.3.1 (patched fork) and Ruff 0.0.11 linked in-process as the fact front end
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: [ADR-0006]
-superseded-by: null
+superseded-by: [ADR-0046, ADR-0047]
 design: [§B1, §B2, §B8, §3.2, §3.3, §3.4, §3.5, §3.6, §4.0, §4.1, §4.2, §4.3, §6.1, §6.2, §6.3, §8, §13]
 evidence: Tested
 revisit: The harness-equivalence test fails at a pin bump; a pyrefly release needs a patch with a logic change (anything beyond visibility, borrow-only accessors and upstream-default fields) or over ~60 changed lines; a bump changes more than ~300 lines of the extractor's Pyrefly-facing module (route: Option 1); or pyrefly panics on an in-scope library, or a pin cannot co-resolve with the §7 family (route: Option 4).

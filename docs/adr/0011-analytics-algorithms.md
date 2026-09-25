@@ -1,10 +1,10 @@
 ---
 id: ADR-0011
 title: petgraph traversal and SCCs, our own weighted PageRank, leiden-rs communities, own FCA then RCA
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0044
 design: [§B4, §5, §9]
 evidence: Interface-checked
 revisit: leiden-rs gives different partitions for identical normalized input and seed, fails the LFR planted-partition fixtures, or a technique's ablation (DESIGN §9.8) changes no published output after increment 3; or our PageRank's hand-computed fixture and a reference implementation disagree beyond tolerance.

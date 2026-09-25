@@ -1,10 +1,10 @@
 ---
 id: ADR-0014
 title: The CPG is typed family tables plus derived node and edge catalogs; every edge has a persistent id and every endpoint is a typed node
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: [ADR-0008]
-superseded-by: null
+superseded-by: ADR-0047
 design: [§1.2, §B6, §3.1, §3.2, §3.4.1, §3.5, §3.7, §3.8, §4.3, §6.1, §8]
 evidence: Tested
 revisit: A pass needs a relationship that neither a family table nor the edge catalog can express without a second writable copy (carried from ADR-0008); two runs over the same inputs give a different node_id or edge_id; an endpoint rule or lineage rule can pass vacuously (its target built from its own source column); or `nodes`/`edges` derivation dominates compile time or memory on the pilot.

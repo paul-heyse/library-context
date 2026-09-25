@@ -1,10 +1,10 @@
 ---
 id: ADR-0034
 title: Give finite summaries canonical proof identities and typed ordered witnesses
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§B5, §B6, §3.4.1, §9.9]
 evidence: Tested
 revisit: A finite summary path needs non-linear premises that an ordered witness sequence cannot represent without duplicating meaning, or a capped SCC fixture makes path identity collide.

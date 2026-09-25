@@ -1,4 +1,4 @@
-# Embedding specs (DESIGN §11.1, ADR-0010)
+# Embedding specs (DESIGN §11.1, ADR-0043)
 
 - `qwen3-embedding-8b.json`: the one spec every live vector is made under. It is canonical JSON
   (fields in the order `cpg_core::embed::Spec` declares, no whitespace); its SHA-256 is the spec

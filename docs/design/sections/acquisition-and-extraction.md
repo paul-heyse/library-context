@@ -1,6 +1,19 @@
 # Acquisition and extraction
 
-<!-- owner-intro -->
+This owner turns a pinned library definition into a verified analysis universe (Stage A) and
+attributed raw facts (Stage B), and orders the compile stages that follow. Its inputs are a
+committed uv project under `libraries/<name>/`, the environment uv builds from its lock, and the
+upstream tree at a pinned commit; its outputs are the `provenance` rows, the raw family tables of
+[§3.2](facts-and-identity.md#section-3-2) and their coverage and boundaries. Consumers are Stage
+C/D derivation, validation and publication ([storage and publication](storage-and-publication.md#section-6))
+and every analysis downstream. Dependencies point inward: `lctx` orchestrates, `cpg-extract` links
+the pinned Pyrefly fork and Ruff crates and writes `cpg-schema` contracts, and `cpg-flow` isolates
+the second parser line. Code: `crates/lctx` (`acquire`, `library init`, `compile`, `query`),
+`crates/cpg-extract/src/` (`library.rs` Stage A, `config.rs` context and run identity, `context.rs`
+dependency context, `walk.rs`, `pysa_map.rs`, `public.rs`, `lexical.rs`, `types.rs`, `docs.rs`,
+`flow.rs`), `crates/cpg-flow`. Tests: `crates/cpg-extract/tests/`, `crates/lctx/tests/acquire.rs`,
+`crates/cpg-core/tests/compile.rs`. Pins are in [`docs/pins.md`](../../pins.md); the map is in the
+[architecture README](../README.md).
 
 ## §4 Pipeline
 
@@ -9,8 +22,7 @@
 
 **Implemented** in `libraries/`, `cpg_extract::library` and `crates/lctx`, and **Tested**
 (`crates/cpg-extract/tests/library.rs`, `crates/lctx/tests/acquire.rs`, `crates/lctx/src/propose.rs`,
-`just pilot`, 2026-09-22), after a standard review corrected the first identity recipes and the
-acquisition flags. Source: IP L1146–L1170 (Stage A), L536 (run supporting tables).
+2026-09-22), except where a line states a known gap.
 
 **A library is data.** Every analyzed library, the pilot included, is a committed uv project
 `libraries/<name>/`. This is the one production path for any Python library, and none of them
@@ -20,28 +32,29 @@ needs to be a dependency of this project.
 - `[tool.lctx] release`: the first-party distributions whose code is compiled. Everything else
   installed is dependency context, analyzed only as far as imports reach.
 - `[tool.lctx.source]`: the upstream repository, tag and the full 40-hex `commit` the tag names
-  (a tag can move), for docs, examples and tests. Stage A checks the tag names the locked
-  version. `documents`, `documents_exclude`, `examples` and `tests` select the corpus by glob
-  from the tree's root, in globset's syntax (`*` and `?` within one name, `**` across directories,
-  `[…]`, `{a,b}`; H1 C2); a module's role is the key that selected it, and a file both `examples`
-  and `tests` select is refused (ADR-0015). The tree is walked once (walkdir), dot-directories
-  skipped, **no link followed**: a symlink a glob selects is refused, naming it, and so is a
-  directory link that could hold a selection (it and a glob's literal prefix lie one under the
-  other) unless an exclude covers it. An exclude covers a link only when it names the link, or
-  matches any name under it (tested with two unrelated probe names); `documents`, `examples` and
-  `tests` each have an `_exclude` list (ADR-0018; H1 review F5; **Tested**:
+  (a tag can move), for docs, examples and tests. Stage A checks the tag names the locked version.
+  `pyproject.toml` is read through typed serde structs: `[tool.lctx]` and `[tool.lctx.source]`
+  refuse unknown keys (a misspelled `[tool.lctx.sourse]` fails, naming it) and mistyped values.
+- **Corpus selection** (ADR-0018). `documents`, `documents_exclude`, `examples`,
+  `examples_exclude`, `tests` and `tests_exclude` select the corpus by glob from the tree's root,
+  in globset's syntax (`*` and `?` within one name, `**` across directories, `[…]`, `{a,b}`). A
+  module's role is the key that selected it, and a file both `examples` and `tests` select is
+  refused (ADR-0015). Each include glob must select a file. The tree is walked once (walkdir),
+  dot-directories skipped, **no link followed**: a symlink a glob selects is refused, naming it,
+  and so is a directory link that could hold a selection (it and a glob's literal prefix lie one
+  under the other) unless an exclude covers it. An exclude covers a link only when it names the
+  link, or matches any name under it (tested with two unrelated probe names). **Tested**:
   `symlinks_in_a_tree_are_refused_unless_excluded`, with a partial exclude that does not cover and
-  a loop under an excluded path that is harmless). A source tree (`Release::from_tree`) refuses
-  any link. `lctx acquire` fetches the tree
-  hermetically (every `GIT_*` variable removed, no system or global git configuration, no
-  prompts; `git init`, a shallow fetch of the one commit, checkout, then `rev-parse HEAD` checked
-  every time; no ambient git attributes, `core.autocrlf` off) into
-  `build/sources/<name>/<commit>`; **Tested** by a stub `git`. `pyproject.toml` is read through typed serde structs:
-  `[tool.lctx]` and `[tool.lctx.source]` refuse unknown keys (a misspelled `[tool.lctx.sourse]`
-  fails, naming it; H1 C3) and mistyped values, and each include glob must select a file. The corpus release's id hashes its label
-  (`repository@commit`), the library's `release_id` (its vocabulary and the files it reaches) and
-  every selected file's path, content and role. It runs in the library's environment under its own
-  context (the tree ahead of site-packages on its search path, each entry relative to its root).
+  a loop under an excluded path that is harmless. A source tree (`Release::from_tree`) refuses any
+  link.
+- **The fetched tree.** `lctx acquire` fetches the tree hermetically (every `GIT_*` variable
+  removed, no system or global git configuration, no prompts; `git init`, a shallow fetch of the
+  one commit, checkout, then `rev-parse HEAD` checked every time; no ambient git attributes,
+  `core.autocrlf` off) into `build/sources/<name>/<commit>`; **Tested** by a stub `git`.
+- **The corpus release.** Its id hashes its label (`repository@commit`), the library's
+  `release_id` (its vocabulary and the files it reaches) and every selected file's path, content
+  and role. It runs in the library's environment under its own context (the tree ahead of
+  site-packages on its search path, each entry relative to its root).
 - `.python-version`: the exact interpreter.
 - `uv.lock`: the acquisition lock. Every distribution of the closure with the sha256 of each of
   its artifacts, reviewed and committed.
@@ -52,7 +65,7 @@ needs to be a dependency of this project.
 - `--frozen` never re-resolves, and uv verifies every artifact hash.
 - `--no-config` ignores user and system uv configuration, `--python` enforces the pin, and
   `--link-mode copy` keeps the environment's files from sharing inodes with the uv cache and other
-  environments (each file's link count is 1 on the pilot).
+  environments.
 - Every other `UV_*` variable and `VIRTUAL_ENV` is removed from uv's environment.
 - **Tested** by a stub `uv` that records its arguments and environment.
 - `lctx acquire <name> --reinstall` rebuilds every package: the remedy when Stage A finds a changed
@@ -82,11 +95,11 @@ never `.pth`).
 - `lctx library init <name> --requirement REQ` writes the definition, locks it and acquires it. It
   proposes `release` as the requested distribution plus every installed distribution that shares
   a repository root (`host/owner/repo` under a source label; sponsor and funding links never
-  count). **Tested** by unit tests over METADATA. Observed, not a repo test (2026-09-22): for
-  FastMCP it proposed exactly the three distributions, and `attrs` 25.3.0 went from nothing to a
-  published snapshot in 0.8 s.
+  count). **Tested** by unit tests over METADATA; observed on FastMCP (the three first-party
+  distributions) and `attrs`, 2026-09-22.
 - Upgrading is: edit the pin, `uv lock --project libraries/<name> --upgrade-package <dist>`,
-  review the lock diff, `lctx compile <name>`. For FastMCP the skill moves with it (§1.4).
+  review the lock diff, `lctx compile <name>`. For FastMCP the skill moves with it
+  ([§1.4](../DESIGN.md#section-1-4)).
 
 **Context.** The context records:
 - the Python version (from `pyvenv.cfg`) and platform;
@@ -95,106 +108,125 @@ never `.pth`).
   versions) and every analyzer-readable file's site-relative path and content digest. `RECORD`
   lines outside site-packages (console scripts carry the environment's absolute path) and files
   Pyrefly never reads stay out, so a moved environment keeps its identity and every
-  analyzer-visible change moves it. It costs well under a tenth of a second on the pilot;
+  analyzer-visible change in site-packages, owned or unowned, moves it;
 - the **lock digest**;
 - the digests of every configuration file an analyzer receives.
 
 **Explicit inputs only.** Extractors receive their environment and configuration as arguments.
-- **Pyrefly reads only the environment's `site-packages`.** It never runs the interpreter.
-- **Pyrefly's configuration is a constructed value, not a discovered file** (§4.2.1):
-  - explicit search path and site-package path;
-  - explicit Python version and platform;
-  - heuristics, walk-up fallback and the interpreter query all disabled.
+- **Pyrefly reads only the environment's `site-packages`** (and, for the corpus run, the fetched
+  tree). It never runs the interpreter.
+- **Pyrefly's configuration is a constructed value, not a discovered file** (§4.2.1): explicit
+  search path and site-package path; explicit Python version and platform; heuristics, walk-up
+  fallback and the interpreter query all disabled.
 - **Recorded.** `contexts` stores the digest of the configured `ConfigFile` (keys sorted:
-  DataFusion turns on serde_json's `preserve_order`, and no digest may depend on the build
-  graph), the search and site-package paths **relative to their roots** (release, environment),
-  the sys info from its fields (not `Debug`), the environment digest and the lock digest. Where a
+  DataFusion turns on serde_json's `preserve_order`, and no digest may depend on the build graph),
+  the search and site-package paths **relative to their roots** (release, environment), the sys
+  info from its fields (not `Debug`), the environment digest and the lock digest. Where a
   checkout, tempdir or environment sits never changes an identity; what the dependencies contain
-  always does (**Tested**: two fixture locations, two acquired environment paths with
+  always does. **Tested**: two fixture locations, two acquired environment paths with
   location-dependent `RECORD`s, two environments, an unowned stub inside a package, a loose file,
-  a lock-only change; on the pilot, two environment paths give one `content_digest`; and at
-  pilot scale for both runs, a freshly synced environment in another directory plus a copied
-  source tree give byte-identical `contexts`, `nodes` and `edges`, a C6 review observation
-  (R2, 2026-09-23), not a repo test). A changed
-  analyzer-readable byte a `RECORD` owns is refused.
+  a lock-only change; at pilot scale (2026-09-23, observed, not a repo test), a freshly synced
+  environment in another directory plus a copied source tree give byte-identical `contexts`,
+  `nodes` and `edges`. A changed analyzer-readable byte a `RECORD` owns is refused.
 - `releases` and `distributions` record the library, requirement, lock digest, release
   distributions, installer and every installed distribution (§3.2).
 
-So nothing ambient can change an answer without changing `context_id` (G4). That covers `PATH`,
-`VIRTUAL_ENV`, `PYTHONPATH`, `CONDA_PREFIX`, the working directory and an upward
-`pyproject.toml`. **Tested** (spike S2, 2026-09-22): no process was spawned, and output was
-byte-identical with each of them perturbed.
+For the library run nothing ambient can change an answer without changing `context_id` (G4). That
+covers `PATH`, `VIRTUAL_ENV`, `PYTHONPATH`, `CONDA_PREFIX`, the working directory and an upward
+`pyproject.toml`. **Tested** (2026-09-22): no process was spawned, and output was byte-identical
+with each of them perturbed.
+
+**Known gap: corpus input identity** ([plan W8](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
+RFU/F07; **Interface-checked**, 2026-09-25). The corpus run puts the whole fetched tree ahead of
+site-packages on its search path, so Pyrefly can import any module under that root. But the
+corpus `release_id` hashes only the selected documents, examples and tests, the context hashes the
+environment's site-packages, not the tree root's membership or content, and an existing fetched
+tree is checked only by `rev-parse HEAD`. Editing, or adding, an unselected helper that a selected
+example imports can therefore change facts without changing any identity. The gap is confined to
+the corpus root: ordinary site-packages content and membership, unowned files included, are
+hashed. **Target** (the G4 property above; mechanism **Proposed**): identity covers every
+analyzer-readable root's content and membership, or acquisition enforces an immutable, verified
+tree and refuses extra members; either way relocation invariance holds. Choosing between them is
+an acquisition-policy decision with an ADR.
 
 **Run.** A run is one producer applied to one context for a declared set of families under one
 analysis configuration. `runs` records that. `producers` records the tool, the revision (for the
 extractor: the fork revision and patch digest, which `just deps` checks against `Cargo.lock` and
-the patch file, and the ruff line) and the adapter build digest (an output version bumped by hand
-when mapping output changes, which the variant and id snapshots show).
+the patch file, the ruff line, and the flow provider with its runtime-view version) and the
+adapter build digest: an output version bumped by hand when mapping output changes (the variant
+and id snapshots show it), which also includes the committed model catalog digest, because
+context extraction retains model-named exception classes (§3.2; **Implemented and Tested in
+focused cases**, 2026-09-25; ADR-0045). A catalog edit therefore cannot reuse a prior producer or
+run identity.
 
-**Measured** (`just pilot`, release build, warm environment and uv cache so acquisition is a
-no-op, this Linux host, 2026-09-22): FastMCP 4.0.5, 275 modules, 103 distributions; acquire +
-extract 7.1 s, the whole compile 7.9 s wall time, 1.61 GB peak RSS. Two runs, and two environment
-paths, give the same `release_id` and `content_digest`.
-- **After C1 (ADR-0014)** the compile takes 13.6 s at 2.53 GB. `lctx compile` now prints each
-  stage (§4.3): acquire 0.01 s, Stage A 0.04 s, the release check 2.1 s, per-module extraction 4.5 s
-  (the Pysa collectors 4.4 s, the Ruff walk 0.08 s), the dependency check 3.7 s, dependency
-  definitions 0.7 s, the Delta stages 1.6 s.
-- A published snapshot is inspected with `lctx query --store DIR --snapshot HEX "SQL"`: read-only,
-  every table at its recorded version, filtered to the snapshot (§6.2). `lctx compile` prints
-  the attempt's id first, and `--unpublished` reads an attempt validation rejected at the commits
-  carrying its own `lctx.snapshot_id`, found in each table's kept log whatever was written after
-  it; a table it did not write is left out, so a query naming it fails (`attempt_versions`;
-  ADR-0017, H1 review F2; `a_rejected_attempt_is_inspected_at_its_own_commits`). For inspecting a
-  failure, never for a reader.
+**Inspecting an attempt.** A published snapshot is inspected with `lctx query --store DIR
+--snapshot HEX "SQL"`: read-only, every table at its recorded version, filtered to the snapshot
+(§6.2). `lctx compile` prints the attempt's id first, and `--unpublished` reads an attempt
+validation rejected at the commits carrying its own `lctx.snapshot_id`, found in each table's kept
+log whatever was written after it; a table it did not write is left out, so a query naming it
+fails (`attempt_versions`; `a_rejected_attempt_is_inspected_at_its_own_commits`). This is for
+inspecting a failure, never for a reader.
 
-**Implemented and Tested in focused cases (ADR-0029, 2026-09-25):** the extractor producer build
-digest includes the committed model catalog digest, because context extraction now retains model-
-named exception classes. A catalog edit therefore cannot reuse the prior producer/run identity;
-`EXTRACTOR_OUTPUT_VERSION` is 29 for this migration.
-
-> Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015, ADR-0017, ADR-0018, ADR-0029
+> Decision: ADR-0046, ADR-0047, ADR-0015, ADR-0018, ADR-0045
 
 
 ### §4.1 Stages
 
-> Decision: ADR-0013
+**Implemented** and **Tested** end to end by `cpg-core/tests/compile.rs` and the analysis tests.
 
 | Stage | Owner | Output |
 |---|---|---|
 | A. Source and analysis universe | uv (`lctx acquire`) + `cpg_extract::library` (§4.0) | the verified release files and context; `releases`, `distributions`, `source_files` |
-| B. Typed provider facts | Pyrefly and Ruff in-process (§4.2) + Arrow builders (§4.3) | raw family batches, written to Delta |
+| B. Typed provider facts | Pyrefly and Ruff in-process, and `cpg-flow` (§4.2) + Arrow builders (§4.3) | raw family batches, written to Delta |
 | C. Provider-local identity | A DataFusion name-span join (`cpg_schema::derived`) | `provider_node_map`, its keys checked unique and injective before publication (after use by D, which is safe because nothing publishes on failure) |
-| D. Semantic relationships | DataFusion over the written raw tables, written back through Delta (§4.3) | derived family tables and views |
-| E. Projections and analytics | DataFusion (projection SQL on the attempt's session) → `lctx-analytics` (petgraph / leiden-rs / FCA; Arrow in, Arrow out) → the attempt's write path (§5, §9) | `findings` family, provenance in-row (ADR-0019), with lineage |
-| F. Synthesis | `cpg-core::synth`: evidence, kind policy and status propagation in DataFusion; Rust templates + extractive selection (§10); brief documents embedded through the cache | assertions, briefs |
-| G. Publication | Rust (§6) | `snapshots` row; serving bundle |
+| D. Semantic relationships | DataFusion over the written raw tables, written back through Delta (§4.3) | derived family tables, then the `nodes`/`edges` catalogs |
+| E. Projections and analytics | DataFusion (projection SQL on the attempt's session) → `lctx-analytics` (petgraph / leiden-rs / FCA; Arrow in, Arrow out) → the attempt's write path (§5, §9) | analysis tables, provenance in-row, with lineage; composed in memory |
+| F. Synthesis | `cpg-core::synth`: evidence, kind policy and status propagation in DataFusion; Rust templates + extractive selection (§10); brief documents embedded through the cache | assertions, briefs; every analysis table written once, after Stage F |
+| G. Publication | Rust (§6) | `snapshots` rows; serving generation |
 
 Unmapped rows stay in the derived table with a null node and, where one applies, a reason
 column. No inner join drops them.
 
-> Decision: ADR-0012, ADR-0019
+> Decision: ADR-0046, ADR-0047
 
 
 ### §4.2 Extraction
 
-> Decision: ADR-0012
+> Decision: ADR-0046
 
-**Labels.** A line that cites a spike result (S1–S7, `spike/pyrefly-inproc`, FastMCP 4.0.3,
-2026-09-22) is **Tested** or **Measured**. The rest is **Implemented** in `cpg-extract` and
-**Tested** by `crates/cpg-extract/tests` (slice 1, 2026-09-22), where each test names the claim
-it checks: the variant table (every site kind, `is_attribute`, potential remainders), module and
-class keys, `__all__` forms, `_invalid/` modules, BOM/CRLF offsets against the stored bytes, two
-install locations, two dependency environments, module order and cross-process determinism, the
-id recipes, the panic abort, the ambient refusal and harness equivalence with the CLI. The
-`catch_unwind` and per-module-thread ban is an ast-grep rule. Pyrefly is linked from the pinned fork (§B8). A run is one call of the driver over one context, and everything below happens in
-one process.
+**Implemented** in `cpg-extract` and `cpg-flow`, and **Tested** by `crates/cpg-extract/tests` and
+`crates/cpg-flow/tests` (2026-09-22 onward), where each test names the claim it checks: the
+variant table (every site kind, `is_attribute`, potential remainders), module and class keys,
+`__all__` forms, `_invalid/` modules, BOM/CRLF offsets against the stored bytes, two install
+locations, two dependency environments, module order and cross-process determinism, the id
+recipes, the panic abort, the ambient refusal and harness equivalence with the CLI. The
+`catch_unwind` and per-module-thread ban is an ast-grep rule. Pyrefly is linked from the pinned
+fork (§B8; revision in `docs/pins.md`). A run is one call of the driver over one context, and
+everything below happens in one process.
 
-| Provider surface (`model_id` suffix) | Mode | Raw tables (v1) |
+| Provider surface (`model_id` suffix) | Mode | Raw tables |
 |---|---|---|
-| Ruff `=0.0.11` walk over Pyrefly's parse (`ruff-ast`) | `native_traversal` | `declarations` (with docstrings), `export_syntax`, `parameter_syntax`, `call_syntax`, `arguments`; `syntax_nodes` (C2) |
-| Pyrefly's Pysa collectors, in memory (`pyrefly-pysa`) | `native_traversal` | `parameter_semantics`, `pysa_calls`, class ancestry; `type_observations` (increment 3) |
+| The acquired bytes (`source`) | `native_traversal` | `source_files` rows and their text (ADR-0015) |
+| Ruff walk over Pyrefly's parse (`ruff-ast`) | `native_traversal` | `declarations` (with docstrings), `export_syntax`, `parameter_syntax`, `call_syntax`, `arguments`, `syntax_nodes` |
+| Pyrefly's Pysa collectors, in memory (`pyrefly-pysa`) | `native_traversal` | `pysa_functions`, `parameter_semantics`, `pysa_calls`, `class_ancestry`, `pysa_classes`, `context_definitions` |
 | Pyrefly's public-name helpers (`pyrefly-public`) | `native_traversal` | `public_names`. **This defines "public"** |
-| Our local-binding recognizer over the Ruff AST | `recognizer` | `lexical` (C3) |
+| Pyrefly's native types (`pyrefly-types`) | `native_traversal` | `type_terms`, `type_term_args`, `type_observations`, `record_fields` |
+| Pyrefly's docstring parser (`pyrefly-docstring`) | `native_traversal` | `parameter_docs` |
+| Our local-binding recognizer over the Ruff AST (`lctx-lexical`) | `recognizer` | `scopes`, `bindings`, `references`, `reference_resolutions` |
+| Surface comparison (`compare`) | `relational_derivation` | `boundaries` rows that compare two surfaces |
+| markdown-rs over the corpus documents (`markdown-rs`) and our mention recognizer (`lctx-docs`) | `native_traversal`, `recognizer` | the `docs` family (§3.2) |
+| ty's semantic index through `cpg-flow` (`ty-flow`) | `native_traversal` | the `flow` family (§3.2) |
+
+**The flow provider** (ADR-0046, ADR-0045). `cpg-flow` links the ty/ruff 0.0.14 line, a declared
+extra dependency family confined to that crate (ADR-0002). It parses each release module a second
+time, from the text Pyrefly read with every `TYPE_CHECKING` name token renamed to a same-length
+sentinel, so no byte range moves. **Pyrefly's parse stays the parse of record:** every syntax id,
+span and fact outside the `flow` family comes from it, and flow facts join ours by module and
+byte range under the two-way parity rules of §3.2. Only byte ranges, place text and our condition
+data cross the crate boundary. **Known gap:** ty's `ProgramSettings` are empty rather than built
+from the run context, so the Python version and platform ty assumes can differ from the recorded
+context; there is no known pilot effect ([plan W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
+RF/F11).
 
 
 ### §4.2.1 Driver
@@ -214,32 +246,28 @@ one process.
    `configure()` must return no errors. `ConfigFinder::new_constant` rules out discovery and
    walk-up.
 3. **State.** `State::new(finder, ThreadCount::Inline)` on a driver-owned thread whose stack size
-   is part of the producer config (the spike used 512 MiB). The check and the lazy solves all run
-   on that thread; it is the producer's config digest, so changing it changes `run_id`. One
-   thread is a precaution (upstream's cycle placeholders are per thread) with no difference
-   shown. FastMCP is identical at `Inline`, `NumThreads(1)` and `NumThreads(4)` (S3). The
-   import-cycle fixture (a return-type cycle and a global cycle whose solved types reach
-   `pysa_calls`) is identical at `NumThreads(8)`, 6 runs in each module order (probe,
-   2026-09-22); Pyrefly 1.3.1 iterates cycles to a fixpoint. **Tested:** sorted and reversed
-   module order and separate processes give identical output.
+   is part of the producer config, so changing it changes `run_id`. The check and the lazy solves
+   all run on that thread. One thread is a precaution (upstream's cycle placeholders are per
+   thread), not a demonstrated need: FastMCP and an import-cycle fixture (a return-type cycle and
+   a global cycle whose solved types reach `pysa_calls`) gave identical output at `Inline` and
+   several thread counts in each module order (2026-09-22), and `Inline` was also the cheaper
+   setting. **Tested:** sorted and reversed module order and separate processes give identical
+   output.
 4. **Handles.** One per project module, from `cfg.handle_from_module_path`, sorted by module name.
 5. **Run.** Install a `PysaReporter` with `write_files: false` and `ModuleIds::new(&handles)`, then
    call `transaction.run(&handles, Require::Everything, None)`. Keep the reporter installed during
    extraction (borrow it with `pysa_reporter()`), because dependency modules solve lazily.
 6. **Extract** per module, in sorted order (§4.2.2–§4.2.3). Then emit coverage (§3.7).
 
-**Measured** (spike S7; FastMCP 4.0.3, 257 modules, release build): 5.4 s cold at `NumThreads(1)`
-(2.5 s check, 2.8 s extraction), peak RSS about 918 MB; 4.1 s and about 765 MB with `Inline`.
-
 
 ### §4.2.2 Syntax: one walk over Pyrefly's parse
 
-- **Order (C2).** Per module the Pysa collectors run, then the walk. Placement depends on the
-  source alone: every statement, clause and expression outside annotations is placed
-  (`syntax_nodes`, §3.2; C2 review), and Pysa's sites are matched to those nodes in Stage C.
+- **Order.** Per module the Pysa collectors run, then the walk. Placement depends on the source
+  alone: every statement, clause and expression outside annotations is placed (`syntax_nodes`,
+  §3.2), and Pysa's sites are matched to those nodes in Stage C.
 - **One walk.** A single `SourceOrderVisitor` walks `Transaction::get_ast(handle)`, the unmodified
   ruff parse Pyrefly analyzed, which is kept at `Require::Everything`. The text is
-  `get_module_info(handle)`'s contents. There is no second parse.
+  `get_module_info(handle)`'s contents. The only other parse is the flow provider's (§4.2).
 - **Built-ins used:** `SourceOrderVisitor` with `walk_annotation`, `Arguments::iter_source_order`,
   `ArgOrKeyword` and `StringLiteralValue::to_str`.
 - **Ours:**
@@ -261,12 +289,12 @@ one process.
 - **Collectors.** Per module: `PysaResolver::new`, `ModuleAnswersContext::create`,
   `collect_captured_variables_for_module`, `create_reversed_override_graph_for_module`, then
   `export_module_definitions` and `export_module_call_graphs`, the functions behind
-  `--report-pysa`. The in-memory structs equal the CLI's JSON (S4: 257/257 modules; definitions
-  equal as sets).
+  `--report-pysa`. The in-memory structs equal the CLI's JSON (**Tested**, 2026-09-22: 257 of 257
+  modules; definitions equal as sets).
 - **Locations → bytes.** Every `PysaLocation` is converted with its module's `LineIndex` (§3.4).
-- **Join key.** `pysa_calls` joins `call_syntax` on the **full call-expression range**. This
-  matched 13,104 of 13,292 calls (S5). Every unmatched call is inside an annotation, which Pysa's
-  call model does not cover. Each becomes a `boundaries` row with `outside_provider_model`.
+- **Join key.** `pysa_calls` joins `call_syntax` on the **full call-expression range**. Every
+  call it leaves unmatched in the 2026-09-22 measurement was inside an annotation, which Pysa's
+  call model does not cover.
 - **Mapping** (§3.6). Every Pysa variant has one row. The mapper is exhaustive, so a variant
   missing here fails the build:
 
@@ -282,9 +310,12 @@ one process.
   | `ArtificialCall`, `ArtificialAttributeAccess`, format-string callees | as the callee kind above, keeping the `OriginKind` | as above | as above | synthetic_model |
   | `Unresolved::True(reason)` | an `unresolved` row with the reason: `has_unresolved_remainder` on the resolution | `call` | `definite`, or `potential` under `if_called` and higher-order lists | as the site |
   | receiver fields (`implicit_receiver`, `receiver_class`, `implicit_dunder_call`, class and static method flags) | columns on the target row | — | — | — |
-  | `Target::FormatString`, `Return` shims, `global_targets`, `captured_variables`, `return_type` | **not carried** in v1: synthetic or no consumer | — | — | — |
+  | `Target::FormatString`, `Return` shims, `global_targets`, `captured_variables`, `return_type` | **not carried**: synthetic or no consumer | — | — | — |
   | `Define` | **not carried**: it links a nested `def` to the function it creates, which `declarations` already records | — | — | — |
 
+  Pysa numbers higher-order arguments with the same `iter_source_order().enumerate()` as
+  `arguments.ordinal` (Interface-checked against the pinned fork, 2026-09-23), so keyword and
+  starred arguments before them do not shift the index.
 - **Unmatched calls.** The walker marks calls inside annotations (`visit_annotation`). An
   unmatched call there is a `boundaries` row with `outside_provider_model`. Any other unmatched
   call is a `missing_evidence` boundary, and that module's `calls` coverage is `partial`.
@@ -309,17 +340,23 @@ one process.
 - **Fidelity.** Pysa-model facts are `report_projection`, in memory or not: Pysa's types are a
   display string, scalar properties and class names, and `parameter_semantics` keeps all three
   (a row keeping only the string would be `display_only`). Native `pyrefly_types::Type`
-  (`native_structural`) is reachable through `Answers` when a consumer needs it (§13).
+  (`native_structural`) is read by the `types` surface.
+- **Known gap: function flags.** Pyrefly's resolved function flags (`FuncFlags.is_abstract_method`,
+  `body_kind`) are reachable in the pinned fork but not persisted; downstream abstract status is
+  read from decorator text, which misses aliases, `abstractproperty` and Protocol members.
+  Persisting them is an append-only schema migration
+  ([plan W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
+  RF/F10).
 
 
 ### §4.2.4 Binding rule (conservative)
 
 - **The rule.** Any binding of a parameter's name that appears lexically before a guard or
   forwarding site in the same scope marks that site `ambiguous_binding` (a boundary).
-- **As implemented** (slice 2.1; review F4). Stricter than "before": a parameter whose name has
-  any second binding event in its scope (after the site, or in a statically pruned branch) is
-  never followed, and a guard on it is no guard. The trace is an analysis finding, not a
-  `boundaries` row (extraction's table): a read of the name at a call into the subsystem is an
+- **As implemented** (**Tested**), it is stricter than "before": a parameter whose name has any
+  second binding event in its scope (after the site, or in a statically pruned branch) is never
+  followed, and a guard on it is no guard. The trace is an analysis finding, not a `boundaries`
+  row (extraction's table): a read of the name at a call into the subsystem is an
   `unfollowed_argument` with reason `rebound`, stated in the brief's Limits (§9.2).
 - **The motivating case** is pyarrow's `write_dataset`. Its `schema` guard only applies to
   caller-supplied scanners, because earlier branches rebind `schema`.
@@ -327,19 +364,19 @@ one process.
   branches it decides statically (`TYPE_CHECKING`, `sys.version_info`), so a rebinding there is
   invisible.
 
-**Deferred:** Ruff's full semantic model, which nothing public drives (§13).
+**Deferred:** Ruff's full semantic model, which nothing public drives ([§13](../DESIGN.md#section-13)).
 
 
 ### §4.2.5 Failure, determinism and the parity oracle
 
 - **Panics abort the attempt.** Any panic in code that touches Pyrefly (`run`, the collectors, the
-  public-name helpers, lazy solves during extraction) aborts it, and nothing is published (§6.1).
-  There is no `catch_unwind`: Pyrefly treats its state as unsupported after any panic (a poisoned
-  lock, unpublished cycle answers), so continuing with the next module is unsafe.
+  public-name helpers, lazy solves during extraction) or ty aborts it, and nothing is published
+  (§6.1). There is no `catch_unwind`: Pyrefly treats its state as unsupported after any panic (a
+  poisoned lock, unpublished cycle answers), so continuing with the next module is unsafe.
   - Load and parse errors are not panics; they still become coverage rows (§4.2.2). Per-module
-    isolation would need ADR-0012's Option 4, a separate process.
+    isolation would need ADR-0046's rejected sidecar-process alternative.
 - **Determinism oracle.** Reruns, reversed module order, separate processes and perturbed ambient
-  variables give byte-identical sorted tables (S2, S3, fixture tests).
+  variables give byte-identical sorted tables (**Tested**, 2026-09-22).
 - **Harness-equivalence oracle.** A test runs the pinned Pyrefly CLI (the `uv` dev group, same
   revision) with an equivalent generated `pyrefly.toml` and asserts, per project module, that the
   in-process Pysa structs equal its `--report-pysa-format json` output as sets (`module_id`
@@ -347,8 +384,9 @@ one process.
   public parent prefix).
 
   It shares the collectors with the CLI, so it checks our driver (configuration, reporter
-  lifecycle, lazy solving), not the correctness of Pysa. It is **Tested** (S4, and a nextest test
-  on two fixtures, 2026-09-22). The CLI is never a production input.
+  lifecycle, lazy solving), not the correctness of Pysa. It is **Tested**
+  (`crates/cpg-extract/tests/harness.rs` on two fixtures, 2026-09-22). The CLI is never a
+  production input.
 
 
 ### §4.2.6 Upgrading Pyrefly
@@ -357,10 +395,10 @@ one process.
    - A **logic change** is anything beyond visibility changes, accessors that borrow or compose
      existing upstream queries, and fields whose default reproduces upstream behaviour.
    - A patch that needs a logic change, or grows past about 60 changed lines, needs an ADR
-     (ADR-0012's revisit trigger).
+     (ADR-0046's revisit trigger).
 2. `just deps` checks that `Cargo.lock`, the driver's `PYREFLY_REV`/`PYREFLY_PATCH_SHA256` and
-   pins.md name one revision, that it is the tag plus the patch, and that every `env::var` read
-   in the pinned source is classified against the refused list (§4.2.1).
+   `docs/pins.md` name one revision, that it is the tag plus the patch, and that every `env::var`
+   read in the pinned source is classified against the refused list (§4.2.1).
 3. Move the ruff pin to the line the new Pyrefly compiles against (`pin-check`).
 4. Fix compile errors in the mappers, and append codebook values where exhaustive matches demand
    them. Record how many lines the Pyrefly-facing module changed, because port cost is also a
@@ -368,33 +406,31 @@ one process.
 5. Run the harness-equivalence and determinism oracles, and record the pin with its date in
    `docs/pins.md`.
 
-> Decision: ADR-0012
-
 
 ### §4.3 Fact construction and persistence
 
 **Implemented** in `cpg-schema` (build, canonicalize, ids, derivation SQL, rules) and `cpg-core`
-(create, open, write, derive, validate, publish, read), and **Tested** there (slices 1–2,
-2026-09-22): every table round-trips exactly through Delta; open refuses drifted or missing
-CHECKs; the helper refuses writes; the `INSERT INTO` bypass is asserted; the derived tables are
-snapshot-tested on three fixtures; each rule kind rejects an injected violation and nothing
-publishes. This section says which built-in owns each step; §6 and §8 hold the protocol and the
-rules.
+(create, open, write, derive, validate, publish, read), and **Tested** there
+(`cpg-core/tests/delta.rs`, `compile.rs`, 2026-09-22 onward): every table round-trips exactly
+through Delta; open refuses drifted schemas and missing or drifted CHECKs; the helper refuses
+writes; the `INSERT INTO` bypass is asserted; the derived tables are snapshot-tested on three
+fixtures; each rule kind rejects an injected violation and nothing publishes. This section says
+which built-in owns each step; §6 and §8 hold the protocol and the rules.
 
 | Stage | Built-in | Ours |
 |---|---|---|
 | Build | Typed builders against the table's `cpg-schema` `SchemaRef` (`FixedSizeBinaryBuilder`, `Int16Builder`, `BooleanBuilder::append_option`, `GenericListBuilder`, `StructBuilder`). `RecordBatch::try_new` with default options is the local type check: exact types, nested names, nullability, metadata | One builder per table. The arrow-json serde path is tests-only: it expects hex for `FixedSizeBinary` |
-| Canonicalize | `lexsort_to_indices` + `take_record_batch` on the table's declared **total** key, over the in-memory batch (Arrow's sort is unstable). The Delta writer may store the rows in another order (it fans partitions into one writer), so readers sort (`read_at`, every rendered query) and never rely on storage order (H1 review O1) | Key declarations |
-| Ids | The `blake3` crate (`=1.8.6`, shared with Pyrefly) inside one `IdHasher` (§3.4.1). Not `RowConverter` bytes: the encoding may change between releases. Not SQL `digest`: it can't write length prefixes | `IdHasher` |
-| Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))` plus, from C1, `EnableExpiredLogCleanup = "false"` and `LogRetentionDuration = "interval 36500 days"` (§6.1), then `add_constraint()` with the table's **immutable** per-row CHECKs: span order and non-negative offsets. delta-rs counts a NULL result as a violation (**Tested**), so a CHECK on a nullable column reads `c IS NULL OR …`. Codebook membership is not a CHECK, because codebooks grow (§8). `CreateBuilder` rejects `delta.constraints.*` keys (Interface-checked: observed in S6, not asserted) | CHECK declarations |
-| Open | When an attempt opens a table, compare its `delta.constraints.*`, `delta.appendOnly` and (C1) the two retention properties, as exact strings, with the generated set, in delta-rs's normalized form, and abort on a mismatch. A table left without its constraints (a crash between create and `add_constraint`) is refused | The verify helper |
-| Write raw | `DeltaTable::write(batches)` (`WriteBuilder`), with `CommitProperties::with_metadata` carrying `lctx.snapshot_id`. That metadata is audit only; `snapshots` stays the authority. **Tested:** CHECK is enforced, `appendOnly` rejects deletes, and the metadata reads back through `history()` | — |
-| Derive | A session over the attempt's tables at their written versions, each filtered to the snapshot (§6.2). The derivation SQL from `cpg-schema` computes derived ids with the `lctx_id` UDF (§3.4.1, C1) and runs through the one helper, `ctx.sql_with_options` with DDL, DML and statements disallowed; no other code calls `ctx.sql`. The result is collected, cast strictly to the declared schema, sorted canonically and written like a raw table, so it passes the same local type check. `with_input_plan` streaming (Tested in S6) is not needed at pilot scale: the review probe on FastMCP 4.0.5 (2026-09-22, Measured) had 33,012 `pysa_calls`, 15,772 `call_targets` and 93,101 `facts` rows. Derived tables can be rebuilt from Delta (DM-23) | SQL per derived table |
-| Validate | DataFusion queries generated from the contracts (§8), over the session read once into memory, 8 rules at a time (H1 P2). No float aggregate exists yet; when one does, its query fixes its own reduction order | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
+| Canonicalize | `lexsort_to_indices` + `take_record_batch` on the table's declared **total** key, over the in-memory batch (Arrow's sort is unstable). The Delta writer may store the rows in another order (it fans partitions into one writer), so readers sort (`read_at`, every rendered query) and never rely on storage order | Key declarations |
+| Ids | The `blake3` crate (the version Pyrefly pins) inside one `IdHasher` (§3.4.1). Not `RowConverter` bytes: the encoding may change between releases. Not SQL `digest`: it can't write length prefixes | `IdHasher` |
+| Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))` plus `EnableExpiredLogCleanup = "false"` and `LogRetentionDuration = "interval 36500 days"` (§6.1), then `add_constraint()` with the table's **immutable** per-row CHECKs: span order and non-negative offsets. delta-rs counts a NULL result as a violation (**Tested**), so a CHECK on a nullable column reads `c IS NULL OR …`. Codebook membership is not a CHECK, because codebooks grow (§8). `CreateBuilder` rejects `delta.constraints.*` keys (Interface-checked, 2026-09-22: observed, not asserted by a test) | CHECK declarations |
+| Open | `delta::verify`: when an attempt opens a table, compare its schema with the declared contract, and its `delta.constraints.*`, `delta.appendOnly` and the two retention properties, as exact strings, with the generated set, in delta-rs's normalized form; abort on a mismatch (`SchemaDrift`, `ConstraintMismatch`, …). A table left without its constraints (a crash between create and `add_constraint`) is refused. There is no in-place schema evolution (§6.3) | The verify helper |
+| Write raw | `DeltaTable::write(batches)` (`WriteBuilder`), with `CommitProperties::with_metadata` carrying `lctx.snapshot_id`. That metadata confirms a pinned read's commit (§6.2); `snapshots` stays the authority. **Tested:** CHECK is enforced, `appendOnly` rejects deletes, and the metadata reads back through `history()`. Raw batches are released once written | — |
+| Derive | A session over the attempt's tables at their written versions, each filtered to the snapshot (§6.2). The derivation SQL from `cpg-schema` computes derived ids with the `lctx_id` UDF (§3.4.1) and runs through the one helper, `ctx.sql_with_options` with DDL, DML and statements disallowed; no other code calls `ctx.sql`. The result is collected, cast strictly to the declared schema, sorted canonically and written like a raw table, so it passes the same local type check. Derived tables can be rebuilt from Delta | SQL per derived table |
+| Validate | DataFusion queries generated from the contracts (§8). `validate` reads every registered table once through its pinned, snapshot-filtered Delta view into a `MemTable` (`cached_session`), then runs the rules 8 at a time on spawned tasks, putting violations back in `rules()` order; every session plans on `TARGET_PARTITIONS = 8`. Still one query per rule, the same SQL, the one shared validator (§B3). Per-rule cost is read from each rule's own physical plan (wall time, summed `elapsed_compute`, largest `build_mem_used`), since a process-wide peak delta means nothing under concurrency. No float aggregate exists yet; when one does, its query fixes its own reduction order | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
 | Publish | `snapshots.write([rows])` in one commit (§6.1). **Tested:** a rejected append is classified unpublished by re-reading | Classification after an ambiguous error |
-| Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3). **Tested:** with two snapshots in one table, dropping the version pin or the snapshot filter changes the result. Reading a missing table creates nothing | One helper |
+| Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, then the pinned commit's files (§6.2), `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3). **Tested:** with two snapshots in one table, dropping the version pin or the snapshot filter changes the result. Reading a missing table creates nothing | One helper |
 
-Operations are methods on `DeltaTable`. `DeltaOps` does not exist at this pin.
+Operations are methods on `DeltaTable`; the pinned delta-rs has no `DeltaOps`.
 
 **Never** (the write, SQL and Parquet-scan items are ast-grep rules):
 - DataFusion `INSERT INTO` or `DataFrame::write_table` into a Delta table. The `DeltaDataSink`
@@ -405,98 +441,38 @@ Operations are methods on `DeltaTable`. `DeltaOps` does not exist at this pin.
 - `SaveMode::Ignore`; deletion vectors (they switch off Parquet pushdown); column mapping; raw
   Parquet scans; vacuum or optimize.
 
-**Snapshot-scoped reads (H1 P3; closes the known limit).** Delta log statistics skip the Binary
-`snapshot_id` (`writer/stats.rs:212-229` at `58f07cd`), so a filter alone skipped no file and
-cost one footer read per file of every snapshot. Instead each pinned read opens **only the files
-its version's commit added**: `LogStore::read_commit_entry(v)` + `logstore::get_actions` → the
-`Add` actions → `TableProviderBuilder::with_adds` (`snapshot::commit_provider`). A snapshot's rows
-of a table are exactly one commit's (one commit per table per attempt, §6.1), the JSON commits are
-kept (log cleanup off, verified at open), and a selected file that is gone fails the scan rather
-than returning fewer rows (**Tested**: `a_pinned_read_opens_only_its_commits_files`). The
-`snapshot_id` filter stays as the row predicate.
-
-**Metrics** (C1, **Implemented**; DP-22; `cpg_schema::metrics`).
+**Metrics** (**Implemented**; DP-22; `cpg_schema::metrics`).
 - `lctx compile` reports, per stage, wall time and the process's peak RSS so far (`VmHWM`, which
-  the kernel updates lazily, so it only grows approximately; it includes allocator retention,
-  §4.3 Measured): acquire, Stage A, the Pyrefly check, per-module extraction (with its Ruff walk and
-  Pysa collectors), public names, the dependency check and definitions, raw write per table,
-  derive per table, validate and publish (review O4).
+  the kernel updates lazily, so it only grows approximately; it includes allocator retention):
+  acquire, Stage A, the Pyrefly check, per-module extraction (with its Ruff walk and Pysa
+  collectors), public names, the dependency check and definitions, raw write per table, derive
+  per table, validate (with the three slowest rules) and publish.
 - They are returned with the published attempt and never stored in Delta: they are not content.
+- The binaries use jemalloc as their global allocator (ADR-0016), so the reported peak tracks the
+  working set rather than glibc arena retention.
 
-**Measured, the whole CPG (C6, 2026-09-23;** `just pilot` after the C5 and C6 review fixes, with
-per-rule validation costs; FastMCP 4.0.5 and its corpus; fresh store, snapshot `ddee0669…`; a
-32-thread, 188 GB host; the default glibc allocator**):**
-- 905,648 nodes and 1,449,162 edges; every one of the 493 rules passing; **44.6 s** in all (the
-  C6 review reproduced 44.2 s and 44.5 s). (At the C5b build, before its review: 907,845 nodes,
-  1,452,970 edges, 503 rules, 50.0 s, snapshot `063b8eb3…`.)
-- **Extraction, 31.3 s.** The library run: the Pyrefly check 2.1 s, per-module extraction 5.1 s
-  (4.4 s of it the Pysa collectors), and the dependency check 3.8 s. The corpus run: its check
-  3.4 s, per-module extraction 7.8 s, its dependency check 3.7 s, and the documents 0.2 s.
-- **Raw writes, 0.7 s. Derivation, 2.4 s** (`edges` 1.1 s, `nodes` 0.5 s).
-- **Validation, 10.0 s:** 493 queries, the slowest 0.15 s (`unique:type_terms`), so the cost is
-  their number, each re-scanning its Delta views. `lctx compile` reports the three slowest rules and
-  the one that raised the peak most.
-- **Peak RSS, and what it measures** (C6 review F3). With the default allocator the peak is
-  7.1 GB here, and 6.7–8.0 GB across seven runs with identical inputs. It climbs from 3.8 GB after
-  the raw writes to 5.1 GB after derivation and 7.1 GB after validation. **About 40–45% of it is
-  glibc arena retention, not working set:** under `MALLOC_ARENA_MAX=2` the same compile peaks at
-  4.2 GB (3.7 GB after extraction, +0.5 GB in derivation, nothing in validation), but takes
-  61.2 s (derivation 12.2 s, validation 16.9 s). `VmHWM` is updated lazily, so "only grows" holds
-  approximately. The raw batches are now released once written (`attempt::compile_owned`): the
-  effect is inside the default allocator's spread, and 0.1 GB under the arena limit (4.3 → 4.2 GB).
-- **Decision:** streaming derive stays deferred, since its trigger is not met: derivation is 5% of
-  the wall time, and its working set about 0.5 GB.
+**Scale that bounds the triggers below** (**Measured**, `just pilot` on a fresh store, FastMCP
+4.0.5 and its corpus, 2026-09-23; the last whole-CPG measurement, taken before the behavior-model
+families; the current tree has not been re-measured):
 
-**Measured, after H1 (2026-09-23;** `just pilot` on a fresh store at `fff5aa5`: jemalloc
-(ADR-0016), validation over cached tables 8 at a time, per-commit reads, zstd, fork `a07b7bae`;
-FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the same host**):**
-
-| Stage | Before H1 (baseline, `1a4c4406…`) | After H1 |
-|---|---|---|
-| Total | 45.0 s | **29.9 s** |
-| Extraction | 31.4 s | 25.7 s (library: check 1.8 s, per-module 4.2 s, dependencies 3.1 s; corpus: 3.1 s, 6.7 s, 3.0 s, documents 0.2 s) |
-| Raw writes | 0.73 s | 0.95 s (zstd) |
-| Derivation | 2.56 s | 2.24 s (`edges` 1.02 s, `nodes` 0.50 s) |
-| Validation | 10.16 s | **0.90 s** (the slowest rule's compute 0.28 s, `key:edges`; the largest hash build 160 MiB) |
-| Peak RSS (`VmHWM`, MiB as `lctx` prints) | 7,587 MiB (6,678–8,044 MiB across seven runs) | **3,646 MiB** (3.6 GiB), flat from extraction on |
-| Store (`du -h`) | 272 MiB | 235 MiB |
-
-- 905,648 nodes and 1,449,162 edges, all 496 rules passing, before and after.
-- **What stayed the same.** Through H1b, every runtime-only commit left the content digest
-  (`f01077be…`) and the table fingerprints (the sorted ids of `facts`, `nodes`, `edges`,
-  `type_terms`, `syntax_nodes`, `bindings`, `mentions`, hashed) identical to the baseline.
-- **What moved.** The fork revision bump (D6) moves producer, run and fact ids. It also moves the
-  1,085 nodes of Pyrefly's bundled stubs (their identity is the Pyrefly revision, §3.4.1) and the
-  91,278 edges that touch them. Every other node and edge is byte-identical to the pre-D6 build.
-- **The test suite** runs in 83 s instead of 225 s.
-- **After the H1 review's fixes** (2026-09-23, fresh stores): content `19c3e8e2…`. F1's extractor
-  version bump moved producer, run and fact ids; the node, edge, type-term, syntax and binding
-  fingerprints are identical to the table above. 29.9–33.4 s across three runs, peak
-  3,640–3,649 MiB, 235 MiB. A compile's stderr carries no warning (the known Binary-statistics
-  lines are quieted, and tables are created without a failed load; H1 review F6).
+| Stage | Time |
+|---|---|
+| Total | 29.9 s (29.9–33.4 s across three runs) |
+| Extraction | 25.7 s (library: check 1.8 s, per-module 4.2 s, dependencies 3.1 s; corpus: check 3.1 s, per-module 6.7 s, dependencies 3.0 s, documents 0.2 s) |
+| Raw writes | 0.95 s |
+| Derivation | 2.24 s (`edges` 1.02 s, `nodes` 0.50 s) |
+| Validation | 0.90 s (the slowest rule's compute 0.28 s, `key:edges`; the largest hash build 160 MiB) |
+| Peak RSS (`VmHWM`) | 3,646 MiB, flat from extraction on (3,640–3,649 MiB across runs) |
+| Store (`du -h`) | 235 MiB |
 
 **Deferred, with triggers.**
-- `datafusion-tracing` (compatible with 55.1 per its skill): until per-operator spans are needed.
+- `datafusion-tracing`: until per-operator spans are needed.
 - **Streaming derive:** `WriteBuilder::with_input_plan(LogicalPlan)` streams per partition and
-  still enforces CHECKs (read in the pinned source, `write/execution.rs:405-431`, 2026-09-22).
-  - It would need its own schema and foreign-snapshot checks, and row counts from write metrics.
-  - Reopen when derivation dominates the per-stage time, or its working set dominates the peak.
-    Under jemalloc (ADR-0016) the reported peak tracks the working set (flat and repeatable,
-    within 7 MiB across runs; jemalloc still holds freed pages for its decay period); the earlier
-    `MALLOC_ARENA_MAX=2` reading applied only to glibc. At C6 it did neither (above).
-- **Validation over cached tables and concurrent rules: taken** (H1 P2, operator 2026-09-23).
-  `validate` reads every registered table once through its pinned, snapshot-filtered Delta view
-  into a `MemTable` (`cached_session`), then runs the rules 8 at a time on spawned tasks, putting
-  violations back in `rules()` order; every session plans on `TARGET_PARTITIONS = 8`. Still one
-  query per rule, the same SQL, the one shared validator (§B3). Per-rule cost is read from each
-  rule's own physical plan (wall time, summed `elapsed_compute`, largest `build_mem_used`; H1 P5),
-  since a process-wide peak delta means nothing under concurrency. **Measured** on the pilot:
-  validation 10.2 s → 0.89 s, the peak unchanged (3,646 MiB under jemalloc).
-- **Peak memory:** taken by ADR-0016 (jemalloc: the peak tracks the working set, 3,646 MiB on the
-  pilot, flat from extraction on) and the raw batches released once written. Reopen when the
-  peak nears the host's memory.
-- **File skipping on `snapshot_id`: taken** (H1 P3, above): no schema, partition or store change.
+  still enforces CHECKs (read in the pinned source, 2026-09-22). It would need its own schema and
+  foreign-snapshot checks and row counts from write metrics, and a streamed write split across
+  commits would break §6.2's one-commit invariant. Reopen when derivation dominates the per-stage
+  time or its working set dominates the peak; above, derivation is under a tenth of the wall time.
+- **Peak memory:** reopen when the peak nears the host's memory (ADR-0016 owns the allocator's own
+  trigger).
 
-> Decision: ADR-0012, ADR-0014, ADR-0016
-
----
+> Decision: ADR-0047, ADR-0016

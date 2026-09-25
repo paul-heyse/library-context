@@ -1,10 +1,10 @@
 ---
 id: ADR-0027
 title: An unresolved try or context manager withholds a definite raise escape
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: [ADR-0022]
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§3.9, §9.9]
 evidence: Tested
 revisit: Resolved L2 handler and resource fates can prove a specific raise escapes across an enclosing frame.

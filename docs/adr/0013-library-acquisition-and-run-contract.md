@@ -1,10 +1,10 @@
 ---
 id: ADR-0013
 title: Libraries are pinned uv projects; Stage A reads the acquired environment; the pilot is FastMCP 4.0.5
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: [ADR-0007]
-superseded-by: null
+superseded-by: [ADR-0046, ADR-0047]
 design: [§1.2, §1.4, §3.2, §3.4.1, §4.0, §4.1, §11, §12]
 evidence: Tested
 revisit: The same inputs (the same verified analyzer-readable bytes, lock, interpreter and producer) give a different node_id or fact_id, or an analyzer answer changes without context_id changing (carried from ADR-0007); a library cannot be expressed as one hash-locked uv requirement with a first-party distribution list; `uv sync --frozen` stops verifying artifact hashes; or a release's modules are not all listed in its distributions' RECORDs.

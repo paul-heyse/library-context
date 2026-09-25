@@ -1,10 +1,10 @@
 ---
 id: ADR-0019
 title: Analysis results are typed tables with in-row provenance and content ids, outside the CPG catalogs; new crates lctx-analytics and lctx-embed
-status: accepted
+status: superseded
 date: 2026-09-23
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0047
 design: [§B6, §3.2, §3.4.1, §4.1, §5, §6.4, §9, §10]
 evidence: Tested
 revisit: A consumer needs a finding, assertion or brief as a node or edge of the CPG catalogs (a query-time traversal through analysis results); an analysis result cannot be rebuilt from its snapshot, analytics config and compiler digest (it would then be an input, so a `facts` row); or the language-neutral serving schema form and the store's `canonical_schema` diverge in a way a reader notices.

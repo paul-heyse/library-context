@@ -1,10 +1,10 @@
 ---
 id: ADR-0033
 title: Model total normal completion as a pinned assertion separate from transfer
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§B5, §9.9]
 evidence: Tested
 revisit: A pinned model marked normal_return gains an exceptional or non-returning runtime path, or a Stage 3 fixture shows that complete exception coverage and a transfer rule do not justify the asserted normal exit.

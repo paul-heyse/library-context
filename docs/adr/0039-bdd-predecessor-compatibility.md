@@ -1,10 +1,10 @@
 ---
 id: ADR-0039
 title: Ignore an earlier call only when its region is BDD-incompatible with the return path
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: [ADR-0038]
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§9.9]
 evidence: Tested
 revisit: A path-sensitive predecessor normal-outcome relation can replace region compatibility plus lexical order with a cited execution proof.

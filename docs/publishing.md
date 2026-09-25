@@ -1,7 +1,9 @@
 # Publishing documentation
 
-**Implemented, 2026-09-25; qualification is recorded in the
-[execution plan](plans/architectural-documentation-and-search_2026-09-25.md).**
+**Implemented, 2026-09-25** (ADR-0041; lifecycle ADR-0042). Local qualification of the publisher
+(2026-09-25): bootstrap, focused publisher tests, complete builds at `/` and `/library-context/`,
+browser checks of scope defaults and prefixed assets, and a clean-checkout build without product
+dependencies all **passed**; remote CI is **not_run** (the workflow has not run remotely).
 
 ## Commands and dependencies
 
@@ -23,9 +25,10 @@ outside this personal preview contract. Delete ignored `build/docs/` to reset ge
 ## Authoring and transport
 
 Collections and current-work selections live in site.toml. Add a document under its collection;
-use a scalar title or an H1 outside fenced examples. Only exceptional legacy titles need an override.
-Do not edit generated navigation. The active standard manifest and ADR lifecycle control scope;
-current-work selection is a reading priority, not a status table.
+use a scalar title or an H1 outside fenced examples. Do not edit generated navigation. The active
+standard manifest and ADR lifecycle control scope; current-work selection is a reading priority,
+not a status table. The site publishes only the retained working set (ADR-0042): a retired
+document leaves the tree and its collection, never moves to an archive collection.
 
 Published Markdown links become local HTML. Omitted tracked files/directories link to GitHub at
 the build revision. A dirty preview says those links show committed content. Optional ignored
@@ -33,15 +36,17 @@ capability indexes are visibly local references. Ordinary linked images are copi
 files are not recursively copied. An evidence download must be an explicit asset selection.
 The renderer rejects missing intended targets, including historical local fragments.
 
-A section move retains its ID, governing decisions and old heading as a short relocation pointer
-with `<!-- relocated-section -->` immediately after it. The authoritative owner carries the prose.
-The shared resolver ignores fenced examples and relocation pointers, checks unique ownership and
-supplies the generated section directory. Historical ADRs and reviews remain untouched.
+A live section move retains its ID, governing decisions and old heading as a short relocation
+pointer with `<!-- relocated-section -->` immediately after it; DESIGN's pointers also keep each
+former subsection fragment in a compact list. The authoritative owner carries the prose. The
+shared resolver ignores fenced examples and relocation pointers, checks unique ownership and
+supplies the generated section directory. A retired document gets no stub.
 
 ## Search and artifacts
 
-The bundled Pagefind Component UI defaults to Current on each opening. Select Reference, History
-or Everything explicitly. Navigation, print pages and landing aliases are excluded from indexing.
+The bundled Pagefind Component UI defaults to Current on each opening. Select Reference or
+Everything explicitly; the publisher offers History only when a published page has that scope
+(for example a superseded record still in the tree). Navigation, print pages and landing aliases are excluded from indexing.
 Search assets are local and URLs resolve from the module location, supporting root or subpath
 hosting. To check a deployment prefix, run `uv run --no-project --offline python scripts/docs.py
 build --base-url /library-context/` and mount the artifact at that path; normal previews use `/`.

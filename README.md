@@ -10,7 +10,7 @@ checkpoint and remaining qualification. Accepted architecture includes labeled t
 - [Documentation and task routes](docs/README.md)
 - [Architecture map](docs/design/README.md)
 - [Development instructions](AGENTS.md)
-- [Decision history](docs/adr/README.md)
+- [Decision records (current rationale)](docs/adr/README.md)
 
 ## Documentation locally
 

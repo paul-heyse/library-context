@@ -4,7 +4,7 @@ title: The behavior model: a stated runtime flow abstraction, closed conditions,
 status: superseded
 date: 2026-09-24
 supersedes: []
-superseded-by: ADR-0027
+superseded-by: [ADR-0027, ADR-0045]
 design: [§B5, §B10, §3.2, §3.9, §9, §9.9]
 evidence: Proposed
 revisit: The structured evaluation finds a question class the closed condition language cannot express; or a ty upgrade breaks range parity or decides a test at index time that differs from runtime.

@@ -2,555 +2,323 @@
 
 # §9.9 Summaries, models and the capability registry
 
-**Proposed** (ADR-0022, 2026-09-24; plan Stages 3–4).
+This page owns how behavior propagates beyond one expression: the **models catalog** (L4) that
+gives meaning to stdlib, dependency and framework callables, **model application** at source
+calls, **L2 fates** (exits, handlers, finalizers), **transfer summaries** (L3) that resolve
+`call_transfer`, the **native serving boundary** for their proofs, and the target **capability
+registry** (L5). It consumes [§3.9](behavior-model.md#section-3-9)'s places, conditions, verdicts,
+value flows and condition catalogs, plus Pysa call targets and pinned context definitions
+([§3.2](facts-and-identity.md#section-3-2), [§4.0](acquisition-and-extraction.md#section-4-0)).
+Its outputs are model, application, fate and summary relations in one snapshot, consumed by
+serving ([§11](synthesis-and-serving.md#section-11)) and later by registry membership.
+Dependencies point from orchestration (`cpg-core/src/attempt.rs`) to the summary producer
+(`cpg-core/src/summaries.rs`, which prepares relations in DataFusion and calls the SCC and
+bounded-compatibility kernels in `lctx-analytics/src/summaries.rs`) and to `cpg-schema`, which declares
+the catalog (`models.rs`, `crates/cpg-schema/models/external.toml`), the relation schemas and
+DataFusion derivations (`behavior.rs`), rules and codebooks. The shared validator is
+`cpg-core/src/validate.rs`; focused fixtures are under `fixtures/python/` (`model_shapes`,
+`model_handler_shapes`, `handler_shapes`, `return_completion_shapes`, `behavior_shapes`,
+`pysa_tito_shapes`), exercised by `crates/cpg-core/tests/`. See the [architecture map](../README.md).
 
-**Models** are committed data (`crates/cpg-schema/models/{external,frameworks}.toml`):
-- **What a model states:** the effects and roles of stdlib, dependency and framework callables, in
-  the summary access-path grammar below.
-- **Effects** come from an append-only codebook: `io.read`, `io.write`, `net`, `log`, `timeout`,
-  `thread_dispatch`, `compress(format)`, `serialize(format)`, `validate(schema)`,
-  `register(container)`, `invoke(callable)`.
-- **Framework models** cover pydantic `BaseModel` and `Field` (a generated `__init__` and a
-  validation effect), pydantic-settings (environment binding), ContextVar `get`/`set`,
-  `functools.partial` and `wraps`, anyio and asyncio, `contextlib` and logging.
-- **Provenance:** origin `synthetic_model`; each file's digest joins `compiler_digest`.
-- **Authorship:** the operator, from library source and docs. **Never from `.claude/skills/`.**
-- **Normal completion** (ADR-0033): an optional authored assertion means that, after its
-  arguments have been evaluated, the pinned function target returns normally. It defaults
-  false (unknown), is permitted only with complete exception coverage and no exception rule,
-  and is carried on the validated `model_targets` row. It is not inferred from a transfer rule
-  or from the absence of modeled exceptions. The first two assertions are for pinned
-  `typing.cast` and `typing.assert_type`, whose CPython 3.14.7 bodies directly return `val`.
+**Evidence.** Models, their source application, the L2 relations and the finite summary producers
+below are **Implemented and Tested in focused cases** (2026-09-24/25; focused release Nextest,
+each with a positive and a withholding fixture and shared publication equality). Recursive
+composition, effect/exception/role summaries, `call_transfer` discharge, operation-wide serving
+and the registry are **Proposed** targets. Integrated Stage 3 acceptance and the pilot are
+`not_run`; the plan owns the queue and the current disposition of the findings cited here
+([plan §3, §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#3-stage-3-execution-queue)).
+The rationale is ADR-0045.
 
-**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 model assertion boundary):**
-Serde tagged enums with unknown-field rejection parse the committed `external.toml` catalog;
-one renderer writes display paths, while typed path components determine stable path ids.
-Source bytes, target pin and revision enter model identity, and catalog bytes join the compiler
-digest. An analyzed compile binds applicable targets to pinned `context_definitions` only when
-the module origin and exact Python or distribution pin match. `model_targets` cites the module
-and definition facts. An unreferenced target stays dormant; an active target with incomplete
-signatures or an unresolved formal fails before Delta writes. One compilation pass produces
-typed `model_transfers`, `model_effects`, `model_callbacks`, `model_resources` and
-`model_exceptions` assertions, all with `synthetic_model` provenance and an authored rule id.
-Transfer, effect and callback assertions distinguish definite from potential; callback and
-resource actions identify their exit. Each target declares transfer, effect, callback, resource
-and exception coverage independently as complete, partial or unspecified. Only complete
-coverage can later support a negative summary conclusion. The shared publication validator
-reconstructs every model row from the committed catalog and pinned context, rejecting missing,
-extra or altered rows. `typing.cast`, `typing.assert_type`, `builtins.print`, `json.dumps`,
-`json.dump`, `builtins.open` and `atexit.register` are the first authored targets. These rows
-remain model assertions: summary application, broader pure-model oracles and served behavioral
-claims remain Proposed. Focused
-release Nextest and Clippy passed; the integrated gate and fresh pilot are reserved for the
-assembled Stage 3 end.
+**The organizing rule.** Meaning comes from models, propagation from summaries: a call alone never
+propagates an effect or capability. Every step from a source call to a summary is a separate,
+cited relation, and each one states what it does *not* prove. Absence from a positive relation is
+unknown unless an independent coverage relation establishes a specific negative claim.
 
-**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 decoding/compression data):**
-the pinned `json.loads`, `gzip.compress` and `gzip.decompress` targets add potential
-input-to-return transforms. Only `gzip.compress` asserts a potential `compress(gzip)` effect
-on its exact `data` formal. None asserts total normal completion or complete channel coverage:
-malformed inputs, resource exhaustion, and JSON's caller-supplied hooks leave those claims
-open. Pinned CPython 3.14.7 signatures and the Python standard-library JSON/gzip documentation
-support the authored paths; the focused analyzed fixture checks target binding, formal identity,
-source application, a shadowed-module withholding case and shared publication equality. These
-rows are candidates, not a positive transform summary or a CrossHair equivalence claim.
+## Models catalog
 
-**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 logging data):** the pinned
-`logging.Logger.warning(msg)` target asserts a potential `log` effect on its exact message
-formal. Logger configuration can suppress emission, and handlers can execute arbitrary code,
-so the other model channels and normal completion remain open. The source fixture has a
-bound object-receiver call, an untyped logger call and an unpacked message; only the first
-binds its `msg` subject. The method-binding rule is below (ADR-0035).
+A model is committed, typed data about a callable we do not analyze from source.
+- **What a model states:** transfers (identity or transform, definite or potential), effects,
+  callback actions, resource actions and exceptions of a pinned stdlib, dependency or framework
+  callable, over the resolved access-path grammar below. Effects come from an append-only
+  codebook: `io.read`, `io.write`, `net`, `log`, `timeout`, `thread_dispatch`, `compress(format)`,
+  `serialize(format)`, `validate(schema)`, `register(container)`, `invoke(callable)`.
+- **Typed, not a string grammar.** Serde tagged enums with unknown-field rejection parse the
+  committed TOML; typed path components determine stable path ids and one renderer writes the
+  display path. Consumers never parse a rendered path (`model_formal_paths` publishes typed
+  formal roles).
+- **Identity and provenance.** Model ids are append-only. Source bytes, target pin and revision
+  enter model identity; the catalog digest joins `compiler_digest` and the extractor's producer
+  identity. Every derived row has origin `synthetic_model` and an authored rule id.
+- **Authorship.** The operator, from pinned library source and official docs, **never from
+  `.claude/skills/`** (the gold is evaluation-only).
+- **Binding.** A model binds to a pinned `context_definitions` row only when the module origin and
+  exact Python or distribution pin match; `model_targets` cites the module and definition facts.
+  An unreferenced target stays dormant. A referenced target with an incomplete signature, an
+  unresolved formal, or an unresolved or ambiguous exception class fails before any Delta write.
+- **Exception classes are pinned identities.** The extractor retains the class definitions named
+  by committed exception rules in the context modules it already describes, and the compiler binds
+  every authored source and conversion class to a unique pinned class row; it never matches by
+  name. A class in an unvisited context module is a visible compile failure, to be fixed by
+  describing that module, not by a text match.
+- **Channel coverage.** Each target declares transfer, effect, callback, resource and exception
+  coverage independently as complete, partial or unspecified. Only complete coverage can support a
+  negative summary conclusion.
+- **Total normal completion** is a separate, optional assertion (`normal_return`, default false =
+  unknown): the target itself returns normally once its arguments are evaluated, under the pinned
+  model. It is accepted only for a function target with complete exception coverage and no
+  exception rule, carried on the validated `model_targets` row, and never inferred from a transfer
+  rule (which describes the value *if* the callee returns) or from the absence of modeled
+  exceptions (which does not exclude divergence). Asserting it needs pinned source or
+  documentation evidence.
 
-**Implemented and Tested for authored parsing (2026-09-25, Stage 3.1 Pydantic candidate):**
-the pinned dependency target `pydantic==2.13.5` `TypeAdapter.validate_python(object)`
-declares a potential input-to-result transform. The adapter's schema is instance-selected;
-the current `validate(schema)` effect cannot name it without a false exact-schema claim.
-Arbitrary user validators can add effects or raise, so the other channels and normal completion
-stay open. The empty-site fixture correctly leaves this dependency model
-dormant. **Interface-checked (2026-09-25):** the pinned local source has the `object` formal,
-and a read-only earlier FastMCP snapshot contains its matching dependency module and method
-definition. Current-compiler binding to the full pinned dependency context is **not_run**
-until the integrated pilot; these observations do not certify a source application or summary.
+**The current catalog** (`external.toml`; pinned CPython 3.14.7 unless noted):
 
-**Implemented and Tested in focused cases (2026-09-25, Stage 3 source/model bridge):**
-`model_applications` joins each source `call_targets` fact to an exactly pinned `model_targets`
-row, retaining the Pysa target's modality/origin and phase, the model's identity and revision,
-and `resolutions`' candidate-set completeness, unresolved remainder and target count. The row
-also carries the selected pinned target's authored normal-return assertion; neither the
-candidate-set-complete flag nor the assertion alone means this source call must return.
-Higher-order argument
-targets and annotation-only calls cannot masquerade as direct invocation. The shared validator
-reconstructs this join, and a shadowed builtin call has no application. This is evidence that a
-model applies at a call site, not evidence that a callback ran, a resource was released or a
-transfer completed. Those L2/L3 fates remain Proposed; the integrated gate is `not_run`.
+| Target | Asserted | Left open |
+|---|---|---|
+| `typing.cast`, `typing.assert_type` | Identity transfer; `normal_return` (the pinned bodies directly `return val`) | — |
+| `builtins.print` | Potential `io.write`, no subject stream | Which stream |
+| `json.dumps`, `json.dump` | Potential `obj` → return transform (`dumps`); potential JSON serialization of `obj`; potential `io.write` on the bound `fp` (`dump`) | Custom encoder and `default` callbacks; completion |
+| `json.loads`, `gzip.compress`, `gzip.decompress` | Potential input → return transforms; `compress(gzip)` on `data` for `gzip.compress` | Malformed input, resource exhaustion, JSON hooks; completion; channel coverage |
+| `logging.Logger.warning` | Potential `log` on the `msg` formal | Configuration can suppress emission; handlers run arbitrary code |
+| `builtins.open` | Candidate resource `acquire` on normal return; potential `OSError` | Release; completion |
+| `atexit.register` | Identity transfer; `registered` callback action on normal exit | Invocation |
+| `pydantic==2.13.5` `TypeAdapter.validate_python(object)` | Potential input → result transform | Effects, raises, completion (below) |
 
-**Implemented and Tested in focused cases (2026-09-25, typed formal-path bridge):** the
-catalog compiler also publishes `model_formal_paths`, keyed by rule, typed path identity and
-input/output role. A row names a pinned formal only when the catalog AST path refers to one;
-return values and globals produce no false formal. All authored formals were already checked
-against every pinned Pysa signature, and the shared validator reconstructs these rows from
-committed model bytes. Source-argument binding remains Proposed; callers must not parse the
-rendered path string to fill that gap.
+- **Pydantic dynamic schema.** A `TypeAdapter`'s schema is selected at runtime by the instance, so
+  the named-schema `validate(schema)` effect cannot name it without a false exact-schema claim.
+  Do not populate it with the adapter class name; a typed dynamic-schema case, with a source
+  witness where one can be proved, precedes any validation-effect or negative-coverage claim. The
+  focused fixture leaves this dependency model dormant; binding against the full pinned dependency
+  context is `not_run` until the integrated pilot.
+- **Target families** (Proposed; plan §3.3): pure identity/value (`str`, `dict`, `list`, `tuple`,
+  `functools.partial`/`wraps`), I/O (`io`, `pathlib`, `zlib`), async/timeouts/context (asyncio,
+  anyio, `contextvars`, `contextlib`), validation/settings (pydantic `BaseModel`/`Field`,
+  pydantic-settings), HTTP/servers (httpx, starlette, uvicorn). A family without an in-scope
+  consumer stays a candidate. Framework models (registries, middleware, lifespan, ContextVar
+  places, function-object metadata) are Stage 5.
+- **Independent checks** of pure models (CrossHair `diffbehavior`; only exhausted paths support
+  equivalence; the `int` specializations of `cast` and `assert_type` are **Tested**, the generic
+  models are not) belong to the validation lane ([§8.1](validation-and-evaluation.md#section-8-1)).
 
-**Implemented and Tested in focused cases (2026-09-25, model argument boundary):**
-`model_argument_bindings` joins each applied model formal to the source call's explicit
-argument only if every pinned Pysa signature selects the same argument ordinal. It supports
-positional and named keyword binding. For a direct Ruff attribute callee whose Pysa target
-cites an implicit **object** receiver, the binder shifts positional signature ordinals past
-that receiver. An unpacked argument, class receiver, unsupported callee, absent argument
-or overload disagreement yields `unknown` with a boundary, never an inferred value. The row
-cites the chosen argument and its source fact when bound, and shared publication validation
-reconstructs every row. Binding is still local to one candidate model target. Dispatch
-closure, value stability, effects and summary composition remain Proposed; no served verdict
-follows from this relation alone.
+## Model application at source calls
 
-> Decision: ADR-0035
+Each relation below is **candidate-local**: it says a model applies at one cited call candidate,
+never that the call ran, completed, raised, released a resource or invoked a callback. Target and
+model modalities, candidate-set completeness and the unresolved dispatch remainder are retained on
+every row; the shared validator reconstructs each relation and rejects forged status.
 
-**Implemented and Tested in focused cases (2026-09-25, modeled callback source):**
-`modeled_callback_sites` applies an authored callback action to a cited source call target
-without erasing the model exit, either modality, or the target-set boundary. It carries the
-bound source callback argument when every signature agreed, otherwise an explicit unknown
-binding reason. The first positive shape is `atexit.register`'s `registered` action on normal
-exit; starred and positional-only keyword calls retain unknown binding. The row is a
-candidate-local model action, not evidence of callback invocation or a whole-operation fate.
-Publication reconstructs it; other callback and resource sources and L3 composition remain
-Proposed.
+- **`model_applications`** joins a source `call_targets` fact to an exactly pinned `model_targets`
+  row, with the Pysa target's modality, origin and phase, the model identity/revision,
+  `resolutions`' candidate-set completeness, unresolved remainder and target count, and the
+  target's `normal_return` assertion. Neither completeness nor the assertion alone means the call
+  returns. Higher-order argument targets and annotation-only calls cannot pose as direct
+  invocation; a shadowed builtin has no application.
+- **`model_argument_bindings`** binds a model formal to the call's explicit argument only if every
+  pinned Pysa signature selects the same argument ordinal (positional or exact keyword name). For a
+  direct Ruff attribute callee whose Pysa target says the receiver is an implicit **object**
+  (`true_with_object_receiver`), positional ordinals shift past it: Pysa owns receiver kind, Ruff
+  the callee shape, the signature the ordinals. Class receivers, unpacking, unsupported callees,
+  absent arguments and overload disagreement stay `unknown` with a boundary. Classmethod and
+  descriptor receivers need their own proof.
+- **`modeled_transfer_sites`, `modeled_effect_sites`, `modeled_callback_sites`,
+  `modeled_resource_sites`, `modeled_exception_sites`** apply one authored action to one call
+  candidate. Parameter endpoints come only through `model_argument_bindings`; a `ReturnValue`
+  endpoint identifies the call expression (a call-expression id is not a runtime resource
+  identity). A subjectless effect is explicitly `unqualified`; field and global paths, failed
+  bindings and open dispatch are explicit boundaries. Exception sites carry the pinned class node
+  and fact.
+- **`modeled_argument_evaluations`** accounts for every explicit argument of an exact one-call
+  model candidate in source order: the selected operand cites its raw value fact; a direct literal
+  or an exact unshadowed builtin name has a local normal-evaluation witness; anything unpacked,
+  dynamic, shadowed or unproved has an `outside_provider_model` boundary and no witness.
 
-**Implemented and Tested in focused cases (2026-09-25, modeled resource source):**
-`model_resources` now carries the path kind compiled from its tagged AST, independent of
-the rendered access-path string. `modeled_resource_sites` applies an authored resource action
-to a pinned source call target. A `ReturnValue` path identifies the call expression as the
-source of the returned resource; a parameter path can identify an argument only through the
-exact `model_argument_bindings` relation. Field and global paths, failed argument bindings
-and open dispatch remain explicit boundaries. The row retains the action, exit and both
-modalities, so `builtins.open` yields a candidate `acquire` on normal return but a shadowed
-`open` does not. A call-expression id is not a runtime resource identity, and this relation
-does not prove the call completed or that any release happened. The shared validator
-reconstructs these rows and rejects a doctored source status. L2 lifecycle pairing and L3
-summary composition remain Proposed; the integrated gate is `not_run`.
+## L2 fates: exits, handlers and finalizers
 
-**Implemented and Tested in focused cases (2026-09-25, modeled transfer source):**
-`model_transfers` now carries input and output path kinds compiled from the tagged catalog
-AST. `modeled_transfer_sites` applies one authored transfer to one cited source call candidate.
-For a parameter input it takes the exact source argument only from
-`model_argument_bindings`; for a `ReturnValue` output it identifies the call expression and
-call fact. Unsupported paths or argument shapes keep the endpoint `unknown` with a reason.
-The row retains the transfer kind, target and model modalities, candidate-set completeness,
-and unresolved remainder. `typing.cast`, `typing.assert_type` and `atexit.register` produce
-candidate identity
-transfers when their inputs bind; invalid keyword or unpacked arguments do not acquire a
-false source value. Shared publication validation reconstructs the relation and rejects a
-forged endpoint status. This is not yet a summary flow or a whole-operation verdict:
-the call's condition, dispatch, normal return and enclosing callable still need L3
-composition. The integrated gate remains `not_run`.
+L2 establishes what happens at a frame. Lexical containment never substitutes for an execution
+witness.
 
-**Implemented and Tested in focused cases (2026-09-25, modeled effect source):**
-`model_effects` now carries an optional subject path kind from its tagged AST.
-`modeled_effect_sites` joins an authored effect to one cited source call candidate while
-retaining the effect kind and argument, target and model modalities, and open candidate-set
-state. A subjectless effect is explicitly `unqualified`, with no invented stream or value;
-a parameter subject is identified only through exact pinned-signature argument binding;
-other or unbound subjects remain `unknown` with a reason. The first fixture maps
-`builtins.print` to a potential I/O write at the `display` call, without claiming which
-stream receives it. Shared publication validation reconstructs the row and rejects a
-forged subject status. Source occurrence is not proof of a completed effect or a
-whole-operation fate; L3 composition and integrated Stage 3 testing remain open.
+- **Structural exits.** `exit_sites` records explicit `return` and `raise` statements and direct
+  `finally`-body actions from Ruff syntax and ty regions, with owning function, path condition and
+  approximation, for every compile. It proves no escape, catch or completion.
+- **Raise escape** is withheld inside any `try` or `with` body (§3.9); resolved L2 fates may later
+  admit narrower escape witnesses with cited class, frame and exit evidence.
+- **Handler sources.** `handler_clauses` and `handler_actions` cite each `except` clause, its type
+  expression and direct body statements with their regions. `handler_types` gives one status per
+  clause: `pinned_builtin` only when the lexical reference resolves uniquely to a builtin with one
+  matching pinned class; bare `except` has its own status; shadowed, compound or unbound types stay
+  `unknown`. The `try` entry condition is not a handler-match condition.
+- **Class relationships** use Pyrefly's pinned MRO (`context_class_mro`: ordered ancestors, or an
+  explicit empty/cyclic marker) instead of a custom exception hierarchy. A handler is a
+  `pinned_ancestor` candidate only when one MRO row names its pinned class. A missing, unbound or
+  cyclic relationship is `class_relation_unknown`, and MRO non-membership is **not** a nonmatch,
+  because a model class can denote a family of subclasses. A negative match needs a separate exact
+  raised-class contract. The MRO is a static model, not an observation of runtime `__bases__`.
+- **Handler candidates.** `modeled_exception_handler_candidates` connects a modeled raise in a
+  `try` body to each clause of each enclosing frame through a bounded recursive syntax-ancestor
+  walk (128 edges, stopping at the innermost function). `modeled_exception_handler_walks` records
+  one coverage row per modeled raise, with explicit reasons for missing syntax or the cap; absence
+  from the candidates is interpretable only when the walk is complete. `frame_possible` excludes a
+  later clause after a proven earlier match; `frame_first_match_if_raised` needs a positive match
+  and no possible earlier one. Both are conditional on the raise reaching the frame.
+- **Bounded handler return.** `modeled_exception_return_none_paths` composes a modeled potential
+  raise with the first provable matching clause of a **direct function-body** `try` and that
+  handler's sole direct `return None` (`handler_return_none_sites`, whose ty region is
+  approximate). A complete ancestry walk must show no inner `try`/`with` and the frame no
+  `finally`. It is a candidate path conditional on the raise, not a catch or normal-return verdict;
+  nested frames, uncertain precedence, computed actions and finalizers stay unknown.
+- **Return frames and finalizers.** `return_exit_statuses` walks each return's same-function
+  ancestry to a declared cap and cites the nearest controlling `with` or pending `finally`. A
+  return is admitted through pending frames only when **every** pending frame is a `try` whose
+  entire direct `finalbody` is one literal `pass`; the pass facts are reconstructed in
+  inner-to-outer execution order and each admitted summary cites all of them as ordered
+  `finalizer_pass` proof steps (the single-frame status fields mean exactly one frame). This is a
+  local normal-exit proof, not proof that the return expression or an earlier call completes.
+  A nontrivial finalizer, `with` and capped ancestry keep their control boundary: expanding them
+  needs an ordered exit witness per frame, not a wider allowlist. A targeted CPython 3.14.7
+  `sys.monitoring` check agrees for a pending return through `finally: pass` and an overriding
+  `finally` return (**Tested**, 2026-09-25).
+- **Target** (Proposed; plan order 2): nested `try`/`finally` and `with` frame order, normal and
+  exceptional completion, suppression and handler propagation; callbacks stored, invoked,
+  forwarded or registered, and resource acquire/release, each only with an execution and exit
+  witness. Generators and coroutines stay at the Stage 5 deferred-execution boundary.
 
-**Implemented and Tested in focused cases (2026-09-25, JSON model family):** pinned
-`json.dumps` contributes a potential `Parameter[obj]` → `ReturnValue` transform and a
-potential JSON serialization action on `obj`; pinned `json.dump` contributes potential
-serialization of `obj` and a potential I/O write on the exact bound `fp` argument. A
-custom encoder or `default` callable leaves other effects and callback behavior open.
-The focused source fixture verified the typed formal bindings and candidate-local rows;
-these actions do not establish successful serialization, stream ownership, or a
-completed I/O effect. Integrated tests remain `not_run`.
+## Transfer summaries
 
-**Implemented and Tested in focused cases (ADR-0029, 2026-09-25, modeled exception source):**
-`model_exceptions` carries the uniquely pinned context class node and fact for each authored
-source and conversion class. `modeled_exception_sites` attaches an action such as the potential
-`builtins.OSError` of `builtins.open` to its cited source call candidate, retaining model and
-target modality and unresolved dispatch. An unreferenced model has no applied row. The shared
-publication validator reconstructs catalog and source rows and rejects forged class identity.
-These are candidate model actions, not observed exceptions, handler catches or exits. The
-integrated Stage 3 gate remains `not_run`.
-
-**Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
-CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
-identity; a deliberately wrong control produced `value=0`. This does not certify the generic
-model or its use in a summary. [Evidence](../../design_review/evidence/2026-09-24_typing_cast_model_oracle/README.md).
-**Tested, narrow oracle (2026-09-25):** an isolated CrossHair 0.0.110 probe exhausted
-paths for the pure `int` specialization of `typing.assert_type` versus identity; a wrong
-control returned `value=0`. The generic model and summary use remain unproved.
-[Evidence](../../design_review/evidence/2026-09-25_typing_assert_type_model_oracle/README.md).
-
-**Implemented and Tested (2026-09-24, Stage 3 L2 structural exits only):** every compile
-derives `exit_sites` from Ruff `syntax_nodes` and ty `flow_regions`. Explicit `return` and
-`raise` statements and direct actions in a `try` statement's `finally` body carry the owning
-function, source and region fact ids, path condition, and approximation flag. A `return` or
-`raise` directly in `finally` has both site kinds. The relation is independent of a Stage E
-analysis configuration; publication reconstructs it from the pinned raw views. It does not
-prove that a raised exception escapes, a handler catches it, or a `finally` action completes.
-Those fates, callbacks, resources and composed summaries remain Proposed.
-
-**Implemented and Tested in focused cases (2026-09-25, bounded return frames):**
-`return_exit_statuses` walks each attributed return's same-function syntax ancestry to a
-declared depth cap and cites the nearest controlling `with` or pending `finally` frame. A
-missing frame with no cap is only a local normal-return candidate, not proof that expression
-evaluation succeeds. Direct, modeled and acyclic local-call value summary seeds may now admit
-nested returns under ordinary branches, but require a status without an unresolved frame/cap
-boundary.
-Returns under `with` or an unproved pending `finally` remain `summary_boundaries` until L2 proves normal
-completion. The shared validator reconstructs the status rows; a focused analyzed fixture
-admits an `if` return while withholding both controlling frames. This is compiler output
-version 65 and a schema migration. Nested handler propagation, suppression, callback/resource
-fates and the integrated Stage 3 gate remain open.
-
-**Implemented and Tested in focused cases (2026-09-25, ordered pass finalizers):**
-`return_exit_statuses` admits a bounded chain of pending `try/finally` frames only when
-each entire direct `finalbody` is one literal `pass`. The one-frame status cites its pass
-node and fact; the multi-frame status leaves those singular fields null. A separate source
-query reconstructs every pass in inner-to-outer execution order, and each admitted finite
-summary cites all of them as ordered `finalizer_pass` steps. The return expression still
-needs its own normal-evaluation and condition proof. A nontrivial suite, `with`, and capped
-ancestry retain their control boundary. Direct and modeled analyzed fixtures prove the
-single and nested pass paths, and a mixed effectful outer finalizer stays unknown; the
-shared validator rejects missing pass evidence. The nullable one-pass status fields were
-introduced at compiler output version 66, and the ordered derivation changes output version
-70. Other handler, callback and resource fates and the integrated Stage 3 gate remain open.
-
-**Tested (2026-09-25, targeted CPython 3.14.7 oracle):** an isolated `sys.monitoring` worker
-observed a pending local value return through `finally: pass` and an overriding `finally`
-return control. `PY_RETURN` locates the first completion at the finalizer line, so the worker
-attributes the returned identity to the latest executed load at an AST `return Name` expression
-span rather than requiring the event line to equal the load line. This independently checks
-value-flow admission and observed exit regions for these two shapes; it does not prove the
-compiler's L3 summary closure or the remaining finally actions.
-
-**Implemented and Tested in focused finite-proof cases (2026-09-25):** direct identity and
-modeled/assignment/local-call summary producers use the same safe return status and cite
-each source pass from the ordered ancestry query; modeled proofs place the pass sequence
-immediately before `return_exit`. The canonical summary ID hashes these steps, and the
-shared validator rejects their removal. Uncontrolled frames still have no positive summary.
-The append-only step kind was introduced at output version 69. Full per-step source spans in
-FORMAT 7 and effectful-frame exit composition remain open.
-
-> Decision: ADR-0037
-
-**Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**
-`handler_clauses` cites a `try`, each authored `except` clause, its optional type expression,
-and the region reaching the `try`. `handler_actions` cites direct statements in that clause's
-body and their own ty regions. These rows are derived for every compile and reconstructed by
-the publication validator. **Implemented and Tested in focused cases (2026-09-25):**
-`handler_types` keeps one status per clause. A direct `Name` gets `pinned_builtin` only if its
-lexical reference resolves uniquely to a builtin and one matching class is present in the pinned
-context; bare `except` has its own status, while shadowed, compound or unbound types stay
-`unknown` with a boundary reason. The row cites the lexical and context facts and is
-reconstructed at publication.
-This identifies an authored handler class, not a catch. The `try` entry condition is not a
-handler-match condition, and a body action may fail or branch. Full exception matching, conversion
-and completion remain Proposed. The integrated repository and pilot gates remain `not_run` for
-Stage 3.
-
-**Implemented and Tested in focused cases (2026-09-25, local handler return):**
-`handler_return_none_sites` records a handler whose sole direct body statement is
-`return None`, citing that statement, its exact `None` literal and ty region.
-The region's `approximated` flag is retained: the focused `except` body is
-approximate under ty. A computed return or an earlier body statement produces
-no row. Shared publication validation reconstructs the relation and rejects
-missing rows. This is a local, pre-`finally` witness conditional on entering
-the handler, not a proof that the modeled exception selects it or that the
-operation completes normally. `COMPILER_OUTPUT_VERSION` is 45; integrated
-Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (ADR-0031, 2026-09-25):**
-`modeled_exception_return_none_paths` composes a modeled potential raise with
-the first provable matching clause of a direct function-body `try` and that
-handler's sole direct `return None`. A complete syntax-ancestor walk must show
-no inner `try` or `with`; the frame must have no `finally`. Each path retains
-the cited raise, class relationship, handler return and ty region, together
-with target/model modalities, open dispatch and approximation. This is a
-candidate-local path conditional on the modeled raise, not a completed
-operation-level catch or normal-return verdict. Nested frames, uncertain
-clause precedence, computed handler actions and finalizers remain unknown.
-Shared publication validation reconstructs the rows. `COMPILER_OUTPUT_VERSION`
-is 46; integrated Stage 3 tests remain `not_run`.
-
-> Decision: ADR-0031
-
-**Implemented and Tested in focused cases (2026-09-25, candidate handler frame):**
-`modeled_exception_handler_candidates` uses a bounded DataFusion recursive syntax-ancestor
-walk, stopping at an innermost-function boundary, to connect a modeled potential raise in a
-`try` body to each authored clause of that frame. It retains nested frames, clause ordinals,
-call/model/class facts and the handler type fact. The class relation is typed as same pinned
-class, bare handler, unresolved relationship between different pinned classes, or unresolved
-handler type. `modeled_exception_handler_walks` records one coverage row per modeled raise;
-missing source syntax and a 128-edge ancestry cap produce explicit reasons. Absence from the
-candidate relation is interpretable only when its walk is complete. Publication reconstructs
-and validates both relations. **Implemented and Tested in focused cases (2026-09-25):**
-`frame_possible` excludes a later clause after a proven earlier match within the same frame;
-`frame_first_match_if_raised` requires a positive match and no prior possible match. An
-unknown earlier class relationship leaves later clauses possible but not proven first.
-These booleans are conditional on the modeled raise reaching this frame. They do not decide
-whether the call raises, an inner frame propagates, or a handler completes. Those L2 fate
-decisions and integrated testing remain open.
-
-**Implemented and Tested in focused cases (ADR-0030, 2026-09-25):**
-`context_class_mro` retains Pyrefly's resolved ancestor identities or an empty/cyclic marker
-for each pinned context class. When a modeled raised class's MRO contains the pinned handler
-class, `modeled_exception_handler_candidates` records `pinned_ancestor` and the source MRO
-fact. A missing, unbound or cyclic relationship stays `class_relation_unknown`; absence from
-the MRO is not a negative match because a model class can denote possible subclasses. This is
-still a candidate catch relation. The integrated Stage 3 tests
-remain `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
-proved, an explicit raise inside a `try` or `with` body has no definite escape witness. The
-flow producer no longer parses handler/raised names from source text or assumes an opaque
-context manager cannot suppress. This is conservative withholding, not a caught-exception
-claim; an explicit unframed raise still establishes escape.
-
-**Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
-- **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
-  call the shared bounded diagram kernel. `summary_flows` and `summary_effects` reference
-  lossless condition roots; a rendered DNF is only display. Type-derived scalar exclusions
-  require a stable-value witness, and node-limit hits become explicit boundaries.
-- **Output tables:**
-  - `summary_flows`: callable, input path, output path, kind (`value`, `transform`, `constant`),
-    condition, verdict;
-  - `summary_effects`: callable, effect, role bindings, condition;
-  - `summary_boundaries`: callable, reason, site.
+**The contract** (accepted target; finite parts implemented as stated below).
+- **Tables:** `summary_flows` (callable, input path, output path, kind `value`/`transform`/
+  `constant`, condition, verdict), `summary_effects` (callable, effect, role bindings, condition),
+  `summary_boundaries` (callable, reason, site). Summaries reference lossless condition roots,
+  never display DNF.
 - **Paths:** `Parameter[name]`, `Parameter[self].Field[f]`, `ReturnValue`,
-  `Argument[formal]@Call[target]`, `Global[<module>.<name>]`, `Raise[T]`. The shape is CodeQL's
-  models-as-data, without its file format. These are the **resolved** place key's written form
-  (§3.9's two layers; ADR-0022 §Places), never a third grammar.
-- **Order and fixpoint:** the call graph's SCCs in `tarjan_scc` order (callees first), each SCC
-  iterated to a fixpoint over a finite domain: path depth ≤ k and condition size ≤ c.
-  - **Widening** yields `unknown` (`budget_reached`), and the invocation records its budgets.
-  - **Override-open calls** join their candidates and stay marked open (§3.6).
-  - **Exceptions** convert through `handlers`.
-  - **A call alone never propagates an effect.**
-- **Oracle:** Pysa's inferred TITO models on the pinned library, run offline. It is differential,
-  not truth.
+  `Argument[formal]@Call[target]`, `Global[<module>.<name>]`, `Raise[T]`: CodeQL's models-as-data
+  shape without its file format, and §3.9's resolved place key in written form.
+- **Composition:** the call graph's SCCs, callees first, each iterated to a fixed point over a
+  finite domain (path depth, condition nodes, pair work, iterations). Exhaustion writes a specific
+  `summary_boundaries` cause and makes dependent verdicts `unknown`; override-open calls join their
+  candidates and stay open ([§3.6](facts-and-identity.md#section-3-6)); exceptions convert through
+  handlers; value/transform/effect/exception/role paths compose by BDD conjunction with declared
+  modality.
+- **Discharge:** a callee's summary resolves a `call_transfer` claim to `established` or
+  `conditional` only with the matching proof; `refuted_under_model` needs a complete summary with
+  every candidate call, handler and modeled channel closed.
 
-**Tested (2026-09-25, Stage 3.4 targeted differential):** a separate Pysa 0.10.0 probe uses
-an actual source-to-sink rule, verified source/sink models and an explicit Pyrefly 1.3.1
-binary. It reports the expected source-to-sink issues and exact TITO ports for direct
-identity and a one-call wrapper, while a constant-return control has no issue. The local
-Pyrefly configuration prevents accidental reuse of this repository's unrelated project
-include list. No obscure-callee feature appears on the two positive ports. A byte-identical
-compiler fixture yields finite parameter-to-return summaries for the same identity and
-wrapper, and none for the constant control; shared publication validation passes. This is
-a targeted matched-source differential. Comparison with pinned FastMCP `summary_flows` and
-classification of its disagreements remain Proposed.
-[Probe](../../design_review/evidence/2026-09-25_pysa-tito-rule/README.md).
+**Positive paths** (implemented producers). A finite `summary_flows` path is admitted only when:
+- **Direct base:** a synchronous function body returns its own parameter by raw identity, with no
+  crossed call or generator yield, citing the value fact, return syntax/region and recomposed
+  condition. The bounded kernel gives `established`, `conditional` or a named `unknown`; a false
+  condition yields nothing.
+- **Modeled call:** an exact whole-expression call of `typing.cast` or `typing.assert_type` whose
+  sole source target is closed, both modalities definite, the target asserts `normal_return`, the
+  callee is one resolved simple name, and every explicit argument has ordered normal-evaluation
+  evidence. The call span must equal the whole value sink span (an outer operator or fallback
+  cannot borrow the call). The candidate condition must be satisfiable and imply the direct return
+  region.
+- **Assignment then return:** the same model-call proof on a whole assignment value, then a
+  returned use with exactly one reaching definition whose bounded compatibility is proved and
+  whose condition implies the reaching, successor and return-region conditions.
+- **Local wrapper:** an acyclic synchronous wrapper inherits an **unconditional** value summary of
+  its sole definite local target when ty's one-call value path, Ruff's exact one-positional-argument
+  syntax, lexical callee resolution, Pass B's single formal mapping, a closed target set and a
+  direct return exit agree, along a callee-first schedule capped at depth 8. Conditional callee
+  paths are withheld (cross-scope atom substitution is unproved).
 
-**Proposed call-result join (ADR-0028, 2026-09-25):** summaries read a validated,
-ordered `flow_values` call path through `value_flow_contributions`, then join each local step to one exact pinned call target and
-modeled argument/result pair. The path carries operand role and direct-value span; a
-`through_call` flag or shared text alone cannot discharge `call_transfer`. Missing,
-ambiguous, computed or budget-cut steps write a boundary. This bridge precedes SCC
-composition and negative claims.
+Supporting candidate relations: `modeled_exact_value_transfers` (a raw return or definition value
+joined to one exact model step), `value_flow_predecessor_candidates` (a successor use joined to a
+cited reaching definition and earlier raw fact) and `value_flow_predecessor_compatibility`
+(tri-state: false refutes this candidate under the declared atoms, true admits a may-path, and
+loop-carried, missing or capped roots are unknown, a cap staying `budget_reached`). None of them
+chooses a reaching definition or proves completion.
 
-**Implemented and Tested in focused cases (ADR-0028, 2026-09-25, direct
-transfer candidate):** `modeled_exact_value_transfers` joins a raw return or definition-value
-fact and its unmerged parameter contribution to exactly one ordered call step,
-its uniquely bound Ruff argument, and a pinned model whose argument input and
-call-result output cite those same nodes. The call span must equal the full
-value sink span, excluding an enclosing computation or fallback.
-The upstream transfer must be
-identity and the source parameter must belong to the sink's callable.
-The row retains sink kind/span, condition, raw-fact approximation, target/model
-modality and open dispatch. An assigned intermediate's exact model-call value
-step is retained; nested calls and outer computations have no exact step. The
-predecessor chain still needs compatibility and completion proof. Shared
-publication validation reconstructs the relation and rejects dropped rows.
-This is a candidate source-to-value
-path, not proof that the call completes or a `summary_flows` verdict.
-The relation began as return-only in output version 47 and includes definition
-values in output version 52; integrated Stage 3 testing is `not_run`.
-**Implemented and Tested in focused cases (2026-09-25):** the exact
-call/sink-span equality closes the one-call outer-expression gap; output
-version 50. An outer Boolean fallback remains outside this direct bridge.
+**Coverage.** `summary_boundaries` records every same-callable parameter-origin raw return path
+without an admitted proof: `call_transfer` when a call is crossed, `unsupported_control_flow`
+otherwise. A boundary for a raw fact and condition is suppressed only when that key has exactly
+one contribution and it was proved; a positive may-path never covers a distinct unproved sibling.
+Boundaries are coverage, not refutations.
 
-**Implemented and Tested in focused cases (2026-09-25, argument-evaluation boundary):**
-`modeled_argument_evaluations` records every explicit argument of each exact one-call model
-candidate in source ordinal order. The selected source operand cites its raw candidate value
-fact and exact argument role. A direct Ruff string, bytes, number, Boolean, `None` or ellipsis
-literal sibling cites its syntax fact and has a local normal-evaluation witness. An exact
-unshadowed builtin-name sibling cites lexical resolution as its normal-evaluation witness.
-An unpacked, dynamic, shadowed or otherwise unproved sibling has an explicit
-`outside_provider_model` boundary and no evaluation witness. These rows do not yet prove the callee expression, source call completion or
-enclosing exit. The shared validator reconstructs them, including the candidate-specific source
-role; output version 60 and integrated Stage 3 testing remains `not_run`.
+**Proof identity.** `summary_flows` keys on a canonical `summary_id` hashing callable, formal,
+input/output paths, transfer kind, condition, return site/region and the ordered typed proof
+`(step kind, evidence id, step condition)`. `summary_flow_steps` stores the steps (codebook
+`summary_flow_step_kind`, append-only: raw identity, callee resolution, argument evaluation, call
+target, model rule, return exit, call site, reaching definition, return source, callee summary,
+finalizer pass). Equal endpoints with different evidence or order get different ids, so parallel
+paths stay distinct and explain themselves through source facts; a callee summary is cited by id.
+A new step kind needs its checked source relation, deterministic encoding, publisher, shared
+reconstruction and native admission before it creates positives. If a rule ever needs a
+multi-parent proof, that is a new decision, not parents smuggled into text.
 
-**Implemented and Tested in focused cases (ADR-0028, 2026-09-25, predecessor
-candidate):** `value_flow_predecessor_candidates` joins an inherited-call
-contribution's use to a cited provider reaching definition, its value span,
-and a raw predecessor value fact with the same parameter origin and sink
-callable. Each edge retains the reaching condition, the separately recomposed
-predecessor/successor conditions, loop-carried and approximation flags, and
-whether the predecessor's call crossing is local or inherited. Assignment
-followed by return has a candidate edge; a nested call in one expression does
-not acquire an invented predecessor. The shared validator reconstructs the
-relation and rejects missing rows. This edge does not establish condition
-compatibility, uniqueness, transfer or completion. Recomposed analysis
-condition ids may lack rows in provider `conditions`; L3 must persist their
-structural BDD roots before composing them. `COMPILER_OUTPUT_VERSION` was 48
-for this candidate relation; integrated Stage 3 testing is `not_run`.
+**Predecessors.** A true return region does not prove that an earlier call returned. The direct
+producer ignores an earlier same-function call only when the call's narrowest ty statement region
+and the return-value condition are both present, the call region is not approximated, and their
+bounded conjunction is **false**; every other earlier call withholds the direct proof. This is path
+incompatibility, not completion, and it is an **interim screen**. The target (plan order 1)
+distinguishes, for each argument and preceding statement on a proposed path, an evaluated direct
+value, a cited normal outcome, a possible raise and an unresolved expression, preserving
+evaluation order (a modeled target's normal return starts after its arguments). Recursive SCC
+members are withheld by the modeled and assignment producers; missing, approximate or capped
+evidence stays an explicit unknown. No generic `return x` positive after an unproved call.
 
-**Implemented and Tested in focused cases (ADR-0032, 2026-09-25):**
-the flow analysis's recomposed condition ids now have a separate,
-content-addressed root/node catalog (`analysis_conditions`,
-`analysis_condition_nodes`). The producer serializes the existing BDD objects;
-publication reconstructs every row and uses the same `hydrate_catalog`
-structural checks as the provider and native loader. `modeled_exact_value_transfers`
-and `value_flow_predecessor_candidates` reference this catalog for recomposed
-conditions, while a raw reaching condition still references provider
-`conditions`. This closes the cited persistence prerequisite, not condition
-compatibility or summary completion. `COMPILER_OUTPUT_VERSION` is 49;
-integrated Stage 3 testing remains `not_run`.
+**Schedule and recursion.** `summary_components` records every release function's SCC, sorted
+members, canonical component id and a callee-first schedule over attributed local call targets;
+petgraph 0.8.3's `tarjan_scc` computes components and a sorted condensation worklist makes ties
+independent of row order. A self-call marks a singleton recursive. Candidate/open dispatch
+contributes topology only.
 
-**Implemented and Tested in focused cases (2026-09-25, bounded predecessor
-compatibility):** `lctx_analytics::summaries` hydrates the provider and
-flow-analysis BDD catalogs through the shared structural validator, then
-conjoins the predecessor, reaching and successor roots for each cited
-`value_flow_predecessor_candidates` edge. It writes a tri-state
-`value_flow_predecessor_compatibility` row: false refutes this source-path
-candidate under the declared atoms, true admits a may-compatible path, and
-loop-carried, missing or capped roots carry an explicit unknown boundary.
-An input catalog boundary that names a cap remains `budget_reached`; it is
-not relabelled as missing evidence.
-The compatibility check does not choose a reaching definition or prove the
-modeled call's transfer or completion. Publication reconstructs every row.
-`COMPILER_OUTPUT_VERSION` is 51; integrated Stage 3 testing is `not_run`.
+**Known gaps** ([plan W5, W7, W12, W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+- W5 (ARC-02): summary policy acquires its own session, so the finite composition cannot run or
+  be tested without extraction/Delta setup. The intended contract: `cpg-core` prepares relations
+  and the analytics owner exposes composition over explicit inputs and outcomes.
+- W5 (ARC-03): refusal causes are discarded and later inferred generically from an absent flow (a
+  depth refusal currently shows as `call_transfer`). The producer should own typed
+  admitted/refused outcomes that publication preserves; any codebook change is append-only.
+- W7: the flow model's cyclic reach, a summary input, is not yet a fixed point (§3.9).
+- W12: the engine for bounded SCC composition (a native SCC worklist, Ascent or datafrog) is an
+  open comparison on one semantic state and refusal contract, after W5; none is adopted. A
+  wall-clock timeout is not a deterministic budget.
+- W13: whether the recursive `tarjan_scc` routine is stack-safe on large call graphs is open, and
+  the SCC routine and ownership are unresolved; the keyed ordering stays bespoke.
 
-**Implemented and Tested in focused cases (2026-09-25, two-step model path):**
-`modeled_assignment_return_paths` joins an exact whole-assignment modeled
-value step to a later raw identity return via one cited reaching definition.
-It keeps every separate candidate and its bounded BDD compatibility result,
-three condition ids, approximations, model provenance and open target status.
-A computed outer return cannot take this route. A true compatibility result
-admits only a may-path; call completion, handler/finally action and complete
-candidate selection still need L3. Publication reconstructs the relation.
-`COMPILER_OUTPUT_VERSION` is 53; integrated Stage 3 testing remains `not_run`.
+## Native serving boundary
 
-**Implemented and Tested in focused cases (2026-09-25, finite summary base):**
-`summary_flows` begins with a narrow synchronous direct-body identity return
-of a local parameter, with no crossed call or generator yield. Each row cites
-its raw value fact, return syntax/region facts and recomposed structural BDD
-condition. The shared bounded kernel gives `established`, `conditional`, or a
-named `unknown`; a false condition yields no positive flow. Async returns,
-generators, unproved nested frames and modeled-call candidates are withheld until L2/L3
-proves their execution and completion semantics. Shared publication validation
-reconstructs the rows. The `summary_flow_kind` codebook was appended and
-`COMPILER_OUTPUT_VERSION` is 54. Effect summaries, SCC composition and
-integrated Stage 3 testing remain open.
+A FORMAT 7 generation carries the structural condition catalogs, summaries, proof steps and
+boundaries, validated before the native executor (`python/lctx_semantics`, one immutable PyO3
+executor per process) admits them; the Python layer validates requests and shapes results. The
+current endpoint `inspect_value_paths` pages one formal's finite paths and open boundaries: each
+exact-input result is **path-local inspection, never an operation-wide verdict**. **Implemented;
+Tested in focused cases (2026-09-25).** Serve-time semantic selection is ADR-0025, which is
+proposed ([§11.3](synthesis-and-serving.md#section-11-3)).
 
-**Implemented and Tested in focused cases (2026-09-25, summary coverage):**
-`summary_boundaries` records each same-callable parameter-origin raw return
-path outside the finite direct summary producer. A crossed call retains
-`call_transfer`; other unproved control/execution shapes retain
-`unsupported_control_flow`. A positive contribution does not hide a separate
-unproved contribution to the same fact. Each row cites the raw value fact and
-condition id, and shared publication validation reconstructs it. This is
-unknown coverage rather than a negative verdict. `COMPILER_OUTPUT_VERSION` is
-55; full L3 closure and integrated Stage 3 testing remain open.
+- **Known defect** ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), ARC-01):
+  the native loader re-whitelists proof-step kinds and decodes positional string tuples, so a
+  generation with the compiler's `finalizer_pass` step is rejected, and every new kind or column
+  must be edited on both sides. The intended contract derives admission from the schema codebook
+  with one owned typed projection decoder; transport (Arrow IPC or other) is chosen by total
+  conversion cost.
+- **Target** (Proposed; plan order 9): typed operation-wide compatibility, effect and role
+  filters. A request names a real public operation and formal and a typed primitive predicate; the
+  operation/formal and exact primitive origin are resolved before any BDD evaluation; missing
+  proof is `unknown` even if raw atoms happen to be compatible; row, node, pair-work and depth
+  bounds are checked before allocation and return explicit `unknown`/`truncated` with work
+  accounting.
 
-**Implemented and Tested in a targeted sibling-origin case (2026-09-25):** the finite producer
-now suppresses a boundary for a proved raw fact/condition only when that key has exactly one
-same-callable parameter-origin contribution. A second contribution sharing the raw fact and
-condition keeps an aggregate boundary even if one summary is positive; the current boundary
-key cannot identify which sibling was proved. This conservative rule makes the earlier coverage
-claim true without treating a positive may-path as exhaustive. The shared validator uses the
-same derivation. Compiler output version 67; full path-specific origin closure remains open.
+## The capability registry
 
-**Implemented and Tested in focused cases (ADR-0034, 2026-09-25, summary proof identity):**
-`summary_flows` now keys on a canonical path id computed from callable, formal, input/output
-paths, transfer kind, condition, return site/region and ordered typed evidence. `summary_flow_steps` stores the first
-`raw_identity` witness citing its source `flow_values` fact and BDD condition. A pair of paths
-with equal endpoints but different evidence or order gets different ids. The publication
-validator reconstructs both tables; an omitted step is rejected. This changes the identity
-contract under compiler output version 58, without promoting a modeled call to a completed
-flow. The integrated gate remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, first modeled return):**
-An exact whole-expression `typing.cast` or `typing.assert_type` identity call can now seed a
-finite `summary_flows` value path when its sole source target is closed, both target and model
-modalities are definite, the pinned target asserts normal return, its callee is one resolved
-simple name, and every explicit argument has ordered local normal-evaluation evidence. The
-candidate BDD must be satisfiable and imply the direct synchronous return's region BDD;
-generator functions and unresolved control frames remain excluded. Typed steps cite callee
-resolution, argument evaluations, call syntax and target, the model rule, and return exit.
-The canonical summary id includes this ordered proof, which the shared validator rebuilds.
-`summary_boundaries` remains for return facts without an admitted path. This narrow positive
-producer does not establish assignment predecessors, broader call compositions, exception or
-effect fates. Compiler output version 61; integrated Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, assignment return):**
-The same completed model-call proof now admits a two-hop assignment-to-return identity path
-only when the returned use has one reaching-definition row, the provider predecessor is
-compatible, and its BDD condition implies the reaching, successor-value and direct return
-region conditions. Ordered steps cite the source call, model, unique definition edge and
-returned value; a different predecessor changes the summary id. Unproved siblings retain a
-named boundary. This is not recursive composition or general assignment transfer. Compiler
-output version 62; integrated Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, source-call SCC topology):**
-`summary_components` records every release function's SCC, sorted members, canonical
-component id and deterministic callee-first schedule over attributed local call targets.
-Petgraph 0.8.3 computes the SCCs; a sorted condensation worklist makes ties independent of
-provider row order. A self-call marks a singleton recursive. Candidate/open dispatch contributes
-topology only, not a completed transfer or negative coverage claim. The shared validator
-reconstructs the rows from source calls. Compiler output version 63; composition, discharge
-and integrated Stage 3 testing remain open.
-
-**Implemented and Tested in focused cases (2026-09-25, first local composition):**
-An acyclic synchronous wrapper can inherit an unconditional value summary of its sole
-definite local target when ty's one-call value path, Ruff's exact one-positional-argument
-syntax, lexical callee resolution, Pass B's single formal mapping, closed source target set
-and direct return exit all agree. The caller condition must imply its return region; the
-callee condition must be true, avoiding unproved cross-scope atom substitution. The proof
-steps cite the callee summary id, so parallel callee paths stay distinct. A callee-first SCC
-schedule propagates these finite paths to later acyclic callers with depth capped at eight.
-Recursive and conditional callee paths remain unknown, and a depth refusal currently retains
-the generic `call_transfer` boundary pending a specific budget row. Compiler output version
-64; full SCC composition, effect summaries and integrated Stage 3 testing remain open.
-
-**Implemented and Tested in focused predecessor-control cases (2026-09-25):** version 71
-withheld all positive finite paths for recursive SCC members after an unconditional self-call
-exposed an unproved predecessor completion. Version 72 added an earlier same-function call
-screen, admitting a base return before recursion. Version 73 (ADR-0039) refines it with ty
-statement regions: DataFusion selects each call's narrowest enclosing region, then the bounded
-BDD kernel ignores an earlier call only if that region and the return-value condition have
-a proved false conjunction. Missing, approximate or over-budget conditions retain an
-explicit `summary_boundaries` unknown. An `else` return disjoint from an earlier `if` call
-now has a finite may-path; an unconditional recursive or nonrecursive prior call remains
-unknown. This is still not a normal-completion proof for a compatible call or non-call
-predecessor. The modeled and assignment producers withhold recursive members; the local-call
-producer already did so. Full predecessor execution and SCC worklist remain open, as does
-integrated acceptance.
-
-> Decision: ADR-0039
-
-**The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
-- **A concept** has:
-  - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
-    scope note and facets;
-  - a **definition**: a conjunctive query with shared variables over the `behavior` family and the
-    summaries, written as a Rust enum AST, compiled to DataFusion SQL and digested.
+**Proposed** (Stage 4). It lives in `cpg-schema` as TOML (`deny_unknown_fields`) compiled to Arrow.
+- **A concept** has an append-only id, a `prefLabel`, `altLabels` (each with its source),
+  `broader`/`related`, a scope note and facets, and a **definition**: a conjunctive query with
+  shared variables over the `behavior` family and the summaries, written as a Rust enum AST,
+  compiled to DataFusion SQL and digested. Definitions over conditions use the kernel's
+  compatibility and implication.
 - **`concept_members`** is materialized: concept, operation, role bindings, condition, verdict,
-  witness.
-- **Rules:**
-  - every member cites a definition digest and a witness;
-  - SKOS integrity: `broader` acyclic (a recursive CTE); `related`
-    disjoint from the `broader` closure.
-- **Discovery nominates, definitions decide.** FCA over behavioral attributes suggests facets;
-  vectors per view rank. Communities have no tool consumer (§9.8). None of them writes
-  `concept_members`.
+  witness. Every member cites a definition digest and a witness.
+- **Integrity:** `broader` is acyclic (a recursive CTE); `related` is disjoint from the `broader`
+  closure.
+- **Discovery nominates, definitions decide.** FCA over behavioral attributes suggests facets and
+  vectors rank per view; communities have no tool consumer
+  ([§9.8](analytics.md#section-9-8)). None of them writes `concept_members`.
 - **`lookup_concepts`** returns every concept with its labels and scope notes while the catalog is
-  small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
-  F14).
+  small (20–40 authored); ranked lookup waits until it outgrows one page. **`explain`** returns the
+  stored witness chain.
 
-> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0032, ADR-0033, ADR-0034
+> Decision: ADR-0045, ADR-0024, ADR-0028
 
 ---

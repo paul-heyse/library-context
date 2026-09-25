@@ -7,8 +7,8 @@ through a FastMCP server with two tools, `search_capabilities` and `get_capabili
 
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
-  in-process over one parse (ADR-0012). The one exception is the flow facts: `cpg-flow` reads ty's
-  semantic index over a second parse, joined by byte range (ADR-0012 amendment, ADR-0022). The
+  in-process over one parse (ADR-0046). The one exception is the flow facts: `cpg-flow` reads ty's
+  semantic index over a second parse, joined by byte range (ADR-0046, ADR-0045). The
   Pyrefly CLI is only a parity-test oracle.
 - **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
   Delta stores them.
@@ -16,7 +16,7 @@ The pieces:
 - **Briefs:** assertions are synthesized **programmatically**. There is no LLM in v1.
 
 The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, is a pinned uv
-project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0013); the project's own
+project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0046); the project's own
 environment is never an analysis input.
 
 This is a personal project with one operator. Process is deliberately light (ADR-0026). Keep
@@ -28,8 +28,9 @@ real consumer.
 1. Read `STATUS.md`: where we are and what's next.
 2. For design questions, start at `docs/design/README.md`, then read the relevant owner in
    `docs/design/DESIGN.md` or `docs/design/sections/` and adjacent consumers. Read
-   `docs/adr/README.md` for current rationale and open choices. `docs/initial_plan/Initial_plan.md` is
-   the research input; don't edit it.
+   `docs/adr/README.md` for current rationale and open choices. Retired plans, reviews and the
+   original research input are recovered from Git (`docs/README.md`, Historical recovery), never
+   read by default.
 
 ## Where things are
 
@@ -42,11 +43,10 @@ real consumer.
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
 | `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0014); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0012) |
-| `docs/initial_plan/` | Research input (don't edit it) and `DISPOSITION.md`, which maps each input section to where it landed |
-| `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0013). Environments go to `build/envs/` (gitignored) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0047); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
+| `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
-| `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0012, `docs/pins.md`) |
+| `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0046, `docs/pins.md`) |
 | `scripts/` | `adr.py`, `check_family.py`, `check_agents.py`, and the format hook |
 | `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
 

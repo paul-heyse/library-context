@@ -1,10 +1,10 @@
 ---
 id: ADR-0031
 title: Prove only bounded modeled-exception paths through handlers
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§9.9]
 evidence: Tested
 revisit: A nested handler, context manager, or finalizer can be composed with equally cited exit evidence under a bounded path budget, or the Stage 3 pilot shows the direct-only rule misses a registered handler question.

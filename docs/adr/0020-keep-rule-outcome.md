@@ -12,14 +12,14 @@ revisit: The increment-5 held-out evaluation, which is §9.8's unbiased check, a
 
 ## Context
 
-§9.8's **keep rule** (DESIGN; ADR-0011; pre-registered in ADR-0010's amendment, D19) keeps a
+§9.8's **keep rule** (DESIGN; ADR-0005; pre-registered before any ablation score) keeps a
 technique only if it **changes published output and improves the development metric §12(b),
 hit@5 of `search_capabilities` on the gold task aliases, without lowering §12(a) or §12(c)**.
 Otherwise the technique is removed by ADR. The gold used this way is a development set; the
 increment-5 held-out evaluation is the unbiased check.
 
-**Slice 3.3 ran the ablation** (2026-09-23; deviation log D42, D43). Every variant was compiled
-at the pilot's budget of 20 briefs (ADR-0004's amendment) with live vectors: Qwen3-Embedding-8B
+**The ablation ran on 2026-09-23.** Every variant was compiled
+at the pilot's budget of 20 briefs with live vectors: Qwen3-Embedding-8B
 from `just embed-serve`, and E0 and documents through the cache. Each was scored by
 `scripts/score_gold.py --embedder vllm` and diffed against the default by `lctx diff`. Scoring is
 deterministic: two rescorings of the default were identical. Hits are counted over all 44 gold
@@ -45,7 +45,7 @@ Per technique:
   fewer. It also recalls one more gold span, and hit@1 rises from 7 to 9.
 - **FCA** (shared signatures, implications) and **kNN** (doc links, community labels): they change
   14 and 20 briefs, but hit@5 does not move. **Not kept.** By construction, neither enters the
-  retrieval document or selection (U2 and D14 keep their text out of the document), so (b) cannot
+  retrieval document or selection (their text is kept out of the retrieval document), so (b) cannot
   see them.
 - **Variants off by default:** none improves hit@5. PageRank and the kNN layer lower it, and RCA
   and the mention layer leave it unchanged. The type layer leaves it unchanged (hit@1 8) and raises
@@ -96,21 +96,21 @@ margin, and none is added after the fact: that would tune the rule on the scores
 - Seed selection has no diversity device. Its order is direct usage alone, which on the pilot
   concentrates the 15 added seeds on the server surface. A later technique that restores
   diversity must pass the same rule.
-- ADR-0011's decisions stand as the variants' methods. This record decides only what runs by
-  default. ADR-0011's revisit trigger ("a technique's ablation changes no published output after
-  increment 3") did not fire: every technique changed published output. The keep rule's metric
+- ADR-0044's algorithm decisions stand as the variants' methods. This record decides only what
+  runs by default. The earlier algorithm record's trigger ("a technique's ablation changes no
+  published output after increment 3") did not fire: every technique changed published output. The keep rule's metric
   clause decided.
 
 ## Amendments
 
-- 2026-09-24, ADR-0021 (the behavioral-model plan; decision D-8):
+- 2026-09-24, ADR-0021 (the behavioral model):
   - **Brief retrieval no longer decides.** The keep rule judged techniques by brief retrieval
     (§12(b)). Under ADR-0021 a technique is judged by its consumer in the served model, through
     the pre-registered behavioral question sets.
   - **This record stands as the brief default's decision.**
-  - **The holistic plan's planned deletion exit is paused.** Its Phase 4 re-registration would have
-    deleted a technique that fails the rule. Communities, FCA and kNN get new consumers (ADR-0011's
-    amendment), so they stay as variants.
+  - **The planned deletion exit is paused.** A technique failing the rule would have been deleted.
+    Communities, FCA and kNN instead stay as variants until a stage gives them a tool consumer
+    (ADR-0021's criterion; the forward plan defers this decision to Stage 4).
   - The record stays `proposed` until those consumers are evaluated.
-- 2026-09-24, the ADR set's standard review (F4): the criterion that replaces this rule, and its
+- 2026-09-24: the criterion that replaces this rule, and its
   exit, are ADR-0021's. A variant is judged at the stage that introduces its tool consumer.

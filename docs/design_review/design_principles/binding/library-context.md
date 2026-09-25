@@ -39,9 +39,7 @@ version semantics; FP-01–FP-06 and A1–A3 supply the architecture structure.
   - `compact`, `standard`, `deep` in historical records describe effort. The odd/even increment
     schedule is retired. A local pass never certifies the enclosing architecture.
 - **Authority:** the architectural collection is authoritative, so a divergence from an implemented claim is a code defect
-  or a stale DESIGN section; distinguish both from an accepted target still awaiting implementation. `docs/initial_plan/Initial_plan.md` is
-  research input: the collection may depart from it when its owner section or an ADR says so, and an
-  unrecorded departure is a finding.
+  or a stale DESIGN section; distinguish both from an accepted target still awaiting implementation.
 - **Outcomes and labels:** check outcomes are `passed`/`failed`/`blocked`/`not_run` with the
   command (AGENTS.md *Reporting*); historical test receipts keep their original date and scope
   and are not fresh runs; a mocked provider is never a pass; outcomes are never turned into a percentage.
@@ -164,11 +162,11 @@ An action uses the existing route appropriate to it:
 
 Review quality is established by scenario reasoning and calibration, not by a new checker.
 
-## 5. The operator's graph guidelines, mapped to the design
+## 5. The code-intelligence graph rules, mapped to the design
 
-The guidelines' domain rules now live in the code-intelligence profile (lineage in §8). This
+The operator's graph guidelines now live in the code-intelligence profile (lineage in §8). This
 table keeps the mechanism that meets each rule in this repository and the checks already in
-place (ADR-0014).
+place (ADR-0047).
 
 | Profile | Guideline rule | Mechanism | DESIGN | Checks in place |
 |---|---|---|---|---|
@@ -180,7 +178,7 @@ place (ADR-0014).
 | CI-08, CI-04 | §7 no eager closures or path enumeration; partial is not complete | the catalogs hold direct relations only; coverage, boundaries, external and synthetic nodes and `graph_gaps` state where the graph stops | §3.7, §3.8 | review question 13; `partition:pysa_calls-remainders` (the gaps partition is an edit guard over an empty table, §8) |
 | CI-06, CI-09 | §8 exact, conservative and heuristic results stay apart; method, parameters, seed, convergence recorded or reported unavailable | `FINDING_STATUS` per finding kind; `analysis_invocations` records seed, iterations, residual, convergence and quality history, null meaning unavailable | §9 | `semantic:finding-status-policy` |
 | CI-07 | §9 an explicit DataFusion ↔ graph boundary | projection SQL on the attempt's session, cast to declared schemas, then `lctx-analytics` (Arrow in, Arrow out; no DataFusion or Delta), rows written back through the attempt | §4.1, §5 | `lctx-analytics` tests run with no store |
-| CI-01, DP-21 | §10 results carry run and projection lineage and evidence | `analysis_invocations` (method, parameters JSON, projection digest, library versions, diagnostics), `findings`, `finding_members`, `witnesses` with `edge_id` lineage; provenance in-row (ADR-0019) | §3.2, §9 | `semantic:invocation-model-producer`, `semantic:witness-chain`, `semantic:finding-status-policy`, `semantic:invocation-run-is-compiler`, each with an injected case |
+| CI-01, DP-21 | §10 results carry run and projection lineage and evidence | `analysis_invocations` (method, parameters JSON, projection digest, library versions, diagnostics), `findings`, `finding_members`, `witnesses` with `edge_id` lineage; provenance in-row (ADR-0047) | §3.2, §9 | `semantic:invocation-model-producer`, `semantic:witness-chain`, `semantic:finding-status-policy`, `semantic:invocation-run-is-compiler`, each with an injected case |
 | DP-19 | §11 Delta read through a pinned snapshot; a manifest after validation; retention for files live snapshots need | `snapshots` append; pinned `with_version` reads with a `snapshot_id` filter; cleanup off, retention verified at open. An attempt holds one run per release (the library, its corpus); what both assert is one node | §3.4, §6.1, §6.2 | the reader tests; the retention test; `unique:release-paths`, `unique:type_terms` |
 | DP-23, DP-22 | §12 known-answer shapes (isolates, parallel edges, self-loops, reconvergence, cross-file cycles, unresolved, mixed configuration); lineage; per-stage instrumentation | the `graph_shapes`, `syntax_shapes`, `lexical_shapes`, `type_shapes` and `docs_shapes` fixtures; generated lineage rules; `lctx compile` stage metrics, with validation's slowest rules | §3.8, §4.3 | insta catalog snapshots; `just pilot` and the C6 measurement, with its allocator setting stated (§4.3) |
 
@@ -242,6 +240,9 @@ to reach for where doubt remains.
 | K3 | Principle IDs `DP-nn`, `CI-nn`; labels in principles §D | Accepted ADRs, DESIGN history and earlier reviews cite `DM-nn`, charter §D, ADDENDUM §n and guidelines §n | Read through core principles §I and §8 below; accepted records are not edited |
 
 ## 8. Lineage
+
+The superseded sources below are retired from the tree (recover them from Git); the table lets
+readers translate ids cited by older material.
 
 | Superseded source | Now |
 |---|---|

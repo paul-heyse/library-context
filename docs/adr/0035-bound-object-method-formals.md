@@ -1,10 +1,10 @@
 ---
 id: ADR-0035
 title: Bind pinned object-method formals with cited implicit receivers
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§9.9]
 evidence: Tested
 revisit: A bound-method fixture maps the wrong positional formal, a class receiver needs the same contract, or the pinned Pysa receiver code no longer distinguishes object receivers.

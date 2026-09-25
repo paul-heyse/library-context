@@ -1,10 +1,10 @@
 ---
 id: ADR-0037
 title: Discharge an ordered chain of literal pass finalizers on a pending return
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: [ADR-0036]
-superseded-by: null
+superseded-by: [ADR-0045]
 design: [§9.9]
 evidence: Tested
 revisit: A pinned CPython counterexample changes a pending return through pass-only finalizers, or a composed proof needs a non-linear exit witness.
