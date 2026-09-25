@@ -526,6 +526,46 @@ table!(
 );
 
 table!(
+    /// One candidate modeled raise has a conditional path through the first matching handler
+    /// of a direct `try` to its sole `return None`. There is no intervening `try`/`with` and
+    /// the frame has no `finally`. The modeled call/raise and target remain candidates; this
+    /// is not an operation-level catch, absence-of-escape, or completed-effect verdict.
+    ModeledExceptionReturnNonePaths, ModeledExceptionReturnNonePathsRow = "modeled_exception_return_none_paths",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [("nonnegative_depth", "frame_depth >= 0")],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        pysa_fact_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        call_fact_id: Id,
+        source_syntax_fact_id: Id,
+        raised_class_node_id: Id,
+        raised_class_fact_id: Id,
+        try_node_id: Id,
+        handler_node_id: Id,
+        handler_fact_id: Id,
+        handler_ordinal: i64,
+        frame_depth: i64,
+        class_match: ModeledHandlerClassMatch,
+        class_mro_fact_id: Option<Id>,
+        return_node_id: Id,
+        return_fact_id: Id,
+        none_node_id: Id,
+        none_fact_id: Id,
+        handler_region_fact_id: Id,
+        handler_condition_id: Id,
+        handler_region_approximated: bool,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
+    }
+);
+
+table!(
     /// An authored model bound to a definition in the pinned analysis context. This is a target
     /// proof, not yet an applied transfer or effect summary. Overloads have distinct target nodes.
     ModelTargets, ModelTargetsRow = "model_targets",
@@ -1786,6 +1826,51 @@ crate::relations! {
             value = crate::codebook::SyntaxField::Value.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             none_kind = SyntaxKind::ExprNoneLiteral.code(),
+        );
+
+    /// Compose one exact local candidate path only. A complete ancestry walk is required;
+    /// an inner `try`/`with` or an outer/finally controller is withheld rather than assumed
+    /// to propagate or preserve the handler's return. The target/model modalities remain
+    /// in the result, so this relation cannot itself become a definite operation verdict.
+    modeled_exception_return_none_paths = "behavior:modeled_exception_return_none_paths",
+        deps = ["modeled_exception_handler_candidates", "modeled_exception_handler_walks", "handler_return_none_sites", "modeled_exception_sites", "syntax_nodes"],
+        sql = format!(
+            "{climb} SELECT c.snapshot_id, c.call_site_node_id, c.pysa_fact_id, c.model_id, \
+                    c.rule_id, c.call_fact_id, w.source_syntax_fact_id, \
+                    c.raised_class_node_id, c.raised_class_fact_id, c.try_node_id, \
+                    c.handler_node_id, c.handler_fact_id, c.handler_ordinal, c.frame_depth, \
+                    c.class_match, c.class_mro_fact_id, r.return_node_id, r.return_fact_id, \
+                    r.none_node_id, r.none_fact_id, r.region_fact_id AS handler_region_fact_id, \
+                    r.condition_id AS handler_condition_id, \
+                    r.approximated AS handler_region_approximated, e.target_modality, \
+                    e.model_modality, e.candidate_set_complete_under_model, \
+                    e.has_unresolved_remainder \
+             FROM modeled_exception_handler_candidates c \
+             JOIN modeled_exception_handler_walks w \
+               ON w.call_site_node_id = c.call_site_node_id \
+              AND w.pysa_fact_id = c.pysa_fact_id AND w.model_id = c.model_id \
+              AND w.rule_id = c.rule_id AND w.reason IS NULL \
+             JOIN modeled_exception_sites e \
+               ON e.call_site_node_id = c.call_site_node_id \
+              AND e.pysa_fact_id = c.pysa_fact_id AND e.model_id = c.model_id \
+              AND e.rule_id = c.rule_id \
+             JOIN handler_return_none_sites r ON r.handler_node_id = c.handler_node_id \
+             JOIN syntax_nodes t ON t.node_id = c.try_node_id \
+               AND t.parent_node_id = e.function_node_id AND t.field = {body} \
+             WHERE c.frame_first_match_if_raised \
+               AND NOT EXISTS (SELECT 1 FROM syntax_nodes f \
+                 WHERE f.parent_node_id = c.try_node_id AND f.field = {finalbody}) \
+               AND NOT EXISTS (SELECT 1 FROM climb b \
+                 JOIN syntax_nodes s ON s.node_id = b.node_id \
+                 WHERE b.call_site_node_id = c.call_site_node_id \
+                   AND b.pysa_fact_id = c.pysa_fact_id AND b.model_id = c.model_id \
+                   AND b.rule_id = c.rule_id AND b.depth <= c.frame_depth \
+                   AND s.kind IN ({try_kind}, {with_kind}))",
+            climb = modeled_handler_climb_sql(),
+            body = crate::codebook::SyntaxField::Body.code(),
+            finalbody = crate::codebook::SyntaxField::Finalbody.code(),
+            try_kind = SyntaxKind::StmtTry.code(),
+            with_kind = SyntaxKind::StmtWith.code(),
         );
 
     /// Source-observed explicit exits and finally-body actions with ty's statement region.

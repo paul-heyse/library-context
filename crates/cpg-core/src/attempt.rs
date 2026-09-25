@@ -68,7 +68,8 @@ pub struct Published {
 /// 43: name the sink callable separately from a captured source parameter's owner.
 /// 44: preserve the upstream transfer before each raw value fact's local call path.
 /// 45: direct, pre-finally return-None witnesses for handler bodies.
-pub const COMPILER_OUTPUT_VERSION: u32 = 45;
+/// 46: candidate modeled raises compose through a direct first handler to a return-None path.
+pub const COMPILER_OUTPUT_VERSION: u32 = 46;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -753,7 +754,8 @@ async fn finish(
             AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
             HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
-            ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks, NegativePremises,
+            ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
+            ModeledExceptionReturnNonePaths, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
             RaiseSites, Singletons, ValueFlowContributions, ValueFlows,
         };
@@ -845,6 +847,20 @@ async fn finish(
             root,
             snapshot_id,
             &handler_return_none_sites,
+            w,
+        )
+        .await?;
+        let modeled_return_none_paths = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::modeled_exception_return_none_paths(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ModeledExceptionReturnNonePaths>(
+            &ctx,
+            root,
+            snapshot_id,
+            &modeled_return_none_paths,
             w,
         )
         .await?;

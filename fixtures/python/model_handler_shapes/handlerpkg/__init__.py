@@ -91,3 +91,20 @@ def two_action_handler(path):
     except OSError:
         marker = 1
         return None
+
+
+def with_intervening(path, manager):
+    try:
+        with manager:
+            return open(path)
+    except OSError:
+        return None
+
+
+def finalizer_changes_return(path):
+    try:
+        return open(path)
+    except OSError:
+        return None
+    finally:
+        return "override"

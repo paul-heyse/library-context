@@ -3205,6 +3205,21 @@ the handler, not a proof that the modeled exception selects it or that the
 operation completes normally. `COMPILER_OUTPUT_VERSION` is 45; integrated
 Stage 3 testing remains `not_run`.
 
+**Implemented and Tested in focused cases (ADR-0031, 2026-09-25):**
+`modeled_exception_return_none_paths` composes a modeled potential raise with
+the first provable matching clause of a direct function-body `try` and that
+handler's sole direct `return None`. A complete syntax-ancestor walk must show
+no inner `try` or `with`; the frame must have no `finally`. Each path retains
+the cited raise, class relationship, handler return and ty region, together
+with target/model modalities, open dispatch and approximation. This is a
+candidate-local path conditional on the modeled raise, not a completed
+operation-level catch or normal-return verdict. Nested frames, uncertain
+clause precedence, computed handler actions and finalizers remain unknown.
+Shared publication validation reconstructs the rows. `COMPILER_OUTPUT_VERSION`
+is 46; integrated Stage 3 tests remain `not_run`.
+
+> Decision: ADR-0031
+
 **Implemented and Tested in focused cases (2026-09-25, candidate handler frame):**
 `modeled_exception_handler_candidates` uses a bounded DataFusion recursive syntax-ancestor
 walk, stopping at an innermost-function boundary, to connect a modeled potential raise in a
@@ -3975,3 +3990,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Raw value-flow contributions now distinguish the sink callable from a captured parameter's source callable for L3 summary ownership (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Raw value-flow contributions retain the upstream transfer before the local fact; a later one-call summary may refuse inherited call uncertainty (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | A handler with one direct `return None` gets a source/region-cited, pre-finally witness; ty region approximation remains explicit and no catch/completion fate follows (§9.9) | — |
+| 2026-09-25 | A bounded direct `try` and sole `return None` handler yields only a candidate-local conditional modeled-exception path, with nested frames and finalizers withheld (§9.9) | ADR-0031 |

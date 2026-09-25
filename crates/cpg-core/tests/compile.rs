@@ -770,6 +770,31 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM modeled_exception_return_none_paths p \
+             JOIN syntax_nodes s ON s.node_id = p.call_site_node_id \
+             JOIN declarations d ON d.node_id = s.owner_node_id \
+             WHERE d.name = 'exact_handler' AND p.handler_region_approximated"
+        )
+        .await,
+        1,
+        "a modeled raise has a conditional path through the first exact handler to return None"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_exception_return_none_paths p \
+             JOIN syntax_nodes s ON s.node_id = p.call_site_node_id \
+             JOIN declarations d ON d.node_id = s.owner_node_id \
+             WHERE d.name IN ('unknown_first', 'nested_tries', 'computed_handler', \
+               'two_action_handler', 'with_intervening', 'finalizer_changes_return')"
+        )
+        .await,
+        0,
+        "unknown earlier clauses, inner frames, computed/multiple body actions, with and finally remain open"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM modeled_exception_handler_candidates c \
              JOIN syntax_nodes s ON s.node_id = c.call_site_node_id \
              JOIN declarations d ON d.node_id = s.owner_node_id \
@@ -899,6 +924,29 @@ budget = 1
     );
     ctx.deregister_table("handler_return_none_sites").unwrap();
     ctx.register_table("handler_return_none_sites", original_return_sites)
+        .unwrap();
+    let original_paths = sql::query(&ctx, "SELECT * FROM modeled_exception_return_none_paths")
+        .await
+        .unwrap()
+        .into_view();
+    let dropped_paths = sql::query(&ctx, "SELECT * FROM modeled_exception_return_none_paths WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("modeled_exception_return_none_paths")
+        .unwrap();
+    ctx.register_table("modeled_exception_return_none_paths", dropped_paths)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-exception-return-none-path-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_exception_return_none_paths")
+        .unwrap();
+    ctx.register_table("modeled_exception_return_none_paths", original_paths)
         .unwrap();
     let original_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions")
         .await

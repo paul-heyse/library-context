@@ -16,7 +16,8 @@ use cpg_schema::behavior::{
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
-    ModeledExceptionSitesRow, ModeledResourceSitesRow, ModeledTransferSitesRow,
+    ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
+    ModeledTransferSitesRow,
     ValueFlowContributionsRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
@@ -138,6 +139,9 @@ cpg_schema::relations! {
     stored_handler_return_none_sites = "validate_stored_handler_return_none_sites",
         deps = ["handler_return_none_sites"],
         sql = "SELECT * FROM handler_return_none_sites".to_owned();
+    stored_modeled_exception_return_none_paths = "validate_stored_modeled_exception_return_none_paths",
+        deps = ["modeled_exception_return_none_paths"],
+        sql = "SELECT * FROM modeled_exception_return_none_paths".to_owned();
     stored_value_flow_contributions = "validate_stored_value_flow_contributions",
         deps = ["value_flow_contributions"],
         sql = "SELECT * FROM value_flow_contributions".to_owned();
@@ -320,6 +324,23 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
     .await?;
     actual_returns.sort_by_key(|r| r.handler_node_id);
     expected_returns.sort_by_key(|r| r.handler_node_id);
+    let mut actual_return_paths: Vec<ModeledExceptionReturnNonePathsRow> = sql::fetch(
+        ctx,
+        &stored_modeled_exception_return_none_paths(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected_return_paths: Vec<ModeledExceptionReturnNonePathsRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_exception_return_none_paths(),
+        sql::Params::new(),
+    )
+    .await?;
+    let return_path_key = |r: &ModeledExceptionReturnNonePathsRow| {
+        (r.call_site_node_id, r.pysa_fact_id, r.model_id, r.rule_id)
+    };
+    actual_return_paths.sort_by_key(return_path_key);
+    expected_return_paths.sort_by_key(return_path_key);
     let mut violations = Vec::new();
     if actual_clauses != expected_clauses {
         violations.push(Violation {
@@ -351,6 +372,20 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
                 "stored {} direct return-None sites; derived {}",
                 actual_returns.len(),
                 expected_returns.len()
+            ),
+        });
+    }
+    if actual_return_paths != expected_return_paths {
+        violations.push(Violation {
+            rule: "modeled-exception-return-none-path-source-equality".to_owned(),
+            rows: actual_return_paths
+                .len()
+                .abs_diff(expected_return_paths.len())
+                .max(1),
+            sample: format!(
+                "stored {} conditional return paths; derived {}",
+                actual_return_paths.len(),
+                expected_return_paths.len()
             ),
         });
     }
