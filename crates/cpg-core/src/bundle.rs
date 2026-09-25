@@ -36,7 +36,7 @@ use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
     AssertionKind, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
     EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily, FindingKind, OperationFacet,
-    ReviewState, ScopeKind, SupportRole, Verdict,
+    ReviewState, ScopeKind, SummaryFlowKind, SummaryFlowStepKind, SupportRole, Verdict,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -47,7 +47,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 6;
+pub const FORMAT: u64 = 7;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -200,6 +200,37 @@ fn query(name: &str) -> Option<String> {
         "condition_nodes" => "SELECT node_id, atom, low_id, high_id FROM condition_nodes \
                               ORDER BY node_id"
             .to_owned(),
+        "analysis_conditions" => "SELECT condition_id, root_id, boundary_reason \
+                                  FROM analysis_conditions ORDER BY condition_id".to_owned(),
+        "analysis_condition_nodes" => "SELECT node_id, atom, low_id, high_id \
+                                       FROM analysis_condition_nodes ORDER BY node_id".to_owned(),
+        "operation_parameters" => "SELECT o.node_id AS operation_node_id, \
+                                   p.node_id AS formal_node_id, p.name \
+                                   FROM operations o JOIN parameter_syntax p \
+                                     ON p.function_node_id = o.node_id \
+                                   ORDER BY operation_node_id, formal_node_id".to_owned(),
+        "summary_flows" => format!(
+            "SELECT summary_id, function_node_id, parameter_node_id, input_path, output_path, \
+                    {kind} AS kind, condition_id, {verdict} AS verdict, \
+                    {reason} AS boundary_reason, source_flow_fact_id, return_site_fact_id, \
+                    return_region_fact_id, approximated, path_depth \
+             FROM summary_flows ORDER BY summary_id",
+            kind = text_of::<SummaryFlowKind>("kind"),
+            verdict = text_of::<Verdict>("verdict"),
+            reason = text_of::<BoundaryReason>("boundary_reason"),
+        ),
+        "summary_flow_steps" => format!(
+            "SELECT summary_id, ordinal, {kind} AS kind, evidence_id, condition_id \
+             FROM summary_flow_steps ORDER BY summary_id, ordinal",
+            kind = text_of::<SummaryFlowStepKind>("kind"),
+        ),
+        "summary_boundaries" => format!(
+            "SELECT function_node_id, parameter_node_id, source_flow_fact_id, condition_id, \
+                    {reason} AS reason, local_through_call, upstream_through_call, \
+                    raw_approximated FROM summary_boundaries \
+             ORDER BY function_node_id, parameter_node_id, source_flow_fact_id, condition_id",
+            reason = text_of::<BoundaryReason>("reason"),
+        ),
         "singletons" => "SELECT global, class_node_id FROM singletons ORDER BY global".to_owned(),
         "ambient_reads" => format!(
             "SELECT a.global, a.field, a.reader_node_id, \

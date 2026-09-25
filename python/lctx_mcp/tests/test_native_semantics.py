@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from lctx_semantics import (
     ConditionGraph,
+    SemanticExecutor,
     catalog_limits,
     kernel_format,
     probe_compatible,
@@ -54,3 +55,42 @@ def test_generation_condition_graph_is_hydrated_and_rejects_bad_nodes(generation
         ConditionGraph(kernel_format(), conditions, nodes)
     with pytest.raises(ValueError, match="format"):
         ConditionGraph(kernel_format() + 1, conditions, nodes)
+
+
+def test_native_index_resolves_one_public_formal_and_its_proof(generation: Path) -> None:
+    index = load(generation, None).condition_graph
+    assert index is not None
+    paths, reasons, truncated, work = index.value_paths(
+        "pkg.controls.passthrough", "options", 10
+    )
+    assert len(paths) == 1 and paths[0][1] == "established"
+    assert len(paths[0][3]) > 0 and reasons == []
+    assert not truncated and work == 1
+    with pytest.raises(ValueError, match="unknown operation formal"):
+        index.value_paths("pkg.controls.passthrough", "absent", 10)
+    with pytest.raises(ValueError, match="unknown public operation"):
+        index.value_paths("pkg.absent", "options", 10)
+    with pytest.raises(ValueError, match="limit"):
+        index.value_paths("pkg.controls.passthrough", "options", 0)
+
+
+def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
+    loaded = load(generation, None)
+    conditions = [
+        (r["condition_id"].hex(),
+         None if r["root_id"] is None else r["root_id"].hex(), r["boundary_reason"])
+        for r in loaded.tables["conditions"].to_pylist()
+    ]
+    nodes = [
+        (r["node_id"].hex(), r["atom"], r["low_id"].hex(), r["high_id"].hex())
+        for r in loaded.tables["condition_nodes"].to_pylist()
+    ]
+    condition = next(r[0] for r in conditions if r[1] is not None)
+    operation, formal, summary = ("01" * 16, "02" * 16, "03" * 16)
+    args = (kernel_format(), conditions, nodes, [operation], [("pkg.one", operation)],
+            [(operation, formal, "value")],
+            [(summary, operation, formal, condition, "established", None, 0)])
+    with pytest.raises(ValueError, match="no proof steps"):
+        SemanticExecutor(*args, [], [])
+    with pytest.raises(ValueError, match="missing cited callee summary"):
+        SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)], [])

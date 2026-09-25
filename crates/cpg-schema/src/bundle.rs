@@ -248,6 +248,52 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             ],
             &["node_id"],
         ),
+        // FORMAT 7: finite source summaries retain their own flow-recomposed condition roots
+        // and ordered proof steps. Provider and analysis roots are distinct input catalogs.
+        file(
+            "analysis_conditions",
+            vec![id("condition_id", false), id("root_id", true), utf8("boundary_reason", true)],
+            &["condition_id"],
+        ),
+        file(
+            "analysis_condition_nodes",
+            vec![id("node_id", false), utf8("atom", false), id("low_id", false), id("high_id", false)],
+            &["node_id"],
+        ),
+        file(
+            "operation_parameters",
+            vec![id("operation_node_id", false), id("formal_node_id", false), utf8("name", false)],
+            &["operation_node_id", "formal_node_id"],
+        ),
+        file(
+            "summary_flows",
+            vec![
+                id("summary_id", false), id("function_node_id", false),
+                id("parameter_node_id", false), utf8("input_path", false),
+                utf8("output_path", false), utf8("kind", false),
+                id("condition_id", false), utf8("verdict", false),
+                utf8("boundary_reason", true), id("source_flow_fact_id", false),
+                id("return_site_fact_id", false), id("return_region_fact_id", false),
+                Field::new("approximated", DataType::Boolean, false), int("path_depth", false),
+            ],
+            &["summary_id"],
+        ),
+        file(
+            "summary_flow_steps",
+            vec![id("summary_id", false), int("ordinal", false), utf8("kind", false),
+                 id("evidence_id", false), id("condition_id", false)],
+            &["summary_id", "ordinal"],
+        ),
+        file(
+            "summary_boundaries",
+            vec![id("function_node_id", false), id("parameter_node_id", false),
+                 id("source_flow_fact_id", false), id("condition_id", false),
+                 utf8("reason", false),
+                 Field::new("local_through_call", DataType::Boolean, false),
+                 Field::new("upstream_through_call", DataType::Boolean, false),
+                 Field::new("raw_approximated", DataType::Boolean, false)],
+            &["function_node_id", "parameter_node_id", "source_flow_fact_id", "condition_id"],
+        ),
         // FORMAT 5 (Stage 2; ADR-0022): module-global singletons, their fields' reads at the
         // resolved key, and the field and setting claims with their premises.
         file(

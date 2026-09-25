@@ -16,14 +16,15 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 import pyarrow.ipc as ipc
-from lctx_semantics import ConditionGraph, catalog_limits
+from lctx_semantics import SemanticExecutor, catalog_limits
 
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 6
+FORMAT = 7
 KERNEL_FORMAT = 1
 MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
+MAX_SUMMARY_ROWS = 100_000
 
 
 class GenerationError(RuntimeError):
@@ -182,6 +183,34 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
         "condition_nodes": pa.schema(
             [_id("node_id"), _utf8("atom"), _id("low_id"), _id("high_id")]
         ),
+        "analysis_conditions": pa.schema(
+            [_id("condition_id"), _id("root_id", True), _utf8("boundary_reason", True)]
+        ),
+        "analysis_condition_nodes": pa.schema(
+            [_id("node_id"), _utf8("atom"), _id("low_id"), _id("high_id")]
+        ),
+        "operation_parameters": pa.schema(
+            [_id("operation_node_id"), _id("formal_node_id"), _utf8("name")]
+        ),
+        "summary_flows": pa.schema(
+            [_id("summary_id"), _id("function_node_id"), _id("parameter_node_id"),
+             _utf8("input_path"), _utf8("output_path"), _utf8("kind"),
+             _id("condition_id"), _utf8("verdict"), _utf8("boundary_reason", True),
+             _id("source_flow_fact_id"), _id("return_site_fact_id"),
+             _id("return_region_fact_id"), pa.field("approximated", pa.bool_(), nullable=False),
+             _int("path_depth")]
+        ),
+        "summary_flow_steps": pa.schema(
+            [_id("summary_id"), _int("ordinal"), _utf8("kind"), _id("evidence_id"),
+             _id("condition_id")]
+        ),
+        "summary_boundaries": pa.schema(
+            [_id("function_node_id"), _id("parameter_node_id"), _id("source_flow_fact_id"),
+             _id("condition_id"), _utf8("reason"),
+             pa.field("local_through_call", pa.bool_(), nullable=False),
+             pa.field("upstream_through_call", pa.bool_(), nullable=False),
+             pa.field("raw_approximated", pa.bool_(), nullable=False)]
+        ),
         # FORMAT 5 (Stage 2): singletons, their fields' reads, and field and setting claims.
         "singletons": pa.schema([_utf8("global"), _id("class_node_id")]),
         "ambient_reads": pa.schema(
@@ -260,7 +289,7 @@ class Generation:
     ambient: dict[str, list[dict]] = field(default_factory=dict)
     claims: dict[str, dict] = field(default_factory=dict)
     op_vectors: dict[str, tuple[np.ndarray, list[bytes]]] = field(default_factory=dict)
-    condition_graph: ConditionGraph | None = None
+    condition_graph: SemanticExecutor | None = None
 
     @property
     def snapshot_id(self) -> str:
@@ -284,7 +313,9 @@ def _read(root: Path, manifest: dict, name: str, schema: pa.Schema) -> pa.Table:
     path = root / entry["file"]
     if path.is_symlink():
         raise GenerationError(f"{entry['file']}: a served file cannot be a symlink")
-    if name in {"conditions", "condition_nodes"} and path.stat().st_size > MAX_CONDITION_FILE_BYTES:
+    if name in {"conditions", "condition_nodes", "analysis_conditions",
+                "analysis_condition_nodes", "summary_flows", "summary_flow_steps",
+                "summary_boundaries"} and path.stat().st_size > MAX_CONDITION_FILE_BYTES:
         raise GenerationError(f"{entry['file']}: condition file exceeds the load budget")
     data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != entry["sha256"]:
@@ -335,27 +366,54 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     schemas = expected_schemas(dimensions)
     tables = {name: _read(root, manifest, name, schema) for name, schema in schemas.items()}
     max_conditions, max_nodes = catalog_limits()
-    if (
-        tables["conditions"].num_rows > max_conditions
-        or tables["condition_nodes"].num_rows > max_nodes
-    ):
+    if (tables["conditions"].num_rows + tables["analysis_conditions"].num_rows > max_conditions
+            or tables["condition_nodes"].num_rows
+            + tables["analysis_condition_nodes"].num_rows > max_nodes):
         raise GenerationError("condition catalog exceeds native load limits")
-    conditions = [
-        (
-            r["condition_id"].hex(),
-            None if r["root_id"] is None else r["root_id"].hex(),
-            r["boundary_reason"],
-        )
-        for r in tables["conditions"].to_pylist()
-    ]
-    nodes = [
-        (r["node_id"].hex(), r["atom"], r["low_id"].hex(), r["high_id"].hex())
-        for r in tables["condition_nodes"].to_pylist()
-    ]
+    for name in ("summary_flows", "summary_flow_steps", "summary_boundaries"):
+        if tables[name].num_rows > MAX_SUMMARY_ROWS:
+            raise GenerationError(f"{name} exceeds native load limits")
+    for name in ("operations", "public_paths", "operation_parameters"):
+        if tables[name].num_rows > 200_000:
+            raise GenerationError(f"{name} exceeds native load limits")
+    conditions_by_id: dict[str, tuple[str, str | None, str | None]] = {}
+    nodes_by_id: dict[str, tuple[str, str, str, str]] = {}
+    for name in ("conditions", "analysis_conditions"):
+        for row in tables[name].to_pylist():
+            item = (row["condition_id"].hex(),
+                    None if row["root_id"] is None else row["root_id"].hex(),
+                    row["boundary_reason"])
+            if item[0] in conditions_by_id and conditions_by_id[item[0]] != item:
+                raise GenerationError(f"conflicting condition {item[0]} across catalogs")
+            conditions_by_id[item[0]] = item
+    for name in ("condition_nodes", "analysis_condition_nodes"):
+        for row in tables[name].to_pylist():
+            item = (row["node_id"].hex(), row["atom"], row["low_id"].hex(),
+                    row["high_id"].hex())
+            if item[0] in nodes_by_id and nodes_by_id[item[0]] != item:
+                raise GenerationError(f"conflicting condition node {item[0]} across catalogs")
+            nodes_by_id[item[0]] = item
     try:
-        condition_graph = ConditionGraph(KERNEL_FORMAT, conditions, nodes)
+        condition_graph = SemanticExecutor(
+            KERNEL_FORMAT, list(conditions_by_id.values()), list(nodes_by_id.values()),
+            [r["node_id"].hex() for r in tables["operations"].to_pylist()],
+            [(r["access_path"], r["node_id"].hex())
+             for r in tables["public_paths"].to_pylist()],
+            [(r["operation_node_id"].hex(), r["formal_node_id"].hex(), r["name"])
+             for r in tables["operation_parameters"].to_pylist()],
+            [(r["summary_id"].hex(), r["function_node_id"].hex(),
+              r["parameter_node_id"].hex(), r["condition_id"].hex(),
+              r["verdict"], r["boundary_reason"], r["path_depth"])
+             for r in tables["summary_flows"].to_pylist()],
+            [(r["summary_id"].hex(), r["ordinal"], r["kind"],
+              r["evidence_id"].hex(), r["condition_id"].hex())
+             for r in tables["summary_flow_steps"].to_pylist()],
+            [(r["function_node_id"].hex(), r["parameter_node_id"].hex(),
+              r["source_flow_fact_id"].hex(), r["condition_id"].hex(), r["reason"])
+             for r in tables["summary_boundaries"].to_pylist()],
+        )
     except ValueError as e:
-        raise GenerationError(f"invalid condition graph: {e}") from e
+        raise GenerationError(f"invalid semantic index: {e}") from e
 
     brief_rows = tables["briefs"].to_pylist()
     brief_ids = [r["brief_id"] for r in brief_rows]

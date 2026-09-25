@@ -1,5 +1,5 @@
 //! Generation-pinned condition kernel and developer smoke probes.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cpg_schema::condition::Condition;
 use cpg_schema::condition_kernel::{
@@ -11,6 +11,14 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 const MAX_SMOKE_INPUT_BYTES: usize = 64 * 1024;
+const MAX_SUMMARY_ROWS: usize = 100_000;
+const MAX_SURFACE_ROWS: usize = 200_000;
+type FlowInput = (String, String, String, String, String, Option<String>, i64);
+type ProofStep = (String, String, String);
+type ValuePath = (String, String, String, Vec<ProofStep>);
+type Boundary = (String, String, String);
+type ValuePathsAnswer = (Vec<ValuePath>, Vec<Boundary>, bool, usize);
+type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, String)>>;
 
 #[pyfunction]
 fn kernel_format() -> u32 {
@@ -106,7 +114,219 @@ impl ConditionGraph {
     }
 }
 
+struct NativeSummary {
+    condition_id: Id,
+    verdict: String,
+    boundary: Option<String>,
+    path_depth: i64,
+    steps: Vec<(String, Id, Id)>,
+}
+
+/// One immutable, generation-pinned index. Python only transports validated Arrow columns;
+/// operation/formal resolution and proof admission happen here.
+#[pyclass]
+struct SemanticExecutor {
+    graph: ConditionGraph,
+    paths: HashMap<String, Id>,
+    formals: HashMap<(Id, String), Id>,
+    summaries: HashMap<Id, NativeSummary>,
+    by_formal: HashMap<(Id, Id), Vec<Id>>,
+    boundaries: BoundaryIndex,
+}
+
+#[pymethods]
+impl SemanticExecutor {
+    #[new]
+    #[allow(clippy::too_many_arguments, reason = "one checked generation crosses this constructor")]
+    fn new(
+        kernel_format: u32,
+        conditions: Vec<(String, Option<String>, Option<String>)>,
+        nodes: Vec<(String, String, String, String)>,
+        operations: Vec<String>,
+        public_paths: Vec<(String, String)>,
+        parameters: Vec<(String, String, String)>,
+        flows: Vec<FlowInput>,
+        steps: Vec<(String, i64, String, String, String)>,
+        boundaries: Vec<(String, String, String, String, String)>,
+    ) -> PyResult<Self> {
+        if operations.len() > MAX_SURFACE_ROWS || public_paths.len() > MAX_SURFACE_ROWS
+            || parameters.len() > MAX_SURFACE_ROWS || flows.len() > MAX_SUMMARY_ROWS
+            || steps.len() > MAX_SUMMARY_ROWS || boundaries.len() > MAX_SUMMARY_ROWS
+        {
+            return Err(PyValueError::new_err("semantic index exceeds load limits"));
+        }
+        let graph = ConditionGraph::new(kernel_format, conditions, nodes)?;
+        let operations = operations.into_iter().map(|value| id(&value))
+            .collect::<PyResult<HashSet<_>>>()?;
+        let mut paths = HashMap::new();
+        for (path, node) in public_paths {
+            let node = id(&node)?;
+            if operations.contains(&node) && paths.insert(path.clone(), node).is_some() {
+                return Err(PyValueError::new_err(format!("duplicate public path {path}")));
+            }
+        }
+        let mut formals = HashMap::new();
+        for (operation, formal, name) in parameters {
+            let operation = id(&operation)?;
+            let formal = id(&formal)?;
+            if !operations.contains(&operation) {
+                return Err(PyValueError::new_err("parameter names a non-operation"));
+            }
+            if formals.insert((operation, name.clone()), formal).is_some() {
+                return Err(PyValueError::new_err(format!("duplicate formal {name}")));
+            }
+        }
+        let mut summaries = HashMap::new();
+        let mut by_formal: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
+        for (summary, function, formal, condition, verdict, boundary, path_depth) in flows {
+            let summary = id(&summary)?;
+            let function = id(&function)?;
+            let formal = id(&formal)?;
+            let condition = id(&condition)?;
+            if !graph.has_condition(condition) {
+                return Err(PyValueError::new_err("summary references absent condition"));
+            }
+            if !(0..=8).contains(&path_depth)
+                || !matches!(verdict.as_str(), "established" | "conditional" | "unknown")
+                || (verdict == "unknown") != boundary.is_some()
+            {
+                return Err(PyValueError::new_err("invalid summary verdict/boundary"));
+            }
+            if verdict != "unknown"
+                && !graph.diagrams.get(&condition).is_some_and(|root| !root.is_false())
+            {
+                return Err(PyValueError::new_err("positive summary has no finite condition"));
+            }
+            if summaries.insert(summary, NativeSummary {
+                condition_id: condition, verdict, boundary, path_depth, steps: Vec::new(),
+            }).is_some() {
+                return Err(PyValueError::new_err("duplicate summary id"));
+            }
+            by_formal.entry((function, formal)).or_default().push(summary);
+        }
+        let mut ordinals: HashMap<Id, Vec<(i64, String, Id, Id)>> = HashMap::new();
+        for (summary, ordinal, kind, evidence, condition) in steps {
+            let summary = id(&summary)?;
+            let evidence = id(&evidence)?;
+            let condition = id(&condition)?;
+            if ordinal < 0 || !summaries.contains_key(&summary)
+                || !graph.has_condition(condition)
+                || !matches!(kind.as_str(), "raw_identity" | "callee_resolution"
+                    | "argument_evaluation" | "call_target" | "model_rule"
+                    | "return_exit" | "call_site" | "definition_reaching"
+                    | "return_source" | "callee_summary")
+            {
+                return Err(PyValueError::new_err("invalid summary proof step"));
+            }
+            if summaries[&summary].verdict != "unknown"
+                && !graph.diagrams.contains_key(&condition)
+            {
+                return Err(PyValueError::new_err("positive proof step has no finite condition"));
+            }
+            ordinals.entry(summary).or_default().push((ordinal, kind, evidence, condition));
+        }
+        for (summary_id, summary) in &mut summaries {
+            let Some(mut proof) = ordinals.remove(summary_id) else {
+                return Err(PyValueError::new_err("summary has no proof steps"));
+            };
+            proof.sort_by_key(|step| step.0);
+            if proof.iter().enumerate().any(|(i, step)| step.0 != i as i64) {
+                return Err(PyValueError::new_err("summary proof ordinals have a gap"));
+            }
+            summary.steps = proof.into_iter().map(|(_, kind, evidence, condition)|
+                (kind, evidence, condition)).collect();
+        }
+        for summary in summaries.values() {
+            for (kind, evidence, _) in &summary.steps {
+                if kind == "callee_summary" {
+                    let Some(callee) = summaries.get(evidence) else {
+                        return Err(PyValueError::new_err("missing cited callee summary"));
+                    };
+                    if callee.path_depth >= summary.path_depth {
+                        return Err(PyValueError::new_err("cyclic or unordered callee proof"));
+                    }
+                    if callee.verdict != "established" {
+                        return Err(PyValueError::new_err("callee proof is not unconditional"));
+                    }
+                }
+            }
+        }
+        for ids in by_formal.values_mut() {
+            ids.sort();
+        }
+        let mut boundary_index: BoundaryIndex = HashMap::new();
+        for (function, formal, source, condition, reason) in boundaries {
+            let condition = id(&condition)?;
+            if !graph.has_condition(condition) {
+                return Err(PyValueError::new_err("boundary references absent condition"));
+            }
+            boundary_index.entry((id(&function)?, id(&formal)?)).or_default()
+                .push((id(&source)?, condition, reason));
+        }
+        for reasons in boundary_index.values_mut() {
+            reasons.sort();
+            reasons.dedup();
+        }
+        Ok(Self { graph, paths, formals, summaries, by_formal,
+            boundaries: boundary_index })
+    }
+
+    #[getter]
+    fn condition_count(&self) -> usize { self.graph.condition_count() }
+
+    #[getter]
+    fn node_count(&self) -> usize { self.graph.node_count() }
+
+    fn compatible(&self, left: &str, right: &str) -> PyResult<(Option<bool>, Option<String>)> {
+        self.graph.compatible(left, right)
+    }
+
+    fn implies(&self, left: &str, right: &str) -> PyResult<(Option<bool>, Option<String>)> {
+        self.graph.implies(left, right)
+    }
+
+    /// A positive path is offered only if its own proof and condition are present. Unknown
+    /// boundaries remain visible; an empty result is never a negative transfer conclusion.
+    fn value_paths(&self, operation_path: &str, formal_name: &str, limit: usize)
+        -> PyResult<ValuePathsAnswer>
+    {
+        if limit == 0 || limit > 100 {
+            return Err(PyValueError::new_err("limit must be between 1 and 100"));
+        }
+        let operation = *self.paths.get(operation_path)
+            .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
+        let formal = *self.formals.get(&(operation, formal_name.to_owned()))
+            .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
+        let ids = self.by_formal.get(&(operation, formal));
+        let total = ids.map_or(0, Vec::len);
+        let mut result = Vec::new();
+        let mut reasons: Vec<Boundary> = self.boundaries.get(&(operation, formal))
+            .into_iter().flatten().map(|(source, condition, reason)|
+                (source.hex(), condition.hex(), reason.clone())).collect();
+        for summary_id in ids.into_iter().flatten().take(limit) {
+            let summary = &self.summaries[summary_id];
+            if summary.verdict == "unknown" {
+                if let Some(reason) = &summary.boundary {
+                    reasons.push((summary_id.hex(), summary.condition_id.hex(), reason.clone()));
+                }
+                continue;
+            }
+            result.push((summary_id.hex(), summary.verdict.clone(),
+                summary.condition_id.hex(), summary.steps.iter()
+                    .map(|(kind, evidence, condition)|
+                        (kind.clone(), evidence.hex(), condition.hex())).collect()));
+        }
+        reasons.sort();
+        reasons.dedup();
+        Ok((result, reasons, total > limit, total.min(limit)))
+    }
+}
+
 impl ConditionGraph {
+    fn has_condition(&self, condition: Id) -> bool {
+        self.diagrams.contains_key(&condition) || self.boundaries.contains_key(&condition)
+    }
+
     fn question(
         &self,
         left: &str,
@@ -168,6 +388,7 @@ fn probe_implies(left: &str, right: &str) -> PyResult<Option<bool>> {
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConditionGraph>()?;
+    m.add_class::<SemanticExecutor>()?;
     m.add_function(wrap_pyfunction!(kernel_format, m)?)?;
     m.add_function(wrap_pyfunction!(catalog_limits, m)?)?;
     m.add_function(wrap_pyfunction!(probe_compatible, m)?)?;

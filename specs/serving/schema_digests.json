@@ -63,6 +63,30 @@
     "form": "[{\"metadata\":[],\"name\":\"node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"atom\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"low_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"high_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
     "digest": "0cac9574d15f87cd5d3a1407bb0a73d83f8aa662c3f5fb8203be77a310de390d"
   },
+  "analysis_conditions": {
+    "form": "[{\"metadata\":[],\"name\":\"condition_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"root_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"boundary_reason\",\"nullable\":true,\"type\":\"utf8\"}]",
+    "digest": "5dddc3a65938bf05971a0196f277a2e952701c626e611b8bdfc579de0d5f7c49"
+  },
+  "analysis_condition_nodes": {
+    "form": "[{\"metadata\":[],\"name\":\"node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"atom\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"low_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"high_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
+    "digest": "0cac9574d15f87cd5d3a1407bb0a73d83f8aa662c3f5fb8203be77a310de390d"
+  },
+  "operation_parameters": {
+    "form": "[{\"metadata\":[],\"name\":\"operation_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"formal_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"name\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "d71fca185a821ce1c65f3238ffe07aa22ef6c82e8018ce75c3032da189cc2606"
+  },
+  "summary_flows": {
+    "form": "[{\"metadata\":[],\"name\":\"summary_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"function_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"parameter_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"input_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"output_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"condition_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"verdict\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"boundary_reason\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"source_flow_fact_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"return_site_fact_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"return_region_fact_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"approximated\",\"nullable\":false,\"type\":\"bool\"},{\"metadata\":[],\"name\":\"path_depth\",\"nullable\":false,\"type\":\"int64\"}]",
+    "digest": "7a34cc9c016b5a60f129080ca498d400cb4108f20043289e77f54da3d1b98d8b"
+  },
+  "summary_flow_steps": {
+    "form": "[{\"metadata\":[],\"name\":\"summary_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"ordinal\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"evidence_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"condition_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
+    "digest": "558a400378f859533b57a9478c78278061fc8eae9af31d947905fba203f8f337"
+  },
+  "summary_boundaries": {
+    "form": "[{\"metadata\":[],\"name\":\"function_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"parameter_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"source_flow_fact_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"condition_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"reason\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"local_through_call\",\"nullable\":false,\"type\":\"bool\"},{\"metadata\":[],\"name\":\"upstream_through_call\",\"nullable\":false,\"type\":\"bool\"},{\"metadata\":[],\"name\":\"raw_approximated\",\"nullable\":false,\"type\":\"bool\"}]",
+    "digest": "5b6d53c4c7c8871bc5bc3b0696b3b324e75cb2777507149ade967e51ca5122d4"
+  },
   "singletons": {
     "form": "[{\"metadata\":[],\"name\":\"global\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"class_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"}]",
     "digest": "5dd50e121791a4b6287f781847a02e41867f75b91b06bf36a4b0a377e87e5913"

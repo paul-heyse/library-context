@@ -557,6 +557,13 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
   source-open and unexamined; `complete` requires the latter two to be empty.
   During design, focused probes settle individual contracts; full `just test-all` and `just pilot`
   acceptance runs occur at the integrated Stage 3 end (operator direction, 2026-09-24).
+- **Implemented and Tested (2026-09-25, partial FORMAT 7).** The generation now transports
+  validated provider and analysis BDD roots, public operation/formal ids, finite value summaries,
+  ordered proof steps and explicit summary boundaries. One immutable PyO3 index checks condition
+  closure, proof order, callee-summary references and depth before answering an internal
+  operation/formal value-path lookup. This is a cited positive-path inspection boundary, not a
+  served compatibility, effect or role filter. Source spans, bounded cursors, primitive origins
+  and the user-facing semantic tool still need the rest of Stage 3.6.
 - Which facet rows are complete remains served data (`operation_facet_status`); facet names are
   held to the codebook by `specs/serving/facets.json`.
 
@@ -3979,6 +3986,11 @@ depth and pair-work budgets have the same unknown/truncated behavior.
 **Implemented and Tested (2026-09-24, producer boundary only).** The direct
 `flow_test_value_links` origin and its publication validator exist. The serving generation does
 not yet carry these rows, and there is no served compatibility verdict.
+
+**Implemented and Tested (2026-09-25, partial FORMAT 7).** Structural analysis conditions and
+finite value-summary proofs are generation-pinned and load through one native index. The internal
+value-path lookup resolves an actual public operation and formal and reports only cited positive
+paths plus open boundaries. It does not make a compatibility verdict or expose an MCP filter.
 
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
 claims. An unknown facet is invalid params. An unknown **value** is invalid params only where
