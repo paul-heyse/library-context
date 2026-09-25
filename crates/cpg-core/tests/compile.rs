@@ -1499,7 +1499,7 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert_eq!(targets, 7, "cast, assert_type, print, json, open and atexit.register");
+    assert_eq!(targets, 10, "typing, print, JSON, gzip, open and atexit models");
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_targets WHERE normal_return").await,
         2,
@@ -1530,7 +1530,7 @@ budget = 1
         count(&ctx, "SELECT count(*) FROM flow_value_calls").await > 0,
         "source value uses inside calls retain their ordered raw call steps"
     );
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 4);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 7);
     assert!(count(&ctx, "SELECT count(*) FROM analysis_conditions").await > 0);
     assert_eq!(
         count(
@@ -1806,8 +1806,8 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        15,
-        "the pure, JSON and atexit transfers apply to resolved source calls"
+        18,
+        "the typing, JSON, gzip and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
         count(
@@ -1963,6 +1963,36 @@ budget = 1
             &format!(
                 "SELECT count(*) FROM modeled_transfer_sites s \
                  JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name IN ('json_decode', 'compress_data', 'decompress_data') \
+                   AND s.transfer = {} AND s.model_modality = {} \
+                   AND s.input_status = {} AND s.output_status = {}",
+                ModelTransferKind::Transform.code(),
+                Modality::Potential.code(),
+                ModelTransferEndpointStatus::BoundArgument.code(),
+                ModelTransferEndpointStatus::CallResult.code(),
+            ),
+        )
+        .await,
+        3,
+        "the three pinned decoding/compression calls bind their real data formals"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_transfer_sites s \
+             JOIN declarations d ON d.node_id = s.function_node_id \
+             WHERE d.name = 'shadowed_compress'",
+        )
+        .await,
+        0,
+        "a parameter named gzip is not the pinned stdlib module"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_transfer_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
                  WHERE d.name IN ('on_shutdown_keyword', 'on_shutdown_unpacked') \
                    AND s.input_status = {} AND s.input_reason IS NOT NULL \
                    AND s.input_expression_node_id IS NULL \
@@ -1975,11 +2005,11 @@ budget = 1
         2,
         "unsupported formals leave the input endpoint unknown, even with a call result"
     );
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 4);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 5);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_effect_sites").await,
-        4,
-        "print and JSON effects apply to their resolved source calls"
+        5,
+        "print, JSON and gzip effects apply to their resolved source calls"
     );
     assert_eq!(
         count(
@@ -2019,6 +2049,24 @@ budget = 1
         1,
         "JSON stream write cites the exact fp argument rather than an unqualified I/O effect"
     );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_effect_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'compress_data' AND s.effect = {} \
+                   AND s.subject_status = {} AND s.subject_expression_node_id IS NOT NULL \
+                   AND s.model_modality = {}",
+                ModelEffectKind::Compress.code(),
+                ModelEffectSubjectStatus::BoundArgument.code(),
+                Modality::Potential.code(),
+            ),
+        )
+        .await,
+        1,
+        "the compression effect cites the actual data argument"
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
     assert_eq!(
@@ -2050,8 +2098,8 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_formal_paths").await,
-        8,
-        "pure, JSON and atexit paths use typed model ASTs"
+        12,
+        "typing, JSON, gzip and atexit paths use typed model ASTs"
     );
     assert_eq!(
         count(
@@ -2194,7 +2242,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        18,
+        21,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

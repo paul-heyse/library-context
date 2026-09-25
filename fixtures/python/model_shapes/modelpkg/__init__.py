@@ -1,6 +1,7 @@
 """A referenced stdlib callable for the Stage 3 authored-model binding fixture."""
 
 import atexit
+import gzip
 import json
 from typing import Callable, assert_type, cast
 
@@ -84,6 +85,22 @@ def json_text(value: object) -> str:
 
 def json_write(value: object, stream) -> None:
     json.dump(value, stream)
+
+
+def json_decode(value: str) -> object:
+    return json.loads(value)
+
+
+def compress_data(value: bytes) -> bytes:
+    return gzip.compress(value)
+
+
+def decompress_data(value: bytes) -> bytes:
+    return gzip.decompress(value)
+
+
+def shadowed_compress(gzip, value: bytes):
+    return gzip.compress(value)
 
 
 def plain_identity(value: object) -> object:

@@ -80,6 +80,53 @@ effect = { kind = "io_write" }
 subject = { kind = "parameter", name = "fp" }
 modality = "potential"
 
+# json.loads can decode str/bytes/bytearray. Decoder classes and parse/object hooks are
+# caller-supplied, so this is a potential data dependence, not a total/pure result model.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "loads" }
+coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "s" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
+# gzip.compress returns compressed bytes from data on a normal path. Type, level and memory
+# failures leave normal completion open; this effect is tied to the source data, not file I/O.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "gzip", callable = "compress" }
+coverage = { transfers = "partial", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "data" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
+[[models.rules]]
+kind = "effect"
+effect = { kind = "compress", format = "gzip" }
+subject = { kind = "parameter", name = "data" }
+modality = "potential"
+
+# gzip.decompress has a potential decoded output; malformed input can raise before return.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "gzip", callable = "decompress" }
+coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "data" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
 # A successful open returns a newly acquired file object. Mode-dependent read/write behavior is
 # deliberately not asserted. The returned resource needs an independent close/with witness.
 [[models]]

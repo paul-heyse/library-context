@@ -1175,7 +1175,7 @@ mod tests {
     fn committed_catalog_has_typed_identity_path_and_digest() {
         let catalog = Catalog::committed().unwrap();
         assert_eq!(catalog.digest, Catalog::committed_digest());
-        assert_eq!(catalog.models.len(), 7);
+        assert_eq!(catalog.models.len(), 10);
         let model = &catalog
             .models
             .iter()
@@ -1195,6 +1195,22 @@ mod tests {
         };
         assert_eq!(from.render(), "Parameter[val]");
         assert_eq!(to.render(), "ReturnValue");
+        for (target, formal) in [
+            ("stdlib:3.14.7:json.loads", "s"),
+            ("stdlib:3.14.7:gzip.compress", "data"),
+            ("stdlib:3.14.7:gzip.decompress", "data"),
+        ] {
+            let added = &catalog.models.iter().find(|m| m.model.target.key() == target)
+                .unwrap().model;
+            assert!(!added.normal_return, "fallible {target} cannot assert total completion");
+            assert!(added.rules.iter().any(|rule| matches!(rule,
+                Rule::Transfer {
+                    from: InputPath::Parameter { name },
+                    to: OutputPath::ReturnValue,
+                    transfer: Transfer::Transform,
+                    modality: RuleModality::Potential,
+                } if name == formal)), "{target} must retain its exact input formal");
+        }
     }
 
     #[test]

@@ -3111,6 +3111,16 @@ claims remain Proposed. Focused
 release Nextest and Clippy passed; the integrated gate and fresh pilot are reserved for the
 assembled Stage 3 end.
 
+**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 decoding/compression data):**
+the pinned `json.loads`, `gzip.compress` and `gzip.decompress` targets add potential
+input-to-return transforms. Only `gzip.compress` asserts a potential `compress(gzip)` effect
+on its exact `data` formal. None asserts total normal completion or complete channel coverage:
+malformed inputs, resource exhaustion, and JSON's caller-supplied hooks leave those claims
+open. Pinned CPython 3.14.7 signatures and the Python standard-library JSON/gzip documentation
+support the authored paths; the focused analyzed fixture checks target binding, formal identity,
+source application, a shadowed-module withholding case and shared publication equality. These
+rows are candidates, not a positive transform summary or a CrossHair equivalence claim.
+
 **Implemented and Tested in focused cases (2026-09-25, Stage 3 source/model bridge):**
 `model_applications` joins each source `call_targets` fact to an exactly pinned `model_targets`
 row, retaining the Pysa target's modality/origin and phase, the model's identity and revision,
