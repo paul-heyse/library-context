@@ -874,6 +874,8 @@ table!(
     checks = [
         ("identity_not_through_call", "NOT (identity AND through_call)"),
         ("local_call_is_a_call", "NOT local_through_call OR through_call"),
+        ("upstream_transfer_exclusive", "NOT (upstream_identity AND upstream_through_call)"),
+        ("upstream_call_is_a_call", "NOT upstream_through_call OR through_call"),
         ("one_origin_kind", "(parameter_node_id IS NULL AND class_node_id IS NOT NULL) OR (parameter_node_id IS NOT NULL AND class_node_id IS NULL)"),
     ],
     {
@@ -893,6 +895,11 @@ table!(
         /// The parent `flow_values` fact itself crosses a call; inherited call transfer through
         /// a reaching definition must be followed at that definition's distinct fact.
         local_through_call: bool,
+        /// The transfer from the source origin to this fact's use, before the local fact.
+        /// False/false is a derived transfer; true/false is identity; false/true crosses
+        /// an earlier call and needs that earlier fact's ordered call path.
+        upstream_identity: bool,
+        upstream_through_call: bool,
         captured: bool,
         condition_id: Id,
         condition: String,

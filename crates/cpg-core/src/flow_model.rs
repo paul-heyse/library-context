@@ -599,6 +599,8 @@ struct SourceContribution {
     /// Whether this provider value fact itself crosses a call. `source.transfer` may instead
     /// inherit `Call` from a reaching definition whose call path belongs to another fact.
     local_through_call: bool,
+    /// Transfer already accumulated before this raw fact, across reaching definitions.
+    upstream_transfer: Transfer,
     source: Source,
 }
 
@@ -791,6 +793,7 @@ impl Model {
                     use_id: u,
                     origin: o.clone(),
                     local_through_call: transfer == Transfer::Call,
+                    upstream_transfer: *t2,
                     source: Source {
                         transfer: transfer.max(*t2),
                         captured: s.captured,
@@ -1324,6 +1327,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 identity: contribution.source.transfer == Transfer::Identity,
                 through_call: contribution.source.transfer == Transfer::Call,
                 local_through_call: contribution.local_through_call,
+                upstream_identity: contribution.upstream_transfer == Transfer::Identity,
+                upstream_through_call: contribution.upstream_transfer == Transfer::Call,
                 captured: contribution.source.captured,
                 condition_id,
                 condition,

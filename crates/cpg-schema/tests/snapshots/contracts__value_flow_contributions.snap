@@ -7,6 +7,8 @@ family findings
 key snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call
 check identity_not_through_call: NOT (identity AND through_call)
 check local_call_is_a_call: NOT local_through_call OR through_call
+check upstream_transfer_exclusive: NOT (upstream_identity AND upstream_through_call)
+check upstream_call_is_a_call: NOT upstream_through_call OR through_call
 check one_origin_kind: (parameter_node_id IS NULL AND class_node_id IS NOT NULL) OR (parameter_node_id IS NOT NULL AND class_node_id IS NULL)
 @lctx.family=findings
 @lctx.table=value_flow_contributions
@@ -21,6 +23,8 @@ class_node_id: FixedSizeBinary(16) NULL
 identity: Boolean NOT NULL
 through_call: Boolean NOT NULL
 local_through_call: Boolean NOT NULL
+upstream_identity: Boolean NOT NULL
+upstream_through_call: Boolean NOT NULL
 captured: Boolean NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 condition: Utf8 NOT NULL

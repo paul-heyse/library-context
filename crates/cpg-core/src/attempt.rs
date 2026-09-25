@@ -66,7 +66,8 @@ pub struct Published {
 /// 41: preserve unaggregated provider-value contributions for exact call-path composition.
 /// 42: decide clause order within a modeled exception's candidate try frame.
 /// 43: name the sink callable separately from a captured source parameter's owner.
-pub const COMPILER_OUTPUT_VERSION: u32 = 43;
+/// 44: preserve the upstream transfer before each raw value fact's local call path.
+pub const COMPILER_OUTPUT_VERSION: u32 = 44;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

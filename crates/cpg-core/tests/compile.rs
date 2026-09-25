@@ -818,6 +818,7 @@ budget = 1
                  JOIN declarations d ON d.node_id = c.function_node_id \
                  WHERE d.name = 'indirect_call_result' AND v.sink = {} \
                    AND c.through_call AND NOT c.local_through_call \
+                   AND c.upstream_through_call AND NOT c.upstream_identity \
                    AND u.place = 'value'",
                 FlowSink::Return.code(),
             ),
@@ -825,6 +826,23 @@ budget = 1
         .await,
         1,
         "an inherited call transfer does not borrow its return-use fact as the call path"
+    );
+    assert!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM value_flow_contributions c \
+                 JOIN flow_values v ON v.fact_id = c.flow_value_fact_id \
+                 JOIN declarations d ON d.node_id = c.sink_function_node_id \
+                 WHERE d.name = 'exact_handler' AND v.sink = {} \
+                   AND c.local_through_call AND c.upstream_identity \
+                   AND NOT c.upstream_through_call",
+                FlowSink::Return.code(),
+            )
+        )
+        .await
+            > 0,
+        "a direct modeled call has an identity upstream input before its local call path"
     );
     assert!(
         count(

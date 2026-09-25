@@ -385,7 +385,12 @@ focused cases (2026-09-25):** `sink_function_node_id` names the callable
 containing the raw use independently of a captured parameter's defining
 callable. The direct-call fixture verifies the sink owner is populated;
 different owners remain a separately testable case. The compiler output
-version is 43.
+version is 43. **Implemented and Tested in focused cases (2026-09-25):**
+`upstream_identity` and `upstream_through_call` preserve the transfer reaching
+that use before its local raw value fact. A direct `open(path)` return has an
+identity upstream input; returning a prior `open(path)` result carries upstream
+call uncertainty and cannot borrow the return fact's call links. The compiler
+output version is 44. These flags still do not cite the predecessor fact chain.
 
 **Implemented and Tested in focused cases (2026-09-25, first ADR-0028 source seam):**
 `arguments` persists the argument expression's value span separately from its authored
@@ -3212,7 +3217,7 @@ for each pinned context class. When a modeled raised class's MRO contains the pi
 class, `modeled_exception_handler_candidates` records `pinned_ancestor` and the source MRO
 fact. A missing, unbound or cyclic relationship stays `class_relation_unknown`; absence from
 the MRO is not a negative match because a model class can denote possible subclasses. This is
-still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 43; integrated Stage 3 tests
+still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 44; integrated Stage 3 tests
 remain `not_run`.
 
 **Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
@@ -3957,3 +3962,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Added the pinned `typing.assert_type` identity model, with exact source argument binding and an exhausted narrow CrossHair oracle (§9.9) | — |
 | 2026-09-25 | Added pinned `json.dumps` and `json.dump` transform, serialization and stream-write model candidates with exact `obj`/`fp` binding; custom encoders remain open (§9.9) | — |
 | 2026-09-25 | Raw value-flow contributions now distinguish the sink callable from a captured parameter's source callable for L3 summary ownership (§B5, §9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | Raw value-flow contributions retain the upstream transfer before the local fact; a later one-call summary may refuse inherited call uncertainty (§B5, §9.9) | ADR-0028 (proposed) |
