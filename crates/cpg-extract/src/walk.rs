@@ -716,6 +716,7 @@ impl Walker<'_, '_> {
                 },
             };
             let (start, end) = span(range);
+            let (value_start_byte, value_end_byte) = span(value);
             let row = fact_row!(
                 self.sink,
                 Arguments,
@@ -732,6 +733,8 @@ impl Walker<'_, '_> {
                     keyword,
                     start_byte: start,
                     end_byte: end,
+                    value_start_byte,
+                    value_end_byte,
                 }
             );
             self.out.argument_values.push((row.node_id, node_id, value));

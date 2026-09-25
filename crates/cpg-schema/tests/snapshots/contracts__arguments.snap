@@ -6,6 +6,7 @@ table arguments
 family calls
 key snapshot_id, call_node_id, ordinal, fact_id
 check span_order: start_byte >= 0 AND end_byte >= start_byte
+check value_span_within_argument: value_start_byte >= start_byte AND value_end_byte <= end_byte AND value_end_byte >= value_start_byte
 check ordinal_nonnegative: ordinal >= 0
 @lctx.family=calls
 @lctx.table=arguments
@@ -18,3 +19,5 @@ kind: Int16 NOT NULL [lctx.codebook=argument_kind]
 keyword: Utf8 NULL
 start_byte: Int64 NOT NULL
 end_byte: Int64 NOT NULL
+value_start_byte: Int64 NOT NULL
+value_end_byte: Int64 NOT NULL

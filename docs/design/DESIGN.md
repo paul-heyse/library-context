@@ -354,7 +354,20 @@ rule can prove is stated in §8 (its edit guards counted apart).
 - **Meaning comes from models, propagation from summaries** (§9.9). A call alone never propagates a
   capability.
 
-> Decision: ADR-0022
+**Proposed (ADR-0028, 2026-09-25):** the flow producer retains each value use's ordered,
+outer-to-inner call path with callee/argument roles and exact byte spans. `through_call` is
+only a derived compatibility flag; it cannot identify the call whose result must be modeled.
+The extractor binds path spans to source call and argument facts before L3 composition;
+missing or ambiguous joins remain unknown. This adds provenance to the stated flow IR,
+without promoting ty's use-def map into runtime truth.
+
+**Implemented and Tested in focused cases (2026-09-25, first ADR-0028 source seam):**
+`arguments` persists the argument expression's value span separately from its authored
+role span. A keyword value excludes the `name=` prefix; a direct positional argument has
+equal role and value spans. The schema enforces value-span containment and the extractor
+output version is 27. This alone identifies no flow-call path or completed transfer.
+
+> Decision: ADR-0022, ADR-0028
 
 ### §B6 Facts are first-class assertions with provenance
 
@@ -1385,7 +1398,16 @@ A read reached from module scope through calls is Stage 3's.
 - The exports seed stays the checker view. An operation whose declaration the runtime cannot reach
   is `unknown` (`runtime_unreachable`).
 
-> Decision: ADR-0022, ADR-0027
+**Proposed (ADR-0028, 2026-09-25):** each `flow_values` use inside calls gains a raw,
+ordered outer-to-inner call path. A step cites its parent value fact, byte span and
+callee/argument operand role. The same module's Ruff `call_syntax` and `arguments` facts
+must match spans uniquely; `arguments` persists both role and value spans so a keyword
+name cannot be mistaken for the value. The composed path is unusable for a positive
+transfer if any step is unmatched, a callee use is relabelled as an argument, or an
+argument's value is only derived from the use. Existing `through_call` remains an
+unknown boundary until the path and each modeled hop are proved.
+
+> Decision: ADR-0022, ADR-0027, ADR-0028
 
 ---
 
@@ -3127,6 +3149,13 @@ claim; an explicit unframed raise still establishes escape.
 - **Oracle:** Pysa's inferred TITO models on the pinned library, run offline. It is differential,
   not truth.
 
+**Proposed call-result join (ADR-0028, 2026-09-25):** summaries read a validated,
+ordered `flow_values` call path, then join each step to one exact pinned call target and
+modeled argument/result pair. The path carries operand role and direct-value span; a
+`through_call` flag or shared text alone cannot discharge `call_transfer`. Missing,
+ambiguous, computed or budget-cut steps write a boundary. This bridge precedes SCC
+composition and negative claims.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
@@ -3146,7 +3175,7 @@ claim; an explicit unframed raise still establishes escape.
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022, ADR-0024, ADR-0027
+> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028
 
 ---
 
@@ -3826,3 +3855,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-24 | Proposed Stage 3 kernel and serving design: bounded BDD conditions, typed proof links and same-generation native queries (§B10, §B13, §B14, §3.9, §9.9, §11.3). During design, editable native import and focused probes are the fast gate; clean wheel installation with a generation-pinned tool call waits for Stage 3.6 product acceptance, then repeats at release. | ADR-0024, ADR-0025 (proposed) |
 | 2026-09-24 | Development loop uses pinned stable Rust, 16 Cargo jobs, sccache with incremental off, Clang/mold, and the main working tree except for concurrent production-code edits (§1.2) | ADR-0026 (supersedes ADR-0001) |
 | 2026-09-25 | Stage 3 narrows raise escape to explicit unframed source sites; an unresolved `try` or `with` withholds definite escape until L2 proves the frame action (§3.9, §9.9) | ADR-0027 (supersedes ADR-0022's raise-escape shortcut; retains its other decisions) |
+| 2026-09-25 | Proposed call-result provenance for Stage 3 summaries: ordered nested call steps and argument value spans preserve the source-to-model join (§B5, §3.9, §9.9) | ADR-0028 (proposed) |

@@ -872,6 +872,32 @@ budget = 1
         3,
         "the cast input and two atexit func paths are compiled from typed model ASTs"
     );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+             JOIN declarations d ON d.node_id = c.owner_node_id \
+             WHERE d.name = 'identity_keyword' AND a.keyword = 'val' \
+               AND a.value_start_byte > a.start_byte \
+               AND a.value_end_byte = a.end_byte"
+        )
+        .await,
+        1,
+        "a keyword argument retains its value span apart from its authored role span"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+             JOIN declarations d ON d.node_id = c.owner_node_id \
+             WHERE d.name = 'on_shutdown' AND a.ordinal = 0 \
+               AND a.value_start_byte = a.start_byte \
+               AND a.value_end_byte = a.end_byte"
+        )
+        .await,
+        1,
+        "a direct positional argument retains the same role and value span"
+    );
     assert!(
         count(&ctx, "SELECT count(*) FROM model_argument_bindings").await >= 3,
         "each applied modeled formal gets a bound or explicit unknown row"

@@ -542,6 +542,7 @@ table!(
     key = [snapshot_id, call_node_id, ordinal, fact_id],
     checks = [
         ("span_order", "start_byte >= 0 AND end_byte >= start_byte"),
+        ("value_span_within_argument", "value_start_byte >= start_byte AND value_end_byte <= end_byte AND value_end_byte >= value_start_byte"),
         ("ordinal_nonnegative", "ordinal >= 0"),
     ],
     {
@@ -556,6 +557,10 @@ table!(
         keyword: Option<String>,
         start_byte: i64,
         end_byte: i64,
+        /// The expression's value span; unlike the argument-role span this excludes a keyword
+        /// name or unpacking marker. A later flow join must match this exact value range.
+        value_start_byte: i64,
+        value_end_byte: i64,
     }
 );
 
