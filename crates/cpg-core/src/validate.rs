@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use cpg_schema::behavior::FlowTestValueLinksRow;
+use cpg_schema::behavior::{FlowTestExactOriginsRow, FlowTestValueLinksRow};
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -104,6 +104,7 @@ pub async fn validate_costed(
     violations.extend(validate_condition_graph(&cache).await?);
     violations.extend(validate_test_type_links(&cache).await?);
     violations.extend(validate_test_value_links(&cache).await?);
+    violations.extend(validate_exact_origins(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -116,8 +117,49 @@ cpg_schema::relations! {
     inventory test_value_relations;
     test_value_links = "validate_test_value_links", deps = ["flow_test_value_links"],
         sql = "SELECT * FROM flow_test_value_links".to_owned();
+    exact_origins = "validate_exact_origins", deps = ["flow_test_exact_origins"],
+        sql = "SELECT * FROM flow_test_exact_origins".to_owned();
     test_value_source_snapshots = "validate_test_value_source_snapshots", deps = ["flow_uses"],
         sql = "SELECT DISTINCT snapshot_id FROM flow_uses LIMIT 2".to_owned();
+}
+
+async fn validate_exact_origins(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<FlowTestExactOriginsRow> =
+        sql::fetch(ctx, &exact_origins(), sql::Params::new()).await?;
+    let links: Vec<FlowTestValueLinksRow> =
+        sql::fetch(ctx, &test_value_links(), sql::Params::new()).await?;
+    let sources: Vec<SourceSnapshot> =
+        sql::fetch(ctx, &test_value_source_snapshots(), sql::Params::new()).await?;
+    let mut expected = if let [source] = sources.as_slice() {
+        crate::entry_links::exact_origins(ctx, source.snapshot_id, &links).await?
+    } else {
+        Vec::new()
+    };
+    let key = |row: &FlowTestExactOriginsRow| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+            row.origin_id,
+        )
+    };
+    actual.sort_by_key(&key);
+    expected.sort_by_key(&key);
+    if sources.len() <= 1 && actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "flow-test-exact-origin".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!(
+                "stored {} origins; derived {} from {} source snapshot(s)",
+                actual.len(),
+                expected.len(),
+                sources.len()
+            ),
+        }])
+    }
 }
 
 /// Reconstruct every proof from the pinned raw views. This also catches missing, duplicate and

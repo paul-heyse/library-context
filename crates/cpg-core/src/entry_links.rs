@@ -8,16 +8,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cpg_schema::behavior::FlowTestValueLinksRow;
+use cpg_schema::behavior::{FlowTestExactOriginsRow, FlowTestValueLinksRow};
 use cpg_schema::codebook::{
-    BindingKind, Codebook, CoverageStatus, FactFamily, SyntaxKind, TestValueLinkOrigin,
+    BindingKind, Codebook, CoverageStatus, ExactValueOrigin, FactFamily, SyntaxKind,
+    TestValueLinkOrigin,
 };
+use cpg_schema::condition::Atom;
 use cpg_schema::id::{Id, IdHasher};
 use datafusion::prelude::SessionContext;
 
 use crate::{CoreError, sql};
 
-const EFFECT_RULE_REVISION: &[u8] = b"direct-entry-no-effect/v2";
+const EFFECT_RULE_REVISION: &[u8] = b"entry-no-effect-and-resolved-builtin-type/v3";
 
 cpg_schema::query_row! {
     struct TestUse {
@@ -25,6 +27,9 @@ cpg_schema::query_row! {
         module_node_id: Id,
         leaf_fact_id: Id,
         atom_id: Id,
+        atom: String,
+        leaf_start_byte: i64,
+        leaf_end_byte: i64,
         use_id: Id,
         use_fact_id: Id,
         operand_start_byte: i64,
@@ -54,6 +59,10 @@ struct Barrier {
         module_node_id: Id,
         operation_node_id: Id,
         start_byte: i64,
+        end_byte: i64,
+        call_barrier: bool,
+        positional_count: Option<i64>,
+        keyword_count: Option<i64>,
     }
 }
 
@@ -65,13 +74,23 @@ cpg_schema::query_row! {
     }
 }
 
+cpg_schema::query_row! {
+    struct ExactLeaf {
+        fact_id: Id,
+        atom_id: Id,
+        atom: String,
+        condition_id: Id,
+    }
+}
+
 cpg_schema::relations! {
     inventory relations;
     test_uses = "entry_links_test_uses",
         deps = ["flow_test_types", "flow_test_leaves", "flow_uses", "declarations", "public_paths", "coverage"],
         sql = format!(
             "SELECT DISTINCT d.node_id AS operation_node_id, u.module_node_id, \
-                    t.leaf_fact_id, t.atom_id, t.use_id, t.use_fact_id, \
+                    t.leaf_fact_id, t.atom_id, l.atom, l.leaf_start_byte, l.leaf_end_byte, \
+                    t.use_id, t.use_fact_id, \
                     t.operand_start_byte, t.operand_end_byte, t.place, l.condition_id \
              FROM flow_test_types t \
              JOIN flow_test_leaves l ON l.fact_id = t.leaf_fact_id \
@@ -107,18 +126,22 @@ cpg_schema::relations! {
     barriers = "entry_links_barriers",
         deps = ["call_syntax", "flow_definitions", "declarations", "syntax_nodes"],
         sql = format!(
-            "SELECT module_node_id, operation_node_id, start_byte FROM ( \
-               SELECT module_node_id, owner_node_id AS operation_node_id, start_byte \
+            "SELECT module_node_id, operation_node_id, start_byte, end_byte, call_barrier, \
+                    positional_count, keyword_count FROM ( \
+               SELECT module_node_id, owner_node_id AS operation_node_id, start_byte, end_byte, \
+                      true AS call_barrier, positional_count, keyword_count \
                  FROM call_syntax WHERE owner_node_id IS NOT NULL \
                UNION ALL \
-               SELECT d.module_node_id, s.node_id AS operation_node_id, d.start_byte \
+               SELECT d.module_node_id, s.node_id AS operation_node_id, d.start_byte, d.end_byte, \
+                      false AS call_barrier, NULL AS positional_count, NULL AS keyword_count \
                  FROM flow_definitions d JOIN declarations s \
                    ON s.module_node_id = d.module_node_id \
                   AND s.name_start_byte = d.scope_start_byte \
                   AND s.name_end_byte = d.scope_end_byte \
                  WHERE d.kind <> {parameter} \
                UNION ALL \
-               SELECT n.module_node_id, n.owner_node_id AS operation_node_id, n.start_byte \
+               SELECT n.module_node_id, n.owner_node_id AS operation_node_id, n.start_byte, n.end_byte, \
+                      false AS call_barrier, NULL AS positional_count, NULL AS keyword_count \
                  FROM syntax_nodes n LEFT JOIN declarations owner \
                    ON owner.node_id = n.owner_node_id \
                   AND owner.module_node_id = n.module_node_id \
@@ -147,6 +170,8 @@ cpg_schema::relations! {
                 AND d.name_start_byte = l.scope_start_byte \
                 AND d.name_end_byte = l.scope_end_byte \
                ORDER BY 1, 2, 3".to_owned();
+    exact_leaves = "entry_links_exact_leaves", deps = ["flow_test_leaves"],
+        sql = "SELECT fact_id, atom_id, atom, condition_id FROM flow_test_leaves ORDER BY fact_id".to_owned();
 }
 
 pub fn digest() -> cpg_schema::id::Digest {
@@ -174,12 +199,12 @@ pub async fn run(
     for row in reaches {
         by_use.entry(row.use_id).or_default().push(row);
     }
-    let mut blocked: BTreeMap<(Id, Id), BTreeSet<i64>> = BTreeMap::new();
+    let mut blocked: BTreeMap<(Id, Id), Vec<Barrier>> = BTreeMap::new();
     for row in barriers {
         blocked
             .entry((row.module_node_id, row.operation_node_id))
             .or_default()
-            .insert(row.start_byte);
+            .push(row);
     }
     let mut tested_before: BTreeMap<(Id, Id), BTreeSet<i64>> = BTreeMap::new();
     for row in prior_tests {
@@ -191,6 +216,13 @@ pub async fn run(
     let effect_model_digest = digest();
     let mut out = Vec::new();
     for test in tests {
+        let resolved_type_operand = Atom::parse_encoded(&test.atom).ok().is_some_and(|atom| {
+            let Atom::Evaluated { atom, .. } = atom else {
+                return false;
+            };
+            matches!(*atom, Atom::TypeIs { place, ref class }
+                if place == test.place && matches!(class.as_str(), "str" | "int" | "bool"))
+        });
         let Some(reaches) = by_use.get(&test.use_id) else {
             continue;
         };
@@ -210,9 +242,6 @@ pub async fn run(
             || reach.loop_carried
             || !reach.stated
             || start >= test.operand_start_byte
-            || blocked
-                .get(&(test.module_node_id, function))
-                .is_some_and(|sites| sites.range(start..test.operand_start_byte).next().is_some())
             || tested_before
                 .get(&(test.module_node_id, function))
                 .is_some_and(|ends| {
@@ -222,6 +251,37 @@ pub async fn run(
         {
             continue;
         }
+        let mut exempted_type_call = false;
+        let has_barrier = blocked
+            .get(&(test.module_node_id, function))
+            .is_some_and(|sites| {
+                sites.iter().any(|barrier| {
+                    if barrier.start_byte < start || barrier.start_byte >= test.operand_start_byte {
+                        return false;
+                    }
+                    let own_resolved_type_call = resolved_type_operand
+                        && barrier.call_barrier
+                        && barrier.start_byte == test.leaf_start_byte
+                        && barrier.end_byte > test.operand_end_byte
+                        && barrier.end_byte <= test.leaf_end_byte
+                        && barrier.positional_count == Some(1)
+                        && barrier.keyword_count == Some(0);
+                    if own_resolved_type_call {
+                        exempted_type_call = true;
+                    }
+                    !own_resolved_type_call
+                })
+            });
+        if has_barrier {
+            continue;
+        }
+        // Keep the old direct origin intact. The new origin requires the exact call-syntax
+        // witness, not merely the shape of the leaf atom.
+        let origin = if exempted_type_call {
+            TestValueLinkOrigin::ResolvedBuiltinTypeOperand
+        } else {
+            TestValueLinkOrigin::DirectParameterReachNoEffect
+        };
         let link_id = IdHasher::new("flow-test-value-link")
             .id(test.operation_node_id)
             .id(formal)
@@ -244,8 +304,77 @@ pub async fn run(
             operand_end_byte: test.operand_end_byte,
             place: test.place,
             condition_id: test.condition_id,
-            origin: TestValueLinkOrigin::DirectParameterReachNoEffect,
+            origin,
             effect_model_digest,
+        });
+    }
+    out.sort_by_key(|row| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+        )
+    });
+    out.dedup_by_key(|row| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+        )
+    });
+    Ok(out)
+}
+
+/// A positive exact-class fact conditional on the guard atom being true. This proof does not
+/// transfer to a later use without another same-value witness.
+pub async fn exact_origins(
+    ctx: &SessionContext,
+    snapshot_id: Id,
+    links: &[FlowTestValueLinksRow],
+) -> Result<Vec<FlowTestExactOriginsRow>, CoreError> {
+    let leaves: Vec<ExactLeaf> = sql::fetch(ctx, &exact_leaves(), sql::Params::new()).await?;
+    let by_id: BTreeMap<Id, ExactLeaf> = leaves
+        .into_iter()
+        .map(|leaf| (leaf.fact_id, leaf))
+        .collect();
+    let mut out = Vec::new();
+    for link in links {
+        if link.origin != TestValueLinkOrigin::ResolvedBuiltinTypeOperand {
+            continue;
+        }
+        let Some(leaf) = by_id.get(&link.leaf_fact_id) else {
+            continue;
+        };
+        if leaf.atom_id != link.atom_id || leaf.condition_id != link.condition_id {
+            continue;
+        }
+        let Ok(Atom::Evaluated { atom, .. }) = Atom::parse_encoded(&leaf.atom) else {
+            continue;
+        };
+        let Atom::TypeIs { place, class } = *atom else {
+            continue;
+        };
+        if place != link.place || !matches!(class.as_str(), "str" | "int" | "bool") {
+            continue;
+        }
+        out.push(FlowTestExactOriginsRow {
+            snapshot_id,
+            origin_id: IdHasher::new("flow-test-exact-origin")
+                .id(link.link_id)
+                .str(&class)
+                .finish_id(),
+            operation_node_id: link.operation_node_id,
+            formal_node_id: link.formal_node_id,
+            module_node_id: link.module_node_id,
+            leaf_fact_id: link.leaf_fact_id,
+            atom_id: link.atom_id,
+            use_id: link.use_id,
+            value_link_id: link.link_id,
+            test_condition_id: link.condition_id,
+            builtin_class: class,
+            origin: ExactValueOrigin::ResolvedBuiltinTypeGuard,
         });
     }
     out.sort_by_key(|row| {

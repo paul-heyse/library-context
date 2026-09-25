@@ -86,6 +86,11 @@ pub enum Atom {
         place: String,
         class: String,
     },
+    /// `type(p) is C`, with both names resolved to builtins before construction.
+    TypeIs {
+        place: String,
+        class: String,
+    },
     /// Any other test, as its source text with whitespace runs collapsed. `version` is retained
     /// only to parse prior Stage 2 encodings; translated tests carry evaluation identity.
     Opaque {
@@ -222,6 +227,7 @@ impl Atom {
             Atom::MemberOf { .. } => ConditionAtom::MemberOf,
             Atom::Truthy { .. } => ConditionAtom::Truthy,
             Atom::IsInstance { .. } => ConditionAtom::IsInstance,
+            Atom::TypeIs { .. } => ConditionAtom::TypeIs,
             Atom::Opaque { .. } => ConditionAtom::Opaque,
             Atom::Evaluated { atom, .. } => atom.kind(),
         }
@@ -235,7 +241,8 @@ impl Atom {
             | Atom::Equals { place, .. }
             | Atom::MemberOf { place, .. }
             | Atom::Truthy { place }
-            | Atom::IsInstance { place, .. } => Some(place),
+            | Atom::IsInstance { place, .. }
+            | Atom::TypeIs { place, .. } => Some(place),
             Atom::Opaque { .. } => None,
             Atom::Evaluated { atom, .. } => atom.place(),
         }
@@ -257,6 +264,7 @@ impl Atom {
                     .join(",")
             )),
             Atom::IsInstance { class, .. } => Some(class.clone()),
+            Atom::TypeIs { class, .. } => Some(class.clone()),
             Atom::Opaque { text, version } => {
                 let text = serde_json::to_string(text).expect("a string serializes");
                 Some(match version {
@@ -700,6 +708,10 @@ fn parse_literal(text: &str) -> Result<Literal, String> {
             place: place(),
             class: args.get(1).ok_or("isinstance needs a class")?.clone(),
         },
+        "type_is" => Atom::TypeIs {
+            place: place(),
+            class: args.get(1).ok_or("type_is needs a class")?.clone(),
+        },
         "member_of" => {
             let set = args.get(1).ok_or("member_of needs a set")?;
             let set = set
@@ -748,6 +760,15 @@ mod tests {
         let o = c("opaque(\"a  and\\n b\")");
         assert_eq!(Condition::atom(Atom::opaque("a  and\n b")), o);
         assert_eq!(c("opaque(\"x)#y\")").encode(), "opaque(\"x)#y\")");
+        let exact_type = c("type_is(x,str)");
+        assert_eq!(
+            exact_type,
+            Condition::atom(Atom::TypeIs {
+                place: "x".into(),
+                class: "str".into()
+            })
+        );
+        assert_ne!(exact_type.id(), c("isinstance(x,str)").id());
     }
 
     #[test]

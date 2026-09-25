@@ -137,6 +137,18 @@ impl Translator<'_> {
     }
 
     fn compare(&self, whole: &Expr, left: &Expr, op: CmpOp, right: &Expr) -> Condition {
+        if matches!(op, CmpOp::Is | CmpOp::IsNot)
+            && let Some((place, class)) = self
+                .type_is_builtin(left, right)
+                .or_else(|| self.type_is_builtin(right, left))
+        {
+            let condition = self.atom(Atom::TypeIs { place, class }, whole);
+            return if op == CmpOp::Is {
+                condition
+            } else {
+                condition.not()
+            };
+        }
         // The place on either side; a literal on the other.
         let (place, other) = match (self.place(left), self.place(right)) {
             (Some(p), _) if literal(right).is_some() || literal_set(right).is_some() => (p, right),
@@ -155,6 +167,37 @@ impl Translator<'_> {
         let positive = matches!(op, CmpOp::Is | CmpOp::Eq | CmpOp::In);
         let c = self.atom(atom, whole);
         if positive { c } else { c.not() }
+    }
+
+    fn type_is_builtin(&self, candidate: &Expr, class: &Expr) -> Option<(String, String)> {
+        let Expr::Call(call) = candidate else {
+            return None;
+        };
+        let Expr::Name(function) = call.func.as_ref() else {
+            return None;
+        };
+        if !self
+            .runtime
+            .builtin_type
+            .contains(&Span::from(function.range()))
+            || call.arguments.args.len() != 1
+            || !call.arguments.keywords.is_empty()
+        {
+            return None;
+        }
+        let Expr::Name(class_name) = class else {
+            return None;
+        };
+        let name = class_name.id.as_str();
+        if !self
+            .runtime
+            .builtin_classes
+            .get(name)?
+            .contains(&Span::from(class.range()))
+        {
+            return None;
+        }
+        Some((self.place(&call.arguments.args[0])?, name.to_owned()))
     }
 
     fn isinstance(&self, whole: &Expr, call: &ast::ExprCall) -> Option<Condition> {
@@ -245,6 +288,28 @@ impl Translator<'_> {
                         && self.place(&call.arguments.args[0]).as_deref() == Some(place) =>
                 {
                     Some(Span::from(call.arguments.args[0].range()))
+                }
+                (Atom::TypeIs { .. }, Expr::Compare(compare))
+                    if compare.ops.len() == 1
+                        && matches!(compare.ops[0], CmpOp::Is | CmpOp::IsNot) =>
+                {
+                    let (candidate, class) = (&compare.operands[0], &compare.operands[1]);
+                    self.type_is_builtin(candidate, class)
+                        .filter(|(tested, _)| tested == place)
+                        .and_then(|_| match candidate {
+                            Expr::Call(call) => Some(Span::from(call.arguments.args[0].range())),
+                            _ => None,
+                        })
+                        .or_else(|| {
+                            self.type_is_builtin(class, candidate)
+                                .filter(|(tested, _)| tested == place)
+                                .and_then(|_| match class {
+                                    Expr::Call(call) => {
+                                        Some(Span::from(call.arguments.args[0].range()))
+                                    }
+                                    _ => None,
+                                })
+                        })
                 }
                 _ => None,
             };

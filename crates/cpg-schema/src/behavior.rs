@@ -28,9 +28,9 @@
 //! (`semantic:behavior-covers-public`).
 
 use crate::codebook::{
-    BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView, FlowSink,
-    InvocationPhase, Modality, OperationFacet, PremiseKind, ReadPhase, SourceRole,
-    TestValueLinkOrigin, ValueClass, Verdict,
+    BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
+    ExactValueOrigin, FlowSink, InvocationPhase, Modality, OperationFacet, PremiseKind, ReadPhase,
+    SourceRole, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -379,6 +379,30 @@ table!(
         condition_id: Id,
         origin: TestValueLinkOrigin,
         effect_model_digest: Digest,
+    }
+);
+
+table!(
+    /// Under this leaf atom's TRUE assignment, the entry formal has exactly the named builtin
+    /// runtime class. The cited value link proves the guard's inner operand is that entry value;
+    /// a later operand needs its own stability proof. The test root may include other atoms.
+    FlowTestExactOrigins, FlowTestExactOriginsRow = "flow_test_exact_origins",
+    family = Findings,
+    key = [snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id],
+    checks = [("builtin_class", "builtin_class IN ('str', 'int', 'bool')")],
+    {
+        snapshot_id: Id,
+        origin_id: Id,
+        operation_node_id: Id,
+        formal_node_id: Id,
+        module_node_id: Id,
+        leaf_fact_id: Id,
+        atom_id: Id,
+        use_id: Id,
+        value_link_id: Id,
+        test_condition_id: Id,
+        builtin_class: String,
+        origin: ExactValueOrigin,
     }
 );
 

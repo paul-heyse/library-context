@@ -458,6 +458,9 @@ test_type_origin
   0 pyrefly_trace
 test_value_link_origin
   0 direct_parameter_reach_no_effect
+  1 resolved_builtin_type_operand
+exact_value_origin
+  0 resolved_builtin_type_guard
 record_kind
   0 dataclass
   1 attrs
@@ -639,6 +642,7 @@ condition_atom
   4 isinstance
   5 opaque
   6 is_value
+  7 type_is
 flow_sink
   0 definition
   1 argument

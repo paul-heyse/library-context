@@ -495,6 +495,8 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
   again at release, after the generation format and query API settle. A semantic filter partitions
   candidates into matched, proven-excluded,
   source-open and unexamined; `complete` requires the latter two to be empty.
+  During design, focused probes settle individual contracts; full `just test-all` and `just pilot`
+  acceptance runs occur at the integrated Stage 3 end (operator direction, 2026-09-24).
 - Which facet rows are complete remains served data (`operation_facet_status`); facet names are
   held to the codebook by `specs/serving/facets.json`.
 
@@ -1254,6 +1256,30 @@ are stored on each link;
 publication recomputes the entire relation from its pinned raw views. A missing link remains
 unknown. Exact builtin value/type origins, modeled transfers and typed exclusion are still
 Proposed.
+
+**Proposed first typed-theory scope (2026-09-24).** An exact-origin relation must cite either a
+query-supplied literal or a resolved one-argument builtin `type(x) is <builtin>` guard, its inner
+operand use, branch condition and path-specific same-value witness. A parameter default is not
+an exact entry value for calls that may pass an argument. Initially, theory constraints cover
+`is_none` against a proved non-`None` singleton and unequal string `==` tests only where the
+runtime value is proved exact builtin `str`. Numeric/Boolean cross-equality, subclass equality,
+custom `__eq__` and all unproved relationships stay unknown. The existing bounded BDD kernel
+conjoins these constraints; the raw condition id remains independent of the theory revision.
+The trusted builtin `type` call is exempt from the effect barrier only with resolved builtin
+identity and a revisioned model. No generic SMT engine is included without a registered need.
+
+**Implemented and Tested (2026-09-24, source attribution only).** The flow translator emits a
+`type_is` atom for one-argument `type(x) is str|int|bool` only when lexical resolution identifies
+both names as builtins. It attributes the test operand to the inner `x` use; a shadowed `type` or
+class name stays opaque.
+
+**Implemented and Tested (2026-09-24, exact origin at the guard only).** The value-link producer
+admits its own resolved one-argument builtin `type(x)` call as a revisioned, cited exception to
+the call barrier; any other preceding call or effect still withholds the link. The separate
+`flow_test_exact_origins` relation cites that link and the guard leaf, and asserts exact builtin
+class only under the atom's true assignment. Publication recomputes both relations. This is
+not a proof that a later use still observes the same value. A later-use stability witness and
+the bounded primitive constraints are still Proposed; no typed exclusion is served yet.
 
 > Decision: ADR-0022, ADR-0024
 

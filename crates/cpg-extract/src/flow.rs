@@ -117,6 +117,41 @@ pub(crate) fn runtime_bindings(lex: &LexicalOut, imports: &[ExportSyntaxRow]) ->
             }
         }
     }
+    // A spelling is not builtin evidence: require every lexical candidate to resolve to the
+    // same actual builtin. This is independent of the recognized import aliases above.
+    let mut builtin_candidates: HashMap<Id, Vec<Option<&str>>> = HashMap::new();
+    for resolution in &lex.resolutions {
+        builtin_candidates
+            .entry(resolution.reference_id)
+            .or_default()
+            .push(resolution.builtin_name.as_deref());
+    }
+    for reference in &lex.references {
+        let Some(found) = builtin_candidates.get(&reference.node_id) else {
+            continue;
+        };
+        let Some(Some(name)) = found.first() else {
+            continue;
+        };
+        if !found.iter().all(|item| *item == Some(*name)) {
+            continue;
+        }
+        let (Ok(start), Ok(end)) = (
+            u32::try_from(reference.start_byte),
+            u32::try_from(reference.end_byte),
+        ) else {
+            continue;
+        };
+        let span = Span { start, end };
+        if *name == "type" {
+            out.builtin_type.insert(span);
+        } else if matches!(*name, "str" | "int" | "bool") {
+            out.builtin_classes
+                .entry((*name).to_owned())
+                .or_default()
+                .insert(span);
+        }
+    }
     out
 }
 

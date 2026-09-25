@@ -26,7 +26,7 @@
 mod db;
 mod predicate;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub use cpg_schema::codebook::{BindingKind, LexicalScopeKind};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -81,6 +81,9 @@ pub struct RuntimeBindings {
     pub typing_modules: BTreeSet<Span>,
     pub sys_modules: BTreeSet<Span>,
     pub os_modules: BTreeSet<Span>,
+    /// Name loads resolved by the lexical provider to these exact builtins.
+    pub builtin_type: BTreeSet<Span>,
+    pub builtin_classes: BTreeMap<String, BTreeSet<Span>>,
 }
 
 /// A byte span of the module's text.

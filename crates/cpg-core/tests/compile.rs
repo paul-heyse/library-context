@@ -245,6 +245,78 @@ async fn published_test_type_link_tamper_is_rejected() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolved_type_guard_publishes_only_a_cited_exact_class_origin() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([49; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["guardpkg"]
+public_roots = ["guardpkg"]
+[seeds]
+primary = ["guardpkg.exact"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#,
+        )
+        .unwrap(),
+        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw("type_guard", snapshot),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM flow_test_exact_origins").await,
+        1
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM flow_test_exact_origins o \
+             JOIN flow_test_value_links l ON l.link_id = o.value_link_id \
+             WHERE o.builtin_class = 'str' AND l.origin = 1 \
+               AND o.atom_id = l.atom_id AND o.use_id = l.use_id",
+        )
+        .await,
+        1
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    let doctored = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (builtin_class), 'int' AS builtin_class FROM flow_test_exact_origins",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("flow_test_exact_origins").unwrap();
+    ctx.register_table("flow_test_exact_origins", doctored)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "flow-test-exact-origin"),
+        "{violations:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn entry_value_links_require_a_direct_uninterrupted_parameter_reach() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([48; 16]);

@@ -799,6 +799,15 @@ codebook!(
     /// Further origins are appended only with an effect and identity proof.
     TestValueLinkOrigin = "test_value_link_origin" {
         DirectParameterReachNoEffect = 0 => "direct_parameter_reach_no_effect",
+        /// The only intervening call is this leaf's resolved one-argument builtin `type(x)`.
+        ResolvedBuiltinTypeOperand = 1 => "resolved_builtin_type_operand",
+    }
+);
+
+codebook!(
+    /// An exact entry-value assertion and the condition under which it holds.
+    ExactValueOrigin = "exact_value_origin" {
+        ResolvedBuiltinTypeGuard = 0 => "resolved_builtin_type_guard",
     }
 );
 
@@ -1295,6 +1304,8 @@ codebook!(
         Opaque = 5 => "opaque",
         /// `p is v` for a literal `v` (negated: `p is not v`).
         IsValue = 6 => "is_value",
+        /// Resolved builtin `type(p) is C`; C is an exact builtin class.
+        TypeIs = 7 => "type_is",
     }
 );
 
@@ -1396,6 +1407,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<TypeRole>(),
         CodebookEntry::of::<TestTypeOrigin>(),
         CodebookEntry::of::<TestValueLinkOrigin>(),
+        CodebookEntry::of::<ExactValueOrigin>(),
         CodebookEntry::of::<RecordKind>(),
         CodebookEntry::of::<MentionClass>(),
         CodebookEntry::of::<MentionSource>(),

@@ -77,3 +77,26 @@ fn test_type_rows_name_the_selected_operand_and_trace() {
         cell(rows, "operand_start_byte", i) == (x + 3).to_string() && cell(rows, "place", i) == "C"
     }));
 }
+
+#[test]
+fn exact_type_guard_requires_resolved_builtins_and_names_the_inner_use() {
+    let (_dir, out) = run("type_guard");
+    let source = std::fs::read_to_string(fixture("type_guard").join("guardpkg/cases.py")).unwrap();
+    let leaves = out.table("flow_test_leaves").unwrap();
+    let typed: Vec<_> = (0..leaves.num_rows())
+        .filter(|&i| cell(leaves, "atom", i).starts_with("type_is(x,str)#"))
+        .collect();
+    assert_eq!(typed.len(), 2, "both unshadowed builtin guards are exact");
+    let exact_start = source.find("if type(x) is str:").unwrap();
+    let operand = exact_start + "if type(".len();
+    let rows = out.table("flow_test_types").unwrap();
+    assert!((0..rows.num_rows()).any(|i| {
+        cell(rows, "operand_start_byte", i) == operand.to_string()
+            && cell(rows, "operand_end_byte", i) == (operand + 1).to_string()
+            && cell(rows, "place", i) == "x"
+    }));
+    let opaque = (0..leaves.num_rows())
+        .filter(|&i| cell(leaves, "atom", i).starts_with("opaque("))
+        .count();
+    assert!(opaque >= 2, "shadowed names keep the test opaque");
+}

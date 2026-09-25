@@ -108,6 +108,21 @@ synthetic atoms share the same subject span.
   possible subclasses, custom `__eq__` and intervening effects leave the relationship
   unknown. The raw Boolean condition id is independent of theory-conditioned verdicts; the
   latter cite the theory revision and proof witness. No arbitrary Python expression is evaluated.
+- The first theory implementation uses the same bounded BDD kernel to conjoin only
+  independently justified primitive constraints. It may separate `is_none` from a proved
+  non-`None` singleton, and unequal string `==` atoms only after an exact builtin `str` origin
+  and a same-value witness. It does not identify `==` with `is` or assume distinct numeric and
+  Boolean literals compare unequal (`1 == True`). A query-supplied exact literal has its own
+  entry-value origin; a parameter default is not such an origin when an explicit argument can
+  replace it. If proof is absent or capped, the typed result is unknown, irrespective of raw
+  propositional compatibility. This stays within biodivine's bounded apply; Z3 is reconsidered
+  only for a registered question requiring arithmetic or another genuinely non-Boolean theory.
+- The exact `type(x) is <builtin>` origin resolves both the `type` call and the class operand to
+  their builtins via source reference facts. Its tested operand is the inner `x` use, not the
+  whole call span. The one-argument builtin type call may be exempted from an effect barrier
+  only under that resolution and a revisioned model. A later test needs a path-specific
+  stability witness across the guard; the current direct-link origin's blanket prior-predicate
+  barrier is not weakened by inference from source order alone.
 - The `flow_test_types` relation cites `flow_test_leaves.fact_id` and its leaf evaluation atom
   identity, exact `flow_uses.use_id`, operand span and role (`tested_place`), type-term id,
   proof-origin code and cited fact ids. A test-span id alone cannot identify which BDD variable
@@ -134,6 +149,13 @@ condition answers, factoring, shuffled-input determinism and limit behavior. The
 measures pilot `budget_reached`, limit hits and compile time.
 
 ## Consequences
+
+**Partial implementation evidence (2026-09-24, Tested).** The source translator now emits a
+resolved `type_is` atom with the inner operand use. The guarded entry-value link and separate
+exact-class origin are published with cited source identities and recomputed by the shared
+validator. A focused fixture confirms shadowed names and a preceding unknown call withhold the
+origin and that a doctored stored class is rejected. This does not establish later-use stability,
+primitive-theory compatibility or native serving; the ADR remains proposed pending those gates.
 
 Summaries and serving can ask semantic questions of the same Rust authority, and compact
 Boolean functions need not be discarded for DNF expansion. Node serialization, stable-place

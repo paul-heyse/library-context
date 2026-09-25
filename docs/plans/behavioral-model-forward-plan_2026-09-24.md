@@ -400,6 +400,12 @@ It does not widen their exit rule. The first direct entry-formal → test-use re
 **Implemented and Tested**; its 2026-09-24 pilot published 102 positive links. No typed
 contradiction or served compatibility result follows from that count.
 
+The next source slice is **Implemented and Tested** on a focused fixture (2026-09-24): resolved
+builtin `type(x) is C` yields an attributed atom, a guarded entry-value link and a separate
+exact-class origin conditional on that atom being true. Shadowed builtin names and a preceding
+unknown call withhold the origin. It does not establish stability at a later use or a served
+negative verdict. The integrated repository and pilot gates remain for the Stage 3 end.
+
 1. **Finish identity before theory.** Keep `flow_test_types` as Pyrefly observation and
    `flow_test_value_links` as a separate positive proof. Extend the link origin codebook only
    for a transfer whose entry formal, operand use, condition and intervening effects have cited

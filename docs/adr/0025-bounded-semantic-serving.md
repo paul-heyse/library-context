@@ -86,7 +86,9 @@ cannot certify the needed value stability across a call.
   revisit. The FastMCP layer maps
   domain errors to tool errors. The extension is built and pinned with the uv workspace and
   Cargo lock, with a same-generation integration test. During design, focused tests and probes
-  run before the broader repository and pilot gates at product checkpoints.
+  answer material questions; the full repository and pilot gates run at the integrated Stage 3
+  end, not after each slice. Rust test execution uses cached release-profile binaries; data
+  setup follows each test's own contract.
 - ADR-0010's embedding model/spec, cached vectors, view policy, conformance rule, lexical
   degradation, BM25/fusion and exact-symbol promotion continue as DESIGN §B14 and §11.1–§11.2
   state. This supersession changes the executor boundary only.

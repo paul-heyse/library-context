@@ -1,0 +1,22 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_test_exact_origins
+family findings
+key snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id
+check builtin_class: builtin_class IN ('str', 'int', 'bool')
+@lctx.family=findings
+@lctx.table=flow_test_exact_origins
+snapshot_id: FixedSizeBinary(16) NOT NULL
+origin_id: FixedSizeBinary(16) NOT NULL
+operation_node_id: FixedSizeBinary(16) NOT NULL
+formal_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+leaf_fact_id: FixedSizeBinary(16) NOT NULL
+atom_id: FixedSizeBinary(16) NOT NULL
+use_id: FixedSizeBinary(16) NOT NULL
+value_link_id: FixedSizeBinary(16) NOT NULL
+test_condition_id: FixedSizeBinary(16) NOT NULL
+builtin_class: Utf8 NOT NULL
+origin: Int16 NOT NULL [lctx.codebook=exact_value_origin]
