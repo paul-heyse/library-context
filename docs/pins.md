@@ -117,6 +117,7 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | pytest | 9.1.1 (`uv.lock`) | 2026-09-22 | `uv sync` |
 | Hypothesis | 6.168.1 (uv dev group; runtime soundness oracle only) | 2026-09-24 | `uv add --dev 'hypothesis==6.168.1'`; `uv.lock` resolves sortedcontainers 2.4.0; generated programs execute under CPython 3.14.7 in an isolated worker |
 | cargo-nextest | 0.9.144 | 2026-09-22 | `just doctor` |
+| sccache | 0.17.0 (required by `.cargo/config.toml`) | 2026-09-24 | `sccache --version`; cache wrapper for stable Cargo builds |
 | cargo-insta | 1.48.0 | 2026-09-22 | `just doctor` |
 | cargo-deny | 0.20.2 (does not see dev-only duplicates; see ADR-0002) | 2026-09-22 | tested with a synthetic duplicate |
 | ast-grep | 0.45.3 | 2026-09-22 | `just doctor` |

@@ -68,7 +68,7 @@ set of searchable briefs for one subsystem, reached by the first two operations 
 with a `compact` review (ADR-0021), except where it coincides with an increment's end: then one
 review at the increment's depth covers both (the plan's §15).
 
-Each increment is a working vertical slice and ends with the review shown (ADR-0001 mechanics).
+Each increment is a working vertical slice and ends with the review shown (ADR-0026 mechanics).
 
 | # | Deliverable | Review |
 |---|---|---|
@@ -99,7 +99,14 @@ slices 1–3 built the extraction, derivation and publication path. Before its a
 So `syntax` and `lexical` move up from increment 2, and `types` and `docs` from increment 3. The
 analytics that read them stay in their increments, and every family names its consumer.
 
-> Decision: ADR-0021, ADR-0014, ADR-0001, ADR-0013
+**Implemented** (ADR-0026, 2026-09-24): the ordinary development loop uses the pinned stable
+Rust 1.98.1, 16 Cargo jobs, the default single rustc frontend thread, sccache, and disabled
+incremental compilation so workspace compilations can be cached. Agents work on `main` in the
+current tree; a separate worktree is reserved for truly concurrent production-code edits.
+Clang invokes mold for Linux links. Performance of the exact 16-job stable configuration and
+cache recovery remains **Proposed** until measured.
+
+> Decision: ADR-0021, ADR-0014, ADR-0013, ADR-0026
 
 ### §1.3 Non-goals for stage 1
 
@@ -3626,3 +3633,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-24 | The behavioral-model pivot, Stage 0. The product becomes a behavioral model of the whole public surface, with briefs as one rendering: §1.1–§1.5, §9 rules, §12, §13 (ADR-0021, superseding ADR-0004). The model's semantics: places, the runtime view, closed conditions, five verdicts, models as data (§B5, §B10, §3.2, new §3.9, new §9.9; ADR-0022). Serving tools, the executor, `FORMAT` 3 and embedding views (§B13, §B14, §6.4, §11.3; ADR-0010 amendment). Declared extra dependency families (ADR-0002 amendment). Flow and summary algorithms (§B4; ADR-0011 amendment). The keep rule under the new consumers, and the deletion exit paused (§9.8; ADR-0020 amendment). Source: `design_review_behavioral-model-pivot_2026-09-24.md` and the plan `docs/plans/behavioral-model-pivot-plan_2026-09-24.md` | ADR-0021, ADR-0022; deviation log B1 |
 | 2026-09-24 | The review standard: §2's pointer moves from `ADDENDUM.md` to the library-context binding; charter and graph-guideline citations re-keyed to DP and CI IDs | ADR-0023 |
 | 2026-09-24 | Proposed Stage 3 kernel and serving design: bounded BDD conditions, typed proof links and same-generation native queries (§B10, §B13, §B14, §3.9, §9.9, §11.3). During design, editable native import and focused probes are the fast gate; clean wheel installation with a generation-pinned tool call waits for Stage 3.6 product acceptance, then repeats at release. | ADR-0024, ADR-0025 (proposed) |
+| 2026-09-24 | Development loop uses pinned stable Rust, 16 Cargo jobs, sccache with incremental off, Clang/mold, and the main working tree except for concurrent production-code edits (§1.2) | ADR-0026 (supersedes ADR-0001) |

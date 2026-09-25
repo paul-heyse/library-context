@@ -1,10 +1,10 @@
 ---
 id: ADR-0001
 title: Lightweight, pivot-friendly development process
-status: accepted
+status: superseded
 date: 2026-09-22
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0026
 design: [§1.2]
 evidence: Implemented
 revisit: Two consecutive design reviews find nothing (lower the cadence), or a process step is skipped twice because it costs more than it catches.

@@ -19,7 +19,7 @@ The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, 
 project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0013); the project's own
 environment is never an analysis input.
 
-This is a personal project with one operator. Process is deliberately light (ADR-0001). Keep
+This is a personal project with one operator. Process is deliberately light (ADR-0026). Keep
 it that way: before adding a hook, gate, register or new document type, check that it has a
 real consumer.
 
@@ -65,6 +65,13 @@ real consumer.
 The Rust toolchain is pinned to 1.98.1 in `rust-toolchain.toml`. The machine default is
 nightly, so don't pass `+nightly` or `+stable` to cargo in this workspace. Python is 3.14.7 via
 `uv`; run Python tools as `uv run …`. The type checker is **pyrefly**, not pyright or mypy.
+
+The repository's `.cargo/config.toml` sets 16 Cargo jobs, `sccache` as the compiler wrapper,
+and incremental compilation off so the compiler cache can store workspace crates. Stable rustc
+uses one frontend thread by default; do not add nightly `-Zthreads` flags to the development
+loop. Keep Clang and mold as the linker route. Avoid changing `CARGO_TARGET_DIR`, rustflags,
+or worktrees during ordinary development because those changes disrupt build reuse. For an
+isolated diagnosis, override the config through Cargo's environment variables and report it.
 
 ## Writing code against the pinned libraries
 
@@ -135,9 +142,10 @@ capability is absent.
 
 ## Git
 
+- Work on `main` in the current working tree for ordinary edits, reviews and spikes. Use a
+  separate worktree only when truly parallel agents must edit production code concurrently.
 - Commit to `main` in small commits. Each message names the slice and any ADR, and states the
   test outcome.
-- Use `git worktree` for exploratory spikes.
 - Never force-push or `reset --hard`.
 - `.claude/skills/*` is gitignored except the process skills: `adr`, `design-review`,
   `design-review-code-intelligence`, `handoff`, `pin-check`.

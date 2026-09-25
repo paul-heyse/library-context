@@ -66,7 +66,8 @@ def test_variants_preserve_mold_and_isolate_cache(
     nightly = bm.variant_env(tmp_path, "nightly-8x4", 2)
 
     assert stable["CARGO_ENCODED_RUSTFLAGS"] == "-C\x1flink-arg=-fuse-ld=mold"
-    assert "RUSTC_WRAPPER" not in stable
+    assert stable["RUSTC_WRAPPER"] == ""
+    assert stable["CARGO_INCREMENTAL"] == "0"
     assert "RUSTFLAGS" not in nightly
     assert nightly["CARGO_ENCODED_RUSTFLAGS"].endswith("\x1f-Zthreads=4")
     assert nightly["CARGO_BUILD_JOBS"] == "8"

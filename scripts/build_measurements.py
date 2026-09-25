@@ -219,6 +219,7 @@ def variant_env(campaign: Path, variant: str, trial: int) -> dict[str, str]:
         env.pop(key, None)
     env["RUSTUP_TOOLCHAIN"] = toolchain
     env["CARGO_BUILD_JOBS"] = str(jobs)
+    env["CARGO_INCREMENTAL"] = "0"
     env["CARGO_TARGET_DIR"] = str(campaign / "targets" / variant / f"trial-{trial}")
     flags = ["-C", "link-arg=-fuse-ld=mold"]
     if toolchain == NIGHTLY:
@@ -236,13 +237,15 @@ def variant_env(campaign: Path, variant: str, trial: int) -> dict[str, str]:
         socket_id = hashlib.sha256(f"{campaign}:{variant}".encode()).hexdigest()[:16]
         env["SCCACHE_SERVER_UDS"] = f"/tmp/lctx-perf-{socket_id}.sock"
     else:
+        # Override the repository's default compiler wrapper for uncached controls.
+        env["RUSTC_WRAPPER"] = ""
         for key in ("SCCACHE_DIR", "SCCACHE_CACHE_SIZE", "SCCACHE_SERVER_UDS"):
             env.pop(key, None)
     return env
 
 
 def cache_stats(env: dict[str, str]) -> dict:
-    if "RUSTC_WRAPPER" not in env:
+    if not env.get("RUSTC_WRAPPER"):
         return {}
     output = capture_command([env["RUSTC_WRAPPER"], "--show-stats", "--stats-format=json"], env=env)
     return json.loads(output)
