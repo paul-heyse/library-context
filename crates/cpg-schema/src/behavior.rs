@@ -2081,7 +2081,7 @@ crate::relations! {
     /// The condition kernel decides whether each seed is admitted or bounded.
     summary_flow_seeds = "behavior:summary_flow_seeds",
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls", "parameter_syntax",
-                "syntax_nodes", "declarations", "exit_sites", "return_exit_statuses"],
+                "syntax_nodes", "declarations", "exit_sites", "return_exit_statuses", "call_syntax"],
         sql = format!(
             "SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, p.name AS parameter_name, \
@@ -2108,6 +2108,9 @@ crate::relations! {
                AND NOT v.captured AND v.function_node_id = v.sink_function_node_id \
                AND NOT EXISTS (SELECT 1 FROM flow_value_calls c \
                  WHERE c.flow_value_fact_id = f.fact_id) \
+               AND NOT EXISTS (SELECT 1 FROM call_syntax c \
+                 WHERE c.owner_node_id = d.node_id AND NOT c.in_annotation \
+                   AND c.start_byte < r.start_byte) \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",

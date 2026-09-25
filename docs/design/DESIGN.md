@@ -3583,16 +3583,19 @@ Recursive and conditional callee paths remain unknown, and a depth refusal curre
 the generic `call_transfer` boundary pending a specific budget row. Compiler output version
 64; full SCC composition, effect summaries and integrated Stage 3 testing remain open.
 
-**Implemented and Tested in a focused recursive-control case (2026-09-25):** the finite
-direct, modeled and assignment-return producers withhold all positive paths whose owning
-function belongs to an attributed recursive `summary_components` SCC. The existing local-call
-producer already withheld recursive callers. A direct `return value` after an unconditional
-self-call has a true region condition but no finite completion proof; the focused fixture now
-retains its `summary_boundaries` row rather than publishing a positive value flow. This is a
-conservative interim boundary, since a real terminating base branch is also withheld until
-the bounded SCC worklist can prove it. Candidate/open call edges can only enlarge the
-withheld set. Compiler output version 71; full SCC composition and integrated acceptance
-remain open.
+**Implemented and Tested in focused recursive-control cases (2026-09-25):** version 71
+withheld all positive finite paths for recursive SCC members after an unconditional self-call
+exposed an unproved predecessor completion. Version 72 (ADR-0038) narrows the direct-return
+producer's interim guard: any attributed earlier call in the same callable withholds a direct
+identity-return seed, even when the call is nonrecursive, while a base return before the
+recursive call can retain its finite may-path. Both withholding shapes have explicit
+`summary_boundaries`. This byte-order screen is conservative across alternate branches and
+does not prove normal completion of other preceding actions. The modeled and assignment
+producers still withhold recursive members; the local-call producer already did so. The
+bounded path-sensitive predecessor and SCC worklist must replace these interim boundaries.
+Integrated acceptance remains open.
+
+> Decision: ADR-0038
 
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
@@ -4340,3 +4343,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | A verified Pysa source-to-sink rule with explicit Pyrefly pin and a byte-identical compiler fixture agree on two positive value paths and a constant control; the pinned FastMCP differential remains open (§9.9) | — |
 | 2026-09-25 | Nested pass-only finalizers now preserve a pending return with an inner-to-outer sequence of cited source steps; effectful finalizers and `with` remain open, and derivation output version is 70 (§9.9) | ADR-0037 (supersedes ADR-0036) |
 | 2026-09-25 | Recursive SCC membership now withholds direct and modeled finite value summaries until a bounded worklist proves completion; explicit unknown boundaries remain (§9.9) | — |
+| 2026-09-25 | Direct-return admission now screens earlier attributed source calls, allowing a terminating base return before recursion while retaining post-call unknowns (§9.9) | ADR-0038 |

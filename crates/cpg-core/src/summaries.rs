@@ -274,7 +274,6 @@ async fn direct_flows(
     diagrams: &HashMap<Id, Diagram>,
     boundaries: &HashMap<Id, BoundaryReason>,
     pass_steps: &ReturnPassIndex,
-    recursive_functions: &HashSet<Id>,
 ) -> Result<(Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>), CoreError> {
     let seeds: Vec<SummaryFlowSeed> = sql::fetch(
         ctx,
@@ -285,12 +284,6 @@ async fn direct_flows(
     let mut flows = Vec::new();
     let mut steps = Vec::new();
     for seed in seeds {
-            // A syntactically direct return is not a finite execution proof when this
-            // callable belongs to a recursive SCC. Earlier recursive calls may not
-            // complete; the bounded SCC worklist must establish a path first.
-            if recursive_functions.contains(&seed.function_node_id) {
-                continue;
-            }
             let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
                 Some(diagram) if diagram.is_false() => continue,
                 Some(diagram) if diagram.is_true() => (Verdict::Established, None),
@@ -492,9 +485,7 @@ pub async fn finite_flows(
         .filter(|row| row.recursive)
         .map(|row| row.function_node_id)
         .collect();
-    let (mut flows, mut steps) = direct_flows(
-        ctx, &diagrams, &boundaries, &pass_steps, &recursive_functions,
-    ).await?;
+    let (mut flows, mut steps) = direct_flows(ctx, &diagrams, &boundaries, &pass_steps).await?;
     let seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(
         ctx,
         &cpg_schema::behavior::modeled_summary_flow_seeds(),

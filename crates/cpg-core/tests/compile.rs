@@ -644,7 +644,7 @@ budget = 1
         count(&ctx, &format!("SELECT count(*) FROM value_flows WHERE sink = {}", FlowSink::Return.code())).await > 0,
         "the fixture must actually produce return value facts"
     );
-    for name in ["plain_identity", "nested_identity", "finally_pass_identity", "nested_finally_pass_identity"] {
+    for name in ["plain_identity", "nested_identity", "finally_pass_identity", "nested_finally_pass_identity", "recursive_base_identity"] {
         assert!(
             count(
                 &ctx,
@@ -721,23 +721,23 @@ budget = 1
         1,
         "the source self-call belongs to a recursive SCC"
     );
-    assert_eq!(
-        count(&ctx,
-            "SELECT count(*) FROM summary_flows f JOIN declarations d \
-             ON d.node_id = f.function_node_id \
-             WHERE d.name = 'recursive_before_return'"
-        ).await,
-        0,
-        "a post-recursion return has no finite completion proof yet"
-    );
-    assert!(
-        count(&ctx,
-            "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
-             ON d.node_id = b.function_node_id \
-             WHERE d.name = 'recursive_before_return'"
-        ).await > 0,
-        "the recursive return remains an explicit unknown"
-    );
+    for name in ["recursive_before_return", "prior_call_identity"] {
+        assert_eq!(
+            count(&ctx, &format!(
+                "SELECT count(*) FROM summary_flows f JOIN declarations d \
+                 ON d.node_id = f.function_node_id WHERE d.name = '{name}'"
+            )).await,
+            0,
+            "{name} has an unproved earlier call before its direct return"
+        );
+        assert!(
+            count(&ctx, &format!(
+                "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
+                 ON d.node_id = b.function_node_id WHERE d.name = '{name}'"
+            )).await > 0,
+            "{name} retains an explicit unknown boundary"
+        );
+    }
     for name in ["finally_identity", "nested_effectful_finalizer", "with_identity"] {
         assert_eq!(
             count(

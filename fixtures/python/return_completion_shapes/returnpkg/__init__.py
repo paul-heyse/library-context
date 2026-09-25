@@ -56,4 +56,15 @@ def recursive_before_return(value):
     return value
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity", "recursive_before_return"]
+def recursive_base_identity(value, stop):
+    if stop:
+        return value
+    return recursive_base_identity(value, True)
+
+
+def prior_call_identity(value):
+    plain_identity(value)
+    return value
+
+
+__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity", "recursive_before_return", "recursive_base_identity", "prior_call_identity"]
