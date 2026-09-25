@@ -724,6 +724,10 @@ model_resource_source_status
   0 call_result
   1 bound_argument
   2 unknown
+model_effect_subject_status
+  0 unqualified
+  1 bound_argument
+  2 unknown
 model_channel_coverage
   0 complete
   1 partial

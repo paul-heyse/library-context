@@ -1449,7 +1449,7 @@ codebook!(
 );
 
 codebook!(
-    /// Typed location of a modeled resource, independent of its display spelling.
+    /// Typed location of a modeled access path, independent of its display spelling.
     ModelPathKind = "model_path_kind" {
         Parameter = 0 => "parameter",
         ReceiverField = 1 => "receiver_field",
@@ -1472,6 +1472,15 @@ codebook!(
     /// Source expression identified for a candidate modeled resource action.
     ModelResourceSourceStatus = "model_resource_source_status" {
         CallResult = 0 => "call_result",
+        BoundArgument = 1 => "bound_argument",
+        Unknown = 2 => "unknown",
+    }
+);
+
+codebook!(
+    /// Whether a candidate modeled effect names a proved source subject.
+    ModelEffectSubjectStatus = "model_effect_subject_status" {
+        Unqualified = 0 => "unqualified",
         BoundArgument = 1 => "bound_argument",
         Unknown = 2 => "unknown",
     }
@@ -1587,6 +1596,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelPathKind>(),
         CodebookEntry::of::<ModelTransferEndpointStatus>(),
         CodebookEntry::of::<ModelResourceSourceStatus>(),
+        CodebookEntry::of::<ModelEffectSubjectStatus>(),
         CodebookEntry::of::<ModelChannelCoverage>(),
         CodebookEntry::of::<HandlerTypeStatus>(),
         CodebookEntry::of::<ModelArgumentStatus>(),

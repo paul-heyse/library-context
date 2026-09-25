@@ -14,8 +14,8 @@ use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
     HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
-    ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledResourceSitesRow,
-    ModeledTransferSitesRow,
+    ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
+    ModeledResourceSitesRow, ModeledTransferSitesRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -244,6 +244,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_resource_sites".to_owned();
     modeled_transfer_sites = "validate_modeled_transfer_sites", deps = ["modeled_transfer_sites"],
         sql = "SELECT * FROM modeled_transfer_sites".to_owned();
+    modeled_effect_sites = "validate_modeled_effect_sites", deps = ["modeled_effect_sites"],
+        sql = "SELECT * FROM modeled_effect_sites".to_owned();
     model_transfers = "validate_model_transfers", deps = ["model_transfers"],
         sql = "SELECT * FROM model_transfers".to_owned();
     model_effects = "validate_model_effects", deps = ["model_effects"],
@@ -283,6 +285,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &modeled_resource_sites(), sql::Params::new()).await?;
     let mut actual_transfer_sites: Vec<ModeledTransferSitesRow> =
         sql::fetch(ctx, &modeled_transfer_sites(), sql::Params::new()).await?;
+    let mut actual_effect_sites: Vec<ModeledEffectSitesRow> =
+        sql::fetch(ctx, &modeled_effect_sites(), sql::Params::new()).await?;
     let mut actual_transfers: Vec<ModelTransfersRow> =
         sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
     let mut actual_effects: Vec<ModelEffectsRow> =
@@ -300,6 +304,7 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         && actual_callback_sites.is_empty()
         && actual_resource_sites.is_empty()
         && actual_transfer_sites.is_empty()
+        && actual_effect_sites.is_empty()
         && actual_transfers.is_empty()
         && actual_effects.is_empty()
         && actual_callbacks.is_empty()
@@ -354,6 +359,12 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
     let mut expected_transfer_sites: Vec<ModeledTransferSitesRow> = sql::fetch(
         ctx,
         &cpg_schema::behavior::modeled_transfer_sites(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected_effect_sites: Vec<ModeledEffectSitesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_effect_sites(),
         sql::Params::new(),
     )
     .await?;
@@ -441,6 +452,22 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         )
     });
     actual_transfer_sites.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
+            row.rule_id,
+        )
+    });
+    expected_effect_sites.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
+            row.rule_id,
+        )
+    });
+    actual_effect_sites.sort_by_key(|row| {
         (
             row.call_site_node_id,
             row.pysa_fact_id,
@@ -565,6 +592,20 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
                 "expected {} modeled transfer sites, stored {}",
                 expected_transfer_sites.len(),
                 actual_transfer_sites.len()
+            ),
+        });
+    }
+    if expected_effect_sites != actual_effect_sites {
+        violations.push(Violation {
+            rule: "modeled-effect-site-source-equality".into(),
+            rows: actual_effect_sites
+                .len()
+                .abs_diff(expected_effect_sites.len())
+                .max(1),
+            sample: format!(
+                "expected {} modeled effect sites, stored {}",
+                expected_effect_sites.len(),
+                actual_effect_sites.len()
             ),
         });
     }

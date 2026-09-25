@@ -3057,6 +3057,18 @@ forged endpoint status. This is not yet a summary flow or a whole-operation verd
 the call's condition, dispatch, normal return and enclosing callable still need L3
 composition. The integrated gate remains `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, modeled effect source):**
+`model_effects` now carries an optional subject path kind from its tagged AST.
+`modeled_effect_sites` joins an authored effect to one cited source call candidate while
+retaining the effect kind and argument, target and model modalities, and open candidate-set
+state. A subjectless effect is explicitly `unqualified`, with no invented stream or value;
+a parameter subject is identified only through exact pinned-signature argument binding;
+other or unbound subjects remain `unknown` with a reason. The first fixture maps
+`builtins.print` to a potential I/O write at the `display` call, without claiming which
+stream receives it. Shared publication validation reconstructs the row and rejects a
+forged subject status. Source occurrence is not proof of a completed effect or a
+whole-operation fate; L3 composition and integrated Stage 3 testing remain open.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic

@@ -31,10 +31,10 @@ use crate::codebook::{
     ArgumentKind, BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind,
     EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowSink, HandlerTypeStatus, ImplicitReceiver,
     InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
-    ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
-    ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
-    OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole, SyntaxKind,
-    TestValueLinkOrigin, ValueClass, Verdict,
+    ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
+    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
+    ModelTransferKind, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole,
+    SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -57,8 +57,42 @@ table!(
         effect: ModelEffectKind,
         argument: Option<String>,
         subject_path_id: Option<Id>,
+        subject_path_kind: Option<ModelPathKind>,
         subject_path: Option<String>,
         modality: Modality,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// One candidate authored effect at a source call. A subjectless rule remains explicitly
+    /// unqualified; a parameter subject is cited only through exact signature binding.
+    ModeledEffectSites, ModeledEffectSitesRow = "modeled_effect_sites",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        function_node_id: Option<Id>,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        target_node_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        effect: ModelEffectKind,
+        argument: Option<String>,
+        subject_path_id: Option<Id>,
+        subject_path_kind: Option<ModelPathKind>,
+        subject_expression_node_id: Option<Id>,
+        subject_expression_fact_id: Option<Id>,
+        subject_status: ModelEffectSubjectStatus,
+        subject_reason: Option<BoundaryReason>,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
         origin: Origin,
     }
 );
@@ -1269,6 +1303,48 @@ crate::relations! {
             bound_argument = ModelTransferEndpointStatus::BoundArgument.code(),
             call_result = ModelTransferEndpointStatus::CallResult.code(),
             unknown = ModelTransferEndpointStatus::Unknown.code(),
+            outside = BoundaryReason::OutsideProviderModel.code(),
+            input = ModelPathRole::Input.code(),
+        );
+
+    /// A subjectless effect stays unqualified; a parameter subject needs an exact binding.
+    /// The candidate call's condition/exit is composed later.
+    modeled_effect_sites = "behavior:modeled_effect_sites",
+        deps = ["model_applications", "model_effects", "model_argument_bindings"],
+        sql = format!(
+            "SELECT a.snapshot_id, a.call_site_node_id, a.function_node_id, \
+                    a.call_fact_id, a.pysa_fact_id, a.target_node_id, a.model_id, \
+                    m.rule_id, m.target_definition_fact_id, m.effect, m.argument, \
+                    m.subject_path_id, m.subject_path_kind, \
+                    CASE WHEN m.subject_path_kind = {parameter} AND b.status = {bound} \
+                           THEN b.argument_node_id END AS subject_expression_node_id, \
+                    CASE WHEN m.subject_path_kind = {parameter} AND b.status = {bound} \
+                           THEN b.argument_fact_id END AS subject_expression_fact_id, \
+                    CAST(CASE WHEN m.subject_path_id IS NULL THEN {unqualified} \
+                              WHEN m.subject_path_kind = {parameter} AND b.status = {bound} \
+                                THEN {bound_argument} ELSE {unknown} END \
+                      AS SMALLINT) AS subject_status, \
+                    CAST(CASE WHEN m.subject_path_id IS NULL \
+                               OR (m.subject_path_kind = {parameter} AND b.status = {bound}) \
+                                THEN NULL ELSE COALESCE(b.reason, {outside}) END \
+                      AS SMALLINT) AS subject_reason, \
+                    a.target_modality, m.modality AS model_modality, \
+                    a.candidate_set_complete_under_model, a.has_unresolved_remainder, m.origin \
+             FROM model_applications a \
+             JOIN model_effects m ON m.model_id = a.model_id \
+               AND m.target_node_id = a.target_node_id \
+               AND m.target_definition_fact_id = a.target_definition_fact_id \
+               AND m.revision = a.revision \
+             LEFT JOIN model_argument_bindings b \
+               ON b.call_site_node_id = a.call_site_node_id \
+              AND b.pysa_fact_id = a.pysa_fact_id \
+              AND b.model_id = a.model_id AND b.rule_id = m.rule_id \
+              AND b.path_id = m.subject_path_id AND b.path_role = {input}",
+            parameter = ModelPathKind::Parameter.code(),
+            bound = ModelArgumentStatus::Bound.code(),
+            unqualified = ModelEffectSubjectStatus::Unqualified.code(),
+            bound_argument = ModelEffectSubjectStatus::BoundArgument.code(),
+            unknown = ModelEffectSubjectStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
             input = ModelPathRole::Input.code(),
         );

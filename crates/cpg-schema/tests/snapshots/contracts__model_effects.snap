@@ -17,6 +17,7 @@ revision: Int64 NOT NULL
 effect: Int16 NOT NULL [lctx.codebook=model_effect_kind]
 argument: Utf8 NULL
 subject_path_id: FixedSizeBinary(16) NULL
+subject_path_kind: Int16 NULL [lctx.codebook=model_path_kind]
 subject_path: Utf8 NULL
 modality: Int16 NOT NULL [lctx.codebook=modality]
 origin: Int16 NOT NULL [lctx.codebook=origin]

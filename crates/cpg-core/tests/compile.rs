@@ -19,9 +19,9 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     Codebook, ExitSiteKind, HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction,
-    ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathKind,
-    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
-    ModelTransferKind, Origin,
+    ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
+    ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction, ModelResourceSourceStatus,
+    ModelTransferEndpointStatus, ModelTransferKind, Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -115,7 +115,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 50,
+        52 + 21 + 51,
         "every raw, derived and analysis table"
     );
 
@@ -628,6 +628,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         effect: ModelEffectKind::IoRead,
         argument: None,
         subject_path_id: None,
+        subject_path_kind: None,
         subject_path: None,
         modality: Modality::Potential,
         origin: Origin::SyntheticModel,
@@ -812,6 +813,31 @@ budget = 1
         "unsupported formals leave the input endpoint unknown, even with a call result"
     );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 1);
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM modeled_effect_sites").await,
+        1,
+        "the pinned print effect applies to its resolved source call"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_effect_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'display' AND s.effect = {} \
+                   AND s.subject_status = {} AND s.subject_path_id IS NULL \
+                   AND s.subject_expression_node_id IS NULL \
+                   AND s.subject_reason IS NULL AND s.model_modality = {} \
+                   AND s.candidate_set_complete_under_model",
+                ModelEffectKind::IoWrite.code(),
+                ModelEffectSubjectStatus::Unqualified.code(),
+                Modality::Potential.code(),
+            )
+        )
+        .await,
+        1,
+        "an I/O effect without a stream subject must remain explicitly unqualified"
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
     assert_eq!(
@@ -1200,6 +1226,41 @@ budget = 1
     );
     ctx.deregister_table("modeled_transfer_sites").unwrap();
     ctx.register_table("modeled_transfer_sites", original_transfer_sites)
+        .unwrap();
+
+    let original_effect_sites = sql::query(&ctx, "SELECT * FROM modeled_effect_sites")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_effect_sites = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (subject_status), CAST({} AS SMALLINT) AS subject_status \
+             FROM modeled_effect_sites",
+            ModelEffectSubjectStatus::BoundArgument.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_effect_sites").unwrap();
+    ctx.register_table("modeled_effect_sites", doctored_effect_sites)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:modeled-effect-site-shape"),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-effect-site-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_effect_sites").unwrap();
+    ctx.register_table("modeled_effect_sites", original_effect_sites)
         .unwrap();
 
     let doctored = sql::query(

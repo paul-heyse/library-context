@@ -1,0 +1,31 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table modeled_effect_sites
+family findings
+key snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id
+@lctx.family=findings
+@lctx.table=modeled_effect_sites
+snapshot_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NULL
+call_fact_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+target_definition_fact_id: FixedSizeBinary(16) NOT NULL
+effect: Int16 NOT NULL [lctx.codebook=model_effect_kind]
+argument: Utf8 NULL
+subject_path_id: FixedSizeBinary(16) NULL
+subject_path_kind: Int16 NULL [lctx.codebook=model_path_kind]
+subject_expression_node_id: FixedSizeBinary(16) NULL
+subject_expression_fact_id: FixedSizeBinary(16) NULL
+subject_status: Int16 NOT NULL [lctx.codebook=model_effect_subject_status]
+subject_reason: Int16 NULL [lctx.codebook=boundary_reason]
+target_modality: Int16 NOT NULL [lctx.codebook=modality]
+model_modality: Int16 NOT NULL [lctx.codebook=modality]
+candidate_set_complete_under_model: Boolean NOT NULL
+has_unresolved_remainder: Boolean NOT NULL
+origin: Int16 NOT NULL [lctx.codebook=origin]

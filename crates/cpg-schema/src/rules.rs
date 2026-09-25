@@ -324,6 +324,45 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("modeled_transfer_sites", "output_expression_fact_id", FACT),
     r(
+        "modeled_effect_sites",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r(
+        "modeled_effect_sites",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r("modeled_effect_sites", "call_fact_id", FACT),
+    r("modeled_effect_sites", "pysa_fact_id", FACT),
+    r(
+        "modeled_effect_sites",
+        "target_node_id",
+        &[("model_targets", "target_node_id")],
+    ),
+    r(
+        "modeled_effect_sites",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r(
+        "modeled_effect_sites",
+        "rule_id",
+        &[("model_effects", "rule_id")],
+    ),
+    r("modeled_effect_sites", "target_definition_fact_id", FACT),
+    r(
+        "modeled_effect_sites",
+        "subject_path_id",
+        &[("model_effects", "subject_path_id")],
+    ),
+    r(
+        "modeled_effect_sites",
+        "subject_expression_node_id",
+        &[("arguments", "node_id")],
+    ),
+    r("modeled_effect_sites", "subject_expression_fact_id", FACT),
+    r(
         "model_transfers",
         "target_node_id",
         &[("context_definitions", "symbol_node_id")],
@@ -697,6 +736,31 @@ fn semantic() -> Vec<Rule> {
                 unknown = crate::codebook::ModelTransferEndpointStatus::Unknown.code(),
                 parameter = crate::codebook::ModelPathKind::Parameter.code(),
                 return_value = crate::codebook::ModelPathKind::ReturnValue.code(),
+                synthetic = crate::codebook::Origin::SyntheticModel.code(),
+            ),
+        ),
+        (
+            "semantic:modeled-effect-site-shape",
+            format!(
+                "SELECT rule_id FROM modeled_effect_sites WHERE \
+                 (subject_status = {unqualified} AND \
+                   (subject_path_id IS NOT NULL OR subject_path_kind IS NOT NULL \
+                     OR subject_expression_node_id IS NOT NULL \
+                     OR subject_expression_fact_id IS NOT NULL OR subject_reason IS NOT NULL)) \
+                 OR (subject_status = {bound_argument} AND \
+                   (subject_path_id IS NULL OR subject_path_kind <> {parameter} \
+                     OR subject_expression_node_id IS NULL \
+                     OR subject_expression_fact_id IS NULL OR subject_reason IS NOT NULL)) \
+                 OR (subject_status = {unknown} AND \
+                   (subject_path_id IS NULL OR subject_path_kind IS NULL \
+                     OR subject_expression_node_id IS NOT NULL \
+                     OR subject_expression_fact_id IS NOT NULL OR subject_reason IS NULL)) \
+                 OR (candidate_set_complete_under_model AND has_unresolved_remainder) \
+                 OR origin <> {synthetic}",
+                unqualified = crate::codebook::ModelEffectSubjectStatus::Unqualified.code(),
+                bound_argument = crate::codebook::ModelEffectSubjectStatus::BoundArgument.code(),
+                unknown = crate::codebook::ModelEffectSubjectStatus::Unknown.code(),
+                parameter = crate::codebook::ModelPathKind::Parameter.code(),
                 synthetic = crate::codebook::Origin::SyntheticModel.code(),
             ),
         ),

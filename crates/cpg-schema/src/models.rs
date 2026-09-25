@@ -853,6 +853,7 @@ impl Catalog {
                             effect: kind,
                             argument: argument.map(str::to_owned),
                             subject_path_id: subject.as_ref().map(InputPath::id),
+                            subject_path_kind: subject.as_ref().map(InputPath::kind),
                             subject_path: subject.as_ref().map(InputPath::render),
                             modality: modality.codebook(),
                             origin: Origin::SyntheticModel,
