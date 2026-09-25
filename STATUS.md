@@ -10,13 +10,14 @@ _Updated 2026-09-25 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - L4: typed five-channel pinned models and exact source applications exist. `typing.cast`/`assert_type` assert total normal return; Pydantic `TypeAdapter.validate_python` remains a dormant potential transform with dynamic schema/effects open. Broader pure/helper, async/context and HTTP/server families remain.
 - L2/L3: pass-only nested finalizers have ordered proof steps; other frame fates remain unknown. Direct, exact modeled, unique-assignment and unconditional acyclic wrapper value paths have canonical ordered proofs and shared reconstruction. ADR-0039 ignores a prior call only when its ty region is definitely BDD-incompatible with the return; compatible/missing/approximate/capped predecessors withhold a direct positive. Recursive modeled/assignment members, effect/exception/role summaries and `call_transfer` discharge remain open.
 - FORMAT 7/native `inspect_value_paths` provides path-local inspection, not operation-wide compatibility/effect/role verdicts.
+- Review-only follow-up: [reasoning library and architecture review](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md) assesses the original F01–F16 and adds eight findings. A1–A3 are violated for the named scenarios; decision **Revise**. Review/probe artifacts are uncommitted; production, pins, DESIGN, ADRs and the plan were not changed.
 
 - Documentation: ADR-0041 and the [execution/qualification plan](docs/plans/architectural-documentation-and-search_2026-09-25.md) implement focused section owners, mdBook/Pagefind search and isolated local/CI artifact commands (`b92857e`, `821173f`). Target and assembled reviews Accept; future reading/change-cost improvements remain Proposed.
 - Documentation migration: [execution plan](docs/plans/legacy-documentation-migration_2026-09-25.md) prepared (Proposed, 2026-09-25). It sequences review reconciliation, current rationale, legacy retirement and publication cleanup. Migration has not started; product findings remain open. Draft validation: `just docs-check` passed (212 pages, zero link errors); product gates `not_run` for planning.
 
 ## Last verified (2026-09-25)
 
-Functional receipts below are preserved from the preceding Stage 3 session; this process revision did not rerun them.
+Functional/process receipts below are historical from preceding sessions; the review reran only its focused diagnostic probes. A diagnostic `passed` reproduces a defect, not implementation conformance.
 
 | Command | Outcome |
 |---|---|
@@ -29,6 +30,8 @@ Functional receipts below are preserved from the preceding Stage 3 session; this
 | `uv run python /home/paul/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/design-review` | `failed`: the generic validator rejects existing Claude metadata `user-invocable` and `model-baseline`; those invocation fields were preserved. The same validator passed for `adr`, `handoff` and `design-review-code-intelligence`. |
 | Markdown/manifest link inspection | `passed`: read-only `uv run python` inspection of changed document links and `standard.toml` paths. |
 | Fresh `just pilot`; Q01/Q03/Q05/Q09; structured evaluation; clean-wheel query; increment-end review | `not_run`; Stage 3 functionality and exit are incomplete. |
+| Follow-up probes: `uv run --no-sync python -B …/run.py`, `…/reach_probe.py`, `…/literal_probe.py`, and serving `…/probe.py` | `passed`; [review §10](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#10-verification-and-uncertainty) gives full commands and evidence. Actual-source kernel/reach, cached-release real-provider access, and current Python over an existing generation are separate scopes. No integrated gate was run. |
+| Follow-up `git diff --check`; `uv run --no-sync python -B -` (local Markdown link/anchor inspection); `git check-attr filter -- …/raw/…` | `passed`; review/evidence/status references checked, STATUS within 60 lines, raw outputs covered by existing LFS policy. |
 
 ## Known failures, blocks and decisions
 
@@ -37,7 +40,10 @@ Functional receipts below are preserved from the preceding Stage 3 session; this
 - The preliminary full gate did not finish. In particular, the post-fix whole Python suite, pyrefly, rules, fixture parsing, dependency policy and gold checks have no observed current-tree pass; record the operator's pass assumption separately. The pilot and all Stage 3 exit measurements are still absent.
 - The plan's functional queue retains predecessor completion, other frame/callback/resource fates, SCC composition, path-specific identity, dynamic-schema Pydantic effects and full native evidence/filters. An empty summary remains unknown, never refuted.
 - ADR-0020, ADR-0024, ADR-0025 and ADR-0028 remain proposed. ADR-0039 supersedes ADR-0038; ADR-0037 supersedes ADR-0036. Accepted ADR-0040 supersedes ADR-0023 and replaces the cadence clauses carried by ADR-0021/0026; their unrelated decisions remain in force.
+- Follow-up findings are unscheduled: [follow-up §11](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#11-authority-changes-and-dispositions) owns the new dispositions/triggers; [original review §11](docs/design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#11-authority-changes-and-dispositions) owns its F01–F16. The follow-up confirms an unsupported no-read premise for qualified/aliased builtin access and qualifies engine/transport recommendations. No review finding was fixed by these probes.
 
 ## Next
 
 Start with [ARC-01](docs/plans/behavioral-model-forward-plan_2026-09-24.md#ARC-01): derive native proof-kind admission from the schema codebook and verify a real finalizer-bearing generation. Then establish explicit summary inputs/outcomes under ARC-02/03 while building the compatible-predecessor normal-outcome witness. Preserve self-recursion, finite-base and disjoint-branch controls. Follow the plan queue through non-call predecessors and SCC composition; run the complete gate, fresh pilot and evaluation/serving checks at integrated exit.
+
+Before extending or relying on the reviewed negative/serving claims, reconcile the [follow-up priorities](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#12-architectural-judgment-and-decision) with that queue. Preserve original finding IDs and one disposition owner; the review proposes scheduling but does not perform it.
