@@ -826,6 +826,18 @@ budget = 1
         1,
         "an inherited call transfer does not borrow its return-use fact as the call path"
     );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM value_flow_contributions c \
+             JOIN declarations sink ON sink.node_id = c.sink_function_node_id \
+             WHERE sink.name = 'indirect_call_result' AND c.parameter_node_id IS NOT NULL \
+               AND c.sink_function_node_id = c.function_node_id"
+        )
+        .await
+            > 0,
+        "a local source contribution names the callable containing its raw sink use"
+    );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
     let original_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions")
         .await

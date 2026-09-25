@@ -32,6 +32,10 @@ fact id. A call inherited through an earlier reaching definition is marked
 separately and must follow that definition's own raw fact; it cannot borrow the
 current fact's call links. This preserves provenance without treating a merged
 sink span as a unique transfer witness.
+The contribution also names the sink callable separately from the source
+parameter's owner. A nested function can read a captured outer parameter;
+summaries belong to the inner callable even though the source identity belongs
+to the outer one.
 
 ## Consequences
 

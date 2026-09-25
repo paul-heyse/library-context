@@ -342,6 +342,8 @@ ref:value_flow_contributions.use_id->flow_uses
   SELECT f.use_id AS value FROM value_flow_contributions f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.use_id = r.k WHERE f.use_id IS NOT NULL
 ref:value_flow_contributions.function_node_id->declarations
   SELECT f.function_node_id AS value FROM value_flow_contributions f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:value_flow_contributions.sink_function_node_id->declarations
+  SELECT f.sink_function_node_id AS value FROM value_flow_contributions f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.sink_function_node_id = r.k WHERE f.sink_function_node_id IS NOT NULL
 ref:value_flow_contributions.parameter_node_id->parameter_syntax
   SELECT f.parameter_node_id AS value FROM value_flow_contributions f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
 ref:value_flow_contributions.class_node_id->declarations

@@ -133,6 +133,11 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r(
         "value_flow_contributions",
+        "sink_function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r(
+        "value_flow_contributions",
         "parameter_node_id",
         &[("parameter_syntax", "node_id")],
     ),

@@ -1314,6 +1314,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 flow_value_fact_id: contribution.flow_value_fact_id,
                 use_id: contribution.use_id,
                 function_node_id,
+                sink_function_node_id: model
+                    .uses
+                    .get(&contribution.use_id)
+                    .and_then(|u| u.function_node_id),
                 source_key,
                 parameter_node_id,
                 class_node_id,

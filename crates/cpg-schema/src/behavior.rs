@@ -880,7 +880,11 @@ table!(
         snapshot_id: Id,
         flow_value_fact_id: Id,
         use_id: Id,
+        /// Function owning the source parameter (or reading a source field).
         function_node_id: Id,
+        /// Function containing this raw sink use; a captured parameter may belong to a
+        /// different function. Null when the use is not in a function.
+        sink_function_node_id: Option<Id>,
         source_key: String,
         parameter_node_id: Option<Id>,
         class_node_id: Option<Id>,

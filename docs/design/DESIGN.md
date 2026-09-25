@@ -380,8 +380,12 @@ that raw fact from call uncertainty inherited through a reaching definition. L3
 joins a local call only through that fact's `flow_value_call_links`; inherited
 calls require following the earlier definition instead. Publication reconstructs
 the entire relation and rejects missing contributions. This is provenance for a
-future summary, not a discharged modeled transfer. The compiler output version
-is 42.
+future summary, not a discharged modeled transfer. **Implemented and Tested in
+focused cases (2026-09-25):** `sink_function_node_id` names the callable
+containing the raw use independently of a captured parameter's defining
+callable. The direct-call fixture verifies the sink owner is populated;
+different owners remain a separately testable case. The compiler output
+version is 43.
 
 **Implemented and Tested in focused cases (2026-09-25, first ADR-0028 source seam):**
 `arguments` persists the argument expression's value span separately from its authored
@@ -3208,7 +3212,7 @@ for each pinned context class. When a modeled raised class's MRO contains the pi
 class, `modeled_exception_handler_candidates` records `pinned_ancestor` and the source MRO
 fact. A missing, unbound or cyclic relationship stays `class_relation_unknown`; absence from
 the MRO is not a negative match because a model class can denote possible subclasses. This is
-still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 42; integrated Stage 3 tests
+still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 43; integrated Stage 3 tests
 remain `not_run`.
 
 **Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
@@ -3952,3 +3956,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Stage 3 source provenance retains raw value-flow contributions and distinguishes local from inherited call crossing; candidate handlers apply within-frame clause order only, conditional on raise reaching the frame (§B5, §9.9) | ADR-0028 (proposed), ADR-0030 boundary |
 | 2026-09-25 | Added the pinned `typing.assert_type` identity model, with exact source argument binding and an exhausted narrow CrossHair oracle (§9.9) | — |
 | 2026-09-25 | Added pinned `json.dumps` and `json.dump` transform, serialization and stream-write model candidates with exact `obj`/`fp` binding; custom encoders remain open (§9.9) | — |
+| 2026-09-25 | Raw value-flow contributions now distinguish the sink callable from a captured parameter's source callable for L3 summary ownership (§B5, §9.9) | ADR-0028 (proposed) |

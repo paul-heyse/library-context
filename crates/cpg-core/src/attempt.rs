@@ -65,7 +65,8 @@ pub struct Published {
 /// 38: pinned exception class identities and candidate-local modeled exception sites.
 /// 41: preserve unaggregated provider-value contributions for exact call-path composition.
 /// 42: decide clause order within a modeled exception's candidate try frame.
-pub const COMPILER_OUTPUT_VERSION: u32 = 42;
+/// 43: name the sink callable separately from a captured source parameter's owner.
+pub const COMPILER_OUTPUT_VERSION: u32 = 43;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

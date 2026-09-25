@@ -14,6 +14,7 @@ snapshot_id: FixedSizeBinary(16) NOT NULL
 flow_value_fact_id: FixedSizeBinary(16) NOT NULL
 use_id: FixedSizeBinary(16) NOT NULL
 function_node_id: FixedSizeBinary(16) NOT NULL
+sink_function_node_id: FixedSizeBinary(16) NULL
 source_key: Utf8 NOT NULL
 parameter_node_id: FixedSizeBinary(16) NULL
 class_node_id: FixedSizeBinary(16) NULL
