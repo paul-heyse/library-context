@@ -1,6 +1,7 @@
 """A referenced stdlib callable for the Stage 3 authored-model binding fixture."""
 
 import atexit
+import json
 from typing import Callable, assert_type, cast
 
 
@@ -38,3 +39,11 @@ def identity_keyword(value: object) -> object:
 
 def asserted_type(value: object) -> object:
     return assert_type(value, object)
+
+
+def json_text(value: object) -> str:
+    return json.dumps(value)
+
+
+def json_write(value: object, stream) -> None:
+    json.dump(value, stream)

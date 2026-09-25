@@ -3050,10 +3050,10 @@ resource actions identify their exit. Each target declares transfer, effect, cal
 and exception coverage independently as complete, partial or unspecified. Only complete
 coverage can later support a negative summary conclusion. The shared publication validator
 reconstructs every model row from the committed catalog and pinned context, rejecting missing,
-extra or altered rows. `typing.cast`, `typing.assert_type`, `builtins.print`, `builtins.open`
-and `atexit.register` are the first authored targets. These rows remain model assertions:
-source L2 linkage, summary
-application, broader pure-model oracles and served behavioral claims remain Proposed. Focused
+extra or altered rows. `typing.cast`, `typing.assert_type`, `builtins.print`, `json.dumps`,
+`json.dump`, `builtins.open` and `atexit.register` are the first authored targets. These rows
+remain model assertions: summary application, broader pure-model oracles and served behavioral
+claims remain Proposed. Focused
 release Nextest and Clippy passed; the integrated gate and fresh pilot are reserved for the
 assembled Stage 3 end.
 
@@ -3133,6 +3133,15 @@ other or unbound subjects remain `unknown` with a reason. The first fixture maps
 stream receives it. Shared publication validation reconstructs the row and rejects a
 forged subject status. Source occurrence is not proof of a completed effect or a
 whole-operation fate; L3 composition and integrated Stage 3 testing remain open.
+
+**Implemented and Tested in focused cases (2026-09-25, JSON model family):** pinned
+`json.dumps` contributes a potential `Parameter[obj]` → `ReturnValue` transform and a
+potential JSON serialization action on `obj`; pinned `json.dump` contributes potential
+serialization of `obj` and a potential I/O write on the exact bound `fp` argument. A
+custom encoder or `default` callable leaves other effects and callback behavior open.
+The focused source fixture verified the typed formal bindings and candidate-local rows;
+these actions do not establish successful serialization, stream ownership, or a
+completed I/O effect. Integrated tests remain `not_run`.
 
 **Implemented and Tested in focused cases (ADR-0029, 2026-09-25, modeled exception source):**
 `model_exceptions` carries the uniquely pinned context class node and fact for each authored
@@ -3942,3 +3951,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Positive modeled exception ancestor relationships use pinned Pyrefly context MRO facts; nonmembership stays unknown (§B5, §3.2, §9.9) | ADR-0030 |
 | 2026-09-25 | Stage 3 source provenance retains raw value-flow contributions and distinguishes local from inherited call crossing; candidate handlers apply within-frame clause order only, conditional on raise reaching the frame (§B5, §9.9) | ADR-0028 (proposed), ADR-0030 boundary |
 | 2026-09-25 | Added the pinned `typing.assert_type` identity model, with exact source argument binding and an exhausted narrow CrossHair oracle (§9.9) | — |
+| 2026-09-25 | Added pinned `json.dumps` and `json.dump` transform, serialization and stream-write model candidates with exact `obj`/`fp` binding; custom encoders remain open (§9.9) | — |

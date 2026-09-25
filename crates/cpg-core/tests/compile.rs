@@ -1242,16 +1242,16 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert_eq!(targets, 5, "cast, assert_type, print, open and atexit.register");
+    assert_eq!(targets, 7, "cast, assert_type, print, json, open and atexit.register");
     assert!(
         count(&ctx, "SELECT count(*) FROM flow_value_calls").await > 0,
         "source value uses inside calls retain their ordered raw call steps"
     );
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 3);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 4);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        6,
-        "the cast, assert_type and atexit transfers apply to their resolved source calls"
+        7,
+        "the pure, JSON and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
         count(
@@ -1299,6 +1299,25 @@ budget = 1
             &format!(
                 "SELECT count(*) FROM modeled_transfer_sites s \
                  JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'json_text' AND s.transfer = {} \
+                   AND s.input_status = {} AND s.output_status = {} \
+                   AND s.model_modality = {} AND s.candidate_set_complete_under_model",
+                ModelTransferKind::Transform.code(),
+                ModelTransferEndpointStatus::BoundArgument.code(),
+                ModelTransferEndpointStatus::CallResult.code(),
+                Modality::Potential.code(),
+            )
+        )
+        .await,
+        1,
+        "JSON output carries only a potential transformed value source"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_transfer_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
                  WHERE d.name IN ('on_shutdown_keyword', 'on_shutdown_unpacked') \
                    AND s.input_status = {} AND s.input_reason IS NOT NULL \
                    AND s.input_expression_node_id IS NULL \
@@ -1311,11 +1330,11 @@ budget = 1
         2,
         "unsupported formals leave the input endpoint unknown, even with a call result"
     );
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 4);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_effect_sites").await,
-        1,
-        "the pinned print effect applies to its resolved source call"
+        4,
+        "print and JSON effects apply to their resolved source calls"
     );
     assert_eq!(
         count(
@@ -1336,6 +1355,24 @@ budget = 1
         .await,
         1,
         "an I/O effect without a stream subject must remain explicitly unqualified"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_effect_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'json_write' AND s.effect = {} \
+                   AND s.subject_status = {} AND s.subject_expression_node_id IS NOT NULL \
+                   AND s.model_modality = {} AND s.candidate_set_complete_under_model",
+                ModelEffectKind::IoWrite.code(),
+                ModelEffectSubjectStatus::BoundArgument.code(),
+                Modality::Potential.code(),
+            )
+        )
+        .await,
+        1,
+        "JSON stream write cites the exact fp argument rather than an unqualified I/O effect"
     );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
@@ -1368,8 +1405,8 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_formal_paths").await,
-        4,
-        "the cast/assert_type inputs and two atexit func paths use typed model ASTs"
+        8,
+        "pure, JSON and atexit paths use typed model ASTs"
     );
     assert_eq!(
         count(
@@ -1512,7 +1549,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        8,
+        10,
         "each pinned model applies only at its resolved source call"
     );
     assert_eq!(
