@@ -95,6 +95,7 @@ pub mod kind {
     pub const ASSERTION: &str = "assertion";
     pub const BRIEF: &str = "brief";
     pub const SUMMARY_FLOW: &str = "summary-flow";
+    pub const SUMMARY_COMPONENT: &str = "summary-component";
 }
 
 /// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
@@ -243,6 +244,16 @@ pub mod recipe {
             .i64(spec.steps.len() as i64);
         for step in spec.steps {
             hasher.i64(i64::from(step.kind.code())).id(step.evidence_id).id(step.condition_id);
+        }
+        hasher.finish_id()
+    }
+
+    /// The identity of a sorted, nonempty SCC member set; schedule order is not identity.
+    pub fn summary_component(members: &[Id]) -> Id {
+        let mut hasher = IdHasher::new(kind::SUMMARY_COMPONENT);
+        hasher.i64(members.len() as i64);
+        for member in members {
+            hasher.id(*member);
         }
         hasher.finish_id()
     }

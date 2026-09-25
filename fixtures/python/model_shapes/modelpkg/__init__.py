@@ -90,6 +90,10 @@ def plain_identity(value: object) -> object:
     return value
 
 
+def local_wrapper(value: object) -> object:
+    return plain_identity(value)
+
+
 async def async_identity(value: object) -> object:
     return value
 

@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table summary_components
+family findings
+key snapshot_id, function_node_id
+check component_order_nonnegative: component_order >= 0
+check member_ordinal_nonnegative: member_ordinal >= 0
+check member_count_positive: member_count > 0
+@lctx.family=findings
+@lctx.table=summary_components
+snapshot_id: FixedSizeBinary(16) NOT NULL
+component_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+component_order: Int64 NOT NULL
+member_ordinal: Int64 NOT NULL
+member_count: Int64 NOT NULL
+recursive: Boolean NOT NULL

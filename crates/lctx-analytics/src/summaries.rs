@@ -3,7 +3,7 @@
 //! These facts decide only compatibility under the declared evaluation atoms. They neither
 //! choose a reaching definition nor promote a modeled call to a completed transfer.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use cpg_schema::behavior::{
     ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
@@ -11,6 +11,95 @@ use cpg_schema::behavior::{
 use cpg_schema::codebook::BoundaryReason;
 use cpg_schema::condition_kernel::Diagram;
 use cpg_schema::id::Id;
+use petgraph::Directed;
+use petgraph::algo::tarjan_scc;
+use petgraph::graph::{Graph, NodeIndex};
+
+use crate::AnalyticsError;
+
+/// One component of an attributed caller→callee graph, scheduled after its callees.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallComponent {
+    pub members: Vec<Id>,
+    pub recursive: bool,
+}
+
+/// Canonical callee-first SCC schedule. Petgraph owns the SCC algorithm; this wrapper sorts
+/// members and chooses ties by canonical id instead of relying on graph insertion order.
+pub fn call_components(
+    functions: &[Id],
+    calls: &[(Id, Id)],
+) -> Result<Vec<CallComponent>, AnalyticsError> {
+    let mut ids = functions.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut edges = calls.to_vec();
+    edges.sort_unstable();
+    edges.dedup();
+    let mut graph: Graph<(), (), Directed, u32> = Graph::with_capacity(ids.len(), edges.len());
+    for _ in &ids {
+        graph.try_add_node(()).map_err(|e| AnalyticsError::Graph(e.to_string()))?;
+    }
+    for &(caller, callee) in &edges {
+        let src = ids.binary_search(&caller)
+            .map_err(|_| AnalyticsError::UnknownVertex(caller.hex()))?;
+        let dst = ids.binary_search(&callee)
+            .map_err(|_| AnalyticsError::UnknownVertex(callee.hex()))?;
+        graph.try_add_edge(NodeIndex::new(src), NodeIndex::new(dst), ())
+            .map_err(|e| AnalyticsError::Graph(e.to_string()))?;
+    }
+    let mut components: Vec<CallComponent> = tarjan_scc(&graph)
+        .into_iter()
+        .map(|component| {
+            let mut members: Vec<_> = component.into_iter().map(|node| ids[node.index()]).collect();
+            members.sort_unstable();
+            CallComponent { recursive: members.len() > 1, members }
+        })
+        .collect();
+    let mut component_of = vec![0_usize; ids.len()];
+    for (index, component) in components.iter().enumerate() {
+        for member in &component.members {
+            let vertex = ids.binary_search(member)
+                .map_err(|_| AnalyticsError::UnknownVertex(member.hex()))?;
+            component_of[vertex] = index;
+        }
+    }
+    let mut downstream: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); components.len()];
+    let mut upstream: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); components.len()];
+    for &(caller, callee) in &edges {
+        let src = ids.binary_search(&caller)
+            .map_err(|_| AnalyticsError::UnknownVertex(caller.hex()))?;
+        let dst = ids.binary_search(&callee)
+            .map_err(|_| AnalyticsError::UnknownVertex(callee.hex()))?;
+        let a = component_of[src];
+        let b = component_of[dst];
+        if a == b {
+            if caller == callee {
+                components[a].recursive = true;
+            }
+        } else if downstream[a].insert(b) {
+            upstream[b].insert(a);
+        }
+    }
+    let mut ready: BTreeSet<(Id, usize)> = components.iter().enumerate()
+        .filter(|(index, _)| downstream[*index].is_empty())
+        .map(|(index, component)| (component.members[0], index))
+        .collect();
+    let mut ordered = Vec::with_capacity(components.len());
+    while let Some((_, index)) = ready.pop_first() {
+        ordered.push(components[index].clone());
+        for &caller in &upstream[index] {
+            downstream[caller].remove(&index);
+            if downstream[caller].is_empty() {
+                ready.insert((components[caller].members[0], caller));
+            }
+        }
+    }
+    if ordered.len() != components.len() {
+        return Err(AnalyticsError::Graph("SCC condensation is cyclic".to_owned()));
+    }
+    Ok(ordered)
+}
 
 pub fn predecessor_compatibility(
     candidates: &[ValueFlowPredecessorCandidatesRow],
@@ -62,6 +151,27 @@ pub fn predecessor_compatibility(
 mod tests {
     use super::*;
     use cpg_schema::condition::Condition;
+
+    #[test]
+    fn call_sccs_are_callee_first_and_input_order_independent() {
+        let [a, b, c, d, e] = [1, 2, 3, 4, 5].map(|n| Id([n; 16]));
+        let functions = [e, c, a, d, b];
+        let calls = [(a, b), (b, a), (a, c), (c, d), (a, c), (e, e)];
+        let actual = call_components(&functions, &calls).unwrap();
+        assert_eq!(actual, vec![
+            CallComponent { members: vec![d], recursive: false },
+            CallComponent { members: vec![c], recursive: false },
+            CallComponent { members: vec![a, b], recursive: true },
+            CallComponent { members: vec![e], recursive: true },
+        ]);
+        let mut reversed = calls;
+        reversed.reverse();
+        assert_eq!(call_components(&[a, b, c, d, e], &reversed).unwrap(), actual);
+        assert!(matches!(
+            call_components(&[a], &[(a, b)]),
+            Err(AnalyticsError::UnknownVertex(_))
+        ));
+    }
 
     #[test]
     fn a_contradictory_reaching_path_is_refuted_only_within_one_iteration() {

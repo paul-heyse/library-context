@@ -3454,6 +3454,15 @@ returned value; a different predecessor changes the summary id. Unproved sibling
 named boundary. This is not recursive composition or general assignment transfer. Compiler
 output version 62; integrated Stage 3 testing remains `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, source-call SCC topology):**
+`summary_components` records every release function's SCC, sorted members, canonical
+component id and deterministic callee-first schedule over attributed local call targets.
+Petgraph 0.8.3 computes the SCCs; a sorted condensation worklist makes ties independent of
+provider row order. A self-call marks a singleton recursive. Candidate/open dispatch contributes
+topology only, not a completed transfer or negative coverage claim. The shared validator
+reconstructs the rows from source calls. Compiler output version 63; composition, discharge
+and integrated Stage 3 testing remain open.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a

@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
     ModeledTransferSitesRow, ModeledExactValueTransfersRow, ModeledArgumentEvaluationsRow, ModeledAssignmentReturnPathsRow,
-    SummaryBoundariesRow, SummaryFlowStepsRow, SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
+    SummaryBoundariesRow, SummaryComponentsRow, SummaryFlowStepsRow, SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -123,6 +123,7 @@ pub async fn validate_costed(
     violations.extend(validate_modeled_argument_evaluations(&cache).await?);
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
+    violations.extend(validate_summary_components(&cache).await?);
     violations.extend(validate_summary_boundaries(&cache).await?);
     Ok((violations, costs))
 }
@@ -175,6 +176,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_summary_components = "validate_stored_summary_components", deps = ["summary_components"],
+        sql = "SELECT * FROM summary_components".to_owned();
     stored_summary_flow_steps = "validate_stored_summary_flow_steps", deps = ["summary_flow_steps"],
         sql = "SELECT * FROM summary_flow_steps".to_owned();
     stored_summary_boundaries = "validate_stored_summary_boundaries", deps = ["summary_boundaries"],
@@ -377,7 +380,25 @@ async fn validate_modeled_assignment_return_paths(
     }
 }
 
-/// Rebuild every finite direct-flow seed with the same bounded condition kernel used at write.
+/// Reconstruct every source-call SCC and its canonical schedule from the published call graph.
+async fn validate_summary_components(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<SummaryComponentsRow> =
+        sql::fetch(ctx, &stored_summary_components(), sql::Params::new()).await?;
+    let mut expected = crate::summaries::call_components(ctx).await?;
+    actual.sort_by_key(|row| row.function_node_id);
+    expected.sort_by_key(|row| row.function_node_id);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "summary-component-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} component memberships; derived {}", actual.len(), expected.len()),
+        }])
+    }
+}
+
+/// Rebuild every finite flow with the same bounded condition kernel used at write.
 async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<SummaryFlowsRow> =
         sql::fetch(ctx, &stored_summary_flows(), sql::Params::new()).await?;

@@ -85,7 +85,8 @@ pub struct Published {
 /// 60: exact unshadowed builtin names gain local normal-evaluation evidence.
 /// 61: first finite modeled identity-return paths carry complete ordered call proofs.
 /// 62: unique assignment-to-return predecessors gain finite model-call summaries.
-pub const COMPILER_OUTPUT_VERSION: u32 = 62;
+/// 63: attributed source call SCCs have canonical callee-first component rows.
+pub const COMPILER_OUTPUT_VERSION: u32 = 63;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -773,7 +774,7 @@ async fn finish(
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, SummaryBoundaries, SummaryFlowSteps, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows, ModeledArgumentEvaluations,
+            RaiseSites, Singletons, SummaryBoundaries, SummaryComponents, SummaryFlowSteps, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows, ModeledArgumentEvaluations,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -881,6 +882,8 @@ async fn finish(
         )
         .await?;
         write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
+        let summary_components = crate::summaries::call_components(&ctx).await?;
+        write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w).await?;
         let (summary_flows, summary_steps) = crate::summaries::finite_flows(&ctx).await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summary_flows, w).await?;
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summary_steps, w).await?;

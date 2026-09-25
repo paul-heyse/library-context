@@ -5,10 +5,10 @@ use std::collections::HashMap;
 
 use cpg_schema::behavior::{
     AnalysisConditionNodesRow, AnalysisConditionsRow, ModeledArgumentEvaluationsRow,
-    SummaryFlowStepsRow, SummaryFlowsRow,
+    SummaryComponentsRow, SummaryFlowStepsRow, SummaryFlowsRow,
     ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
-use cpg_schema::codebook::{BoundaryReason, ModeledArgumentEvaluationStatus, SummaryFlowKind, SummaryFlowStepKind, Verdict};
+use cpg_schema::codebook::{BoundaryReason, Codebook, ModeledArgumentEvaluationStatus, SummaryFlowKind, SummaryFlowStepKind, Verdict};
 use cpg_schema::condition_kernel::{ConditionRoot, Diagram, DiagramNode, KernelBoundary, hydrate_catalog};
 use cpg_schema::id::{Id, recipe};
 use cpg_schema::models::{InputPath, OutputPath};
@@ -28,6 +28,37 @@ cpg_schema::relations! {
         sql = "SELECT * FROM analysis_condition_nodes".to_owned();
     predecessors = "summary_predecessors", deps = ["value_flow_predecessor_candidates"],
         sql = "SELECT * FROM value_flow_predecessor_candidates".to_owned();
+    call_functions = "summary_call_functions", deps = ["declarations"],
+        sql = format!("SELECT snapshot_id, node_id AS function_node_id FROM declarations \
+                       WHERE kind IN ({}, {})",
+                      cpg_schema::codebook::DeclarationKind::Function.code(),
+                      cpg_schema::codebook::DeclarationKind::AsyncFunction.code());
+    call_arcs = "summary_call_arcs", deps = ["call_syntax", "call_targets", "declarations"],
+        sql = format!("SELECT DISTINCT c.owner_node_id AS caller_node_id, \
+                             t.target_node_id AS callee_node_id \
+                       FROM call_targets t JOIN call_syntax c \
+                         ON c.node_id = t.call_site_node_id \
+                       JOIN declarations caller ON caller.node_id = c.owner_node_id \
+                         AND caller.kind IN ({f}, {af}) \
+                       JOIN declarations callee ON callee.node_id = t.target_node_id \
+                         AND callee.kind IN ({f}, {af}) \
+                       WHERE t.argument_node_id IS NULL AND NOT c.in_annotation",
+                      f = cpg_schema::codebook::DeclarationKind::Function.code(),
+                      af = cpg_schema::codebook::DeclarationKind::AsyncFunction.code());
+}
+
+cpg_schema::query_row! {
+    struct CallFunction {
+        snapshot_id: Id,
+        function_node_id: Id,
+    }
+}
+
+cpg_schema::query_row! {
+    struct CallArc {
+        caller_node_id: Id,
+        callee_node_id: Id,
+    }
 }
 
 cpg_schema::query_row! {
@@ -148,6 +179,39 @@ pub async fn predecessor_compatibility(
     Ok(lctx_analytics::summaries::predecessor_compatibility(
         &edges, &diagrams, &boundaries,
     ))
+}
+
+/// Materialize the deterministic SCC schedule over attributed release-to-release calls.
+/// Candidate/open targets are topology only and confer no behavior verdict here.
+pub async fn call_components(ctx: &SessionContext) -> Result<Vec<SummaryComponentsRow>, CoreError> {
+    let functions: Vec<CallFunction> = sql::fetch(ctx, &call_functions(), sql::Params::new()).await?;
+    let arcs: Vec<CallArc> = sql::fetch(ctx, &call_arcs(), sql::Params::new()).await?;
+    let Some(snapshot_id) = functions.first().map(|row| row.snapshot_id) else {
+        return Ok(Vec::new());
+    };
+    if functions.iter().any(|row| row.snapshot_id != snapshot_id) {
+        return Err(CoreError::Analysis("mixed snapshots in call component inputs".to_owned()));
+    }
+    let components = lctx_analytics::summaries::call_components(
+        &functions.iter().map(|row| row.function_node_id).collect::<Vec<_>>(),
+        &arcs.iter().map(|row| (row.caller_node_id, row.callee_node_id)).collect::<Vec<_>>(),
+    ).map_err(|error| CoreError::Analysis(error.to_string()))?;
+    let mut rows = Vec::with_capacity(functions.len());
+    for (component_order, component) in components.iter().enumerate() {
+        let component_id = recipe::summary_component(&component.members);
+        for (member_ordinal, &function_node_id) in component.members.iter().enumerate() {
+            rows.push(SummaryComponentsRow {
+                snapshot_id,
+                component_id,
+                function_node_id,
+                component_order: component_order as i64,
+                member_ordinal: member_ordinal as i64,
+                member_count: component.members.len() as i64,
+                recursive: component.recursive,
+            });
+        }
+    }
+    Ok(rows)
 }
 
 /// The first finite summary case: a direct, synchronous body return of a local parameter.

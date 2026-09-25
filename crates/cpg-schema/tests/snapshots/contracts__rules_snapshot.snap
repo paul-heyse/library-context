@@ -186,6 +186,8 @@ key:value_flow_predecessor_compatibility
   SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_compatibility GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
 key:modeled_assignment_return_paths
   SELECT snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_assignment_return_paths GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
+key:summary_components
+  SELECT snapshot_id, function_node_id, count(*) AS n FROM summary_components GROUP BY snapshot_id, function_node_id HAVING count(*) > 1
 key:summary_flows
   SELECT snapshot_id, summary_id, count(*) AS n FROM summary_flows GROUP BY snapshot_id, summary_id HAVING count(*) > 1
 key:summary_flow_steps
@@ -486,6 +488,8 @@ ref:modeled_assignment_return_paths.reaching_condition_id->conditions
   SELECT f.reaching_condition_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.reaching_condition_id = r.k WHERE f.reaching_condition_id IS NOT NULL
 ref:modeled_assignment_return_paths.successor_condition_id->analysis_conditions
   SELECT f.successor_condition_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.successor_condition_id = r.k WHERE f.successor_condition_id IS NOT NULL
+ref:summary_components.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM summary_components f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
 ref:summary_flows.function_node_id->declarations
   SELECT f.function_node_id AS value FROM summary_flows f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
 ref:summary_flows.parameter_node_id->parameter_syntax

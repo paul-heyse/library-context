@@ -1215,6 +1215,28 @@ table!(
 );
 
 table!(
+    /// Canonical caller→callee SCC membership and deterministic callee-first scheduling.
+    /// This is topology, not a composed behavior or a declaration of complete dispatch.
+    SummaryComponents, SummaryComponentsRow = "summary_components",
+    family = Findings,
+    key = [snapshot_id, function_node_id],
+    checks = [
+        ("component_order_nonnegative", "component_order >= 0"),
+        ("member_ordinal_nonnegative", "member_ordinal >= 0"),
+        ("member_count_positive", "member_count > 0"),
+    ],
+    {
+        snapshot_id: Id,
+        component_id: Id,
+        function_node_id: Id,
+        component_order: i64,
+        member_ordinal: i64,
+        member_count: i64,
+        recursive: bool,
+    }
+);
+
+table!(
     /// Finite source-to-output may-flow of one callable, with a lossless condition root and
     /// source witness. Producers admit direct synchronous parameter identities, exact pinned
     /// identity-model calls and unique condition-compatible assignment predecessors only with

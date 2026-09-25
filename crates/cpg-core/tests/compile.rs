@@ -1418,6 +1418,21 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM summary_components caller \
+             JOIN declarations cd ON cd.node_id = caller.function_node_id \
+             JOIN summary_components callee \
+               ON callee.snapshot_id = caller.snapshot_id \
+             JOIN declarations td ON td.node_id = callee.function_node_id \
+             WHERE cd.name = 'local_wrapper' AND td.name = 'plain_identity' \
+               AND caller.component_order > callee.component_order",
+        )
+        .await,
+        1,
+        "a local caller is scheduled after its callee"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity')",
@@ -2445,6 +2460,24 @@ budget = 1
     ctx.deregister_table("modeled_assignment_return_paths").unwrap();
     ctx.register_table("modeled_assignment_return_paths", original_assignment_paths)
         .unwrap();
+
+    let original_summary_components = sql::query(&ctx, "SELECT * FROM summary_components")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_summary_components = sql::query(&ctx, "SELECT * FROM summary_components WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("summary_components").unwrap();
+    ctx.register_table("summary_components", missing_summary_components).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "summary-component-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("summary_components").unwrap();
+    ctx.register_table("summary_components", original_summary_components).unwrap();
 
     let original_summary_flows = sql::query(&ctx, "SELECT * FROM summary_flows")
         .await
