@@ -728,6 +728,57 @@ budget = 1
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn pysa_tito_control_uses_the_same_source_as_finite_summary_fixture() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/python/pysa_tito_shapes/probe/__init__.py");
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/design_review/evidence/2026-09-25_pysa-tito-rule/probe.py");
+    assert_eq!(std::fs::read(fixture).unwrap(), std::fs::read(oracle).unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([57; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["probe"]
+public_roots = ["probe"]
+[seeds]
+primary = ["probe.exercise"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#,
+        ).unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(root.path(), snapshot,
+        &raw_version("pysa_tito_shapes", snapshot, (3, 14, 7)), Some(&analysis))
+        .await.unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    for name in ["identity", "wrapper"] {
+        assert_eq!(count(&ctx,
+            &format!("SELECT count(*) FROM summary_flows f JOIN declarations d \
+                ON d.node_id = f.function_node_id WHERE d.name = '{name}' \
+                AND f.input_path = 'Parameter[value]' \
+                AND f.output_path = 'ReturnValue' AND f.verdict <> {}",
+                Verdict::Unknown.code())).await, 1,
+            "{name} has a finite value path on the same source Pysa inspected");
+    }
+    assert_eq!(count(&ctx,
+        "SELECT count(*) FROM summary_flows f JOIN declarations d \
+         ON d.node_id = f.function_node_id WHERE d.name = 'constant'").await, 0,
+        "the constant counter-control has no parameter-to-return summary");
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn handler_type_status_is_pinned_or_explicitly_unknown() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([56; 16]);

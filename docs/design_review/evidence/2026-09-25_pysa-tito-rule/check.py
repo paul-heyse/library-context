@@ -26,6 +26,9 @@ def expected_issue_lines() -> dict[str, int]:
 
 
 def main() -> None:
+    compiler_fixture = ROOT.parents[3] / "fixtures/python/pysa_tito_shapes/probe/__init__.py"
+    if compiler_fixture.read_bytes() != (ROOT / "probe.py").read_bytes():
+        raise SystemExit("Pysa and compiler fixture source bytes differ")
     log = (ROOT / "raw" / "analyze.log").read_text()
     if f"Checking project configured at `{ROOT / 'pyproject.toml'}`" not in log:
         raise SystemExit("Pysa did not use the isolated Pyrefly project")
