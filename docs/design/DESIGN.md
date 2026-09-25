@@ -3369,6 +3369,16 @@ claim; an explicit unframed raise still establishes escape.
 - **Oracle:** Pysa's inferred TITO models on the pinned library, run offline. It is differential,
   not truth.
 
+**Tested (2026-09-25, Stage 3.4 oracle control only):** a separate Pysa 0.10.0 probe uses
+an actual source-to-sink rule, verified source/sink models and an explicit Pyrefly 1.3.1
+binary. It reports the expected source-to-sink issues and exact TITO ports for direct
+identity and a one-call wrapper, while a constant-return control has no issue. The local
+Pyrefly configuration prevents accidental reuse of this repository's unrelated project
+include list. No obscure-callee feature appears on the two positive ports. This establishes
+that the independent challenge can run; comparison with the pinned FastMCP `summary_flows`
+and classification of disagreements remain Proposed.
+[Probe](../design_review/evidence/2026-09-25_pysa-tito-rule/README.md).
+
 **Proposed call-result join (ADR-0028, 2026-09-25):** summaries read a validated,
 ordered `flow_values` call path through `value_flow_contributions`, then join each local step to one exact pinned call target and
 modeled argument/result pair. The path carries operand role and direct-value span; a
@@ -4268,3 +4278,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Exact modeled value paths now account for every call argument in source order, citing the selected operand or a direct literal and retaining dynamic siblings as unknown (§9.9) | — |
 | 2026-09-25 | A Pysa object receiver plus a direct Ruff attribute callee shifts pinned model positional formals past `self`; class receivers and unpacking remain unknown. `logging.Logger.warning` adds a potential subject-bound log candidate (§9.9) | ADR-0035 |
 | 2026-09-25 | One literal `finally: pass` frame now preserves a pending return with cited pass syntax evidence; nested and effectful frames remain unresolved. `return_exit_statuses` gains two nullable proof columns and compiler output version 66 (§9.9) | ADR-0036 |
+| 2026-09-25 | A verified Pysa source-to-sink rule with explicit Pyrefly pin now yields the expected TITO ports and an opposite constant control; the pinned-library differential remains open (§9.9) | — |
