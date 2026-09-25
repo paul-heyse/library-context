@@ -7,9 +7,9 @@ allowed-tools: Read, Glob, Grep, Bash, Write, Edit, Agent
 # Design review — code-intelligence profile
 
 This skill **layers onto `design-review`**; it never replaces it. Load the core skill first.
-The core fixes the review's shape (slots 1–12), gates G1–G8, the finding standard and the
-decision rules. This profile adds principles, gates, slot content and lenses for
-code-intelligence systems.
+The core fixes slots 1–12, foundations FP-01–FP-06, architectural judgments A1–A3,
+gates G1–G8, findings and decisions. This profile adds domain constraints. Its fact and
+fidelity analysis supports ownership, contracts, change and composition; it does not replace them.
 
 ## The standard
 
@@ -28,11 +28,14 @@ profile names none.
 ## What the profile adds to the review
 
 1. **Profile gates CI-G1–CI-G3 in slot 6**, settled independently like the core gates.
-2. **The fact and fidelity table** (slot 2), reconstructed from the subject. Cells you had to
-   invent are unresolved decisions.
+2. **The fact and fidelity table** (slot 2), after the responsibility/dependency map.
+   Reconstruct it from the subject; invented cells are unresolved decisions.
 3. **Analysis record columns in slot 4** for every projection, analysis or synthesis stage.
 4. **Code-intelligence journeys in slot 5**, chosen by relevance. In a target-purpose review the
    workloads in the profile's functional target are in scope even when current plans exclude them.
+5. **Architectural consequences of domain changes:** distinguish a new semantic category from
+   an ordinary model addition. Trace whether extraction, proofs, validation and serving
+   independently classify the same concept, and identify the affected owners.
 
 ## Lenses
 

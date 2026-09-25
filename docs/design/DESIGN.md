@@ -1,7 +1,8 @@
 # library-context — design
 
-**This file is the current truth.** It says what the system *is*. `docs/adr/` says *why*, and what
-was rejected. Change a governed section only in the same commit as the ADR that decides it, and
+**This file is the current design authority.** It distinguishes implemented state from accepted
+targets through the labels below; an accepted target is not an implementation claim.
+`docs/adr/` says *why*, and what was rejected. Change a governed section only in the same commit as the ADR that decides it, and
 end the section with `> Decision: ADR-NNNN`. Sections are never renumbered: insert `§3.2.1` rather
 than shifting `§3.3`. There is no line budget: the detail the design needs comes before length
 (operator, 2026-09-22; ADR-0004 amendment). Column-level contracts live in
@@ -64,19 +65,20 @@ set of searchable briefs for one subsystem, reached by the first two operations 
 
 ### §1.2 Increments
 
-**Proposed.** Source: IP L3073–3085, reshaped by ADR-0004 and ADR-0021. Every plan stage also ends
-with a `compact` review (ADR-0021), except where it coincides with an increment's end: then one
-review at the increment's depth covers both (the plan's §15).
+**Proposed deliverables; Implemented review policy (ADR-0040, 2026-09-25).** Source:
+IP L3073–3085, reshaped by ADR-0004 and ADR-0021. Each increment is a working vertical slice.
+The repository binding's **Reviews in this repository** section owns cadence, tier and purpose:
+architectural choices and assembled stages are reviewed through expected change scenarios;
+bounded implementation retains a scoped conformance review. A coincident stage/increment end
+needs one review. Historical compact/standard/deep labels do not impose the old odd/even schedule.
 
-Each increment is a working vertical slice and ends with the review shown (ADR-0026 mechanics).
-
-| # | Deliverable | Review |
-|---|---|---|
-| 1 | **One complete path.** Real FastMCP 4.0.5 (`libraries/fastmcp`, §4.0), with one hand-registered seed, `fastmcp.FastMCP.tool` (analytics config, §1.4), plus 2–4 distractor briefs for other public entry points. Families provenance, exports, signatures, calls, coverage, findings, embedding_cache. Pass A → increment-1 assertion kinds (§10.2) → brief → bundle → embeddings → hybrid search (BM25, exact cosine, RRF, exact-symbol promotion, degraded lexical-only mode; moved up from increment 4, ADR-0004 amendment) → hydration → both MCP tools | deep |
-| 2 | **Analytics families on synthetic fixtures.** Passes B and C with the `syntax` and `lexical` families; single-layer community detection with seed-consensus stability; `page_rank`; FCA within one structural scope (a community's membership is statistical, §9.6) | compact |
-| 3 | **Pilot corpus and analytics** (done: slices 3.1–3.3, the holistic assessment's Phases 0–2), then **plan Stages 0–1: the whole public surface** (ADR-0021): the `behavior` family persisted, passes per public callable, the operation catalog, bundle `FORMAT` 3, `get_operation` / `find_operations` / `search_operations`, the source-body view, structured evaluation v0 | deep |
-| 4 | **Plan Stages 2–3: the flow IR and summaries** (ADR-0022): `flow` family, conditions, verdicts, `self` fields and ambient reads; transfer summaries and the models catalog | compact (+ compact per stage) |
-| 5 | **Plan Stages 4–5: concepts and frameworks**: the capability registry, `lookup_concepts` and `explain`; framework models and protocols; then the held-out structured evaluation and the decision on the LLM trigger (§B11) | deep |
+| # | Deliverable |
+|---|---|
+| 1 | **One complete path.** Real FastMCP 4.0.5 (`libraries/fastmcp`, §4.0), with one hand-registered seed, `fastmcp.FastMCP.tool` (analytics config, §1.4), plus 2–4 distractor briefs for other public entry points. Families provenance, exports, signatures, calls, coverage, findings, embedding_cache. Pass A → increment-1 assertion kinds (§10.2) → brief → bundle → embeddings → hybrid search (BM25, exact cosine, RRF, exact-symbol promotion, degraded lexical-only mode; moved up from increment 4, ADR-0004 amendment) → hydration → both MCP tools |
+| 2 | **Analytics families on synthetic fixtures.** Passes B and C with the `syntax` and `lexical` families; single-layer community detection with seed-consensus stability; `page_rank`; FCA within one structural scope (a community's membership is statistical, §9.6) |
+| 3 | **Pilot corpus and analytics** (done: slices 3.1–3.3, the holistic assessment's Phases 0–2), then **plan Stages 0–1: the whole public surface** (ADR-0021): the `behavior` family persisted, passes per public callable, the operation catalog, bundle `FORMAT` 3, `get_operation` / `find_operations` / `search_operations`, the source-body view, structured evaluation v0 |
+| 4 | **Plan Stages 2–3: the flow IR and summaries** (ADR-0022): `flow` family, conditions, verdicts, `self` fields and ambient reads; transfer summaries and the models catalog |
+| 5 | **Plan Stages 4–5: concepts and frameworks**: the capability registry, `lookup_concepts` and `explain`; framework models and protocols; then the held-out structured evaluation and the decision on the LLM trigger (§B11) |
 
 *Superseded rows (ADR-0004):* increment 3 was "~15–25 reviewed briefs"; increment 4 "reliable
 serving" (its generation lifecycle is built into §6.4 and §11.3; `claude mcp add` returns with the
@@ -87,14 +89,14 @@ tools); increment 5 "agent evaluation" (replaced by the structured evaluation, o
 slices 1–3 built the extraction, derivation and publication path. Before its analytic path
 (analytics config, Pass A, briefs), the CPG is completed in slices C1–C6 (§3.8):
 
-| Slice | Delivers | Review |
-|---|---|---|
-| C1 | The node and edge catalogs over the increment-1 families; typed external and synthetic endpoints; dependency definitions; retention; per-stage metrics | standard (ADR-0014) + compact |
-| C2 | `syntax` | compact |
-| C3 | `lexical`, with our recognizer's full name resolution | compact |
-| C4 | `types`: observations, type structure, record fields | compact |
-| C5 | The source corpus: `docs`, and examples and tests as a usage run | compact |
-| C6 | The whole CPG on the pilot, measured | deep |
+| Slice | Delivers |
+|---|---|
+| C1 | The node and edge catalogs over the increment-1 families; typed external and synthetic endpoints; dependency definitions; retention; per-stage metrics |
+| C2 | `syntax` |
+| C3 | `lexical`, with our recognizer's full name resolution |
+| C4 | `types`: observations, type structure, record fields |
+| C5 | The source corpus: `docs`, and examples and tests as a usage run |
+| C6 | The whole CPG on the pilot, measured |
 
 So `syntax` and `lexical` move up from increment 2, and `types` and `docs` from increment 3. The
 analytics that read them stay in their increments, and every family names its consumer.
@@ -106,7 +108,7 @@ current tree; a separate worktree is reserved for truly concurrent production-co
 Clang invokes mold for Linux links. Performance of the exact 16-job stable configuration and
 cache recovery remains **Proposed** until measured.
 
-> Decision: ADR-0021, ADR-0014, ADR-0013, ADR-0026
+> Decision: ADR-0021, ADR-0014, ADR-0013, ADR-0026, ADR-0040
 
 ### §1.3 Non-goals for stage 1
 
@@ -249,11 +251,25 @@ handoff) each have an end-to-end example. Each example must show:
 
 ## §2 Binding decisions
 
-These are the load-bearing choices. The library-context binding
-(`docs/design_review/design_principles/binding/library-context.md` §1) maps each one to the design
-principles and gates. Changing one needs an ADR and a `standard` review.
+**Implemented policy (ADR-0040, 2026-09-25).** These are the load-bearing choices. The
+repository owns core 3.0 and declares its standard in
+`docs/design_review/design_principles/standard.toml`. The six foundations organize review of
+responsibilities, contracts, composition, authority, constraints and local reasoning. A1–A3
+judge architecture independently of correctness and domain-fidelity gates. Supporting DP/CI IDs
+retain their historical meaning at the version cited by each review.
 
-> Decision: ADR-0023
+The library-context binding maps §B decisions to the standard and owns review cadence and
+finding disposition. Changing a §B decision needs an ADR and a design/target review. Library
+selection follows the owned capability, expected changes and total integration burden.
+Early design favors coherent boundaries and inexpensive revision, with compatibility and
+operational obligations scoped to real consumers and claimed behavior.
+
+DESIGN owns accepted architecture and labeled targets; executable schemas and rule declarations
+own their detailed contracts. ADRs record decisions and alternatives. Reviews preserve dated
+evidence, while the active plan owns current disposition of scheduled findings. STATUS links to
+that owner. Acceptance, implementation and verification remain distinct facts.
+
+> Decision: ADR-0040
 
 ### §B1 Ruff and Pyrefly are the only semantic front ends
 
@@ -4356,3 +4372,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Direct-return admission now screens earlier attributed source calls, allowing a terminating base return before recursion while retaining post-call unknowns (§9.9) | ADR-0038 |
 | 2026-09-25 | Direct-return admission can ignore an earlier source call only when its ty region is BDD-incompatible with the return condition; missing or bounded evidence withholds (§9.9) | ADR-0039 (supersedes ADR-0038) |
 | 2026-09-25 | Raw value-flow keys retain local/upstream transfer distinctions; shared validation accepts library-plus-corpus releases under one snapshot and compares distinct MRO ancestry assertions. Output version 74, reviewed schema/rule snapshots (§3.9) | Stage 3 preliminary gate repair |
+| 2026-09-25 | Core 3.0: six foundations, scenario-based architectural judgments, repository ownership, risk-based review cadence and single finding disposition owner (§1.2, §2) | ADR-0040 |

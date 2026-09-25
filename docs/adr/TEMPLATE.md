@@ -11,21 +11,25 @@ evidence: Proposed
 
 ## Context
 
-What forces this decision now. Cite DESIGN.md sections and, only where they carry
-the argument, principle IDs (`DP-nn`, `CI-nn`).
+What forces this decision now; the expected change and affected owners/consumer contracts.
+Cite DESIGN sections and source findings where they carry the argument. Identify current
+implementation separately from the proposed target.
 
 ## Options
 
-1. **The simpler alternative** — always include it, and say why it loses (or wins).
-2. …
+1. **The simplest viable alternative** — say why it loses or wins.
+2. Other meaningful choices. Compare change propagation, semantic ownership, composition,
+   isolated testing and total library/bespoke integration burden where relevant.
 
 ## Decision
 
-The choice, stated so a future session can check whether the code still obeys it.
-Amend the DESIGN.md sections listed in `design:` in the same commit, ending each
-with `> Decision: ADR-NNNN`.
+State the selected responsibility/contract/mechanism so a future session can assess it.
+Amend governed DESIGN sections in the same commit, ending with `> Decision: ADR-NNNN`.
 
 ## Consequences
 
-What becomes easier, what becomes harder, and what would make us revisit this
-(put a runnable `$ command` in `revisit:` when one exists).
+What becomes easier and harder; scope limits and the event that would reopen the decision
+(add `revisit:` metadata, with `$ command` only when a command safely decides it).
+Acceptance records a decision in force. State remaining implementation and verification and
+link to the plan's current disposition owner; do not mark a finding closed solely because this
+record is accepted.

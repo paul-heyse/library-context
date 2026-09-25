@@ -17,8 +17,9 @@ scope (Stages 3–5).
 ty as the flow provider and Pysa as the cross-check (deviation B21), and adopt the assessment's
 recommendations, including decisions D-10 to D-13 (§11; deviation B23).
 
-**Authority.** This plan is not authority. `docs/design/DESIGN.md` and the ADRs are. A stage that
-changes a §B decision lands its ADR, and a `standard` review of it, first.
+**Authority.** DESIGN and ADRs own architecture and decisions. This plan owns execution
+sequencing and current finding disposition (§9). A stage that
+changes a §B decision lands its ADR, and a design/target review of it, first.
 
 ### Restart checkpoint (2026-09-25, Stage 3 in progress)
 
@@ -37,7 +38,9 @@ a completed `just test-all` or fresh-pilot receipt.
 | Stage 3.3 source paths and summaries | **Partially Implemented; focused tests passed** | Finite direct, modeled, unique-assignment and unconditional acyclic local-wrapper value paths have canonical ordered proofs and source-equality validation. Petgraph yields callee-first SCC components; recursive members retain unknown value paths pending a bounded worklist (`87bd3a9`). ADR-0039 replaces ADR-0038's byte-only screen: a prior call is ignored only if its ty region is definitely BDD-incompatible with the return; a compatible, missing, approximate or capped call withholds the direct positive. A same-key open sibling remains in `summary_boundaries` (`6f009d2`). Preceding-statement normal completion, recursive worklist, effect/exception/role summaries, path-specific boundary identity and `call_transfer` discharge remain. |
 | Stage 3.4–3.6 and exit | **Partially Implemented; provisional gate only** | Targeted matched-source Pysa TITO and CPython value/exit oracles passed; FORMAT 7 structural condition/summary data and a partial native value-path executor exist. Full proof source spans, typed operation-wide compatibility/effect/role filters, broader independent challenges, Q01/Q03/Q05/Q09, structured evaluation, clean wheel and increment-end review remain. A `just test-all` attempt observed 313/313 release Rust tests passed and 110/112 Python tests passed; the two failures were a stale expected tool list. `uv run pytest -q python/lctx_mcp/tests/test_server.py` subsequently passed 12/12 after adding `inspect_value_paths`. A full rerun was started and stopped at operator direction before completion. Fresh `just pilot` remains `not_run` for this tree. |
 
-**Next dependency:** finish source-path normal-completion witnesses for compatible preceding
+**Next dependency:** address the architectural calibration dispositions in [§9.2](#92-current-architectural-dispositions):
+repair shared native proof-kind admission, then expose the summary transformation's inputs and
+typed outcomes before extending its policy. Within that boundary, finish source-path normal-completion witnesses for compatible preceding
 calls, other preceding statements, inner/outer exit frames and unresolved operations; region
 truth and BDD compatibility do not prove that an earlier action returns. Then compose finite
 path summaries over petgraph SCCs with BDD condition, modality, handler and budget boundaries.
@@ -67,11 +70,16 @@ channels and relevant source paths are closed. A slice uses focused compilation,
 and one withholding fixture, its schema/rule snapshots and the shared publication validator.
 The final column names a *targeted* check, not an integrated acceptance run.
 
+**Architectural prerequisites (Proposed corrections, 2026-09-25):** [§9.2](#92-current-architectural-dispositions)
+owns the calibration findings. ARC-01 precedes further proof-kind/native integration; ARC-02
+and ARC-03 shape order 1's summary contract and must precede additional SCC/limit policy in
+order 6. These corrections use the existing component boundaries; they add no new framework.
+
 | Order | Build and proof boundary | Library-first implementation and targeted acceptance |
 |---|---|---|
 | 1 | **Call-site and predecessor evaluation.** For every relevant argument and preceding statement on a proposed return path, distinguish an already evaluated direct value, a cited normal outcome, a possible raise, and an unsupported/unresolved expression. Tie the proof to Ruff syntax, ty's exact use/region facts and the call/return sites. Preserve evaluation order; a modeled target's `normal_return` starts only after arguments are evaluated. In particular, `return x` after a recursive or opaque call is not completed merely because the return region is true. | DataFusion joins and Arrow contracts; no second Python expression evaluator. A direct formal and a raising sibling argument must diverge; a terminating branch before recursion and an unconditional self-call before return must diverge. The shared validator rejects a forged completion row. |
 | 2 | **Exit and L2 fate.** Extend `exit_sites`/handler candidates to nested `try`/`finally` and `with` frame order, normal/exceptional completion and suppression boundaries. Derive callback stored/invoked/forwarded/registered and resource acquire/release only with an execution and exit witness. Keep generators/coroutines at the Stage 5 deferred-execution boundary. | Reuse Ruff syntax identity, ty flow, pinned context and DataFusion relations. Run focused nesting, early-return, re-raise, suppressor, callback-not-run and unreleased-resource cases; do not substitute lexical containment for execution. |
-| 3 | **Summary proof identity.** Migrate `summary_flows` from a raw-fact-only key to a canonical proof identity with ordered, typed call/model/flow/exit steps. A finite witness DAG or compact step relation should retain parallel paths without duplicating all prefixes. The step table must support later SCC composition and same-snapshot evidence closure; a one-call-only nullable tuple is insufficient. | Author one Arrow key/step contract and validator, with source/evidence references; reuse BDD root IDs and existing `lctx_id` derivation. Check two distinct calls sharing endpoints, reordered inputs and a forged/missing intermediate step. An ADR and standard review precede a §B5/§B6 identity pivot. |
+| 3 | **Summary proof identity.** Migrate `summary_flows` from a raw-fact-only key to a canonical proof identity with ordered, typed call/model/flow/exit steps. A finite witness DAG or compact step relation should retain parallel paths without duplicating all prefixes. The step table must support later SCC composition and same-snapshot evidence closure; a one-call-only nullable tuple is insufficient. | Author one Arrow key/step contract and validator, with source/evidence references; reuse BDD root IDs and existing `lctx_id` derivation. Check two distinct calls sharing endpoints, reordered inputs and a forged/missing intermediate step. An ADR and design/target review precede a §B5/§B6 identity pivot. |
 | 4 | **First positive modeled result.** Admit an exact whole-return `typing.cast`/`typing.assert_type` identity path only when the source target set is closed and sole, target/model modalities are definite, all arguments reach the call, the pinned target asserts normal return, the BDD condition is admitted and the enclosing return exit is proven. The two-step assignment predecessor follows only after its reaching definition is unambiguous and condition-compatible. Otherwise retain a specific `summary_boundaries` reason. | Relational candidate selection in DataFusion, finite condition/step composition in `lctx-analytics`. Focused direct, shadowed, nested-call, fallback expression, alternate target, raising argument and assignment cases; shared source equality rejects a forged summary. |
 | 5 | **Broaden model data by semantic family.** Pure constructors and value helpers; I/O/serialization/compression; async/timeouts/context; pydantic/settings; HTTP/server entry points. Record each target's exact pin, signature/formal mapping, independent channel coverage, invocation phase and normal-return assertion only when source-backed. A model family without an in-scope consumer remains a candidate model, not a positive behavior. | Start with the pinned local library and Python source, then Context7/official docs and the relevant capability skill; CrossHair checks pure models in isolated workers. Targeted per-family positive/withholding fixtures and model-catalog equality checks. |
 | 6 | **Finite interprocedural summaries.** The attributed caller→callee graph and canonical petgraph `tarjan_scc` schedule are built. Replace the current conservative recursive-member refusal with a monotone bounded worklist per SCC that admits a cited finite base path. Compose value/transform/effect/exception/role paths with BDD `and` and declared modality. A depth, BDD-node, pair-work or iteration cap writes an explicit boundary; an open override/unresolved candidate blocks negative closure. | Petgraph owns SCCs, DataFusion owns candidate joins, biodivine-lib-bdd owns Boolean operations; no all-path closure. Focused acyclic, terminating base, unconditional self-recursion, mutual-recursion, parallel-edge, open-override and cap fixtures; compare shuffled input byte-for-byte. Trigger the Ascent spike only after three recursive rule families repeat the worklist shape. |
@@ -284,13 +292,13 @@ Outputs are test results and findings. They never change a static conclusion dir
 During design and implementation, use focused checks and small commits that state the check
 outcome (`not_run` where appropriate). Run `just test-all` and `just pilot` once at the end of the
 integrated Stage 3 scope, with stage timings and peak RSS. Keep the planned reviews and handoffs;
-where a stage review coincides with an increment's end, one review at the increment's depth covers
-both. This cadence supersedes the earlier per-stage full-gate wording (operator direction,
+where a stage review coincides with an increment's end, one design review covers both
+at the depth required by impact and uncertainty (binding under ADR-0040). This cadence supersedes the earlier per-stage full-gate wording (operator direction,
 2026-09-24).
 
 **Increments** (DESIGN §1.2):
-- increment 4 is Stages 2.9–3, ending with a `compact` review;
-- increment 5 is Stages 4–5 and the held-out evaluation, ending with a `deep` review.
+- increment 4 is Stages 2.9–3, ending with an assembled design/target review;
+- increment 5 is Stages 4–5 and the held-out evaluation, ending with an assembled design/target review.
 
 ### Stage 2.9: harden the semantic bridge, and close Stage 2
 
@@ -352,7 +360,7 @@ both. This cadence supersedes the earlier per-stage full-gate wording (operator 
 - **A new ADR:** conditions as Boolean functions in a decision-diagram kernel over evaluation
   atoms. It amends §B10's "not a solver" wording: propositional diagrams and a typed theory for
   primitive places are allowed; theory solvers stay excluded. It also amends DESIGN §3.9 and
-  §9.9. A `standard` review follows.
+  §9.9. A design/target review follows the repository binding.
 - **A spike, with exit tests:**
   - canonical ids reproduce the `conditions.rs` known answers under a fixed variable order;
   - normal-path factoring by equivalence reproduces Stage 2's `given` results;
@@ -466,7 +474,7 @@ boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for co
   in-process Rust/PyO3 semantic executor against one immutable generation. Typed compatibility,
   implication, effect/role filtering and bounded witness traversal may run at query time; row,
   node, pair-work and depth limits produce explicit `unknown` and `truncated`. Direct lookups and
-  ranked retrieval keep their existing materialized routes. A `standard` review covers the §B13
+  ranked retrieval keep their existing materialized routes. A design/target review covers the §B13
   pivot (ADR-0025) before acceptance.
 - **Design-phase loop:** use focused kernel/translator tests, editable `uv run` import and
   targeted probes while the node relation, proof contracts and served API are being designed.
@@ -475,7 +483,7 @@ boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for co
   exercise a generation-pinned FastMCP/native query; repeat that check for release.
 
 **Exit:** `behavior_shapes` part 2 passes, and Stage 3's pre-registered exit rule (Q01, Q03, Q05,
-Q09) passes. Then increment 4's `compact` review.
+Q09) passes. Then increment 4's assembled design/target review.
 
 **Closes:** X4; the superseded plan's F4 (the models part) and F8 (the data-file part).
 
@@ -673,7 +681,7 @@ stage's output is read.
 - run the structured packet on the final generation;
 - assess it in the same rubric;
 - decide on the §B11 LLM trigger (its ADR stays `proposed` until then);
-- a `deep` review.
+- an assembled design/target review at the depth required by the binding.
 
 ## 6. Evaluation
 
@@ -716,9 +724,23 @@ stage's output is read.
 | Cost | `just pilot` stage timings and peak RSS; serving p50/p95 | Reported; **no target claimed** | 2.9–5 |
 | Agents get better answers | The structured packet against pre-registered targets | Rubric per item; operator review | each stage |
 
-## 9. Findings traceability (open items only)
+## 9. Findings disposition
 
-| Finding | Closed by | Oracle |
+**Implemented tracking policy (ADR-0040, 2026-09-25).** This section owns current execution
+status for findings assigned to this plan. Source reviews retain dated evidence and link here;
+STATUS summarizes the checkpoint and links here. An accepted ADR does not close implementation.
+Rows with a shared structural cause collect source IDs under one responsible component and
+closure condition. Preserve closed/superseded rows and their evidence. Unscheduled findings
+remain explicitly deferred in their source review until transferred.
+
+### 9.1 Historical scheduling map
+
+The inherited rows below identify planned resolution stages and checks. They are retained as
+historical scheduling evidence, **not current open/closed assertions**. The current functional
+checkpoint above distinguishes implemented behavior from remaining scope; a later disposition
+of one of these findings must cite its source and closure evidence in §9.2.
+
+| Finding | Planned resolution stage | Proposed check |
 |---|---|---|
 | X1: atoms merge distinct evaluations | 2.9.2 | P1 cases; runtime oracle |
 | X2: the runtime view by spelling; version tuples | 2.9.3 | Cases; runtime oracle |
@@ -730,6 +752,24 @@ stage's output is read.
 | Superseded plan F4 (models), F8 (data files) | 3.1 | `behavior_shapes` part 2; digest tests |
 | Superseded plan F7, F12 | 4 | Membership rule; FCA test |
 | Superseded plan F10 (exit criteria) | This plan's staging | Stage exit rules |
+
+### 9.2 Current architectural dispositions
+
+The two core-3.0 calibration reviews were triaged on **2026-09-25** against production revision
+`1b86c50`. Their causes are **Interface-checked** by source inspection; corrections and closure
+checks below remain **Proposed**. No runtime failure was reproduced or production fix made by
+the process revision. Local ARC IDs group source findings without replacing their IDs. This
+table is the sole current disposition owner; source reviews retain their dated judgments.
+
+| Disposition / source findings | Status | Responsible component and correction | Closure evidence and sequencing |
+|---|---|---|---|
+| <a id="ARC-01"></a>**ARC-01 — shared proof vocabulary**. [Slice F01](../design_review/reviews/design_review_v3_nested_finalizers_calibration_2026-09-25.md#F01); [architecture F01](../design_review/reviews/design_review_v3_stage3_architecture_calibration_2026-09-25.md#F01) | **Open** | `cpg-schema` owns `SummaryFlowStepKind`; the native loader must derive recognized kinds from that contract and remove its independent whitelist. Keep any consumer-specific support policy explicit. This repairs an existing authority boundary; it does not introduce new proof semantics. | Before another proof-kind extension or native acceptance claim: compile a finalizer-bearing generation and load/query it through the real native executor; retain an unknown-kind rejection control. Cite the correction and observed commands here. |
+| <a id="ARC-02"></a>**ARC-02 — isolated summary transformation**. [Architecture F02](../design_review/reviews/design_review_v3_stage3_architecture_calibration_2026-09-25.md#F02) | **Open** | `cpg-core` acquires prepared relations; the existing `lctx-analytics::summaries` owner exposes finite composition over explicit inputs and outcomes. Remove session acquisition from the policy operation; reuse the existing summary boundary without a new crate or generic provider framework. | Establish with the next normal-completion witness, before adding SCC rules. An admitted case and independent withholding control exercise the production transformation without extraction, embedding, Delta or server setup; retain publication/native integration checks at the appropriate boundary. |
+| <a id="ARC-03"></a>**ARC-03 — preserved refusal causes**. [Architecture F03](../design_review/reviews/design_review_v3_stage3_architecture_calibration_2026-09-25.md#F03) | **Open** | The summary producer owns typed admitted/refused outcomes; boundary publication preserves its specific cause instead of inferring a generic cause from an absent flow. Coordinate with existing path-specific boundary identity work. Use an ADR and DESIGN amendment if persisted meaning or identity changes. | Design with ARC-02 before new SCC budgets. Trace an actual depth/BDD cap and a distinct unsupported case through producer, published snapshot and native response; verify specific causes survive and neither becomes a negative claim. Declare any schema/codebook migration and retain append-only codes. |
+
+The historical slice's F01 and current architecture's F01 share one correction and one closure
+receipt. Closing this row will not rewrite either review's historical decision. The Stage 3
+functional remainder and integrated exit remain in the execution queue above.
 
 ## 10. Risks
 
@@ -745,6 +785,12 @@ stage's output is read.
 | Disk and GPU | One pilot store; moved-aside stores kept only for the operator's review; live legs only with ≥30 GB free, with vLLM stopped afterwards |
 
 ## 11. Operator decisions and reviews
+
+**Review policy (Implemented, ADR-0040, 2026-09-25).** The repository binding owns cadence.
+Review Stage 3's assembled architecture against expected model, analytic, serving and test
+changes; bounded slice acceptance does not certify it. Use target reviews for new architectural
+choices and conformance reviews for implementation within accepted boundaries. Follow §9 for
+current finding disposition. Functional test-all and pilot acceptance remain at the integrated end.
 
 **New decisions, approved by the operator on 2026-09-24** as recommended (the assessment's §11):
 

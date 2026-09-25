@@ -36,7 +36,7 @@ real consumer.
 |---|---|
 | `docs/design/DESIGN.md` | Current design. §2 holds the binding decisions §B1–§B14 |
 | `docs/adr/` | Decision records, a generated index, and `TEMPLATE.md` |
-| `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: core principles (DP-01–24, gates G1–G8), the code-intelligence profile (CI-01–13, gates CI-G1–G3) and the repo layer in `binding/library-context.md` (ADR-0023) |
+| `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
 | `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
@@ -135,14 +135,15 @@ capability is absent.
 - **Write an ADR** (the `adr` skill) when a change alters a §B decision, chooses between real
   alternatives, or would surprise a future session. Amend DESIGN.md in the same commit. To pivot,
   supersede the old ADR; accepted ADRs are immutable.
-- **Design reviews** use the `design-review` skill with its `design-review-code-intelligence`
-  profile, usually through the `design-reviewer` subagent:
-  - `compact` at the end of a slice that adds or changes a fact family, extractor, projection or
-    analytic
-  - `standard` for an ADR that changes a §B decision
-  - at increment ends: `deep` after increments 1, 3 and 5, `compact` after 2 and 4 (ADR-0021, carried over from ADR-0004)
-- **Findings** that are acted on become an ADR, a test or `rules/` entry, or a Deferred row in the
-  review (binding §4). Naming a check in a finding is optional: add one where it pays for itself.
+- **Design reviews** use `design-review` and its declared profiles, usually through the
+  `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence
+  and tier/purpose selection (ADR-0040). Begin with responsibilities, contracts and expected
+  changes; assess A1–A3 separately from correctness/fidelity gates. A bounded slice does not
+  certify the enclosing architecture. Review depth follows impact and uncertainty.
+- **Findings** retain stable source-review IDs. The active plan owns current execution disposition
+  for scheduled work; unscheduled deferrals stay in the source review with a trigger (binding §4).
+  Record the responsible component and closure evidence; link from follow-up reviews and STATUS.
+  A decision being accepted does not establish implementation or verified closure.
 
 ## Git
 

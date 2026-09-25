@@ -2,13 +2,15 @@
 # Read by the design-review skills; paths are relative to this file.
 
 [core]
-version = "2.0"
+# Repository owns this edition; ADR-0040 replaces the verbatim-copy policy.
+owner = "repository"
+version = "3.0"
 principles = "core/design-principles.md"
 template = "core/design-review-template.md"
 
 [[profiles]]
 name = "code-intelligence"
-version = "1.0"
+version = "1.1"
 prefix = "CI"
 principles = "profiles/code-intelligence/principles.md"
 review = "profiles/code-intelligence/review.md"

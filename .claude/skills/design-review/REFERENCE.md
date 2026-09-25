@@ -1,8 +1,41 @@
 # Design review — reference
 
 Companion to [SKILL.md](SKILL.md). Lenses and calibration examples that have repeatedly
-turned up real defects. None is a required step. Principle IDs refer to the core design
+turned up real defects. None is a required step. Foundation and rule IDs refer to the core design
 principles; profile lenses live in the profile's own skill.
+
+## Architecture calibration
+
+Begin with owners and expected change. These examples distinguish reportable architecture
+findings from preferences; no broken output is required.
+
+| Scenario | Reportable evidence and consequence | Correction direction |
+|---|---|---|
+| Another model of an existing kind | Compiler and server independently dispatch on the same model kind; addition requires matching semantic branches in both. FP-03/04, A2/A3. | One owned model interpretation and a derived serving contract; retain independent behavioral controls. |
+| Upgrade a provider | An unrelated analytic inspects provider-private nodes to recover meaning absent from its input contract; upgrade propagates through private APIs. FP-01/02, A1. | Normalize the required semantic fact at the provider boundary and expose the narrow contract. |
+| Test a pure transformation | The entry point requires a live store to obtain policy and lookup state even though the computation only uses immutable inputs. FP-05/06, A1/A3. | Pass the actual inputs into the transformation; keep acquisition and publication in orchestration. |
+| Another workflow | Each orchestration branch duplicates validation/defaulting rather than composing one owned operation. FP-03/04, A2/A3. | Move the decision to its semantic owner and compose the existing contract. |
+| Proposed provider abstraction | One fixed implementation and no identified testing/variation need, but a new registry duplicates the adopted framework's selection lifecycle. FP-02/03, A3. | Keep the existing function/module boundary and revisit when a concrete consumer needs substitution. |
+
+A strong finding names the expected change, both dependency/definition sites, the contract that
+should contain it, and the consequence. A large module, many files or one implementation behind a
+trait proves nothing alone. A genuine new semantic category can properly affect several owners.
+An Arrow-shaped boundary may be the intentional shared contract; a wrapper must protect something.
+
+**Example finding:** "Adding a second output rendering requires reinterpreting completion status
+in the rendering module as well as the analysis module. Both match on the same semantic variants,
+and neither consumes the other's interpretation. The new renderer must understand analysis
+internals and can diverge on unknown outcomes. Keep completion interpretation in the analysis
+contract; render that result. Closure: trace an additional rendering through the shared result
+without a second classifier, with independent unknown-outcome controls. FP-02/03/04, A1/A2/A3."
+
+**Acceptable alternative:** "The new analytic consumes the existing projection contract and
+returns typed results; the workflow only binds its configuration and publishes those results.
+Its small fixture test uses no store. Existing source modules need no additional analytic rule.
+A1 and A3 satisfied for this addition; broader serving composition was not examined."
+
+For proposed scenarios, label the path Proposed. For inspected code, label existence Implemented;
+only executed checks justify Tested. Do not convert a source walkthrough into a time-saving metric.
 
 ## §1 Lenses
 
@@ -12,8 +45,8 @@ principles; profile lenses live in the profile's own skill.
 instead of checking whether the document's own versions look complete. Every cell you have to
 invent is a decision the design has not made, and the list of invented cells is the evidence:
 
-- the **authority map** (slot 2): one row per semantic fact, with owner, revision boundary and
-  update path;
+- the **responsibility/dependency map** (slot 2), followed by semantic authorities and their
+  revision/update paths;
 - the **invariant table** (slot 3): enforcement point and failure behaviour per invariant. An
   invariant with neither is unresolved under DP-03, whatever the prose claims;
 - the **stage table** (slot 4): inputs, observed dependencies, output contract, effects and reuse
@@ -162,14 +195,14 @@ DP-07, DP-12, G6."
 | Slot | Document subject | Code subject | Change review |
 |---|---|---|---|
 | 1 Scope and coverage | With method note | With method note | Compressed; keep the coverage note |
-| 2 Authority map | Reconstructed; invented cells marked | Where each authority lives | Only if a finding needs it |
+| 2 Owners and authority | Reconstruct boundaries/dependencies | Actual owners and contracts | Affected boundary and consumers |
 | 3 Contracts | Often the core | Enforcement sites cited | Merged into findings |
 | 4 Stage table | Reconstructed per stage | From the executing path | Only stages carrying a finding |
-| 5 Journeys | Extension and failure at minimum | Same, through real code | One, chosen for relevance |
+| 5 Scenarios | Expected changes; failures where relevant | Trace real owners and consumers | One relevant change or explicit scope reason |
 | 6 Gates | Tabular | Tabular | Tabular |
 | 7 Findings | Tabular | Tabular | Tabular |
-| 8 Library ledger | Expected | Expected | Rows for new bespoke code |
+| 8 Library fit | Expected | Expected | Changed capability or scope reason |
 | 9 Alternatives | Worth the work | Worth the work | Optional; say why omitted |
 | 10 Verification | Proposed checks | Existing coverage and gaps | Top gaps only |
 | 11 Authority changes / exceptions | Target reviews; deviations | Same | Only if present |
-| 12 Decision | Required | Required | Required |
+| 12 Architecture and decision | A1–A3 and scoped decision | A1–A3 and scoped decision | Bounded judgment; enclosing limit |

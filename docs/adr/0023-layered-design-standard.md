@@ -1,10 +1,10 @@
 ---
 id: ADR-0023
 title: Reviews use a layered design standard: a shared core, a code-intelligence profile and a library-context binding
-status: accepted
+status: superseded
 date: 2026-09-24
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0040
 design: [§2]
 evidence: Implemented
 revisit: A review finds a principle it cannot apply without a repository-specific reading, or the shared core changes and the copy here has not been refreshed.
