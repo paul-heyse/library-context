@@ -5,28 +5,35 @@ _Updated 2026-09-25 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 ## Increment and slice
 
 - Active: [Stage 3 of increment 4](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 3.0 has bounded BDD conditions, attributed entry-value proofs and focused primitive refutation, but no served compatibility verdict.
-- Stage 3.1's committed model compiler (`dd5341f`–`0a7333b`) parses a tagged catalog, binds pinned external definitions/formals and publishes typed transfer, effect, callback, resource and exception rules with per-channel coverage. The CrossHair receipt covers only the `int` specialization of `typing.cast`.
-- Stage 3.2's structural exit/handler sources (`6110afd`, `000542f`, `d2183e5`, `fd7e690`/ADR-0027) cite return/raise/finally, handler clauses/actions and pinned handler type sources. Unresolved enclosing frames withhold a definite raise-escape conclusion.
-- Source/model bridge (`3878aeb`–`fa8d134`) applies pinned model targets at source calls, binds exact explicit arguments across every signature, and publishes candidate callback, resource, transfer and effect sites. Each has shared reconstruction, positive/withholding/tamper checks and a compact review. Candidate action rows preserve modality/open dispatch and are not whole-operation fates.
-- The working tree was clean after `fa8d134` before this handoff update. `STATUS.md` is the only intended new edit at this checkpoint.
+- Stage 3.1's model compiler parses a tagged catalog, binds pinned external definitions/formals and publishes typed transfer, effect, callback, resource and exception rules. The catalog remains small (`typing.cast`, `print`, `open`, `atexit.register`); the CrossHair receipt covers only the `int` specialization of `typing.cast`.
+- Stage 3.2's source relations cite return/raise/finally, handler clauses/actions and pinned handler types. Source/model bridges apply candidate transfer, effect, callback, resource and exception actions while retaining modality and open dispatch.
+- ADR-0028's source bridge (`62ea65e`, `81d4d12`, `deb3560`) retains exact argument value spans, ordered nested value-call paths and a unique Ruff call/argument link or typed unknown. It does not discharge a transfer.
+- The latest L2 slices (`719e9c0`, `9c23705`, `ed7662c`) bind modeled exception classes to pinned context facts, connect potential modeled raises to enclosing handler clauses with explicit ancestry-walk coverage, and cite Pyrefly's pinned MRO for positive ancestor candidates. Different-class nonmembership, handler selection/completion and exception escape remain unknown.
+- The working tree is clean at this handoff after the STATUS commit.
 
 ## Last verified (2026-09-25)
 
 | Command | Outcome |
 |---|---|
-| Focused `INSTA_UPDATE=no cargo nextest run --release -p cpg-schema -p cpg-core -E '…' --no-tests=pass --no-fail-fast` at each of `d0eb167`, `a6222ee`, `fa8d134` | `passed`: 6/6, 7/7 and 7/7 respectively, covering source cases, tamper, schema/rules and output ledger. Earlier Stage 3 slices recorded their focused outcomes in commit messages/reviews. |
-| `cargo clippy --release -p cpg-core -p cpg-schema --all-targets -- -D warnings` after each of those slices | `passed`. |
-| `cargo fmt --all -- --check`; `git diff --check` before those commits | `passed`. |
-| `just adr index`; `just adr revisit` | `passed`: ADR-0002's `just deps` trigger passed; other triggers are manual. |
-| `just test-all` at `d61a497`; `just pilot build/store-stage3-entry-links-v2-2026-09-24` at `d61a497` | `passed` historically, before subsequent Stage 3 changes; they do not certify current HEAD. |
-| `just check`; current-HEAD `just test-all`; fresh-store `just pilot`; Q01/Q03/Q05/Q09; clean wheel/native query | `not_run`: the operator requires integrated tests only after the full functional scope is implemented. |
+| `cargo clippy --release -p cpg-extract -p cpg-core -p cpg-schema --all-targets -- -D warnings` | `passed` after `ed7662c` changes. |
+| `cargo fmt --all -- --check`; `git diff --check`; `just adr lint` | `passed`; ADR lint reports 30 records. |
+| Focused receipts for `719e9c0` and `9c23705` | `passed`; their exact selections and limits are in the corresponding standard/compact reviews and commit messages. |
+| `just check`; current-HEAD `just test-all`; fresh-store `just pilot`; Q01/Q03/Q05/Q09; clean wheel/native query; `just adr revisit` | `not_run`: the operator requires only targeted testing until the full Stage 3 functional scope exists. The last full gates at `d61a497` do not certify current HEAD. |
+
+Focused release selection (`passed`: 5/5, 173 skipped; reviewed schema/rule/codebook snapshots; missing MRO and forged candidate status rejected):
+
+```bash
+INSTA_UPDATE=no cargo nextest run --release -p cpg-schema -p cpg-core -E 'test(contracts_snapshot) | test(rules_snapshot) | test(registry_snapshot) | test(an_attempt_publishes_every_table_and_readers_see_only_published_rows) | test(modeled_exception_handler_candidates_follow_exact_try_body_ancestry)' --no-tests=pass --no-fail-fast
+```
 
 ## Known failures, decisions and blocks
 
-- No current focused test failure is known. The integrated Stage 3 result remains **unverified**; no pilot counts, performance or served compatibility result can be claimed for current HEAD.
-- ADR-0020, ADR-0024 and ADR-0025 remain proposed. The Stage 3 source reviews defer handler catch/completion, runtime resource identity/release, candidate-call normal completion, source effect subjects, and L3/serving evidence closure.
-- Remaining functional scope: broaden the pinned model catalog and CrossHair oracle; resolve L2 handler, callback and resource fates; compose bounded SCC summaries that discharge `call_transfer`; run Pysa and CPython/Hypothesis oracles; implement FORMAT 7 native/PyO3 serving and filters; then evaluate Q01/Q03/Q05/Q09 and run the clean wheel and integrated gates.
+- No current focused test failure is known. The integrated Stage 3 behavior, pilot counts, release-scale cost and served compatibility remain unverified.
+- ADR-0020, ADR-0024, ADR-0025 and ADR-0028 remain proposed. ADR-0029 and ADR-0030 are accepted for their narrow implemented boundaries.
+- The latest standard review defers cross-module ancestor capture (F01) until a real model needs it and handler clause selection/completion (F02) before any served catch. Candidate MRO nonmembership cannot refute a catch while a modeled class may denote possible subclasses.
+- `value_flows` merges source uses and drops the raw `flow_values.fact_id` needed to join `flow_value_call_links`. L3 must preserve per-source path provenance or derive summaries directly from raw facts; joining by sink span or `through_call` would be unsound.
+- Remaining functional scope: broaden pinned model families and CrossHair checks; finish L2 handler, callback and resource fates; compose bounded SCC summaries that discharge `call_transfer`; run independent Pysa and CPython/Hypothesis oracles; implement FORMAT 7 native/PyO3 serving with effect/role/compatibility filters; only then run the integrated gates, structured evaluation, clean wheel/native query and increment-end review.
 
 ## Next
 
-Derive an attributed modeled exception source and resolved handler/raise matching boundary before L3 summary composition. Keep `just test-all`, `just pilot` and structured evaluation deferred until all Stage 3 functional scope is assembled.
+Derive L2 handler selection and normal/exceptional completion with an explicit modeled-raise assumption, clause order, nested frame propagation and unknown outcomes. Preserve the pinned MRO fact as a positive class witness; carry unresolved class relationships and walk limits into summary boundaries. Keep full `just test-all`, fresh `just pilot` and structured evaluation deferred until all Stage 3 functional scope is assembled.
