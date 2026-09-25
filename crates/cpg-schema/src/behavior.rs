@@ -531,6 +531,27 @@ table!(
 );
 
 table!(
+    /// A return's bounded syntax ancestry, with the nearest `with` or `try/finally` frame that
+    /// can alter normal completion. Null reason is only a local normal-return candidate; it
+    /// does not establish that evaluating the return expression succeeds.
+    ReturnExitStatuses, ReturnExitStatusesRow = "return_exit_statuses",
+    family = Findings,
+    key = [snapshot_id, site_node_id],
+    checks = [("depth_nonnegative", "walk_depth >= 0")],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        site_node_id: Id,
+        source_fact_id: Id,
+        condition_id: Id,
+        walk_depth: i64,
+        frame_node_id: Option<Id>,
+        frame_fact_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+    }
+);
+
+table!(
     /// One candidate modeled raise has a conditional path through the first matching handler
     /// of a direct `try` to its sole `return None`. There is no intervening `try`/`with` and
     /// the frame has no `finally`. The modeled call/raise and target remain candidates; this
@@ -2038,7 +2059,7 @@ crate::relations! {
     /// The condition kernel decides whether each seed is admitted or bounded.
     summary_flow_seeds = "behavior:summary_flow_seeds",
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls", "parameter_syntax",
-                "syntax_nodes", "declarations", "exit_sites"],
+                "syntax_nodes", "declarations", "exit_sites", "return_exit_statuses"],
         sql = format!(
             "SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, p.name AS parameter_name, \
@@ -2053,11 +2074,12 @@ crate::relations! {
              JOIN declarations d ON d.node_id = v.sink_function_node_id \
                AND d.kind = {function_kind} \
              JOIN syntax_nodes r ON r.owner_node_id = d.node_id \
-               AND r.parent_node_id = d.node_id AND r.field = {body_field} \
                AND r.kind = {return_kind} AND r.module_node_id = f.module_node_id \
                AND r.start_byte <= f.sink_start_byte AND r.end_byte >= f.sink_end_byte \
              JOIN exit_sites e ON e.site_node_id = r.node_id \
                AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             JOIN return_exit_statuses x ON x.site_node_id = e.site_node_id \
+               AND x.reason IS NULL \
              WHERE f.sink = {return_sink} AND f.identity AND NOT f.through_call \
                AND v.identity AND v.upstream_identity AND NOT v.through_call \
                AND NOT v.local_through_call AND NOT v.upstream_through_call \
@@ -2068,7 +2090,6 @@ crate::relations! {
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
             function_kind = DeclarationKind::Function.code(),
-            body_field = crate::codebook::SyntaxField::Body.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             exit_return = ExitSiteKind::Return.code(),
             return_sink = FlowSink::Return.code(),
@@ -2082,7 +2103,7 @@ crate::relations! {
     modeled_summary_flow_seeds = "behavior:modeled_summary_flow_seeds",
         deps = ["modeled_exact_value_transfers", "model_applications", "model_transfers",
                 "call_syntax", "syntax_nodes", "references", "reference_resolutions",
-                "parameter_syntax", "declarations", "exit_sites", "flow_values"],
+                "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses", "flow_values"],
         sql = format!(
             "WITH {callee_candidates} \
              SELECT DISTINCT m.snapshot_id, m.function_node_id, m.parameter_node_id, \
@@ -2109,11 +2130,12 @@ crate::relations! {
              JOIN declarations d ON d.node_id = m.function_node_id \
                AND d.kind = {function_kind} \
              JOIN syntax_nodes r ON r.owner_node_id = d.node_id \
-               AND r.parent_node_id = d.node_id AND r.field = {body_field} \
                AND r.kind = {return_kind} AND r.module_node_id = c.module_node_id \
                AND r.start_byte <= m.sink_start_byte AND r.end_byte >= m.sink_end_byte \
              JOIN exit_sites e ON e.site_node_id = r.node_id \
                AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             JOIN return_exit_statuses x ON x.site_node_id = e.site_node_id \
+               AND x.reason IS NULL \
              JOIN flow_values f ON f.fact_id = m.flow_value_fact_id \
              WHERE m.sink = {return_sink} AND m.transfer = {identity} \
                AND m.target_modality = {definite} AND m.model_modality = {definite} \
@@ -2125,7 +2147,6 @@ crate::relations! {
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
             callee_candidates = modeled_callee_candidates_sql(),
             function_kind = DeclarationKind::Function.code(),
-            body_field = crate::codebook::SyntaxField::Body.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             exit_return = ExitSiteKind::Return.code(),
             return_sink = FlowSink::Return.code(),
@@ -2143,7 +2164,7 @@ crate::relations! {
         deps = ["modeled_assignment_return_paths", "modeled_exact_value_transfers",
                 "model_applications", "model_transfers", "call_syntax", "references",
                 "reference_resolutions", "parameter_syntax", "declarations",
-                "syntax_nodes", "exit_sites", "flow_values", "flow_reaching"],
+                "syntax_nodes", "exit_sites", "return_exit_statuses", "flow_values", "flow_reaching"],
         sql = format!(
             "WITH {callee_candidates}, reaching_counts AS ( \
                SELECT use_id, count(*) AS n FROM flow_reaching GROUP BY use_id \
@@ -2185,11 +2206,12 @@ crate::relations! {
                AND h.use_id = s.use_id \
              JOIN reaching_counts rc ON rc.use_id = h.use_id AND rc.n = 1 \
              JOIN syntax_nodes r ON r.owner_node_id = d.node_id \
-               AND r.parent_node_id = d.node_id AND r.field = {body_field} \
                AND r.kind = {return_kind} AND r.module_node_id = s.module_node_id \
                AND r.start_byte <= s.sink_start_byte AND r.end_byte >= s.sink_end_byte \
              JOIN exit_sites e ON e.site_node_id = r.node_id \
                AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             JOIN return_exit_statuses x ON x.site_node_id = e.site_node_id \
+               AND x.reason IS NULL \
              WHERE q.compatible_under_atoms AND q.boundary_reason IS NULL \
                AND q.transfer = {identity} AND q.target_modality = {definite} \
                AND q.model_modality = {definite} \
@@ -2203,7 +2225,6 @@ crate::relations! {
             definition_sink = FlowSink::Definition.code(),
             function_kind = DeclarationKind::Function.code(),
             return_sink = FlowSink::Return.code(),
-            body_field = crate::codebook::SyntaxField::Body.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             exit_return = ExitSiteKind::Return.code(),
             identity = ModelTransferKind::Identity.code(),
@@ -2220,7 +2241,8 @@ crate::relations! {
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls",
                 "flow_value_call_links", "call_syntax", "call_targets", "resolutions",
                 "argument_flows", "arguments", "parameter_syntax", "declarations",
-                "syntax_nodes", "references", "reference_resolutions", "exit_sites"],
+                "syntax_nodes", "references", "reference_resolutions", "exit_sites",
+                "return_exit_statuses"],
         sql = format!(
             "WITH {callee_candidates}, step_counts AS ( \
                SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \
@@ -2278,11 +2300,12 @@ crate::relations! {
              JOIN declarations target ON target.node_id = t.target_node_id \
                AND target.kind = {function_kind} \
              JOIN syntax_nodes ret ON ret.owner_node_id = d.node_id \
-               AND ret.parent_node_id = d.node_id AND ret.field = {body_field} \
                AND ret.kind = {return_kind} AND ret.module_node_id = f.module_node_id \
                AND ret.start_byte <= f.sink_start_byte AND ret.end_byte >= f.sink_end_byte \
              JOIN exit_sites e ON e.site_node_id = ret.node_id \
                AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             JOIN return_exit_statuses x ON x.site_node_id = e.site_node_id \
+               AND x.reason IS NULL \
              WHERE v.parameter_node_id IS NOT NULL \
                AND v.function_node_id = v.sink_function_node_id \
                AND v.upstream_identity AND v.local_through_call \
@@ -2296,7 +2319,6 @@ crate::relations! {
             definite = Modality::Definite.code(),
             call_phase = InvocationPhase::Call.code(),
             function_kind = DeclarationKind::Function.code(),
-            body_field = crate::codebook::SyntaxField::Body.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             exit_return = ExitSiteKind::Return.code(),
             yield_kind = SyntaxKind::ExprYield.code(),
@@ -2730,6 +2752,56 @@ crate::relations! {
             async_function = DeclarationKind::AsyncFunction.code(),
             finalbody = crate::codebook::SyntaxField::Finalbody.code(),
             try_ = crate::codebook::SyntaxKind::StmtTry.code(),
+        );
+
+    /// A return under a pending context-manager exit or finally suite is not yet a completed
+    /// normal exit. The nearest controlling frame and any ancestry cap are explicit.
+    return_exit_statuses = "behavior:return_exit_statuses",
+        deps = ["exit_sites", "syntax_nodes"],
+        sql = format!(
+            "WITH RECURSIVE climb AS ( \
+               SELECT e.site_node_id, e.function_node_id, s.node_id, s.parent_node_id, \
+                      s.field, CAST(0 AS BIGINT) AS depth \
+               FROM exit_sites e JOIN syntax_nodes s ON s.node_id = e.site_node_id \
+               WHERE e.kind = {return_kind} \
+               UNION ALL \
+               SELECT c.site_node_id, c.function_node_id, p.node_id, p.parent_node_id, \
+                      p.field, c.depth + 1 \
+               FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+               WHERE c.depth < {max_depth} AND p.owner_node_id = c.function_node_id \
+             ), blockers AS ( \
+               SELECT c.site_node_id, p.node_id AS frame_node_id, p.fact_id AS frame_fact_id, \
+                      ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
+                        ORDER BY c.depth, p.node_id) AS pick \
+               FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+                 AND p.owner_node_id = c.function_node_id \
+               WHERE p.kind = {with_kind} \
+                  OR (p.kind = {try_kind} AND c.field <> {finalbody} \
+                    AND EXISTS (SELECT 1 FROM syntax_nodes f \
+                      WHERE f.parent_node_id = p.node_id AND f.field = {finalbody})) \
+             ), walks AS ( \
+               SELECT c.site_node_id, MAX(c.depth) AS walk_depth, \
+                      MAX(CASE WHEN c.depth = {max_depth} AND p.node_id IS NOT NULL \
+                               THEN 1 ELSE 0 END) AS capped \
+               FROM climb c LEFT JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+                 AND p.owner_node_id = c.function_node_id \
+               GROUP BY c.site_node_id \
+             ) \
+             SELECT e.snapshot_id, e.function_node_id, e.site_node_id, e.source_fact_id, \
+                    e.condition_id, w.walk_depth, b.frame_node_id, b.frame_fact_id, \
+                    CAST(CASE WHEN w.capped > 0 THEN {budget} \
+                              WHEN b.frame_node_id IS NOT NULL THEN {control} \
+                              ELSE NULL END AS SMALLINT) AS reason \
+             FROM exit_sites e JOIN walks w ON w.site_node_id = e.site_node_id \
+             LEFT JOIN blockers b ON b.site_node_id = e.site_node_id AND b.pick = 1 \
+             WHERE e.kind = {return_kind}",
+            return_kind = ExitSiteKind::Return.code(),
+            max_depth = MODELED_HANDLER_MAX_ANCESTOR_DEPTH,
+            with_kind = SyntaxKind::StmtWith.code(),
+            try_kind = SyntaxKind::StmtTry.code(),
+            finalbody = crate::codebook::SyntaxField::Finalbody.code(),
+            budget = BoundaryReason::BudgetReached.code(),
+            control = BoundaryReason::UnsupportedControlFlow.code(),
         );
 
     /// `argument_flows`: `flows::argument_flows_sql`, with the snapshot id.

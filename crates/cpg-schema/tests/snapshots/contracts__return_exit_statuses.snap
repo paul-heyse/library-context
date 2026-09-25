@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table return_exit_statuses
+family findings
+key snapshot_id, site_node_id
+check depth_nonnegative: walk_depth >= 0
+@lctx.family=findings
+@lctx.table=return_exit_statuses
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+site_node_id: FixedSizeBinary(16) NOT NULL
+source_fact_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+walk_depth: Int64 NOT NULL
+frame_node_id: FixedSizeBinary(16) NULL
+frame_fact_id: FixedSizeBinary(16) NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

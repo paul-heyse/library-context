@@ -534,7 +534,38 @@ async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
         .await,
         0
     );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
+             ON d.node_id = x.function_node_id WHERE d.name = 'nested_identity' \
+             AND x.reason IS NULL"
+        )
+        .await,
+        2,
+        "an ordinary nested branch does not add an exit controller"
+    );
+    for name in ["finally_identity", "with_identity"] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
+                     ON d.node_id = x.function_node_id WHERE d.name = '{name}' \
+                     AND x.reason = {} AND x.frame_node_id IS NOT NULL",
+                    BoundaryReason::UnsupportedControlFlow.code()
+                )
+            )
+            .await,
+            1,
+            "{name} must retain its controlling frame"
+        );
+    }
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let original_exit = sql::query(&ctx, "SELECT * FROM exit_sites")
+        .await
+        .unwrap()
+        .into_view();
     let doctored = sql::query(
         &ctx,
         "SELECT * EXCLUDE (start_byte), start_byte + 1 AS start_byte FROM exit_sites",
@@ -551,6 +582,110 @@ async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
             .any(|v| v.rule == "exit-site-source-equality"),
         "{violations:?}"
     );
+    ctx.deregister_table("exit_sites").unwrap();
+    ctx.register_table("exit_sites", original_exit).unwrap();
+    let original_statuses = sql::query(&ctx, "SELECT * FROM return_exit_statuses")
+        .await
+        .unwrap()
+        .into_view();
+    let forged = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (walk_depth), walk_depth + 1 AS walk_depth FROM return_exit_statuses",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("return_exit_statuses").unwrap();
+    ctx.register_table("return_exit_statuses", forged).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "return-exit-status-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("return_exit_statuses").unwrap();
+    ctx.register_table("return_exit_statuses", original_statuses).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn nested_returns_need_an_uncontrolled_exit_before_becoming_value_summaries() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([56; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["returnpkg"]
+public_roots = ["returnpkg"]
+[seeds]
+primary = ["returnpkg.plain_identity"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(), snapshot, &raw("return_completion_shapes", snapshot), Some(&analysis)
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert!(
+        count(&ctx, &format!("SELECT count(*) FROM value_flows WHERE sink = {}", FlowSink::Return.code())).await > 0,
+        "the fixture must actually produce return value facts"
+    );
+    for name in ["plain_identity", "nested_identity"] {
+        assert!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows f JOIN declarations d \
+                     ON d.node_id = f.function_node_id WHERE d.name = '{name}' \
+                     AND f.input_path = 'Parameter[value]'"
+                )
+            )
+            .await
+                > 0,
+            "{name} has an admitted parameter-to-return path"
+        );
+    }
+    for name in ["finally_identity", "with_identity"] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows f JOIN declarations d \
+                     ON d.node_id = f.function_node_id WHERE d.name = '{name}'"
+                )
+            )
+            .await,
+            0,
+            "{name} cannot complete normally under the current frame model"
+        );
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
+                     ON d.node_id = x.function_node_id WHERE d.name = '{name}' \
+                     AND x.reason = {}",
+                    BoundaryReason::UnsupportedControlFlow.code()
+                )
+            )
+            .await,
+            1
+        );
+    }
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

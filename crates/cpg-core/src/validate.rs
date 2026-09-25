@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cpg_schema::behavior::{
-    AnalysisConditionsRow, AnalysisConditionNodesRow, ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
+    AnalysisConditionsRow, AnalysisConditionNodesRow, ExitSitesRow, ReturnExitStatusesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
     HandlerClausesRow, HandlerReturnNoneSitesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
@@ -132,6 +132,8 @@ cpg_schema::relations! {
     inventory exit_relations;
     stored_exit_sites = "validate_stored_exit_sites", deps = ["exit_sites"],
         sql = "SELECT * FROM exit_sites".to_owned();
+    stored_return_exit_statuses = "validate_stored_return_exit_statuses", deps = ["return_exit_statuses"],
+        sql = "SELECT * FROM return_exit_statuses".to_owned();
     stored_handler_clauses = "validate_stored_handler_clauses", deps = ["handler_clauses"],
         sql = "SELECT * FROM handler_clauses".to_owned();
     stored_handler_types = "validate_stored_handler_types", deps = ["handler_types"],
@@ -568,15 +570,28 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
     let key = |row: &ExitSitesRow| (row.function_node_id, row.site_node_id, row.kind);
     actual.sort_by_key(key);
     expected.sort_by_key(key);
-    if actual == expected {
-        Ok(Vec::new())
-    } else {
-        Ok(vec![Violation {
+    let mut violations = Vec::new();
+    if actual != expected {
+        violations.push(Violation {
             rule: "exit-site-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} sites; derived {}", actual.len(), expected.len()),
-        }])
+        });
     }
+    let mut actual_statuses: Vec<ReturnExitStatusesRow> =
+        sql::fetch(ctx, &stored_return_exit_statuses(), sql::Params::new()).await?;
+    let mut expected_statuses: Vec<ReturnExitStatusesRow> =
+        sql::fetch(ctx, &cpg_schema::behavior::return_exit_statuses(), sql::Params::new()).await?;
+    actual_statuses.sort_by_key(|row| row.site_node_id);
+    expected_statuses.sort_by_key(|row| row.site_node_id);
+    if actual_statuses != expected_statuses {
+        violations.push(Violation {
+            rule: "return-exit-status-source-equality".to_owned(),
+            rows: actual_statuses.len().abs_diff(expected_statuses.len()).max(1),
+            sample: format!("stored {} statuses; derived {}", actual_statuses.len(), expected_statuses.len()),
+        });
+    }
+    Ok(violations)
 }
 
 async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {

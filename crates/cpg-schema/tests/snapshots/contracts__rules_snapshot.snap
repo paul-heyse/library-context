@@ -230,6 +230,8 @@ key:modeled_exception_sites
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_exception_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:exit_sites
   SELECT snapshot_id, function_node_id, site_node_id, kind, count(*) AS n FROM exit_sites GROUP BY snapshot_id, function_node_id, site_node_id, kind HAVING count(*) > 1
+key:return_exit_statuses
+  SELECT snapshot_id, site_node_id, count(*) AS n FROM return_exit_statuses GROUP BY snapshot_id, site_node_id HAVING count(*) > 1
 key:handler_clauses
   SELECT snapshot_id, handler_node_id, count(*) AS n FROM handler_clauses GROUP BY snapshot_id, handler_node_id HAVING count(*) > 1
 key:handler_types
@@ -1512,6 +1514,8 @@ codebook:modeled_exception_sites.origin
   SELECT origin FROM modeled_exception_sites WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:exit_sites.kind
   SELECT kind FROM exit_sites WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
+codebook:return_exit_statuses.reason
+  SELECT reason FROM return_exit_statuses WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:handler_types.status
   SELECT status FROM handler_types WHERE status IS NOT NULL AND status NOT IN (0, 1, 2)
 codebook:handler_types.reason

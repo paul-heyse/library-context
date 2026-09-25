@@ -3227,6 +3227,18 @@ analysis configuration; publication reconstructs it from the pinned raw views. I
 prove that a raised exception escapes, a handler catches it, or a `finally` action completes.
 Those fates, callbacks, resources and composed summaries remain Proposed.
 
+**Implemented and Tested in focused cases (2026-09-25, bounded return frames):**
+`return_exit_statuses` walks each attributed return's same-function syntax ancestry to a
+declared depth cap and cites the nearest controlling `with` or pending `finally` frame. A
+missing frame with no cap is only a local normal-return candidate, not proof that expression
+evaluation succeeds. Direct, modeled and acyclic local-call value summary seeds may now admit
+nested returns under ordinary branches, but require a status without a frame/cap boundary.
+Returns under `with` or a pending `finally` remain `summary_boundaries` until L2 proves normal
+completion. The shared validator reconstructs the status rows; a focused analyzed fixture
+admits an `if` return while withholding both controlling frames. This is compiler output
+version 65 and a schema migration. Nested handler propagation, suppression, callback/resource
+fates and the integrated Stage 3 gate remain open.
+
 **Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**
 `handler_clauses` cites a `try`, each authored `except` clause, its optional type expression,
 and the region reaching the `try`. `handler_actions` cites direct statements in that clause's

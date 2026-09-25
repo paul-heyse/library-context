@@ -87,7 +87,8 @@ pub struct Published {
 /// 62: unique assignment-to-return predecessors gain finite model-call summaries.
 /// 63: attributed source call SCCs have canonical callee-first component rows.
 /// 64: acyclic exact local wrappers compose unconditional callee value summaries.
-pub const COMPILER_OUTPUT_VERSION: u32 = 64;
+/// 65: bounded return-frame statuses gate nested finite normal-return summary seeds.
+pub const COMPILER_OUTPUT_VERSION: u32 = 65;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -770,7 +771,7 @@ async fn finish(
     {
         use cpg_schema::behavior::{
             AmbientReads, AnalysisConditions, AnalysisConditionNodes, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
-            ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
+            ExitSites, ReturnExitStatuses, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
             HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
@@ -883,6 +884,14 @@ async fn finish(
         )
         .await?;
         write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
+        let return_exit_statuses = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::return_exit_statuses(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &return_exit_statuses, w)
+            .await?;
         let summary_components = crate::summaries::call_components(&ctx).await?;
         write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w).await?;
         let (summary_flows, summary_steps) = crate::summaries::finite_flows(&ctx).await?;

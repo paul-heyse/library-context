@@ -517,6 +517,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ModelExceptions,
             $crate::behavior::ModeledExceptionSites,
             $crate::behavior::ExitSites,
+            $crate::behavior::ReturnExitStatuses,
             $crate::behavior::HandlerClauses,
             $crate::behavior::HandlerTypes,
             $crate::behavior::ModeledExceptionHandlerCandidates,
