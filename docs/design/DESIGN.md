@@ -373,6 +373,16 @@ call/argument citation or a typed missing/ambiguous status. Shared validation re
 relation, including withheld and absent rows. The compiler output version is 37. This source
 bridge cannot by itself identify a completed modeled transfer.
 
+**Implemented and Tested in focused cases (2026-09-25):** `value_flow_contributions`
+retains each raw `flow_values.fact_id`, use, source origin and condition before
+`value_flows` merges paths. Its `local_through_call` distinguishes a call crossed by
+that raw fact from call uncertainty inherited through a reaching definition. L3
+joins a local call only through that fact's `flow_value_call_links`; inherited
+calls require following the earlier definition instead. Publication reconstructs
+the entire relation and rejects missing contributions. This is provenance for a
+future summary, not a discharged modeled transfer. The compiler output version
+is 42.
+
 **Implemented and Tested in focused cases (2026-09-25, first ADR-0028 source seam):**
 `arguments` persists the argument expression's value span separately from its authored
 role span. A keyword value excludes the `name=` prefix; a direct positional argument has
@@ -3156,7 +3166,7 @@ context; bare `except` has its own status, while shadowed, compound or unbound t
 `unknown` with a boundary reason. The row cites the lexical and context facts and is
 reconstructed at publication.
 This identifies an authored handler class, not a catch. The `try` entry condition is not a
-handler-match condition, and a body action may fail or branch. Exception matching, conversion
+handler-match condition, and a body action may fail or branch. Full exception matching, conversion
 and completion remain Proposed. The integrated repository and pilot gates remain `not_run` for
 Stage 3.
 
@@ -3169,9 +3179,13 @@ class, bare handler, unresolved relationship between different pinned classes, o
 handler type. `modeled_exception_handler_walks` records one coverage row per modeled raise;
 missing source syntax and a 128-edge ancestry cap produce explicit reasons. Absence from the
 candidate relation is interpretable only when its walk is complete. Publication reconstructs
-and validates both relations. The relation does not decide which clause runs, whether a subclass
-matches, whether the call raises,
-or whether a handler completes. Those L2 fate decisions and integrated testing remain open.
+and validates both relations. **Implemented and Tested in focused cases (2026-09-25):**
+`frame_possible` excludes a later clause after a proven earlier match within the same frame;
+`frame_first_match_if_raised` requires a positive match and no prior possible match. An
+unknown earlier class relationship leaves later clauses possible but not proven first.
+These booleans are conditional on the modeled raise reaching this frame. They do not decide
+whether the call raises, an inner frame propagates, or a handler completes. Those L2 fate
+decisions and integrated testing remain open.
 
 **Implemented and Tested in focused cases (ADR-0030, 2026-09-25):**
 `context_class_mro` retains Pyrefly's resolved ancestor identities or an empty/cyclic marker
@@ -3179,7 +3193,7 @@ for each pinned context class. When a modeled raised class's MRO contains the pi
 class, `modeled_exception_handler_candidates` records `pinned_ancestor` and the source MRO
 fact. A missing, unbound or cyclic relationship stays `class_relation_unknown`; absence from
 the MRO is not a negative match because a model class can denote possible subclasses. This is
-still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 40; integrated Stage 3 tests
+still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 42; integrated Stage 3 tests
 remain `not_run`.
 
 **Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
@@ -3212,7 +3226,7 @@ claim; an explicit unframed raise still establishes escape.
   not truth.
 
 **Proposed call-result join (ADR-0028, 2026-09-25):** summaries read a validated,
-ordered `flow_values` call path, then join each step to one exact pinned call target and
+ordered `flow_values` call path through `value_flow_contributions`, then join each local step to one exact pinned call target and
 modeled argument/result pair. The path carries operand role and direct-value span; a
 `through_call` flag or shared text alone cannot discharge `call_transfer`. Missing,
 ambiguous, computed or budget-cut steps write a boundary. This bridge precedes SCC
@@ -3920,3 +3934,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Proposed call-result provenance for Stage 3 summaries: ordered nested call steps and argument value spans preserve the source-to-model join (§B5, §3.9, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Model-authored exception classes bind to pinned context definitions before source application; the extractor producer identity includes model catalog bytes (§B5, §3.2, §4.0, §9.9) | ADR-0029 |
 | 2026-09-25 | Positive modeled exception ancestor relationships use pinned Pyrefly context MRO facts; nonmembership stays unknown (§B5, §3.2, §9.9) | ADR-0030 |
+| 2026-09-25 | Stage 3 source provenance retains raw value-flow contributions and distinguishes local from inherited call crossing; candidate handlers apply within-frame clause order only, conditional on raise reaching the frame (§B5, §9.9) | ADR-0028 (proposed), ADR-0030 boundary |

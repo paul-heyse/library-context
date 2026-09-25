@@ -117,6 +117,31 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("flow_value_call_links", "argument_fact_id", FACT),
     r(
+        "value_flow_contributions",
+        "flow_value_fact_id",
+        &[("flow_values", "fact_id")],
+    ),
+    r(
+        "value_flow_contributions",
+        "use_id",
+        &[("flow_uses", "use_id")],
+    ),
+    r(
+        "value_flow_contributions",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r(
+        "value_flow_contributions",
+        "parameter_node_id",
+        &[("parameter_syntax", "node_id")],
+    ),
+    r(
+        "value_flow_contributions",
+        "class_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r(
         "model_exceptions",
         "class_node_id",
         &[("context_definitions", "symbol_node_id")],

@@ -17,6 +17,7 @@ use cpg_schema::behavior::{
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionSitesRow, ModeledResourceSitesRow, ModeledTransferSitesRow,
+    ValueFlowContributionsRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -114,6 +115,7 @@ pub async fn validate_costed(
     violations.extend(validate_models(&cache).await?);
     violations.extend(validate_exit_sites(&cache).await?);
     violations.extend(validate_handlers(&cache).await?);
+    violations.extend(validate_value_flow_contributions(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -133,6 +135,79 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_exception_handler_walks".to_owned();
     stored_handler_actions = "validate_stored_handler_actions", deps = ["handler_actions"],
         sql = "SELECT * FROM handler_actions".to_owned();
+    stored_value_flow_contributions = "validate_stored_value_flow_contributions",
+        deps = ["value_flow_contributions"],
+        sql = "SELECT * FROM value_flow_contributions".to_owned();
+    value_flow_snapshot = "validate_value_flow_snapshot", deps = ["releases"],
+        sql = "SELECT snapshot_id FROM releases".to_owned();
+    value_flow_analysis_count = "validate_value_flow_analysis_count", deps = ["analysis_invocations"],
+        sql = "SELECT count(*) AS count FROM analysis_invocations".to_owned();
+}
+
+cpg_schema::query_row! {
+    struct ValueFlowSnapshotRow {
+        snapshot_id: Id,
+    }
+}
+
+cpg_schema::query_row! {
+    struct ValueFlowAnalysisCountRow {
+        count: i64,
+    }
+}
+
+/// Reconstruct from the raw flow provider, including rows the display view deliberately omits.
+/// This rejects both forged contributions and missing ones before snapshot publication.
+async fn validate_value_flow_contributions(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let snapshots: Vec<ValueFlowSnapshotRow> =
+        sql::fetch(ctx, &value_flow_snapshot(), sql::Params::new()).await?;
+    if snapshots.len() != 1 {
+        return Ok(vec![Violation {
+            rule: "value-flow-contribution-snapshot".to_owned(),
+            rows: snapshots.len().abs_diff(1).max(1),
+            sample: format!("expected one release snapshot; found {}", snapshots.len()),
+        }]);
+    }
+    let mut actual: Vec<ValueFlowContributionsRow> = sql::fetch(
+        ctx,
+        &stored_value_flow_contributions(),
+        sql::Params::new(),
+    )
+    .await?;
+    let invocation_count: Vec<ValueFlowAnalysisCountRow> = sql::fetch(
+        ctx,
+        &value_flow_analysis_count(),
+        sql::Params::new(),
+    )
+    .await?;
+    if invocation_count[0].count == 0 {
+        return if actual.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Ok(vec![Violation {
+                rule: "value-flow-contributions-without-analysis".to_owned(),
+                rows: actual.len(),
+                sample: "contributions exist without an analysis invocation".to_owned(),
+            }])
+        };
+    }
+    let mut expected = crate::flow_model::run(ctx, snapshots[0].snapshot_id)
+        .await?
+        .value_flow_contributions;
+    let key = |r: &ValueFlowContributionsRow| {
+        (r.flow_value_fact_id, r.use_id, r.source_key.clone(), r.identity, r.through_call)
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "value-flow-contribution-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} contributions; derived {}", actual.len(), expected.len()),
+        }])
+    }
 }
 
 /// Publication and consumers use the same derivation as the compiler. Equality also rejects a

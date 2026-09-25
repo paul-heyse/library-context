@@ -26,6 +26,17 @@ The flow provider keeps `through_call` as a derived compatibility flag but makes
 
 `flow_values` remains the provider's use-to-sink observation; model application, source argument binding and composed summary are separate relations. The `through_call` boolean alone never upgrades a verdict. The path's identity is its parent fact and ordinal, not a library-local AST index. A call span is a join coordinate, not a semantic call identity until the unique source fact is cited.
 
+The analysis seam retains one `value_flow_contributions` row per raw fact and source
+origin before `value_flows` merges paths. A local call path joins by that exact raw
+fact id. A call inherited through an earlier reaching definition is marked
+separately and must follow that definition's own raw fact; it cannot borrow the
+current fact's call links. This preserves provenance without treating a merged
+sink span as a unique transfer witness.
+
 ## Consequences
 
 A nested modeled call can be composed in order with exact input/output citations; unsupported chains remain diagnosable. This adds a raw fact family and an exact-join validator, and requires an explicit extractor/schema migration. Focused direct, nested, callee, computed and keyword cases precede summary use; the Stage 3 pilot later measures row counts and work. Revisit if exact joins prove too incomplete or costly, but do not replace unknown with a textual heuristic.
+
+The contribution relation and its full reconstruction validator are implemented
+and focused-tested on 2026-09-25. The remaining transfer discharge and SCC
+composition are still proposed; the integrated pilot has not run on this change.

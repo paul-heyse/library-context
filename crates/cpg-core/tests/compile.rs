@@ -722,6 +722,29 @@ budget = 1
         .await;
         assert_eq!(found, expected, "{name}");
     }
+    for (name, ordinal, possible, first) in [
+        ("known_first", 0, true, true),
+        ("known_first", 1, false, false),
+        ("unknown_first", 0, true, false),
+        ("unknown_first", 1, true, false),
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM modeled_exception_handler_candidates c \
+                     JOIN syntax_nodes s ON s.node_id = c.call_site_node_id \
+                     JOIN declarations d ON d.node_id = s.owner_node_id \
+                     WHERE d.name = '{name}' AND c.handler_ordinal = {ordinal} \
+                       AND c.frame_possible = {possible} \
+                       AND c.frame_first_match_if_raised = {first}"
+                ),
+            )
+            .await,
+            1,
+            "{name} clause {ordinal}"
+        );
+    }
     assert_eq!(
         count(
             &ctx,
@@ -768,7 +791,63 @@ budget = 1
         .await,
         "every modeled raise has a walk coverage row"
     );
+    assert!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM value_flow_contributions c \
+                 JOIN flow_values v ON v.fact_id = c.flow_value_fact_id \
+                 JOIN flow_value_call_links l ON l.flow_value_fact_id = v.fact_id \
+                 WHERE v.sink = {} AND c.parameter_node_id IS NOT NULL \
+                   AND c.through_call AND l.status = {}",
+                FlowSink::Return.code(),
+                FlowCallLinkStatus::BoundArgument.code(),
+            ),
+        )
+        .await
+            > 0,
+        "an unaggregated parameter contribution retains its exact modeled call-path parent"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM value_flow_contributions c \
+                 JOIN flow_values v ON v.fact_id = c.flow_value_fact_id \
+                 JOIN flow_uses u ON u.use_id = c.use_id \
+                 JOIN declarations d ON d.node_id = c.function_node_id \
+                 WHERE d.name = 'indirect_call_result' AND v.sink = {} \
+                   AND c.through_call AND NOT c.local_through_call \
+                   AND u.place = 'value'",
+                FlowSink::Return.code(),
+            ),
+        )
+        .await,
+        1,
+        "an inherited call transfer does not borrow its return-use fact as the call path"
+    );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let original_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions")
+        .await
+        .unwrap()
+        .into_view();
+    let dropped_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("value_flow_contributions").unwrap();
+    ctx.register_table("value_flow_contributions", dropped_contributions)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "value-flow-contribution-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("value_flow_contributions").unwrap();
+    ctx.register_table("value_flow_contributions", original_contributions)
+        .unwrap();
     let original_candidates =
         sql::query(&ctx, "SELECT * FROM modeled_exception_handler_candidates")
             .await

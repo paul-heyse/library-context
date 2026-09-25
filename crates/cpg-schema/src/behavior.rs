@@ -450,6 +450,12 @@ table!(
         handler_class_fact_id: Option<Id>,
         class_mro_fact_id: Option<Id>,
         class_match: ModeledHandlerClassMatch,
+        /// Clause order within this try frame admits this handler if the modeled raise occurs.
+        /// An inner frame may still intercept it; this is not an operation-level catch.
+        frame_possible: bool,
+        /// Positive class match with no earlier possible clause, conditional on this modeled
+        /// raise reaching this frame. Handler-body completion remains a separate question.
+        frame_first_match_if_raised: bool,
     }
 );
 
@@ -855,6 +861,37 @@ table!(
         conditional: bool,
         /// The condition this hop's value reaches its callee under, in its caller's places.
         condition: Option<String>,
+    }
+);
+
+table!(
+    /// One source origin contributing to one raw `flow_values` fact before the presentation
+    /// view merges origins and keeps only the strongest transfer. L3 must join its parent fact
+    /// to `flow_value_call_links`; a sink span or `through_call` flag is not a call identity.
+    ValueFlowContributions, ValueFlowContributionsRow = "value_flow_contributions",
+    family = Findings,
+    key = [snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call],
+    checks = [
+        ("identity_not_through_call", "NOT (identity AND through_call)"),
+        ("local_call_is_a_call", "NOT local_through_call OR through_call"),
+        ("one_origin_kind", "(parameter_node_id IS NULL AND class_node_id IS NOT NULL) OR (parameter_node_id IS NOT NULL AND class_node_id IS NULL)"),
+    ],
+    {
+        snapshot_id: Id,
+        flow_value_fact_id: Id,
+        use_id: Id,
+        function_node_id: Id,
+        source_key: String,
+        parameter_node_id: Option<Id>,
+        class_node_id: Option<Id>,
+        identity: bool,
+        through_call: bool,
+        /// The parent `flow_values` fact itself crosses a call; inherited call transfer through
+        /// a reaching definition must be followed at that definition's distinct fact.
+        local_through_call: bool,
+        captured: bool,
+        condition_id: Id,
+        condition: String,
     }
 );
 
@@ -1575,7 +1612,8 @@ crate::relations! {
     modeled_exception_handler_candidates = "behavior:modeled_exception_handler_candidates",
         deps = ["modeled_exception_sites", "syntax_nodes", "handler_clauses", "handler_types", "context_definitions", "context_class_mro"],
         sql = format!(
-            "{climb} SELECT e.snapshot_id, e.call_site_node_id, e.pysa_fact_id, e.model_id, e.rule_id, \
+            "{climb}, candidates AS ( \
+             SELECT e.snapshot_id, e.call_site_node_id, e.pysa_fact_id, e.model_id, e.rule_id, \
                     e.call_fact_id, e.class_node_id AS raised_class_node_id, \
                     e.class_fact_id AS raised_class_fact_id, h.try_node_id, h.handler_node_id, \
                     h.handler_fact_id, c.depth AS frame_depth, h.ordinal AS handler_ordinal, \
@@ -1597,7 +1635,28 @@ crate::relations! {
              LEFT JOIN context_class_mro cm ON cm.class_node_id = e.class_node_id \
                AND cm.ancestor_module = d.module_name AND cm.ancestor_key = d.key \
                AND NOT cm.cyclic \
-             WHERE c.field = {body}",
+             WHERE c.field = {body} \
+             ), ranked AS ( \
+               SELECT *, \
+                 COALESCE(SUM(CASE WHEN class_match IN ({same_class}, {bare_match}, {pinned_ancestor}) \
+                   THEN 1 ELSE 0 END) OVER (PARTITION BY call_site_node_id, pysa_fact_id, \
+                     model_id, rule_id, try_node_id ORDER BY handler_ordinal \
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS earlier_positive, \
+                 COALESCE(SUM(CASE WHEN class_match IN ({unknown_type}, {unknown_relation}) \
+                   THEN 1 ELSE 0 END) OVER (PARTITION BY call_site_node_id, pysa_fact_id, \
+                     model_id, rule_id, try_node_id ORDER BY handler_ordinal \
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS earlier_unknown \
+               FROM candidates \
+             ) \
+             SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, \
+                    call_fact_id, raised_class_node_id, raised_class_fact_id, try_node_id, \
+                    handler_node_id, handler_fact_id, frame_depth, handler_ordinal, \
+                    handler_type_status, handler_class_node_id, handler_class_fact_id, \
+                    class_mro_fact_id, class_match, earlier_positive = 0 AS frame_possible, \
+                    class_match IN ({same_class}, {bare_match}, {pinned_ancestor}) \
+                      AND earlier_positive = 0 AND earlier_unknown = 0 \
+                      AS frame_first_match_if_raised \
+             FROM ranked",
             climb = modeled_handler_climb_sql(),
             bare = HandlerTypeStatus::Bare.code(),
             pinned = HandlerTypeStatus::PinnedBuiltin.code(),

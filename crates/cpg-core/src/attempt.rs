@@ -63,7 +63,9 @@ pub struct Published {
 /// 34: candidate-local modeled resource sites. 35: candidate-local modeled transfer sites.
 /// 36: candidate-local modeled effect sites. 37: exact flow-call source links (ADR-0028).
 /// 38: pinned exception class identities and candidate-local modeled exception sites.
-pub const COMPILER_OUTPUT_VERSION: u32 = 40;
+/// 41: preserve unaggregated provider-value contributions for exact call-path composition.
+/// 42: decide clause order within a modeled exception's candidate try frame.
+pub const COMPILER_OUTPUT_VERSION: u32 = 42;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -750,11 +752,19 @@ async fn finish(
             HandlerActions, HandlerClauses, HandlerTypes, Handoffs,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, ValueFlows,
+            RaiseSites, Singletons, ValueFlowContributions, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
         write_analysis::<ValueFlows>(&ctx, root, snapshot_id, &m.value_flows, w).await?;
+        write_analysis::<ValueFlowContributions>(
+            &ctx,
+            root,
+            snapshot_id,
+            &m.value_flow_contributions,
+            w,
+        )
+        .await?;
         write_analysis::<FlowTestValueLinks>(&ctx, root, snapshot_id, &entry_links, w).await?;
         write_analysis::<FlowTestExactOrigins>(&ctx, root, snapshot_id, &exact_origins, w).await?;
         write_analysis::<FieldAccesses>(&ctx, root, snapshot_id, &m.field_accesses, w).await?;

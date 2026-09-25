@@ -53,3 +53,26 @@ def nested_tries(path):
             return None
     except OSError:
         return None
+
+
+def known_first(path):
+    try:
+        return open(path)
+    except OSError:
+        return None
+    except Exception:
+        return None
+
+
+def unknown_first(path, Unknown):
+    try:
+        return open(path)
+    except Unknown:
+        return None
+    except OSError:
+        return None
+
+
+def indirect_call_result(path):
+    value = open(path)
+    return value

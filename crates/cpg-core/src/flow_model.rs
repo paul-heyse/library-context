@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use cpg_schema::behavior::{
     AmbientReadsRow, DynamicAccessesRow, FieldAccessesRow, NegativePremisesRow, RaiseSitesRow,
-    SingletonsRow, ValueFlowsRow,
+    SingletonsRow, ValueFlowContributionsRow, ValueFlowsRow,
 };
 use cpg_schema::codebook::{
     BindingKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EdgeKind, FlowSink,
@@ -77,6 +77,7 @@ cpg_schema::query_row! {
 
 cpg_schema::query_row! {
     struct ValueRow {
+        fact_id: Id,
         module_node_id: Id,
         sink: FlowSink,
         sink_start_byte: i64,
@@ -320,7 +321,7 @@ cpg_schema::relations! {
             .to_owned();
     values = "flow_model_values",
         deps = ["flow_values"],
-        sql = "SELECT module_node_id, sink, sink_start_byte, sink_end_byte, use_id, identity, \
+        sql = "SELECT fact_id, module_node_id, sink, sink_start_byte, sink_end_byte, use_id, identity, \
                       through_call, condition_id FROM flow_values \
                ORDER BY module_node_id, sink_start_byte, sink_end_byte, use_id, condition_id"
             .to_owned();
@@ -524,6 +525,7 @@ pub fn digest() -> cpg_schema::id::Digest {
 #[derive(Debug, Default)]
 pub struct FlowModelRows {
     pub value_flows: Vec<ValueFlowsRow>,
+    pub value_flow_contributions: Vec<ValueFlowContributionsRow>,
     pub field_accesses: Vec<FieldAccessesRow>,
     pub ambient_reads: Vec<AmbientReadsRow>,
     pub dynamic_accesses: Vec<DynamicAccessesRow>,
@@ -585,6 +587,19 @@ struct Source {
     transfer: Transfer,
     captured: bool,
     condition: ModelCondition,
+}
+
+/// One unaggregated source contribution. `flow_value_fact_id` is the only sound join to
+/// `flow_value_call_links`: equal sink spans can have different nested call paths.
+#[derive(Clone, Debug)]
+struct SourceContribution {
+    flow_value_fact_id: Id,
+    use_id: Id,
+    origin: Origin,
+    /// Whether this provider value fact itself crosses a call. `source.transfer` may instead
+    /// inherit `Call` from a reaching definition whose call path belongs to another fact.
+    local_through_call: bool,
+    source: Source,
 }
 
 type Sources = BTreeMap<(Origin, Transfer), Source>;
@@ -730,7 +745,7 @@ impl Model {
             } else {
                 Transfer::Derived
             };
-            for (u2, transfer, c2) in inner {
+            for (_, u2, transfer, c2) in inner {
                 let (sources, below) = self.reach(u2, stack);
                 low = low.min(below);
                 for ((o, t3), s) in sources.iter() {
@@ -763,23 +778,35 @@ impl Model {
         (out, low)
     }
 
-    /// The parameters reaching a sink: the union over the uses its value reads.
-    fn sink(&mut self, key: (Id, FlowSink, i64, i64)) -> Sources {
-        let mut out = Sources::new();
-        for (u, transfer, c) in self.values.get(&key).cloned().unwrap_or_default() {
+    /// Keep a separate contribution for every provider value fact and source origin. The
+    /// presentation view may subsequently merge these, but the summary kernel must not.
+    fn sink_contributions(&mut self, key: (Id, FlowSink, i64, i64)) -> Vec<SourceContribution> {
+        let mut out = Vec::new();
+        for (fact, u, transfer, c) in self.values.get(&key).cloned().unwrap_or_default() {
             let selected = self.condition(c);
             let (sources, _) = self.reach(u, &mut Vec::new());
             for ((o, t2), s) in sources.iter() {
-                merge(
-                    &mut out,
-                    o.clone(),
-                    Source {
+                out.push(SourceContribution {
+                    flow_value_fact_id: fact,
+                    use_id: u,
+                    origin: o.clone(),
+                    local_through_call: transfer == Transfer::Call,
+                    source: Source {
                         transfer: transfer.max(*t2),
                         captured: s.captured,
                         condition: selected.and(&s.condition),
                     },
-                );
+                });
             }
+        }
+        out
+    }
+
+    /// The parameters reaching a sink: the union over the uses its value reads.
+    fn sink(&mut self, key: (Id, FlowSink, i64, i64)) -> Sources {
+        let mut out = Sources::new();
+        for contribution in self.sink_contributions(key) {
+            merge(&mut out, contribution.origin, contribution.source);
         }
         // A weaker row adds nothing where the same origin reaches the sink by a stronger
         // transfer: unchanged over derived, derived over through a call.
@@ -831,7 +858,7 @@ pub(crate) fn normal_path_model(
 }
 
 /// A sink's value sources: the use, how it reaches the value, and the selecting condition.
-type ValueSources = HashMap<SinkKey, Vec<(Id, Transfer, Id)>>;
+type ValueSources = HashMap<SinkKey, Vec<(Id, Id, Transfer, Id)>>;
 
 /// A module's statement regions, for the innermost region around a span.
 struct Regions(HashMap<Id, Vec<(i64, i64, Id)>>);
@@ -989,6 +1016,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             .entry((r.module_node_id, r.sink, r.sink_start_byte, r.sink_end_byte))
             .or_default()
             .push((
+                r.fact_id,
                 r.use_id,
                 Transfer::of(r.identity, r.through_call),
                 r.condition_id,
@@ -1260,6 +1288,43 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     }
     for key in sinks {
         let (module, sink, start, end) = key;
+        // Persist contributions for *all* provider sinks, including ordinary definitions.
+        // The display `value_flows` below intentionally omits non-stored definitions and
+        // coalesces source paths, neither of which is safe for interprocedural composition.
+        for contribution in model.sink_contributions(key) {
+            let (function_node_id, source_key, parameter_node_id, class_node_id) =
+                match contribution.origin {
+                    Origin::Parameter(p) => {
+                        let Some(pr) = parameter.get(&p) else { continue };
+                        (pr.function_node_id, format!("Parameter[{}]", p.hex()), Some(p), None)
+                    }
+                    Origin::Field(class, field) => {
+                        let Some(reader) = sink_function.get(&key).copied() else {
+                            continue;
+                        };
+                        let qualified = function
+                            .get(&class)
+                            .map_or_else(|| class.hex(), |f| f.qualified_name.clone());
+                        (reader, format!("Field[{qualified}.{field}]"), None, Some(class))
+                    }
+                };
+            let (condition_id, condition) = condition_text(&contribution.source.condition);
+            out.value_flow_contributions.push(ValueFlowContributionsRow {
+                snapshot_id,
+                flow_value_fact_id: contribution.flow_value_fact_id,
+                use_id: contribution.use_id,
+                function_node_id,
+                source_key,
+                parameter_node_id,
+                class_node_id,
+                identity: contribution.source.transfer == Transfer::Identity,
+                through_call: contribution.source.transfer == Transfer::Call,
+                local_through_call: contribution.local_through_call,
+                captured: contribution.source.captured,
+                condition_id,
+                condition,
+            });
+        }
         let place = match sink {
             FlowSink::Definition => {
                 // Only a stored value is a sink of its own: a field or a dict entry.
