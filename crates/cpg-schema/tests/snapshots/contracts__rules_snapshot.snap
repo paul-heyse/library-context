@@ -188,6 +188,8 @@ key:modeled_assignment_return_paths
   SELECT snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_assignment_return_paths GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:summary_flows
   SELECT snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id, count(*) AS n FROM summary_flows GROUP BY snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id HAVING count(*) > 1
+key:summary_boundaries
+  SELECT snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id, count(*) AS n FROM summary_boundaries GROUP BY snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id HAVING count(*) > 1
 key:flow_test_value_links
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_value_links GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:model_targets
@@ -472,6 +474,14 @@ ref:summary_flows.return_site_fact_id->facts
   SELECT f.return_site_fact_id AS value FROM summary_flows f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.return_site_fact_id = r.k WHERE f.return_site_fact_id IS NOT NULL
 ref:summary_flows.return_region_fact_id->facts
   SELECT f.return_region_fact_id AS value FROM summary_flows f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.return_region_fact_id = r.k WHERE f.return_region_fact_id IS NOT NULL
+ref:summary_boundaries.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:summary_boundaries.parameter_node_id->parameter_syntax
+  SELECT f.parameter_node_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
+ref:summary_boundaries.source_flow_fact_id->flow_values
+  SELECT f.source_flow_fact_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.source_flow_fact_id = r.k WHERE f.source_flow_fact_id IS NOT NULL
+ref:summary_boundaries.condition_id->analysis_conditions
+  SELECT f.condition_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:model_exceptions.class_node_id->context_definitions
   SELECT f.class_node_id AS value FROM model_exceptions f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
 ref:model_exceptions.class_fact_id->facts
@@ -1298,6 +1308,8 @@ codebook:summary_flows.verdict
   SELECT verdict FROM summary_flows WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:summary_flows.boundary_reason
   SELECT boundary_reason FROM summary_flows WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:summary_boundaries.reason
+  SELECT reason FROM summary_boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:flow_test_value_links.origin
   SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
 codebook:model_targets.transfer_coverage

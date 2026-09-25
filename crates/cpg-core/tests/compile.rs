@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
 use cpg_schema::codebook::{
-    Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink,
+    BoundaryReason, Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink,
     HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
@@ -1401,6 +1401,47 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM summary_boundaries b \
+             JOIN declarations d ON d.node_id = b.function_node_id \
+             WHERE d.name = 'plain_identity'",
+        )
+        .await,
+        0,
+        "the proved direct identity path has no spurious boundary"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_boundaries b \
+                 JOIN declarations d ON d.node_id = b.function_node_id \
+                 WHERE d.name IN ('identity', 'indirect_identity') \
+                   AND b.reason = {}",
+                BoundaryReason::CallTransfer.code()
+            ),
+        )
+        .await,
+        2,
+        "unproved direct and inherited call results retain an explicit transfer boundary"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_boundaries b \
+                 JOIN declarations d ON d.node_id = b.function_node_id \
+                 WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity') \
+                   AND b.reason = {}",
+                BoundaryReason::UnsupportedControlFlow.code()
+            ),
+        )
+        .await,
+        3,
+        "deferred and framed returns name the withheld control scope"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM modeled_exact_value_transfers t \
              LEFT ANTI JOIN analysis_conditions c ON c.condition_id = t.condition_id",
         )
@@ -2152,6 +2193,26 @@ budget = 1
     );
     ctx.deregister_table("summary_flows").unwrap();
     ctx.register_table("summary_flows", original_summary_flows)
+        .unwrap();
+
+    let original_summary_boundaries = sql::query(&ctx, "SELECT * FROM summary_boundaries")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_summary_boundaries = sql::query(&ctx, "SELECT * FROM summary_boundaries WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("summary_boundaries").unwrap();
+    ctx.register_table("summary_boundaries", missing_summary_boundaries)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "summary-boundary-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("summary_boundaries").unwrap();
+    ctx.register_table("summary_boundaries", original_summary_boundaries)
         .unwrap();
 
     let original_predecessors = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_candidates")

@@ -3376,6 +3376,16 @@ reconstructs the rows. The `summary_flow_kind` codebook was appended and
 `COMPILER_OUTPUT_VERSION` is 54. Effect summaries, SCC composition and
 integrated Stage 3 testing remain open.
 
+**Implemented and Tested in focused cases (2026-09-25, summary coverage):**
+`summary_boundaries` records each same-callable parameter-origin raw return
+path outside the finite direct summary producer. A crossed call retains
+`call_transfer`; other unproved control/execution shapes retain
+`unsupported_control_flow`. A positive contribution does not hide a separate
+unproved contribution to the same fact. Each row cites the raw value fact and
+condition id, and shared publication validation reconstructs it. This is
+unknown coverage rather than a negative verdict. `COMPILER_OUTPUT_VERSION` is
+55; full L3 closure and integrated Stage 3 testing remain open.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a

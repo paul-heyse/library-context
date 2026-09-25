@@ -76,6 +76,13 @@ positive row. An async body, generator, nested frame or modeled-call candidate
 cannot enter this base relation. Broader L2/L3 composition must add its own
 exit and completion proofs rather than broadening this source shortcut.
 
+The summary producer also writes `summary_boundaries` for same-callable
+parameter-to-return raw paths not proved by the finite base case. It preserves
+the source fact and condition id, separating a crossed-call `call_transfer`
+from other unsupported control shapes. Multiple contributions to one raw fact
+are grouped without treating one positive path as coverage of a distinct
+unproved path. This is a coverage record, not a refutation.
+
 For an inherited call, the next bridge joins the successor raw fact's use to
 each cited `flow_reaching` definition, that definition's value span to earlier
 raw `flow_values` facts, and the same source parameter's unmerged contribution.

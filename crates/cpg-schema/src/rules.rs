@@ -199,6 +199,10 @@ pub const REFERENCES: &[Reference] = &[
     r("summary_flows", "source_flow_fact_id", &[("flow_values", "fact_id")]),
     r("summary_flows", "return_site_fact_id", FACT),
     r("summary_flows", "return_region_fact_id", FACT),
+    r("summary_boundaries", "function_node_id", &[("declarations", "node_id")]),
+    r("summary_boundaries", "parameter_node_id", &[("parameter_syntax", "node_id")]),
+    r("summary_boundaries", "source_flow_fact_id", &[("flow_values", "fact_id")]),
+    r("summary_boundaries", "condition_id", &[("analysis_conditions", "condition_id")]),
     r(
         "model_exceptions",
         "class_node_id",

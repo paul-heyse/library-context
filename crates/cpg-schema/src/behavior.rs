@@ -1206,6 +1206,26 @@ table!(
 );
 
 table!(
+    /// A parameter-to-return raw path for which the finite summary producer has no positive
+    /// proof. Absence of a `summary_flows` row is never a negative transfer conclusion.
+    SummaryBoundaries, SummaryBoundariesRow = "summary_boundaries",
+    family = Findings,
+    key = [snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        source_flow_fact_id: Id,
+        condition_id: Id,
+        reason: BoundaryReason,
+        local_through_call: bool,
+        upstream_through_call: bool,
+        raw_approximated: bool,
+    }
+);
+
+table!(
     /// A conservative, cited identity bridge from a public operation's entry formal to the
     /// exact operand use of one source test. A Pyrefly type observation is not this proof.
     /// The initial origin permits only one direct reaching formal and no intervening effect.
@@ -1881,6 +1901,45 @@ crate::relations! {
             return_sink = FlowSink::Return.code(),
             yield_kind = SyntaxKind::ExprYield.code(),
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
+        );
+
+    /// Unknown-is-not-absent for every same-callable parameter-origin return fact not admitted
+    /// by the finite direct producer. A crossed call takes the more specific transfer reason;
+    /// other shapes await their control/execution proof.
+    summary_boundaries = "behavior:summary_boundaries",
+        deps = ["value_flow_contributions", "flow_values", "summary_flows"],
+        sql = format!(
+            "WITH remaining AS ( \
+               SELECT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
+                      v.parameter_node_id, v.flow_value_fact_id AS source_flow_fact_id, \
+                      v.condition_id, v.through_call, v.local_through_call, \
+                      v.upstream_through_call, f.through_call AS raw_through_call, \
+                      f.approximated AS raw_approximated \
+               FROM value_flow_contributions v \
+               JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
+               WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
+                 AND v.function_node_id = v.sink_function_node_id \
+                 AND NOT (v.identity AND v.upstream_identity AND NOT v.through_call \
+                   AND NOT v.local_through_call AND NOT v.upstream_through_call \
+                   AND NOT v.captured AND f.identity AND NOT f.through_call \
+                   AND EXISTS (SELECT 1 FROM summary_flows s \
+                     WHERE s.function_node_id = v.sink_function_node_id \
+                       AND s.parameter_node_id = v.parameter_node_id \
+                       AND s.source_flow_fact_id = v.flow_value_fact_id \
+                       AND s.condition_id = v.condition_id)) \
+             ) SELECT snapshot_id, function_node_id, parameter_node_id, \
+                      source_flow_fact_id, condition_id, \
+                    CAST(CASE WHEN MAX(CASE WHEN through_call OR local_through_call \
+                             OR upstream_through_call OR raw_through_call THEN 1 ELSE 0 END) > 0 \
+                              THEN {call_transfer} ELSE {control} END AS SMALLINT) AS reason, \
+                    MAX(CASE WHEN local_through_call THEN 1 ELSE 0 END) > 0 AS local_through_call, \
+                    MAX(CASE WHEN upstream_through_call THEN 1 ELSE 0 END) > 0 AS upstream_through_call, \
+                    MAX(CASE WHEN raw_approximated THEN 1 ELSE 0 END) > 0 AS raw_approximated \
+               FROM remaining GROUP BY snapshot_id, function_node_id, parameter_node_id, \
+                    source_flow_fact_id, condition_id",
+            call_transfer = BoundaryReason::CallTransfer.code(),
+            control = BoundaryReason::UnsupportedControlFlow.code(),
+            return_sink = FlowSink::Return.code(),
         );
 
     /// A subjectless effect stays unqualified; a parameter subject needs an exact binding.

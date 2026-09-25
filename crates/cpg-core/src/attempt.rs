@@ -77,7 +77,8 @@ pub struct Published {
 /// 52: exact model-call steps apply to whole definition values as well as whole returns.
 /// 53: cite a condition-checked identity return from a whole-assignment modeled value.
 /// 54: finite direct identity-return summary seeds with structural condition decisions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 54;
+/// 55: explicit incomplete parameter-to-return summary boundaries.
+pub const COMPILER_OUTPUT_VERSION: u32 = 55;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -765,7 +766,7 @@ async fn finish(
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
+            RaiseSites, Singletons, SummaryBoundaries, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -861,6 +862,14 @@ async fn finish(
         write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
         let summary_flows = crate::summaries::direct_flows(&ctx).await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summary_flows, w).await?;
+        let summary_boundaries = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::summary_boundaries(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summary_boundaries, w)
+            .await?;
         let handler_clauses = crate::sql::fetch(
             &ctx,
             &cpg_schema::behavior::handler_clauses(),

@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
     ModeledTransferSitesRow, ModeledExactValueTransfersRow, ModeledAssignmentReturnPathsRow,
-    SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
+    SummaryBoundariesRow, SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -122,6 +122,7 @@ pub async fn validate_costed(
     violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
+    violations.extend(validate_summary_boundaries(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -170,6 +171,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_summary_boundaries = "validate_stored_summary_boundaries", deps = ["summary_boundaries"],
+        sql = "SELECT * FROM summary_boundaries".to_owned();
     value_flow_snapshot = "validate_value_flow_snapshot", deps = ["releases"],
         sql = "SELECT snapshot_id FROM releases".to_owned();
     value_flow_analysis_count = "validate_value_flow_analysis_count", deps = ["analysis_invocations"],
@@ -357,6 +360,37 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
             rule: "summary-flow-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} summary flows; derived {}", actual.len(), expected.len()),
+        }])
+    }
+}
+
+/// Reconstruct the explicit complement of the finite source-to-return summary proof.
+async fn validate_summary_boundaries(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<SummaryBoundariesRow> =
+        sql::fetch(ctx, &stored_summary_boundaries(), sql::Params::new()).await?;
+    let mut expected: Vec<SummaryBoundariesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::summary_boundaries(),
+        sql::Params::new(),
+    )
+    .await?;
+    let key = |r: &SummaryBoundariesRow| {
+        (
+            r.function_node_id,
+            r.parameter_node_id,
+            r.source_flow_fact_id,
+            r.condition_id,
+        )
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "summary-boundary-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} boundaries; derived {}", actual.len(), expected.len()),
         }])
     }
 }
