@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table handler_return_none_sites
+family findings
+key snapshot_id, handler_node_id
+@lctx.family=findings
+@lctx.table=handler_return_none_sites
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+handler_node_id: FixedSizeBinary(16) NOT NULL
+handler_fact_id: FixedSizeBinary(16) NOT NULL
+return_node_id: FixedSizeBinary(16) NOT NULL
+return_fact_id: FixedSizeBinary(16) NOT NULL
+none_node_id: FixedSizeBinary(16) NOT NULL
+none_fact_id: FixedSizeBinary(16) NOT NULL
+region_fact_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+approximated: Boolean NOT NULL

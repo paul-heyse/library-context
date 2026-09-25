@@ -67,7 +67,8 @@ pub struct Published {
 /// 42: decide clause order within a modeled exception's candidate try frame.
 /// 43: name the sink callable separately from a captured source parameter's owner.
 /// 44: preserve the upstream transfer before each raw value fact's local call path.
-pub const COMPILER_OUTPUT_VERSION: u32 = 44;
+/// 45: direct, pre-finally return-None witnesses for handler bodies.
+pub const COMPILER_OUTPUT_VERSION: u32 = 45;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -751,7 +752,7 @@ async fn finish(
         use cpg_schema::behavior::{
             AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
-            HandlerActions, HandlerClauses, HandlerTypes, Handoffs,
+            HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
             RaiseSites, Singletons, ValueFlowContributions, ValueFlows,
@@ -833,6 +834,20 @@ async fn finish(
         )
         .await?;
         write_analysis::<HandlerActions>(&ctx, root, snapshot_id, &handler_actions, w).await?;
+        let handler_return_none_sites = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::handler_return_none_sites(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<HandlerReturnNoneSites>(
+            &ctx,
+            root,
+            snapshot_id,
+            &handler_return_none_sites,
+            w,
+        )
+        .await?;
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
         write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
             .await?;

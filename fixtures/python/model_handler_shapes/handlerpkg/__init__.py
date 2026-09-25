@@ -76,3 +76,18 @@ def unknown_first(path, Unknown):
 def indirect_call_result(path):
     value = open(path)
     return value
+
+
+def computed_handler(path):
+    try:
+        return open(path)
+    except OSError:
+        return len(path)
+
+
+def two_action_handler(path):
+    try:
+        return open(path)
+    except OSError:
+        marker = 1
+        return None

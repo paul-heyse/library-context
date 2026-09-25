@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
-    HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
+    HandlerClausesRow, HandlerReturnNoneSitesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
@@ -135,6 +135,9 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_exception_handler_walks".to_owned();
     stored_handler_actions = "validate_stored_handler_actions", deps = ["handler_actions"],
         sql = "SELECT * FROM handler_actions".to_owned();
+    stored_handler_return_none_sites = "validate_stored_handler_return_none_sites",
+        deps = ["handler_return_none_sites"],
+        sql = "SELECT * FROM handler_return_none_sites".to_owned();
     stored_value_flow_contributions = "validate_stored_value_flow_contributions",
         deps = ["value_flow_contributions"],
         sql = "SELECT * FROM value_flow_contributions".to_owned();
@@ -303,6 +306,20 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
     let key = |r: &HandlerActionsRow| (r.handler_node_id, r.action_node_id);
     actual_actions.sort_by_key(key);
     expected_actions.sort_by_key(key);
+    let mut actual_returns: Vec<HandlerReturnNoneSitesRow> = sql::fetch(
+        ctx,
+        &stored_handler_return_none_sites(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected_returns: Vec<HandlerReturnNoneSitesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::handler_return_none_sites(),
+        sql::Params::new(),
+    )
+    .await?;
+    actual_returns.sort_by_key(|r| r.handler_node_id);
+    expected_returns.sort_by_key(|r| r.handler_node_id);
     let mut violations = Vec::new();
     if actual_clauses != expected_clauses {
         violations.push(Violation {
@@ -323,6 +340,17 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
                 "stored {} actions; derived {}",
                 actual_actions.len(),
                 expected_actions.len()
+            ),
+        });
+    }
+    if actual_returns != expected_returns {
+        violations.push(Violation {
+            rule: "handler-return-none-source-equality".to_owned(),
+            rows: actual_returns.len().abs_diff(expected_returns.len()).max(1),
+            sample: format!(
+                "stored {} direct return-None sites; derived {}",
+                actual_returns.len(),
+                expected_returns.len()
             ),
         });
     }

@@ -694,6 +694,35 @@ pub const REFERENCES: &[Reference] = &[
         &[("conditions", "condition_id")],
     ),
     r(
+        "handler_return_none_sites",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r(
+        "handler_return_none_sites",
+        "handler_node_id",
+        &[("handler_clauses", "handler_node_id")],
+    ),
+    r("handler_return_none_sites", "handler_fact_id", FACT),
+    r(
+        "handler_return_none_sites",
+        "return_node_id",
+        &[("syntax_nodes", "node_id")],
+    ),
+    r("handler_return_none_sites", "return_fact_id", FACT),
+    r(
+        "handler_return_none_sites",
+        "none_node_id",
+        &[("syntax_nodes", "node_id")],
+    ),
+    r("handler_return_none_sites", "none_fact_id", FACT),
+    r("handler_return_none_sites", "region_fact_id", FACT),
+    r(
+        "handler_return_none_sites",
+        "condition_id",
+        &[("conditions", "condition_id")],
+    ),
+    r(
         "context_parameters",
         "symbol_node_id",
         &[("context_definitions", "symbol_node_id")],

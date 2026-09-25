@@ -748,6 +748,28 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM handler_return_none_sites r \
+             JOIN declarations d ON d.node_id = r.function_node_id \
+             WHERE d.name = 'exact_handler' AND r.approximated"
+        )
+        .await,
+        1,
+        "a sole direct return of None retains its approximate ty region"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM handler_return_none_sites r \
+             JOIN declarations d ON d.node_id = r.function_node_id \
+             WHERE d.name IN ('computed_handler', 'two_action_handler')"
+        )
+        .await,
+        0,
+        "a computed return or an earlier action cannot obtain the direct-return witness"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM modeled_exception_handler_candidates c \
              JOIN syntax_nodes s ON s.node_id = c.call_site_node_id \
              JOIN declarations d ON d.node_id = s.owner_node_id \
@@ -857,6 +879,27 @@ budget = 1
         "a local source contribution names the callable containing its raw sink use"
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let original_return_sites = sql::query(&ctx, "SELECT * FROM handler_return_none_sites")
+        .await
+        .unwrap()
+        .into_view();
+    let dropped_return_sites = sql::query(&ctx, "SELECT * FROM handler_return_none_sites WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("handler_return_none_sites").unwrap();
+    ctx.register_table("handler_return_none_sites", dropped_return_sites)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "handler-return-none-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("handler_return_none_sites").unwrap();
+    ctx.register_table("handler_return_none_sites", original_return_sites)
+        .unwrap();
     let original_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions")
         .await
         .unwrap()

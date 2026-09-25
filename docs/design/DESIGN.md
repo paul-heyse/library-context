@@ -3194,6 +3194,17 @@ handler-match condition, and a body action may fail or branch. Full exception ma
 and completion remain Proposed. The integrated repository and pilot gates remain `not_run` for
 Stage 3.
 
+**Implemented and Tested in focused cases (2026-09-25, local handler return):**
+`handler_return_none_sites` records a handler whose sole direct body statement is
+`return None`, citing that statement, its exact `None` literal and ty region.
+The region's `approximated` flag is retained: the focused `except` body is
+approximate under ty. A computed return or an earlier body statement produces
+no row. Shared publication validation reconstructs the relation and rejects
+missing rows. This is a local, pre-`finally` witness conditional on entering
+the handler, not a proof that the modeled exception selects it or that the
+operation completes normally. `COMPILER_OUTPUT_VERSION` is 45; integrated
+Stage 3 testing remains `not_run`.
+
 **Implemented and Tested in focused cases (2026-09-25, candidate handler frame):**
 `modeled_exception_handler_candidates` uses a bounded DataFusion recursive syntax-ancestor
 walk, stopping at an innermost-function boundary, to connect a modeled potential raise in a
@@ -3217,7 +3228,7 @@ for each pinned context class. When a modeled raised class's MRO contains the pi
 class, `modeled_exception_handler_candidates` records `pinned_ancestor` and the source MRO
 fact. A missing, unbound or cyclic relationship stays `class_relation_unknown`; absence from
 the MRO is not a negative match because a model class can denote possible subclasses. This is
-still a candidate catch relation. `COMPILER_OUTPUT_VERSION` is 44; integrated Stage 3 tests
+still a candidate catch relation. The integrated Stage 3 tests
 remain `not_run`.
 
 **Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
@@ -3963,3 +3974,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Added pinned `json.dumps` and `json.dump` transform, serialization and stream-write model candidates with exact `obj`/`fp` binding; custom encoders remain open (§9.9) | — |
 | 2026-09-25 | Raw value-flow contributions now distinguish the sink callable from a captured parameter's source callable for L3 summary ownership (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Raw value-flow contributions retain the upstream transfer before the local fact; a later one-call summary may refuse inherited call uncertainty (§B5, §9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | A handler with one direct `return None` gets a source/region-cited, pre-finally witness; ty region approximation remains explicit and no catch/completion fate follows (§9.9) | — |

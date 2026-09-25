@@ -424,6 +424,30 @@ table!(
 );
 
 table!(
+    /// A handler body's sole direct statement is `return None`, with an exact literal child
+    /// and cited ty region. If this handler is entered and its region is reached, it returns
+    /// normally before any enclosing `finally` action. The region's approximation remains
+    /// explicit; this does not prove handler selection, final completion or suppression.
+    HandlerReturnNoneSites, HandlerReturnNoneSitesRow = "handler_return_none_sites",
+    family = Findings,
+    key = [snapshot_id, handler_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        handler_node_id: Id,
+        handler_fact_id: Id,
+        return_node_id: Id,
+        return_fact_id: Id,
+        none_node_id: Id,
+        none_fact_id: Id,
+        region_fact_id: Id,
+        condition_id: Id,
+        approximated: bool,
+    }
+);
+
+table!(
     /// A modeled potential raise lies in the body of an enclosing try with this handler.
     /// A class comparison nominates a possible catch; neither it nor syntactic nesting proves
     /// that the call raises, that this handler is selected, or that the handler completes.
@@ -1729,6 +1753,39 @@ crate::relations! {
                AND r.scope_end_byte = d.name_end_byte",
             body = crate::codebook::SyntaxField::Body.code(),
             function_scope = crate::codebook::LexicalScopeKind::Function.code(),
+        );
+
+    /// Positive, site-local normal-return witness. Count authored direct statements from
+    /// syntax, not from `handler_actions`, so a missing flow region cannot make a two-statement
+    /// body look like a sole return. The exact `None` child avoids interpreting source text.
+    handler_return_none_sites = "behavior:handler_return_none_sites",
+        deps = ["handler_clauses", "handler_actions", "syntax_nodes"],
+        sql = format!(
+            "WITH body_counts AS ( \
+               SELECT h.handler_node_id, count(s.node_id) AS actions \
+               FROM handler_clauses h LEFT JOIN syntax_nodes s \
+                 ON s.parent_node_id = h.handler_node_id AND s.field = {body} \
+               GROUP BY h.handler_node_id \
+             ), value_counts AS ( \
+               SELECT parent_node_id, count(*) AS values \
+               FROM syntax_nodes WHERE field = {value} GROUP BY parent_node_id \
+             ) \
+             SELECT h.snapshot_id, h.function_node_id, h.handler_node_id, \
+                    h.handler_fact_id, a.action_node_id AS return_node_id, \
+                    a.action_fact_id AS return_fact_id, n.node_id AS none_node_id, \
+                    n.fact_id AS none_fact_id, a.region_fact_id, a.condition_id, \
+                    a.approximated \
+             FROM handler_clauses h \
+             JOIN body_counts b ON b.handler_node_id = h.handler_node_id AND b.actions = 1 \
+             JOIN handler_actions a ON a.handler_node_id = h.handler_node_id \
+               AND a.action_kind = {return_kind} \
+             JOIN value_counts v ON v.parent_node_id = a.action_node_id AND v.values = 1 \
+             JOIN syntax_nodes n ON n.parent_node_id = a.action_node_id \
+               AND n.field = {value} AND n.kind = {none_kind}",
+            body = crate::codebook::SyntaxField::Body.code(),
+            value = crate::codebook::SyntaxField::Value.code(),
+            return_kind = SyntaxKind::StmtReturn.code(),
+            none_kind = SyntaxKind::ExprNoneLiteral.code(),
         );
 
     /// Source-observed explicit exits and finally-body actions with ty's statement region.

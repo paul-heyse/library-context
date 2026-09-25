@@ -218,6 +218,8 @@ key:modeled_exception_handler_walks
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_exception_handler_walks GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:handler_actions
   SELECT snapshot_id, handler_node_id, action_node_id, count(*) AS n FROM handler_actions GROUP BY snapshot_id, handler_node_id, action_node_id HAVING count(*) > 1
+key:handler_return_none_sites
+  SELECT snapshot_id, handler_node_id, count(*) AS n FROM handler_return_none_sites GROUP BY snapshot_id, handler_node_id HAVING count(*) > 1
 key:flow_test_exact_origins
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_exact_origins GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:field_accesses
@@ -666,6 +668,24 @@ ref:handler_actions.region_fact_id->facts
   SELECT f.region_fact_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.region_fact_id = r.k WHERE f.region_fact_id IS NOT NULL
 ref:handler_actions.condition_id->conditions
   SELECT f.condition_id AS value FROM handler_actions f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
+ref:handler_return_none_sites.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:handler_return_none_sites.handler_node_id->handler_clauses
+  SELECT f.handler_node_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT handler_node_id AS k FROM handler_clauses) r ON f.handler_node_id = r.k WHERE f.handler_node_id IS NOT NULL
+ref:handler_return_none_sites.handler_fact_id->facts
+  SELECT f.handler_fact_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.handler_fact_id = r.k WHERE f.handler_fact_id IS NOT NULL
+ref:handler_return_none_sites.return_node_id->syntax_nodes
+  SELECT f.return_node_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM syntax_nodes) r ON f.return_node_id = r.k WHERE f.return_node_id IS NOT NULL
+ref:handler_return_none_sites.return_fact_id->facts
+  SELECT f.return_fact_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.return_fact_id = r.k WHERE f.return_fact_id IS NOT NULL
+ref:handler_return_none_sites.none_node_id->syntax_nodes
+  SELECT f.none_node_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM syntax_nodes) r ON f.none_node_id = r.k WHERE f.none_node_id IS NOT NULL
+ref:handler_return_none_sites.none_fact_id->facts
+  SELECT f.none_fact_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.none_fact_id = r.k WHERE f.none_fact_id IS NOT NULL
+ref:handler_return_none_sites.region_fact_id->facts
+  SELECT f.region_fact_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.region_fact_id = r.k WHERE f.region_fact_id IS NOT NULL
+ref:handler_return_none_sites.condition_id->conditions
+  SELECT f.condition_id AS value FROM handler_return_none_sites f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:context_parameters.symbol_node_id->context_definitions
   SELECT f.symbol_node_id AS value FROM context_parameters f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.symbol_node_id = r.k WHERE f.symbol_node_id IS NOT NULL
 ref:context_parameters.module_node_id->context_modules
