@@ -1,32 +1,33 @@
 # Status
 
-_Updated 2026-09-24 under the handoff skill. Work is on `main`._
+_Updated 2026-09-24 under the [handoff skill](.claude/skills/handoff/SKILL.md); work is on `main`._
 
-## Where we are
+## Increment and slice
 
-- The active scope is [the behavioral-model forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 2.9 is complete. Stage 3.0 now has exact BDD conditions and leaf identities persisted through Delta and FORMAT 6, validated native graph loading, and attributed `flow_test_types` observations. The [persisted-graph compact review](docs/design_review/reviews/design_review_stage3_0_persisted_graph_native_load_compact_2026-09-24.md) accepts that scoped path; the [test-type compact review](docs/design_review/reviews/design_review_stage3_0_test_type_observation_compact_2026-09-24.md) accepts observations with a remaining served-proof boundary.
-- ADR-0024 and ADR-0025 remain proposed. Native `probe_*` calls are developer smoke, not served compatibility verdicts. Editable native import and focused probes are the design loop; a clean wheel install and generation-pinned tool call wait for Stage 3.6 product acceptance.
-- Commit `0eedcaa` makes stable Rust 1.98.1, 16 Cargo jobs, sccache, incremental compilation off, and Clang/mold the development defaults (ADR-0026). Routine work stays on `main` in the current tree; a worktree is for truly concurrent production-code edits. The [single-run build screen](docs/design_review/evidence/2026-09-24_rust-build-performance/README.md) does not establish the final configuration's speed.
-- The separate Z3/LLVM system migration is documented in [its evidence](docs/design_review/evidence/2026-09-24_z3-5-migration/README.md); its product acceptance boundaries are separate from this build-configuration slice.
+- Active scope: [Stage 3 of increment 4](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 2.9 is complete. Stage 3.0 has bounded BDD conditions, attributed entry-value proofs and focused primitive refutation. No served compatibility verdict exists.
+- Committed Stage 3.1 (`3e676dc`–`9a3606e`): typed catalog, pinned context target and Pysa formal bindings, authored transfer rows and shared publication validation. The CrossHair receipt covers the `int` specialization of `typing.cast` only.
+- Committed Stage 3.2: `6110afd` adds attributed return/raise/finally source sites; `000542f` adds except clauses and direct handler actions. Their focused tests, schema migrations, validators and compact reviews passed. These rows do not prove an exception is caught or an action completes.
+- Dirty, uncommitted Stage 3.1 effect slice: `ModelEffectKind`, `model_effects`, `builtins.print` and its fixture, shared formal checks and compiler output version 26. Its focused Nextest command was interrupted without a result. Schema/codebook/rule snapshots, Clippy, design review and commit are still due. Preserve this work in place across the restart.
 
 ## Last verified (2026-09-24)
 
 | Command | Outcome |
 |---|---|
-| `just test-all` at the reviewed persisted-graph checkpoint | passed: 283/283 Rust, fixture generation, 96/96 Python, Pyrefly, rules, ADR/agent lint, fixtures, dependencies and gold |
-| `just pilot build/store-stage3-bdd-format6-final` at that checkpoint | passed: snapshot `226d70b7c94aabca98de16a0be968229`, generation `b31985ff58878132`, 20/20 smoke; zero `budget_reached` behaviors |
-| Focused test-type checks in the compact review | passed: flow leaf attribution, extractor type-row identity, and publication-link tamper rejection |
-| `uv run pytest tests/scripts/test_build_measurements.py -q` | passed: 5/5 after adapting uncached controls to the default wrapper |
-| `just adr lint`; `just lint-agents`; `git diff --check` | passed: 26 ADRs, instruction parity, no whitespace errors |
-| `just test-all` at `0eedcaa` | failed by operator interruption during Nextest: Clippy passed, 284/285 Rust tests passed, one long test received SIGINT; remaining gate steps did not run. No product-test assertion failed before interruption |
-| `just pilot` after `0eedcaa`; `just adr revisit` after ADR-0026 | not_run for this configuration slice at operator direction; no performance timing inferred from the interrupted gate |
+| `just test-all` at `d61a497` | passed: the last recorded complete integrated gate, before later Stage 3 commits. |
+| `just pilot build/store-stage3-entry-links-v2-2026-09-24` at `d61a497` | passed: snapshot `fc9dc0f3bc6007fc26ceae6619f2996a`, 102 positive links, 20/20 smoke briefs; before later Stage 3 commits. |
+| Focused release Nextest selections for `6110afd` and `000542f` | passed: 7/7 each, including positive/withholding/tamper, snapshots, table count and ledger. |
+| `cargo clippy --release -p cpg-schema -p cpg-core --all-targets -- -D warnings` at each Stage 3.2 slice | passed. |
+| `cargo fmt --all` on the dirty effect slice | passed; formatting only, no behavioral result. |
+| Focused `cargo nextest run --release -p cpg-core -p cpg-schema -E 'test(pinned_cast_model_requires_and_publishes_its_real_formal) | test(committed_catalog_has_typed_identity_path_and_digest)' --no-tests=pass` on the dirty effect slice | not_run to completion: turn interruption left no reported result; no Cargo/Nextest/rustc process remained. |
+| `just adr index`; `just adr revisit`; `git diff --check` | passed; ADR-0002's automatic `just deps` trigger passed, other reported triggers require manual evidence. |
+| `just test-all`; fresh `just pilot` after `d61a497`; Stage 3 Q01/Q03/Q05/Q09; clean wheel/native query | not_run: reserved for the assembled Stage 3 end at operator direction. |
 
-## Open boundaries
+## Known failures, decisions and blocks
 
-- Stage 3 still needs the cited operation-entry-to-test bridge, exact value/effect-stability proof, typed theory, served generation-pinned semantic queries, models and summaries, differential checks, and structured exit evaluation. The `flow_test_types` Pyrefly trace is an observation, not proof of an exact runtime class or a negative compatibility verdict. The persisted-graph review's F03 and test-type review's T02–T04 carry these boundaries.
-- ADR-0024/0025 remain proposed; ADR-0020 remains proposed on its increment-5 trigger. A stable 16-job, one-frontend-thread paired timing and cache recovery are not_run; ADR-0026 records the operator's chosen development defaults without claiming a speedup.
-- The interrupted `just test-all` is incomplete. The operator explicitly stopped full testing for the build-configuration changes. There is no task-owned Cargo, Nextest or rustc process left from that run.
+- No current product-test failure is established for the dirty effect slice; it is **unverified**. The fixture assumes `builtins.print` resolves to a pinned definition with complete signatures, and the test expects two targets. Check that assumption before accepting snapshots; retain fail-closed formal validation if it does not hold.
+- ADR-0020, ADR-0024 and ADR-0025 remain proposed. Reviews defer generic model semantics and pilot binding (M02–M04), exception catch/completion (X02, H01–H02), and final pilot cost/counts (X03, H03).
+- Remaining Stage 3: broader models, resolved handler fates, callbacks/resources, finite summaries, Pysa/Hypothesis oracles, FORMAT 7 serving and the pre-registered exit questions. Source observations and authored model rows cannot be promoted to behavioral verdicts without these proofs.
 
 ## Next
 
-Continue the Stage 3 proof bridge from structurally attributed test leaves to operation-entry values, preserving `unknown` where source identity or effect stability is unproved. Use focused probes during design; run the broader product gate at its planned checkpoint.
+Finish and verify the dirty `model_effects` slice in place: run its focused positive/tamper case, inspect and accept schema/codebook/rule snapshots, run focused ledger and Clippy, then update DESIGN/review and commit. Keep the integrated tests and pilot at the assembled Stage 3 end.

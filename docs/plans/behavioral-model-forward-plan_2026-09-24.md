@@ -20,6 +20,29 @@ recommendations, including decisions D-10 to D-13 (§11; deviation B23).
 **Authority.** This plan is not authority. `docs/design/DESIGN.md` and the ADRs are. A stage that
 changes a §B decision lands its ADR, and a `standard` review of it, first.
 
+### Restart checkpoint (2026-09-24, Stage 3 in progress)
+
+This checkpoint records the current working tree for a restart; the detailed Stage 3 execution
+contract below remains the target. The latest committed slice is `000542f` on `main`.
+
+| Scope | Current state | Evidence and remaining boundary |
+|---|---|---|
+| Stage 3.0 condition and entry-value proof | **Implemented and Tested in focused cases** | Bounded BDD persistence/native load, exact builtin-type origin, guarded same-value link and exact-input primitive refutation are in commits through `979f930`. They do not yet supply a served compatibility verdict. The last complete `just test-all` and fresh pilot were at `d61a497`, before the subsequent Stage 3 changes. |
+| Stage 3.1 model authority | **Partially Implemented and Tested** | `3e676dc`–`9a3606e` parse the committed catalog, bind referenced external targets and every authored formal to pinned Pysa signatures, write `model_targets` and `model_transfers`, and reconstruct them in publication validation. A narrow CrossHair probe covered only the `int` specialization of `typing.cast`. Other model families and application to summaries remain open. |
+| Stage 3.2 local exit/handler sources | **Partially Implemented and Tested** | `6110afd` writes explicit return/raise/finally source sites; `000542f` writes except clauses and direct handler actions. Both have Ruff/ty citations, schema migrations, shared reconstruction, focused positive/withholding/tamper cases and compact reviews. These are structural observations: caught-class identity, handler matching/completion, callbacks and resource lifecycles remain open. |
+| Typed authored effects | **Uncommitted work in progress; verification incomplete** | The dirty tree adds `ModelEffectKind`, `model_effects`, shared formal checks, a `builtins.print` I/O-write model and a referenced fixture. `COMPILER_OUTPUT_VERSION` is tentatively 26. `cargo fmt --all` ran; the focused Nextest call was interrupted without a reported result. New schema/codebook/rule snapshots, Clippy, design review and commit are outstanding. Do not treat these rows as published or accepted. |
+| Stage 3.3–3.6 and exit | **Not implemented / not run** | Finite flow/effect summaries, Pysa and Hypothesis oracles, resolved handler/resource/callback fates, FORMAT 7 native serving, Q01/Q03/Q05/Q09, clean-wheel acceptance and the increment-end compact review remain. The operator requires `just test-all` and a fresh-store `just pilot` at the assembled Stage 3 end, not after each design slice. |
+
+**Resume at the dirty effect slice, without resetting it.** First review `git diff` and finish
+the focused `model_shapes` positive/tamper case (including whether `builtins.print` binds to a
+pinned complete signature). Review `.snap.new` diffs before `cargo insta accept`, then run the
+focused schema/rule/ledger checks and Clippy; update DESIGN/review and commit only after those
+results are known. If the pinned definition cannot support the authored effect, keep it dormant
+or choose a source-backed target rather than bypassing signature validation. Then continue the
+remaining model families and L2 fates before summary composition. No task-owned Cargo process
+was running when this checkpoint was written; `just test-all` and `just pilot` remain deferred
+to the assembled Stage 3 end.
+
 ---
 
 ## 1. Purpose and target
@@ -470,6 +493,12 @@ has no serving consumer yet, and the integrated gate remains `not_run`.
    fail closed. The rest of the model list, broader CrossHair checks and summary application remain open; model rows alone do
    not establish behavioral findings. One isolated CrossHair control/diffbehavior probe exhausted
    paths for the `int` specialization of `typing.cast` identity, not the generic model.
+
+   **Restart boundary (uncommitted and unverified, 2026-09-24):** the working tree extends this
+   compiler with typed `model_effects` and an authored `builtins.print` I/O-write effect. It has
+   no accepted schema snapshots or completed focused test result yet. The committed guarantee
+   remains the target/transfer boundary above until the effect slice is checked and committed.
+
 5. **Derive the remaining L2 relations before summaries.** `handlers` names caught types and
    the action on each normal and exceptional exit; `callbacks` distinguishes storage,
    registration, forwarding and invocation; `resources` names acquire/release and the exit path;
