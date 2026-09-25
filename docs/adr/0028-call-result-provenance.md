@@ -49,11 +49,22 @@ retains flow approximation, condition and both modalities. An assigned
 intermediate or nested call is withheld until its predecessor path can be
 proved. This is a candidate transfer path, not a completed summary or verdict.
 
+For an inherited call, the next bridge joins the successor raw fact's use to
+each cited `flow_reaching` definition, that definition's value span to earlier
+raw `flow_values` facts, and the same source parameter's unmerged contribution.
+It retains the reaching fact, loop/approximation flags and all three condition
+ids separately. These are **predecessor candidates**: the derivation does not
+assert that the edge's conditions are compatible, that it is the only reaching
+definition, or that the earlier call result reaches the final return. The
+composed condition ids in `value_flow_contributions` are analysis identities,
+not necessarily rows in the provider `conditions` table. L3 must persist and
+hydrate their structural BDD closures before condition composition.
+
 ## Consequences
 
 A nested modeled call can be composed in order with exact input/output citations; unsupported chains remain diagnosable. This adds a raw fact family and an exact-join validator, and requires an explicit extractor/schema migration. Focused direct, nested, callee, computed and keyword cases precede summary use; the Stage 3 pilot later measures row counts and work. Revisit if exact joins prove too incomplete or costly, but do not replace unknown with a textual heuristic.
 
 The contribution relation and its full reconstruction validator are implemented
-and focused-tested on 2026-09-25. The direct candidate bridge is likewise
-focused-tested. Completed transfer discharge and SCC composition are still
+and focused-tested on 2026-09-25. The direct candidate and predecessor bridges
+are likewise focused-tested. Completed transfer discharge and SCC composition are still
 proposed; the integrated pilot has not run on this change.

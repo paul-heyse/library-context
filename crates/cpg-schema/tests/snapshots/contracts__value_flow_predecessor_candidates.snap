@@ -1,0 +1,29 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table value_flow_predecessor_candidates
+family findings
+key snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id
+@lctx.family=findings
+@lctx.table=value_flow_predecessor_candidates
+snapshot_id: FixedSizeBinary(16) NOT NULL
+successor_fact_id: FixedSizeBinary(16) NOT NULL
+predecessor_fact_id: FixedSizeBinary(16) NOT NULL
+source_key: Utf8 NOT NULL
+parameter_node_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+successor_use_id: FixedSizeBinary(16) NOT NULL
+predecessor_use_id: FixedSizeBinary(16) NOT NULL
+reaching_fact_id: FixedSizeBinary(16) NOT NULL
+reaching_condition_id: FixedSizeBinary(16) NOT NULL
+reaching_approximated: Boolean NOT NULL
+loop_carried: Boolean NOT NULL
+definition_id: FixedSizeBinary(16) NOT NULL
+definition_fact_id: FixedSizeBinary(16) NOT NULL
+successor_condition_id: FixedSizeBinary(16) NOT NULL
+predecessor_condition_id: FixedSizeBinary(16) NOT NULL
+successor_raw_approximated: Boolean NOT NULL
+predecessor_raw_approximated: Boolean NOT NULL
+predecessor_local_through_call: Boolean NOT NULL
+predecessor_upstream_through_call: Boolean NOT NULL

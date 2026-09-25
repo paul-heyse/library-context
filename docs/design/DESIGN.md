@@ -3295,6 +3295,21 @@ the relation and rejects dropped rows. This is a candidate source-to-return
 path, not proof that the call completes or a `summary_flows` verdict.
 `COMPILER_OUTPUT_VERSION` is 47; integrated Stage 3 testing is `not_run`.
 
+**Implemented and Tested in focused cases (ADR-0028, 2026-09-25, predecessor
+candidate):** `value_flow_predecessor_candidates` joins an inherited-call
+contribution's use to a cited provider reaching definition, its value span,
+and a raw predecessor value fact with the same parameter origin and sink
+callable. Each edge retains the reaching condition, the separately recomposed
+predecessor/successor conditions, loop-carried and approximation flags, and
+whether the predecessor's call crossing is local or inherited. Assignment
+followed by return has a candidate edge; a nested call in one expression does
+not acquire an invented predecessor. The shared validator reconstructs the
+relation and rejects missing rows. This edge does not establish condition
+compatibility, uniqueness, transfer or completion. Recomposed analysis
+condition ids may lack rows in provider `conditions`; L3 must persist their
+structural BDD roots before composing them. `COMPILER_OUTPUT_VERSION` is 48;
+integrated Stage 3 testing is `not_run`.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
@@ -4005,3 +4020,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | A handler with one direct `return None` gets a source/region-cited, pre-finally witness; ty region approximation remains explicit and no catch/completion fate follows (§9.9) | — |
 | 2026-09-25 | A bounded direct `try` and sole `return None` handler yields only a candidate-local conditional modeled-exception path, with nested frames and finalizers withheld (§9.9) | ADR-0031 |
 | 2026-09-25 | The first source-to-model direct-return bridge requires one exact call step and matching argument/result nodes, with inherited and nested call paths withheld (§B5, §9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | Reaching definitions now cite raw predecessor value facts for inherited call paths, while independent conditions and approximation flags remain unresolved pending structural BDD persistence (§B5, §9.9) | ADR-0028 (proposed) |

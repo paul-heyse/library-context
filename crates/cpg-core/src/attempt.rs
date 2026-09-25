@@ -70,7 +70,8 @@ pub struct Published {
 /// 45: direct, pre-finally return-None witnesses for handler bodies.
 /// 46: candidate modeled raises compose through a direct first handler to a return-None path.
 /// 47: direct one-call return candidates join raw parameter flows to pinned model transfers.
-pub const COMPILER_OUTPUT_VERSION: u32 = 47;
+/// 48: raw predecessor candidates retain reaching-definition identity and separate conditions.
+pub const COMPILER_OUTPUT_VERSION: u32 = 48;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -758,7 +759,7 @@ async fn finish(
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledDirectReturnTransfers, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, ValueFlowContributions, ValueFlows,
+            RaiseSites, Singletons, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -768,6 +769,20 @@ async fn finish(
             root,
             snapshot_id,
             &m.value_flow_contributions,
+            w,
+        )
+        .await?;
+        let value_flow_predecessor_candidates = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::value_flow_predecessor_candidates(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ValueFlowPredecessorCandidates>(
+            &ctx,
+            root,
+            snapshot_id,
+            &value_flow_predecessor_candidates,
             w,
         )
         .await?;

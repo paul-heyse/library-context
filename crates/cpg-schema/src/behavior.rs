@@ -674,6 +674,7 @@ table!(
         function_node_id: Id,
         parameter_node_id: Id,
         use_id: Id,
+        /// Recomposition by the flow analysis; the provider `conditions` table may omit it.
         condition_id: Id,
         condition: String,
         /// Approximation on this raw flow fact only; predecessor reachability is not closed.
@@ -1047,6 +1048,39 @@ table!(
         argument_node_id: Option<Id>,
         call_site_node_id: Option<Id>,
         place: Option<String>,
+    }
+);
+
+table!(
+    /// A source-preserving predecessor candidate for a raw value fact whose source already
+    /// crossed a call before this fact. The reaching definition identifies the earlier value
+    /// expression; condition compatibility and complete path selection remain for L3.
+    ValueFlowPredecessorCandidates, ValueFlowPredecessorCandidatesRow = "value_flow_predecessor_candidates",
+    family = Findings,
+    key = [snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        successor_fact_id: Id,
+        predecessor_fact_id: Id,
+        source_key: String,
+        parameter_node_id: Id,
+        function_node_id: Id,
+        successor_use_id: Id,
+        predecessor_use_id: Id,
+        reaching_fact_id: Id,
+        reaching_condition_id: Id,
+        reaching_approximated: bool,
+        loop_carried: bool,
+        definition_id: Id,
+        definition_fact_id: Id,
+        /// Flow-analysis conditions; separate from the provider reaching condition above.
+        successor_condition_id: Id,
+        predecessor_condition_id: Id,
+        successor_raw_approximated: bool,
+        predecessor_raw_approximated: bool,
+        predecessor_local_through_call: bool,
+        predecessor_upstream_through_call: bool,
     }
 );
 
@@ -1600,6 +1634,45 @@ crate::relations! {
             bound_input = ModelTransferEndpointStatus::BoundArgument.code(),
             call_result = ModelTransferEndpointStatus::CallResult.code(),
             return_sink = FlowSink::Return.code(),
+        );
+
+    /// The provider's reaching definition gives a predecessor value expression, but its
+    /// possible value facts and their path conditions are retained separately. This is a
+    /// candidate edge, not a proof that exactly one earlier call supplied the successor.
+    value_flow_predecessor_candidates = "behavior:value_flow_predecessor_candidates",
+        deps = ["value_flow_contributions", "flow_values", "flow_reaching", "flow_definitions"],
+        sql = format!(
+            "SELECT c.snapshot_id, c.flow_value_fact_id AS successor_fact_id, \
+                    p.flow_value_fact_id AS predecessor_fact_id, c.source_key, \
+                    c.parameter_node_id, c.sink_function_node_id AS function_node_id, \
+                    c.use_id AS successor_use_id, p.use_id AS predecessor_use_id, \
+                    r.fact_id AS reaching_fact_id, r.condition_id AS reaching_condition_id, \
+                    r.approximated AS reaching_approximated, r.loop_carried, \
+                    d.definition_id, d.fact_id AS definition_fact_id, \
+                    c.condition_id AS successor_condition_id, \
+                    p.condition_id AS predecessor_condition_id, \
+                    sf.approximated AS successor_raw_approximated, \
+                    pf.approximated AS predecessor_raw_approximated, \
+                    p.local_through_call AS predecessor_local_through_call, \
+                    p.upstream_through_call AS predecessor_upstream_through_call \
+             FROM value_flow_contributions c \
+             JOIN flow_values sf ON sf.fact_id = c.flow_value_fact_id \
+             JOIN flow_reaching r ON r.use_id = c.use_id \
+               AND r.definition_id IS NOT NULL \
+             JOIN flow_definitions d ON d.definition_id = r.definition_id \
+               AND d.module_node_id = sf.module_node_id \
+               AND d.value_start_byte IS NOT NULL AND d.value_end_byte IS NOT NULL \
+             JOIN flow_values pf ON pf.module_node_id = d.module_node_id \
+               AND pf.sink = {definition_sink} \
+               AND pf.sink_start_byte = d.value_start_byte \
+               AND pf.sink_end_byte = d.value_end_byte \
+             JOIN value_flow_contributions p ON p.flow_value_fact_id = pf.fact_id \
+               AND p.source_key = c.source_key \
+               AND p.parameter_node_id = c.parameter_node_id \
+               AND p.sink_function_node_id = c.sink_function_node_id \
+             WHERE c.upstream_through_call AND c.parameter_node_id IS NOT NULL \
+               AND c.function_node_id = c.sink_function_node_id",
+            definition_sink = FlowSink::Definition.code(),
         );
 
     /// A subjectless effect stays unqualified; a parameter subject needs an exact binding.

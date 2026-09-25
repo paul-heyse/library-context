@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
     ModeledTransferSitesRow, ModeledDirectReturnTransfersRow,
-    ValueFlowContributionsRow,
+    ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -117,6 +117,7 @@ pub async fn validate_costed(
     violations.extend(validate_exit_sites(&cache).await?);
     violations.extend(validate_handlers(&cache).await?);
     violations.extend(validate_value_flow_contributions(&cache).await?);
+    violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
     violations.extend(validate_modeled_direct_return_transfers(&cache).await?);
     Ok((violations, costs))
 }
@@ -146,6 +147,9 @@ cpg_schema::relations! {
     stored_value_flow_contributions = "validate_stored_value_flow_contributions",
         deps = ["value_flow_contributions"],
         sql = "SELECT * FROM value_flow_contributions".to_owned();
+    stored_value_flow_predecessor_candidates = "validate_stored_value_flow_predecessor_candidates",
+        deps = ["value_flow_predecessor_candidates"],
+        sql = "SELECT * FROM value_flow_predecessor_candidates".to_owned();
     stored_modeled_direct_return_transfers = "validate_stored_modeled_direct_return_transfers",
         deps = ["modeled_direct_return_transfers"],
         sql = "SELECT * FROM modeled_direct_return_transfers".to_owned();
@@ -164,6 +168,38 @@ cpg_schema::query_row! {
 cpg_schema::query_row! {
     struct ValueFlowAnalysisCountRow {
         count: i64,
+    }
+}
+
+/// Rebuild the one-definition predecessor candidates and reject both missing and forged edges.
+async fn validate_value_flow_predecessor_candidates(
+    ctx: &SessionContext,
+) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<ValueFlowPredecessorCandidatesRow> = sql::fetch(
+        ctx,
+        &stored_value_flow_predecessor_candidates(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected: Vec<ValueFlowPredecessorCandidatesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::value_flow_predecessor_candidates(),
+        sql::Params::new(),
+    )
+    .await?;
+    let key = |r: &ValueFlowPredecessorCandidatesRow| {
+        (r.successor_fact_id, r.predecessor_fact_id, r.source_key.clone(), r.reaching_fact_id)
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "value-flow-predecessor-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} predecessors; derived {}", actual.len(), expected.len()),
+        }])
     }
 }
 

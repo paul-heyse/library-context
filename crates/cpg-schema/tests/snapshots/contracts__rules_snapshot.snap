@@ -176,6 +176,8 @@ key:value_flows
   SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity, count(*) AS n FROM value_flows GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity HAVING count(*) > 1
 key:value_flow_contributions
   SELECT snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call, count(*) AS n FROM value_flow_contributions GROUP BY snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call HAVING count(*) > 1
+key:value_flow_predecessor_candidates
+  SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_candidates GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
 key:flow_test_value_links
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_value_links GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:model_targets
@@ -372,8 +374,6 @@ ref:modeled_direct_return_transfers.parameter_node_id->parameter_syntax
   SELECT f.parameter_node_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
 ref:modeled_direct_return_transfers.use_id->flow_uses
   SELECT f.use_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.use_id = r.k WHERE f.use_id IS NOT NULL
-ref:modeled_direct_return_transfers.condition_id->conditions
-  SELECT f.condition_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:modeled_direct_return_transfers.pysa_fact_id->facts
   SELECT f.pysa_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
 ref:modeled_direct_return_transfers.target_node_id->model_targets
@@ -384,6 +384,26 @@ ref:modeled_direct_return_transfers.rule_id->model_transfers
   SELECT f.rule_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_transfers) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
 ref:modeled_direct_return_transfers.target_definition_fact_id->facts
   SELECT f.target_definition_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:value_flow_predecessor_candidates.successor_fact_id->flow_values
+  SELECT f.successor_fact_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.successor_fact_id = r.k WHERE f.successor_fact_id IS NOT NULL
+ref:value_flow_predecessor_candidates.predecessor_fact_id->flow_values
+  SELECT f.predecessor_fact_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.predecessor_fact_id = r.k WHERE f.predecessor_fact_id IS NOT NULL
+ref:value_flow_predecessor_candidates.parameter_node_id->parameter_syntax
+  SELECT f.parameter_node_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
+ref:value_flow_predecessor_candidates.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:value_flow_predecessor_candidates.successor_use_id->flow_uses
+  SELECT f.successor_use_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.successor_use_id = r.k WHERE f.successor_use_id IS NOT NULL
+ref:value_flow_predecessor_candidates.predecessor_use_id->flow_uses
+  SELECT f.predecessor_use_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.predecessor_use_id = r.k WHERE f.predecessor_use_id IS NOT NULL
+ref:value_flow_predecessor_candidates.reaching_fact_id->facts
+  SELECT f.reaching_fact_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.reaching_fact_id = r.k WHERE f.reaching_fact_id IS NOT NULL
+ref:value_flow_predecessor_candidates.reaching_condition_id->conditions
+  SELECT f.reaching_condition_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.reaching_condition_id = r.k WHERE f.reaching_condition_id IS NOT NULL
+ref:value_flow_predecessor_candidates.definition_id->flow_definitions
+  SELECT f.definition_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT definition_id AS k FROM flow_definitions) r ON f.definition_id = r.k WHERE f.definition_id IS NOT NULL
+ref:value_flow_predecessor_candidates.definition_fact_id->facts
+  SELECT f.definition_fact_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.definition_fact_id = r.k WHERE f.definition_fact_id IS NOT NULL
 ref:model_exceptions.class_node_id->context_definitions
   SELECT f.class_node_id AS value FROM model_exceptions f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
 ref:model_exceptions.class_fact_id->facts

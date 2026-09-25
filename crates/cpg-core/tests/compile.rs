@@ -1400,6 +1400,19 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM value_flow_predecessor_candidates p \
+             JOIN declarations d ON d.node_id = p.function_node_id \
+             WHERE d.name = 'indirect_identity' \
+               AND p.predecessor_local_through_call AND NOT p.predecessor_upstream_through_call \
+               AND NOT p.loop_carried",
+        )
+        .await,
+        1,
+        "the reaching assignment identifies the earlier raw model-call fact without claiming condition compatibility"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             &format!(
                 "SELECT count(*) FROM modeled_transfer_sites s \
                  JOIN declarations d ON d.node_id = s.function_node_id \
@@ -2002,6 +2015,26 @@ budget = 1
     );
     ctx.deregister_table("modeled_direct_return_transfers").unwrap();
     ctx.register_table("modeled_direct_return_transfers", original_direct_transfers)
+        .unwrap();
+
+    let original_predecessors = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_candidates")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_predecessors = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_candidates WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("value_flow_predecessor_candidates").unwrap();
+    ctx.register_table("value_flow_predecessor_candidates", missing_predecessors)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "value-flow-predecessor-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("value_flow_predecessor_candidates").unwrap();
+    ctx.register_table("value_flow_predecessor_candidates", original_predecessors)
         .unwrap();
 
     let original_effect_sites = sql::query(&ctx, "SELECT * FROM modeled_effect_sites")
