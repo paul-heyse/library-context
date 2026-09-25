@@ -17,7 +17,7 @@ use cpg_schema::behavior::{
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
-    ModeledTransferSitesRow, ModeledExactValueTransfersRow, ModeledAssignmentReturnPathsRow,
+    ModeledTransferSitesRow, ModeledExactValueTransfersRow, ModeledArgumentEvaluationsRow, ModeledAssignmentReturnPathsRow,
     SummaryBoundariesRow, SummaryFlowStepsRow, SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
@@ -120,6 +120,7 @@ pub async fn validate_costed(
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
     violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
     violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
+    violations.extend(validate_modeled_argument_evaluations(&cache).await?);
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
     violations.extend(validate_summary_boundaries(&cache).await?);
@@ -166,6 +167,9 @@ cpg_schema::relations! {
     stored_modeled_exact_value_transfers = "validate_stored_modeled_exact_value_transfers",
         deps = ["modeled_exact_value_transfers"],
         sql = "SELECT * FROM modeled_exact_value_transfers".to_owned();
+    stored_modeled_argument_evaluations = "validate_stored_modeled_argument_evaluations",
+        deps = ["modeled_argument_evaluations"],
+        sql = "SELECT * FROM modeled_argument_evaluations".to_owned();
     stored_modeled_assignment_return_paths = "validate_stored_modeled_assignment_return_paths",
         deps = ["modeled_assignment_return_paths"],
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
@@ -287,6 +291,48 @@ async fn validate_modeled_exact_value_transfers(
             rule: "modeled-exact-value-transfer-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} direct transfers; derived {}", actual.len(), expected.len()),
+        }])
+    }
+}
+
+/// Reconstruct every candidate-local argument decision from the exact model step and syntax.
+async fn validate_modeled_argument_evaluations(
+    ctx: &SessionContext,
+) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<ModeledArgumentEvaluationsRow> = sql::fetch(
+        ctx,
+        &stored_modeled_argument_evaluations(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected: Vec<ModeledArgumentEvaluationsRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_argument_evaluations(),
+        sql::Params::new(),
+    )
+    .await?;
+    let key = |r: &ModeledArgumentEvaluationsRow| {
+        (
+            r.candidate_flow_fact_id,
+            r.parameter_node_id,
+            r.pysa_fact_id,
+            r.model_id,
+            r.rule_id,
+            r.argument_fact_id,
+        )
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "modeled-argument-evaluation-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!(
+                "stored {} modeled argument evaluations; derived {}",
+                actual.len(), expected.len()
+            ),
         }])
     }
 }

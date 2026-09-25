@@ -1338,6 +1338,16 @@ codebook!(
 );
 
 codebook!(
+    /// How one argument expression is accounted for on an exact modeled value path.
+    /// `source_operand` cites the observed value flow; it is not a universal normal-exit proof.
+    ModeledArgumentEvaluationStatus = "modeled_argument_evaluation_status" {
+        SourceOperand = 0 => "source_operand",
+        LiteralNormal = 1 => "literal_normal",
+        Unknown = 2 => "unknown",
+    }
+);
+
+codebook!(
     /// What a flow value source's sink is (ADR-0022 §The flow provider; `cpg_flow::Sink`).
     FlowSink = "flow_sink" {
         /// A definition's value: an assignment's right-hand side, a walrus's value, an
@@ -1656,6 +1666,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModeledHandlerClassMatch>(),
         CodebookEntry::of::<SummaryFlowKind>(),
         CodebookEntry::of::<SummaryFlowStepKind>(),
+        CodebookEntry::of::<ModeledArgumentEvaluationStatus>(),
     ]
 }
 

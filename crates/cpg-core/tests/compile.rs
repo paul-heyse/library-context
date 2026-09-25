@@ -19,7 +19,7 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     BoundaryReason, Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink,
-    HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
+    HandlerTypeStatus, Modality, ModelArgumentStatus, ModeledArgumentEvaluationStatus, ModelCallbackAction, ModelChannelCoverage,
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
     ModelTransferKind, ModeledHandlerClassMatch, Origin, Verdict,
@@ -1479,8 +1479,51 @@ budget = 1
         "direct model candidates resolve their recomposed BDD conditions"
     );
     assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_argument_evaluations e \
+                 JOIN modeled_exact_value_transfers m \
+                   ON m.flow_value_fact_id = e.candidate_flow_fact_id \
+                  AND m.parameter_node_id = e.parameter_node_id \
+                  AND m.pysa_fact_id = e.pysa_fact_id \
+                  AND m.model_id = e.model_id AND m.rule_id = e.rule_id \
+                 JOIN declarations d ON d.node_id = m.function_node_id \
+                 WHERE d.name = 'identity_literal_type' \
+                   AND e.status IN ({}, {}) AND e.evidence_id IS NOT NULL",
+                ModeledArgumentEvaluationStatus::SourceOperand.code(),
+                ModeledArgumentEvaluationStatus::LiteralNormal.code(),
+            ),
+        )
+        .await,
+        2,
+        "the modeled operand and its direct literal sibling retain distinct normal-path evidence"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_argument_evaluations e \
+                 JOIN modeled_exact_value_transfers m \
+                   ON m.flow_value_fact_id = e.candidate_flow_fact_id \
+                  AND m.parameter_node_id = e.parameter_node_id \
+                  AND m.pysa_fact_id = e.pysa_fact_id \
+                  AND m.model_id = e.model_id AND m.rule_id = e.rule_id \
+                 JOIN declarations d ON d.node_id = m.function_node_id \
+                 WHERE d.name = 'identity_dynamic_type' \
+                   AND e.status = {} AND e.evidence_id IS NULL \
+                   AND e.reason = {}",
+                ModeledArgumentEvaluationStatus::Unknown.code(),
+                BoundaryReason::OutsideProviderModel.code(),
+            ),
+        )
+        .await,
+        1,
+        "an unresolved sibling expression cannot be certified as a literal normal evaluation"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        10,
+        12,
         "the pure, JSON and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -1868,7 +1911,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        13,
+        15,
         "each pinned model applies only at its resolved source call"
     );
     assert!(
@@ -1948,6 +1991,26 @@ budget = 1
             >= 1
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    let original_arguments = sql::query(&ctx, "SELECT * FROM arguments")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_arguments = sql::query(&ctx, "SELECT * FROM arguments WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("arguments").unwrap();
+    ctx.register_table("arguments", missing_arguments).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:call-argument-coverage"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("arguments").unwrap();
+    ctx.register_table("arguments", original_arguments).unwrap();
 
     let original_call_steps = sql::query(&ctx, "SELECT * FROM flow_value_calls")
         .await
@@ -2218,6 +2281,31 @@ budget = 1
     );
     ctx.deregister_table("modeled_exact_value_transfers").unwrap();
     ctx.register_table("modeled_exact_value_transfers", original_exact_transfers)
+        .unwrap();
+
+    let original_argument_evaluations = sql::query(&ctx, "SELECT * FROM modeled_argument_evaluations")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_argument_evaluations = sql::query(
+        &ctx,
+        "SELECT * FROM modeled_argument_evaluations WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_argument_evaluations").unwrap();
+    ctx.register_table("modeled_argument_evaluations", missing_argument_evaluations)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-argument-evaluation-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_argument_evaluations").unwrap();
+    ctx.register_table("modeled_argument_evaluations", original_argument_evaluations)
         .unwrap();
 
     let original_assignment_paths = sql::query(&ctx, "SELECT * FROM modeled_assignment_return_paths")

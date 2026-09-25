@@ -161,6 +161,16 @@ pub const REFERENCES: &[Reference] = &[
     r("modeled_exact_value_transfers", "model_id", &[("model_targets", "model_id")]),
     r("modeled_exact_value_transfers", "rule_id", &[("model_transfers", "rule_id")]),
     r("modeled_exact_value_transfers", "target_definition_fact_id", FACT),
+    r("modeled_argument_evaluations", "candidate_flow_fact_id", &[("flow_values", "fact_id")]),
+    r("modeled_argument_evaluations", "parameter_node_id", &[("parameter_syntax", "node_id")]),
+    r("modeled_argument_evaluations", "pysa_fact_id", FACT),
+    r("modeled_argument_evaluations", "model_id", &[("model_targets", "model_id")]),
+    r("modeled_argument_evaluations", "rule_id", &[("model_transfers", "rule_id")]),
+    r("modeled_argument_evaluations", "call_site_node_id", &[("call_syntax", "node_id")]),
+    r("modeled_argument_evaluations", "argument_node_id", &[("arguments", "node_id")]),
+    r("modeled_argument_evaluations", "argument_fact_id", FACT),
+    r("modeled_argument_evaluations", "evidence_id", &[("flow_values", "fact_id"), ("syntax_nodes", "fact_id")]),
+    r("modeled_argument_evaluations", "condition_id", &[("analysis_conditions", "condition_id")]),
     r("value_flow_predecessor_candidates", "successor_fact_id", &[("flow_values", "fact_id")]),
     r("value_flow_predecessor_candidates", "predecessor_fact_id", &[("flow_values", "fact_id")]),
     r("value_flow_predecessor_candidates", "parameter_node_id", &[("parameter_syntax", "node_id")]),
@@ -1048,6 +1058,19 @@ fn semantic() -> Vec<Rule> {
         ),
     ];
     flow_rules.into_iter().chain([
+        (
+            // A missing argument would make "all evaluated" vacuously true. The Ruff call
+            // counts and the placed role rows must agree, with dense source ordinals.
+            "semantic:call-argument-coverage",
+            "WITH grouped AS (SELECT call_node_id, count(*) AS n, \
+                    min(ordinal) AS first_ordinal, max(ordinal) AS last_ordinal \
+                    FROM arguments GROUP BY call_node_id) \
+             SELECT c.node_id FROM call_syntax c \
+             LEFT JOIN grouped g ON g.call_node_id = c.node_id \
+             WHERE COALESCE(g.n, 0) <> c.positional_count + c.keyword_count \
+                OR (g.n > 0 AND (g.first_ordinal <> 0 OR g.last_ordinal <> g.n - 1))"
+                .to_owned(),
+        ),
         (
             "semantic:context-class-mro-coverage",
             format!(

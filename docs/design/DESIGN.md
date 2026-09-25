@@ -3339,6 +3339,16 @@ values in output version 52; integrated Stage 3 testing is `not_run`.
 call/sink-span equality closes the one-call outer-expression gap; output
 version 50. An outer Boolean fallback remains outside this direct bridge.
 
+**Implemented and Tested in focused cases (2026-09-25, argument-evaluation boundary):**
+`modeled_argument_evaluations` records every explicit argument of each exact one-call model
+candidate in source ordinal order. The selected source operand cites its raw candidate value
+fact and exact argument role. A direct Ruff string, bytes, number, Boolean, `None` or ellipsis
+literal sibling cites its syntax fact and has a local normal-evaluation witness. An unpacked,
+dynamic or otherwise unproved sibling has an explicit `outside_provider_model` boundary and no
+evaluation witness. These rows do not yet prove the callee expression, source call completion or
+enclosing exit. The shared validator reconstructs them, including the candidate-specific source
+role; output version 59 and integrated Stage 3 testing remains `not_run`.
+
 **Implemented and Tested in focused cases (ADR-0028, 2026-09-25, predecessor
 candidate):** `value_flow_predecessor_candidates` joins an inherited-call
 contribution's use to a cited provider reaching definition, its value span,
@@ -4138,3 +4148,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | The exact one-call model step now covers whole definition values as well as whole returns, enabling a cited assignment predecessor without promoting it to a summary (§9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Finite summary paths gain canonical ids from ordered typed proof steps; the initial raw identity step is cited and source-equality validated, while model-call variants remain pending (§B5, §B6, §9.9) | ADR-0034 |
 | 2026-09-25 | Pinned function models can assert total normal return independently of transfer modality and exception silence; the first assertions cover `typing.cast` and `typing.assert_type`, with source-call composition still conditional (§B5, §9.9) | ADR-0033 |
+| 2026-09-25 | Exact modeled value paths now account for every call argument in source order, citing the selected operand or a direct literal and retaining dynamic siblings as unknown (§9.9) | — |

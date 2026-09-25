@@ -81,7 +81,8 @@ pub struct Published {
 /// 56: pinned model targets carry an explicit total-normal-return assertion.
 /// 57: model applications retain actual target count and selected target completion assertion.
 /// 58: finite summary paths gain canonical ids and ordered, typed proof steps.
-pub const COMPILER_OUTPUT_VERSION: u32 = 58;
+/// 59: each modeled exact-value candidate records ordered argument evaluation evidence.
+pub const COMPILER_OUTPUT_VERSION: u32 = 59;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -769,7 +770,7 @@ async fn finish(
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, SummaryBoundaries, SummaryFlowSteps, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
+            RaiseSites, Singletons, SummaryBoundaries, SummaryFlowSteps, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows, ModeledArgumentEvaluations,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -829,6 +830,20 @@ async fn finish(
             root,
             snapshot_id,
             &modeled_exact_value_transfers,
+            w,
+        )
+        .await?;
+        let modeled_argument_evaluations = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::modeled_argument_evaluations(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ModeledArgumentEvaluations>(
+            &ctx,
+            root,
+            snapshot_id,
+            &modeled_argument_evaluations,
             w,
         )
         .await?;

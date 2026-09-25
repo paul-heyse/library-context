@@ -9,6 +9,14 @@ def identity(value: object) -> object:
     return cast(object, value)
 
 
+def identity_literal_type(value: object) -> object:
+    return cast("object", value)
+
+
+def identity_dynamic_type(value: object, typ: type[object]) -> object:
+    return cast(typ, value)
+
+
 def display(value: object) -> None:
     print(value)
 
