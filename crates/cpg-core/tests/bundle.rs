@@ -191,6 +191,8 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "conditions",
             "embedding_spec",
             "evidence",
+            "flow_test_leaves",
+            "flow_test_value_links",
             "lexical_text",
             "operation_facet_status",
             "operation_facets",

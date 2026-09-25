@@ -87,10 +87,36 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
     ]
     condition = next(r[0] for r in conditions if r[1] is not None)
     operation, formal, summary = ("01" * 16, "02" * 16, "03" * 16)
-    args = (kernel_format(), conditions, nodes, [operation], [("pkg.one", operation)],
+    args = (kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
+            conditions, nodes, [operation], [("pkg.one", operation)],
             [(operation, formal, "value")],
             [(summary, operation, formal, condition, "established", None, 0)])
     with pytest.raises(ValueError, match="no proof steps"):
-        SemanticExecutor(*args, [], [])
+        SemanticExecutor(*args, [], [], [], [])
     with pytest.raises(ValueError, match="missing cited callee summary"):
-        SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)], [])
+        SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)],
+                         [], [], [])
+
+
+def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None:
+    index = load(generation, None).condition_graph
+    assert index is not None
+    paths, _, _, _ = index.value_paths("pkg.controls.strict", "value", 10)
+    assert len(paths) == 1
+    summary = paths[0][0]
+
+    verdict, proof, boundary = index.refute_value_path(
+        "pkg.controls.strict", "value", summary, "none", "", True
+    )
+    assert verdict == "refuted_under_model" and boundary is None
+    assert len(proof) == 1 and proof[0][1] == "pkg/controls.py"
+    assert proof[0][2] < proof[0][3]
+
+    # A satisfiable remainder does not establish a positive execution.
+    assert index.refute_value_path(
+        "pkg.controls.strict", "value", summary, "int", "1", True
+    ) == ("unknown", [], None)
+    # `is None` does not depend on a builtin name in the runtime namespace.
+    assert index.refute_value_path(
+        "pkg.controls.strict", "value", summary, "none", "", False
+    )[0] == "refuted_under_model"

@@ -3988,14 +3988,18 @@ source-open and unexamined. Unvisited/undecided operations make `complete = fals
 budget stop returns an unexamined count and a resumable generation/query-bound cursor. Row,
 depth and pair-work budgets have the same unknown/truncated behavior.
 
-**Implemented and Tested (2026-09-24, producer boundary only).** The direct
-`flow_test_value_links` origin and its publication validator exist. The serving generation does
-not yet carry these rows, and there is no served compatibility verdict.
+**Implemented and Tested (2026-09-25, producer and internal native boundary only).** The direct
+`flow_test_value_links` origin and its publication validator exist. FORMAT 7 carries the checked
+value-link and test-leaf projections, with the exact effect-rule digest in its manifest. The
+native index admits the links only when their leaf atom, source module, condition, place, public
+operation/formal and digest agree. It invokes the shared primitive-theory kernel to refute one
+cited summary path for an exact query input. A satisfiable remainder is `unknown`; no
+operation-wide or served compatibility verdict follows from this path result.
 
 **Implemented and Tested (2026-09-25, partial FORMAT 7).** Structural analysis conditions and
 finite value-summary proofs are generation-pinned and load through one native index. The internal
 value-path lookup resolves an actual public operation and formal and reports only cited positive
-paths plus open boundaries. It does not make a compatibility verdict or expose an MCP filter.
+paths plus open boundaries. It does not expose an MCP filter.
 
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
 claims. An unknown facet is invalid params. An unknown **value** is invalid params only where

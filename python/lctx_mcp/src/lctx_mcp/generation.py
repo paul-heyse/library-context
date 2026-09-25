@@ -211,6 +211,21 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
              pa.field("upstream_through_call", pa.bool_(), nullable=False),
              pa.field("raw_approximated", pa.bool_(), nullable=False)]
         ),
+        "flow_test_leaves": pa.schema(
+            [_id("fact_id"), _id("module_node_id"), _id("condition_id"),
+             _id("atom_id"), _utf8("atom"), _utf8("path", True),
+             _int("leaf_start_byte"), _int("leaf_end_byte")]
+        ),
+        "flow_test_value_links": pa.schema(
+            [_id("link_id"), _id("operation_node_id"), _id("formal_node_id"),
+             _id("module_node_id"), _id("leaf_fact_id"), _id("atom_id"),
+             _id("condition_id"), _utf8("place"), _utf8("origin"),
+             pa.field("effect_model_digest", pa.binary(32), nullable=False),
+             _id("use_id"), _id("use_fact_id"), _id("reaching_fact_id"),
+             _id("definition_fact_id"), _id("stability_origin_id", True),
+             _id("stability_condition_id", True), _utf8("path", True),
+             _int("operand_start_byte"), _int("operand_end_byte")]
+        ),
         # FORMAT 5 (Stage 2): singletons, their fields' reads, and field and setting claims.
         "singletons": pa.schema([_utf8("global"), _id("class_node_id")]),
         "ambient_reads": pa.schema(
@@ -315,7 +330,7 @@ def _read(root: Path, manifest: dict, name: str, schema: pa.Schema) -> pa.Table:
         raise GenerationError(f"{entry['file']}: a served file cannot be a symlink")
     if name in {"conditions", "condition_nodes", "analysis_conditions",
                 "analysis_condition_nodes", "summary_flows", "summary_flow_steps",
-                "summary_boundaries"} and path.stat().st_size > MAX_CONDITION_FILE_BYTES:
+                "summary_boundaries", "flow_test_leaves", "flow_test_value_links"} and path.stat().st_size > MAX_CONDITION_FILE_BYTES:
         raise GenerationError(f"{entry['file']}: condition file exceeds the load budget")
     data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != entry["sha256"]:
@@ -370,7 +385,8 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
             or tables["condition_nodes"].num_rows
             + tables["analysis_condition_nodes"].num_rows > max_nodes):
         raise GenerationError("condition catalog exceeds native load limits")
-    for name in ("summary_flows", "summary_flow_steps", "summary_boundaries"):
+    for name in ("summary_flows", "summary_flow_steps", "summary_boundaries",
+                 "flow_test_leaves", "flow_test_value_links"):
         if tables[name].num_rows > MAX_SUMMARY_ROWS:
             raise GenerationError(f"{name} exceeds native load limits")
     for name in ("operations", "public_paths", "operation_parameters"):
@@ -395,7 +411,8 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
             nodes_by_id[item[0]] = item
     try:
         condition_graph = SemanticExecutor(
-            KERNEL_FORMAT, list(conditions_by_id.values()), list(nodes_by_id.values()),
+            KERNEL_FORMAT, manifest["snapshot_id"], manifest["entry_value_effect_digest"],
+            list(conditions_by_id.values()), list(nodes_by_id.values()),
             [r["node_id"].hex() for r in tables["operations"].to_pylist()],
             [(r["access_path"], r["node_id"].hex())
              for r in tables["public_paths"].to_pylist()],
@@ -411,6 +428,17 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
             [(r["function_node_id"].hex(), r["parameter_node_id"].hex(),
               r["source_flow_fact_id"].hex(), r["condition_id"].hex(), r["reason"])
              for r in tables["summary_boundaries"].to_pylist()],
+            [(r["fact_id"].hex(), r["module_node_id"].hex(),
+              r["condition_id"].hex(), r["atom_id"].hex(), r["atom"], r["path"],
+              r["leaf_start_byte"], r["leaf_end_byte"])
+             for r in tables["flow_test_leaves"].to_pylist()],
+            [(r["link_id"].hex(), r["operation_node_id"].hex(),
+              r["formal_node_id"].hex(), r["module_node_id"].hex(),
+              r["leaf_fact_id"].hex(), r["atom_id"].hex(),
+              r["condition_id"].hex(), r["place"], r["origin"],
+              r["effect_model_digest"].hex(),
+              (r["path"], r["operand_start_byte"], r["operand_end_byte"]))
+             for r in tables["flow_test_value_links"].to_pylist()],
         )
     except ValueError as e:
         raise GenerationError(f"invalid semantic index: {e}") from e

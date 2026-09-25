@@ -1,12 +1,16 @@
 //! Generation-pinned condition kernel and developer smoke probes.
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-use cpg_schema::condition::Condition;
+use cpg_schema::codebook::{Codebook, TestValueLinkOrigin};
+use cpg_schema::condition::{Atom, Condition, Value};
 use cpg_schema::condition_kernel::{
     ConditionRoot, Diagram, DiagramNode, KERNEL_FORMAT, KernelBoundary, MAX_CATALOG_CONDITIONS,
     MAX_CATALOG_NODES, hydrate_catalog,
 };
-use cpg_schema::id::Id;
+use cpg_schema::id::{Digest, Id, IdHasher};
+use cpg_schema::primitive_theory::{
+    BuiltinNamespace, ExactInput, TestLeaf, TheoryBoundary, ValueLink, refute_exact_input,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -19,6 +23,10 @@ type ValuePath = (String, String, String, Vec<ProofStep>);
 type Boundary = (String, String, String);
 type ValuePathsAnswer = (Vec<ValuePath>, Vec<Boundary>, bool, usize);
 type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, String)>>;
+type LeafInput = (String, String, String, String, String, Option<String>, i64, i64);
+type LinkInput = (String, String, String, String, String, String, String, String,
+    String, String, (Option<String>, i64, i64));
+type RefutationAnswer = (String, Vec<(String, Option<String>, i64, i64)>, Option<String>);
 
 #[pyfunction]
 fn kernel_format() -> u32 {
@@ -33,6 +41,11 @@ fn catalog_limits() -> (usize, usize) {
 fn id(value: &str) -> PyResult<Id> {
     Id::from_hex(value)
         .ok_or_else(|| PyValueError::new_err(format!("invalid condition id {value}")))
+}
+
+fn digest(value: &str) -> PyResult<Digest> {
+    Digest::from_hex(value)
+        .ok_or_else(|| PyValueError::new_err("invalid effect-model digest"))
 }
 
 /// Hydrated once from rows of one validated, immutable generation.
@@ -127,11 +140,15 @@ struct NativeSummary {
 #[pyclass]
 struct SemanticExecutor {
     graph: ConditionGraph,
+    effect_model_digest: Digest,
     paths: HashMap<String, Id>,
     formals: HashMap<(Id, String), Id>,
     summaries: HashMap<Id, NativeSummary>,
     by_formal: HashMap<(Id, Id), Vec<Id>>,
     boundaries: BoundaryIndex,
+    links_by_formal: HashMap<(Id, Id), Vec<ValueLink>>,
+    leaves_by_formal: HashMap<(Id, Id), Vec<TestLeaf>>,
+    link_spans: HashMap<Id, (Option<String>, i64, i64)>,
 }
 
 #[pymethods]
@@ -140,6 +157,8 @@ impl SemanticExecutor {
     #[allow(clippy::too_many_arguments, reason = "one checked generation crosses this constructor")]
     fn new(
         kernel_format: u32,
+        snapshot_id: String,
+        effect_model_digest: String,
         conditions: Vec<(String, Option<String>, Option<String>)>,
         nodes: Vec<(String, String, String, String)>,
         operations: Vec<String>,
@@ -148,14 +167,19 @@ impl SemanticExecutor {
         flows: Vec<FlowInput>,
         steps: Vec<(String, i64, String, String, String)>,
         boundaries: Vec<(String, String, String, String, String)>,
+        leaves: Vec<LeafInput>,
+        links: Vec<LinkInput>,
     ) -> PyResult<Self> {
         if operations.len() > MAX_SURFACE_ROWS || public_paths.len() > MAX_SURFACE_ROWS
             || parameters.len() > MAX_SURFACE_ROWS || flows.len() > MAX_SUMMARY_ROWS
             || steps.len() > MAX_SUMMARY_ROWS || boundaries.len() > MAX_SUMMARY_ROWS
+            || leaves.len() > MAX_SUMMARY_ROWS || links.len() > MAX_SUMMARY_ROWS
         {
             return Err(PyValueError::new_err("semantic index exceeds load limits"));
         }
         let graph = ConditionGraph::new(kernel_format, conditions, nodes)?;
+        let snapshot_id = id(&snapshot_id)?;
+        let effect_model_digest = digest(&effect_model_digest)?;
         let operations = operations.into_iter().map(|value| id(&value))
             .collect::<PyResult<HashSet<_>>>()?;
         let mut paths = HashMap::new();
@@ -176,6 +200,8 @@ impl SemanticExecutor {
                 return Err(PyValueError::new_err(format!("duplicate formal {name}")));
             }
         }
+        let formal_ids: HashSet<(Id, Id)> = formals.iter()
+            .map(|(&(operation, _), &formal)| (operation, formal)).collect();
         let mut summaries = HashMap::new();
         let mut by_formal: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
         for (summary, function, formal, condition, verdict, boundary, path_depth) in flows {
@@ -267,8 +293,69 @@ impl SemanticExecutor {
             reasons.sort();
             reasons.dedup();
         }
-        Ok(Self { graph, paths, formals, summaries, by_formal,
-            boundaries: boundary_index })
+        let mut leaves_by_id = HashMap::new();
+        for (fact, module, condition, atom_id, atom, _, start, end) in leaves {
+            let fact = id(&fact)?;
+            let condition = id(&condition)?;
+            let atom_id = id(&atom_id)?;
+            if start < 0 || end < start || !graph.has_condition(condition)
+                || IdHasher::new("bdd-atom").str(&atom).finish_id() != atom_id
+                || Atom::parse_encoded(&atom).is_err()
+            {
+                return Err(PyValueError::new_err("invalid test leaf"));
+            }
+            let leaf = TestLeaf {
+                snapshot_id, fact_id: fact, module_node_id: id(&module)?,
+                atom_id, condition_id: condition, atom,
+            };
+            if leaves_by_id.insert(fact, leaf).is_some() {
+                return Err(PyValueError::new_err("duplicate test leaf"));
+            }
+        }
+        let mut links_by_formal: HashMap<(Id, Id), Vec<ValueLink>> = HashMap::new();
+        let mut link_spans = HashMap::new();
+        for (link, operation, formal, module, leaf, atom, condition, place,
+             origin, effect, (path, start, end)) in links {
+            let link = id(&link)?;
+            let operation = id(&operation)?;
+            let formal = id(&formal)?;
+            let module = id(&module)?;
+            let leaf = id(&leaf)?;
+            let atom = id(&atom)?;
+            let condition = id(&condition)?;
+            let origin = TestValueLinkOrigin::all().iter().copied()
+                .find(|candidate| candidate.text() == origin)
+                .ok_or_else(|| PyValueError::new_err("invalid value-link origin"))?;
+            let source = leaves_by_id.get(&leaf)
+                .ok_or_else(|| PyValueError::new_err("value link has no test leaf"))?;
+            if start < 0 || end <= start || digest(&effect)? != effect_model_digest
+                || source.module_node_id != module || source.atom_id != atom
+                || source.condition_id != condition
+                || Atom::parse_encoded(&source.atom).ok()
+                    .and_then(|parsed| parsed.place().map(str::to_owned)).as_deref()
+                    != Some(place.as_str())
+                || !formal_ids.contains(&(operation, formal))
+            {
+                return Err(PyValueError::new_err("invalid value link or effect digest"));
+            }
+            if link_spans.insert(link, (path, start, end)).is_some() {
+                return Err(PyValueError::new_err("duplicate value link"));
+            }
+            links_by_formal.entry((operation, formal)).or_default().push(ValueLink {
+                snapshot_id, link_id: link, operation_node_id: operation,
+                formal_node_id: formal, module_node_id: module, leaf_fact_id: leaf,
+                atom_id: atom, condition_id: condition, place, origin,
+                effect_model_digest,
+            });
+        }
+        let mut leaves_by_formal = HashMap::new();
+        for (key, links) in &mut links_by_formal {
+            links.sort_by_key(|link| link.link_id);
+            let ids: BTreeSet<Id> = links.iter().map(|link| link.leaf_fact_id).collect();
+            leaves_by_formal.insert(*key, ids.iter().map(|id| leaves_by_id[id].clone()).collect());
+        }
+        Ok(Self { graph, effect_model_digest, paths, formals, summaries, by_formal,
+            boundaries: boundary_index, links_by_formal, leaves_by_formal, link_spans })
     }
 
     #[getter]
@@ -319,6 +406,58 @@ impl SemanticExecutor {
         reasons.sort();
         reasons.dedup();
         Ok((result, reasons, total > limit, total.min(limit)))
+    }
+
+    /// An exact primitive input may refute one cited summary path. A satisfiable remainder or
+    /// absent value link is unknown, never proof that a Python execution reaches the return.
+    fn refute_value_path(&self, operation_path: &str, formal_name: &str,
+        summary_id: &str, kind: &str, value: &str, standard_builtins: bool)
+        -> PyResult<RefutationAnswer>
+    {
+        let operation = *self.paths.get(operation_path)
+            .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
+        let formal = *self.formals.get(&(operation, formal_name.to_owned()))
+            .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
+        let summary_id = id(summary_id)?;
+        if !self.by_formal.get(&(operation, formal)).is_some_and(|ids| ids.contains(&summary_id)) {
+            return Err(PyValueError::new_err("summary does not belong to operation formal"));
+        }
+        let summary = &self.summaries[&summary_id];
+        if summary.verdict == "unknown" {
+            return Ok(("unknown".to_owned(), Vec::new(), summary.boundary.clone()));
+        }
+        let Some(diagram) = self.graph.diagrams.get(&summary.condition_id) else {
+            return Ok(("unknown".to_owned(), Vec::new(), Some("condition_boundary".to_owned())));
+        };
+        let input = match kind {
+            "none" if value.is_empty() => Value::None,
+            "bool" if value == "true" || value == "false" => Value::Bool(value == "true"),
+            "int" => Value::Int(value.parse().map_err(|_| PyValueError::new_err("invalid int"))?),
+            "str" => Value::Str(value.to_owned()),
+            _ => return Err(PyValueError::new_err("invalid exact primitive input")),
+        };
+        let key = (operation, formal);
+        let links = self.links_by_formal.get(&key).map_or(&[][..], Vec::as_slice);
+        let leaves = self.leaves_by_formal.get(&key).map_or(&[][..], Vec::as_slice);
+        let query = ExactInput {
+            operation_node_id: operation, formal_node_id: formal, value: &input,
+            builtin_namespace: if standard_builtins { BuiltinNamespace::StandardAssumed }
+                else { BuiltinNamespace::Unknown },
+            effect_model_digest: self.effect_model_digest,
+        };
+        match refute_exact_input(diagram, query, links, leaves) {
+            Ok(Some(proof)) => Ok(("refuted_under_model".to_owned(),
+                proof.value_link_ids.iter().map(|link| {
+                    let (path, start, end) = &self.link_spans[link];
+                    (link.hex(), path.clone(), *start, *end)
+                }).collect(), None)),
+            Ok(None) => Ok(("unknown".to_owned(), Vec::new(), None)),
+            Err(reason) => Ok(("unknown".to_owned(), Vec::new(), Some(match reason {
+                TheoryBoundary::Kernel(boundary) => boundary.code().to_owned(),
+                TheoryBoundary::AssignmentBudget => "budget_reached".to_owned(),
+                TheoryBoundary::ConflictingProof => "conflicting_proof".to_owned(),
+            }))),
+        }
     }
 }
 

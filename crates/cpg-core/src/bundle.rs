@@ -36,7 +36,8 @@ use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
     AssertionKind, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
     EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily, FindingKind, OperationFacet,
-    ReviewState, ScopeKind, SummaryFlowKind, SummaryFlowStepKind, SupportRole, Verdict,
+    ReviewState, ScopeKind, SummaryFlowKind, SummaryFlowStepKind, SupportRole,
+    TestValueLinkOrigin, Verdict,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -230,6 +231,26 @@ fn query(name: &str) -> Option<String> {
                     raw_approximated FROM summary_boundaries \
              ORDER BY function_node_id, parameter_node_id, source_flow_fact_id, condition_id",
             reason = text_of::<BoundaryReason>("reason"),
+        ),
+        "flow_test_leaves" => format!(
+            "SELECT l.fact_id, l.module_node_id, l.condition_id, l.atom_id, l.atom, \
+                    f.path, l.leaf_start_byte, l.leaf_end_byte \
+             FROM flow_test_leaves l LEFT JOIN ( \
+               SELECT module_node_id, min(path) AS path FROM ({files}) GROUP BY module_node_id \
+             ) f ON f.module_node_id = l.module_node_id ORDER BY l.fact_id",
+            files = cpg_schema::flows::display_files_sql(),
+        ),
+        "flow_test_value_links" => format!(
+            "SELECT l.link_id, l.operation_node_id, l.formal_node_id, l.module_node_id, \
+                    l.leaf_fact_id, l.atom_id, l.condition_id, l.place, \
+                    {origin} AS origin, l.effect_model_digest, l.use_id, l.use_fact_id, \
+                    l.reaching_fact_id, l.definition_fact_id, l.stability_origin_id, \
+                    l.stability_condition_id, f.path, l.operand_start_byte, l.operand_end_byte \
+             FROM flow_test_value_links l LEFT JOIN ( \
+               SELECT module_node_id, min(path) AS path FROM ({files}) GROUP BY module_node_id \
+             ) f ON f.module_node_id = l.module_node_id ORDER BY l.link_id",
+            origin = text_of::<TestValueLinkOrigin>("l.origin"),
+            files = cpg_schema::flows::display_files_sql(),
         ),
         "singletons" => "SELECT global, class_node_id FROM singletons ORDER BY global".to_owned(),
         "ambient_reads" => format!(
@@ -749,6 +770,7 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     let mut manifest = json!({
         "format": FORMAT,
         "condition_kernel_format": cpg_schema::condition_kernel::KERNEL_FORMAT,
+        "entry_value_effect_digest": crate::entry_links::digest().hex(),
         "library": release[0],
         "requirement": release[1],
         "snapshot_id": ids[0],

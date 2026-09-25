@@ -294,6 +294,30 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                  Field::new("raw_approximated", DataType::Boolean, false)],
             &["function_node_id", "parameter_node_id", "source_flow_fact_id", "condition_id"],
         ),
+        file(
+            "flow_test_leaves",
+            vec![id("fact_id", false), id("module_node_id", false),
+                 id("condition_id", false), id("atom_id", false), utf8("atom", false),
+                 utf8("path", true), int("leaf_start_byte", false),
+                 int("leaf_end_byte", false)],
+            &["fact_id"],
+        ),
+        file(
+            "flow_test_value_links",
+            vec![
+                id("link_id", false), id("operation_node_id", false),
+                id("formal_node_id", false), id("module_node_id", false),
+                id("leaf_fact_id", false), id("atom_id", false),
+                id("condition_id", false), utf8("place", false),
+                utf8("origin", false), digest("effect_model_digest", false),
+                id("use_id", false), id("use_fact_id", false),
+                id("reaching_fact_id", false), id("definition_fact_id", false),
+                id("stability_origin_id", true), id("stability_condition_id", true),
+                utf8("path", true), int("operand_start_byte", false),
+                int("operand_end_byte", false),
+            ],
+            &["link_id"],
+        ),
         // FORMAT 5 (Stage 2; ADR-0022): module-global singletons, their fields' reads at the
         // resolved key, and the field and setting claims with their premises.
         file(
