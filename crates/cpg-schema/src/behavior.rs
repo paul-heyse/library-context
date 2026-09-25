@@ -32,9 +32,9 @@ use crate::codebook::{
     EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowSink, HandlerTypeStatus, ImplicitReceiver,
     InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
     ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
-    ModelResourceAction, ModelResourceSourceStatus, ModelTransferKind, OperationFacet, Origin,
-    ParameterKind, PremiseKind, ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass,
-    Verdict,
+    ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
+    OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole, SyntaxKind,
+    TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -415,11 +415,52 @@ table!(
         target_definition_fact_id: Id,
         revision: i64,
         input_path_id: Id,
+        input_path_kind: ModelPathKind,
         input_path: String,
         output_path_id: Id,
+        output_path_kind: ModelPathKind,
         output_path: String,
         transfer: ModelTransferKind,
         modality: Modality,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// An authored transfer applied to one pinned candidate source call. Endpoint expressions
+    /// are identified only when the argument binding or call-result path is exact. This is not
+    /// yet a composed value-flow summary or a whole-operation verdict.
+    ModeledTransferSites, ModeledTransferSitesRow = "modeled_transfer_sites",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        function_node_id: Option<Id>,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        target_node_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        input_path_id: Id,
+        input_path_kind: ModelPathKind,
+        input_expression_node_id: Option<Id>,
+        input_expression_fact_id: Option<Id>,
+        input_status: ModelTransferEndpointStatus,
+        input_reason: Option<BoundaryReason>,
+        output_path_id: Id,
+        output_path_kind: ModelPathKind,
+        output_expression_node_id: Option<Id>,
+        output_expression_fact_id: Option<Id>,
+        output_status: ModelTransferEndpointStatus,
+        output_reason: Option<BoundaryReason>,
+        transfer: ModelTransferKind,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
         origin: Origin,
     }
 );
@@ -1181,6 +1222,55 @@ crate::relations! {
             bound_argument = ModelResourceSourceStatus::BoundArgument.code(),
             unknown = ModelResourceSourceStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
+        );
+
+    /// A typed transfer model at one candidate call. For now only an exact formal argument
+    /// and the call-result expression identify endpoint sources; other paths remain unknown.
+    modeled_transfer_sites = "behavior:modeled_transfer_sites",
+        deps = ["model_applications", "model_transfers", "model_argument_bindings"],
+        sql = format!(
+            "SELECT a.snapshot_id, a.call_site_node_id, a.function_node_id, \
+                    a.call_fact_id, a.pysa_fact_id, a.target_node_id, a.model_id, \
+                    m.rule_id, m.target_definition_fact_id, \
+                    m.input_path_id, m.input_path_kind, \
+                    CASE WHEN m.input_path_kind = {parameter} AND b.status = {bound} \
+                           THEN b.argument_node_id END AS input_expression_node_id, \
+                    CASE WHEN m.input_path_kind = {parameter} AND b.status = {bound} \
+                           THEN b.argument_fact_id END AS input_expression_fact_id, \
+                    CAST(CASE WHEN m.input_path_kind = {parameter} AND b.status = {bound} \
+                                THEN {bound_argument} ELSE {unknown} END AS SMALLINT) AS input_status, \
+                    CAST(CASE WHEN m.input_path_kind = {parameter} AND b.status = {bound} \
+                                THEN NULL ELSE COALESCE(b.reason, {outside}) END \
+                      AS SMALLINT) AS input_reason, \
+                    m.output_path_id, m.output_path_kind, \
+                    CASE WHEN m.output_path_kind = {return_value} \
+                           THEN a.call_site_node_id END AS output_expression_node_id, \
+                    CASE WHEN m.output_path_kind = {return_value} \
+                           THEN a.call_fact_id END AS output_expression_fact_id, \
+                    CAST(CASE WHEN m.output_path_kind = {return_value} \
+                                THEN {call_result} ELSE {unknown} END AS SMALLINT) AS output_status, \
+                    CAST(CASE WHEN m.output_path_kind = {return_value} \
+                                THEN NULL ELSE {outside} END AS SMALLINT) AS output_reason, \
+                    m.transfer, a.target_modality, m.modality AS model_modality, \
+                    a.candidate_set_complete_under_model, a.has_unresolved_remainder, m.origin \
+             FROM model_applications a \
+             JOIN model_transfers m ON m.model_id = a.model_id \
+               AND m.target_node_id = a.target_node_id \
+               AND m.target_definition_fact_id = a.target_definition_fact_id \
+               AND m.revision = a.revision \
+             LEFT JOIN model_argument_bindings b \
+               ON b.call_site_node_id = a.call_site_node_id \
+              AND b.pysa_fact_id = a.pysa_fact_id \
+              AND b.model_id = a.model_id AND b.rule_id = m.rule_id \
+              AND b.path_id = m.input_path_id AND b.path_role = {input}",
+            parameter = ModelPathKind::Parameter.code(),
+            return_value = ModelPathKind::ReturnValue.code(),
+            bound = ModelArgumentStatus::Bound.code(),
+            bound_argument = ModelTransferEndpointStatus::BoundArgument.code(),
+            call_result = ModelTransferEndpointStatus::CallResult.code(),
+            unknown = ModelTransferEndpointStatus::Unknown.code(),
+            outside = BoundaryReason::OutsideProviderModel.code(),
+            input = ModelPathRole::Input.code(),
         );
 
     /// Except clauses with their authored type expression and the try-entry region.

@@ -1455,6 +1455,16 @@ codebook!(
         ReceiverField = 1 => "receiver_field",
         Global = 2 => "global",
         ReturnValue = 3 => "return_value",
+        Raise = 4 => "raise",
+    }
+);
+
+codebook!(
+    /// Source expression identified at one endpoint of a candidate modeled transfer.
+    ModelTransferEndpointStatus = "model_transfer_endpoint_status" {
+        BoundArgument = 0 => "bound_argument",
+        CallResult = 1 => "call_result",
+        Unknown = 2 => "unknown",
     }
 );
 
@@ -1575,6 +1585,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelExceptionAction>(),
         CodebookEntry::of::<ModelPathRole>(),
         CodebookEntry::of::<ModelPathKind>(),
+        CodebookEntry::of::<ModelTransferEndpointStatus>(),
         CodebookEntry::of::<ModelResourceSourceStatus>(),
         CodebookEntry::of::<ModelChannelCoverage>(),
         CodebookEntry::of::<HandlerTypeStatus>(),

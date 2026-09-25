@@ -182,6 +182,8 @@ key:modeled_callback_sites
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_callback_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:modeled_resource_sites
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_resource_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
+key:modeled_transfer_sites
+  SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_transfer_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:model_effects
@@ -418,6 +420,34 @@ ref:modeled_resource_sites.source_expression_node_id->call_syntax|arguments
   SELECT f.source_expression_node_id AS value FROM modeled_resource_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM call_syntax UNION ALL SELECT node_id AS k FROM arguments) r ON f.source_expression_node_id = r.k WHERE f.source_expression_node_id IS NOT NULL
 ref:modeled_resource_sites.source_expression_fact_id->facts
   SELECT f.source_expression_fact_id AS value FROM modeled_resource_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_expression_fact_id = r.k WHERE f.source_expression_fact_id IS NOT NULL
+ref:modeled_transfer_sites.call_site_node_id->model_applications
+  SELECT f.call_site_node_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT call_site_node_id AS k FROM model_applications) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:modeled_transfer_sites.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:modeled_transfer_sites.call_fact_id->facts
+  SELECT f.call_fact_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.call_fact_id = r.k WHERE f.call_fact_id IS NOT NULL
+ref:modeled_transfer_sites.pysa_fact_id->facts
+  SELECT f.pysa_fact_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:modeled_transfer_sites.target_node_id->model_targets
+  SELECT f.target_node_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT target_node_id AS k FROM model_targets) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:modeled_transfer_sites.model_id->model_targets
+  SELECT f.model_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:modeled_transfer_sites.rule_id->model_transfers
+  SELECT f.rule_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_transfers) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:modeled_transfer_sites.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:modeled_transfer_sites.input_path_id->model_transfers
+  SELECT f.input_path_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT input_path_id AS k FROM model_transfers) r ON f.input_path_id = r.k WHERE f.input_path_id IS NOT NULL
+ref:modeled_transfer_sites.output_path_id->model_transfers
+  SELECT f.output_path_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT output_path_id AS k FROM model_transfers) r ON f.output_path_id = r.k WHERE f.output_path_id IS NOT NULL
+ref:modeled_transfer_sites.input_expression_node_id->arguments
+  SELECT f.input_expression_node_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM arguments) r ON f.input_expression_node_id = r.k WHERE f.input_expression_node_id IS NOT NULL
+ref:modeled_transfer_sites.input_expression_fact_id->facts
+  SELECT f.input_expression_fact_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.input_expression_fact_id = r.k WHERE f.input_expression_fact_id IS NOT NULL
+ref:modeled_transfer_sites.output_expression_node_id->call_syntax
+  SELECT f.output_expression_node_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM call_syntax) r ON f.output_expression_node_id = r.k WHERE f.output_expression_node_id IS NOT NULL
+ref:modeled_transfer_sites.output_expression_fact_id->facts
+  SELECT f.output_expression_fact_id AS value FROM modeled_transfer_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.output_expression_fact_id = r.k WHERE f.output_expression_fact_id IS NOT NULL
 ref:model_transfers.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_transfers.target_definition_fact_id->facts
@@ -973,7 +1003,7 @@ codebook:modeled_callback_sites.origin
 codebook:modeled_resource_sites.resource_role
   SELECT resource_role FROM modeled_resource_sites WHERE resource_role IS NOT NULL AND resource_role NOT IN (0, 1)
 codebook:modeled_resource_sites.resource_path_kind
-  SELECT resource_path_kind FROM modeled_resource_sites WHERE resource_path_kind IS NOT NULL AND resource_path_kind NOT IN (0, 1, 2, 3)
+  SELECT resource_path_kind FROM modeled_resource_sites WHERE resource_path_kind IS NOT NULL AND resource_path_kind NOT IN (0, 1, 2, 3, 4)
 codebook:modeled_resource_sites.source_status
   SELECT source_status FROM modeled_resource_sites WHERE source_status IS NOT NULL AND source_status NOT IN (0, 1, 2)
 codebook:modeled_resource_sites.source_reason
@@ -988,6 +1018,30 @@ codebook:modeled_resource_sites.model_modality
   SELECT model_modality FROM modeled_resource_sites WHERE model_modality IS NOT NULL AND model_modality NOT IN (0, 1, 2)
 codebook:modeled_resource_sites.origin
   SELECT origin FROM modeled_resource_sites WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:modeled_transfer_sites.input_path_kind
+  SELECT input_path_kind FROM modeled_transfer_sites WHERE input_path_kind IS NOT NULL AND input_path_kind NOT IN (0, 1, 2, 3, 4)
+codebook:modeled_transfer_sites.input_status
+  SELECT input_status FROM modeled_transfer_sites WHERE input_status IS NOT NULL AND input_status NOT IN (0, 1, 2)
+codebook:modeled_transfer_sites.input_reason
+  SELECT input_reason FROM modeled_transfer_sites WHERE input_reason IS NOT NULL AND input_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:modeled_transfer_sites.output_path_kind
+  SELECT output_path_kind FROM modeled_transfer_sites WHERE output_path_kind IS NOT NULL AND output_path_kind NOT IN (0, 1, 2, 3, 4)
+codebook:modeled_transfer_sites.output_status
+  SELECT output_status FROM modeled_transfer_sites WHERE output_status IS NOT NULL AND output_status NOT IN (0, 1, 2)
+codebook:modeled_transfer_sites.output_reason
+  SELECT output_reason FROM modeled_transfer_sites WHERE output_reason IS NOT NULL AND output_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:modeled_transfer_sites.transfer
+  SELECT transfer FROM modeled_transfer_sites WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
+codebook:modeled_transfer_sites.target_modality
+  SELECT target_modality FROM modeled_transfer_sites WHERE target_modality IS NOT NULL AND target_modality NOT IN (0, 1, 2)
+codebook:modeled_transfer_sites.model_modality
+  SELECT model_modality FROM modeled_transfer_sites WHERE model_modality IS NOT NULL AND model_modality NOT IN (0, 1, 2)
+codebook:modeled_transfer_sites.origin
+  SELECT origin FROM modeled_transfer_sites WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:model_transfers.input_path_kind
+  SELECT input_path_kind FROM model_transfers WHERE input_path_kind IS NOT NULL AND input_path_kind NOT IN (0, 1, 2, 3, 4)
+codebook:model_transfers.output_path_kind
+  SELECT output_path_kind FROM model_transfers WHERE output_path_kind IS NOT NULL AND output_path_kind NOT IN (0, 1, 2, 3, 4)
 codebook:model_transfers.transfer
   SELECT transfer FROM model_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:model_transfers.modality
@@ -1011,7 +1065,7 @@ codebook:model_callbacks.origin
 codebook:model_resources.resource_role
   SELECT resource_role FROM model_resources WHERE resource_role IS NOT NULL AND resource_role NOT IN (0, 1)
 codebook:model_resources.resource_path_kind
-  SELECT resource_path_kind FROM model_resources WHERE resource_path_kind IS NOT NULL AND resource_path_kind NOT IN (0, 1, 2, 3)
+  SELECT resource_path_kind FROM model_resources WHERE resource_path_kind IS NOT NULL AND resource_path_kind NOT IN (0, 1, 2, 3, 4)
 codebook:model_resources.action
   SELECT action FROM model_resources WHERE action IS NOT NULL AND action NOT IN (0, 1)
 codebook:model_resources.exit
@@ -1128,6 +1182,8 @@ semantic:modeled-callback-site-shape
   SELECT rule_id FROM modeled_callback_sites WHERE (binding_status = 0 AND (argument_node_id IS NULL OR argument_fact_id IS NULL OR binding_reason IS NOT NULL)) OR (binding_status = 1 AND (argument_node_id IS NOT NULL OR argument_fact_id IS NOT NULL OR binding_reason IS NULL)) OR (candidate_set_complete_under_model AND has_unresolved_remainder) OR origin <> 4
 semantic:modeled-resource-site-shape
   SELECT rule_id FROM modeled_resource_sites WHERE (source_status IN (0, 1) AND (source_expression_node_id IS NULL OR source_expression_fact_id IS NULL OR source_reason IS NOT NULL)) OR (source_status = 2 AND (source_expression_node_id IS NOT NULL OR source_expression_fact_id IS NOT NULL OR source_reason IS NULL)) OR (source_status = 0 AND (resource_path_kind <> 3 OR source_expression_node_id <> call_site_node_id OR source_expression_fact_id <> call_fact_id)) OR (source_status = 1 AND resource_path_kind <> 0) OR (candidate_set_complete_under_model AND has_unresolved_remainder) OR origin <> 4
+semantic:modeled-transfer-site-shape
+  SELECT rule_id FROM modeled_transfer_sites WHERE (input_status = 0 AND (input_path_kind <> 0 OR input_expression_node_id IS NULL OR input_expression_fact_id IS NULL OR input_reason IS NOT NULL)) OR (input_status = 2 AND (input_expression_node_id IS NOT NULL OR input_expression_fact_id IS NOT NULL OR input_reason IS NULL)) OR (output_status = 1 AND (output_path_kind <> 3 OR output_expression_node_id IS NULL OR output_expression_fact_id IS NULL OR output_reason IS NOT NULL OR output_expression_node_id <> call_site_node_id OR output_expression_fact_id <> call_fact_id)) OR (output_status = 2 AND (output_expression_node_id IS NOT NULL OR output_expression_fact_id IS NOT NULL OR output_reason IS NULL)) OR input_status = 1 OR output_status = 0 OR (candidate_set_complete_under_model AND has_unresolved_remainder) OR origin <> 4
 semantic:model-argument-status-shape
   SELECT rule_id FROM model_argument_bindings WHERE signature_count <= 0 OR (status = 0 AND (argument_node_id IS NULL OR argument_fact_id IS NULL OR reason IS NOT NULL OR matched_signatures <> signature_count)) OR (status = 1 AND (argument_node_id IS NOT NULL OR argument_fact_id IS NOT NULL OR reason IS NULL))
 semantic:model-formal-path-source

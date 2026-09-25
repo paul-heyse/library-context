@@ -3043,6 +3043,20 @@ does not prove the call completed or that any release happened. The shared valid
 reconstructs these rows and rejects a doctored source status. L2 lifecycle pairing and L3
 summary composition remain Proposed; the integrated gate is `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, modeled transfer source):**
+`model_transfers` now carries input and output path kinds compiled from the tagged catalog
+AST. `modeled_transfer_sites` applies one authored transfer to one cited source call candidate.
+For a parameter input it takes the exact source argument only from
+`model_argument_bindings`; for a `ReturnValue` output it identifies the call expression and
+call fact. Unsupported paths or argument shapes keep the endpoint `unknown` with a reason.
+The row retains the transfer kind, target and model modalities, candidate-set completeness,
+and unresolved remainder. `typing.cast` and `atexit.register` produce candidate identity
+transfers when their inputs bind; invalid keyword or unpacked arguments do not acquire a
+false source value. Shared publication validation reconstructs the relation and rejects a
+forged endpoint status. This is not yet a summary flow or a whole-operation verdict:
+the call's condition, dispatch, normal return and enclosing callable still need L3
+composition. The integrated gate remains `not_run`.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic

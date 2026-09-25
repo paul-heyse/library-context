@@ -178,6 +178,14 @@ pub enum InputPath {
 }
 
 impl InputPath {
+    pub fn kind(&self) -> ModelPathKind {
+        match self {
+            Self::Parameter { .. } => ModelPathKind::Parameter,
+            Self::ReceiverField { .. } => ModelPathKind::ReceiverField,
+            Self::Global { .. } => ModelPathKind::Global,
+        }
+    }
+
     fn formal(&self) -> Option<&str> {
         match self {
             Self::Parameter { name } => Some(name),
@@ -226,6 +234,16 @@ pub enum OutputPath {
 }
 
 impl OutputPath {
+    pub fn kind(&self) -> ModelPathKind {
+        match self {
+            Self::ReturnValue => ModelPathKind::ReturnValue,
+            Self::Parameter { .. } => ModelPathKind::Parameter,
+            Self::ReceiverField { .. } => ModelPathKind::ReceiverField,
+            Self::Global { .. } => ModelPathKind::Global,
+            Self::Raise { .. } => ModelPathKind::Raise,
+        }
+    }
+
     fn formal(&self) -> Option<&str> {
         match self {
             Self::Parameter { name } => Some(name),
@@ -348,30 +366,8 @@ pub enum ResourcePath {
 impl ResourcePath {
     pub fn kind(&self) -> ModelPathKind {
         match self {
-            Self::Input {
-                path: InputPath::Parameter { .. },
-            }
-            | Self::Output {
-                path: OutputPath::Parameter { .. },
-            } => ModelPathKind::Parameter,
-            Self::Input {
-                path: InputPath::ReceiverField { .. },
-            }
-            | Self::Output {
-                path: OutputPath::ReceiverField { .. },
-            } => ModelPathKind::ReceiverField,
-            Self::Input {
-                path: InputPath::Global { .. },
-            }
-            | Self::Output {
-                path: OutputPath::Global { .. },
-            } => ModelPathKind::Global,
-            Self::Output {
-                path: OutputPath::ReturnValue,
-            } => ModelPathKind::ReturnValue,
-            Self::Output {
-                path: OutputPath::Raise { .. },
-            } => unreachable!("validated resource path"),
+            Self::Input { path } => path.kind(),
+            Self::Output { path } => path.kind(),
         }
     }
 
@@ -828,8 +824,10 @@ impl Catalog {
                             target_definition_fact_id: target.target_definition_fact_id,
                             revision: target.revision,
                             input_path_id: from.id(),
+                            input_path_kind: from.kind(),
                             input_path: from.render(),
                             output_path_id: to.id(),
+                            output_path_kind: to.kind(),
                             output_path: to.render(),
                             transfer: match transfer {
                                 Transfer::Identity => ModelTransferKind::Identity,

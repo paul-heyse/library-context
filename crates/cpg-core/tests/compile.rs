@@ -20,7 +20,8 @@ use cpg_schema::behavior::{
 use cpg_schema::codebook::{
     Codebook, ExitSiteKind, HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction,
     ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathKind,
-    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferKind, Origin,
+    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
+    ModelTransferKind, Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -114,7 +115,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 49,
+        52 + 21 + 50,
         "every raw, derived and analysis table"
     );
 
@@ -591,8 +592,10 @@ async fn model_target_requires_its_cited_pinned_definition() {
         target_definition_fact_id: Id([4; 16]),
         revision: 1,
         input_path_id: Id([12; 16]),
+        input_path_kind: ModelPathKind::Parameter,
         input_path: "Parameter[val]".into(),
         output_path_id: Id([13; 16]),
+        output_path_kind: ModelPathKind::ReturnValue,
         output_path: "ReturnValue".into(),
         transfer: ModelTransferKind::Identity,
         modality: Modality::Definite,
@@ -764,6 +767,50 @@ budget = 1
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
     assert_eq!(targets, 4, "cast, print, open and atexit.register");
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 2);
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
+        5,
+        "the cast and atexit transfer rules apply to their resolved source calls"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_transfer_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'identity_keyword' AND s.transfer = {} \
+                   AND s.input_status = {} AND s.input_expression_node_id IS NOT NULL \
+                   AND s.input_reason IS NULL AND s.output_status = {} \
+                   AND s.output_expression_node_id = s.call_site_node_id \
+                   AND s.output_expression_fact_id = s.call_fact_id \
+                   AND s.candidate_set_complete_under_model",
+                ModelTransferKind::Identity.code(),
+                ModelTransferEndpointStatus::BoundArgument.code(),
+                ModelTransferEndpointStatus::CallResult.code(),
+            )
+        )
+        .await,
+        1,
+        "the keyword cast transfer cites its exact input and call-result expressions"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_transfer_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name IN ('on_shutdown_keyword', 'on_shutdown_unpacked') \
+                   AND s.input_status = {} AND s.input_reason IS NOT NULL \
+                   AND s.input_expression_node_id IS NULL \
+                   AND s.output_status = {}",
+                ModelTransferEndpointStatus::Unknown.code(),
+                ModelTransferEndpointStatus::CallResult.code(),
+            )
+        )
+        .await,
+        2,
+        "unsupported formals leave the input endpoint unknown, even with a call result"
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
@@ -1118,6 +1165,41 @@ budget = 1
     );
     ctx.deregister_table("modeled_resource_sites").unwrap();
     ctx.register_table("modeled_resource_sites", original_resource_sites)
+        .unwrap();
+
+    let original_transfer_sites = sql::query(&ctx, "SELECT * FROM modeled_transfer_sites")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_transfer_sites = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (input_status), CAST({} AS SMALLINT) AS input_status \
+             FROM modeled_transfer_sites",
+            ModelTransferEndpointStatus::CallResult.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_transfer_sites").unwrap();
+    ctx.register_table("modeled_transfer_sites", doctored_transfer_sites)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:modeled-transfer-site-shape"),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-transfer-site-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_transfer_sites").unwrap();
+    ctx.register_table("modeled_transfer_sites", original_transfer_sites)
         .unwrap();
 
     let doctored = sql::query(

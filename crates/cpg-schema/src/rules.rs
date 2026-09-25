@@ -274,6 +274,56 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("modeled_resource_sites", "source_expression_fact_id", FACT),
     r(
+        "modeled_transfer_sites",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r(
+        "modeled_transfer_sites",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r("modeled_transfer_sites", "call_fact_id", FACT),
+    r("modeled_transfer_sites", "pysa_fact_id", FACT),
+    r(
+        "modeled_transfer_sites",
+        "target_node_id",
+        &[("model_targets", "target_node_id")],
+    ),
+    r(
+        "modeled_transfer_sites",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r(
+        "modeled_transfer_sites",
+        "rule_id",
+        &[("model_transfers", "rule_id")],
+    ),
+    r("modeled_transfer_sites", "target_definition_fact_id", FACT),
+    r(
+        "modeled_transfer_sites",
+        "input_path_id",
+        &[("model_transfers", "input_path_id")],
+    ),
+    r(
+        "modeled_transfer_sites",
+        "output_path_id",
+        &[("model_transfers", "output_path_id")],
+    ),
+    r(
+        "modeled_transfer_sites",
+        "input_expression_node_id",
+        &[("arguments", "node_id")],
+    ),
+    r("modeled_transfer_sites", "input_expression_fact_id", FACT),
+    r(
+        "modeled_transfer_sites",
+        "output_expression_node_id",
+        &[("call_syntax", "node_id")],
+    ),
+    r("modeled_transfer_sites", "output_expression_fact_id", FACT),
+    r(
         "model_transfers",
         "target_node_id",
         &[("context_definitions", "symbol_node_id")],
@@ -618,6 +668,35 @@ fn semantic() -> Vec<Rule> {
                 unknown = crate::codebook::ModelResourceSourceStatus::Unknown.code(),
                 return_value = crate::codebook::ModelPathKind::ReturnValue.code(),
                 parameter = crate::codebook::ModelPathKind::Parameter.code(),
+                synthetic = crate::codebook::Origin::SyntheticModel.code(),
+            ),
+        ),
+        (
+            "semantic:modeled-transfer-site-shape",
+            format!(
+                "SELECT rule_id FROM modeled_transfer_sites WHERE \
+                 (input_status = {bound_argument} AND \
+                   (input_path_kind <> {parameter} OR input_expression_node_id IS NULL \
+                     OR input_expression_fact_id IS NULL OR input_reason IS NOT NULL)) \
+                 OR (input_status = {unknown} AND \
+                   (input_expression_node_id IS NOT NULL \
+                     OR input_expression_fact_id IS NOT NULL OR input_reason IS NULL)) \
+                 OR (output_status = {call_result} AND \
+                   (output_path_kind <> {return_value} OR output_expression_node_id IS NULL \
+                     OR output_expression_fact_id IS NULL OR output_reason IS NOT NULL \
+                     OR output_expression_node_id <> call_site_node_id \
+                     OR output_expression_fact_id <> call_fact_id)) \
+                 OR (output_status = {unknown} AND \
+                   (output_expression_node_id IS NOT NULL \
+                     OR output_expression_fact_id IS NOT NULL OR output_reason IS NULL)) \
+                 OR input_status = {call_result} OR output_status = {bound_argument} \
+                 OR (candidate_set_complete_under_model AND has_unresolved_remainder) \
+                 OR origin <> {synthetic}",
+                bound_argument = crate::codebook::ModelTransferEndpointStatus::BoundArgument.code(),
+                call_result = crate::codebook::ModelTransferEndpointStatus::CallResult.code(),
+                unknown = crate::codebook::ModelTransferEndpointStatus::Unknown.code(),
+                parameter = crate::codebook::ModelPathKind::Parameter.code(),
+                return_value = crate::codebook::ModelPathKind::ReturnValue.code(),
                 synthetic = crate::codebook::Origin::SyntheticModel.code(),
             ),
         ),

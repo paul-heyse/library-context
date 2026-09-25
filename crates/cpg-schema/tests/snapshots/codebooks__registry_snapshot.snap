@@ -715,6 +715,11 @@ model_path_kind
   1 receiver_field
   2 global
   3 return_value
+  4 raise
+model_transfer_endpoint_status
+  0 bound_argument
+  1 call_result
+  2 unknown
 model_resource_source_status
   0 call_result
   1 bound_argument
