@@ -1,0 +1,23 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_value_calls
+family flow
+key snapshot_id, flow_value_fact_id, step, fact_id
+check step_nonnegative: step >= 0
+check call_span_order: call_start_byte >= 0 AND call_end_byte > call_start_byte
+check operand_within_call: operand_start_byte >= call_start_byte AND operand_end_byte <= call_end_byte AND operand_end_byte > operand_start_byte
+@lctx.family=flow
+@lctx.table=flow_value_calls
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+flow_value_fact_id: FixedSizeBinary(16) NOT NULL
+use_id: FixedSizeBinary(16) NOT NULL
+step: Int64 NOT NULL
+call_start_byte: Int64 NOT NULL
+call_end_byte: Int64 NOT NULL
+operand_start_byte: Int64 NOT NULL
+operand_end_byte: Int64 NOT NULL
+role: Int16 NOT NULL [lctx.codebook=flow_call_operand_role]

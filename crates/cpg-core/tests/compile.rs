@@ -18,10 +18,11 @@ use cpg_schema::behavior::{
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
 use cpg_schema::codebook::{
-    Codebook, ExitSiteKind, HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction,
-    ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
-    ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction, ModelResourceSourceStatus,
-    ModelTransferEndpointStatus, ModelTransferKind, Origin,
+    Codebook, ExitSiteKind, FlowCallOperandRole, FlowSink, HandlerTypeStatus, Modality,
+    ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
+    ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
+    ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
+    Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -106,6 +107,64 @@ async fn count(ctx: &SessionContext, statement: &str) -> i64 {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn nested_flow_call_steps_survive_publication_with_exact_source_coordinates() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([93; 16]);
+    compile(root.path(), snapshot, &raw("flow_call_paths", snapshot))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM ( \
+                 SELECT c.flow_value_fact_id FROM flow_value_calls c \
+                 JOIN flow_values v ON v.fact_id = c.flow_value_fact_id \
+                 JOIN flow_uses u ON u.use_id = c.use_id \
+                 WHERE v.sink = {} AND u.place = 'value' \
+                 GROUP BY c.flow_value_fact_id \
+                 HAVING count(*) = 2 AND min(c.role) = {} AND max(c.role) = {})",
+                FlowSink::Return.code(),
+                FlowCallOperandRole::Argument.code(),
+                FlowCallOperandRole::Argument.code(),
+            ),
+        )
+        .await,
+        1,
+        "the nested return has exactly two ordered argument steps"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM flow_value_calls c \
+             JOIN call_syntax s ON s.module_node_id = c.module_node_id \
+               AND s.start_byte = c.call_start_byte AND s.end_byte = c.call_end_byte \
+             JOIN arguments a ON a.call_node_id = s.node_id \
+               AND a.value_start_byte = c.operand_start_byte \
+               AND a.value_end_byte = c.operand_end_byte \
+             WHERE c.step = 1 AND a.keyword = 'data'"
+        )
+        .await,
+        1,
+        "the nested keyword step joins the actual value rather than its name prefix"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM flow_value_calls c JOIN flow_uses u ON u.use_id = c.use_id \
+                 WHERE u.place = 'func' AND c.role = {}",
+                FlowCallOperandRole::Callee.code()
+            )
+        )
+        .await,
+        1,
+        "the callee use is never relabeled as an input argument"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() {
     let root = tempfile::tempdir().unwrap();
     let (a, b) = (Id([1; 16]), Id([2; 16]));
@@ -115,7 +174,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 51,
+        53 + 21 + 51,
         "every raw, derived and analysis table"
     );
 
@@ -767,6 +826,10 @@ budget = 1
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
     assert_eq!(targets, 4, "cast, print, open and atexit.register");
+    assert!(
+        count(&ctx, "SELECT count(*) FROM flow_value_calls").await > 0,
+        "source value uses inside calls retain their ordered raw call steps"
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 2);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
@@ -1053,6 +1116,31 @@ budget = 1
             >= 1
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    let original_call_steps = sql::query(&ctx, "SELECT * FROM flow_value_calls")
+        .await
+        .unwrap()
+        .into_view();
+    let skipped_call_step = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (step), step + 1 AS step FROM flow_value_calls",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("flow_value_calls").unwrap();
+    ctx.register_table("flow_value_calls", skipped_call_step)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:flow-value-call-path"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("flow_value_calls").unwrap();
+    ctx.register_table("flow_value_calls", original_call_steps)
+        .unwrap();
 
     let original_applications = sql::query(&ctx, "SELECT * FROM model_applications")
         .await

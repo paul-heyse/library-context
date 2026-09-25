@@ -354,12 +354,14 @@ rule can prove is stated in §8 (its edit guards counted apart).
 - **Meaning comes from models, propagation from summaries** (§9.9). A call alone never propagates a
   capability.
 
-**Proposed (ADR-0028, 2026-09-25):** the flow producer retains each value use's ordered,
-outer-to-inner call path with callee/argument roles and exact byte spans. `through_call` is
-only a derived compatibility flag; it cannot identify the call whose result must be modeled.
-The extractor binds path spans to source call and argument facts before L3 composition;
-missing or ambiguous joins remain unknown. This adds provenance to the stated flow IR,
-without promoting ty's use-def map into runtime truth.
+**Implemented and Tested in focused cases (ADR-0028, 2026-09-25):** the flow producer retains
+each value use's ordered, outer-to-inner call path with callee/argument roles and exact byte spans.
+The raw `flow_value_calls` relation cites its parent `flow_values` fact; `through_call` is derived
+from path presence. Shared publication validation checks dense ordinals, nested containment,
+use attribution and the boolean/path equivalence. The extractor output version is 28. A nested
+fixture and path tamper passed focused checks. **Proposed:** bind each path span to unique Ruff
+call/argument facts before L3 composition; missing or ambiguous joins remain unknown. The raw
+path alone cannot identify a completed modeled transfer.
 
 **Implemented and Tested in focused cases (2026-09-25, first ADR-0028 source seam):**
 `arguments` persists the argument expression's value span separately from its authored
@@ -1398,14 +1400,14 @@ A read reached from module scope through calls is Stage 3's.
 - The exports seed stays the checker view. An operation whose declaration the runtime cannot reach
   is `unknown` (`runtime_unreachable`).
 
-**Proposed (ADR-0028, 2026-09-25):** each `flow_values` use inside calls gains a raw,
-ordered outer-to-inner call path. A step cites its parent value fact, byte span and
-callee/argument operand role. The same module's Ruff `call_syntax` and `arguments` facts
-must match spans uniquely; `arguments` persists both role and value spans so a keyword
-name cannot be mistaken for the value. The composed path is unusable for a positive
-transfer if any step is unmatched, a callee use is relabelled as an argument, or an
-argument's value is only derived from the use. Existing `through_call` remains an
-unknown boundary until the path and each modeled hop are proved.
+**Implemented and Tested in focused cases (ADR-0028, 2026-09-25):** each `flow_values` use
+inside calls has raw, ordered outer-to-inner `flow_value_calls` steps. A step cites its parent
+value fact, byte span and callee/argument operand role; publication checks the path and rejects
+a skipped ordinal. A nested keyword path joins the same module's Ruff `call_syntax` and
+`arguments` facts by exact spans in a focused fixture. **Proposed:** persist the unique source
+join or an explicit unknown for every step; then L3 must withhold a positive transfer if a step
+is unmatched, a callee is relabelled as an argument, or the argument value is derived from its
+use. Existing `through_call` remains an unknown boundary until each modeled hop is proved.
 
 > Decision: ADR-0022, ADR-0027, ADR-0028
 

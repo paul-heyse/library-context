@@ -86,6 +86,8 @@ key:flow_reaching
   SELECT snapshot_id, use_id, fact_id, count(*) AS n FROM flow_reaching GROUP BY snapshot_id, use_id, fact_id HAVING count(*) > 1
 key:flow_values
   SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, use_id, fact_id, count(*) AS n FROM flow_values GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, use_id, fact_id HAVING count(*) > 1
+key:flow_value_calls
+  SELECT snapshot_id, flow_value_fact_id, step, fact_id, count(*) AS n FROM flow_value_calls GROUP BY snapshot_id, flow_value_fact_id, step, fact_id HAVING count(*) > 1
 key:flow_regions
   SELECT snapshot_id, module_node_id, start_byte, end_byte, fact_id, count(*) AS n FROM flow_regions GROUP BY snapshot_id, module_node_id, start_byte, end_byte, fact_id HAVING count(*) > 1
 key:flow_tests
@@ -306,6 +308,10 @@ ref:evidence.node_id->nodes
   SELECT f.node_id AS value FROM evidence f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.node_id = r.k WHERE f.node_id IS NOT NULL
 ref:evidence.module_node_id->nodes
   SELECT f.module_node_id AS value FROM evidence f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
+ref:flow_value_calls.flow_value_fact_id->flow_values
+  SELECT f.flow_value_fact_id AS value FROM flow_value_calls f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.flow_value_fact_id = r.k WHERE f.flow_value_fact_id IS NOT NULL
+ref:flow_value_calls.use_id->flow_uses
+  SELECT f.use_id AS value FROM flow_value_calls f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.use_id = r.k WHERE f.use_id IS NOT NULL
 ref:assertions.run_id->runs
   SELECT f.run_id AS value FROM assertions f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:assertions.subject_node_id->nodes
@@ -740,6 +746,10 @@ fact:flow_values
   SELECT t.fact_id FROM flow_values t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_values'
 fact-payload:flow_values
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_values t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_values'
+fact:flow_value_calls
+  SELECT t.fact_id FROM flow_value_calls t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_value_calls'
+fact-payload:flow_value_calls
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN flow_value_calls t ON t.fact_id = f.fact_id WHERE f.table_name = 'flow_value_calls'
 fact:flow_regions
   SELECT t.fact_id FROM flow_regions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'flow_regions'
 fact-payload:flow_regions
@@ -777,7 +787,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_value_calls', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -864,6 +874,8 @@ codebook:flow_definitions.scope_kind
   SELECT scope_kind FROM flow_definitions WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
 codebook:flow_values.sink
   SELECT sink FROM flow_values WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
+codebook:flow_value_calls.role
+  SELECT role FROM flow_value_calls WHERE role IS NOT NULL AND role NOT IN (0, 1)
 codebook:flow_regions.scope_kind
   SELECT scope_kind FROM flow_regions WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
 codebook:flow_tests.scope_kind
@@ -1216,6 +1228,8 @@ semantic:binding-is-a-flow-definition
   SELECT b.node_id FROM bindings b JOIN (SELECT scope_node_id AS module_node_id FROM coverage WHERE fact_family = 13 AND status = 0) m ON m.module_node_id = b.module_node_id LEFT ANTI JOIN flow_definitions d ON d.module_node_id = b.module_node_id AND d.start_byte = b.start_byte AND d.end_byte = b.end_byte WHERE b.kind NOT IN (16, 17, 15, 20, 11)
 semantic:flow-reaching-within-candidates
   SELECT fr.use_id FROM flow_reaching fr JOIN flow_uses u ON u.use_id = fr.use_id JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte JOIN flow_definitions d ON d.definition_id = fr.definition_id JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte LEFT ANTI JOIN reference_resolutions rr ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id
+semantic:flow-value-call-path
+  WITH steps AS (SELECT c.*, v.module_node_id AS value_module, v.use_id AS value_use, v.through_call, v.sink_start_byte, v.sink_end_byte, u.start_byte AS use_start, u.end_byte AS use_end, row_number() OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) - 1 AS expected_step, lag(c.operand_start_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_start, lag(c.operand_end_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_end, lead(c.step) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS next_step FROM flow_value_calls c JOIN flow_values v ON v.fact_id = c.flow_value_fact_id JOIN flow_uses u ON u.use_id = c.use_id) SELECT fact_id FROM steps WHERE module_node_id <> value_module OR use_id <> value_use OR NOT through_call OR step <> expected_step OR (step = 0 AND (call_start_byte < sink_start_byte OR call_end_byte > sink_end_byte)) OR (step > 0 AND (call_start_byte < parent_start OR call_end_byte > parent_end)) OR (next_step IS NULL AND (use_start < operand_start_byte OR use_end > operand_end_byte)) UNION ALL SELECT v.fact_id FROM flow_values v LEFT JOIN flow_value_calls c ON c.flow_value_fact_id = v.fact_id GROUP BY v.fact_id, v.through_call HAVING (v.through_call AND count(c.fact_id) = 0) OR (NOT v.through_call AND count(c.fact_id) > 0) OR count(DISTINCT c.step) <> count(c.fact_id)
 semantic:model-target-provenance
   SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
 semantic:modeled-callback-site-shape

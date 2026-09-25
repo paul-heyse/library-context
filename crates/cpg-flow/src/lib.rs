@@ -28,7 +28,7 @@ mod predicate;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-pub use cpg_schema::codebook::{BindingKind, LexicalScopeKind};
+pub use cpg_schema::codebook::{BindingKind, FlowCallOperandRole, LexicalScopeKind};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
 pub use cpg_schema::condition_kernel::BoundedCondition as Condition;
 use cpg_schema::id::IdHasher;
@@ -166,7 +166,17 @@ pub struct ValueSource {
     pub identity: bool,
     /// The use is inside a call within the value (its callee, receiver or an argument).
     pub through_call: bool,
+    /// Outer-to-inner calls crossed by this use on its way to the sink. The call and operand
+    /// spans are join coordinates, not identities until matched to Ruff source facts.
+    pub call_path: Vec<CallFrame>,
     pub condition: Condition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CallFrame {
+    pub call: Span,
+    pub operand: Span,
+    pub role: FlowCallOperandRole,
 }
 
 #[derive(Debug, Clone)]
@@ -844,7 +854,7 @@ impl<'db> Walk<'_, 'db> {
         cond: &Condition,
         false_cause: Option<SkipCause>,
         identity: bool,
-        through_call: bool,
+        call_path: &[CallFrame],
     ) {
         if cond.is_never() {
             self.flow
@@ -861,8 +871,9 @@ impl<'db> Walk<'_, 'db> {
                         sink,
                         span: sink_span,
                         use_ix: u,
-                        identity: identity && !through_call,
-                        through_call,
+                        identity: identity && call_path.is_empty(),
+                        through_call: !call_path.is_empty(),
+                        call_path: call_path.to_vec(),
                         condition: cond.clone(),
                     });
                 }
@@ -876,7 +887,7 @@ impl<'db> Walk<'_, 'db> {
                             cond,
                             false_cause,
                             false,
-                            through_call,
+                            call_path,
                         );
                     }
                     Expr::Subscript(s) => {
@@ -887,7 +898,7 @@ impl<'db> Walk<'_, 'db> {
                             cond,
                             false_cause,
                             false,
-                            through_call,
+                            call_path,
                         );
                         self.sources(
                             sink,
@@ -896,7 +907,7 @@ impl<'db> Walk<'_, 'db> {
                             cond,
                             false_cause,
                             false,
-                            through_call,
+                            call_path,
                         );
                     }
                     _ => {}
@@ -910,23 +921,9 @@ impl<'db> Walk<'_, 'db> {
                 } else {
                     false_cause
                 };
+                self.sources(sink, sink_span, &i.body, &body, cause, identity, call_path);
                 self.sources(
-                    sink,
-                    sink_span,
-                    &i.body,
-                    &body,
-                    cause,
-                    identity,
-                    through_call,
-                );
-                self.sources(
-                    sink,
-                    sink_span,
-                    &i.orelse,
-                    &orelse,
-                    cause,
-                    identity,
-                    through_call,
+                    sink, sink_span, &i.orelse, &orelse, cause, identity, call_path,
                 );
                 self.sources(
                     sink,
@@ -935,7 +932,7 @@ impl<'db> Walk<'_, 'db> {
                     cond,
                     false_cause,
                     false,
-                    through_call,
+                    call_path,
                 );
             }
             Expr::BoolOp(b) => {
@@ -953,15 +950,7 @@ impl<'db> Walk<'_, 'db> {
                         }
                     };
                     let here = cond.and(&here);
-                    self.sources(
-                        sink,
-                        sink_span,
-                        v,
-                        &here,
-                        false_cause,
-                        identity,
-                        through_call,
-                    );
+                    self.sources(sink, sink_span, v, &here, false_cause, identity, call_path);
                     before = match b.op {
                         ast::BoolOp::Or => before.and(&truth.not()),
                         ast::BoolOp::And => before.and(&truth),
@@ -976,24 +965,71 @@ impl<'db> Walk<'_, 'db> {
                     cond,
                     false_cause,
                     identity,
-                    through_call,
+                    call_path,
                 );
+            }
+            Expr::Call(call) => {
+                let call_span = call.range().into();
+                let mut callee_path = call_path.to_vec();
+                callee_path.push(CallFrame {
+                    call: call_span,
+                    operand: call.func.range().into(),
+                    role: FlowCallOperandRole::Callee,
+                });
+                self.sources(
+                    sink,
+                    sink_span,
+                    &call.func,
+                    cond,
+                    false_cause,
+                    false,
+                    &callee_path,
+                );
+                for arg in &call.arguments.args {
+                    let operand = match arg {
+                        Expr::Starred(starred) => starred.value.range(),
+                        _ => arg.range(),
+                    };
+                    let mut argument_path = call_path.to_vec();
+                    argument_path.push(CallFrame {
+                        call: call_span,
+                        operand: operand.into(),
+                        role: FlowCallOperandRole::Argument,
+                    });
+                    self.sources(
+                        sink,
+                        sink_span,
+                        arg,
+                        cond,
+                        false_cause,
+                        false,
+                        &argument_path,
+                    );
+                }
+                for keyword in &call.arguments.keywords {
+                    let mut argument_path = call_path.to_vec();
+                    argument_path.push(CallFrame {
+                        call: call_span,
+                        operand: keyword.value.range().into(),
+                        role: FlowCallOperandRole::Argument,
+                    });
+                    self.sources(
+                        sink,
+                        sink_span,
+                        &keyword.value,
+                        cond,
+                        false_cause,
+                        false,
+                        &argument_path,
+                    );
+                }
             }
             _ => {
                 // Computed: each sub-expression's uses, derived, under the conditions nested
                 // conditional expressions and boolean operators select them by. Everything inside
-                // a call is through it.
-                let through_call = through_call || matches!(e, Expr::Call(_));
+                // a call is handled above with an attributed operand role.
                 for child in children(e) {
-                    self.sources(
-                        sink,
-                        sink_span,
-                        child,
-                        cond,
-                        false_cause,
-                        false,
-                        through_call,
-                    );
+                    self.sources(sink, sink_span, child, cond, false_cause, false, call_path);
                 }
             }
         }
@@ -1031,7 +1067,7 @@ impl Visitor<'_, '_, '_> {
             &Condition::always(),
             None,
             identity,
-            false,
+            &[],
         );
     }
 
@@ -1152,7 +1188,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                     &Condition::always(),
                     None,
                     false,
-                    false,
+                    &[],
                 );
             }
             Stmt::For(f) => self.sources(Sink::Definition, &f.iter, false),
@@ -1217,7 +1253,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                             &Condition::always(),
                             None,
                             false,
-                            false,
+                            &[],
                         ),
                         v => self.sources(Sink::Argument, v, true),
                     }

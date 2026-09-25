@@ -38,11 +38,11 @@ use cpg_schema::tables::{
     ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
     DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents, ExportSyntax,
     Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions, FlowTestLeaves,
-    FlowTestTypes, FlowTests, FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics,
-    ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses,
-    PysaFunctions, RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs,
-    RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs,
-    TypeTerms,
+    FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues, Mentions, ParameterDocs,
+    ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls,
+    PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions, References, Releases,
+    ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations,
+    TypeTermArgs, TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -1200,6 +1200,10 @@ fn run_release(
         (
             FlowValues::NAME,
             FlowValues::to_sorted_batch(&flow_out.values)?,
+        ),
+        (
+            FlowValueCalls::NAME,
+            FlowValueCalls::to_sorted_batch(&flow_out.value_calls)?,
         ),
         (
             FlowRegions::NAME,

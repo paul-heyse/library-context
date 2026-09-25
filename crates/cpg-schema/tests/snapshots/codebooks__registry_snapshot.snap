@@ -653,6 +653,9 @@ flow_sink
   2 return
   3 yield
   4 raise
+flow_call_operand_role
+  0 callee
+  1 argument
 read_phase
   0 import
   1 construction

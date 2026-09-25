@@ -19,7 +19,7 @@ use cpg_schema::tables::{
     ConditionsRow, ExportSyntaxRow, FlowAttributeLoads, FlowAttributeLoadsRow, FlowDefinitions,
     FlowDefinitionsRow, FlowReaching, FlowReachingRow, FlowRegions, FlowRegionsRow, FlowTestLeaves,
     FlowTestLeavesRow, FlowTestTypes, FlowTestTypesRow, FlowTests, FlowTestsRow, FlowUses,
-    FlowUsesRow, FlowValues, FlowValuesRow,
+    FlowUsesRow, FlowValueCalls, FlowValueCallsRow, FlowValues, FlowValuesRow,
 };
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
@@ -161,6 +161,7 @@ pub(crate) struct FlowOut {
     pub definitions: Vec<FlowDefinitionsRow>,
     pub reaching: Vec<FlowReachingRow>,
     pub values: Vec<FlowValuesRow>,
+    pub value_calls: Vec<FlowValueCallsRow>,
     pub regions: Vec<FlowRegionsRow>,
     pub tests: Vec<FlowTestsRow>,
     pub test_leaves: Vec<FlowTestLeavesRow>,
@@ -379,7 +380,7 @@ pub(crate) fn run(
         }
         for v in &flow.values {
             let condition_id = condition(&v.condition);
-            out.values.push(fact_row!(
+            let value_row = fact_row!(
                 sink,
                 FlowValues,
                 provenance(),
@@ -396,7 +397,28 @@ pub(crate) fn run(
                     condition_id,
                     approximated: v.condition.approximated() || v.through_call,
                 }
-            ));
+            );
+            for (step, frame) in v.call_path.iter().enumerate() {
+                out.value_calls.push(fact_row!(
+                    sink,
+                    FlowValueCalls,
+                    provenance(),
+                    FlowValueCallsRow {
+                        snapshot_id: Id::ZERO,
+                        fact_id: Id::ZERO,
+                        module_node_id: module,
+                        flow_value_fact_id: value_row.fact_id,
+                        use_id: use_ids[v.use_ix as usize],
+                        step: step as i64,
+                        call_start_byte: i64::from(frame.call.start),
+                        call_end_byte: i64::from(frame.call.end),
+                        operand_start_byte: i64::from(frame.operand.start),
+                        operand_end_byte: i64::from(frame.operand.end),
+                        role: frame.role,
+                    }
+                ));
+            }
+            out.values.push(value_row);
         }
         for t in &flow.tests {
             let condition_id = condition(&t.condition);

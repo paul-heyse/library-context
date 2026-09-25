@@ -6,11 +6,11 @@
 use crate::codebook::{
     AncestryRelation, ArgumentKind, AttributeValueKind, BindingKind, BoundaryReason, ComponentForm,
     ConditionAtom, CoverageStatus, DeclarationKind, DefinitionKind, ExportSyntaxKind,
-    ExtractionMode, FactFamily, Fidelity, FlowSink, ImplicitReceiver, InvocationPhase,
-    LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin, ParameterKind,
-    PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind, ScopeKind,
-    SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind, TestTypeOrigin,
-    TypeArgRole, TypeRole, TypeTermKind,
+    ExtractionMode, FactFamily, Fidelity, FlowCallOperandRole, FlowSink, ImplicitReceiver,
+    InvocationPhase, LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin,
+    ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind,
+    ScopeKind, SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind,
+    TestTypeOrigin, TypeArgRole, TypeRole, TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;
@@ -871,6 +871,34 @@ table!(
 );
 
 table!(
+    /// One outer-to-inner call step crossed by a `flow_values` source use. Byte spans are
+    /// coordinates for a later exact join to Ruff `call_syntax` and argument value spans; they
+    /// are not semantic call identities by themselves. The callee role cannot become an input
+    /// argument transfer without an independent model.
+    FlowValueCalls, FlowValueCallsRow = "flow_value_calls",
+    family = Flow,
+    key = [snapshot_id, flow_value_fact_id, step, fact_id],
+    checks = [
+        ("step_nonnegative", "step >= 0"),
+        ("call_span_order", "call_start_byte >= 0 AND call_end_byte > call_start_byte"),
+        ("operand_within_call", "operand_start_byte >= call_start_byte AND operand_end_byte <= call_end_byte AND operand_end_byte > operand_start_byte"),
+    ],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        module_node_id: Id,
+        flow_value_fact_id: Id,
+        use_id: Id,
+        step: i64,
+        call_start_byte: i64,
+        call_end_byte: i64,
+        operand_start_byte: i64,
+        operand_end_byte: i64,
+        role: FlowCallOperandRole,
+    }
+);
+
+table!(
     /// A statement's reachability condition, relative to its scope's entry: a statement inside a
     /// function is reached under this **and** its `def` statement's region.
     FlowRegions, FlowRegionsRow = "flow_regions",
@@ -1488,6 +1516,7 @@ macro_rules! for_each_table {
             $crate::tables::FlowDefinitions,
             $crate::tables::FlowReaching,
             $crate::tables::FlowValues,
+            $crate::tables::FlowValueCalls,
             $crate::tables::FlowRegions,
             $crate::tables::FlowTests,
             $crate::tables::FlowTestLeaves,

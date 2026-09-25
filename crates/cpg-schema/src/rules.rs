@@ -87,6 +87,12 @@ pub const REFERENCES: &[Reference] = &[
     r("evidence", "cited_fact_id", FACT),
     r("evidence", "node_id", NODE),
     r("evidence", "module_node_id", NODE),
+    r(
+        "flow_value_calls",
+        "flow_value_fact_id",
+        &[("flow_values", "fact_id")],
+    ),
+    r("flow_value_calls", "use_id", &[("flow_uses", "use_id")]),
     r("assertions", "run_id", &[("runs", "run_id")]),
     r("assertions", "subject_node_id", NODE),
     r(
@@ -653,6 +659,35 @@ fn semantic() -> Vec<Rule> {
                AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte \
              LEFT ANTI JOIN reference_resolutions rr \
                ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id"
+                .to_owned(),
+        ),
+        (
+            // A call path is a dense outer-to-inner sequence on the same value/use. Every
+            // subsequent call lies inside the preceding operand, and the final operand contains
+            // the cited use. A through-call marker without its path cannot support L3 evidence.
+            "semantic:flow-value-call-path",
+            "WITH steps AS (SELECT c.*, v.module_node_id AS value_module, \
+                    v.use_id AS value_use, v.through_call, v.sink_start_byte, v.sink_end_byte, \
+                    u.start_byte AS use_start, u.end_byte AS use_end, \
+                    row_number() OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) - 1 AS expected_step, \
+                    lag(c.operand_start_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_start, \
+                    lag(c.operand_end_byte) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS parent_end, \
+                    lead(c.step) OVER (PARTITION BY c.flow_value_fact_id ORDER BY c.step) AS next_step \
+                 FROM flow_value_calls c \
+                 JOIN flow_values v ON v.fact_id = c.flow_value_fact_id \
+                 JOIN flow_uses u ON u.use_id = c.use_id) \
+             SELECT fact_id FROM steps WHERE module_node_id <> value_module OR use_id <> value_use \
+                OR NOT through_call OR step <> expected_step \
+                OR (step = 0 AND (call_start_byte < sink_start_byte OR call_end_byte > sink_end_byte)) \
+                OR (step > 0 AND (call_start_byte < parent_start OR call_end_byte > parent_end)) \
+                OR (next_step IS NULL AND (use_start < operand_start_byte OR use_end > operand_end_byte)) \
+             UNION ALL \
+             SELECT v.fact_id FROM flow_values v \
+             LEFT JOIN flow_value_calls c ON c.flow_value_fact_id = v.fact_id \
+             GROUP BY v.fact_id, v.through_call \
+             HAVING (v.through_call AND count(c.fact_id) = 0) \
+                 OR (NOT v.through_call AND count(c.fact_id) > 0) \
+                 OR count(DISTINCT c.step) <> count(c.fact_id)"
                 .to_owned(),
         ),
     ];

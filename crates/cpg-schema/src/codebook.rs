@@ -1335,6 +1335,14 @@ codebook!(
 );
 
 codebook!(
+    /// How a use enters one enclosing call on its ordered value-source path.
+    FlowCallOperandRole = "flow_call_operand_role" {
+        Callee = 0 => "callee",
+        Argument = 1 => "argument",
+    }
+);
+
+codebook!(
     /// When a setting is read (ADR-0022 §Verdicts, the Stage 2 review's F8): decided by the
     /// reading site's scope.
     ReadPhase = "read_phase" {
@@ -1583,6 +1591,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ConditionAtom>(),
         CodebookEntry::of::<ModelTransferKind>(),
         CodebookEntry::of::<FlowSink>(),
+        CodebookEntry::of::<FlowCallOperandRole>(),
         CodebookEntry::of::<ReadPhase>(),
         CodebookEntry::of::<DynamicKind>(),
         CodebookEntry::of::<PremiseKind>(),
