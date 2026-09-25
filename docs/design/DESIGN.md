@@ -2993,6 +2993,15 @@ application, broader pure-model oracles and served behavioral claims remain Prop
 release Nextest and Clippy passed; the integrated gate and fresh pilot are reserved for the
 assembled Stage 3 end.
 
+**Implemented and Tested in focused cases (2026-09-25, Stage 3 source/model bridge):**
+`model_applications` joins each source `call_targets` fact to an exactly pinned `model_targets`
+row, retaining the Pysa target's modality/origin and phase, the model's identity and revision,
+and `resolutions`' candidate-set completeness and unresolved remainder. Higher-order argument
+targets and annotation-only calls cannot masquerade as direct invocation. The shared validator
+reconstructs this join, and a shadowed builtin call has no application. This is evidence that a
+model applies at a call site, not evidence that a callback ran, a resource was released or a
+transfer completed. Those L2/L3 fates remain Proposed; the integrated gate is `not_run`.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic

@@ -1,0 +1,27 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table model_applications
+family findings
+key snapshot_id, call_site_node_id, pysa_fact_id, model_id
+check revision_positive: revision > 0
+@lctx.family=findings
+@lctx.table=model_applications
+snapshot_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NULL
+call_fact_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+target_module_fact_id: FixedSizeBinary(16) NOT NULL
+target_definition_fact_id: FixedSizeBinary(16) NOT NULL
+revision: Int64 NOT NULL
+target_modality: Int16 NOT NULL [lctx.codebook=modality]
+target_origin: Int16 NOT NULL [lctx.codebook=origin]
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
+candidate_set_complete_under_model: Boolean NOT NULL
+has_unresolved_remainder: Boolean NOT NULL
+model_origin: Int16 NOT NULL [lctx.codebook=origin]

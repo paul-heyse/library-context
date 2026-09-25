@@ -62,6 +62,35 @@ table!(
 );
 
 table!(
+    /// A call in the analyzed release that reaches a pinned modeled target. This joins source
+    /// call evidence to a model assertion without claiming any transfer, effect or callback
+    /// fate. Candidate-set openness and both origins remain visible to later L2/L3 consumers.
+    ModelApplications, ModelApplicationsRow = "model_applications",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id],
+    checks = [("revision_positive", "revision > 0")],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        module_node_id: Id,
+        function_node_id: Option<Id>,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        target_node_id: Id,
+        model_id: Id,
+        target_module_fact_id: Id,
+        target_definition_fact_id: Id,
+        revision: i64,
+        target_modality: Modality,
+        target_origin: Origin,
+        phase: InvocationPhase,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
+        model_origin: Origin,
+    }
+);
+
+table!(
     /// Authored callback action of a pinned external definition. `callback_path_id` is the
     /// canonical typed path's identity; `callback_path` is display only.
     ModelCallbacks, ModelCallbacksRow = "model_callbacks",
@@ -851,6 +880,31 @@ fn with_snapshot(sql: &str) -> String {
 
 crate::relations! {
     inventory all;
+
+    /// One evidence-preserving application per Pysa call-target fact and pinned model. A
+    /// higher-order argument target is not the call's callee; it is excluded here.
+    model_applications = "behavior:model_applications",
+        deps = ["call_targets", "call_syntax", "pysa_calls", "facts", "resolutions", "model_targets"],
+        sql = format!(
+            "SELECT c.snapshot_id, c.node_id AS call_site_node_id, c.module_node_id, \
+                    c.owner_node_id AS function_node_id, c.fact_id AS call_fact_id, \
+                    t.pysa_fact_id, t.target_node_id, m.model_id, \
+                    m.target_module_fact_id, m.target_definition_fact_id, m.revision, \
+                    f.modality AS target_modality, f.origin AS target_origin, p.phase, \
+                    r.candidate_set_complete_under_model, r.has_unresolved_remainder, \
+                    m.origin AS model_origin \
+             FROM call_targets t \
+             JOIN model_targets m ON m.target_node_id = t.target_node_id \
+             JOIN call_syntax c ON c.node_id = t.call_site_node_id \
+             JOIN pysa_calls p ON p.fact_id = t.pysa_fact_id \
+             JOIN facts f ON f.fact_id = p.fact_id \
+             JOIN resolutions r ON r.call_site_node_id = c.node_id \
+             WHERE t.reason IS NULL AND t.argument_node_id IS NULL \
+               AND p.higher_order_index IS NULL AND p.phase IN ({call}, {init}) \
+               AND NOT c.in_annotation",
+            call = InvocationPhase::Call.code(),
+            init = InvocationPhase::Init.code(),
+        );
 
     /// Except clauses with their authored type expression and the try-entry region.
     handler_clauses = "behavior:handler_clauses",

@@ -129,6 +129,35 @@ pub const REFERENCES: &[Reference] = &[
     r("model_targets", "target_module_fact_id", FACT),
     r("model_targets", "target_definition_fact_id", FACT),
     r(
+        "model_applications",
+        "call_site_node_id",
+        &[("call_syntax", "node_id")],
+    ),
+    r(
+        "model_applications",
+        "module_node_id",
+        &[("source_files", "module_node_id")],
+    ),
+    r(
+        "model_applications",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r("model_applications", "call_fact_id", FACT),
+    r("model_applications", "pysa_fact_id", FACT),
+    r(
+        "model_applications",
+        "target_node_id",
+        &[("model_targets", "target_node_id")],
+    ),
+    r(
+        "model_applications",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r("model_applications", "target_module_fact_id", FACT),
+    r("model_applications", "target_definition_fact_id", FACT),
+    r(
         "model_transfers",
         "target_node_id",
         &[("context_definitions", "symbol_node_id")],
@@ -432,6 +461,25 @@ fn semantic() -> Vec<Rule> {
                  LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id \
                    AND m.module_node_id = d.module_node_id \
                  WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-application-boundary",
+            format!(
+                "SELECT a.call_site_node_id FROM model_applications a \
+                 LEFT JOIN model_targets m ON m.model_id = a.model_id \
+                   AND m.target_node_id = a.target_node_id \
+                   AND m.target_definition_fact_id = a.target_definition_fact_id \
+                   AND m.target_module_fact_id = a.target_module_fact_id \
+                   AND m.revision = a.revision \
+                 LEFT JOIN resolutions r ON r.call_site_node_id = a.call_site_node_id \
+                   AND r.call_fact_id = a.call_fact_id \
+                 WHERE m.model_id IS NULL OR r.call_site_node_id IS NULL \
+                   OR a.candidate_set_complete_under_model <> r.candidate_set_complete_under_model \
+                   OR a.has_unresolved_remainder <> r.has_unresolved_remainder \
+                   OR (a.candidate_set_complete_under_model AND a.has_unresolved_remainder) \
+                   OR a.model_origin <> {}",
                 crate::codebook::Origin::SyntheticModel.code()
             ),
         ),

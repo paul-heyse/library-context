@@ -18,3 +18,7 @@ def acquire(path: str):
 
 def on_shutdown(callback: Callable[[], None]) -> Callable[[], None]:
     return atexit.register(callback)
+
+
+def shadowed_open(open):
+    return open("local argument, not the builtin")

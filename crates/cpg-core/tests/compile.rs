@@ -114,7 +114,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 44,
+        52 + 21 + 45,
         "every raw, derived and analysis table"
     );
 
@@ -767,6 +767,34 @@ budget = 1
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
     assert_eq!(
+        count(&ctx, "SELECT count(*) FROM model_applications").await,
+        4,
+        "each pinned model applies only at its resolved source call"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM model_applications a JOIN declarations d \
+             ON d.node_id = a.function_node_id WHERE d.name = 'shadowed_open'"
+        )
+        .await,
+        0,
+        "a shadowed builtin name cannot acquire the builtin model"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM model_applications a JOIN model_callbacks c \
+             ON c.model_id = a.model_id AND c.target_node_id = a.target_node_id \
+             JOIN declarations d ON d.node_id = a.function_node_id \
+             WHERE d.name = 'on_shutdown' AND a.candidate_set_complete_under_model \
+             AND NOT a.has_unresolved_remainder"
+        )
+        .await,
+        1,
+        "a modeled callback rule stays linked to its complete source call target"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_exceptions").await,
         1
     );
@@ -780,6 +808,38 @@ budget = 1
             >= 1
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    let original_applications = sql::query(&ctx, "SELECT * FROM model_applications")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_applications = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (candidate_set_complete_under_model), \
+         NOT candidate_set_complete_under_model AS candidate_set_complete_under_model \
+         FROM model_applications",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("model_applications").unwrap();
+    ctx.register_table("model_applications", doctored_applications)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (boundary_rule,) = ("semantic:model-application-boundary",);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-application-source-equality"),
+        "{violations:?}"
+    );
+    assert!(
+        violations.iter().any(|v| v.rule == boundary_rule),
+        "{violations:?}"
+    );
+    ctx.deregister_table("model_applications").unwrap();
+    ctx.register_table("model_applications", original_applications)
+        .unwrap();
 
     let doctored = sql::query(
         &ctx,
