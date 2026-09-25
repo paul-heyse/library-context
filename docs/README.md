@@ -38,5 +38,7 @@ prerequisite. To recover a deleted path:
   (for an ADR id, `'docs/adr/NNNN-*'`).
 - Show its last content: `git show <commit>^:<path>`; list a deleted directory with
   `git ls-tree -r --name-only <commit>^ -- <dir>`.
+- The documentation migration removed its retired set in the commit after
+  `f54b09d090e66abcee1fcc90d2005524defe4582`; `git show f54b09d:<path>` shows any of it.
 - Raw evidence is in Git LFS: `git lfs fetch origin <commit>^ --include=<path>`, then
   `git show <commit>^:<path> | git lfs smudge`.

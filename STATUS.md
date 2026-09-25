@@ -4,46 +4,44 @@ _Updated 2026-09-25 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Increment and slice
 
-- Active: [Stage 3 of increment 4](docs/plans/behavioral-model-forward-plan_2026-09-24.md). `4af94e8` contains ADR-0039's BDD predecessor refinement, gate repairs, accepted snapshots and Rust formatting; `acbcee5` contains the Python tool-inventory correction and formatting. Stage 3 is not functionally complete.
-- Process: [ADR-0040](docs/adr/0040-architecture-change-scenarios.md) implements repository-owned core 3.0/profile 1.1, six architectural foundations, change scenarios, A1–A3 judgments and proportional review cadence. Skills, DESIGN, binding and finding ownership are aligned. Improved architectural outcomes remain Proposed.
-- L1/L1.5: bounded BDD catalogs, exact entry-value links, narrow primitive refutation and native path-local work accounting exist. Operation-wide compatibility is open.
-- L4: typed five-channel pinned models and exact source applications exist. `typing.cast`/`assert_type` assert total normal return; Pydantic `TypeAdapter.validate_python` remains a dormant potential transform with dynamic schema/effects open. Broader pure/helper, async/context and HTTP/server families remain.
-- L2/L3: pass-only nested finalizers have ordered proof steps; other frame fates remain unknown. Direct, exact modeled, unique-assignment and unconditional acyclic wrapper value paths have canonical ordered proofs and shared reconstruction. ADR-0039 ignores a prior call only when its ty region is definitely BDD-incompatible with the return; compatible/missing/approximate/capped predecessors withhold a direct positive. Recursive modeled/assignment members, effect/exception/role summaries and `call_transfer` discharge remain open.
-- FORMAT 7/native `inspect_value_paths` provides path-local inspection, not operation-wide compatibility/effect/role verdicts.
-- Review-only follow-up: [reasoning library and architecture review](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md) assesses the original F01–F16 and adds eight findings. A1–A3 are violated for the named scenarios; decision **Revise**. Review/probe artifacts are uncommitted; production, pins, DESIGN, ADRs and the plan were not changed.
-
-- Documentation: ADR-0041 and the [execution/qualification plan](docs/plans/architectural-documentation-and-search_2026-09-25.md) implement focused section owners, mdBook/Pagefind search and isolated local/CI artifact commands (`b92857e`, `821173f`). Target and assembled reviews Accept; future reading/change-cost improvements remain Proposed.
-- Documentation migration: [execution plan](docs/plans/legacy-documentation-migration_2026-09-25.md) prepared (Proposed, 2026-09-25). It sequences review reconciliation, current rationale, legacy retirement and publication cleanup. Migration has not started; product findings remain open. Draft validation: `just docs-check` passed (212 pages, zero link errors); product gates `not_run` for planning.
+- **Product:** Stage 3 of increment 4 is in progress and **functionally incomplete**; production
+  checkpoint `acbcee5` (no `crates/` or `python/` change since, apart from one doc comment). The
+  [forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md) is the sole execution
+  plan: §1 current state and qualification boundary, §3 queue, §6 findings W1–W16 (the single
+  disposition owner for ARC-01–03 and the reasoning reviews' RF/F01–F16, RFU/F01–F08).
+- **Documentation migration** ([plan](docs/plans/legacy-documentation-migration_2026-09-25.md),
+  ADR-0042): M0–M4 landed. The forward plan internalizes earlier plans; ADR-0042 (accepted after
+  a target review) makes Git the home of retired material; DESIGN keeps scope and §B decisions,
+  and eight focused owners hold current contracts; ADR-0043–0047 consolidate rationale in force;
+  retired plans, reviews, research input, standard files, unused evidence and 28 superseded ADRs
+  left the tree ([historical recovery](docs/README.md#historical-recovery)). M5–M6 remain.
 
 ## Last verified (2026-09-25)
 
-Functional/process receipts below are historical from preceding sessions; the review reran only its focused diagnostic probes. A diagnostic `passed` reproduces a defect, not implementation conformance.
-
 | Command | Outcome |
 |---|---|
-| Documentation: `just bootstrap-docs`; `just docs-test`; `just docs-check`; focused Ruff/pyrefly; `actionlint .github/workflows/docs.yml` | `passed`, 2026-09-25: 31 tests, full local and clean-checkout publication, root/prefix browser scope and heading checks. [Plan](docs/plans/architectural-documentation-and-search_2026-09-25.md) records scope; remote CI `not_run` (workflow not pushed). Product gates were not rerun. |
-| `just fmt` | `passed`; deferred Rust/Python formatting applied. |
-| `just test-all` (post-repair attempt) | `failed`: 313/313 release Rust tests passed; Python had 110 passed and 2 stale tool-inventory failures. The gate stopped before pyrefly, rules, fixtures, deps and gold. |
-| `uv run pytest -q python/lctx_mcp/tests/test_server.py` | `passed`: 12/12 after adding `inspect_value_paths` to the protocol expectation. |
-| `just test-all` (final rerun) | `not_run` to completion: started, then stopped at operator direction during the Rust phase. The operator assumes the remaining checks will pass; that is an expectation, not an observed complete-gate result. |
-| `just adr lint`; `just lint-agents`; `git diff --check` | `passed` for this process revision; ADR lint counts 40 records. Prior-session `just adr revisit` passed against 39 records and was not rerun here. |
-| `uv run python /home/paul/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/design-review` | `failed`: the generic validator rejects existing Claude metadata `user-invocable` and `model-baseline`; those invocation fields were preserved. The same validator passed for `adr`, `handoff` and `design-review-code-intelligence`. |
-| Markdown/manifest link inspection | `passed`: read-only `uv run python` inspection of changed document links and `standard.toml` paths. |
+| `just docs-test`; `just adr lint`; `just lint-agents`; `just docs-check` | `passed` for the migration commits (38 focused tests; lint 19 records after retirement). |
+| Focused Ruff/pyrefly on changed documentation scripts | `passed`. |
+| `just test-all` (2026-09-25 attempt, before the migration) | `failed` then corrected: 313/313 release Rust and 110/112 Python passed; the two stale tool-list expectations were fixed (`test_server.py` 12/12 `passed`). The rerun was stopped at operator direction; a complete pass is **not observed**. |
 | Fresh `just pilot`; Q01/Q03/Q05/Q09; structured evaluation; clean-wheel query; increment-end review | `not_run`; Stage 3 functionality and exit are incomplete. |
-| Follow-up probes: `uv run --no-sync python -B …/run.py`, `…/reach_probe.py`, `…/literal_probe.py`, and serving `…/probe.py` | `passed`; [review §10](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#10-verification-and-uncertainty) gives full commands and evidence. Actual-source kernel/reach, cached-release real-provider access, and current Python over an existing generation are separate scopes. No integrated gate was run. |
-| Follow-up `git diff --check`; `uv run --no-sync python -B -` (local Markdown link/anchor inspection); `git check-attr filter -- …/raw/…` | `passed`; review/evidence/status references checked, STATUS within 60 lines, raw outputs covered by existing LFS policy. |
+| Reasoning-review probes (kernel, reach, access, serving) | `passed` as diagnostics on 2026-09-25: they reproduce defects, not conformance ([follow-up review §10](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#10-verification-and-uncertainty)). |
 
 ## Known failures, blocks and decisions
 
-- The two independent core-3.0 calibration reviews conclude **Revise**. Source inspection found native rejection of the compiler's finalizer proof kind, summary policy coupled to acquisition, and discarded refusal causes. [Plan §6](docs/plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition) owns their current dispositions and closure checks. No production fixes or runtime reproduction were performed in this process revision.
-- Historical schema repairs remain: raw value-flow contribution keys distinguish local/upstream transfer flags (compiler output version 74); multi-release validation selects one distinct snapshot; MRO shape validation compares distinct ancestor facts with provenance. Reviewed schema, rule, codebook and fixture snapshots were accepted in the functional session.
-- The preliminary full gate did not finish. In particular, the post-fix whole Python suite, pyrefly, rules, fixture parsing, dependency policy and gold checks have no observed current-tree pass; record the operator's pass assumption separately. The pilot and all Stage 3 exit measurements are still absent.
-- The plan's functional queue retains predecessor completion, other frame/callback/resource fates, SCC composition, path-specific identity, dynamic-schema Pydantic effects and full native evidence/filters. An empty summary remains unknown, never refuted.
-- ADR-0020, ADR-0024, ADR-0025 and ADR-0028 remain proposed. ADR-0039 supersedes ADR-0038; ADR-0037 supersedes ADR-0036. Accepted ADR-0040 supersedes ADR-0023 and replaces the cadence clauses carried by ADR-0021/0026; their unrelated decisions remain in force.
-- Reasoning-review findings (original F01–F16, follow-up F01–F08) and ARC-01–03 are scheduled in the [forward plan §6](docs/plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), the single disposition owner. None is fixed; documentation migration in progress.
+- Open product defects and their closure checks are forward-plan §6 items; none is fixed. The
+  most consequential: native proof-kind admission (W1), unsupported no-read claims for
+  qualified/aliased builtin access (W4), lost facet verdicts and claim citations in serving (W2,
+  W3), summary policy coupled to acquisition with discarded refusal causes (W5), `Model::reach`
+  not a fixed point (W7), and BDD decision/support/aggregate budget defects (W6).
+- ADR-0020, ADR-0024, ADR-0025 and ADR-0028 remain proposed (open choices); acceptance of
+  ADR-0043–0047 restates decisions already in force and certifies no implementation.
+- The complete gate, fresh pilot and every Stage 3 exit measurement are outstanding; the
+  operator's expectation that the interrupted gate passes is an assumption.
+- Moved-aside stores under `build/store-pre-*` and `build/store-stage3-*` await the operator.
 
 ## Next
 
-Start with [ARC-01](docs/plans/behavioral-model-forward-plan_2026-09-24.md#ARC-01): derive native proof-kind admission from the schema codebook and verify a real finalizer-bearing generation. Then establish explicit summary inputs/outcomes under ARC-02/03 while building the compatible-predecessor normal-outcome witness. Preserve self-recursion, finite-base and disjoint-branch controls. Follow the plan queue through non-call predecessors and SCC composition; run the complete gate, fresh pilot and evaluation/serving checks at integrated exit.
-
-Before extending or relying on the reviewed negative/serving claims, reconcile the [follow-up priorities](docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#12-architectural-judgment-and-decision) with that queue. Preserve original finding IDs and one disposition owner; the review proposes scheduling but does not perform it.
+Documentation: finish M5 (publication) and M6 (focused acceptance, assembled review, handoff),
+then retire the migration plan. Product: start with W1 (ARC-01), deriving native proof-kind
+admission from the schema contract and verifying a real finalizer-bearing generation; then W4
+and W5 before any new SCC or limit policy (forward plan §3.1).

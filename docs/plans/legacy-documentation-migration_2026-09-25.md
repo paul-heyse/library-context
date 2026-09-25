@@ -41,7 +41,7 @@ forward plan nor schedules production changes itself. Its eventual deletion is p
 | `docs/design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md` | Original F01–F16; open findings and candidate mechanisms |
 | `docs/design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md` | Qualifications to the original findings in §7.1, eight additional findings, and revised priorities in §12 |
 | [Architecture map](../design/README.md), [DESIGN](../design/DESIGN.md), [ADR index](../adr/README.md) | Present authority, including accepted targets and inconsistencies to resolve |
-| [Documentation implementation plan](architectural-documentation-and-search_2026-09-25.md), [ADR-0041](../adr/0041-architectural-documentation.md), [publishing operations](../publishing.md) | Already implemented publication/section infrastructure; retain its useful mechanisms |
+| Documentation implementation plan (`docs/plans/architectural-documentation-and-search_2026-09-25.md`, retired), [ADR-0041](../adr/0041-architectural-documentation.md), [publishing operations](../publishing.md) | Already implemented publication/section infrastructure; retain its useful mechanisms |
 | [ADR-0040](../adr/0040-architecture-change-scenarios.md), [binding](../design_review/design_principles/binding/library-context.md) | Architecture principles, proportional review, evidence labels and one current disposition owner |
 | [STATUS](../../STATUS.md) | Actual checkpoint and bounded qualification receipts; preserve concurrent edits |
 
@@ -399,7 +399,7 @@ Deleted at completion. Pre-removal revision: `df52bafb27bc7ff40658a81108f03e1452
 - [x] M1: forward plan revised; 27 findings in §6; both reviews marked transferred.
 - [x] M2: ADR-0042 accepted after target review (F01–F05 applied); ADR tooling and process instructions.
 - [x] M3: eight section owners rewritten; ADR-0043–0047 consolidate 0010–0014, 0017, 0019, 0022, 0027, 0029–0035, 0037, 0039.
-- [ ] M4: retirement.
+- [x] M4: 155 tracked paths retired at the commit after `f54b09d`; 19 ADRs, 3 reviews, 12 evidence folders remain.
 - [ ] M5: publication.
 - [ ] M6: acceptance and handoff.
 

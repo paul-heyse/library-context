@@ -1,12 +1,12 @@
 # Evidence
 
 Probes, spikes and investigations that informed a decision, kept so they are not recreated and so
-a later reader can see what a decision rested on. Evidence, never authority: DESIGN.md and the ADRs
-decide (binding §4). Folder created by the operator, 2026-09-24.
+a later reader can see what a decision rested on. Evidence, never authority: the architectural
+collection and the ADRs decide (binding §4).
 
 **Layout.** One folder per investigation, `YYYY-MM-DD_<topic>/`, with:
 - `README.md`: the question, how it was run (commands, versions, machine), the result, and which
-  review, ADR, plan or deviation cites it;
+  review, ADR or plan item consumes it;
 - the probe's sources (small text, tracked normally);
 - `raw/` for raw tool output (Git LFS, with PDFs, archives, Arrow and Parquet; `.gitattributes`).
 
@@ -16,13 +16,20 @@ its recorded output.
 
 ## Index
 
-| Folder | Question | Cited by |
+A folder stays while a current decision, open finding, test or build consumes it; otherwise it is
+removed and recovered from Git (ADR-0042, [historical recovery](../../README.md#historical-recovery)).
+
+| Folder | Question | Current consumer |
 |---|---|---|
-| [`2026-09-24_translator-atom-identity`](2026-09-24_translator-atom-identity/) | Does the ty → condition translation drop feasible paths? (P1 translator, P2 CPython `sys.monitoring`) | `design_review_external-review-assessment_2026-09-24.md` (X1–X3, X6); forward plan Stage 2.9 |
-| [`2026-09-24_bdd-biodivine`](2026-09-24_bdd-biodivine/) | Is biodivine-lib-bdd 0.6.3 fit as the condition kernel? (P3) | The assessment (X4, E12); forward plan Stage 3.0; decision D-11 |
-| [`2026-09-24_crosshair`](2026-09-24_crosshair/) | Does CrossHair 0.0.110 run on 3.14 and find operator differences? (P4) | The assessment (E8, E22); forward plan Stage 3.1 |
-| [`2026-09-24_pysa-spike`](2026-09-24_pysa-spike/) | Does Pysa (pyre-check 0.10.0, Pyrefly) run offline on FastMCP 4.0.5, and at what cost? | Deviation B21; forward plan Stage 3.5 |
-| [`2026-09-24_stage3-design-notes`](2026-09-24_stage3-design-notes/) | Working notes on resolving `call_transfer` by summaries | Forward plan Stage 3.3 (superseded by it where they differ) |
-| [`2026-09-24_fastmcp-channel-prevalence`](2026-09-24_fastmcp-channel-prevalence/) | How common is each behavior channel in FastMCP 4.0.5? | The pivot plan's §2 baseline; the behavioral-model pivot review |
-| [`earlier-probes`](earlier-probes/) | Spikes from 2026-09-22 to 2026-09-24, sources only | See `earlier-probes/README.md` |
-| [`research`](research/) | Papers and documentation pages read for the behavioral-model pivot review | `design_review_behavioral-model-pivot_2026-09-24.md` (Appendix C) |
+| [`2026-09-24_bdd-pilot-survey`](2026-09-24_bdd-pilot-survey/README.md) | Can the published pilot's conditions convert to BDDs, and at what size? | ADR-0024 (proposed kernel allowance) |
+| [`2026-09-24_test-leaf-proof-joins`](2026-09-24_test-leaf-proof-joins/README.md) | Do test leaves and entry values join to proof rows by source identity? | ADR-0024 |
+| [`2026-09-24_entry-value-bridge`](2026-09-24_entry-value-bridge/README.md) | When is an entry formal stable up to a guard use? | ADR-0025 (proposed native executor) |
+| [`2026-09-24_rust-build-performance`](2026-09-24_rust-build-performance/README.md) | Which development build configuration reuses cached work? | ADR-0026 |
+| [`2026-09-24_typing_cast_model_oracle`](2026-09-24_typing_cast_model_oracle/README.md) | Does the `typing.cast` identity model agree with CPython? | Behavioral analysis §9.9 |
+| [`2026-09-25_typing_assert_type_model_oracle`](2026-09-25_typing_assert_type_model_oracle/README.md) | Does the `typing.assert_type` identity model agree with CPython? | Behavioral analysis §9.9 |
+| [`2026-09-25_pysa-tito-rule`](2026-09-25_pysa-tito-rule/README.md) | Does a real Pysa source→sink rule give an independent TITO control? | `cpg-core` test `pysa_tito_control_uses_the_same_source_as_finite_summary_fixture`; validation §8.1 |
+| [`2026-09-24_z3-5-migration`](2026-09-24_z3-5-migration/README.md) | Can the vLLM service's tilelang build against Z3 5? | `services/vllm` (its tilelang wheel is referenced from here) |
+| [`2026-09-25_bdd-decision-apis`](2026-09-25_bdd-decision-apis/README.md) | Which biodivine decision APIs decide what the kernel refuses? | Forward plan W6/W11 (reasoning review F01–F03) |
+| [`2026-09-25_library-fit-followup-kernel`](2026-09-25_library-fit-followup-kernel/README.md) | Actual-kernel decision refusal, support history, catalog hydration | Forward plan W6 |
+| [`2026-09-25_library-fit-followup-flow`](2026-09-25_library-fit-followup-flow/README.md) | Cycle-head reach and qualified/aliased builtin access | Forward plan W4, W7 |
+| [`2026-09-25_library-fit-followup-serving`](2026-09-25_library-fit-followup-serving/README.md) | Facet verdicts and claim citations in served projections | Forward plan W2, W3 |

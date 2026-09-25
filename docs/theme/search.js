@@ -14,14 +14,15 @@ modal.innerHTML = `
   <pagefind-modal-header><pagefind-input></pagefind-input></pagefind-modal-header>
   <pagefind-modal-body>
     <label class="search-scope">Search in
-      <select aria-label="Search scope">
-        <option>Current</option><option>Reference</option><option>History</option><option>Everything</option>
-      </select>
+      <select aria-label="Search scope"></select>
     </label>
     <pagefind-summary></pagefind-summary><pagefind-results></pagefind-results>
   </pagefind-modal-body>
   <pagefind-modal-footer><pagefind-keyboard-hints></pagefind-keyboard-hints></pagefind-modal-footer>`;
 const scope = modal.querySelector('select');
+// The publisher lists only scopes that have pages; Everything spans them.
+const scopes = document.querySelector('meta[name="doc-scopes"]')?.content.split(',') ?? ['Current', 'Everything'];
+for (const name of scopes) scope.append(new Option(name, name));
 scope.addEventListener('change', () => instance.triggerFilter('scope', scope.value === 'Everything' ? [] : [scope.value]));
 // Reset scope whenever the library opens a new dialog, including keyboard opens.
 new MutationObserver(() => {

@@ -1,5 +1,0 @@
- Downloading crates ...
-  Downloaded ruff_macros v0.0.11
-  Downloaded ruff_python_stdlib v0.0.11
-  Downloaded ruff_index v0.0.11
-  Downloaded ruff_python_semantic v0.0.11
