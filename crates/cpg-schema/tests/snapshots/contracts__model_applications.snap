@@ -6,6 +6,7 @@ table model_applications
 family findings
 key snapshot_id, call_site_node_id, pysa_fact_id, model_id
 check revision_positive: revision > 0
+check target_count_nonnegative: target_count >= 0
 @lctx.family=findings
 @lctx.table=model_applications
 snapshot_id: FixedSizeBinary(16) NOT NULL
@@ -24,4 +25,6 @@ target_origin: Int16 NOT NULL [lctx.codebook=origin]
 phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
 candidate_set_complete_under_model: Boolean NOT NULL
 has_unresolved_remainder: Boolean NOT NULL
+target_count: Int64 NOT NULL
+target_normal_return: Boolean NOT NULL
 model_origin: Int16 NOT NULL [lctx.codebook=origin]

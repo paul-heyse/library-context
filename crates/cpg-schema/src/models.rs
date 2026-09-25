@@ -1086,7 +1086,12 @@ mod tests {
             ..definition.clone()
         };
         assert!(catalog
-            .bind_targets(snapshot_id, &[context.clone()], &[module.clone()], &[class_definition])
+            .bind_targets(
+                snapshot_id,
+                std::slice::from_ref(&context),
+                std::slice::from_ref(&module),
+                &[class_definition],
+            )
             .is_err());
         let parameter = ContextParametersRow {
             snapshot_id,

@@ -1869,6 +1869,21 @@ budget = 1
         13,
         "each pinned model applies only at its resolved source call"
     );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM model_applications a \
+             JOIN model_targets t ON t.model_id = a.model_id \
+               AND t.target_node_id = a.target_node_id \
+             WHERE a.target_normal_return AND a.target_count = 1 \
+               AND a.candidate_set_complete_under_model \
+               AND NOT a.has_unresolved_remainder \
+               AND t.target_key IN ('stdlib:3.14.7:typing.cast', \
+                                    'stdlib:3.14.7:typing.assert_type')"
+        )
+        .await > 0,
+        "the exact typing calls retain both the pinned completion assertion and target closure"
+    );
     assert_eq!(
         count(
             &ctx,
@@ -1983,6 +1998,32 @@ budget = 1
     );
     assert!(
         violations.iter().any(|v| v.rule == boundary_rule),
+        "{violations:?}"
+    );
+    ctx.deregister_table("model_applications").unwrap();
+    ctx.register_table("model_applications", original_applications)
+        .unwrap();
+
+    let original_applications = sql::query(&ctx, "SELECT * FROM model_applications")
+        .await
+        .unwrap()
+        .into_view();
+    let forged_completion = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (target_normal_return), \
+         false AS target_normal_return FROM model_applications",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("model_applications").unwrap();
+    ctx.register_table("model_applications", forged_completion)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-application-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("model_applications").unwrap();

@@ -104,7 +104,7 @@ table!(
     ModelApplications, ModelApplicationsRow = "model_applications",
     family = Findings,
     key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id],
-    checks = [("revision_positive", "revision > 0")],
+    checks = [("revision_positive", "revision > 0"), ("target_count_nonnegative", "target_count >= 0")],
     {
         snapshot_id: Id,
         call_site_node_id: Id,
@@ -122,6 +122,11 @@ table!(
         phase: InvocationPhase,
         candidate_set_complete_under_model: bool,
         has_unresolved_remainder: bool,
+        /// Number of resolved call targets, including those without an authored model.
+        target_count: i64,
+        /// The selected pinned model target asserts normal return after argument evaluation;
+        /// this alone does not establish completion of this source call.
+        target_normal_return: bool,
         model_origin: Origin,
     }
 );
@@ -1522,6 +1527,7 @@ crate::relations! {
                     m.target_module_fact_id, m.target_definition_fact_id, m.revision, \
                     f.modality AS target_modality, f.origin AS target_origin, p.phase, \
                     r.candidate_set_complete_under_model, r.has_unresolved_remainder, \
+                    r.target_count, m.normal_return AS target_normal_return, \
                     m.origin AS model_origin \
              FROM call_targets t \
              JOIN model_targets m ON m.target_node_id = t.target_node_id \

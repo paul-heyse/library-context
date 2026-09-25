@@ -79,7 +79,7 @@ pub struct Published {
 /// 54: finite direct identity-return summary seeds with structural condition decisions.
 /// 55: explicit incomplete parameter-to-return summary boundaries.
 /// 56: pinned model targets carry an explicit total-normal-return assertion.
-pub const COMPILER_OUTPUT_VERSION: u32 = 56;
+pub const COMPILER_OUTPUT_VERSION: u32 = 57;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
