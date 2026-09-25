@@ -195,10 +195,12 @@ Outputs are test results and findings. They never change a static conclusion dir
 
 ## 5. Stages
 
-Each stage ends with `just test-all`, `just pilot` (stage timings and peak RSS), a `compact`
-review, and a handoff. Where a stage review coincides with an increment's end, one review at the
-increment's depth covers both. Commits are small, name the stage and ADR, and state the test
-outcome.
+During design and implementation, use focused checks and small commits that state the check
+outcome (`not_run` where appropriate). Run `just test-all` and `just pilot` once at the end of the
+integrated Stage 3 scope, with stage timings and peak RSS. Keep the planned reviews and handoffs;
+where a stage review coincides with an increment's end, one review at the increment's depth covers
+both. This cadence supersedes the earlier per-stage full-gate wording (operator direction,
+2026-09-24).
 
 **Increments** (DESIGN §1.2):
 - increment 4 is Stages 2.9–3, ending with a `compact` review;
@@ -382,7 +384,7 @@ boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for co
   pivot (ADR-0025) before acceptance.
 - **Design-phase loop:** use focused kernel/translator tests, editable `uv run` import and
   targeted probes while the node relation, proof contracts and served API are being designed.
-  Run the broader repository and pilot gates at product checkpoints. At Stage 3.6 acceptance,
+  Run the broader repository and pilot gates at the integrated Stage 3 end. At Stage 3.6 acceptance,
   after the generation format and served API settle, build and clean-install one wheel and
   exercise a generation-pinned FastMCP/native query; repeat that check for release.
 
@@ -390,6 +392,101 @@ boundary is DataFusion for relations, Rust or Ascent for recursion, Arrow for co
 Q09) passes. Then increment 4's `compact` review.
 
 **Closes:** X4; the superseded plan's F4 (the models part) and F8 (the data-file part).
+
+#### Stage 3 execution contract (Proposed, 2026-09-24)
+
+This section resolves the implementation order and representation boundaries of items 0–7.
+It does not widen their exit rule. The first direct entry-formal → test-use relation is
+**Implemented and Tested**; its 2026-09-24 pilot published 102 positive links. No typed
+contradiction or served compatibility result follows from that count.
+
+1. **Finish identity before theory.** Keep `flow_test_types` as Pyrefly observation and
+   `flow_test_value_links` as a separate positive proof. Extend the link origin codebook only
+   for a transfer whose entry formal, operand use, condition and intervening effects have cited
+   witnesses. A missing, ambiguous or capped join stays `unknown`. Do not infer identity from
+   parameter spelling, type annotation, enclosing span alone, or a post-call reaching row.
+   Preserve the current direct origin's exact no-effect contract as a stable baseline.
+2. **Give exact runtime origins their own relation.** Admit a literal value or a runtime
+   `type(value) is <builtin>` guard only with exact operand attribution, a cited branch
+   condition, and a same-value witness from the guard's use to the later use. `isinstance`, a
+   narrowed Pyrefly type, an annotation, and a protocol are not exact class origins. Extend the
+   closed atom language with a typed exact-type test if the guard cannot be represented without
+   opaque text; append its codebook entry and migrate the condition format explicitly. The
+   origin row cites the test leaf, operand use, condition root, runtime class/value, and the
+   value-stability link. Keep an unproved origin absent, never a broad fallback.
+   Resolve both `type` and its class operand to the intended builtins using lexical/reference
+   facts; the spelling alone is insufficient. The trusted one-argument builtin `type(value)`
+   call is effect-free for the argument value; document that exemption in the same effect-rule
+   digest as the link producer. A later use across this guard needs a path-specific stability
+   witness instead of the current blanket prior-predicate barrier. A default literal is not an
+   exact entry-formal value when callers may pass an argument; a query-supplied literal is a
+   separate exact query origin.
+3. **Use the existing BDD for the primitive theory.** Derive bounded constraints only for
+   atoms proved to concern the same stable entry value. Safe initial exclusions are `is_none`
+   against a proved non-`None` singleton, and unequal string equality tests when the value is
+   proved to be exact builtin `str`. Do not treat `==` like `is`, or assume distinct integer
+   and Boolean literals compare unequal (`1 == True`). A query about an operation's formal
+   introduces a separate query atom; checked links and exact-origin witnesses provide the
+   equivalences or exclusions that connect it to source evaluation atoms. Conjoin these
+   constraints with the existing diagram through the kernel's node- and pair-work-capped apply.
+   A cap, unproved link or unproved exact origin returns `unknown` with a boundary; it never
+   becomes `false`. This uses biodivine-lib-bdd 0.6.3's bounded Boolean operations instead of
+   introducing Z3 for a small, closed primitive theory. Add Z3 only if a registered question
+   requires arithmetic, order or another theory that the Boolean constraints cannot express.
+4. **Compile models as typed data, not a third string interpreter.** Parse committed TOML with
+   serde's unknown-field rejection into tagged input/output path, transfer, effect, callback,
+   resource and exception variants. One canonical renderer emits the DESIGN §9.9 access-path
+   spelling for Arrow and display; model authors do not hand-author another free-text grammar.
+   Model identity includes file bytes, target callable identity, target library pin and model
+   revision. The catalog digest joins `compiler_digest`; malformed or unresolved targets fail
+   before publication. Distinguish a model of a dependency callable from an observation of the
+   analyzed release, and keep `synthetic_model` provenance on its derived effects. Author the
+   Stage 3.1 list in small families (pure identity/value constructors; I/O and serialization;
+   async/timeouts/context; pydantic and HTTP), using pinned library source/docs. CrossHair
+   checks pure models in an isolated worker; a timeout or unexplored path is inconclusive.
+5. **Derive the remaining L2 relations before summaries.** `handlers` names caught types and
+   the action on each normal and exceptional exit; `callbacks` distinguishes storage,
+   registration, forwarding and invocation; `resources` names acquire/release and the exit path;
+   `exits` distinguishes normal return, raise and `finally`. Keep candidate/open dispatch and
+   suppressing context managers as boundaries until a model proves an action. Use Ruff syntax
+   identity, ty flow and DataFusion joins for local relations; do not infer a handled exception
+   or invoked callback from syntactic containment. Each relation gets a schema, codebook where
+   needed, publication validator and one positive plus one withholding case.
+6. **Compose finite summaries with existing graph and condition kernels.** Resolve call targets
+   relationally, use petgraph's SCC decomposition with callees first, then a monotone worklist
+   within each SCC. Canonical summary keys contain callable, input/output resolved paths,
+   effect or transfer kind, condition root and cited call/model facts. Cap path depth, BDD nodes,
+   pair work and SCC iterations; exhaustion writes `summary_boundaries` and makes dependent
+   verdicts `unknown`. A complete summary may refute a transfer only when all candidate calls,
+   handlers and modeled effects are closed. Keep DataFusion for joins and petgraph for SCCs;
+   add Ascent only on the plan's repeated-recursive-rule trigger. Record the initial 6,137
+   `call_transfer` claims and the exact number discharged or still unknown on the end pilot.
+7. **Check independent claims with the matching oracle.** CrossHair `diffbehavior` checks pure
+   model semantics; only exhausted paths support an equivalence claim. Pysa runs on the pinned
+   source with a rule that actually joins source and sink and with its pyrefly binary specified;
+   compare TITO sets, treating `obscure` and silence as inconclusive. Hypothesis drives small
+   generated Python programs under CPython 3.14 `sys.monitoring` for observed flow/exits; it
+   uses a private tool id, explicit profile, bounded examples, temporary storage and a timeout.
+   The generated programs are isolated; analyzed libraries and `fixtures/python/` are never
+   executed. These oracles disagree independently with the Rust producer; none writes facts.
+8. **Serve one validated FORMAT 7 generation.** Add structural condition ids, proof rows and
+   summary rows to the serving projection and manifest, all tied to one snapshot and checked
+   before the native executor admits them. PyO3 owns one immutable indexed executor per process;
+   the Python FastMCP layer only validates requests and shapes structured results. A
+   compatibility request names a real public operation/formal and a typed primitive predicate.
+   The result carries the verdict, model revision, proof ids and source spans, plus explicit
+   `unknown`, `truncated`, work count and cursor fields. Missing proof is `unknown` even if raw
+   BDD atoms happen to be compatible. Row, node, pair-work and depth bounds are checked before
+   allocation/traversal. Search and direct lookup continue using their materialized routes.
+
+**Design-phase verification policy (operator direction, 2026-09-24):** use focused compile and
+counterexample probes while these contracts are settled. Do not run `just test-all` or the full
+`just pilot` after each slice. At the end of the integrated Stage 3 implementation, run
+`just fmt`, `just test-all`, the fresh-store `just pilot` and Stage 3 structured evaluation,
+then the clean wheel/generation-pinned FastMCP-native query and increment-end review. Release
+profile Rust artifacts are cached across ordinary test invocations; a test's data store may be
+fresh, reused or empty according to that test's purpose. The opt-in build-measurement campaign
+continues to measure cold compilation and is not an acceptance-test recipe.
 
 ### Stage 4: the capability registry (unchanged in scope; the superseded plan's §15 applies)
 
@@ -558,7 +655,8 @@ stage's output is read.
 
 ## 13. Standing conventions
 
-- Small commits to `main`, each naming its stage and ADR and stating the `just test-all` outcome.
+- Small commits to `main`, each naming its stage and ADR and stating the focused check outcome;
+  mark the full integrated gate `not_run` until the Stage 3 end.
   Never push, force-push or `reset --hard`.
 - Snapshot changes: read the `.snap.new`, then `cargo insta accept`; a schema snapshot change is a
   declared migration. Never run `cargo insta review`.

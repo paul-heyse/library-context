@@ -52,9 +52,9 @@ real consumer.
 
 | When | Run |
 |---|---|
-| Default loop while working | `just check`: fmt-check, clippy `-D warnings`, nextest, pytest + pyrefly, rules scan and rule tests, `adr lint`, `lint-agents` |
-| Before committing | `just test-all`: adds fixture parsing, `just deps` and `just gold` (the fastmcp skill and `libraries/fastmcp` name one FastMCP) |
-| The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`, printing rows and per-stage time and peak RSS; report its outcome at every slice end |
+| During a design/implementation phase | Use focused compile, probe, and behavior checks only where they resolve a material question. Do not run the fully integrated gate after each slice or commit. |
+| At the end of the integrated scope | `just test-all`: fmt-check, clippy `-D warnings`, release-profile nextest, pytest + pyrefly, rules, ADR/agent lint, fixture parsing, `just deps` and `just gold` |
+| The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`, printing rows and per-stage time and peak RSS. Run at the integrated end; report `not_run` for interim slices. |
 | Inspect a published snapshot | `target/release/lctx query --store build/store --snapshot <hex> "SQL"` (read-only; every table by name at its recorded version) |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt` |
@@ -105,6 +105,10 @@ capability is absent.
 
 ## Testing rules
 
+- Full `just test-all` and `just pilot` runs are end-of-scope acceptance, not the design loop.
+  Run focused checks during design, then run both once the integrated Stage 3 scope is ready;
+  repeat only for a failure or a subsequent material change. Reuse cached release-profile Rust
+  code for tests. Test data may be fresh, existing, or empty according to the test's purpose.
 - **Schema contracts** are insta snapshots. `just check` runs with `INSTA_UPDATE=no`. To accept
   a change, read the `.snap.new` diff first, then run `cargo insta accept`. Never run
   `cargo insta review`, which is interactive. A schema snapshot change is a schema migration,
