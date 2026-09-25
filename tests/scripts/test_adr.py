@@ -199,3 +199,100 @@ def test_moved_section_inherits_only_its_logical_parent(root: Path) -> None:
     assert any("no `> Decision:`" in problem for problem in adr.lint(root, check_git=False))
     owner.unlink()
     assert any("does not resolve" in problem for problem in adr.lint(root, check_git=False))
+
+
+def commit_all(root: Path, message: str) -> None:
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", message)
+
+
+def init_repo(root: Path) -> None:
+    git(root, "init", "-q")
+    git(root, "config", "user.email", "t@example.com")
+    git(root, "config", "user.name", "t")
+
+
+def test_a_retired_predecessor_is_history_but_a_missing_governing_record_fails(
+    root: Path,
+) -> None:
+    new(root, "old")
+    run(root, "supersede", "ADR-0001", "replacement")
+    replacement = root / "docs" / "adr" / "0002-replacement.md"
+    adr.set_field(replacement, "design", "[§B1]")
+    adr.set_field(replacement, "status", "accepted")
+    decide(root, "ADR-0002")
+    (root / "docs" / "adr" / "0001-old.md").unlink()
+    design = root / "docs" / "design" / "DESIGN.md"
+    design.write_text(design.read_text().replace("> Decision: ADR-0001\n", ""))
+    run(root, "index")
+    assert adr.lint(root, check_git=False) == []
+    index = (root / "docs" / "adr" / "README.md").read_text()
+    assert "| ADR-0001 |" in index and "(0001-old.md)" not in index
+    assert "historical recovery" in index
+    design.write_text(design.read_text() + "Governed by ADR-0001.\n")
+    assert adr.lint(root, check_git=False) == ["DESIGN.md cites ADR-0001, which does not exist"]
+
+
+def test_a_retained_superseded_record_needs_a_retained_successor(root: Path) -> None:
+    new(root, "old")
+    run(root, "supersede", "ADR-0001", "replacement")
+    (root / "docs" / "adr" / "0002-replacement.md").unlink()
+    run(root, "index")
+    problems = adr.lint(root, check_git=False)
+    assert any("superseded-by ADR-0002 does not exist" in p for p in problems)
+
+
+def test_only_an_accepted_record_may_replace_a_retired_one(root: Path) -> None:
+    new(root, "old")
+    run(root, "supersede", "ADR-0001", "replacement")
+    replacement = root / "docs" / "adr" / "0002-replacement.md"
+    adr.set_field(replacement, "design", "[§B1]")
+    decide(root, "ADR-0002")
+    (root / "docs" / "adr" / "0001-old.md").unlink()
+    design = root / "docs" / "design" / "DESIGN.md"
+    design.write_text(design.read_text().replace("> Decision: ADR-0001\n", ""))
+    run(root, "index")
+    assert any(
+        "supersedes retired ADR-0001 but is proposed" in p for p in adr.lint(root, check_git=False)
+    )
+    adr.set_field(replacement, "status", "accepted")
+    run(root, "index")
+    assert adr.lint(root, check_git=False) == []
+
+
+def test_supersede_rejects_a_missing_live_predecessor(root: Path) -> None:
+    with pytest.raises(SystemExit, match="no such ADR"):
+        run(root, "supersede", "ADR-0007", "replacement")
+
+
+def test_new_numbers_above_retired_records_in_history(root: Path) -> None:
+    init_repo(root)
+    new(root, "first")
+    second = new(root, "second")
+    commit_all(root, "two records")
+    second.unlink()
+    commit_all(root, "retire the second")
+    assert adr.create(root, "third", "third", []).name == "0003-third.md"
+
+
+def test_new_refuses_a_shallow_history_but_lint_works(
+    root: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    init_repo(root)
+    first = new(root, "first")
+    new(root, "second", "[§4.2]")
+    commit_all(root, "two")
+    first.unlink()
+    design = root / "docs" / "design" / "DESIGN.md"
+    design.write_text(design.read_text().replace("> Decision: ADR-0001\n", ""))
+    run(root, "index")
+    commit_all(root, "retire the first")
+    clone = tmp_path_factory.mktemp("shallow") / "clone"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{root}", str(clone)],
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(SystemExit, match="git fetch --unshallow"):
+        adr.next_number(clone)
+    assert adr.lint(clone) == []

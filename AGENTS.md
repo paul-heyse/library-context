@@ -28,7 +28,7 @@ real consumer.
 1. Read `STATUS.md`: where we are and what's next.
 2. For design questions, start at `docs/design/README.md`, then read the relevant owner in
    `docs/design/DESIGN.md` or `docs/design/sections/` and adjacent consumers. Read
-   `docs/adr/README.md` for rationale and supersession. `docs/initial_plan/Initial_plan.md` is
+   `docs/adr/README.md` for current rationale and open choices. `docs/initial_plan/Initial_plan.md` is
    the research input; don't edit it.
 
 ## Where things are
@@ -138,6 +138,10 @@ capability is absent.
 - **Write an ADR** (the `adr` skill) when a change alters a §B decision, chooses between real
   alternatives, or would surprise a future session. Amend the owning architectural section in the same commit. To pivot,
   supersede the old ADR; accepted ADRs are immutable.
+- **Keep a current working set** (ADR-0042). Update the owner whose meaning changed instead of
+  appending history. When a plan, review, evidence folder or ADR loses its last current consumer,
+  carry its surviving obligations forward and delete it; Git holds it
+  ([historical recovery](docs/README.md#historical-recovery)).
 - **Design reviews** use `design-review` and its declared profiles, usually through the
   `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence
   and tier/purpose selection (ADR-0040). Begin with responsibilities, contracts and expected

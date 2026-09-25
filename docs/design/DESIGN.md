@@ -265,16 +265,22 @@ handoff) each have an end-to-end example. Each example must show:
 
 ## §2 Binding decisions
 
-**Implemented documentation policy and publisher** (ADR-0041, 2026-09-25); focused
-qualification is recorded in the execution plan. Improved reading/change cost remains **Proposed**. Focused
-architecture pages retain stable section IDs and replace moved prose with legacy pointers.
+**Implemented documentation policy and publisher** (ADR-0041, 2026-09-25). Focused
+architecture pages retain stable section IDs; a moved live section leaves a relocation pointer.
 One resolver drives ADR references and the generated section directory. Publication derives
-navigation and search from sources; it does not prove implementation. Documentation upkeep
-follows changes to meaning, boundaries and workflows. The
-[execution plan](../plans/architectural-documentation-and-search_2026-09-25.md) owns adoption.
-ADR-0040's review and disposition ownership remains in force.
+navigation and search from sources; it does not prove implementation. [Publishing
+operations](../publishing.md) owns the commands. Documentation upkeep follows changes to meaning,
+boundaries and workflows; improved reading/change cost remains **Proposed**.
 
-> Decision: ADR-0041
+**Documentation lifecycle** (ADR-0042, 2026-09-25; tooling **Tested** by
+`tests/scripts/test_adr.py`, reading-cost benefit **Proposed**). The checkout holds a current
+working set: architecture owns contracts and targets, current ADRs own reasons and open choices,
+the active plan owns execution and scheduled finding disposition, STATUS the checkpoint. A reader
+never needs a supersession chain or retired plan. Retired records, reviews, plans and evidence are
+recovered from Git ([historical recovery](../README.md#historical-recovery)); governing references
+must resolve, historical `supersedes` entries need not, and ADR ids are never reused.
+
+> Decision: ADR-0041, ADR-0042
 
 
 **Implemented policy (ADR-0040, 2026-09-25).** These are the load-bearing choices. The

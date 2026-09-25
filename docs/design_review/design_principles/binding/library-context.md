@@ -141,7 +141,8 @@ The plan row records source findings, disposition, responsible component, decisi
 links, and closure evidence or revisit trigger. Dispositions are open, in progress, deferred,
 closed or superseded. An accepted ADR is a decision, not implementation or closure. Close a finding
 only when the named evidence establishes its correction; a traced extension or removed competing
-authority can suffice. Preserve closed/superseded rows for traceability.
+authority can suffice. A closed or superseded row can leave the plan once the commit that
+removes the row cites its closure evidence; Git retains it (ADR-0042). Source-review ids stay intelligible.
 
 An action uses the existing route appropriate to it:
 

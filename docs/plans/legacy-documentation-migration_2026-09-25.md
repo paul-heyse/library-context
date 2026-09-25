@@ -397,7 +397,7 @@ Deleted at completion. Pre-removal revision: `df52bafb27bc7ff40658a81108f03e1452
   consumers: `2026-09-25_pysa-tito-rule`, `2026-09-24_z3-5-migration`; one comment in
   `cpg-schema/src/behavior.rs`).
 - [x] M1: forward plan revised; 27 findings in §6; both reviews marked transferred.
-- [ ] M2: lifecycle ADR, ADR tooling, process instructions.
+- [x] M2: ADR-0042 accepted after target review (F01–F05 applied); ADR tooling and process instructions.
 - [ ] M3: section owners and consolidated rationale.
 - [ ] M4: retirement.
 - [ ] M5: publication.

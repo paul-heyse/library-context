@@ -25,3 +25,16 @@ active standard/process, accepted decisions and selected work. **Reference** con
 pins and supporting guidance. **History** contains retired decisions and unselected dated work.
 **Everything** searches all three. A search result's scope is a reading aid, not a truth verdict.
 Evidence labels still apply. Local capability indexes are not bundled into the website.
+
+## Historical recovery
+
+Retired plans, reviews, evidence, research input and ADRs are not part of the working set
+(ADR-0042); current owners carry every surviving obligation, so recovery is never a reading
+prerequisite. To recover a deleted path:
+
+- Find the commit that deleted it: `git log --diff-filter=D --name-only --format=%h -- '<path or glob>'`
+  (for an ADR id, `'docs/adr/NNNN-*'`).
+- Show its last content: `git show <commit>^:<path>`; list a deleted directory with
+  `git ls-tree -r --name-only <commit>^ -- <dir>`.
+- Raw evidence is in Git LFS: `git lfs fetch origin <commit>^ --include=<path>`, then
+  `git show <commit>^:<path> | git lfs smudge`.
