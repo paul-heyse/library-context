@@ -4065,6 +4065,14 @@ query. It does not aggregate an operation-wide compatibility verdict or offer th
 cross-operation compatibility/effect/role filters. Proof steps still carry evidence ids rather
 than source text and full step spans.
 
+**Implemented and Tested (2026-09-25, targeted).** The path-local exact-input kernel now returns
+work evidence even on a budget refusal: checked link rows, completed assignments, the sum of
+BDD input-node-product preflights and the peak result-node count. The native response carries
+these counters per path, and the MCP page sums the first three and takes the peak over displayed
+paths. The pair figure is a conservative preflight bound, not a count of internal BDD visits;
+`examined_rows` separately counts paged summary/boundary rows. Assignment-cap refusal remains
+`unknown` with `budget_reached`. Page totals cover this page only, never unexamined cursor rows.
+
 There is **no negation**: a NOT would read absent facts as false, and Stage 1 makes no negative
 claims. An unknown facet is invalid params. An unknown **value** is invalid params only where
 every operation's rows for that facet are complete, and the error names close values; elsewhere

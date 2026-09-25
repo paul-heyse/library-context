@@ -105,19 +105,21 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
     assert len(paths) == 1
     summary = paths[0][0]
 
-    verdict, proof, boundary = index.assess_value_path(
+    verdict, proof, boundary, theory_work = index.assess_value_path(
         "pkg.controls.strict", "value", summary, "none", "", True
     )
     assert verdict == "refuted_under_model" and boundary is None
     assert len(proof) == 1 and proof[0][1] == "pkg/controls.py"
     assert proof[0][2] < proof[0][3]
+    assert theory_work[0] >= 1 and theory_work[1] == 1 and theory_work[2] > 0
 
     # A satisfiable remainder after a checked link is may-model compatibility only.
-    compatible, linked, boundary = index.assess_value_path(
+    compatible, linked, boundary, theory_work = index.assess_value_path(
         "pkg.controls.strict", "value", summary, "int", "1", True
     )
     assert compatible == "compatible_under_model" and len(linked) == 1
     assert boundary is None
+    assert theory_work[1] == 1
     # `is None` does not depend on a builtin name in the runtime namespace.
     assert index.assess_value_path(
         "pkg.controls.strict", "value", summary, "none", "", False
@@ -128,6 +130,7 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
     )
     assert len(paths) == total == work == 1
     assert paths[0][0] == summary and paths[0][4] == "refuted_under_model"
+    assert paths[0][7][1] == 1
     assert boundaries == [] and not truncated
     assert index.inspect_value_paths(
         "pkg.controls.strict", "value", "none", "", True, 1, 1

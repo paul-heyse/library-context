@@ -30,12 +30,16 @@ def test_native_page_reports_path_local_refutation_and_open_boundary(generation:
     assert not page.truncated and page.next_cursor is None
     assert page.paths[0].exact_input_result == "refuted_under_model"
     assert page.paths[0].value_links[0].path == "pkg/controls.py"
+    assert page.paths[0].theory_work.assignments_applied == 1
+    assert page.theory_work.bdd_preflight_pairs > 0
+    assert page.theory_work == page.paths[0].theory_work
 
     open_page = inspect(
         gen, gen.snapshot_id, "pkg.controls.build", "label",
         ExactPrimitive(kind="str", value="x"), True, 1, None,
     )
     assert open_page.paths == [] and open_page.boundaries[0].reason == "call_transfer"
+    assert open_page.theory_work.bdd_preflight_pairs == 0
     with pytest.raises(OperationError, match="cursor"):
         inspect(gen, gen.snapshot_id, "pkg.controls.strict", "value", exact,
                 True, 1, "not a cursor")
@@ -68,6 +72,7 @@ async def test_value_path_inspection_round_trips_as_structured_mcp(generation: P
             "compatible_under_model"
         )
         assert compatible.structured_content["paths"][0]["value_links"]
+        assert compatible.structured_content["theory_work"]["assignments_applied"] == 1
         with pytest.raises(ToolError):
             await client.call_tool(
                 "inspect_value_paths",

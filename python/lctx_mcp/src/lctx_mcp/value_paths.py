@@ -24,7 +24,7 @@ class ExactPrimitive(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     kind: Literal["none", "bool", "int", "str"]
-    value: None | bool | int | Annotated[str, Field(max_length=500)]
+    value: bool | int | Annotated[str, Field(max_length=500)] | None
 
     @model_validator(mode="after")
     def matching_value(self) -> ExactPrimitive:
@@ -54,6 +54,15 @@ class ValueLinkEvidence(BaseModel):
     end_byte: int
 
 
+class TheoryWork(BaseModel):
+    """Native per-path work; pair count is a preflight upper bound, not visited pairs."""
+
+    links_examined: int
+    assignments_applied: int
+    bdd_preflight_pairs: int
+    peak_bdd_nodes: int
+
+
 class ValuePath(BaseModel):
     summary_id: str
     source_verdict: str
@@ -62,6 +71,7 @@ class ValuePath(BaseModel):
     exact_input_result: Literal["refuted_under_model", "compatible_under_model", "unknown"]
     value_links: list[ValueLinkEvidence]
     boundary_reason: str | None
+    theory_work: TheoryWork
 
 
 class OpenBoundary(BaseModel):
@@ -81,6 +91,7 @@ class ValuePathPage(BaseModel):
     boundaries: list[OpenBoundary]
     total_rows: int
     examined_rows: int
+    theory_work: TheoryWork
     truncated: bool
     next_cursor: str | None
     note: str = (
@@ -143,6 +154,12 @@ def inspect(
         next_cursor = base64.urlsafe_b64encode(
             json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
         ).decode()
+    page_work = TheoryWork(
+        links_examined=sum(row[7][0] for row in rows),
+        assignments_applied=sum(row[7][1] for row in rows),
+        bdd_preflight_pairs=sum(row[7][2] for row in rows),
+        peak_bdd_nodes=max((row[7][3] for row in rows), default=0),
+    )
     return ValuePathPage(
         snapshot_id=gen.snapshot_id, generation=gen.key, operation=path, formal=formal,
         exact_input=exact, standard_builtins=standard_builtins,
@@ -153,8 +170,11 @@ def inspect(
             value_links=[ValueLinkEvidence(link_id=e[0], path=e[1], start_byte=e[2],
                                            end_byte=e[3]) for e in row[5]],
             boundary_reason=row[6],
+            theory_work=TheoryWork(links_examined=row[7][0], assignments_applied=row[7][1],
+                                   bdd_preflight_pairs=row[7][2], peak_bdd_nodes=row[7][3]),
         ) for row in rows],
         boundaries=[OpenBoundary(source_flow_fact_id=r[0], condition_id=r[1], reason=r[2])
                     for r in open_rows],
-        total_rows=total, examined_rows=work, truncated=truncated, next_cursor=next_cursor,
+        total_rows=total, examined_rows=work, theory_work=page_work,
+        truncated=truncated, next_cursor=next_cursor,
     )

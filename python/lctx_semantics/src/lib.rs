@@ -10,7 +10,7 @@ use cpg_schema::condition_kernel::{
 use cpg_schema::id::{Digest, Id, IdHasher};
 use cpg_schema::primitive_theory::{
     BuiltinNamespace, ExactInput, ExactInputOutcome, TestLeaf, TheoryBoundary, ValueLink,
-    assess_exact_input,
+    TheoryWork, assess_exact_input_with_work,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -27,10 +27,16 @@ type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, String)>>;
 type LeafInput = (String, String, String, String, String, Option<String>, i64, i64);
 type LinkInput = (String, String, String, String, String, String, String, String,
     String, String, (Option<String>, i64, i64));
-type RefutationAnswer = (String, Vec<(String, Option<String>, i64, i64)>, Option<String>);
+type WorkAnswer = (usize, usize, usize, usize);
+type RefutationAnswer = (String, Vec<(String, Option<String>, i64, i64)>, Option<String>, WorkAnswer);
 type InspectedPath = (String, String, String, Vec<ProofStep>, String,
-    Vec<(String, Option<String>, i64, i64)>, Option<String>);
+    Vec<(String, Option<String>, i64, i64)>, Option<String>, WorkAnswer);
 type ValuePathPage = (Vec<InspectedPath>, Vec<Boundary>, usize, bool, usize);
+
+fn work_answer(work: TheoryWork) -> WorkAnswer {
+    (work.links_examined, work.assignments_applied,
+        work.bdd_preflight_pairs, work.peak_bdd_nodes)
+}
 
 #[pyfunction]
 fn kernel_format() -> u32 {
@@ -431,10 +437,12 @@ impl SemanticExecutor {
         }
         let summary = &self.summaries[&summary_id];
         if summary.verdict == "unknown" {
-            return Ok(("unknown".to_owned(), Vec::new(), summary.boundary.clone()));
+            return Ok(("unknown".to_owned(), Vec::new(), summary.boundary.clone(),
+                work_answer(TheoryWork::default())));
         }
         let Some(diagram) = self.graph.diagrams.get(&summary.condition_id) else {
-            return Ok(("unknown".to_owned(), Vec::new(), Some("condition_boundary".to_owned())));
+            return Ok(("unknown".to_owned(), Vec::new(),
+                Some("condition_boundary".to_owned()), work_answer(TheoryWork::default())));
         };
         let input = match kind {
             "none" if value.is_empty() => Value::None,
@@ -456,17 +464,20 @@ impl SemanticExecutor {
                     let (path, start, end) = &self.link_spans[link];
                     (link.hex(), path.clone(), *start, *end)
                 }).collect();
-        match assess_exact_input(diagram, query, links, leaves) {
+        let assessment = assess_exact_input_with_work(diagram, query, links, leaves);
+        let work = work_answer(assessment.work);
+        match assessment.outcome {
             Ok(ExactInputOutcome::Refuted(proof)) => Ok(("refuted_under_model".to_owned(),
-                link_evidence(&proof.value_link_ids), None)),
+                link_evidence(&proof.value_link_ids), None, work)),
             Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids }) =>
-                Ok(("compatible_under_model".to_owned(), link_evidence(&value_link_ids), None)),
-            Ok(ExactInputOutcome::Unknown) => Ok(("unknown".to_owned(), Vec::new(), None)),
+                Ok(("compatible_under_model".to_owned(), link_evidence(&value_link_ids), None,
+                    work)),
+            Ok(ExactInputOutcome::Unknown) => Ok(("unknown".to_owned(), Vec::new(), None, work)),
             Err(reason) => Ok(("unknown".to_owned(), Vec::new(), Some(match reason {
                 TheoryBoundary::Kernel(boundary) => boundary.code().to_owned(),
                 TheoryBoundary::AssignmentBudget => "budget_reached".to_owned(),
                 TheoryBoundary::ConflictingProof => "conflicting_proof".to_owned(),
-            }))),
+            }), work)),
         }
     }
 
@@ -496,7 +507,7 @@ impl SemanticExecutor {
         for index in offset..end {
             if let Some(summary_id) = ids.get(index) {
                 let summary = &self.summaries[summary_id];
-                let (result, links, boundary) = self.assess_value_path(
+                let (result, links, boundary, theory_work) = self.assess_value_path(
                     operation_path, formal_name, &summary_id.hex(), kind, value,
                     standard_builtins,
                 )?;
@@ -504,7 +515,7 @@ impl SemanticExecutor {
                     summary.condition_id.hex(), summary.steps.iter()
                         .map(|(step_kind, evidence, condition)|
                             (step_kind.clone(), evidence.hex(), condition.hex())).collect(),
-                    result, links, boundary));
+                    result, links, boundary, theory_work));
             } else {
                 let (source, condition, reason) = &open[index - ids.len()];
                 boundaries.push((source.hex(), condition.hex(), reason.clone()));

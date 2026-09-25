@@ -106,6 +106,22 @@ pub enum ExactInputOutcome {
     Unknown,
 }
 
+/// Work performed for one path. `bdd_preflight_pairs` is the sum of input-node products
+/// considered by the bounded apply, not the number of internal BDD pairs actually visited.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TheoryWork {
+    pub links_examined: usize,
+    pub assignments_applied: usize,
+    pub bdd_preflight_pairs: usize,
+    pub peak_bdd_nodes: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExactInputAssessment {
+    pub outcome: Result<ExactInputOutcome, TheoryBoundary>,
+    pub work: TheoryWork,
+}
+
 /// One operation/formal and its exact query value under an explicit builtin namespace model.
 #[derive(Clone, Copy)]
 pub struct ExactInput<'a> {
@@ -138,6 +154,28 @@ pub fn assess_exact_input(
     links: &[ValueLink],
     leaves: &[TestLeaf],
 ) -> Result<ExactInputOutcome, TheoryBoundary> {
+    assess_exact_input_with_work(condition, query, links, leaves).outcome
+}
+
+/// Retain bounded-work evidence even when an assignment or kernel budget refuses a path.
+pub fn assess_exact_input_with_work(
+    condition: &Diagram,
+    query: ExactInput<'_>,
+    links: &[ValueLink],
+    leaves: &[TestLeaf],
+) -> ExactInputAssessment {
+    let mut work = TheoryWork { peak_bdd_nodes: condition.node_count(), ..TheoryWork::default() };
+    let outcome = assess_exact_input_inner(condition, query, links, leaves, &mut work);
+    ExactInputAssessment { outcome, work }
+}
+
+fn assess_exact_input_inner(
+    condition: &Diagram,
+    query: ExactInput<'_>,
+    links: &[ValueLink],
+    leaves: &[TestLeaf],
+    work: &mut TheoryWork,
+) -> Result<ExactInputOutcome, TheoryBoundary> {
     if condition.is_false() {
         return Ok(ExactInputOutcome::Refuted(Refutation { value_link_ids: Vec::new() }));
     }
@@ -149,6 +187,7 @@ pub fn assess_exact_input(
     let support: BTreeSet<&str> = condition.support().iter().map(String::as_str).collect();
     let mut assignments: BTreeMap<String, (bool, Id)> = BTreeMap::new();
     for link in links {
+        work.links_examined += 1;
         if link.operation_node_id != query.operation_node_id
             || link.formal_node_id != query.formal_node_id
             || link.effect_model_digest != query.effect_model_digest
@@ -200,14 +239,14 @@ pub fn assess_exact_input(
         } else {
             literal.not().map_err(TheoryBoundary::Kernel)?
         };
+        let pair_bound = constrained.node_count().saturating_mul(literal.node_count());
+        work.bdd_preflight_pairs = work.bdd_preflight_pairs.saturating_add(pair_bound);
         remaining_work = remaining_work
-            .checked_sub(
-                constrained
-                    .node_count()
-                    .saturating_mul(literal.node_count()),
-            )
+            .checked_sub(pair_bound)
             .ok_or(TheoryBoundary::AssignmentBudget)?;
         constrained = constrained.and(&literal).map_err(TheoryBoundary::Kernel)?;
+        work.assignments_applied += 1;
+        work.peak_bdd_nodes = work.peak_bdd_nodes.max(constrained.node_count());
         witnesses.push(link_id);
         if constrained.is_false() {
             return Ok(ExactInputOutcome::Refuted(Refutation {
@@ -358,6 +397,17 @@ mod tests {
             .unwrap()
             .is_some()
         );
+        let assessment = assess_exact_input_with_work(
+            &diagram,
+            exact(&link, &Value::Str("http".to_owned()), BuiltinNamespace::Unknown),
+            std::slice::from_ref(&link),
+            std::slice::from_ref(&leaf),
+        );
+        assert!(matches!(assessment.outcome, Ok(ExactInputOutcome::Refuted(_))));
+        assert_eq!(assessment.work.links_examined, 1);
+        assert_eq!(assessment.work.assignments_applied, 1);
+        assert!(assessment.work.bdd_preflight_pairs > 0);
+        assert!(assessment.work.peak_bdd_nodes >= diagram.node_count());
         assert!(
             refute_exact_input(
                 &diagram,
@@ -388,6 +438,15 @@ mod tests {
             .unwrap(),
             ExactInputOutcome::Unknown
         );
+        let unlinked = assess_exact_input_with_work(
+            &diagram,
+            exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
+            &[],
+            std::slice::from_ref(&leaf),
+        );
+        assert_eq!(unlinked.outcome, Ok(ExactInputOutcome::Unknown));
+        assert_eq!(unlinked.work.links_examined, 0);
+        assert_eq!(unlinked.work.bdd_preflight_pairs, 0);
         assert!(
             refute_exact_input(
                 &diagram,
@@ -419,6 +478,40 @@ mod tests {
             .unwrap()
             .is_none()
         );
+    }
+
+    #[test]
+    fn assignment_cap_retains_work_and_never_refutes() {
+        let mut condition = Diagram::always();
+        let mut links = Vec::new();
+        let mut leaves = Vec::new();
+        for index in 0..=MAX_ASSIGNMENTS {
+            let (atom_condition, mut link, mut leaf) = fixture(
+                Atom::IsNone { place: format!("x{index}") },
+                TestValueLinkOrigin::DirectParameterReachNoEffect,
+            );
+            condition = condition.and(&atom_condition).unwrap();
+            link.place = format!("x{index}");
+            link.link_id = Id([index as u8 + 1; 16]);
+            link.leaf_fact_id = Id([index as u8 + 1; 16]);
+            leaf.fact_id = link.leaf_fact_id;
+            links.push(link);
+            leaves.push(leaf);
+        }
+        for (link, leaf) in links.iter_mut().zip(&mut leaves) {
+            link.condition_id = condition.id();
+            leaf.condition_id = condition.id();
+        }
+        let assessment = assess_exact_input_with_work(
+            &condition,
+            exact(&links[0], &Value::None, BuiltinNamespace::Unknown),
+            &links,
+            &leaves,
+        );
+        assert_eq!(assessment.outcome, Err(TheoryBoundary::AssignmentBudget));
+        assert_eq!(assessment.work.links_examined, MAX_ASSIGNMENTS + 1);
+        assert_eq!(assessment.work.assignments_applied, MAX_ASSIGNMENTS);
+        assert!(assessment.work.bdd_preflight_pairs > 0);
     }
 
     #[test]
