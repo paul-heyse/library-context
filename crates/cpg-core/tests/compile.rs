@@ -18,9 +18,9 @@ use cpg_schema::behavior::{
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
 use cpg_schema::codebook::{
-    Codebook, ExitSiteKind, HandlerTypeStatus, Modality, ModelCallbackAction, ModelChannelCoverage,
-    ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction,
-    ModelTransferKind, Origin,
+    Codebook, ExitSiteKind, HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction,
+    ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole,
+    ModelResourceAction, ModelTransferKind, Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -114,7 +114,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 46,
+        52 + 21 + 47,
         "every raw, derived and analysis table"
     );
 
@@ -771,9 +771,83 @@ budget = 1
         3,
         "the cast input and two atexit func paths are compiled from typed model ASTs"
     );
+    assert!(
+        count(&ctx, "SELECT count(*) FROM model_argument_bindings").await >= 3,
+        "each applied modeled formal gets a bound or explicit unknown row"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM model_argument_bindings b \
+                 JOIN model_callbacks c ON c.rule_id = b.rule_id \
+                 JOIN model_applications a ON a.call_site_node_id = b.call_site_node_id \
+                   AND a.pysa_fact_id = b.pysa_fact_id AND a.model_id = b.model_id \
+                 JOIN declarations d ON d.node_id = a.function_node_id \
+                 WHERE d.name = 'on_shutdown' \
+                   AND b.status = {} AND b.argument_node_id IS NOT NULL \
+                   AND b.reason IS NULL",
+                ModelArgumentStatus::Bound.code()
+            )
+        )
+        .await,
+        1,
+        "the positional callback formal binds the exact source argument"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM model_argument_bindings b \
+                 JOIN model_applications a ON a.call_site_node_id = b.call_site_node_id \
+                   AND a.pysa_fact_id = b.pysa_fact_id AND a.model_id = b.model_id \
+                 JOIN declarations d ON d.node_id = a.function_node_id \
+                 WHERE d.name = 'identity_keyword' AND b.formal_name = 'val' \
+                   AND b.status = {} AND b.argument_node_id IS NOT NULL",
+                ModelArgumentStatus::Bound.code()
+            )
+        )
+        .await,
+        1,
+        "a keyword-capable pinned formal binds its named source argument"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM model_argument_bindings b \
+                 JOIN model_applications a ON a.call_site_node_id = b.call_site_node_id \
+                   AND a.pysa_fact_id = b.pysa_fact_id AND a.model_id = b.model_id \
+                 JOIN declarations d ON d.node_id = a.function_node_id \
+                 WHERE d.name = 'on_shutdown_keyword' AND b.status = {} \
+                   AND b.reason IS NOT NULL AND b.argument_node_id IS NULL",
+                ModelArgumentStatus::Unknown.code()
+            )
+        )
+        .await,
+        2,
+        "a positional-only pinned formal is not bound by a named argument"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM model_argument_bindings b \
+                 JOIN model_applications a ON a.call_site_node_id = b.call_site_node_id \
+                   AND a.pysa_fact_id = b.pysa_fact_id AND a.model_id = b.model_id \
+                 JOIN declarations d ON d.node_id = a.function_node_id \
+                 WHERE d.name = 'on_shutdown_unpacked' AND b.status = {} \
+                   AND b.reason IS NOT NULL AND b.argument_node_id IS NULL",
+                ModelArgumentStatus::Unknown.code()
+            )
+        )
+        .await,
+        2,
+        "starred arguments withhold both authored func paths"
+    );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        4,
+        7,
         "each pinned model applies only at its resolved source call"
     );
     assert_eq!(
@@ -874,6 +948,40 @@ budget = 1
     );
     ctx.deregister_table("model_formal_paths").unwrap();
     ctx.register_table("model_formal_paths", original_formals)
+        .unwrap();
+
+    let original_bindings = sql::query(&ctx, "SELECT * FROM model_argument_bindings")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_bindings = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (status), CAST({} AS SMALLINT) AS status \
+             FROM model_argument_bindings",
+            ModelArgumentStatus::Bound.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("model_argument_bindings").unwrap();
+    ctx.register_table("model_argument_bindings", doctored_bindings)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (argument_rule,) = ("semantic:model-argument-status-shape",);
+    assert!(
+        violations.iter().any(|v| v.rule == argument_rule),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-argument-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("model_argument_bindings").unwrap();
+    ctx.register_table("model_argument_bindings", original_bindings)
         .unwrap();
 
     let doctored = sql::query(

@@ -22,3 +22,15 @@ def on_shutdown(callback: Callable[[], None]) -> Callable[[], None]:
 
 def shadowed_open(open):
     return open("local argument, not the builtin")
+
+
+def on_shutdown_keyword(callback: Callable[[], None]) -> Callable[[], None]:
+    return atexit.register(func=callback)
+
+
+def on_shutdown_unpacked(callbacks):
+    return atexit.register(*callbacks)
+
+
+def identity_keyword(value: object) -> object:
+    return cast(typ=object, val=value)

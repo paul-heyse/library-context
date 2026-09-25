@@ -493,6 +493,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ModelTargets,
             $crate::behavior::ModelApplications,
             $crate::behavior::ModelFormalPaths,
+            $crate::behavior::ModelArgumentBindings,
             $crate::behavior::ModelTransfers,
             $crate::behavior::ModelEffects,
             $crate::behavior::ModelCallbacks,

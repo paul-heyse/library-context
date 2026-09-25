@@ -12,8 +12,9 @@ use std::time::Instant;
 
 use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
-    HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelCallbacksRow, ModelEffectsRow,
-    ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow, ModelTargetsRow, ModelTransfersRow,
+    HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
+    ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
+    ModelTargetsRow, ModelTransfersRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -234,6 +235,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM model_applications".to_owned();
     model_formal_paths = "validate_model_formal_paths", deps = ["model_formal_paths"],
         sql = "SELECT * FROM model_formal_paths".to_owned();
+    model_argument_bindings = "validate_model_argument_bindings", deps = ["model_argument_bindings"],
+        sql = "SELECT * FROM model_argument_bindings".to_owned();
     model_transfers = "validate_model_transfers", deps = ["model_transfers"],
         sql = "SELECT * FROM model_transfers".to_owned();
     model_effects = "validate_model_effects", deps = ["model_effects"],
@@ -265,6 +268,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_applications(), sql::Params::new()).await?;
     let mut actual_formals: Vec<ModelFormalPathsRow> =
         sql::fetch(ctx, &model_formal_paths(), sql::Params::new()).await?;
+    let mut actual_arguments: Vec<ModelArgumentBindingsRow> =
+        sql::fetch(ctx, &model_argument_bindings(), sql::Params::new()).await?;
     let mut actual_transfers: Vec<ModelTransfersRow> =
         sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
     let mut actual_effects: Vec<ModelEffectsRow> =
@@ -278,6 +283,7 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
     let all_empty = actual_targets.is_empty()
         && actual_applications.is_empty()
         && actual_formals.is_empty()
+        && actual_arguments.is_empty()
         && actual_transfers.is_empty()
         && actual_effects.is_empty()
         && actual_callbacks.is_empty()
@@ -311,6 +317,12 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::Params::new(),
     )
     .await?;
+    let mut expected_arguments: Vec<ModelArgumentBindingsRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::model_argument_bindings(),
+        sql::Params::new(),
+    )
+    .await?;
     expected_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
     actual_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
     expected_applications
@@ -329,6 +341,26 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         (
             row.model_id,
             row.target_node_id,
+            row.rule_id,
+            row.path_role.code(),
+            row.path_id,
+        )
+    });
+    expected_arguments.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
+            row.rule_id,
+            row.path_role.code(),
+            row.path_id,
+        )
+    });
+    actual_arguments.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
             row.rule_id,
             row.path_role.code(),
             row.path_id,
@@ -395,6 +427,20 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
                 "expected {} typed model formal paths, stored {}",
                 expected.formals.len(),
                 actual_formals.len()
+            ),
+        });
+    }
+    if expected_arguments != actual_arguments {
+        violations.push(Violation {
+            rule: "model-argument-source-equality".into(),
+            rows: actual_arguments
+                .len()
+                .abs_diff(expected_arguments.len())
+                .max(1),
+            sample: format!(
+                "expected {} model argument bindings, stored {}",
+                expected_arguments.len(),
+                actual_arguments.len()
             ),
         });
     }

@@ -718,3 +718,6 @@ handler_type_status
   0 bare
   1 pinned_builtin
   2 unknown
+model_argument_status
+  0 bound
+  1 unknown

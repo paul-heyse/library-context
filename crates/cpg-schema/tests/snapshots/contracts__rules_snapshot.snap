@@ -176,6 +176,8 @@ key:model_applications
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, count(*) AS n FROM model_applications GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id HAVING count(*) > 1
 key:model_formal_paths
   SELECT snapshot_id, model_id, target_node_id, rule_id, path_role, path_id, count(*) AS n FROM model_formal_paths GROUP BY snapshot_id, model_id, target_node_id, rule_id, path_role, path_id HAVING count(*) > 1
+key:model_argument_bindings
+  SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, path_role, path_id, count(*) AS n FROM model_argument_bindings GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, path_role, path_id HAVING count(*) > 1
 key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:model_effects
@@ -354,6 +356,20 @@ ref:model_formal_paths.model_id->model_targets
   SELECT f.model_id AS value FROM model_formal_paths f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
 ref:model_formal_paths.target_definition_fact_id->facts
   SELECT f.target_definition_fact_id AS value FROM model_formal_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:model_argument_bindings.call_site_node_id->model_applications
+  SELECT f.call_site_node_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT call_site_node_id AS k FROM model_applications) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:model_argument_bindings.pysa_fact_id->facts
+  SELECT f.pysa_fact_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:model_argument_bindings.model_id->model_formal_paths
+  SELECT f.model_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT model_id AS k FROM model_formal_paths) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:model_argument_bindings.target_node_id->model_applications
+  SELECT f.target_node_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT target_node_id AS k FROM model_applications) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:model_argument_bindings.rule_id->model_formal_paths
+  SELECT f.rule_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_formal_paths) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:model_argument_bindings.argument_node_id->arguments
+  SELECT f.argument_node_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT node_id AS k FROM arguments) r ON f.argument_node_id = r.k WHERE f.argument_node_id IS NOT NULL
+ref:model_argument_bindings.argument_fact_id->facts
+  SELECT f.argument_fact_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.argument_fact_id = r.k WHERE f.argument_fact_id IS NOT NULL
 ref:model_transfers.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_transfers.target_definition_fact_id->facts
@@ -886,6 +902,12 @@ codebook:model_formal_paths.path_role
   SELECT path_role FROM model_formal_paths WHERE path_role IS NOT NULL AND path_role NOT IN (0, 1)
 codebook:model_formal_paths.origin
   SELECT origin FROM model_formal_paths WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:model_argument_bindings.path_role
+  SELECT path_role FROM model_argument_bindings WHERE path_role IS NOT NULL AND path_role NOT IN (0, 1)
+codebook:model_argument_bindings.status
+  SELECT status FROM model_argument_bindings WHERE status IS NOT NULL AND status NOT IN (0, 1)
+codebook:model_argument_bindings.reason
+  SELECT reason FROM model_argument_bindings WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:model_transfers.transfer
   SELECT transfer FROM model_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:model_transfers.modality
@@ -1020,6 +1042,8 @@ semantic:flow-reaching-within-candidates
   SELECT fr.use_id FROM flow_reaching fr JOIN flow_uses u ON u.use_id = fr.use_id JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte JOIN flow_definitions d ON d.definition_id = fr.definition_id JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte LEFT ANTI JOIN reference_resolutions rr ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id
 semantic:model-target-provenance
   SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
+semantic:model-argument-status-shape
+  SELECT rule_id FROM model_argument_bindings WHERE signature_count <= 0 OR (status = 0 AND (argument_node_id IS NULL OR argument_fact_id IS NULL OR reason IS NOT NULL OR matched_signatures <> signature_count)) OR (status = 1 AND (argument_node_id IS NOT NULL OR argument_fact_id IS NOT NULL OR reason IS NULL))
 semantic:model-formal-path-source
   SELECT p.rule_id FROM model_formal_paths p LEFT JOIN model_targets m ON m.model_id = p.model_id AND m.target_node_id = p.target_node_id AND m.target_definition_fact_id = p.target_definition_fact_id AND m.revision = p.revision WHERE m.model_id IS NULL OR p.formal_name = '' OR p.origin <> 4
 semantic:model-application-boundary

@@ -28,11 +28,12 @@
 //! (`semantic:behavior-covers-public`).
 
 use crate::codebook::{
-    BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
-    ExactValueOrigin, ExitSiteKind, FlowSink, HandlerTypeStatus, InvocationPhase, Modality,
-    ModelCallbackAction, ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit,
-    ModelPathRole, ModelResourceAction, ModelTransferKind, OperationFacet, Origin, PremiseKind,
-    ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    ArgumentKind, BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind,
+    EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowSink, HandlerTypeStatus, ImplicitReceiver,
+    InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
+    ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction,
+    ModelTransferKind, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole,
+    SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -109,6 +110,33 @@ table!(
         path_role: ModelPathRole,
         formal_name: String,
         origin: Origin,
+    }
+);
+
+table!(
+    /// A model formal mapped to one source argument only when every pinned signature agrees.
+    /// A starred call, implicit receiver, missing argument or overloaded disagreement remains
+    /// `unknown` with a boundary. A bound argument is local to this candidate model target.
+    ModelArgumentBindings, ModelArgumentBindingsRow = "model_argument_bindings",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, path_role, path_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        pysa_fact_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        rule_id: Id,
+        path_role: ModelPathRole,
+        path_id: Id,
+        formal_name: String,
+        signature_count: i64,
+        matched_signatures: i64,
+        argument_node_id: Option<Id>,
+        argument_fact_id: Option<Id>,
+        status: ModelArgumentStatus,
+        reason: Option<BoundaryReason>,
     }
 );
 
@@ -926,6 +954,89 @@ crate::relations! {
                AND NOT c.in_annotation",
             call = InvocationPhase::Call.code(),
             init = InvocationPhase::Init.code(),
+        );
+
+    /// Bind a modeled formal only when each pinned signature selects the same one explicit
+    /// argument. Any unpacking or implicit receiver withholds this first positive mapping.
+    model_argument_bindings = "behavior:model_argument_bindings",
+        deps = ["model_applications", "model_formal_paths", "context_definitions", "context_parameters", "pysa_calls", "arguments"],
+        sql = format!(
+            "WITH unpacked AS ( \
+               SELECT call_node_id, COUNT(*) AS n FROM arguments \
+               WHERE kind IN ({starred}, {double_starred}) GROUP BY call_node_id \
+             ), base AS ( \
+               SELECT a.snapshot_id, a.call_site_node_id, a.pysa_fact_id, a.model_id, \
+                      a.target_node_id, f.rule_id, f.path_role, f.path_id, f.formal_name, \
+                      d.signature_count, p.implicit_receiver, \
+                      COALESCE(u.n, 0) AS unpacked_count \
+               FROM model_applications a \
+               JOIN model_formal_paths f ON f.model_id = a.model_id \
+                 AND f.target_node_id = a.target_node_id \
+               JOIN context_definitions d ON d.fact_id = a.target_definition_fact_id \
+                 AND d.symbol_node_id = a.target_node_id \
+               JOIN pysa_calls p ON p.fact_id = a.pysa_fact_id \
+               LEFT JOIN unpacked u ON u.call_node_id = a.call_site_node_id \
+             ), matches AS ( \
+               SELECT b.*, cp.signature_index, arg.node_id AS matched_node_id, \
+                      arg.ordinal AS matched_ordinal \
+               FROM base b \
+               JOIN context_parameters cp ON cp.symbol_node_id = b.target_node_id \
+                 AND cp.name = b.formal_name \
+               LEFT JOIN arguments arg ON arg.call_node_id = b.call_site_node_id \
+                 AND ((arg.kind = {positional} AND arg.ordinal = cp.ordinal \
+                       AND cp.kind IN ({pos_only}, {pos_or_keyword})) \
+                   OR (arg.kind = {keyword} AND arg.keyword = b.formal_name \
+                       AND cp.kind IN ({pos_or_keyword}, {keyword_only}))) \
+             ), grouped AS ( \
+               SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, \
+                      target_node_id, rule_id, path_role, path_id, formal_name, \
+                      signature_count, implicit_receiver, unpacked_count, \
+                      COUNT(DISTINCT signature_index) AS signatures_seen, \
+                      COUNT(matched_node_id) AS matched_signatures, \
+                      COUNT(DISTINCT matched_ordinal) AS distinct_arguments, \
+                      MIN(matched_ordinal) AS selected_ordinal \
+               FROM matches GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, \
+                    model_id, target_node_id, rule_id, path_role, path_id, formal_name, \
+                    signature_count, implicit_receiver, unpacked_count \
+             ) \
+             SELECT g.snapshot_id, g.call_site_node_id, g.pysa_fact_id, g.model_id, \
+                    g.target_node_id, g.rule_id, g.path_role, g.path_id, g.formal_name, \
+                    g.signature_count, g.matched_signatures, \
+                    CASE WHEN {bound_condition} THEN chosen.node_id END AS argument_node_id, \
+                    CASE WHEN {bound_condition} THEN chosen.fact_id END AS argument_fact_id, \
+                    CAST(CASE WHEN {bound_condition} THEN {bound} ELSE {unknown} END \
+                      AS SMALLINT) AS status, \
+                    CAST(CASE WHEN {bound_condition} THEN NULL \
+                              WHEN g.unpacked_count > 0 THEN {unsupported_unpacking} \
+                              WHEN g.implicit_receiver IS NOT NULL \
+                                AND g.implicit_receiver <> {receiver_false} THEN {outside} \
+                              WHEN g.signatures_seen <> g.signature_count \
+                                OR g.matched_signatures = 0 THEN {missing} \
+                              ELSE {ambiguous} END AS SMALLINT) AS reason \
+             FROM grouped g LEFT JOIN arguments chosen \
+               ON chosen.call_node_id = g.call_site_node_id \
+              AND chosen.ordinal = g.selected_ordinal",
+            starred = ArgumentKind::Starred.code(),
+            double_starred = ArgumentKind::DoubleStarred.code(),
+            positional = ArgumentKind::Positional.code(),
+            keyword = ArgumentKind::Keyword.code(),
+            pos_only = ParameterKind::PositionalOnly.code(),
+            pos_or_keyword = ParameterKind::PositionalOrKeyword.code(),
+            keyword_only = ParameterKind::KeywordOnly.code(),
+            bound_condition = format!(
+                "g.unpacked_count = 0 AND (g.implicit_receiver IS NULL OR g.implicit_receiver = {}) \
+                 AND g.signature_count = g.signatures_seen \
+                 AND g.matched_signatures = g.signature_count \
+                 AND g.distinct_arguments = 1",
+                ImplicitReceiver::False.code()
+            ),
+            bound = ModelArgumentStatus::Bound.code(),
+            unknown = ModelArgumentStatus::Unknown.code(),
+            unsupported_unpacking = BoundaryReason::UnsupportedUnpacking.code(),
+            receiver_false = ImplicitReceiver::False.code(),
+            outside = BoundaryReason::OutsideProviderModel.code(),
+            missing = BoundaryReason::MissingEvidence.code(),
+            ambiguous = BoundaryReason::AmbiguousBinding.code(),
         );
 
     /// Except clauses with their authored type expression and the try-entry region.

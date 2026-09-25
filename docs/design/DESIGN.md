@@ -3010,6 +3010,16 @@ against every pinned Pysa signature, and the shared validator reconstructs these
 committed model bytes. Source-argument binding remains Proposed; callers must not parse the
 rendered path string to fill that gap.
 
+**Implemented and Tested in focused cases (2026-09-25, model argument boundary):**
+`model_argument_bindings` joins each applied model formal to the source call's explicit
+argument only if every pinned Pysa signature selects the same argument ordinal. It supports
+positional and named keyword binding; an unpacked argument, implicit receiver, absent argument
+or overload disagreement yields `unknown` with a boundary, never an inferred value. The row
+cites the chosen argument and its source fact when bound, and shared publication validation
+reconstructs every row. Binding is still local to one candidate model target. Dispatch
+closure, value stability, effects and summary composition remain Proposed; no served verdict
+follows from this relation alone.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic

@@ -1468,6 +1468,15 @@ codebook!(
     }
 );
 
+codebook!(
+    /// Whether every pinned signature maps one authored model formal to the same source
+    /// argument. Bound is local to a candidate target, not proof that the call dispatches there.
+    ModelArgumentStatus = "model_argument_status" {
+        Bound = 0 => "bound",
+        Unknown = 1 => "unknown",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1548,6 +1557,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelPathRole>(),
         CodebookEntry::of::<ModelChannelCoverage>(),
         CodebookEntry::of::<HandlerTypeStatus>(),
+        CodebookEntry::of::<ModelArgumentStatus>(),
     ]
 }
 

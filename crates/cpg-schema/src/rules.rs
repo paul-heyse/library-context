@@ -169,6 +169,33 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("model_formal_paths", "target_definition_fact_id", FACT),
     r(
+        "model_argument_bindings",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r("model_argument_bindings", "pysa_fact_id", FACT),
+    r(
+        "model_argument_bindings",
+        "model_id",
+        &[("model_formal_paths", "model_id")],
+    ),
+    r(
+        "model_argument_bindings",
+        "target_node_id",
+        &[("model_applications", "target_node_id")],
+    ),
+    r(
+        "model_argument_bindings",
+        "rule_id",
+        &[("model_formal_paths", "rule_id")],
+    ),
+    r(
+        "model_argument_bindings",
+        "argument_node_id",
+        &[("arguments", "node_id")],
+    ),
+    r("model_argument_bindings", "argument_fact_id", FACT),
+    r(
         "model_transfers",
         "target_node_id",
         &[("context_definitions", "symbol_node_id")],
@@ -473,6 +500,18 @@ fn semantic() -> Vec<Rule> {
                    AND m.module_node_id = d.module_node_id \
                  WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> {}",
                 crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-argument-status-shape",
+            format!(
+                "SELECT rule_id FROM model_argument_bindings WHERE signature_count <= 0 \
+                 OR (status = {bound} AND (argument_node_id IS NULL OR argument_fact_id IS NULL \
+                   OR reason IS NOT NULL OR matched_signatures <> signature_count)) \
+                 OR (status = {unknown} AND (argument_node_id IS NOT NULL \
+                   OR argument_fact_id IS NOT NULL OR reason IS NULL))",
+                bound = crate::codebook::ModelArgumentStatus::Bound.code(),
+                unknown = crate::codebook::ModelArgumentStatus::Unknown.code(),
             ),
         ),
         (
