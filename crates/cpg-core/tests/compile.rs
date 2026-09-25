@@ -712,6 +712,32 @@ budget = 1
         1,
         "the one-pass field is deliberately empty for an ordered multi-frame proof"
     );
+    assert_eq!(
+        count(&ctx,
+            "SELECT count(*) FROM summary_components c JOIN declarations d \
+             ON d.node_id = c.function_node_id \
+             WHERE d.name = 'recursive_before_return' AND c.recursive"
+        ).await,
+        1,
+        "the source self-call belongs to a recursive SCC"
+    );
+    assert_eq!(
+        count(&ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
+             ON d.node_id = f.function_node_id \
+             WHERE d.name = 'recursive_before_return'"
+        ).await,
+        0,
+        "a post-recursion return has no finite completion proof yet"
+    );
+    assert!(
+        count(&ctx,
+            "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
+             ON d.node_id = b.function_node_id \
+             WHERE d.name = 'recursive_before_return'"
+        ).await > 0,
+        "the recursive return remains an explicit unknown"
+    );
     for name in ["finally_identity", "nested_effectful_finalizer", "with_identity"] {
         assert_eq!(
             count(

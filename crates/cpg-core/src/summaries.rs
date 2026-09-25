@@ -1,7 +1,7 @@
 //! The first L3 source-path check: hydrate published-form analysis conditions, then ask the
 //! bounded BDD kernel whether a cited predecessor edge is propositionally compatible.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cpg_schema::behavior::{
     AnalysisConditionNodesRow, AnalysisConditionsRow, ModeledArgumentEvaluationsRow,
@@ -274,6 +274,7 @@ async fn direct_flows(
     diagrams: &HashMap<Id, Diagram>,
     boundaries: &HashMap<Id, BoundaryReason>,
     pass_steps: &ReturnPassIndex,
+    recursive_functions: &HashSet<Id>,
 ) -> Result<(Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>), CoreError> {
     let seeds: Vec<SummaryFlowSeed> = sql::fetch(
         ctx,
@@ -284,6 +285,12 @@ async fn direct_flows(
     let mut flows = Vec::new();
     let mut steps = Vec::new();
     for seed in seeds {
+            // A syntactically direct return is not a finite execution proof when this
+            // callable belongs to a recursive SCC. Earlier recursive calls may not
+            // complete; the bounded SCC worklist must establish a path first.
+            if recursive_functions.contains(&seed.function_node_id) {
+                continue;
+            }
             let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
                 Some(diagram) if diagram.is_false() => continue,
                 Some(diagram) if diagram.is_true() => (Verdict::Established, None),
@@ -478,7 +485,16 @@ pub async fn finite_flows(
 ) -> Result<(Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>), CoreError> {
     let (diagrams, boundaries) = load_conditions(ctx).await?;
     let pass_steps = return_pass_steps(ctx).await?;
-    let (mut flows, mut steps) = direct_flows(ctx, &diagrams, &boundaries, &pass_steps).await?;
+    let components: Vec<SummaryComponentsRow> = sql::fetch(
+        ctx, &published_components(), sql::Params::new(),
+    ).await?;
+    let recursive_functions: HashSet<Id> = components.iter()
+        .filter(|row| row.recursive)
+        .map(|row| row.function_node_id)
+        .collect();
+    let (mut flows, mut steps) = direct_flows(
+        ctx, &diagrams, &boundaries, &pass_steps, &recursive_functions,
+    ).await?;
     let seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(
         ctx,
         &cpg_schema::behavior::modeled_summary_flow_seeds(),
@@ -505,6 +521,9 @@ pub async fn finite_flows(
             .push(evaluation);
     }
     for seed in seeds {
+        if recursive_functions.contains(&seed.function_node_id) {
+            continue;
+        }
         let Some(condition) = diagrams.get(&seed.condition_id) else {
             continue;
         };
@@ -555,6 +574,9 @@ pub async fn finite_flows(
     )
     .await?;
     for seed in assignment_seeds {
+        if recursive_functions.contains(&seed.function_node_id) {
+            continue;
+        }
         let Some(condition) = diagrams.get(&seed.predecessor_condition_id) else {
             continue;
         };
@@ -606,9 +628,6 @@ pub async fn finite_flows(
     // The first interprocedural case needs no cross-scope atom substitution: the callee's
     // admitted path is unconditional. Acyclic components run after their callees, while
     // recursive components retain their existing unknown boundary until the bounded worklist.
-    let components: Vec<SummaryComponentsRow> = sql::fetch(
-        ctx, &published_components(), sql::Params::new(),
-    ).await?;
     let component_by_function: HashMap<Id, (i64, bool)> = components.into_iter()
         .map(|row| (row.function_node_id, (row.component_order, row.recursive)))
         .collect();

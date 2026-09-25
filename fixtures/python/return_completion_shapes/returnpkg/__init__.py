@@ -51,4 +51,9 @@ def with_identity(value, manager):
         return value
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity"]
+def recursive_before_return(value):
+    recursive_before_return(value)
+    return value
+
+
+__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity", "recursive_before_return"]

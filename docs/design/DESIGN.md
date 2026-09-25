@@ -3507,7 +3507,7 @@ of a local parameter, with no crossed call or generator yield. Each row cites
 its raw value fact, return syntax/region facts and recomposed structural BDD
 condition. The shared bounded kernel gives `established`, `conditional`, or a
 named `unknown`; a false condition yields no positive flow. Async returns,
-generators, nested frames and modeled-call candidates are withheld until L2/L3
+generators, unproved nested frames and modeled-call candidates are withheld until L2/L3
 proves their execution and completion semantics. Shared publication validation
 reconstructs the rows. The `summary_flow_kind` codebook was appended and
 `COMPILER_OUTPUT_VERSION` is 54. Effect summaries, SCC composition and
@@ -3582,6 +3582,17 @@ schedule propagates these finite paths to later acyclic callers with depth cappe
 Recursive and conditional callee paths remain unknown, and a depth refusal currently retains
 the generic `call_transfer` boundary pending a specific budget row. Compiler output version
 64; full SCC composition, effect summaries and integrated Stage 3 testing remain open.
+
+**Implemented and Tested in a focused recursive-control case (2026-09-25):** the finite
+direct, modeled and assignment-return producers withhold all positive paths whose owning
+function belongs to an attributed recursive `summary_components` SCC. The existing local-call
+producer already withheld recursive callers. A direct `return value` after an unconditional
+self-call has a true region condition but no finite completion proof; the focused fixture now
+retains its `summary_boundaries` row rather than publishing a positive value flow. This is a
+conservative interim boundary, since a real terminating base branch is also withheld until
+the bounded SCC worklist can prove it. Candidate/open call edges can only enlarge the
+withheld set. Compiler output version 71; full SCC composition and integrated acceptance
+remain open.
 
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
@@ -4328,3 +4339,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | One literal `finally: pass` frame now preserves a pending return with cited pass syntax evidence; nested and effectful frames remain unresolved. `return_exit_statuses` gains two nullable proof columns and compiler output version 66 (§9.9) | ADR-0036 |
 | 2026-09-25 | A verified Pysa source-to-sink rule with explicit Pyrefly pin and a byte-identical compiler fixture agree on two positive value paths and a constant control; the pinned FastMCP differential remains open (§9.9) | — |
 | 2026-09-25 | Nested pass-only finalizers now preserve a pending return with an inner-to-outer sequence of cited source steps; effectful finalizers and `with` remain open, and derivation output version is 70 (§9.9) | ADR-0037 (supersedes ADR-0036) |
+| 2026-09-25 | Recursive SCC membership now withholds direct and modeled finite value summaries until a bounded worklist proves completion; explicit unknown boundaries remain (§9.9) | — |

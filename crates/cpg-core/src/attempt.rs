@@ -93,7 +93,8 @@ pub struct Published {
 /// 68: pinned Pydantic TypeAdapter validation candidate model and fixture coverage.
 /// 69: finite returns through a sole pass finalizer cite the pass in ordered summary steps.
 /// 70: nested pass-only finalizers cite every source action in inner-to-outer proof order.
-pub const COMPILER_OUTPUT_VERSION: u32 = 70;
+/// 71: direct and modeled finite flows in recursive SCCs remain explicit unknown paths.
+pub const COMPILER_OUTPUT_VERSION: u32 = 71;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
