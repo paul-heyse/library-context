@@ -90,7 +90,8 @@ pub struct Published {
 /// 65: bounded return-frame statuses gate nested finite normal-return summary seeds.
 /// 66: one cited literal-finally-pass frame admits a pending normal return.
 /// 67: an admitted summary cannot erase a sibling source contribution's open boundary.
-pub const COMPILER_OUTPUT_VERSION: u32 = 67;
+/// 68: pinned Pydantic TypeAdapter validation candidate model and fixture coverage.
+pub const COMPILER_OUTPUT_VERSION: u32 = 68;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

@@ -3128,6 +3128,17 @@ so the other model channels and normal completion remain open. The source fixtur
 bound object-receiver call, an untyped logger call and an unpacked message; only the first
 binds its `msg` subject. The method-binding rule is below (ADR-0035).
 
+**Implemented and Tested for authored parsing (2026-09-25, Stage 3.1 Pydantic candidate):**
+the pinned dependency target `pydantic==2.13.5` `TypeAdapter.validate_python(object)`
+declares a potential input-to-result transform. The adapter's schema is instance-selected;
+the current `validate(schema)` effect cannot name it without a false exact-schema claim.
+Arbitrary user validators can add effects or raise, so the other channels and normal completion
+stay open. The empty-site fixture correctly leaves this dependency model
+dormant. **Interface-checked (2026-09-25):** the pinned local source has the `object` formal,
+and a read-only earlier FastMCP snapshot contains its matching dependency module and method
+definition. Current-compiler binding to the full pinned dependency context is **not_run**
+until the integrated pilot; these observations do not certify a source application or summary.
+
 **Implemented and Tested in focused cases (2026-09-25, Stage 3 source/model bridge):**
 `model_applications` joins each source `call_targets` fact to an exactly pinned `model_targets`
 row, retaining the Pysa target's modality/origin and phase, the model's identity and revision,

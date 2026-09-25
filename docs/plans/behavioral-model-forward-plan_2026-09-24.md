@@ -71,6 +71,13 @@ DataFusion for bounded joins/validation, petgraph for SCC topology, biodivine-li
 condition algebra, and FastMCP/PyO3 for a single immutable generation. None of those libraries
 is treated as a provider of Python runtime semantics.
 
+**Further Stage 3 model constraint (2026-09-25, Interface-checked):** a Pydantic
+`TypeAdapter.validate_python` instance selects its schema at runtime. The current authored
+`validate(schema)` action requires a named schema, so the candidate model may carry only a
+potential input-to-return transform. Do not populate `schema` with the adapter class name or
+equate a validation call with a particular schema. A typed dynamic-schema case, with a source
+witness if one can be proved, must precede any validation-effect or negative-coverage claim.
+
 ---
 
 ## 1. Purpose and target

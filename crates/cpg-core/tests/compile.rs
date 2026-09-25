@@ -1590,7 +1590,15 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert_eq!(targets, 11, "typing, print, JSON, gzip, logging, open and atexit models");
+    assert_eq!(targets, 11, "the empty fixture site-packages leaves dependency models dormant");
+    assert_eq!(
+        count(&ctx,
+            "SELECT count(*) FROM model_targets WHERE target_key = \
+             'dependency:pydantic==2.13.5:pydantic.type_adapter.TypeAdapter.validate_python'"
+        ).await,
+        0,
+        "a dependency model cannot bind without that dependency's pinned context"
+    );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_targets WHERE normal_return").await,
         2,

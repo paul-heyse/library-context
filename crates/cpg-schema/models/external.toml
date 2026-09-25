@@ -180,3 +180,19 @@ from = { kind = "parameter", name = "func" }
 to = { kind = "return_value" }
 transfer = "identity"
 modality = "definite"
+
+# Pydantic 2.13.5 TypeAdapter validates against a schema selected by its instance. Successful
+# output may transform the object; custom validators may add effects or raise. The current
+# validate(schema) channel requires a named schema, so this model withholds that effect rather
+# than mislabeling the dynamic schema as TypeAdapter itself.
+[[models]]
+revision = 1
+target = { scope = "dependency", distribution = "pydantic", version = "2.13.5", module = "pydantic.type_adapter", callable = "TypeAdapter.validate_python" }
+coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "object" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"

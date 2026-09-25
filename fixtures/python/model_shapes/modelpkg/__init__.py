@@ -4,6 +4,7 @@ import atexit
 import gzip
 import json
 import logging
+from pydantic.type_adapter import TypeAdapter
 from typing import Callable, assert_type, cast
 
 
@@ -138,3 +139,11 @@ def framed_identity(value: object) -> object:
         return value
     finally:
         pass
+
+
+def validate_data(value: object) -> int:
+    return TypeAdapter(int).validate_python(value)
+
+
+def shadowed_adapter(adapter, value: object):
+    return adapter.validate_python(value)
