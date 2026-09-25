@@ -3271,6 +3271,14 @@ rejected by the shared validator. The two nullable evidence columns migrate the 
 compiler output version 66 (ADR-0036). The broader ordered exit/fate work and integrated
 Stage 3 gate remain open.
 
+**Tested (2026-09-25, targeted CPython 3.14.7 oracle):** an isolated `sys.monitoring` worker
+observed a pending local value return through `finally: pass` and an overriding `finally`
+return control. `PY_RETURN` locates the first completion at the finalizer line, so the worker
+attributes the returned identity to the latest executed load at an AST `return Name` expression
+span rather than requiring the event line to equal the load line. This independently checks
+value-flow admission and observed exit regions for these two shapes; it does not prove the
+compiler's L3 summary closure or the remaining finally actions.
+
 > Decision: ADR-0036
 
 **Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**

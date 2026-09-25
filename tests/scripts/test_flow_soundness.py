@@ -29,7 +29,7 @@ def _flow_bin() -> Path:
 
 
 WORKER = r"""
-import dis, inspect, json, resource, socket, sys
+import ast, dis, inspect, json, resource, socket, sys
 
 resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
 resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
@@ -37,6 +37,12 @@ socket.socket = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("network forb
 path = sys.argv[1]
 source = open(path, encoding="utf-8").read()
 code = compile(source, path, "exec")
+return_names = {
+    (node.value.lineno, node.value.col_offset,
+     node.value.end_lineno, node.value.end_col_offset)
+    for node in ast.walk(ast.parse(source, filename=path))
+    if isinstance(node, ast.Return) and isinstance(node.value, ast.Name)
+}
 lines = set()
 accesses = []
 stores = {}
@@ -85,13 +91,13 @@ def on_return(c, offset, value):
         instructions[c] = {i.offset: i for i in dis.get_instructions(c)}
     returning = instructions[c].get(offset)
     return_line = returning.positions.lineno if returning is not None else None
-    # The return value is a distinct object in the focused oracle case. An identity match is
-    # runtime evidence only; require that the load occurred in the return expression as well.
-    returns.extend(
-        {"name": item["name"], "load": item["load"]}
-        for item in candidates
-        if item["value_id"] == id(value) and item["load"][0] == return_line
-    )
+    # A pending return can be emitted at its finalizer's line. Attribute the value to the
+    # latest observed load whose span is a source return-name expression, not the PY_RETURN line.
+    matching = [item for item in candidates
+                if item["value_id"] == id(value) and tuple(item["load"]) in return_names]
+    if matching:
+        item = matching[-1]
+        returns.append({"name": item["name"], "load": item["load"]})
     if return_line is not None:
         fates.append({"event": "return", "line": return_line})
 
@@ -397,6 +403,35 @@ result = run(INPUT)
     missing = {**model, "regions": []}
     with pytest.raises(AssertionError, match="observed exit or exception has no admitted region"):
         _assert_exit_admitted(source, missing, observed)
+
+
+def test_pending_value_return_through_inert_finally_is_admitted() -> None:
+    source = """def run(n):
+    value = object()
+    try:
+        return value
+    finally:
+        pass
+result = run(INPUT)
+"""
+    model, observed = _flow(source, 1)
+    assert _assert_return_value_flow(source, model, observed) > 0
+    assert _assert_exit_admitted(source, model, observed) > 0
+    assert any(fate["event"] == "return" for fate in observed["fates"])
+
+
+def test_finally_override_does_not_observe_the_pending_value_return() -> None:
+    source = """def run(n):
+    value = object()
+    try:
+        return value
+    finally:
+        return object()
+result = run(INPUT)
+"""
+    model, observed = _flow(source, 1)
+    assert _assert_exit_admitted(source, model, observed) > 0
+    assert _assert_return_value_flow(source, model, observed) == 0
 
 
 def test_runtime_binding_spans_are_checked_before_the_oracle_runs() -> None:
