@@ -3253,12 +3253,25 @@ Those fates, callbacks, resources and composed summaries remain Proposed.
 declared depth cap and cites the nearest controlling `with` or pending `finally` frame. A
 missing frame with no cap is only a local normal-return candidate, not proof that expression
 evaluation succeeds. Direct, modeled and acyclic local-call value summary seeds may now admit
-nested returns under ordinary branches, but require a status without a frame/cap boundary.
+nested returns under ordinary branches, but require a status without an unresolved frame/cap
+boundary.
 Returns under `with` or a pending `finally` remain `summary_boundaries` until L2 proves normal
 completion. The shared validator reconstructs the status rows; a focused analyzed fixture
 admits an `if` return while withholding both controlling frames. This is compiler output
 version 65 and a schema migration. Nested handler propagation, suppression, callback/resource
 fates and the integrated Stage 3 gate remain open.
+
+**Implemented and Tested in focused cases (2026-09-25, sole pass finalizer):**
+`return_exit_statuses` admits one pending `try/finally` frame only when its entire direct
+`finalbody` is one literal `pass`, citing that pass node and fact on the status row. The
+return expression still needs its own normal-evaluation and condition proof. A nontrivial
+suite, two nested pass finalizers, `with`, and capped ancestry retain their control boundary.
+The single-pass fixture yields a finite parameter-to-return summary; a forged pass fact is
+rejected by the shared validator. The two nullable evidence columns migrate the schema at
+compiler output version 66 (ADR-0036). The broader ordered exit/fate work and integrated
+Stage 3 gate remain open.
+
+> Decision: ADR-0036
 
 **Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**
 `handler_clauses` cites a `try`, each authored `except` clause, its optional type expression,
@@ -3483,7 +3496,7 @@ finite `summary_flows` value path when its sole source target is closed, both ta
 modalities are definite, the pinned target asserts normal return, its callee is one resolved
 simple name, and every explicit argument has ordered local normal-evaluation evidence. The
 candidate BDD must be satisfiable and imply the direct synchronous return's region BDD;
-generator functions and nested control frames remain excluded. Typed steps cite callee
+generator functions and unresolved control frames remain excluded. Typed steps cite callee
 resolution, argument evaluations, call syntax and target, the model rule, and return exit.
 The canonical summary id includes this ordered proof, which the shared validator rebuilds.
 `summary_boundaries` remains for return facts without an admitted path. This narrow positive
@@ -4254,3 +4267,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Pinned function models can assert total normal return independently of transfer modality and exception silence; the first assertions cover `typing.cast` and `typing.assert_type`, with source-call composition still conditional (§B5, §9.9) | ADR-0033 |
 | 2026-09-25 | Exact modeled value paths now account for every call argument in source order, citing the selected operand or a direct literal and retaining dynamic siblings as unknown (§9.9) | — |
 | 2026-09-25 | A Pysa object receiver plus a direct Ruff attribute callee shifts pinned model positional formals past `self`; class receivers and unpacking remain unknown. `logging.Logger.warning` adds a potential subject-bound log candidate (§9.9) | ADR-0035 |
+| 2026-09-25 | One literal `finally: pass` frame now preserves a pending return with cited pass syntax evidence; nested and effectful frames remain unresolved. `return_exit_statuses` gains two nullable proof columns and compiler output version 66 (§9.9) | ADR-0036 |

@@ -531,9 +531,10 @@ table!(
 );
 
 table!(
-    /// A return's bounded syntax ancestry, with the nearest `with` or `try/finally` frame that
-    /// can alter normal completion. Null reason is only a local normal-return candidate; it
-    /// does not establish that evaluating the return expression succeeds.
+    /// A return's bounded syntax ancestry and nearest `with` or `try/finally` frame. Exactly
+    /// one pending `finally: pass` frame can be discharged with its pass fact; another frame
+    /// stays unknown. Null reason is still only a local normal-return candidate and does not
+    /// establish that evaluating the return expression succeeds.
     ReturnExitStatuses, ReturnExitStatusesRow = "return_exit_statuses",
     family = Findings,
     key = [snapshot_id, site_node_id],
@@ -547,6 +548,8 @@ table!(
         walk_depth: i64,
         frame_node_id: Option<Id>,
         frame_fact_id: Option<Id>,
+        pass_node_id: Option<Id>,
+        pass_fact_id: Option<Id>,
         reason: Option<BoundaryReason>,
     }
 );
@@ -2772,8 +2775,8 @@ crate::relations! {
             try_ = crate::codebook::SyntaxKind::StmtTry.code(),
         );
 
-    /// A return under a pending context-manager exit or finally suite is not yet a completed
-    /// normal exit. The nearest controlling frame and any ancestry cap are explicit.
+    /// A single literal `finally: pass` cannot replace or raise over a pending return. Every
+    /// other context/finally frame, including multiple nested frames, stays unresolved.
     return_exit_statuses = "behavior:return_exit_statuses",
         deps = ["exit_sites", "syntax_nodes"],
         sql = format!(
@@ -2787,12 +2790,25 @@ crate::relations! {
                       p.field, c.depth + 1 \
                FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
                WHERE c.depth < {max_depth} AND p.owner_node_id = c.function_node_id \
-             ), blockers AS ( \
+             ), pass_frames AS ( \
+               SELECT p.node_id FROM syntax_nodes p JOIN syntax_nodes f \
+                 ON f.parent_node_id = p.node_id AND f.field = {finalbody} \
+               WHERE p.kind = {try_kind} GROUP BY p.node_id \
+               HAVING COUNT(*) = 1 AND MIN(f.kind) = {pass_kind} \
+             ), safe_finalizers AS ( \
+               SELECT pf.node_id AS frame_node_id, f.node_id AS pass_node_id, \
+                      f.fact_id AS pass_fact_id \
+               FROM pass_frames pf JOIN syntax_nodes f \
+                 ON f.parent_node_id = pf.node_id AND f.field = {finalbody} \
+             ), frames AS ( \
                SELECT c.site_node_id, p.node_id AS frame_node_id, p.fact_id AS frame_fact_id, \
+                      sf.pass_node_id, sf.pass_fact_id, \
+                      COUNT(*) OVER (PARTITION BY c.site_node_id) AS frame_count, \
                       ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
                         ORDER BY c.depth, p.node_id) AS pick \
                FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
                  AND p.owner_node_id = c.function_node_id \
+               LEFT JOIN safe_finalizers sf ON sf.frame_node_id = p.node_id \
                WHERE p.kind = {with_kind} \
                   OR (p.kind = {try_kind} AND c.field <> {finalbody} \
                     AND EXISTS (SELECT 1 FROM syntax_nodes f \
@@ -2807,17 +2823,24 @@ crate::relations! {
              ) \
              SELECT e.snapshot_id, e.function_node_id, e.site_node_id, e.source_fact_id, \
                     e.condition_id, w.walk_depth, b.frame_node_id, b.frame_fact_id, \
+                    CASE WHEN w.capped = 0 AND b.frame_count = 1 \
+                         THEN b.pass_node_id END AS pass_node_id, \
+                    CASE WHEN w.capped = 0 AND b.frame_count = 1 \
+                         THEN b.pass_fact_id END AS pass_fact_id, \
                     CAST(CASE WHEN w.capped > 0 THEN {budget} \
-                              WHEN b.frame_node_id IS NOT NULL THEN {control} \
+                              WHEN b.frame_node_id IS NOT NULL \
+                                AND (b.frame_count <> 1 OR b.pass_node_id IS NULL) \
+                                THEN {control} \
                               ELSE NULL END AS SMALLINT) AS reason \
              FROM exit_sites e JOIN walks w ON w.site_node_id = e.site_node_id \
-             LEFT JOIN blockers b ON b.site_node_id = e.site_node_id AND b.pick = 1 \
+             LEFT JOIN frames b ON b.site_node_id = e.site_node_id AND b.pick = 1 \
              WHERE e.kind = {return_kind}",
             return_kind = ExitSiteKind::Return.code(),
             max_depth = MODELED_HANDLER_MAX_ANCESTOR_DEPTH,
             with_kind = SyntaxKind::StmtWith.code(),
             try_kind = SyntaxKind::StmtTry.code(),
             finalbody = crate::codebook::SyntaxField::Finalbody.code(),
+            pass_kind = SyntaxKind::StmtPass.code(),
             budget = BoundaryReason::BudgetReached.code(),
             control = BoundaryReason::UnsupportedControlFlow.code(),
         );

@@ -643,7 +643,7 @@ budget = 1
         count(&ctx, &format!("SELECT count(*) FROM value_flows WHERE sink = {}", FlowSink::Return.code())).await > 0,
         "the fixture must actually produce return value facts"
     );
-    for name in ["plain_identity", "nested_identity"] {
+    for name in ["plain_identity", "nested_identity", "finally_pass_identity"] {
         assert!(
             count(
                 &ctx,
@@ -658,7 +658,19 @@ budget = 1
             "{name} has an admitted parameter-to-return path"
         );
     }
-    for name in ["finally_identity", "with_identity"] {
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
+             ON d.node_id = x.function_node_id WHERE d.name = 'finally_pass_identity' \
+               AND x.reason IS NULL AND x.frame_node_id IS NOT NULL \
+               AND x.pass_node_id IS NOT NULL AND x.pass_fact_id IS NOT NULL",
+        )
+        .await,
+        1,
+        "the sole pass finalizer has its own source proof"
+    );
+    for name in ["finally_identity", "nested_finally_pass_identity", "with_identity"] {
         assert_eq!(
             count(
                 &ctx,
@@ -685,7 +697,34 @@ budget = 1
             1
         );
     }
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
+             ON d.node_id = x.function_node_id \
+             WHERE d.name = 'nested_finally_pass_identity' \
+               AND x.reason IS NOT NULL AND x.pass_fact_id IS NULL",
+        )
+        .await,
+        1,
+        "two pending finalizers need an ordered exit proof before completion"
+    );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let original_statuses = sql::query(&ctx, "SELECT * FROM return_exit_statuses")
+        .await.unwrap().into_view();
+    let forged_pass = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (pass_fact_id), \
+         CASE WHEN pass_fact_id IS NOT NULL THEN source_fact_id \
+              ELSE pass_fact_id END AS pass_fact_id FROM return_exit_statuses",
+    ).await.unwrap().into_view();
+    ctx.deregister_table("return_exit_statuses").unwrap();
+    ctx.register_table("return_exit_statuses", forged_pass).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "return-exit-status-source-equality"),
+        "{violations:?}");
+    ctx.deregister_table("return_exit_statuses").unwrap();
+    ctx.register_table("return_exit_statuses", original_statuses).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1590,11 +1629,24 @@ budget = 1
             &ctx,
             "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
-             WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity')",
+             WHERE d.name IN ('async_identity', 'generator_identity')",
         )
         .await,
         0,
-        "deferred execution and finalizers cannot seed a positive flow"
+        "deferred execution cannot seed a synchronous positive flow"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN return_exit_statuses x ON x.function_node_id = d.node_id \
+             WHERE d.name = 'framed_identity' AND x.reason IS NULL \
+               AND x.pass_fact_id IS NOT NULL",
+        )
+        .await,
+        1,
+        "one pass finalizer leaves a cited normal-return candidate"
     );
     assert_eq!(
         count(
@@ -1702,14 +1754,14 @@ budget = 1
             &format!(
                 "SELECT count(*) FROM summary_boundaries b \
                  JOIN declarations d ON d.node_id = b.function_node_id \
-                 WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity') \
+                 WHERE d.name IN ('async_identity', 'generator_identity') \
                    AND b.reason = {}",
                 BoundaryReason::UnsupportedControlFlow.code()
             ),
         )
         .await,
-        3,
-        "deferred and framed returns name the withheld control scope"
+        2,
+        "deferred returns name the withheld control scope"
     );
     assert_eq!(
         count(

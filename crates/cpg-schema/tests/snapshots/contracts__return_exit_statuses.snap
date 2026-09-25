@@ -16,4 +16,6 @@ condition_id: FixedSizeBinary(16) NOT NULL
 walk_depth: Int64 NOT NULL
 frame_node_id: FixedSizeBinary(16) NULL
 frame_fact_id: FixedSizeBinary(16) NULL
+pass_node_id: FixedSizeBinary(16) NULL
+pass_fact_id: FixedSizeBinary(16) NULL
 reason: Int16 NULL [lctx.codebook=boundary_reason]
