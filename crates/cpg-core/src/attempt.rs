@@ -82,7 +82,8 @@ pub struct Published {
 /// 57: model applications retain actual target count and selected target completion assertion.
 /// 58: finite summary paths gain canonical ids and ordered, typed proof steps.
 /// 59: each modeled exact-value candidate records ordered argument evaluation evidence.
-pub const COMPILER_OUTPUT_VERSION: u32 = 59;
+/// 60: exact unshadowed builtin names gain local normal-evaluation evidence.
+pub const COMPILER_OUTPUT_VERSION: u32 = 60;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

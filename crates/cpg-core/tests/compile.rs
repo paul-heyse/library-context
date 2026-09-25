@@ -1522,8 +1522,48 @@ budget = 1
         "an unresolved sibling expression cannot be certified as a literal normal evaluation"
     );
     assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_argument_evaluations e \
+                 JOIN modeled_exact_value_transfers m \
+                   ON m.flow_value_fact_id = e.candidate_flow_fact_id \
+                  AND m.parameter_node_id = e.parameter_node_id \
+                  AND m.pysa_fact_id = e.pysa_fact_id \
+                  AND m.model_id = e.model_id AND m.rule_id = e.rule_id \
+                 JOIN declarations d ON d.node_id = m.function_node_id \
+                 WHERE d.name = 'identity' AND e.status = {} \
+                   AND e.evidence_id IN (SELECT fact_id FROM reference_resolutions)",
+                ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
+            ),
+        )
+        .await,
+        1,
+        "an unshadowed builtin name has a lexical normal-evaluation witness"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_argument_evaluations e \
+                 JOIN modeled_exact_value_transfers m \
+                   ON m.flow_value_fact_id = e.candidate_flow_fact_id \
+                  AND m.parameter_node_id = e.parameter_node_id \
+                  AND m.pysa_fact_id = e.pysa_fact_id \
+                  AND m.model_id = e.model_id AND m.rule_id = e.rule_id \
+                 JOIN declarations d ON d.node_id = m.function_node_id \
+                 WHERE d.name = 'identity_shadowed_type' AND e.status = {} \
+                   AND e.evidence_id IS NULL",
+                ModeledArgumentEvaluationStatus::Unknown.code(),
+            ),
+        )
+        .await,
+        1,
+        "a shadowed builtin spelling cannot inherit the builtin evaluation witness"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        12,
+        13,
         "the pure, JSON and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -1911,7 +1951,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        15,
+        16,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

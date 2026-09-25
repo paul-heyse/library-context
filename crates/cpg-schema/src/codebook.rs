@@ -1344,6 +1344,7 @@ codebook!(
         SourceOperand = 0 => "source_operand",
         LiteralNormal = 1 => "literal_normal",
         Unknown = 2 => "unknown",
+        BuiltinNameNormal = 3 => "builtin_name_normal",
     }
 );
 

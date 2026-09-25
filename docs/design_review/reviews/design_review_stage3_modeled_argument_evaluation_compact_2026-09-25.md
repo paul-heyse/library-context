@@ -46,3 +46,14 @@ DP-01/02/03/04/05/08/09/11/13/14/15/18/19/21/22/23/24 and CI-01/02/04/06/07/10/1
 ## 12. Decision
 
 **Accept this local evidence layer.** `INSTA_UPDATE=no cargo nextest run --release -p cpg-schema -p cpg-core -E 'test(derivations_snapshot) | test(rules_snapshot) | test(registry_snapshot) | test(references_name_real_columns) | test(keys_and_checks_name_real_columns) | test(pinned_identity_models_require_and_publish_their_real_formals)' --no-tests=pass --no-fail-fast` passed 6/6 on 2026-09-25 after snapshot review. Targeted release Clippy, `just adr lint` and `git diff --check` passed. Formatting, full integrated gates and pilot remain `not_run` until the functional Stage 3 scope is implemented.
+
+### Same-family extension (2026-09-25)
+
+**Tested in focused cases:** an exact unshadowed builtin-name argument now cites its lexical
+`reference_resolutions` fact as `builtin_name_normal`; a same-spelled formal remains `unknown`.
+The append-only codebook, schema check and generated evidence reference were reviewed. Focused
+release Nextest (`contracts_snapshot`, `registry_snapshot`, `rules_snapshot`,
+`derivations_snapshot`, `pinned_identity_models_require_and_publish_their_real_formals`) passed
+5/5; targeted release Clippy, ADR lint and diff check passed. G1–G8 and CI-G1–G3 retain the
+scoped verdicts above; F01 remains open. Output version 60 marks the migration. Integrated
+testing and formatting remain `not_run`.

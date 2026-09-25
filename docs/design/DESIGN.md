@@ -3343,11 +3343,12 @@ version 50. An outer Boolean fallback remains outside this direct bridge.
 `modeled_argument_evaluations` records every explicit argument of each exact one-call model
 candidate in source ordinal order. The selected source operand cites its raw candidate value
 fact and exact argument role. A direct Ruff string, bytes, number, Boolean, `None` or ellipsis
-literal sibling cites its syntax fact and has a local normal-evaluation witness. An unpacked,
-dynamic or otherwise unproved sibling has an explicit `outside_provider_model` boundary and no
-evaluation witness. These rows do not yet prove the callee expression, source call completion or
+literal sibling cites its syntax fact and has a local normal-evaluation witness. An exact
+unshadowed builtin-name sibling cites lexical resolution as its normal-evaluation witness.
+An unpacked, dynamic, shadowed or otherwise unproved sibling has an explicit
+`outside_provider_model` boundary and no evaluation witness. These rows do not yet prove the callee expression, source call completion or
 enclosing exit. The shared validator reconstructs them, including the candidate-specific source
-role; output version 59 and integrated Stage 3 testing remains `not_run`.
+role; output version 60 and integrated Stage 3 testing remains `not_run`.
 
 **Implemented and Tested in focused cases (ADR-0028, 2026-09-25, predecessor
 candidate):** `value_flow_predecessor_candidates` joins an inherited-call

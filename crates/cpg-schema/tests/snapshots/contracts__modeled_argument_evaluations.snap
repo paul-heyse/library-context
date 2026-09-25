@@ -6,7 +6,7 @@ table modeled_argument_evaluations
 family findings
 key snapshot_id, candidate_flow_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, argument_fact_id
 check ordinal_nonnegative: ordinal >= 0
-check evidence_iff_known: (status IN (0, 1) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)
+check evidence_iff_known: (status IN (0, 1, 3) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)
 @lctx.family=findings
 @lctx.table=modeled_argument_evaluations
 snapshot_id: FixedSizeBinary(16) NOT NULL

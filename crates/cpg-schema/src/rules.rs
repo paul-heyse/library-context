@@ -169,7 +169,7 @@ pub const REFERENCES: &[Reference] = &[
     r("modeled_argument_evaluations", "call_site_node_id", &[("call_syntax", "node_id")]),
     r("modeled_argument_evaluations", "argument_node_id", &[("arguments", "node_id")]),
     r("modeled_argument_evaluations", "argument_fact_id", FACT),
-    r("modeled_argument_evaluations", "evidence_id", &[("flow_values", "fact_id"), ("syntax_nodes", "fact_id")]),
+    r("modeled_argument_evaluations", "evidence_id", &[("flow_values", "fact_id"), ("syntax_nodes", "fact_id"), ("reference_resolutions", "fact_id")]),
     r("modeled_argument_evaluations", "condition_id", &[("analysis_conditions", "condition_id")]),
     r("value_flow_predecessor_candidates", "successor_fact_id", &[("flow_values", "fact_id")]),
     r("value_flow_predecessor_candidates", "predecessor_fact_id", &[("flow_values", "fact_id")]),

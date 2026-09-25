@@ -707,14 +707,15 @@ table!(
 table!(
     /// Every explicit argument of an exact one-call modeled value candidate, in source order.
     /// The selected source operand cites its raw value fact; a sibling literal cites its Ruff
-    /// expression fact. Any other evaluation remains an explicit unknown. This records local
+    /// expression fact; an exact unshadowed builtin name cites lexical resolution. Other
+    /// evaluations remain explicit unknowns. This records local
     /// evaluation evidence, not a completed call, callee dispatch or enclosing return.
     ModeledArgumentEvaluations, ModeledArgumentEvaluationsRow = "modeled_argument_evaluations",
     family = Findings,
     key = [snapshot_id, candidate_flow_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, argument_fact_id],
     checks = [
         ("ordinal_nonnegative", "ordinal >= 0"),
-        ("evidence_iff_known", "(status IN (0, 1) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
+        ("evidence_iff_known", "(status IN (0, 1, 3) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
     ],
     {
         snapshot_id: Id,
@@ -1843,10 +1844,10 @@ crate::relations! {
         );
 
     /// Preserve argument evaluation order for each exact modeled value candidate. The source
-    /// operand has an observed raw value path; only direct literal siblings are known to
+    /// operand has an observed raw value path; direct literal and exact builtin-name siblings
     /// complete normally without a further effect. All other siblings are named unknowns.
     modeled_argument_evaluations = "behavior:modeled_argument_evaluations",
-        deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes"],
+        deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions"],
         sql = format!(
             "WITH literal_candidates AS ( \
                SELECT a.fact_id AS argument_fact_id, s.fact_id AS syntax_fact_id, \
@@ -1859,6 +1860,20 @@ crate::relations! {
                  AND s.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
                                 {boolean_literal}, {none_literal}, {ellipsis_literal}) \
                WHERE a.kind IN ({positional}, {keyword}) \
+             ), builtin_candidates AS ( \
+               SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
+                      count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
+               FROM arguments a \
+               JOIN call_syntax c ON c.node_id = a.call_node_id \
+               JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
+                 AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
+                 AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
+                 AND s.kind = {name_expr} \
+               JOIN references r ON r.name_node_id = s.node_id \
+                 AND r.module_node_id = s.module_node_id \
+               JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+                 AND rr.builtin_name = r.name AND rr.binding_id IS NULL AND rr.reason IS NULL \
+               WHERE a.kind IN ({positional}, {keyword}) \
              ) \
              SELECT m.snapshot_id, m.flow_value_fact_id AS candidate_flow_fact_id, \
                     m.parameter_node_id, m.pysa_fact_id, m.model_id, m.rule_id, \
@@ -1866,23 +1881,29 @@ crate::relations! {
                     a.fact_id AS argument_fact_id, a.ordinal, \
                     CAST(CASE WHEN a.fact_id = m.argument_fact_id THEN {source_operand} \
                               WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
+                              WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
                               ELSE {unknown} END AS SMALLINT) AS status, \
                     CASE WHEN a.fact_id = m.argument_fact_id THEN m.flow_value_fact_id \
-                         ELSE l.syntax_fact_id END AS evidence_id, \
+                         ELSE COALESCE(l.syntax_fact_id, b.resolution_fact_id) END AS evidence_id, \
                     CAST(CASE WHEN a.fact_id = m.argument_fact_id OR l.syntax_fact_id IS NOT NULL \
+                                   OR b.resolution_fact_id IS NOT NULL \
                               THEN NULL ELSE {outside} END AS SMALLINT) AS reason, \
                     m.condition_id \
              FROM modeled_exact_value_transfers m \
              JOIN arguments a ON a.call_node_id = m.call_site_node_id \
              LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
-               AND l.candidate_count = 1",
+               AND l.candidate_count = 1 \
+             LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
+               AND b.candidate_count = 1",
             source_operand = ModeledArgumentEvaluationStatus::SourceOperand.code(),
             literal_normal = ModeledArgumentEvaluationStatus::LiteralNormal.code(),
+            builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
             unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
             argument_field = crate::codebook::SyntaxField::Argument.code(),
             positional = ArgumentKind::Positional.code(),
             keyword = ArgumentKind::Keyword.code(),
+            name_expr = SyntaxKind::ExprName.code(),
             string_literal = SyntaxKind::ExprStringLiteral.code(),
             bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
             number_literal = SyntaxKind::ExprNumberLiteral.code(),

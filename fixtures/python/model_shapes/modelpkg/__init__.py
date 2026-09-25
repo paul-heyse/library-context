@@ -17,6 +17,10 @@ def identity_dynamic_type(value: object, typ: type[object]) -> object:
     return cast(typ, value)
 
 
+def identity_shadowed_type(value: object, object: object) -> object:
+    return cast(object, value)
+
+
 def display(value: object) -> None:
     print(value)
 
