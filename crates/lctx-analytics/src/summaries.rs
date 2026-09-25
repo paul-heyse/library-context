@@ -38,28 +38,40 @@ pub fn call_components(
     edges.dedup();
     let mut graph: Graph<(), (), Directed, u32> = Graph::with_capacity(ids.len(), edges.len());
     for _ in &ids {
-        graph.try_add_node(()).map_err(|e| AnalyticsError::Graph(e.to_string()))?;
+        graph
+            .try_add_node(())
+            .map_err(|e| AnalyticsError::Graph(e.to_string()))?;
     }
     for &(caller, callee) in &edges {
-        let src = ids.binary_search(&caller)
+        let src = ids
+            .binary_search(&caller)
             .map_err(|_| AnalyticsError::UnknownVertex(caller.hex()))?;
-        let dst = ids.binary_search(&callee)
+        let dst = ids
+            .binary_search(&callee)
             .map_err(|_| AnalyticsError::UnknownVertex(callee.hex()))?;
-        graph.try_add_edge(NodeIndex::new(src), NodeIndex::new(dst), ())
+        graph
+            .try_add_edge(NodeIndex::new(src), NodeIndex::new(dst), ())
             .map_err(|e| AnalyticsError::Graph(e.to_string()))?;
     }
     let mut components: Vec<CallComponent> = tarjan_scc(&graph)
         .into_iter()
         .map(|component| {
-            let mut members: Vec<_> = component.into_iter().map(|node| ids[node.index()]).collect();
+            let mut members: Vec<_> = component
+                .into_iter()
+                .map(|node| ids[node.index()])
+                .collect();
             members.sort_unstable();
-            CallComponent { recursive: members.len() > 1, members }
+            CallComponent {
+                recursive: members.len() > 1,
+                members,
+            }
         })
         .collect();
     let mut component_of = vec![0_usize; ids.len()];
     for (index, component) in components.iter().enumerate() {
         for member in &component.members {
-            let vertex = ids.binary_search(member)
+            let vertex = ids
+                .binary_search(member)
                 .map_err(|_| AnalyticsError::UnknownVertex(member.hex()))?;
             component_of[vertex] = index;
         }
@@ -67,9 +79,11 @@ pub fn call_components(
     let mut downstream: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); components.len()];
     let mut upstream: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); components.len()];
     for &(caller, callee) in &edges {
-        let src = ids.binary_search(&caller)
+        let src = ids
+            .binary_search(&caller)
             .map_err(|_| AnalyticsError::UnknownVertex(caller.hex()))?;
-        let dst = ids.binary_search(&callee)
+        let dst = ids
+            .binary_search(&callee)
             .map_err(|_| AnalyticsError::UnknownVertex(callee.hex()))?;
         let a = component_of[src];
         let b = component_of[dst];
@@ -81,7 +95,9 @@ pub fn call_components(
             upstream[b].insert(a);
         }
     }
-    let mut ready: BTreeSet<(Id, usize)> = components.iter().enumerate()
+    let mut ready: BTreeSet<(Id, usize)> = components
+        .iter()
+        .enumerate()
         .filter(|(index, _)| downstream[*index].is_empty())
         .map(|(index, component)| (component.members[0], index))
         .collect();
@@ -96,7 +112,9 @@ pub fn call_components(
         }
     }
     if ordered.len() != components.len() {
-        return Err(AnalyticsError::Graph("SCC condensation is cyclic".to_owned()));
+        return Err(AnalyticsError::Graph(
+            "SCC condensation is cyclic".to_owned(),
+        ));
     }
     Ok(ordered)
 }
@@ -158,15 +176,33 @@ mod tests {
         let functions = [e, c, a, d, b];
         let calls = [(a, b), (b, a), (a, c), (c, d), (a, c), (e, e)];
         let actual = call_components(&functions, &calls).unwrap();
-        assert_eq!(actual, vec![
-            CallComponent { members: vec![d], recursive: false },
-            CallComponent { members: vec![c], recursive: false },
-            CallComponent { members: vec![a, b], recursive: true },
-            CallComponent { members: vec![e], recursive: true },
-        ]);
+        assert_eq!(
+            actual,
+            vec![
+                CallComponent {
+                    members: vec![d],
+                    recursive: false
+                },
+                CallComponent {
+                    members: vec![c],
+                    recursive: false
+                },
+                CallComponent {
+                    members: vec![a, b],
+                    recursive: true
+                },
+                CallComponent {
+                    members: vec![e],
+                    recursive: true
+                },
+            ]
+        );
         let mut reversed = calls;
         reversed.reverse();
-        assert_eq!(call_components(&[a, b, c, d, e], &reversed).unwrap(), actual);
+        assert_eq!(
+            call_components(&[a, b, c, d, e], &reversed).unwrap(),
+            actual
+        );
         assert!(matches!(
             call_components(&[a], &[(a, b)]),
             Err(AnalyticsError::UnknownVertex(_))
@@ -205,20 +241,32 @@ mod tests {
             (negative.id(), negative),
             (always.id(), always),
         ]);
-        let result = predecessor_compatibility(std::slice::from_ref(&edge), &conditions, &HashMap::new());
+        let result =
+            predecessor_compatibility(std::slice::from_ref(&edge), &conditions, &HashMap::new());
         assert_eq!(result[0].compatible_under_atoms, Some(false));
         assert_eq!(result[0].boundary_reason, None);
 
         let mut capped_conditions = conditions.clone();
         capped_conditions.remove(&edge.predecessor_condition_id);
-        let capped = HashMap::from([(edge.predecessor_condition_id, BoundaryReason::BudgetReached)]);
-        let result = predecessor_compatibility(std::slice::from_ref(&edge), &capped_conditions, &capped);
+        let capped =
+            HashMap::from([(edge.predecessor_condition_id, BoundaryReason::BudgetReached)]);
+        let result =
+            predecessor_compatibility(std::slice::from_ref(&edge), &capped_conditions, &capped);
         assert_eq!(result[0].compatible_under_atoms, None);
-        assert_eq!(result[0].boundary_reason, Some(BoundaryReason::BudgetReached));
+        assert_eq!(
+            result[0].boundary_reason,
+            Some(BoundaryReason::BudgetReached)
+        );
 
-        let carried = ValueFlowPredecessorCandidatesRow { loop_carried: true, ..edge };
+        let carried = ValueFlowPredecessorCandidatesRow {
+            loop_carried: true,
+            ..edge
+        };
         let result = predecessor_compatibility(&[carried], &conditions, &HashMap::new());
         assert_eq!(result[0].compatible_under_atoms, None);
-        assert_eq!(result[0].boundary_reason, Some(BoundaryReason::UnsupportedControlFlow));
+        assert_eq!(
+            result[0].boundary_reason,
+            Some(BoundaryReason::UnsupportedControlFlow)
+        );
     }
 }

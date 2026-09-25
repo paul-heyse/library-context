@@ -29,12 +29,14 @@
 
 use crate::codebook::{
     ArgumentKind, BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind,
-    EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus, ImplicitReceiver,
-    InvocationPhase, Modality, ModelArgumentStatus, ModeledArgumentEvaluationStatus, ModelCallbackAction, ModelChannelCoverage,
-    ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
-    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
-    ModelTransferKind, ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind,
-    PremiseKind, ReadPhase, SourceRole, SummaryFlowKind, SummaryFlowStepKind, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus,
+    ImplicitReceiver, InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction,
+    ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
+    ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction, ModelResourceSourceStatus,
+    ModelTransferEndpointStatus, ModelTransferKind, ModeledArgumentEvaluationStatus,
+    ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase,
+    SourceRole, SummaryFlowKind, SummaryFlowStepKind, SyntaxKind, TestValueLinkOrigin, ValueClass,
+    Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -1039,7 +1041,8 @@ table!(
     /// to `flow_value_call_links`; a sink span or `through_call` flag is not a call identity.
     ValueFlowContributions, ValueFlowContributionsRow = "value_flow_contributions",
     family = Findings,
-    key = [snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call],
+    key = [snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call,
+           local_through_call, upstream_identity, upstream_through_call],
     checks = [
         ("identity_not_through_call", "NOT (identity AND through_call)"),
         ("local_call_is_a_call", "NOT local_through_call OR through_call"),
@@ -2081,13 +2084,14 @@ crate::relations! {
     /// The condition kernel decides whether each seed is admitted or bounded.
     summary_flow_seeds = "behavior:summary_flow_seeds",
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls", "parameter_syntax",
-                "syntax_nodes", "declarations", "exit_sites", "return_exit_statuses", "call_syntax"],
+                "syntax_nodes", "declarations", "exit_sites", "return_exit_statuses"],
         sql = format!(
             "SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, p.name AS parameter_name, \
                     v.flow_value_fact_id AS source_flow_fact_id, v.condition_id, \
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
+                    r.start_byte AS return_start_byte, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
@@ -2108,9 +2112,6 @@ crate::relations! {
                AND NOT v.captured AND v.function_node_id = v.sink_function_node_id \
                AND NOT EXISTS (SELECT 1 FROM flow_value_calls c \
                  WHERE c.flow_value_fact_id = f.fact_id) \
-               AND NOT EXISTS (SELECT 1 FROM call_syntax c \
-                 WHERE c.owner_node_id = d.node_id AND NOT c.in_annotation \
-                   AND c.start_byte < r.start_byte) \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
@@ -2120,6 +2121,33 @@ crate::relations! {
             return_sink = FlowSink::Return.code(),
             yield_kind = SyntaxKind::ExprYield.code(),
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
+        );
+
+    /// The narrowest ty statement region enclosing each attributed source call. A preceding
+    /// call may be ignored by a direct return only when its region is definitely disjoint
+    /// from that return's value condition under the bounded BDD kernel. This relation says
+    /// nothing about the call's own normal completion.
+    preceding_call_regions = "behavior:preceding_call_regions",
+        deps = ["call_syntax", "declarations", "flow_regions"],
+        sql = format!(
+            "WITH candidates AS ( \
+               SELECT d.node_id AS function_node_id, c.fact_id AS call_fact_id, \
+                      c.start_byte AS call_start_byte, r.condition_id, r.approximated, \
+                      ROW_NUMBER() OVER (PARTITION BY c.fact_id \
+                        ORDER BY r.end_byte - r.start_byte, r.start_byte, r.fact_id) AS pick \
+               FROM call_syntax c JOIN declarations d ON d.node_id = c.owner_node_id \
+                 AND d.kind = {function_kind} \
+               LEFT JOIN flow_regions r ON r.module_node_id = c.module_node_id \
+                 AND r.scope_kind = {function_scope} \
+                 AND r.scope_start_byte = d.name_start_byte \
+                 AND r.scope_end_byte = d.name_end_byte \
+                 AND r.start_byte <= c.start_byte AND r.end_byte >= c.end_byte \
+               WHERE NOT c.in_annotation \
+             ) \
+             SELECT function_node_id, call_fact_id, call_start_byte, condition_id, \
+                    approximated FROM candidates WHERE pick = 1",
+            function_kind = DeclarationKind::Function.code(),
+            function_scope = crate::codebook::LexicalScopeKind::Function.code(),
         );
 
     /// A direct return whose entire expression is one exact pinned identity-model call.

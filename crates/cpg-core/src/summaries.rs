@@ -5,11 +5,16 @@ use std::collections::{HashMap, HashSet};
 
 use cpg_schema::behavior::{
     AnalysisConditionNodesRow, AnalysisConditionsRow, ModeledArgumentEvaluationsRow,
-    SummaryComponentsRow, SummaryFlowStepsRow, SummaryFlowsRow,
-    ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
+    SummaryComponentsRow, SummaryFlowStepsRow, SummaryFlowsRow, ValueFlowPredecessorCandidatesRow,
+    ValueFlowPredecessorCompatibilityRow,
 };
-use cpg_schema::codebook::{BoundaryReason, Codebook, ModeledArgumentEvaluationStatus, SummaryFlowKind, SummaryFlowStepKind, Verdict};
-use cpg_schema::condition_kernel::{ConditionRoot, Diagram, DiagramNode, KernelBoundary, hydrate_catalog};
+use cpg_schema::codebook::{
+    BoundaryReason, Codebook, ModeledArgumentEvaluationStatus, SummaryFlowKind,
+    SummaryFlowStepKind, Verdict,
+};
+use cpg_schema::condition_kernel::{
+    ConditionRoot, Diagram, DiagramNode, KernelBoundary, hydrate_catalog,
+};
 use cpg_schema::id::{Id, recipe};
 use cpg_schema::models::{InputPath, OutputPath};
 use datafusion::prelude::SessionContext;
@@ -73,6 +78,7 @@ cpg_schema::query_row! {
         condition_id: Id,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
+        return_start_byte: i64,
         approximated: bool,
     }
 }
@@ -202,6 +208,65 @@ cpg_schema::query_row! {
     }
 }
 
+cpg_schema::query_row! {
+    struct PrecedingCallRegion {
+        function_node_id: Id,
+        call_fact_id: Id,
+        call_start_byte: i64,
+        condition_id: Option<Id>,
+        approximated: Option<bool>,
+    }
+}
+
+type PrecedingCallIndex = HashMap<Id, Vec<PrecedingCallRegion>>;
+
+async fn preceding_call_regions(ctx: &SessionContext) -> Result<PrecedingCallIndex, CoreError> {
+    let rows: Vec<PrecedingCallRegion> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::preceding_call_regions(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut by_function: PrecedingCallIndex = HashMap::new();
+    for row in rows {
+        by_function
+            .entry(row.function_node_id)
+            .or_default()
+            .push(row);
+    }
+    for calls in by_function.values_mut() {
+        calls.sort_by_key(|call| (call.call_start_byte, call.call_fact_id));
+    }
+    Ok(by_function)
+}
+
+fn has_unproved_preceding_call(
+    seed: &SummaryFlowSeed,
+    calls: &PrecedingCallIndex,
+    diagrams: &HashMap<Id, Diagram>,
+) -> bool {
+    let Some(return_condition) = diagrams.get(&seed.condition_id) else {
+        return calls.get(&seed.function_node_id).is_some_and(|rows| {
+            rows.iter()
+                .any(|call| call.call_start_byte < seed.return_start_byte)
+        });
+    };
+    calls.get(&seed.function_node_id).is_some_and(|rows| {
+        rows.iter()
+            .take_while(|call| call.call_start_byte < seed.return_start_byte)
+            .any(|call| {
+                if call.approximated != Some(false) {
+                    return true;
+                }
+                let Some(call_condition) = call.condition_id.and_then(|id| diagrams.get(&id))
+                else {
+                    return true;
+                };
+                !matches!(return_condition.and(call_condition), Ok(both) if both.is_false())
+            })
+    })
+}
+
 type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 async fn return_pass_steps(ctx: &SessionContext) -> Result<ReturnPassIndex, CoreError> {
@@ -209,15 +274,25 @@ async fn return_pass_steps(ctx: &SessionContext) -> Result<ReturnPassIndex, Core
         ctx,
         &cpg_schema::behavior::return_exit_pass_steps(),
         sql::Params::new(),
-    ).await?;
+    )
+    .await?;
     let mut by_return: ReturnPassIndex = HashMap::new();
     for row in rows {
-        by_return.entry(row.return_site_fact_id).or_default().push(row);
+        by_return
+            .entry(row.return_site_fact_id)
+            .or_default()
+            .push(row);
     }
     for steps in by_return.values_mut() {
         steps.sort_by_key(|step| step.ordinal);
-        if steps.iter().enumerate().any(|(ordinal, step)| step.ordinal != ordinal as i64) {
-            return Err(CoreError::Analysis("non-dense return finalizer proof".to_owned()));
+        if steps
+            .iter()
+            .enumerate()
+            .any(|(ordinal, step)| step.ordinal != ordinal as i64)
+        {
+            return Err(CoreError::Analysis(
+                "non-dense return finalizer proof".to_owned(),
+            ));
         }
     }
     Ok(by_return)
@@ -230,25 +305,37 @@ pub async fn predecessor_compatibility(
         sql::fetch(ctx, &predecessors(), sql::Params::new()).await?;
     let (diagrams, boundaries) = load_conditions(ctx).await?;
     Ok(lctx_analytics::summaries::predecessor_compatibility(
-        &edges, &diagrams, &boundaries,
+        &edges,
+        &diagrams,
+        &boundaries,
     ))
 }
 
 /// Materialize the deterministic SCC schedule over attributed release-to-release calls.
 /// Candidate/open targets are topology only and confer no behavior verdict here.
 pub async fn call_components(ctx: &SessionContext) -> Result<Vec<SummaryComponentsRow>, CoreError> {
-    let functions: Vec<CallFunction> = sql::fetch(ctx, &call_functions(), sql::Params::new()).await?;
+    let functions: Vec<CallFunction> =
+        sql::fetch(ctx, &call_functions(), sql::Params::new()).await?;
     let arcs: Vec<CallArc> = sql::fetch(ctx, &call_arcs(), sql::Params::new()).await?;
     let Some(snapshot_id) = functions.first().map(|row| row.snapshot_id) else {
         return Ok(Vec::new());
     };
     if functions.iter().any(|row| row.snapshot_id != snapshot_id) {
-        return Err(CoreError::Analysis("mixed snapshots in call component inputs".to_owned()));
+        return Err(CoreError::Analysis(
+            "mixed snapshots in call component inputs".to_owned(),
+        ));
     }
     let components = lctx_analytics::summaries::call_components(
-        &functions.iter().map(|row| row.function_node_id).collect::<Vec<_>>(),
-        &arcs.iter().map(|row| (row.caller_node_id, row.callee_node_id)).collect::<Vec<_>>(),
-    ).map_err(|error| CoreError::Analysis(error.to_string()))?;
+        &functions
+            .iter()
+            .map(|row| row.function_node_id)
+            .collect::<Vec<_>>(),
+        &arcs
+            .iter()
+            .map(|row| (row.caller_node_id, row.callee_node_id))
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| CoreError::Analysis(error.to_string()))?;
     let mut rows = Vec::with_capacity(functions.len());
     for (component_order, component) in components.iter().enumerate() {
         let component_id = recipe::summary_component(&component.members);
@@ -274,6 +361,7 @@ async fn direct_flows(
     diagrams: &HashMap<Id, Diagram>,
     boundaries: &HashMap<Id, BoundaryReason>,
     pass_steps: &ReturnPassIndex,
+    preceding_calls: &PrecedingCallIndex,
 ) -> Result<(Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>), CoreError> {
     let seeds: Vec<SummaryFlowSeed> = sql::fetch(
         ctx,
@@ -284,74 +372,84 @@ async fn direct_flows(
     let mut flows = Vec::new();
     let mut steps = Vec::new();
     for seed in seeds {
-            let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
-                Some(diagram) if diagram.is_false() => continue,
-                Some(diagram) if diagram.is_true() => (Verdict::Established, None),
-                Some(_) => (Verdict::Conditional, None),
-                None => (
-                    Verdict::Unknown,
-                    Some(
-                        boundaries
-                            .get(&seed.condition_id)
-                            .copied()
-                            .unwrap_or(BoundaryReason::MissingEvidence),
-                    ),
+        if has_unproved_preceding_call(&seed, preceding_calls, diagrams) {
+            continue;
+        }
+        let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
+            Some(diagram) if diagram.is_false() => continue,
+            Some(diagram) if diagram.is_true() => (Verdict::Established, None),
+            Some(_) => (Verdict::Conditional, None),
+            None => (
+                Verdict::Unknown,
+                Some(
+                    boundaries
+                        .get(&seed.condition_id)
+                        .copied()
+                        .unwrap_or(BoundaryReason::MissingEvidence),
                 ),
-            };
-            let input_path = InputPath::Parameter {
-                name: seed.parameter_name,
-            }
-            .render();
-            let output_path = OutputPath::ReturnValue.render();
-            let mut proof = vec![recipe::SummaryFlowProofStep {
-                kind: SummaryFlowStepKind::RawIdentity,
-                evidence_id: seed.source_flow_fact_id,
-                condition_id: seed.condition_id,
-            }];
-            let finalizers = pass_steps.get(&seed.return_site_fact_id).map_or(&[][..], Vec::as_slice);
-            for finalizer in finalizers {
-                proof.push(recipe::SummaryFlowProofStep {
-                    kind: SummaryFlowStepKind::FinalizerPass,
-                    evidence_id: finalizer.pass_fact_id,
-                    condition_id: finalizer.condition_id,
-                });
-            }
-            let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
-                function: seed.function_node_id,
-                parameter: seed.parameter_node_id,
-                input_path: &input_path,
-                output_path: &output_path,
-                transfer_kind: SummaryFlowKind::Value,
-                condition: seed.condition_id,
-                return_site: seed.return_site_fact_id,
-                return_region: seed.return_region_fact_id,
-                steps: &proof,
+            ),
+        };
+        let input_path = InputPath::Parameter {
+            name: seed.parameter_name,
+        }
+        .render();
+        let output_path = OutputPath::ReturnValue.render();
+        let mut proof = vec![recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::RawIdentity,
+            evidence_id: seed.source_flow_fact_id,
+            condition_id: seed.condition_id,
+        }];
+        let finalizers = pass_steps
+            .get(&seed.return_site_fact_id)
+            .map_or(&[][..], Vec::as_slice);
+        for finalizer in finalizers {
+            proof.push(recipe::SummaryFlowProofStep {
+                kind: SummaryFlowStepKind::FinalizerPass,
+                evidence_id: finalizer.pass_fact_id,
+                condition_id: finalizer.condition_id,
             });
-            flows.push(SummaryFlowsRow {
-                snapshot_id: seed.snapshot_id,
-                summary_id,
-                function_node_id: seed.function_node_id,
-                parameter_node_id: seed.parameter_node_id,
-                input_path,
-                output_path,
-                kind: SummaryFlowKind::Value,
-                condition_id: seed.condition_id,
-                verdict,
-                boundary_reason,
-                source_flow_fact_id: seed.source_flow_fact_id,
-                return_site_fact_id: seed.return_site_fact_id,
-                return_region_fact_id: seed.return_region_fact_id,
-                approximated: seed.approximated,
-                path_depth: 0,
-            });
-            steps.extend(proof.into_iter().enumerate().map(|(ordinal, step)| SummaryFlowStepsRow {
-                snapshot_id: seed.snapshot_id,
-                summary_id,
-                ordinal: ordinal as i64,
-                kind: step.kind,
-                evidence_id: step.evidence_id,
-                condition_id: step.condition_id,
-            }));
+        }
+        let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
+            function: seed.function_node_id,
+            parameter: seed.parameter_node_id,
+            input_path: &input_path,
+            output_path: &output_path,
+            transfer_kind: SummaryFlowKind::Value,
+            condition: seed.condition_id,
+            return_site: seed.return_site_fact_id,
+            return_region: seed.return_region_fact_id,
+            steps: &proof,
+        });
+        flows.push(SummaryFlowsRow {
+            snapshot_id: seed.snapshot_id,
+            summary_id,
+            function_node_id: seed.function_node_id,
+            parameter_node_id: seed.parameter_node_id,
+            input_path,
+            output_path,
+            kind: SummaryFlowKind::Value,
+            condition_id: seed.condition_id,
+            verdict,
+            boundary_reason,
+            source_flow_fact_id: seed.source_flow_fact_id,
+            return_site_fact_id: seed.return_site_fact_id,
+            return_region_fact_id: seed.return_region_fact_id,
+            approximated: seed.approximated,
+            path_depth: 0,
+        });
+        steps.extend(
+            proof
+                .into_iter()
+                .enumerate()
+                .map(|(ordinal, step)| SummaryFlowStepsRow {
+                    snapshot_id: seed.snapshot_id,
+                    summary_id,
+                    ordinal: ordinal as i64,
+                    kind: step.kind,
+                    evidence_id: step.evidence_id,
+                    condition_id: step.condition_id,
+                }),
+        );
     }
     Ok((flows, steps))
 }
@@ -379,10 +477,15 @@ fn modeled_call_proof(
             || argument.status == ModeledArgumentEvaluationStatus::Unknown
             || argument.evidence_id.is_none()
             || argument.condition_id != seed.condition_id
-    }) || ordered.iter().filter(|argument| {
-        argument.status == ModeledArgumentEvaluationStatus::SourceOperand
-            && argument.argument_fact_id == seed.source_argument_fact_id
-    }).count() != 1 {
+    }) || ordered
+        .iter()
+        .filter(|argument| {
+            argument.status == ModeledArgumentEvaluationStatus::SourceOperand
+                && argument.argument_fact_id == seed.source_argument_fact_id
+        })
+        .count()
+        != 1
+    {
         return None;
     }
     let mut proof = Vec::with_capacity(ordered.len() + 4);
@@ -418,19 +521,29 @@ fn push_finite_path(
     pass_steps: &ReturnPassIndex,
     path: FinitePath,
 ) {
-    let input_path = InputPath::Parameter { name: path.parameter_name }.render();
+    let input_path = InputPath::Parameter {
+        name: path.parameter_name,
+    }
+    .render();
     let output_path = OutputPath::ReturnValue.render();
     let mut proof = path.proof;
-    let finalizers = pass_steps.get(&path.return_site_fact_id).map_or(&[][..], Vec::as_slice);
+    let finalizers = pass_steps
+        .get(&path.return_site_fact_id)
+        .map_or(&[][..], Vec::as_slice);
     if !finalizers.is_empty() {
-        let index = proof.iter().position(|step| step.kind == SummaryFlowStepKind::ReturnExit)
+        let index = proof
+            .iter()
+            .position(|step| step.kind == SummaryFlowStepKind::ReturnExit)
             .unwrap_or(proof.len());
         for (offset, finalizer) in finalizers.iter().enumerate() {
-            proof.insert(index + offset, recipe::SummaryFlowProofStep {
-                kind: SummaryFlowStepKind::FinalizerPass,
-                evidence_id: finalizer.pass_fact_id,
-                condition_id: finalizer.condition_id,
-            });
+            proof.insert(
+                index + offset,
+                recipe::SummaryFlowProofStep {
+                    kind: SummaryFlowStepKind::FinalizerPass,
+                    evidence_id: finalizer.pass_fact_id,
+                    condition_id: finalizer.condition_id,
+                },
+            );
         }
     }
     let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
@@ -453,7 +566,11 @@ fn push_finite_path(
         output_path,
         kind: SummaryFlowKind::Value,
         condition_id: path.condition_id,
-        verdict: if path.condition_is_true { Verdict::Established } else { Verdict::Conditional },
+        verdict: if path.condition_is_true {
+            Verdict::Established
+        } else {
+            Verdict::Conditional
+        },
         boundary_reason: None,
         source_flow_fact_id: path.source_flow_fact_id,
         return_site_fact_id: path.return_site_fact_id,
@@ -461,14 +578,19 @@ fn push_finite_path(
         approximated: path.approximated,
         path_depth: path.path_depth,
     });
-    steps.extend(proof.into_iter().enumerate().map(|(ordinal, step)| SummaryFlowStepsRow {
-        snapshot_id: path.snapshot_id,
-        summary_id,
-        ordinal: ordinal as i64,
-        kind: step.kind,
-        evidence_id: step.evidence_id,
-        condition_id: step.condition_id,
-    }));
+    steps.extend(
+        proof
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, step)| SummaryFlowStepsRow {
+                snapshot_id: path.snapshot_id,
+                summary_id,
+                ordinal: ordinal as i64,
+                kind: step.kind,
+                evidence_id: step.evidence_id,
+                condition_id: step.condition_id,
+            }),
+    );
 }
 
 /// Reconstruct all admitted finite paths and their ordered proof steps from published inputs.
@@ -478,14 +600,16 @@ pub async fn finite_flows(
 ) -> Result<(Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>), CoreError> {
     let (diagrams, boundaries) = load_conditions(ctx).await?;
     let pass_steps = return_pass_steps(ctx).await?;
-    let components: Vec<SummaryComponentsRow> = sql::fetch(
-        ctx, &published_components(), sql::Params::new(),
-    ).await?;
-    let recursive_functions: HashSet<Id> = components.iter()
+    let preceding_calls = preceding_call_regions(ctx).await?;
+    let components: Vec<SummaryComponentsRow> =
+        sql::fetch(ctx, &published_components(), sql::Params::new()).await?;
+    let recursive_functions: HashSet<Id> = components
+        .iter()
         .filter(|row| row.recursive)
         .map(|row| row.function_node_id)
         .collect();
-    let (mut flows, mut steps) = direct_flows(ctx, &diagrams, &boundaries, &pass_steps).await?;
+    let (mut flows, mut steps) =
+        direct_flows(ctx, &diagrams, &boundaries, &pass_steps, &preceding_calls).await?;
     let seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(
         ctx,
         &cpg_schema::behavior::modeled_summary_flow_seeds(),
@@ -524,18 +648,21 @@ pub async fn finite_flows(
         if condition.is_false() || condition.implies(return_condition) != Ok(true) {
             continue;
         }
-        let Some(mut proof) = modeled_call_proof(&CallEvidence {
-            flow_fact_id: seed.source_flow_fact_id,
-            parameter_node_id: seed.parameter_node_id,
-            source_argument_fact_id: seed.source_argument_fact_id,
-            call_fact_id: seed.call_fact_id,
-            pysa_fact_id: seed.pysa_fact_id,
-            model_id: seed.model_id,
-            rule_id: seed.rule_id,
-            callee_resolution_fact_id: seed.callee_resolution_fact_id,
-            argument_count: seed.argument_count,
-            condition_id: seed.condition_id,
-        }, &by_candidate) else {
+        let Some(mut proof) = modeled_call_proof(
+            &CallEvidence {
+                flow_fact_id: seed.source_flow_fact_id,
+                parameter_node_id: seed.parameter_node_id,
+                source_argument_fact_id: seed.source_argument_fact_id,
+                call_fact_id: seed.call_fact_id,
+                pysa_fact_id: seed.pysa_fact_id,
+                model_id: seed.model_id,
+                rule_id: seed.rule_id,
+                callee_resolution_fact_id: seed.callee_resolution_fact_id,
+                argument_count: seed.argument_count,
+                condition_id: seed.condition_id,
+            },
+            &by_candidate,
+        ) else {
             continue;
         };
         proof.push(recipe::SummaryFlowProofStep {
@@ -543,20 +670,25 @@ pub async fn finite_flows(
             evidence_id: seed.return_site_fact_id,
             condition_id: seed.return_condition_id,
         });
-        push_finite_path(&mut flows, &mut steps, &pass_steps, FinitePath {
-            snapshot_id: seed.snapshot_id,
-            function_node_id: seed.function_node_id,
-            parameter_node_id: seed.parameter_node_id,
-            parameter_name: seed.parameter_name,
-            source_flow_fact_id: seed.source_flow_fact_id,
-            condition_id: seed.condition_id,
-            condition_is_true: condition.is_true(),
-            return_site_fact_id: seed.return_site_fact_id,
-            return_region_fact_id: seed.return_region_fact_id,
-            approximated: seed.approximated,
-            path_depth: 1,
-            proof,
-        });
+        push_finite_path(
+            &mut flows,
+            &mut steps,
+            &pass_steps,
+            FinitePath {
+                snapshot_id: seed.snapshot_id,
+                function_node_id: seed.function_node_id,
+                parameter_node_id: seed.parameter_node_id,
+                parameter_name: seed.parameter_name,
+                source_flow_fact_id: seed.source_flow_fact_id,
+                condition_id: seed.condition_id,
+                condition_is_true: condition.is_true(),
+                return_site_fact_id: seed.return_site_fact_id,
+                return_region_fact_id: seed.return_region_fact_id,
+                approximated: seed.approximated,
+                path_depth: 1,
+                proof,
+            },
+        );
     }
     let assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed> = sql::fetch(
         ctx,
@@ -571,73 +703,111 @@ pub async fn finite_flows(
         let Some(condition) = diagrams.get(&seed.predecessor_condition_id) else {
             continue;
         };
-        if condition.is_false() || [
-            seed.reaching_condition_id,
-            seed.successor_condition_id,
-            seed.return_condition_id,
-        ].iter().any(|id| {
-            diagrams.get(id).is_none_or(|other| condition.implies(other) != Ok(true))
-        }) {
+        if condition.is_false()
+            || [
+                seed.reaching_condition_id,
+                seed.successor_condition_id,
+                seed.return_condition_id,
+            ]
+            .iter()
+            .any(|id| {
+                diagrams
+                    .get(id)
+                    .is_none_or(|other| condition.implies(other) != Ok(true))
+            })
+        {
             continue;
         }
-        let Some(mut proof) = modeled_call_proof(&CallEvidence {
-            flow_fact_id: seed.predecessor_flow_fact_id,
-            parameter_node_id: seed.parameter_node_id,
-            source_argument_fact_id: seed.source_argument_fact_id,
-            call_fact_id: seed.call_fact_id,
-            pysa_fact_id: seed.pysa_fact_id,
-            model_id: seed.model_id,
-            rule_id: seed.rule_id,
-            callee_resolution_fact_id: seed.callee_resolution_fact_id,
-            argument_count: seed.argument_count,
-            condition_id: seed.predecessor_condition_id,
-        }, &by_candidate) else {
+        let Some(mut proof) = modeled_call_proof(
+            &CallEvidence {
+                flow_fact_id: seed.predecessor_flow_fact_id,
+                parameter_node_id: seed.parameter_node_id,
+                source_argument_fact_id: seed.source_argument_fact_id,
+                call_fact_id: seed.call_fact_id,
+                pysa_fact_id: seed.pysa_fact_id,
+                model_id: seed.model_id,
+                rule_id: seed.rule_id,
+                callee_resolution_fact_id: seed.callee_resolution_fact_id,
+                argument_count: seed.argument_count,
+                condition_id: seed.predecessor_condition_id,
+            },
+            &by_candidate,
+        ) else {
             continue;
         };
         for (kind, evidence_id, condition_id) in [
-            (SummaryFlowStepKind::DefinitionReaching, seed.reaching_fact_id, seed.reaching_condition_id),
-            (SummaryFlowStepKind::ReturnSource, seed.source_flow_fact_id, seed.successor_condition_id),
-            (SummaryFlowStepKind::ReturnExit, seed.return_site_fact_id, seed.return_condition_id),
+            (
+                SummaryFlowStepKind::DefinitionReaching,
+                seed.reaching_fact_id,
+                seed.reaching_condition_id,
+            ),
+            (
+                SummaryFlowStepKind::ReturnSource,
+                seed.source_flow_fact_id,
+                seed.successor_condition_id,
+            ),
+            (
+                SummaryFlowStepKind::ReturnExit,
+                seed.return_site_fact_id,
+                seed.return_condition_id,
+            ),
         ] {
-            proof.push(recipe::SummaryFlowProofStep { kind, evidence_id, condition_id });
+            proof.push(recipe::SummaryFlowProofStep {
+                kind,
+                evidence_id,
+                condition_id,
+            });
         }
-        push_finite_path(&mut flows, &mut steps, &pass_steps, FinitePath {
-            snapshot_id: seed.snapshot_id,
-            function_node_id: seed.function_node_id,
-            parameter_node_id: seed.parameter_node_id,
-            parameter_name: seed.parameter_name,
-            source_flow_fact_id: seed.source_flow_fact_id,
-            condition_id: seed.predecessor_condition_id,
-            condition_is_true: condition.is_true(),
-            return_site_fact_id: seed.return_site_fact_id,
-            return_region_fact_id: seed.return_region_fact_id,
-            approximated: seed.approximated,
-            path_depth: 2,
-            proof,
-        });
+        push_finite_path(
+            &mut flows,
+            &mut steps,
+            &pass_steps,
+            FinitePath {
+                snapshot_id: seed.snapshot_id,
+                function_node_id: seed.function_node_id,
+                parameter_node_id: seed.parameter_node_id,
+                parameter_name: seed.parameter_name,
+                source_flow_fact_id: seed.source_flow_fact_id,
+                condition_id: seed.predecessor_condition_id,
+                condition_is_true: condition.is_true(),
+                return_site_fact_id: seed.return_site_fact_id,
+                return_region_fact_id: seed.return_region_fact_id,
+                approximated: seed.approximated,
+                path_depth: 2,
+                proof,
+            },
+        );
     }
     // The first interprocedural case needs no cross-scope atom substitution: the callee's
     // admitted path is unconditional. Acyclic components run after their callees, while
     // recursive components retain their existing unknown boundary until the bounded worklist.
-    let component_by_function: HashMap<Id, (i64, bool)> = components.into_iter()
+    let component_by_function: HashMap<Id, (i64, bool)> = components
+        .into_iter()
         .map(|row| (row.function_node_id, (row.component_order, row.recursive)))
         .collect();
     let mut local_seeds: Vec<LocalCallSummaryFlowSeed> = sql::fetch(
         ctx,
         &cpg_schema::behavior::local_call_summary_flow_seeds(),
         sql::Params::new(),
-    ).await?;
-    local_seeds.sort_by_key(|seed| (
-        component_by_function.get(&seed.function_node_id).map_or(i64::MAX, |c| c.0),
-        seed.function_node_id,
-        seed.call_site_node_id,
-        seed.source_flow_fact_id,
-        seed.pysa_fact_id,
-    ));
+    )
+    .await?;
+    local_seeds.sort_by_key(|seed| {
+        (
+            component_by_function
+                .get(&seed.function_node_id)
+                .map_or(i64::MAX, |c| c.0),
+            seed.function_node_id,
+            seed.call_site_node_id,
+            seed.source_flow_fact_id,
+            seed.pysa_fact_id,
+        )
+    });
     let mut by_formal: HashMap<(Id, Id), Vec<SummaryFlowsRow>> = HashMap::new();
     for flow in &flows {
-        by_formal.entry((flow.function_node_id, flow.parameter_node_id))
-            .or_default().push(flow.clone());
+        by_formal
+            .entry((flow.function_node_id, flow.parameter_node_id))
+            .or_default()
+            .push(flow.clone());
     }
     const MAX_LOCAL_PATH_DEPTH: i64 = 8;
     for seed in local_seeds {
@@ -653,9 +823,10 @@ pub async fn finite_flows(
         if condition.is_false() || condition.implies(exit_condition) != Ok(true) {
             continue;
         }
-        let Some(callee_paths) = by_formal.get(&(
-            seed.callee_node_id, seed.callee_parameter_node_id,
-        )).cloned() else {
+        let Some(callee_paths) = by_formal
+            .get(&(seed.callee_node_id, seed.callee_parameter_node_id))
+            .cloned()
+        else {
             continue;
         };
         for callee in callee_paths {
@@ -664,40 +835,77 @@ pub async fn finite_flows(
                 || callee.kind != SummaryFlowKind::Value
                 || callee.output_path != OutputPath::ReturnValue.render()
                 || callee.path_depth >= MAX_LOCAL_PATH_DEPTH
-                || !diagrams.get(&callee.condition_id).is_some_and(Diagram::is_true)
+                || !diagrams
+                    .get(&callee.condition_id)
+                    .is_some_and(Diagram::is_true)
             {
                 continue;
             }
             let proof = [
-                (SummaryFlowStepKind::CalleeResolution, seed.callee_resolution_fact_id,
-                    seed.condition_id),
-                (SummaryFlowStepKind::ArgumentEvaluation, seed.source_flow_fact_id,
-                    seed.condition_id),
-                (SummaryFlowStepKind::CallSite, seed.call_fact_id, seed.condition_id),
-                (SummaryFlowStepKind::CallTarget, seed.pysa_fact_id, seed.condition_id),
-                (SummaryFlowStepKind::CalleeSummary, callee.summary_id, callee.condition_id),
-                (SummaryFlowStepKind::ReturnExit, seed.return_site_fact_id,
-                    seed.return_condition_id),
-            ].into_iter().map(|(kind, evidence_id, condition_id)| {
-                recipe::SummaryFlowProofStep { kind, evidence_id, condition_id }
-            }).collect();
-            push_finite_path(&mut flows, &mut steps, &pass_steps, FinitePath {
-                snapshot_id: seed.snapshot_id,
-                function_node_id: seed.function_node_id,
-                parameter_node_id: seed.parameter_node_id,
-                parameter_name: seed.parameter_name.clone(),
-                source_flow_fact_id: seed.source_flow_fact_id,
-                condition_id: seed.condition_id,
-                condition_is_true: condition.is_true(),
-                return_site_fact_id: seed.return_site_fact_id,
-                return_region_fact_id: seed.return_region_fact_id,
-                approximated: seed.approximated || callee.approximated,
-                path_depth: callee.path_depth + 1,
-                proof,
-            });
+                (
+                    SummaryFlowStepKind::CalleeResolution,
+                    seed.callee_resolution_fact_id,
+                    seed.condition_id,
+                ),
+                (
+                    SummaryFlowStepKind::ArgumentEvaluation,
+                    seed.source_flow_fact_id,
+                    seed.condition_id,
+                ),
+                (
+                    SummaryFlowStepKind::CallSite,
+                    seed.call_fact_id,
+                    seed.condition_id,
+                ),
+                (
+                    SummaryFlowStepKind::CallTarget,
+                    seed.pysa_fact_id,
+                    seed.condition_id,
+                ),
+                (
+                    SummaryFlowStepKind::CalleeSummary,
+                    callee.summary_id,
+                    callee.condition_id,
+                ),
+                (
+                    SummaryFlowStepKind::ReturnExit,
+                    seed.return_site_fact_id,
+                    seed.return_condition_id,
+                ),
+            ]
+            .into_iter()
+            .map(
+                |(kind, evidence_id, condition_id)| recipe::SummaryFlowProofStep {
+                    kind,
+                    evidence_id,
+                    condition_id,
+                },
+            )
+            .collect();
+            push_finite_path(
+                &mut flows,
+                &mut steps,
+                &pass_steps,
+                FinitePath {
+                    snapshot_id: seed.snapshot_id,
+                    function_node_id: seed.function_node_id,
+                    parameter_node_id: seed.parameter_node_id,
+                    parameter_name: seed.parameter_name.clone(),
+                    source_flow_fact_id: seed.source_flow_fact_id,
+                    condition_id: seed.condition_id,
+                    condition_is_true: condition.is_true(),
+                    return_site_fact_id: seed.return_site_fact_id,
+                    return_region_fact_id: seed.return_region_fact_id,
+                    approximated: seed.approximated || callee.approximated,
+                    path_depth: callee.path_depth + 1,
+                    proof,
+                },
+            );
             if let Some(flow) = flows.last() {
-                by_formal.entry((flow.function_node_id, flow.parameter_node_id))
-                    .or_default().push(flow.clone());
+                by_formal
+                    .entry((flow.function_node_id, flow.parameter_node_id))
+                    .or_default()
+                    .push(flow.clone());
             }
         }
     }
@@ -734,8 +942,12 @@ async fn load_conditions(
         .collect();
     let mut boundaries = HashMap::new();
     let classify = |code: &str| match KernelBoundary::from_code(code) {
-        Some(KernelBoundary::SourceOverBudget | KernelBoundary::AtomLimit |
-             KernelBoundary::WorkPreflight | KernelBoundary::NodeLimit) => BoundaryReason::BudgetReached,
+        Some(
+            KernelBoundary::SourceOverBudget
+            | KernelBoundary::AtomLimit
+            | KernelBoundary::WorkPreflight
+            | KernelBoundary::NodeLimit,
+        ) => BoundaryReason::BudgetReached,
         Some(KernelBoundary::TransferUnsupported) => BoundaryReason::OutsideProviderModel,
         Some(KernelBoundary::AtomNameCollision) | None => BoundaryReason::MissingEvidence,
     };
@@ -745,22 +957,29 @@ async fn load_conditions(
         }
     }
     let mut diagrams = hydrate_catalog(&roots, &nodes).map_err(CoreError::Analysis)?;
-    let provider_roots: Vec<ConditionRoot> = provider_roots.into_iter().map(|r| ConditionRoot {
-        condition_id: r.condition_id,
-        root_id: r.root_id,
-        boundary_reason: r.boundary_reason,
-    }).collect();
-    let provider_nodes: Vec<DiagramNode> = provider_nodes.into_iter().map(|r| DiagramNode {
-        node_id: r.node_id,
-        atom: r.atom,
-        low: r.low_id,
-        high: r.high_id,
-    }).collect();
+    let provider_roots: Vec<ConditionRoot> = provider_roots
+        .into_iter()
+        .map(|r| ConditionRoot {
+            condition_id: r.condition_id,
+            root_id: r.root_id,
+            boundary_reason: r.boundary_reason,
+        })
+        .collect();
+    let provider_nodes: Vec<DiagramNode> = provider_nodes
+        .into_iter()
+        .map(|r| DiagramNode {
+            node_id: r.node_id,
+            atom: r.atom,
+            low: r.low_id,
+            high: r.high_id,
+        })
+        .collect();
     for root in &provider_roots {
         if let Some(code) = root.boundary_reason.as_deref() {
             boundaries.insert(root.condition_id, classify(code));
         }
     }
-    diagrams.extend(hydrate_catalog(&provider_roots, &provider_nodes).map_err(CoreError::Analysis)?);
+    diagrams
+        .extend(hydrate_catalog(&provider_roots, &provider_nodes).map_err(CoreError::Analysis)?);
     Ok((diagrams, boundaries))
 }

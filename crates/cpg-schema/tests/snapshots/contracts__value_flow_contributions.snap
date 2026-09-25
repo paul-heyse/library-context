@@ -4,7 +4,7 @@ expression: text
 ---
 table value_flow_contributions
 family findings
-key snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call
+key snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call, local_through_call, upstream_identity, upstream_through_call
 check identity_not_through_call: NOT (identity AND through_call)
 check local_call_is_a_call: NOT local_through_call OR through_call
 check upstream_transfer_exclusive: NOT (upstream_identity AND upstream_through_call)

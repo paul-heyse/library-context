@@ -1,10 +1,10 @@
 ---
 id: ADR-0038
 title: Withhold direct returns after unproved preceding calls
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0039
 design: [§9.9]
 evidence: Tested
 revisit: A path-sensitive predecessor normal-outcome relation can replace lexical call-order withholding with a cited finite execution proof.

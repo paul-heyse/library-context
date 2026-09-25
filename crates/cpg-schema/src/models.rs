@@ -607,7 +607,10 @@ impl Catalog {
             }
             if model.normal_return
                 && (model.coverage.exceptions != ChannelCoverage::Complete
-                    || model.rules.iter().any(|rule| matches!(rule, Rule::Exception { .. })))
+                    || model
+                        .rules
+                        .iter()
+                        .any(|rule| matches!(rule, Rule::Exception { .. })))
             {
                 return Err(format!(
                     "{}: normal_return requires complete no-exception coverage",
@@ -1085,14 +1088,16 @@ mod tests {
             kind: DefinitionKind::Class,
             ..definition.clone()
         };
-        assert!(catalog
-            .bind_targets(
-                snapshot_id,
-                std::slice::from_ref(&context),
-                std::slice::from_ref(&module),
-                &[class_definition],
-            )
-            .is_err());
+        assert!(
+            catalog
+                .bind_targets(
+                    snapshot_id,
+                    std::slice::from_ref(&context),
+                    std::slice::from_ref(&module),
+                    &[class_definition],
+                )
+                .is_err()
+        );
         let parameter = ContextParametersRow {
             snapshot_id,
             fact_id: Id([7; 16]),
@@ -1199,22 +1204,38 @@ mod tests {
             ("stdlib:3.14.7:json.loads", "s"),
             ("stdlib:3.14.7:gzip.compress", "data"),
             ("stdlib:3.14.7:gzip.decompress", "data"),
-            ("dependency:pydantic==2.13.5:pydantic.type_adapter.TypeAdapter.validate_python", "object"),
+            (
+                "dependency:pydantic==2.13.5:pydantic.type_adapter.TypeAdapter.validate_python",
+                "object",
+            ),
         ] {
-            let added = &catalog.models.iter().find(|m| m.model.target.key() == target)
-                .unwrap().model;
-            assert!(!added.normal_return, "fallible {target} cannot assert total completion");
-            assert!(added.rules.iter().any(|rule| matches!(rule,
+            let added = &catalog
+                .models
+                .iter()
+                .find(|m| m.model.target.key() == target)
+                .unwrap()
+                .model;
+            assert!(
+                !added.normal_return,
+                "fallible {target} cannot assert total completion"
+            );
+            assert!(
+                added.rules.iter().any(|rule| matches!(rule,
                 Rule::Transfer {
                     from: InputPath::Parameter { name },
                     to: OutputPath::ReturnValue,
                     transfer: Transfer::Transform,
                     modality: RuleModality::Potential,
-                } if name == formal)), "{target} must retain its exact input formal");
+                } if name == formal)),
+                "{target} must retain its exact input formal"
+            );
         }
-        let logging = &catalog.models.iter().find(|m| {
-            m.model.target.key() == "stdlib:3.14.7:logging.Logger.warning"
-        }).unwrap().model;
+        let logging = &catalog
+            .models
+            .iter()
+            .find(|m| m.model.target.key() == "stdlib:3.14.7:logging.Logger.warning")
+            .unwrap()
+            .model;
         assert!(!logging.normal_return);
         assert!(logging.rules.iter().any(|rule| matches!(rule,
             Rule::Effect {
@@ -1226,8 +1247,16 @@ mod tests {
             m.model.target.key()
                 == "dependency:pydantic==2.13.5:pydantic.type_adapter.TypeAdapter.validate_python"
         }).unwrap().model;
-        assert!(matches!(adapter.coverage.effects, ChannelCoverage::Unspecified));
-        assert!(!adapter.rules.iter().any(|rule| matches!(rule, Rule::Effect { .. })));
+        assert!(matches!(
+            adapter.coverage.effects,
+            ChannelCoverage::Unspecified
+        ));
+        assert!(
+            !adapter
+                .rules
+                .iter()
+                .any(|rule| matches!(rule, Rule::Effect { .. }))
+        );
     }
 
     #[test]

@@ -36,8 +36,8 @@ use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
     AssertionKind, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
     EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily, FindingKind, OperationFacet,
-    ReviewState, ScopeKind, SummaryFlowKind, SummaryFlowStepKind, SupportRole,
-    TestValueLinkOrigin, Verdict,
+    ReviewState, ScopeKind, SummaryFlowKind, SummaryFlowStepKind, SupportRole, TestValueLinkOrigin,
+    Verdict,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -202,14 +202,17 @@ fn query(name: &str) -> Option<String> {
                               ORDER BY node_id"
             .to_owned(),
         "analysis_conditions" => "SELECT condition_id, root_id, boundary_reason \
-                                  FROM analysis_conditions ORDER BY condition_id".to_owned(),
+                                  FROM analysis_conditions ORDER BY condition_id"
+            .to_owned(),
         "analysis_condition_nodes" => "SELECT node_id, atom, low_id, high_id \
-                                       FROM analysis_condition_nodes ORDER BY node_id".to_owned(),
+                                       FROM analysis_condition_nodes ORDER BY node_id"
+            .to_owned(),
         "operation_parameters" => "SELECT o.node_id AS operation_node_id, \
                                    p.node_id AS formal_node_id, p.name \
                                    FROM operations o JOIN parameter_syntax p \
                                      ON p.function_node_id = o.node_id \
-                                   ORDER BY operation_node_id, formal_node_id".to_owned(),
+                                   ORDER BY operation_node_id, formal_node_id"
+            .to_owned(),
         "summary_flows" => format!(
             "SELECT summary_id, function_node_id, parameter_node_id, input_path, output_path, \
                     {kind} AS kind, condition_id, {verdict} AS verdict, \

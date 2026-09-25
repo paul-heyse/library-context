@@ -164,7 +164,10 @@ pub fn assess_exact_input_with_work(
     links: &[ValueLink],
     leaves: &[TestLeaf],
 ) -> ExactInputAssessment {
-    let mut work = TheoryWork { peak_bdd_nodes: condition.node_count(), ..TheoryWork::default() };
+    let mut work = TheoryWork {
+        peak_bdd_nodes: condition.node_count(),
+        ..TheoryWork::default()
+    };
     let outcome = assess_exact_input_inner(condition, query, links, leaves, &mut work);
     ExactInputAssessment { outcome, work }
 }
@@ -177,13 +180,16 @@ fn assess_exact_input_inner(
     work: &mut TheoryWork,
 ) -> Result<ExactInputOutcome, TheoryBoundary> {
     if condition.is_false() {
-        return Ok(ExactInputOutcome::Refuted(Refutation { value_link_ids: Vec::new() }));
+        return Ok(ExactInputOutcome::Refuted(Refutation {
+            value_link_ids: Vec::new(),
+        }));
     }
     if condition.is_true() {
-        return Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids: Vec::new() });
+        return Ok(ExactInputOutcome::CompatibleUnderModel {
+            value_link_ids: Vec::new(),
+        });
     }
-    let leaves: BTreeMap<Id, &TestLeaf> =
-        leaves.iter().map(|leaf| (leaf.fact_id, leaf)).collect();
+    let leaves: BTreeMap<Id, &TestLeaf> = leaves.iter().map(|leaf| (leaf.fact_id, leaf)).collect();
     let support: BTreeSet<&str> = condition.support().iter().map(String::as_str).collect();
     let mut assignments: BTreeMap<String, (bool, Id)> = BTreeMap::new();
     for link in links {
@@ -212,7 +218,9 @@ fn assess_exact_input_inner(
         if atom.place() != Some(link.place.as_str()) {
             continue;
         }
-        let Some(value) = evaluate_exact_input(&atom, query.value, link.origin, query.builtin_namespace) else {
+        let Some(value) =
+            evaluate_exact_input(&atom, query.value, link.origin, query.builtin_namespace)
+        else {
             continue;
         };
         match assignments.entry(leaf.atom.clone()) {
@@ -239,7 +247,9 @@ fn assess_exact_input_inner(
         } else {
             literal.not().map_err(TheoryBoundary::Kernel)?
         };
-        let pair_bound = constrained.node_count().saturating_mul(literal.node_count());
+        let pair_bound = constrained
+            .node_count()
+            .saturating_mul(literal.node_count());
         work.bdd_preflight_pairs = work.bdd_preflight_pairs.saturating_add(pair_bound);
         remaining_work = remaining_work
             .checked_sub(pair_bound)
@@ -257,7 +267,9 @@ fn assess_exact_input_inner(
     if witnesses.is_empty() {
         Ok(ExactInputOutcome::Unknown)
     } else {
-        Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids: witnesses })
+        Ok(ExactInputOutcome::CompatibleUnderModel {
+            value_link_ids: witnesses,
+        })
     }
 }
 
@@ -308,10 +320,7 @@ mod tests {
     use crate::codebook::LexicalScopeKind;
     use crate::condition::EvaluationIdentity;
 
-    fn fixture(
-        atom: Atom,
-        origin: TestValueLinkOrigin,
-    ) -> (Diagram, ValueLink, TestLeaf) {
+    fn fixture(atom: Atom, origin: TestValueLinkOrigin) -> (Diagram, ValueLink, TestLeaf) {
         let atom = atom.evaluated(EvaluationIdentity::Site {
             module: Id([2; 16]).hex(),
             start: 10,
@@ -366,9 +375,11 @@ mod tests {
         (diagram, ValueLink::from(&link), TestLeaf::from(&leaf_row))
     }
 
-    fn exact<'a>(link: &ValueLink, value: &'a Value, builtin_namespace: BuiltinNamespace)
-        -> ExactInput<'a>
-    {
+    fn exact<'a>(
+        link: &ValueLink,
+        value: &'a Value,
+        builtin_namespace: BuiltinNamespace,
+    ) -> ExactInput<'a> {
         ExactInput {
             operation_node_id: link.operation_node_id,
             formal_node_id: link.formal_node_id,
@@ -390,7 +401,11 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                exact(&link, &Value::Str("http".to_owned()), BuiltinNamespace::Unknown),
+                exact(
+                    &link,
+                    &Value::Str("http".to_owned()),
+                    BuiltinNamespace::Unknown
+                ),
                 std::slice::from_ref(&link),
                 std::slice::from_ref(&leaf),
             )
@@ -399,11 +414,18 @@ mod tests {
         );
         let assessment = assess_exact_input_with_work(
             &diagram,
-            exact(&link, &Value::Str("http".to_owned()), BuiltinNamespace::Unknown),
+            exact(
+                &link,
+                &Value::Str("http".to_owned()),
+                BuiltinNamespace::Unknown,
+            ),
             std::slice::from_ref(&link),
             std::slice::from_ref(&leaf),
         );
-        assert!(matches!(assessment.outcome, Ok(ExactInputOutcome::Refuted(_))));
+        assert!(matches!(
+            assessment.outcome,
+            Ok(ExactInputOutcome::Refuted(_))
+        ));
         assert_eq!(assessment.work.links_examined, 1);
         assert_eq!(assessment.work.assignments_applied, 1);
         assert!(assessment.work.bdd_preflight_pairs > 0);
@@ -411,7 +433,11 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
+                exact(
+                    &link,
+                    &Value::Str("sse".to_owned()),
+                    BuiltinNamespace::Unknown
+                ),
                 std::slice::from_ref(&link),
                 std::slice::from_ref(&leaf),
             )
@@ -421,17 +447,27 @@ mod tests {
         assert_eq!(
             assess_exact_input(
                 &diagram,
-                exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
+                exact(
+                    &link,
+                    &Value::Str("sse".to_owned()),
+                    BuiltinNamespace::Unknown
+                ),
                 std::slice::from_ref(&link),
                 std::slice::from_ref(&leaf),
             )
             .unwrap(),
-            ExactInputOutcome::CompatibleUnderModel { value_link_ids: vec![link.link_id] }
+            ExactInputOutcome::CompatibleUnderModel {
+                value_link_ids: vec![link.link_id]
+            }
         );
         assert_eq!(
             assess_exact_input(
                 &diagram,
-                exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
+                exact(
+                    &link,
+                    &Value::Str("sse".to_owned()),
+                    BuiltinNamespace::Unknown
+                ),
                 &[],
                 std::slice::from_ref(&leaf),
             )
@@ -440,7 +476,11 @@ mod tests {
         );
         let unlinked = assess_exact_input_with_work(
             &diagram,
-            exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
+            exact(
+                &link,
+                &Value::Str("sse".to_owned()),
+                BuiltinNamespace::Unknown,
+            ),
             &[],
             std::slice::from_ref(&leaf),
         );
@@ -450,7 +490,11 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                exact(&link, &Value::Str("http".to_owned()), BuiltinNamespace::Unknown),
+                exact(
+                    &link,
+                    &Value::Str("http".to_owned()),
+                    BuiltinNamespace::Unknown
+                ),
                 &[],
                 &[leaf],
             )
@@ -487,7 +531,9 @@ mod tests {
         let mut leaves = Vec::new();
         for index in 0..=MAX_ASSIGNMENTS {
             let (atom_condition, mut link, mut leaf) = fixture(
-                Atom::IsNone { place: format!("x{index}") },
+                Atom::IsNone {
+                    place: format!("x{index}"),
+                },
                 TestValueLinkOrigin::DirectParameterReachNoEffect,
             );
             condition = condition.and(&atom_condition).unwrap();

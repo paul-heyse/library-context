@@ -19,11 +19,12 @@ use cpg_schema::behavior::{
     SummaryBoundariesRow, ValueFlowContributions,
 };
 use cpg_schema::codebook::{
-    BoundaryReason, Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink, ImplicitReceiver,
-    HandlerTypeStatus, Modality, ModelArgumentStatus, ModeledArgumentEvaluationStatus, ModelCallbackAction, ModelChannelCoverage,
-    ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
-    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
-    ModelTransferKind, ModeledHandlerClassMatch, Origin, Verdict,
+    BoundaryReason, Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus,
+    FlowCallOperandRole, FlowSink, HandlerTypeStatus, ImplicitReceiver, Modality,
+    ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
+    ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
+    ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
+    ModeledArgumentEvaluationStatus, ModeledHandlerClassMatch, Origin, Verdict,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -324,9 +325,14 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     let out = compile(root.path(), a, &raw_a).await.unwrap();
     let versions = resolve(root.path(), a).await.unwrap().expect("published");
     assert_eq!(versions, out.versions);
+    macro_rules! count_tables {
+        ($($t:ty),+) => {[$(<$t as Table>::NAME),+].len()};
+    }
     assert_eq!(
         versions.len(),
-        54 + 22 + 54,
+        cpg_schema::for_each_table!(count_tables)
+            + cpg_schema::for_each_derived_table!(count_tables)
+            + cpg_schema::for_each_analysis_table!(count_tables),
         "every raw, derived and analysis table"
     );
 
@@ -600,11 +606,14 @@ async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
     ctx.register_table("return_exit_statuses", forged).unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "return-exit-status-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "return-exit-status-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("return_exit_statuses").unwrap();
-    ctx.register_table("return_exit_statuses", original_statuses).unwrap();
+    ctx.register_table("return_exit_statuses", original_statuses)
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -635,16 +644,34 @@ budget = 1
         techniques: Techniques::default(),
     };
     compile_analyzed(
-        root.path(), snapshot, &raw("return_completion_shapes", snapshot), Some(&analysis)
+        root.path(),
+        snapshot,
+        &raw("return_completion_shapes", snapshot),
+        Some(&analysis),
     )
     .await
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     assert!(
-        count(&ctx, &format!("SELECT count(*) FROM value_flows WHERE sink = {}", FlowSink::Return.code())).await > 0,
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM value_flows WHERE sink = {}",
+                FlowSink::Return.code()
+            )
+        )
+        .await
+            > 0,
         "the fixture must actually produce return value facts"
     );
-    for name in ["plain_identity", "nested_identity", "finally_pass_identity", "nested_finally_pass_identity", "recursive_base_identity"] {
+    for name in [
+        "plain_identity",
+        "nested_identity",
+        "finally_pass_identity",
+        "nested_finally_pass_identity",
+        "recursive_base_identity",
+        "alternate_branch_identity",
+    ] {
         assert!(
             count(
                 &ctx,
@@ -662,6 +689,17 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM call_syntax c JOIN declarations d \
+             ON d.node_id = c.owner_node_id \
+             WHERE d.name = 'alternate_branch_identity' AND NOT c.in_annotation",
+        )
+        .await,
+        1,
+        "the admitted else return must coexist with a source call in the if branch"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
              ON d.node_id = x.function_node_id WHERE d.name = 'finally_pass_identity' \
                AND x.reason IS NULL AND x.frame_node_id IS NOT NULL \
@@ -672,22 +710,28 @@ budget = 1
         "the sole pass finalizer has its own source proof"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN return_exit_statuses x ON x.source_fact_id = f.return_site_fact_id \
              JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
              WHERE d.name = 'finally_pass_identity' \
                AND p.kind = {} AND p.ordinal = 1 \
                AND p.evidence_id = x.pass_fact_id",
-            cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
-        )).await,
+                cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+            )
+        )
+        .await,
         1,
         "the finite proof itself cites the completed finalizer"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps inner_pass ON inner_pass.summary_id = f.summary_id \
              JOIN summary_flow_steps outer_pass ON outer_pass.summary_id = f.summary_id \
@@ -697,48 +741,67 @@ budget = 1
                AND inner_pass.kind = {pass} AND outer_pass.kind = {pass} \
                AND inner_pass.ordinal = 1 AND outer_pass.ordinal = 2 \
                AND inner_source.start_byte < outer_source.start_byte",
-            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
-        )).await,
+                pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+            )
+        )
+        .await,
         1,
         "the two nested passes must be cited in execution order"
     );
     assert_eq!(
-        count(&ctx,
+        count(
+            &ctx,
             "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
              ON d.node_id = x.function_node_id \
              WHERE d.name = 'nested_finally_pass_identity' \
                AND x.reason IS NULL AND x.pass_fact_id IS NULL"
-        ).await,
+        )
+        .await,
         1,
         "the one-pass field is deliberately empty for an ordered multi-frame proof"
     );
     assert_eq!(
-        count(&ctx,
+        count(
+            &ctx,
             "SELECT count(*) FROM summary_components c JOIN declarations d \
              ON d.node_id = c.function_node_id \
              WHERE d.name = 'recursive_before_return' AND c.recursive"
-        ).await,
+        )
+        .await,
         1,
         "the source self-call belongs to a recursive SCC"
     );
     for name in ["recursive_before_return", "prior_call_identity"] {
         assert_eq!(
-            count(&ctx, &format!(
-                "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows f JOIN declarations d \
                  ON d.node_id = f.function_node_id WHERE d.name = '{name}'"
-            )).await,
+                )
+            )
+            .await,
             0,
             "{name} has an unproved earlier call before its direct return"
         );
         assert!(
-            count(&ctx, &format!(
-                "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
                  ON d.node_id = b.function_node_id WHERE d.name = '{name}'"
-            )).await > 0,
+                )
+            )
+            .await
+                > 0,
             "{name} retains an explicit unknown boundary"
         );
     }
-    for name in ["finally_identity", "nested_effectful_finalizer", "with_identity"] {
+    for name in [
+        "finally_identity",
+        "nested_effectful_finalizer",
+        "with_identity",
+    ] {
         assert_eq!(
             count(
                 &ctx,
@@ -767,51 +830,90 @@ budget = 1
     }
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
     let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
-        .await.unwrap().into_view();
-    let missing_pass_step = sql::query(&ctx, &format!(
-        "SELECT * FROM summary_flow_steps WHERE kind <> {}",
-        cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
-    )).await.unwrap().into_view();
+        .await
+        .unwrap()
+        .into_view();
+    let missing_pass_step = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * FROM summary_flow_steps WHERE kind <> {}",
+            cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", missing_pass_step).unwrap();
+    ctx.register_table("summary_flow_steps", missing_pass_step)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
-        "{violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-flow-step-source-equality"),
+        "{violations:?}"
+    );
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", original_steps).unwrap();
+    ctx.register_table("summary_flow_steps", original_steps)
+        .unwrap();
     let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
-        .await.unwrap().into_view();
-    let reversed_passes = sql::query(&ctx, &format!(
-        "SELECT s.* EXCLUDE (ordinal), \
+        .await
+        .unwrap()
+        .into_view();
+    let reversed_passes = sql::query(
+        &ctx,
+        &format!(
+            "SELECT s.* EXCLUDE (ordinal), \
          CASE WHEN d.name = 'nested_finally_pass_identity' \
            AND s.kind = {pass} AND s.ordinal IN (1, 2) \
            THEN 3 - s.ordinal ELSE s.ordinal END AS ordinal \
          FROM summary_flow_steps s JOIN summary_flows f ON f.summary_id = s.summary_id \
          JOIN declarations d ON d.node_id = f.function_node_id",
-        pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
-    )).await.unwrap().into_view();
+            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", reversed_passes).unwrap();
+    ctx.register_table("summary_flow_steps", reversed_passes)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
-        "{violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-flow-step-source-equality"),
+        "{violations:?}"
+    );
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", original_steps).unwrap();
+    ctx.register_table("summary_flow_steps", original_steps)
+        .unwrap();
     let original_statuses = sql::query(&ctx, "SELECT * FROM return_exit_statuses")
-        .await.unwrap().into_view();
+        .await
+        .unwrap()
+        .into_view();
     let forged_pass = sql::query(
         &ctx,
         "SELECT * EXCLUDE (pass_fact_id), \
          CASE WHEN pass_fact_id IS NOT NULL THEN source_fact_id \
               ELSE pass_fact_id END AS pass_fact_id FROM return_exit_statuses",
-    ).await.unwrap().into_view();
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("return_exit_statuses").unwrap();
-    ctx.register_table("return_exit_statuses", forged_pass).unwrap();
+    ctx.register_table("return_exit_statuses", forged_pass)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "return-exit-status-source-equality"),
-        "{violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "return-exit-status-source-equality"),
+        "{violations:?}"
+    );
     ctx.deregister_table("return_exit_statuses").unwrap();
-    ctx.register_table("return_exit_statuses", original_statuses).unwrap();
+    ctx.register_table("return_exit_statuses", original_statuses)
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -820,7 +922,10 @@ async fn pysa_tito_control_uses_the_same_source_as_finite_summary_fixture() {
         .join("../../fixtures/python/pysa_tito_shapes/probe/__init__.py");
     let oracle = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs/design_review/evidence/2026-09-25_pysa-tito-rule/probe.py");
-    assert_eq!(std::fs::read(fixture).unwrap(), std::fs::read(oracle).unwrap());
+    assert_eq!(
+        std::fs::read(fixture).unwrap(),
+        std::fs::read(oracle).unwrap()
+    );
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([57; 16]);
     let analysis = Analysis {
@@ -841,27 +946,47 @@ max_witnesses = 3
 [briefs]
 budget = 1
 "#,
-        ).unwrap(),
+        )
+        .unwrap(),
         embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
-    compile_analyzed(root.path(), snapshot,
-        &raw_version("pysa_tito_shapes", snapshot, (3, 14, 7)), Some(&analysis))
-        .await.unwrap();
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("pysa_tito_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     for name in ["identity", "wrapper"] {
-        assert_eq!(count(&ctx,
-            &format!("SELECT count(*) FROM summary_flows f JOIN declarations d \
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows f JOIN declarations d \
                 ON d.node_id = f.function_node_id WHERE d.name = '{name}' \
                 AND f.input_path = 'Parameter[value]' \
                 AND f.output_path = 'ReturnValue' AND f.verdict <> {}",
-                Verdict::Unknown.code())).await, 1,
-            "{name} has a finite value path on the same source Pysa inspected");
+                    Verdict::Unknown.code()
+                )
+            )
+            .await,
+            1,
+            "{name} has a finite value path on the same source Pysa inspected"
+        );
     }
-    assert_eq!(count(&ctx,
-        "SELECT count(*) FROM summary_flows f JOIN declarations d \
-         ON d.node_id = f.function_node_id WHERE d.name = 'constant'").await, 0,
-        "the constant counter-control has no parameter-to-return summary");
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
+         ON d.node_id = f.function_node_id WHERE d.name = 'constant'"
+        )
+        .await,
+        0,
+        "the constant counter-control has no parameter-to-return summary"
+    );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
 }
 
@@ -1220,10 +1345,11 @@ budget = 1
         .await
         .unwrap()
         .into_view();
-    let dropped_return_sites = sql::query(&ctx, "SELECT * FROM handler_return_none_sites WHERE false")
-        .await
-        .unwrap()
-        .into_view();
+    let dropped_return_sites =
+        sql::query(&ctx, "SELECT * FROM handler_return_none_sites WHERE false")
+            .await
+            .unwrap()
+            .into_view();
     ctx.deregister_table("handler_return_none_sites").unwrap();
     ctx.register_table("handler_return_none_sites", dropped_return_sites)
         .unwrap();
@@ -1241,10 +1367,13 @@ budget = 1
         .await
         .unwrap()
         .into_view();
-    let dropped_paths = sql::query(&ctx, "SELECT * FROM modeled_exception_return_none_paths WHERE false")
-        .await
-        .unwrap()
-        .into_view();
+    let dropped_paths = sql::query(
+        &ctx,
+        "SELECT * FROM modeled_exception_return_none_paths WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("modeled_exception_return_none_paths")
         .unwrap();
     ctx.register_table("modeled_exception_return_none_paths", dropped_paths)
@@ -1264,10 +1393,11 @@ budget = 1
         .await
         .unwrap()
         .into_view();
-    let dropped_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions WHERE false")
-        .await
-        .unwrap()
-        .into_view();
+    let dropped_contributions =
+        sql::query(&ctx, "SELECT * FROM value_flow_contributions WHERE false")
+            .await
+            .unwrap()
+            .into_view();
     ctx.deregister_table("value_flow_contributions").unwrap();
     ctx.register_table("value_flow_contributions", dropped_contributions)
         .unwrap();
@@ -1312,6 +1442,10 @@ budget = 1
         .unwrap();
     ctx.register_table("modeled_exception_handler_candidates", original_candidates)
         .unwrap();
+    let original_mro = sql::query(&ctx, "SELECT * FROM context_class_mro")
+        .await
+        .unwrap()
+        .into_view();
     let missing_mro = sql::query(&ctx, "SELECT * FROM context_class_mro WHERE false")
         .await
         .unwrap()
@@ -1326,6 +1460,52 @@ budget = 1
             .any(|v| v.rule == "semantic:context-class-mro-coverage"),
         "{violations:?}"
     );
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", original_mro.clone())
+        .unwrap();
+    let broken_ordinals = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (ordinal), \
+         CASE WHEN ordinal IS NULL THEN NULL ELSE CAST(0 AS BIGINT) END AS ordinal \
+         FROM context_class_mro",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", broken_ordinals)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:context-class-mro-shape"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", original_mro.clone())
+        .unwrap();
+    let wrong_module = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (module_node_id), class_node_id AS module_node_id \
+         FROM context_class_mro",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", wrong_module)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:context-class-mro-identity"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", original_mro)
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1676,17 +1856,26 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert_eq!(targets, 11, "the empty fixture site-packages leaves dependency models dormant");
     assert_eq!(
-        count(&ctx,
+        targets, 11,
+        "the empty fixture site-packages leaves dependency models dormant"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM model_targets WHERE target_key = \
              'dependency:pydantic==2.13.5:pydantic.type_adapter.TypeAdapter.validate_python'"
-        ).await,
+        )
+        .await,
         0,
         "a dependency model cannot bind without that dependency's pinned context"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM model_targets WHERE normal_return").await,
+        count(
+            &ctx,
+            "SELECT count(*) FROM model_targets WHERE normal_return"
+        )
+        .await,
         2,
         "only the two pinned typing identity helpers assert total normal return"
     );
@@ -1702,10 +1891,13 @@ budget = 1
     .unwrap()
     .into_view();
     ctx.deregister_table("model_targets").unwrap();
-    ctx.register_table("model_targets", forged_completion).unwrap();
+    ctx.register_table("model_targets", forged_completion)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "model-catalog-target-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-target-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("model_targets").unwrap();
@@ -1795,8 +1987,10 @@ budget = 1
         "one pass finalizer leaves a cited normal-return candidate"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN return_exit_statuses x ON x.source_fact_id = f.return_site_fact_id \
              JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
@@ -1804,15 +1998,19 @@ budget = 1
              JOIN summary_flow_steps r ON r.summary_id = f.summary_id \
                AND r.kind = {exit} AND r.ordinal = p.ordinal + 1 \
              WHERE d.name = 'framed_modeled_identity' AND f.path_depth = 1",
-            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
-            exit = cpg_schema::codebook::SummaryFlowStepKind::ReturnExit.code(),
-        )).await,
+                pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+                exit = cpg_schema::codebook::SummaryFlowStepKind::ReturnExit.code(),
+            )
+        )
+        .await,
         1,
         "a modeled return cites its finalizer before the completed exit"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps inner_pass ON inner_pass.summary_id = f.summary_id \
              JOIN summary_flow_steps outer_pass ON outer_pass.summary_id = f.summary_id \
@@ -1825,9 +2023,11 @@ budget = 1
                AND r.kind = {exit} AND r.ordinal = outer_pass.ordinal + 1 \
                AND outer_pass.ordinal = inner_pass.ordinal + 1 \
                AND inner_source.start_byte < outer_source.start_byte",
-            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
-            exit = cpg_schema::codebook::SummaryFlowStepKind::ReturnExit.code(),
-        )).await,
+                pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+                exit = cpg_schema::codebook::SummaryFlowStepKind::ReturnExit.code(),
+            )
+        )
+        .await,
         1,
         "a modeled return cites both nested finalizers before its completed exit"
     );
@@ -1909,35 +2109,57 @@ budget = 1
     // admitted path. Its presence must keep this source key open rather than letting the
     // positive summary suppress every sibling.
     let baseline_boundaries: Vec<SummaryBoundariesRow> = sql::fetch(
-        &ctx, &cpg_schema::behavior::summary_boundaries(), sql::Params::new(),
-    ).await.unwrap();
+        &ctx,
+        &cpg_schema::behavior::summary_boundaries(),
+        sql::Params::new(),
+    )
+    .await
+    .unwrap();
     let original_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions")
-        .await.unwrap().into_view();
-    let columns = ValueFlowContributions::schema().fields().iter().map(|field| {
-        if field.name() == "source_key" {
-            "v.source_key || ':sibling' AS source_key".to_owned()
-        } else {
-            format!("v.{}", field.name())
-        }
-    }).collect::<Vec<_>>().join(", ");
-    let sibling_contributions = sql::query(&ctx, &format!(
-        "SELECT * FROM value_flow_contributions UNION ALL \
+        .await
+        .unwrap()
+        .into_view();
+    let columns = ValueFlowContributions::schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            if field.name() == "source_key" {
+                "v.source_key || ':sibling' AS source_key".to_owned()
+            } else {
+                format!("v.{}", field.name())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sibling_contributions = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * FROM value_flow_contributions UNION ALL \
          SELECT {columns} FROM value_flow_contributions v \
          JOIN declarations d ON d.node_id = v.sink_function_node_id \
          WHERE d.name = 'plain_identity'"
-    )).await.unwrap().into_view();
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("value_flow_contributions").unwrap();
-    ctx.register_table("value_flow_contributions", sibling_contributions).unwrap();
+    ctx.register_table("value_flow_contributions", sibling_contributions)
+        .unwrap();
     let sibling_boundaries: Vec<SummaryBoundariesRow> = sql::fetch(
-        &ctx, &cpg_schema::behavior::summary_boundaries(), sql::Params::new(),
-    ).await.unwrap();
+        &ctx,
+        &cpg_schema::behavior::summary_boundaries(),
+        sql::Params::new(),
+    )
+    .await
+    .unwrap();
     assert_eq!(sibling_boundaries.len(), baseline_boundaries.len() + 1);
     assert!(sibling_boundaries.iter().any(|row| {
-        row.reason == BoundaryReason::UnsupportedControlFlow
-            && !baseline_boundaries.contains(row)
+        row.reason == BoundaryReason::UnsupportedControlFlow && !baseline_boundaries.contains(row)
     }));
     ctx.deregister_table("value_flow_contributions").unwrap();
-    ctx.register_table("value_flow_contributions", original_contributions).unwrap();
+    ctx.register_table("value_flow_contributions", original_contributions)
+        .unwrap();
     assert_eq!(
         count(
             &ctx,
@@ -2080,11 +2302,14 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
-            &format!("SELECT count(*) FROM modeled_exact_value_transfers t \
+            &format!(
+                "SELECT count(*) FROM modeled_exact_value_transfers t \
              JOIN declarations d ON d.node_id = t.function_node_id \
              WHERE d.name IN ('identity', 'identity_keyword', 'asserted_type') \
                AND t.parameter_node_id IS NOT NULL AND t.flow_value_call_fact_id IS NOT NULL \
-               AND t.sink = {}", FlowSink::Return.code()),
+               AND t.sink = {}",
+                FlowSink::Return.code()
+            ),
         )
         .await,
         3,
@@ -2093,10 +2318,13 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
-            &format!("SELECT count(*) FROM modeled_exact_value_transfers t \
+            &format!(
+                "SELECT count(*) FROM modeled_exact_value_transfers t \
              JOIN declarations d ON d.node_id = t.function_node_id \
              WHERE d.name IN ('indirect_identity', 'nested_identity', 'computed_identity') \
-               AND t.sink = {}", FlowSink::Return.code()),
+               AND t.sink = {}",
+                FlowSink::Return.code()
+            ),
         )
         .await,
         0,
@@ -2105,10 +2333,12 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
-            &format!("SELECT count(*) FROM modeled_exact_value_transfers t \
+            &format!(
+                "SELECT count(*) FROM modeled_exact_value_transfers t \
              JOIN declarations d ON d.node_id = t.function_node_id \
              WHERE d.name = 'indirect_identity' AND t.sink = {}",
-                FlowSink::Definition.code()),
+                FlowSink::Definition.code()
+            ),
         )
         .await,
         1,
@@ -2574,7 +2804,8 @@ budget = 1
                AND t.target_key IN ('stdlib:3.14.7:typing.cast', \
                                     'stdlib:3.14.7:typing.assert_type')"
         )
-        .await > 0,
+        .await
+            > 0,
         "the exact typing calls retain both the pinned completion assertion and target closure"
     );
     assert_eq!(
@@ -2915,26 +3146,34 @@ budget = 1
         .await
         .unwrap()
         .into_view();
-    let missing_exact_transfers = sql::query(&ctx, "SELECT * FROM modeled_exact_value_transfers WHERE false")
-        .await
-        .unwrap()
-        .into_view();
-    ctx.deregister_table("modeled_exact_value_transfers").unwrap();
+    let missing_exact_transfers = sql::query(
+        &ctx,
+        "SELECT * FROM modeled_exact_value_transfers WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_exact_value_transfers")
+        .unwrap();
     ctx.register_table("modeled_exact_value_transfers", missing_exact_transfers)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "modeled-exact-value-transfer-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-exact-value-transfer-source-equality"),
         "{violations:?}"
     );
-    ctx.deregister_table("modeled_exact_value_transfers").unwrap();
+    ctx.deregister_table("modeled_exact_value_transfers")
+        .unwrap();
     ctx.register_table("modeled_exact_value_transfers", original_exact_transfers)
         .unwrap();
 
-    let original_argument_evaluations = sql::query(&ctx, "SELECT * FROM modeled_argument_evaluations")
-        .await
-        .unwrap()
-        .into_view();
+    let original_argument_evaluations =
+        sql::query(&ctx, "SELECT * FROM modeled_argument_evaluations")
+            .await
+            .unwrap()
+            .into_view();
     let missing_argument_evaluations = sql::query(
         &ctx,
         "SELECT * FROM modeled_argument_evaluations WHERE false",
@@ -2942,7 +3181,8 @@ budget = 1
     .await
     .unwrap()
     .into_view();
-    ctx.deregister_table("modeled_argument_evaluations").unwrap();
+    ctx.deregister_table("modeled_argument_evaluations")
+        .unwrap();
     ctx.register_table("modeled_argument_evaluations", missing_argument_evaluations)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
@@ -2952,14 +3192,19 @@ budget = 1
             .any(|v| v.rule == "modeled-argument-evaluation-source-equality"),
         "{violations:?}"
     );
-    ctx.deregister_table("modeled_argument_evaluations").unwrap();
-    ctx.register_table("modeled_argument_evaluations", original_argument_evaluations)
+    ctx.deregister_table("modeled_argument_evaluations")
         .unwrap();
+    ctx.register_table(
+        "modeled_argument_evaluations",
+        original_argument_evaluations,
+    )
+    .unwrap();
 
-    let original_assignment_paths = sql::query(&ctx, "SELECT * FROM modeled_assignment_return_paths")
-        .await
-        .unwrap()
-        .into_view();
+    let original_assignment_paths =
+        sql::query(&ctx, "SELECT * FROM modeled_assignment_return_paths")
+            .await
+            .unwrap()
+            .into_view();
     let missing_assignment_paths = sql::query(
         &ctx,
         "SELECT * FROM modeled_assignment_return_paths WHERE false",
@@ -2967,7 +3212,8 @@ budget = 1
     .await
     .unwrap()
     .into_view();
-    ctx.deregister_table("modeled_assignment_return_paths").unwrap();
+    ctx.deregister_table("modeled_assignment_return_paths")
+        .unwrap();
     ctx.register_table("modeled_assignment_return_paths", missing_assignment_paths)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
@@ -2977,7 +3223,8 @@ budget = 1
             .any(|v| v.rule == "modeled-assignment-return-path-source-equality"),
         "{violations:?}"
     );
-    ctx.deregister_table("modeled_assignment_return_paths").unwrap();
+    ctx.deregister_table("modeled_assignment_return_paths")
+        .unwrap();
     ctx.register_table("modeled_assignment_return_paths", original_assignment_paths)
         .unwrap();
 
@@ -2985,19 +3232,24 @@ budget = 1
         .await
         .unwrap()
         .into_view();
-    let missing_summary_components = sql::query(&ctx, "SELECT * FROM summary_components WHERE false")
-        .await
-        .unwrap()
-        .into_view();
+    let missing_summary_components =
+        sql::query(&ctx, "SELECT * FROM summary_components WHERE false")
+            .await
+            .unwrap()
+            .into_view();
     ctx.deregister_table("summary_components").unwrap();
-    ctx.register_table("summary_components", missing_summary_components).unwrap();
+    ctx.register_table("summary_components", missing_summary_components)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "summary-component-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-component-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("summary_components").unwrap();
-    ctx.register_table("summary_components", original_summary_components).unwrap();
+    ctx.register_table("summary_components", original_summary_components)
+        .unwrap();
 
     let original_summary_flows = sql::query(&ctx, "SELECT * FROM summary_flows")
         .await
@@ -3012,7 +3264,9 @@ budget = 1
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "summary-flow-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-flow-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("summary_flows").unwrap();
@@ -3045,16 +3299,19 @@ budget = 1
         .await
         .unwrap()
         .into_view();
-    let missing_summary_boundaries = sql::query(&ctx, "SELECT * FROM summary_boundaries WHERE false")
-        .await
-        .unwrap()
-        .into_view();
+    let missing_summary_boundaries =
+        sql::query(&ctx, "SELECT * FROM summary_boundaries WHERE false")
+            .await
+            .unwrap()
+            .into_view();
     ctx.deregister_table("summary_boundaries").unwrap();
     ctx.register_table("summary_boundaries", missing_summary_boundaries)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "summary-boundary-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-boundary-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("summary_boundaries").unwrap();
@@ -3065,56 +3322,80 @@ budget = 1
         .await
         .unwrap()
         .into_view();
-    let missing_predecessors = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_candidates WHERE false")
-        .await
-        .unwrap()
-        .into_view();
-    ctx.deregister_table("value_flow_predecessor_candidates").unwrap();
+    let missing_predecessors = sql::query(
+        &ctx,
+        "SELECT * FROM value_flow_predecessor_candidates WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("value_flow_predecessor_candidates")
+        .unwrap();
     ctx.register_table("value_flow_predecessor_candidates", missing_predecessors)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "value-flow-predecessor-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "value-flow-predecessor-source-equality"),
         "{violations:?}"
     );
-    ctx.deregister_table("value_flow_predecessor_candidates").unwrap();
+    ctx.deregister_table("value_flow_predecessor_candidates")
+        .unwrap();
     ctx.register_table("value_flow_predecessor_candidates", original_predecessors)
         .unwrap();
 
-    let original_compatibility = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_compatibility")
-        .await
-        .unwrap()
-        .into_view();
-    let missing_compatibility = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_compatibility WHERE false")
-        .await
-        .unwrap()
-        .into_view();
-    ctx.deregister_table("value_flow_predecessor_compatibility").unwrap();
-    ctx.register_table("value_flow_predecessor_compatibility", missing_compatibility)
+    let original_compatibility =
+        sql::query(&ctx, "SELECT * FROM value_flow_predecessor_compatibility")
+            .await
+            .unwrap()
+            .into_view();
+    let missing_compatibility = sql::query(
+        &ctx,
+        "SELECT * FROM value_flow_predecessor_compatibility WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("value_flow_predecessor_compatibility")
         .unwrap();
+    ctx.register_table(
+        "value_flow_predecessor_compatibility",
+        missing_compatibility,
+    )
+    .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "value-flow-predecessor-compatibility-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "value-flow-predecessor-compatibility-equality"),
         "{violations:?}"
     );
-    ctx.deregister_table("value_flow_predecessor_compatibility").unwrap();
-    ctx.register_table("value_flow_predecessor_compatibility", original_compatibility)
+    ctx.deregister_table("value_flow_predecessor_compatibility")
         .unwrap();
+    ctx.register_table(
+        "value_flow_predecessor_compatibility",
+        original_compatibility,
+    )
+    .unwrap();
 
     let original_analysis_conditions = sql::query(&ctx, "SELECT * FROM analysis_conditions")
         .await
         .unwrap()
         .into_view();
-    let missing_analysis_conditions = sql::query(&ctx, "SELECT * FROM analysis_conditions WHERE false")
-        .await
-        .unwrap()
-        .into_view();
+    let missing_analysis_conditions =
+        sql::query(&ctx, "SELECT * FROM analysis_conditions WHERE false")
+            .await
+            .unwrap()
+            .into_view();
     ctx.deregister_table("analysis_conditions").unwrap();
     ctx.register_table("analysis_conditions", missing_analysis_conditions)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "analysis-condition-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "analysis-condition-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("analysis_conditions").unwrap();
@@ -3162,7 +3443,9 @@ budget = 1
         .into_view();
     let doctored_exception_sites = sql::query(
         &ctx,
-        "SELECT * EXCLUDE (class_node_id), target_node_id AS class_node_id \
+        "SELECT * EXCLUDE (class_node_id, candidate_set_complete_under_model, \
+          has_unresolved_remainder), target_node_id AS class_node_id, \
+          true AS candidate_set_complete_under_model, true AS has_unresolved_remainder \
          FROM modeled_exception_sites",
     )
     .await
@@ -3172,6 +3455,12 @@ budget = 1
     ctx.register_table("modeled_exception_sites", doctored_exception_sites)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:modeled-exception-site-shape"),
+        "{violations:?}"
+    );
     assert!(
         violations
             .iter()
@@ -3368,8 +3657,10 @@ budget = 1
             .collect::<Vec<_>>(),
     )
     .unwrap();
-    let query_links: Vec<cpg_schema::primitive_theory::ValueLink> = links.iter().map(Into::into).collect();
-    let query_leaves: Vec<cpg_schema::primitive_theory::TestLeaf> = leaves.iter().map(Into::into).collect();
+    let query_links: Vec<cpg_schema::primitive_theory::ValueLink> =
+        links.iter().map(Into::into).collect();
+    let query_leaves: Vec<cpg_schema::primitive_theory::TestLeaf> =
+        leaves.iter().map(Into::into).collect();
     let proof = &origins[0];
     let guard = &diagrams[&proof.test_condition_id];
     assert!(
@@ -4238,7 +4529,9 @@ fn every_rule_is_exercised_or_declared_an_edit_guard() {
     ] {
         for kind in &kinds {
             for (at, _) in source.match_indices(&format!("\"{kind}:")) {
-                if source[..at].trim_end().ends_with('(') {
+                if source[..at].trim_end().ends_with('(')
+                    || source[..at].trim_end().ends_with("v.rule ==")
+                {
                     let rest = &source[at + 1..];
                     cases.insert(rest[..rest.find('"').unwrap()].to_owned());
                 }

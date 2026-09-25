@@ -243,7 +243,10 @@ pub mod recipe {
             .id(spec.return_region)
             .i64(spec.steps.len() as i64);
         for step in spec.steps {
-            hasher.i64(i64::from(step.kind.code())).id(step.evidence_id).id(step.condition_id);
+            hasher
+                .i64(i64::from(step.kind.code()))
+                .id(step.evidence_id)
+                .id(step.condition_id);
         }
         hasher.finish_id()
     }

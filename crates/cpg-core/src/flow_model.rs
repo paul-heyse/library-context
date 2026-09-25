@@ -21,8 +21,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use cpg_schema::behavior::{
-    AmbientReadsRow, AnalysisConditionNodesRow, AnalysisConditionsRow, DynamicAccessesRow, FieldAccessesRow, NegativePremisesRow, RaiseSitesRow,
-    SingletonsRow, ValueFlowContributionsRow, ValueFlowsRow,
+    AmbientReadsRow, AnalysisConditionNodesRow, AnalysisConditionsRow, DynamicAccessesRow,
+    FieldAccessesRow, NegativePremisesRow, RaiseSitesRow, SingletonsRow, ValueFlowContributionsRow,
+    ValueFlowsRow,
 };
 use cpg_schema::codebook::{
     BindingKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EdgeKind, FlowSink,
@@ -572,13 +573,16 @@ pub fn condition_catalog_rows(
                     boundary_reason: None,
                 });
                 for node in closure {
-                    nodes.insert(node.node_id, AnalysisConditionNodesRow {
-                        snapshot_id,
-                        node_id: node.node_id,
-                        atom: node.atom,
-                        low_id: node.low,
-                        high_id: node.high,
-                    });
+                    nodes.insert(
+                        node.node_id,
+                        AnalysisConditionNodesRow {
+                            snapshot_id,
+                            node_id: node.node_id,
+                            atom: node.atom,
+                            low_id: node.low,
+                            high_id: node.high,
+                        },
+                    );
                 }
             }
             Err(reason) => roots.push(AnalysisConditionsRow {
@@ -1338,8 +1342,15 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             let (function_node_id, source_key, parameter_node_id, class_node_id) =
                 match contribution.origin {
                     Origin::Parameter(p) => {
-                        let Some(pr) = parameter.get(&p) else { continue };
-                        (pr.function_node_id, format!("Parameter[{}]", p.hex()), Some(p), None)
+                        let Some(pr) = parameter.get(&p) else {
+                            continue;
+                        };
+                        (
+                            pr.function_node_id,
+                            format!("Parameter[{}]", p.hex()),
+                            Some(p),
+                            None,
+                        )
                     }
                     Origin::Field(class, field) => {
                         let Some(reader) = sink_function.get(&key).copied() else {
@@ -1348,31 +1359,37 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                         let qualified = function
                             .get(&class)
                             .map_or_else(|| class.hex(), |f| f.qualified_name.clone());
-                        (reader, format!("Field[{qualified}.{field}]"), None, Some(class))
+                        (
+                            reader,
+                            format!("Field[{qualified}.{field}]"),
+                            None,
+                            Some(class),
+                        )
                     }
                 };
             let (condition_id, condition) = condition_text(&contribution.source.condition);
-            out.value_flow_contributions.push(ValueFlowContributionsRow {
-                snapshot_id,
-                flow_value_fact_id: contribution.flow_value_fact_id,
-                use_id: contribution.use_id,
-                function_node_id,
-                sink_function_node_id: model
-                    .uses
-                    .get(&contribution.use_id)
-                    .and_then(|u| u.function_node_id),
-                source_key,
-                parameter_node_id,
-                class_node_id,
-                identity: contribution.source.transfer == Transfer::Identity,
-                through_call: contribution.source.transfer == Transfer::Call,
-                local_through_call: contribution.local_through_call,
-                upstream_identity: contribution.upstream_transfer == Transfer::Identity,
-                upstream_through_call: contribution.upstream_transfer == Transfer::Call,
-                captured: contribution.source.captured,
-                condition_id,
-                condition,
-            });
+            out.value_flow_contributions
+                .push(ValueFlowContributionsRow {
+                    snapshot_id,
+                    flow_value_fact_id: contribution.flow_value_fact_id,
+                    use_id: contribution.use_id,
+                    function_node_id,
+                    sink_function_node_id: model
+                        .uses
+                        .get(&contribution.use_id)
+                        .and_then(|u| u.function_node_id),
+                    source_key,
+                    parameter_node_id,
+                    class_node_id,
+                    identity: contribution.source.transfer == Transfer::Identity,
+                    through_call: contribution.source.transfer == Transfer::Call,
+                    local_through_call: contribution.local_through_call,
+                    upstream_identity: contribution.upstream_transfer == Transfer::Identity,
+                    upstream_through_call: contribution.upstream_transfer == Transfer::Call,
+                    captured: contribution.source.captured,
+                    condition_id,
+                    condition,
+                });
         }
         let place = match sink {
             FlowSink::Definition => {

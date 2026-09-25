@@ -164,8 +164,13 @@ use 362:x x <- <unbound> [unbound] if is_none(x); None [assignment] if is_none(x
 use 368:x x <- <none>
 use 368:TYPE_CHECKING TYPE_CHECKING <- <unbound> [unbound] if true
 use 368:y y <- y [parameter] if true
+use 372:enabled enabled <- enabled [parameter] if true
+use 373:value value <- value [parameter] if truthy(enabled)
+use 379:value value <- value [parameter] if true
+use 385:manager manager <- manager [parameter] if true
+use 386:value value <- value [parameter] if true
 value Definition 21 <- object (through a call) if true
-value Definition 25 <- timeout (identity) if !is_none(timeout)#4bf3bbd57890721e6b08d6b731a53cbf:s489-508
+value Definition 25 <- timeout (identity) if !is_none(timeout)#dc3c1a760a71ada30090fac38ea3914e:s489-508
 value Definition 25 <- timeout (derived) if true
 value Return 26 <- timeout (identity) if true
 value Definition 31 <- settings.host (identity) if true
@@ -175,8 +180,8 @@ value Raise 37 <- ValueError (through a call) if true
 value Return 39 <- path.upper (through a call) if true
 value Return 39 <- path (through a call) if true
 value Return 40 <- path (identity) if true
-value Return 44 <- a (identity) if truthy(a)#4bf3bbd57890721e6b08d6b731a53cbf:s814-815
-value Return 44 <- b (identity) if !truthy(a)#4bf3bbd57890721e6b08d6b731a53cbf:s814-815
+value Return 44 <- a (identity) if truthy(a)#dc3c1a760a71ada30090fac38ea3914e:s814-815
+value Return 44 <- b (identity) if !truthy(a)#dc3c1a760a71ada30090fac38ea3914e:s814-815
 value Argument 48 <- items (identity) if true
 value Definition 48 <- len (through a call) if true
 value Definition 48 <- items (through a call) if true
@@ -216,9 +221,9 @@ value Return 181 <- x (identity) if true
 value Definition 185 <- TYPE_CHECKING (derived) if true
 value Return 197 <- a (identity) if true
 value Return 198 <- b (identity) if true
-value Definition 202 <- level (through a call) if !is_none(level)#4bf3bbd57890721e6b08d6b731a53cbf:s3137-3154
-value Definition 202 <- settings.level (through a call) if is_none(level)#4bf3bbd57890721e6b08d6b731a53cbf:s3137-3154
-value Definition 202 <- settings (through a call) if is_none(level)#4bf3bbd57890721e6b08d6b731a53cbf:s3137-3154
+value Definition 202 <- level (through a call) if !is_none(level)#dc3c1a760a71ada30090fac38ea3914e:s3137-3154
+value Definition 202 <- settings.level (through a call) if is_none(level)#dc3c1a760a71ada30090fac38ea3914e:s3137-3154
+value Definition 202 <- settings (through a call) if is_none(level)#dc3c1a760a71ada30090fac38ea3914e:s3137-3154
 value Definition 202 <- level (through a call) if true
 value Definition 203 <- name (derived) if true
 value Argument 204 <- name (identity) if true
@@ -257,6 +262,10 @@ value Argument 341 <- x (identity) if true
 value Argument 341 <- C (identity) if true
 value Return 368 <- y (identity) if true
 value Return 368 <- TYPE_CHECKING (derived) if true
+value Return 373 <- value (identity) if true
+value Return 379 <- value (identity) if true
+value Return 386 <- value (identity) if true
+value Definition 385 <- manager (derived) if true
 region 1 """One function per shape; each test in `cpg-flow` names its function and line.""" if true
 region 3 import os if true
 region 4 import sys if true
@@ -276,30 +285,30 @@ region 25 timeout = timeout if timeout is not None else 30 if true
 region 26 return timeout if true
 region 29 def settings_fallback(host=None): if true
 region 30 if host is None: if true
-region 31 host = settings.host if is_none(host)#4bf3bbd57890721e6b08d6b731a53cbf:s579-591
+region 31 host = settings.host if is_none(host)#dc3c1a760a71ada30090fac38ea3914e:s579-591
 region 32 return host if true
 region 35 def guarded(path, strict=False): if true
 region 36 if not path: if true
-region 37 raise ValueError("empty") if !truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688
-region 38 if strict: if truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688
-region 39 return path.upper() if truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688 & truthy(strict)#4bf3bbd57890721e6b08d6b731a53cbf:s731-737
-region 40 return path if !truthy(strict)#4bf3bbd57890721e6b08d6b731a53cbf:s731-737 & truthy(path)#4bf3bbd57890721e6b08d6b731a53cbf:s684-688
+region 37 raise ValueError("empty") if !truthy(path)#dc3c1a760a71ada30090fac38ea3914e:s684-688
+region 38 if strict: if truthy(path)#dc3c1a760a71ada30090fac38ea3914e:s684-688
+region 39 return path.upper() if truthy(path)#dc3c1a760a71ada30090fac38ea3914e:s684-688 & truthy(strict)#dc3c1a760a71ada30090fac38ea3914e:s731-737
+region 40 return path if !truthy(strict)#dc3c1a760a71ada30090fac38ea3914e:s731-737 & truthy(path)#dc3c1a760a71ada30090fac38ea3914e:s684-688
 region 43 def either(a, b): if true
 region 44 return a or b if true
 region 47 def walrus(items): if true
 region 48 if (n := len(items)) > 3: if true
-region 49 return n if opaque("(n := len(items)) > 3")#4bf3bbd57890721e6b08d6b731a53cbf:s849-870
-region 50 return 0 if !opaque("(n := len(items)) > 3")#4bf3bbd57890721e6b08d6b731a53cbf:s849-870
+region 49 return n if opaque("(n := len(items)) > 3")#dc3c1a760a71ada30090fac38ea3914e:s849-870
+region 50 return 0 if !opaque("(n := len(items)) > 3")#dc3c1a760a71ada30090fac38ea3914e:s849-870
 region 53 def comprehension(prefix, names): if true
 region 54 return [prefix + n for n in names] if true
 region 57 def loop(values): if true
 region 58 total = 0 if true
 region 59 for v in values: if true
 region 60 if v is None: if true
-region 61 continue if is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052
-region 62 if v == "stop": if !is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052
-region 63 break if !is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052 & equals(v,"stop")#4bf3bbd57890721e6b08d6b731a53cbf:s1086-1097
-region 64 total = total + v if !equals(v,"stop")#4bf3bbd57890721e6b08d6b731a53cbf:s1086-1097 & !is_none(v)#4bf3bbd57890721e6b08d6b731a53cbf:s1043-1052
+region 61 continue if is_none(v)#dc3c1a760a71ada30090fac38ea3914e:s1043-1052
+region 62 if v == "stop": if !is_none(v)#dc3c1a760a71ada30090fac38ea3914e:s1043-1052
+region 63 break if !is_none(v)#dc3c1a760a71ada30090fac38ea3914e:s1043-1052 & equals(v,"stop")#dc3c1a760a71ada30090fac38ea3914e:s1086-1097
+region 64 total = total + v if !equals(v,"stop")#dc3c1a760a71ada30090fac38ea3914e:s1086-1097 & !is_none(v)#dc3c1a760a71ada30090fac38ea3914e:s1043-1052
 region 66 total = -1 if true
 region 67 return total if true
 region 70 def handled(fn): if true
@@ -316,9 +325,9 @@ region 84 value = compute() if true
 region 85 return value if true
 region 88 def matched(command): if true
 region 89 match command: if true
-region 91 state = 1 if equals(command,"start")#4bf3bbd57890721e6b08d6b731a53cbf:pd5ab94f9410e80a0144904eb7140daba
-region 93 state = 0 if !equals(command,"start")#4bf3bbd57890721e6b08d6b731a53cbf:pd5ab94f9410e80a0144904eb7140daba & is_none(command)#4bf3bbd57890721e6b08d6b731a53cbf:p303b7eab56e4284760a3ceec0c34ea4f
-region 95 state = -1 if !equals(command,"start")#4bf3bbd57890721e6b08d6b731a53cbf:pd5ab94f9410e80a0144904eb7140daba & !is_none(command)#4bf3bbd57890721e6b08d6b731a53cbf:p303b7eab56e4284760a3ceec0c34ea4f
+region 91 state = 1 if equals(command,"start")#dc3c1a760a71ada30090fac38ea3914e:pd5ab94f9410e80a0144904eb7140daba
+region 93 state = 0 if !equals(command,"start")#dc3c1a760a71ada30090fac38ea3914e:pd5ab94f9410e80a0144904eb7140daba & is_none(command)#dc3c1a760a71ada30090fac38ea3914e:p303b7eab56e4284760a3ceec0c34ea4f
+region 95 state = -1 if !equals(command,"start")#dc3c1a760a71ada30090fac38ea3914e:pd5ab94f9410e80a0144904eb7140daba & !is_none(command)#dc3c1a760a71ada30090fac38ea3914e:p303b7eab56e4284760a3ceec0c34ea4f
 region 96 return state if true
 region 99 counter = 0 if true
 region 102 def bump(): if true
@@ -338,8 +347,8 @@ region 121 del copy if true
 region 122 return data if true
 region 125 def modes(transport, host=None): if true
 region 126 if transport in ("http", "sse"): if true
-region 127 return host if member_of(transport,{"http","sse"})#4bf3bbd57890721e6b08d6b731a53cbf:s1993-2021
-region 128 return None if !member_of(transport,{"http","sse"})#4bf3bbd57890721e6b08d6b731a53cbf:s1993-2021
+region 127 return host if member_of(transport,{"http","sse"})#dc3c1a760a71ada30090fac38ea3914e:s1993-2021
+region 128 return None if !member_of(transport,{"http","sse"})#dc3c1a760a71ada30090fac38ea3914e:s1993-2021
 region 131 def type_checking_flag(value): if true
 region 132 if TYPE_CHECKING: if true
 region 133 value = "checker" if false
@@ -358,9 +367,9 @@ region 151 last = item if false
 region 152 return last if true
 region 155 def elif_chain(mode): if true
 region 156 if mode == "a": if true
-region 157 result = 1 if equals(mode,"a")#4bf3bbd57890721e6b08d6b731a53cbf:s2417-2428
-region 159 result = 2 if !equals(mode,"a")#4bf3bbd57890721e6b08d6b731a53cbf:s2417-2428 & equals(mode,"b")#4bf3bbd57890721e6b08d6b731a53cbf:s2458-2469
-region 161 result = 3 if !equals(mode,"a")#4bf3bbd57890721e6b08d6b731a53cbf:s2417-2428 & !equals(mode,"b")#4bf3bbd57890721e6b08d6b731a53cbf:s2458-2469
+region 157 result = 1 if equals(mode,"a")#dc3c1a760a71ada30090fac38ea3914e:s2417-2428
+region 159 result = 2 if !equals(mode,"a")#dc3c1a760a71ada30090fac38ea3914e:s2417-2428 & equals(mode,"b")#dc3c1a760a71ada30090fac38ea3914e:s2458-2469
+region 161 result = 3 if !equals(mode,"a")#dc3c1a760a71ada30090fac38ea3914e:s2417-2428 & !equals(mode,"b")#dc3c1a760a71ada30090fac38ea3914e:s2458-2469
 region 162 return result if true
 region 165 def safe_try(): if true
 region 166 marker_value = 0 if true
@@ -377,73 +386,73 @@ region 184 TEXT_WITH_WORD = "TYPE_CHECKING" if true
 region 185 F_TEXT = f"{TYPE_CHECKING}" if true
 region 188 def string_mode(flag): if true
 region 189 if flag == "TYPE_CHECKING":  # a comment if true
-region 190 return 1 if equals(flag,"TYPE_CHECKING")#4bf3bbd57890721e6b08d6b731a53cbf:s2910-2933
-region 191 return 0 if !equals(flag,"TYPE_CHECKING")#4bf3bbd57890721e6b08d6b731a53cbf:s2910-2933
+region 190 return 1 if equals(flag,"TYPE_CHECKING")#dc3c1a760a71ada30090fac38ea3914e:s2910-2933
+region 191 return 0 if !equals(flag,"TYPE_CHECKING")#dc3c1a760a71ada30090fac38ea3914e:s2910-2933
 region 194 def commented(a, b): if true
 region 195 if (a  # first if true
-region 197 return a if opaque("a > b")#4bf3bbd57890721e6b08d6b731a53cbf:s3009-3035
-region 198 return b if !opaque("a > b")#4bf3bbd57890721e6b08d6b731a53cbf:s3009-3035
+region 197 return a if opaque("a > b")#dc3c1a760a71ada30090fac38ea3914e:s3009-3035
+region 198 return b if !opaque("a > b")#dc3c1a760a71ada30090fac38ea3914e:s3009-3035
 region 201 def nested_fallback(level=None, name=None): if true
 region 202 chosen = (level if level is not None else settings.level).lower() if true
 region 203 label = f"[{name}]" if true
 region 204 return fallback(name), chosen, label if true
 region 207 def alias_fallback(stateless=None, stateless_http=None): if true
 region 208 if stateless is not None and stateless_http is None: if true
-region 209 stateless_http = stateless if !is_none(stateless)#4bf3bbd57890721e6b08d6b731a53cbf:s3315-3336 & is_none(stateless_http)#4bf3bbd57890721e6b08d6b731a53cbf:s3341-3363
+region 209 stateless_http = stateless if !is_none(stateless)#dc3c1a760a71ada30090fac38ea3914e:s3315-3336 & is_none(stateless_http)#dc3c1a760a71ada30090fac38ea3914e:s3341-3363
 region 210 if stateless_http is None: if true
-region 211 stateless_http = settings.stateless if is_none(stateless_http)#4bf3bbd57890721e6b08d6b731a53cbf:s3407-3429
+region 211 stateless_http = settings.stateless if is_none(stateless_http)#dc3c1a760a71ada30090fac38ea3914e:s3407-3429
 region 212 return stateless_http if true
 region 215 def two_calls(probe): if true
 region 216 if probe(): if true
-region 217 if not probe(): if opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3532-3539
-region 218 return "second call changed" if !opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3556-3563 & opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3532-3539
-region 219 return "other" if !opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3532-3539 | opaque("probe()")#4bf3bbd57890721e6b08d6b731a53cbf:s3556-3563
+region 217 if not probe(): if opaque("probe()")#dc3c1a760a71ada30090fac38ea3914e:s3532-3539
+region 218 return "second call changed" if !opaque("probe()")#dc3c1a760a71ada30090fac38ea3914e:s3556-3563 & opaque("probe()")#dc3c1a760a71ada30090fac38ea3914e:s3532-3539
+region 219 return "other" if !opaque("probe()")#dc3c1a760a71ada30090fac38ea3914e:s3532-3539 | opaque("probe()")#dc3c1a760a71ada30090fac38ea3914e:s3556-3563
 region 222 def two_ranges(n, m): if true
 region 223 found = -1 if true
 region 224 for i in range(n): if true
-region 225 found = i if opaque("<the iterable is non-empty>")#4bf3bbd57890721e6b08d6b731a53cbf:p5c9dad1b102c48e018107de007bfd8cb
+region 225 found = i if opaque("<the iterable is non-empty>")#dc3c1a760a71ada30090fac38ea3914e:p5c9dad1b102c48e018107de007bfd8cb
 region 226 for j in range(m): if true
-region 227 found = j if opaque("<the iterable is non-empty>")#4bf3bbd57890721e6b08d6b731a53cbf:pf0b35ef6468acd2fe3b008e2ea9b1bdc
+region 227 found = j if opaque("<the iterable is non-empty>")#dc3c1a760a71ada30090fac38ea3914e:pf0b35ef6468acd2fe3b008e2ea9b1bdc
 region 228 return found if true
 region 231 def mutated(self): if true
 region 232 if self.x is None: if true
-region 233 self.reset() if is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805
-region 234 if self.x is not None: if is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805
-region 235 return "mutated" if !is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3839-3857 & is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805
-region 236 return "other" if !is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3791-3805 | is_none(self.x)#4bf3bbd57890721e6b08d6b731a53cbf:s3839-3857
+region 233 self.reset() if is_none(self.x)#dc3c1a760a71ada30090fac38ea3914e:s3791-3805
+region 234 if self.x is not None: if is_none(self.x)#dc3c1a760a71ada30090fac38ea3914e:s3791-3805
+region 235 return "mutated" if !is_none(self.x)#dc3c1a760a71ada30090fac38ea3914e:s3839-3857 & is_none(self.x)#dc3c1a760a71ada30090fac38ea3914e:s3791-3805
+region 236 return "other" if !is_none(self.x)#dc3c1a760a71ada30090fac38ea3914e:s3791-3805 | is_none(self.x)#dc3c1a760a71ada30090fac38ea3914e:s3839-3857
 region 239 def cleared(items): if true
 region 240 if items: if true
-region 241 items.clear() if truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941
-region 242 if not items: if truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941
-region 243 return "cleared" if !truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3980-3985 & truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941
-region 244 return "other" if !truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3936-3941 | truthy(items)#4bf3bbd57890721e6b08d6b731a53cbf:s3980-3985
+region 241 items.clear() if truthy(items)#dc3c1a760a71ada30090fac38ea3914e:s3936-3941
+region 242 if not items: if truthy(items)#dc3c1a760a71ada30090fac38ea3914e:s3936-3941
+region 243 return "cleared" if !truthy(items)#dc3c1a760a71ada30090fac38ea3914e:s3980-3985 & truthy(items)#dc3c1a760a71ada30090fac38ea3914e:s3936-3941
+region 244 return "other" if !truthy(items)#dc3c1a760a71ada30090fac38ea3914e:s3936-3941 | truthy(items)#dc3c1a760a71ada30090fac38ea3914e:s3980-3985
 region 247 def eq_vs_is(x): if true
 region 248 if x == True: if true
-region 249 if x is not True: if equals(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4061-4070
-region 250 return "equal, not identical" if !is_value(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4083-4096 & equals(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4061-4070
-region 251 return "other" if !equals(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4061-4070 | is_value(x,True)#4bf3bbd57890721e6b08d6b731a53cbf:s4083-4096
+region 249 if x is not True: if equals(x,True)#dc3c1a760a71ada30090fac38ea3914e:s4061-4070
+region 250 return "equal, not identical" if !is_value(x,True)#dc3c1a760a71ada30090fac38ea3914e:s4083-4096 & equals(x,True)#dc3c1a760a71ada30090fac38ea3914e:s4061-4070
+region 251 return "other" if !equals(x,True)#dc3c1a760a71ada30090fac38ea3914e:s4061-4070 | is_value(x,True)#dc3c1a760a71ada30090fac38ea3914e:s4083-4096
 region 254 def eq_none(x): if true
 region 255 if x == None: if true
-region 256 if x is not None: if equals(x,None)#4bf3bbd57890721e6b08d6b731a53cbf:s4184-4193
-region 257 return "equal, not identical" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4206-4219 & equals(x,None)#4bf3bbd57890721e6b08d6b731a53cbf:s4184-4193
-region 258 return "other" if !equals(x,None)#4bf3bbd57890721e6b08d6b731a53cbf:s4184-4193 | is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4206-4219
+region 256 if x is not None: if equals(x,None)#dc3c1a760a71ada30090fac38ea3914e:s4184-4193
+region 257 return "equal, not identical" if !is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4206-4219 & equals(x,None)#dc3c1a760a71ada30090fac38ea3914e:s4184-4193
+region 258 return "other" if !equals(x,None)#dc3c1a760a71ada30090fac38ea3914e:s4184-4193 | is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4206-4219
 region 261 def same_line_bindings(x, y): if true
 region 262 if x is None: if true
-region 263 x = y if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4321-4330
-region 263 x = None if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4321-4330
+region 263 x = y if is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4321-4330
+region 263 x = None if is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4321-4330
 region 264 if x is None: if true
-region 265 return x if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4363-4372
-region 266 return y if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4363-4372
+region 265 return x if is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4363-4372
+region 266 return y if !is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4363-4372
 region 269 def merged_definitions(x, choose): if true
 region 270 if choose: if true
-region 271 x = None if truthy(choose)#4bf3bbd57890721e6b08d6b731a53cbf:s4448-4454
+region 271 x = None if truthy(choose)#dc3c1a760a71ada30090fac38ea3914e:s4448-4454
 region 272 if x is None: if true
-region 273 return "merge" if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4480-4489
-region 274 return "other" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s4480-4489
+region 273 return "merge" if is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4480-4489
+region 274 return "other" if !is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s4480-4489
 region 277 def choose(TYPE_CHECKING): if true
 region 278 if TYPE_CHECKING: if true
-region 279 return "parameter" if truthy(TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4569-4582
-region 280 return "other" if !truthy(TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4569-4582
+region 279 return "parameter" if truthy(TYPE_CHECKING)#dc3c1a760a71ada30090fac38ea3914e:s4569-4582
+region 280 return "other" if !truthy(TYPE_CHECKING)#dc3c1a760a71ada30090fac38ea3914e:s4569-4582
 region 283 def checking_alias(): if true
 region 284 if TC: if true
 region 285 return "checker only" if false
@@ -454,8 +463,8 @@ region 291 return "checker only" if false
 region 292 return "runtime" if true
 region 295 def config_check(config): if true
 region 296 if config.TYPE_CHECKING: if true
-region 297 return "ordinary attribute" if truthy(config.TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4868-4888
-region 298 return "other" if !truthy(config.TYPE_CHECKING)#4bf3bbd57890721e6b08d6b731a53cbf:s4868-4888
+region 297 return "ordinary attribute" if truthy(config.TYPE_CHECKING)#dc3c1a760a71ada30090fac38ea3914e:s4868-4888
+region 298 return "other" if !truthy(config.TYPE_CHECKING)#dc3c1a760a71ada30090fac38ea3914e:s4868-4888
 region 301 def version_prefix(): if true
 region 302 if sys.version_info > (3, 14): if true
 region 303 above = True if true
@@ -484,24 +493,35 @@ region 334 return above_micro, at_most_micro, equal_micro if true
 region 337 def rebound_isinstance_class(x): if true
 region 338 C = int if true
 region 339 if isinstance(x, C): if true
-region 340 C = str if isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843
-region 341 if not isinstance(x, C): if isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843
-region 342 return "rebound class" if !isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5876-5892 & isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843
-region 343 return "other" if !isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5827-5843 | isinstance(x,C)#4bf3bbd57890721e6b08d6b731a53cbf:s5876-5892
+region 340 C = str if isinstance(x,C)#dc3c1a760a71ada30090fac38ea3914e:s5827-5843
+region 341 if not isinstance(x, C): if isinstance(x,C)#dc3c1a760a71ada30090fac38ea3914e:s5827-5843
+region 342 return "rebound class" if !isinstance(x,C)#dc3c1a760a71ada30090fac38ea3914e:s5876-5892 & isinstance(x,C)#dc3c1a760a71ada30090fac38ea3914e:s5827-5843
+region 343 return "other" if !isinstance(x,C)#dc3c1a760a71ada30090fac38ea3914e:s5827-5843 | isinstance(x,C)#dc3c1a760a71ada30090fac38ea3914e:s5876-5892
 region 346 def non_singleton_identity(x): if true
 region 347 if x is 1000: if true
-region 348 if x is not 1000: if is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s5988-5997
-region 349 return "different literal object" if !is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s6010-6023 & is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s5988-5997
-region 350 return "other" if !is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s5988-5997 | is_value(x,1000)#4bf3bbd57890721e6b08d6b731a53cbf:s6010-6023
+region 348 if x is not 1000: if is_value(x,1000)#dc3c1a760a71ada30090fac38ea3914e:s5988-5997
+region 349 return "different literal object" if !is_value(x,1000)#dc3c1a760a71ada30090fac38ea3914e:s6010-6023 & is_value(x,1000)#dc3c1a760a71ada30090fac38ea3914e:s5988-5997
+region 350 return "other" if !is_value(x,1000)#dc3c1a760a71ada30090fac38ea3914e:s5988-5997 | is_value(x,1000)#dc3c1a760a71ada30090fac38ea3914e:s6010-6023
 region 353 def nonlocal_change(): if true
 region 354 x = None if true
 region 356 def change(): if true
 region 357 nonlocal x if true
 region 358 x = 1 if true
 region 360 if x is None: if true
-region 361 change() if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197
-region 362 if x is not None: if is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197
-region 363 return "changed nonlocal" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6227-6240 & is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197
-region 364 return "other" if !is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6188-6197 | is_none(x)#4bf3bbd57890721e6b08d6b731a53cbf:s6227-6240
+region 361 change() if is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s6188-6197
+region 362 if x is not None: if is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s6188-6197
+region 363 return "changed nonlocal" if !is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s6227-6240 & is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s6188-6197
+region 364 return "other" if !is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s6188-6197 | is_none(x)#dc3c1a760a71ada30090fac38ea3914e:s6227-6240
 region 367 def value_runtime_branch(x, y): if true
 region 368 return x if TYPE_CHECKING else y if true
+region 371 def nested_identity(value, enabled): if true
+region 372 if enabled: if true
+region 373 return value if truthy(enabled)#dc3c1a760a71ada30090fac38ea3914e:s6416-6423
+region 374 return None if !truthy(enabled)#dc3c1a760a71ada30090fac38ea3914e:s6416-6423
+region 377 def finally_identity(value): if true
+region 378 try: if true
+region 379 return value if true
+region 381 marker = 1 if true
+region 384 def with_identity(value, manager): if true
+region 385 with manager: if true
+region 386 return value if true

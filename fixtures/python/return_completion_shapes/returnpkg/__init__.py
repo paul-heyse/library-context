@@ -67,4 +67,12 @@ def prior_call_identity(value):
     return value
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity", "recursive_before_return", "recursive_base_identity", "prior_call_identity"]
+def alternate_branch_identity(value, invoke):
+    if invoke:
+        plain_identity(value)
+    else:
+        return value
+    return None
+
+
+__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity", "recursive_before_return", "recursive_base_identity", "prior_call_identity", "alternate_branch_identity"]

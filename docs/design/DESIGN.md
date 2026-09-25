@@ -396,6 +396,14 @@ that use before its local raw value fact. A direct `open(path)` return has an
 identity upstream input; returning a prior `open(path)` result carries upstream
 call uncertainty and cannot borrow the return fact's call links. The compiler
 output version is 44. These flags still do not cite the predecessor fact chain.
+**Implemented and Tested in the release Rust suite (2026-09-25):** output version 74
+migrates the `value_flow_contributions` key to include local and upstream transfer flags,
+so two semantically distinct raw paths cannot collide. Shared reconstruction sorts by
+that full identity. The validator selects the distinct snapshot across a library and its
+corpus releases, and the pinned context MRO shape rule validates distinct ancestor facts:
+both releases may cite the same ancestry without creating a false duplicate, while
+conflicting ancestors at an ordinal still fail. The accepted contract and rule snapshots
+record the migration. The full cross-language gate was not observed to completion.
 
 **Implemented and Tested in focused cases (2026-09-25, first ADR-0028 source seam):**
 `arguments` persists the argument expression's value span separately from its authored
@@ -3583,19 +3591,21 @@ Recursive and conditional callee paths remain unknown, and a depth refusal curre
 the generic `call_transfer` boundary pending a specific budget row. Compiler output version
 64; full SCC composition, effect summaries and integrated Stage 3 testing remain open.
 
-**Implemented and Tested in focused recursive-control cases (2026-09-25):** version 71
+**Implemented and Tested in focused predecessor-control cases (2026-09-25):** version 71
 withheld all positive finite paths for recursive SCC members after an unconditional self-call
-exposed an unproved predecessor completion. Version 72 (ADR-0038) narrows the direct-return
-producer's interim guard: any attributed earlier call in the same callable withholds a direct
-identity-return seed, even when the call is nonrecursive, while a base return before the
-recursive call can retain its finite may-path. Both withholding shapes have explicit
-`summary_boundaries`. This byte-order screen is conservative across alternate branches and
-does not prove normal completion of other preceding actions. The modeled and assignment
-producers still withhold recursive members; the local-call producer already did so. The
-bounded path-sensitive predecessor and SCC worklist must replace these interim boundaries.
-Integrated acceptance remains open.
+exposed an unproved predecessor completion. Version 72 added an earlier same-function call
+screen, admitting a base return before recursion. Version 73 (ADR-0039) refines it with ty
+statement regions: DataFusion selects each call's narrowest enclosing region, then the bounded
+BDD kernel ignores an earlier call only if that region and the return-value condition have
+a proved false conjunction. Missing, approximate or over-budget conditions retain an
+explicit `summary_boundaries` unknown. An `else` return disjoint from an earlier `if` call
+now has a finite may-path; an unconditional recursive or nonrecursive prior call remains
+unknown. This is still not a normal-completion proof for a compatible call or non-call
+predecessor. The modeled and assignment producers withhold recursive members; the local-call
+producer already did so. Full predecessor execution and SCC worklist remain open, as does
+integrated acceptance.
 
-> Decision: ADR-0038
+> Decision: ADR-0039
 
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
@@ -4344,3 +4354,5 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Nested pass-only finalizers now preserve a pending return with an inner-to-outer sequence of cited source steps; effectful finalizers and `with` remain open, and derivation output version is 70 (§9.9) | ADR-0037 (supersedes ADR-0036) |
 | 2026-09-25 | Recursive SCC membership now withholds direct and modeled finite value summaries until a bounded worklist proves completion; explicit unknown boundaries remain (§9.9) | — |
 | 2026-09-25 | Direct-return admission now screens earlier attributed source calls, allowing a terminating base return before recursion while retaining post-call unknowns (§9.9) | ADR-0038 |
+| 2026-09-25 | Direct-return admission can ignore an earlier source call only when its ty region is BDD-incompatible with the return condition; missing or bounded evidence withholds (§9.9) | ADR-0039 (supersedes ADR-0038) |
+| 2026-09-25 | Raw value-flow keys retain local/upstream transfer distinctions; shared validation accepts library-plus-corpus releases under one snapshot and compares distinct MRO ancestry assertions. Output version 74, reviewed schema/rule snapshots (§3.9) | Stage 3 preliminary gate repair |

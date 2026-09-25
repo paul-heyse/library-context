@@ -175,7 +175,7 @@ key:operation_facet_status
 key:value_flows
   SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity, count(*) AS n FROM value_flows GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity HAVING count(*) > 1
 key:value_flow_contributions
-  SELECT snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call, count(*) AS n FROM value_flow_contributions GROUP BY snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call HAVING count(*) > 1
+  SELECT snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call, local_through_call, upstream_identity, upstream_through_call, count(*) AS n FROM value_flow_contributions GROUP BY snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call, local_through_call, upstream_identity, upstream_through_call HAVING count(*) > 1
 key:analysis_conditions
   SELECT snapshot_id, condition_id, count(*) AS n FROM analysis_conditions GROUP BY snapshot_id, condition_id HAVING count(*) > 1
 key:analysis_condition_nodes
@@ -1631,7 +1631,7 @@ semantic:call-argument-coverage
 semantic:context-class-mro-coverage
   SELECT d.symbol_node_id FROM context_definitions d LEFT ANTI JOIN context_class_mro m ON m.class_node_id = d.symbol_node_id WHERE d.kind = 1
 semantic:context-class-mro-shape
-  SELECT class_node_id FROM context_class_mro GROUP BY class_node_id HAVING SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) > 1 OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 1 AND count(*) > 1) OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 0 AND (MIN(ordinal) <> 0 OR MAX(ordinal) <> count(*) - 1))
+  WITH distinct_ancestors AS ( SELECT DISTINCT class_node_id, ordinal, ancestor_module, ancestor_key, ancestor_name, cyclic FROM context_class_mro ) SELECT class_node_id, count(*) AS rows, MIN(ordinal) AS first_ordinal, MAX(ordinal) AS last_ordinal, SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) AS markers FROM distinct_ancestors GROUP BY class_node_id HAVING SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) > 1 OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 1 AND count(*) > 1) OR (SUM(CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END) = 0 AND (MIN(ordinal) <> 0 OR MAX(ordinal) <> count(*) - 1))
 semantic:context-class-mro-identity
   SELECT m.class_node_id FROM context_class_mro m JOIN context_definitions d ON d.symbol_node_id = m.class_node_id WHERE d.module_node_id <> m.module_node_id OR d.kind <> 1
 semantic:model-target-provenance

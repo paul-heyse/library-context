@@ -95,7 +95,10 @@ pub struct Published {
 /// 70: nested pass-only finalizers cite every source action in inner-to-outer proof order.
 /// 71: direct and modeled finite flows in recursive SCCs remain explicit unknown paths.
 /// 72: direct paths screen earlier source calls, admitting a recursive base before its self-call.
-pub const COMPILER_OUTPUT_VERSION: u32 = 72;
+/// 73: incompatible earlier call regions no longer block a finite direct return path.
+/// 74: raw value-flow contribution keys retain local and upstream transfer provenance;
+/// multi-release validation accepts one snapshot with multiple releases.
+pub const COMPILER_OUTPUT_VERSION: u32 = 74;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -777,13 +780,17 @@ async fn finish(
     };
     {
         use cpg_schema::behavior::{
-            AmbientReads, AnalysisConditions, AnalysisConditionNodes, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
-            ExitSites, ReturnExitStatuses, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
-            HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
+            AmbientReads, AnalysisConditionNodes, AnalysisConditions, ArgumentFlows, BehaviorSteps,
+            Behaviors, Delegations, DynamicAccesses, ExitSites, FieldAccesses,
+            FlowTestExactOrigins, FlowTestValueLinks, Guards, HandlerActions, HandlerClauses,
+            HandlerReturnNoneSites, HandlerTypes, Handoffs, ModeledArgumentEvaluations,
+            ModeledAssignmentReturnPaths, ModeledExactValueTransfers,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
-            ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
-            OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, SummaryBoundaries, SummaryComponents, SummaryFlowSteps, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows, ModeledArgumentEvaluations,
+            ModeledExceptionReturnNonePaths, NegativePremises, OperationDocuments,
+            OperationFacetStatus, OperationFacets, Operations, ParameterReads, RaiseSites,
+            ReturnExitStatuses, Singletons, SummaryBoundaries, SummaryComponents, SummaryFlowSteps,
+            SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates,
+            ValueFlowPredecessorCompatibility, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -822,8 +829,7 @@ async fn finish(
             w,
         )
         .await?;
-        let predecessor_compatibility =
-            crate::summaries::predecessor_compatibility(&ctx).await?;
+        let predecessor_compatibility = crate::summaries::predecessor_compatibility(&ctx).await?;
         write_analysis::<ValueFlowPredecessorCompatibility>(
             &ctx,
             root,
@@ -900,7 +906,8 @@ async fn finish(
         write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &return_exit_statuses, w)
             .await?;
         let summary_components = crate::summaries::call_components(&ctx).await?;
-        write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w).await?;
+        write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w)
+            .await?;
         let (summary_flows, summary_steps) = crate::summaries::finite_flows(&ctx).await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summary_flows, w).await?;
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summary_steps, w).await?;

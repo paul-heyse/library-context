@@ -1,7 +1,7 @@
 //! Id derivation (DESIGN §3.4.1, ADR-0007 oracles).
 
-use cpg_schema::id::{Id, IdHasher, content_digest, kind, recipe};
 use cpg_schema::codebook::{SummaryFlowKind, SummaryFlowStepKind};
+use cpg_schema::id::{Id, IdHasher, content_digest, kind, recipe};
 use proptest::prelude::*;
 
 #[test]

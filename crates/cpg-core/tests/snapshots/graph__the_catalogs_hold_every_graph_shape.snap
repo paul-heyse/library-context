@@ -14,7 +14,7 @@ expression: out
 | 5         | 21  |
 | 6         | 42  |
 | 7         | 5   |
-| 8         | 21  |
+| 8         | 22  |
 | 9         | 2   |
 | 10        | 172 |
 | 11        | 38  |
@@ -111,6 +111,7 @@ expression: out
 | 11        | shapes.models.Base.run   | depmod:DepBase.run       |         |
 | 11        | shapes.models.Child.run  | shapes.models.Base.run   |         |
 | 11        | synthetic:CF:0:2         | builtins:object.__init__ |         |
+| 12        | builtins:OSError         | builtins                 |         |
 | 12        | builtins:getattr         | builtins                 |         |
 | 12        | builtins:int             | builtins                 |         |
 | 12        | builtins:int.__add__     | builtins                 |         |
