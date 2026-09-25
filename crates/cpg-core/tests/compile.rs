@@ -1430,6 +1430,37 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
+                 JOIN summary_flow_steps r ON r.summary_id = f.summary_id \
+                   AND r.kind = {} \
+                 JOIN declarations d ON d.node_id = f.function_node_id \
+                 WHERE d.name = 'identity' AND f.path_depth = 1 \
+                   AND f.verdict <> {} AND f.boundary_reason IS NULL",
+                cpg_schema::codebook::SummaryFlowStepKind::ModelRule.code(),
+                Verdict::Unknown.code(),
+            ),
+        )
+        .await,
+        1,
+        "one exact modeled identity call has a finite rule-cited return flow"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             WHERE d.name IN ('identity_dynamic_type', 'identity_shadowed_type', \
+                              'identity_raising_sibling', 'nested_identity', \
+                              'computed_identity')",
+        )
+        .await,
+        0,
+        "unknown arguments and non-exact expression paths cannot become modeled summaries"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM summary_boundaries b \
              JOIN declarations d ON d.node_id = b.function_node_id \
              WHERE d.name = 'plain_identity'",
@@ -1444,14 +1475,14 @@ budget = 1
             &format!(
                 "SELECT count(*) FROM summary_boundaries b \
                  JOIN declarations d ON d.node_id = b.function_node_id \
-                 WHERE d.name IN ('identity', 'indirect_identity') \
+             WHERE d.name = 'indirect_identity' \
                    AND b.reason = {}",
                 BoundaryReason::CallTransfer.code()
             ),
         )
         .await,
-        2,
-        "unproved direct and inherited call results retain an explicit transfer boundary"
+        1,
+        "the inherited result retains a transfer boundary after direct model proof"
     );
     assert_eq!(
         count(
@@ -1563,7 +1594,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        13,
+        14,
         "the pure, JSON and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -1951,7 +1982,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        16,
+        17,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

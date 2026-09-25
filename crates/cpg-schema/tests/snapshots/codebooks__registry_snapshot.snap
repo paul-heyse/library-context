@@ -761,6 +761,12 @@ summary_flow_kind
   2 constant
 summary_flow_step_kind
   0 raw_identity
+  1 callee_resolution
+  2 argument_evaluation
+  3 call_target
+  4 model_rule
+  5 return_exit
+  6 call_site
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal

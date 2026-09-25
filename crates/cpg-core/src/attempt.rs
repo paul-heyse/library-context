@@ -83,7 +83,8 @@ pub struct Published {
 /// 58: finite summary paths gain canonical ids and ordered, typed proof steps.
 /// 59: each modeled exact-value candidate records ordered argument evaluation evidence.
 /// 60: exact unshadowed builtin names gain local normal-evaluation evidence.
-pub const COMPILER_OUTPUT_VERSION: u32 = 60;
+/// 61: first finite modeled identity-return paths carry complete ordered call proofs.
+pub const COMPILER_OUTPUT_VERSION: u32 = 61;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -879,9 +880,8 @@ async fn finish(
         )
         .await?;
         write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
-        let summary_flows = crate::summaries::direct_flows(&ctx).await?;
+        let (summary_flows, summary_steps) = crate::summaries::finite_flows(&ctx).await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summary_flows, w).await?;
-        let summary_steps = crate::summaries::direct_flow_steps(&summary_flows);
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summary_steps, w).await?;
         let summary_boundaries = crate::sql::fetch(
             &ctx,

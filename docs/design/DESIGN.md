@@ -3432,6 +3432,19 @@ validator reconstructs both tables; an omitted step is rejected. This changes th
 contract under compiler output version 58, without promoting a modeled call to a completed
 flow. The integrated gate remains `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, first modeled return):**
+An exact whole-expression `typing.cast` or `typing.assert_type` identity call can now seed a
+finite `summary_flows` value path when its sole source target is closed, both target and model
+modalities are definite, the pinned target asserts normal return, its callee is one resolved
+simple name, and every explicit argument has ordered local normal-evaluation evidence. The
+candidate BDD must be satisfiable and imply the direct synchronous return's region BDD;
+generator functions and nested control frames remain excluded. Typed steps cite callee
+resolution, argument evaluations, call syntax and target, the model rule, and return exit.
+The canonical summary id includes this ordered proof, which the shared validator rebuilds.
+`summary_boundaries` remains for return facts without an admitted path. This narrow positive
+producer does not establish assignment predecessors, broader call compositions, exception or
+effect fates. Compiler output version 61; integrated Stage 3 testing remains `not_run`.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a

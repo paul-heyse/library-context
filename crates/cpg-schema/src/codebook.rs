@@ -1334,6 +1334,12 @@ codebook!(
     /// corresponding proof producer and publication validator exist.
     SummaryFlowStepKind = "summary_flow_step_kind" {
         RawIdentity = 0 => "raw_identity",
+        CalleeResolution = 1 => "callee_resolution",
+        ArgumentEvaluation = 2 => "argument_evaluation",
+        CallTarget = 3 => "call_target",
+        ModelRule = 4 => "model_rule",
+        ReturnExit = 5 => "return_exit",
+        CallSite = 6 => "call_site",
     }
 );
 

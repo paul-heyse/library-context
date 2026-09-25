@@ -21,6 +21,10 @@ def identity_shadowed_type(value: object, object: object) -> object:
     return cast(object, value)
 
 
+def identity_raising_sibling(value: object) -> object:
+    return cast(1 / 0, value)
+
+
 def display(value: object) -> None:
     print(value)
 

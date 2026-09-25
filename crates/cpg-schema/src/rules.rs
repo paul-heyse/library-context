@@ -210,7 +210,7 @@ pub const REFERENCES: &[Reference] = &[
     r("summary_flows", "return_site_fact_id", FACT),
     r("summary_flows", "return_region_fact_id", FACT),
     r("summary_flow_steps", "summary_id", &[("summary_flows", "summary_id")]),
-    r("summary_flow_steps", "evidence_id", &[("flow_values", "fact_id")]),
+    r("summary_flow_steps", "evidence_id", &[("flow_values", "fact_id"), ("reference_resolutions", "fact_id"), ("syntax_nodes", "fact_id"), ("call_syntax", "fact_id"), ("call_targets", "pysa_fact_id"), ("model_transfers", "rule_id")]),
     r("summary_flow_steps", "condition_id", &[("analysis_conditions", "condition_id")]),
     r("summary_boundaries", "function_node_id", &[("declarations", "node_id")]),
     r("summary_boundaries", "parameter_node_id", &[("parameter_syntax", "node_id")]),

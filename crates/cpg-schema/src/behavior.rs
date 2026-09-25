@@ -1216,9 +1216,8 @@ table!(
 
 table!(
     /// Finite source-to-output may-flow of one callable, with a lossless condition root and
-    /// source witness. The first producer admits only direct synchronous body returns whose
-    /// raw value is a local parameter identity with no crossed call. Other summary cases are
-    /// added only after their call and exit proofs exist.
+    /// source witness. Producers admit direct synchronous parameter identities and exact
+    /// pinned identity-model calls only with their respective call and exit proofs.
     SummaryFlows, SummaryFlowsRow = "summary_flows",
     family = Findings,
     key = [snapshot_id, summary_id],
@@ -1247,8 +1246,8 @@ table!(
 );
 
 table!(
-    /// Ordered proof steps for a finite summary. This initial step cites the raw local identity
-    /// fact; call/model/reaching variants are added only with their source-path producer.
+    /// Ordered proof steps for a finite summary. Raw identity and the first exact pinned-model
+    /// path use disjoint typed step sequences reconstructed by the shared validator.
     SummaryFlowSteps, SummaryFlowStepsRow = "summary_flow_steps",
     family = Findings,
     key = [snapshot_id, summary_id, ordinal],
@@ -1258,8 +1257,8 @@ table!(
         summary_id: Id,
         ordinal: i64,
         kind: SummaryFlowStepKind,
-        /// The source relation is selected by `kind`; currently `raw_identity` references a
-        /// `flow_values.fact_id`. Future kinds must add their own checked source reference.
+        /// The source relation is selected by `kind`; the shared validator checks the exact
+        /// ordered sequence and the generated reference rule checks evidence closure.
         evidence_id: Id,
         condition_id: Id,
     }
@@ -2033,6 +2032,79 @@ crate::relations! {
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
 
+    /// A direct return whose entire expression is one exact pinned identity-model call.
+    /// This relation selects attributed source/model facts; the bounded kernel and ordered
+    /// argument-evaluation proof still decide admission in `cpg-core::summaries`.
+    modeled_summary_flow_seeds = "behavior:modeled_summary_flow_seeds",
+        deps = ["modeled_exact_value_transfers", "model_applications", "model_transfers",
+                "call_syntax", "syntax_nodes", "references", "reference_resolutions",
+                "parameter_syntax", "declarations", "exit_sites", "flow_values"],
+        sql = format!(
+            "WITH callee_candidates AS ( \
+               SELECT c.node_id AS call_node_id, rr.fact_id AS resolution_fact_id, \
+                      count(*) OVER (PARTITION BY c.node_id) AS candidate_count \
+               FROM call_syntax c \
+               JOIN syntax_nodes s ON s.parent_node_id = c.node_id \
+                 AND s.module_node_id = c.module_node_id AND s.field = {callee_field} \
+                 AND s.kind = {name_expr} AND s.start_byte = c.callee_start_byte \
+                 AND s.end_byte = c.callee_end_byte \
+               JOIN references ref ON ref.name_node_id = s.node_id \
+                 AND ref.module_node_id = s.module_node_id \
+               JOIN reference_resolutions rr ON rr.reference_id = ref.node_id \
+                 AND rr.reason IS NULL AND (rr.binding_id IS NOT NULL OR rr.builtin_name IS NOT NULL) \
+             ) \
+             SELECT DISTINCT m.snapshot_id, m.function_node_id, m.parameter_node_id, \
+                    p.name AS parameter_name, m.flow_value_fact_id AS source_flow_fact_id, \
+                    m.condition_id, m.call_fact_id, \
+                    m.argument_fact_id AS source_argument_fact_id, m.pysa_fact_id, \
+                    m.model_id, m.rule_id, cc.resolution_fact_id AS callee_resolution_fact_id, \
+                    c.positional_count + c.keyword_count AS argument_count, \
+                    e.source_fact_id AS return_site_fact_id, \
+                    e.region_fact_id AS return_region_fact_id, \
+                    e.condition_id AS return_condition_id, \
+                    (f.approximated OR e.approximated) AS approximated \
+             FROM modeled_exact_value_transfers m \
+             JOIN model_applications a ON a.call_site_node_id = m.call_site_node_id \
+               AND a.pysa_fact_id = m.pysa_fact_id AND a.model_id = m.model_id \
+               AND a.target_node_id = m.target_node_id \
+             JOIN model_transfers t ON t.rule_id = m.rule_id AND t.model_id = m.model_id \
+               AND t.target_node_id = m.target_node_id \
+             JOIN call_syntax c ON c.node_id = m.call_site_node_id \
+             JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
+               AND cc.candidate_count = 1 \
+             JOIN parameter_syntax p ON p.node_id = m.parameter_node_id \
+               AND p.function_node_id = m.function_node_id \
+             JOIN declarations d ON d.node_id = m.function_node_id \
+               AND d.kind = {function_kind} \
+             JOIN syntax_nodes r ON r.owner_node_id = d.node_id \
+               AND r.parent_node_id = d.node_id AND r.field = {body_field} \
+               AND r.kind = {return_kind} AND r.module_node_id = c.module_node_id \
+               AND r.start_byte <= m.sink_start_byte AND r.end_byte >= m.sink_end_byte \
+             JOIN exit_sites e ON e.site_node_id = r.node_id \
+               AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             JOIN flow_values f ON f.fact_id = m.flow_value_fact_id \
+             WHERE m.sink = {return_sink} AND m.transfer = {identity} \
+               AND m.target_modality = {definite} AND m.model_modality = {definite} \
+               AND m.candidate_set_complete_under_model AND NOT m.has_unresolved_remainder \
+               AND a.target_count = 1 AND a.target_normal_return \
+               AND a.phase = {call_phase} \
+               AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
+                 WHERE y.owner_node_id = d.node_id \
+                   AND y.kind IN ({yield_kind}, {yield_from_kind}))",
+            callee_field = crate::codebook::SyntaxField::Callee.code(),
+            name_expr = SyntaxKind::ExprName.code(),
+            function_kind = DeclarationKind::Function.code(),
+            body_field = crate::codebook::SyntaxField::Body.code(),
+            return_kind = SyntaxKind::StmtReturn.code(),
+            exit_return = ExitSiteKind::Return.code(),
+            return_sink = FlowSink::Return.code(),
+            identity = ModelTransferKind::Identity.code(),
+            definite = Modality::Definite.code(),
+            call_phase = InvocationPhase::Call.code(),
+            yield_kind = SyntaxKind::ExprYield.code(),
+            yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
+        );
+
     /// Unknown-is-not-absent for every same-callable parameter-origin return fact not admitted
     /// by the finite direct producer. A crossed call takes the more specific transfer reason;
     /// other shapes await their control/execution proof.
@@ -2049,14 +2121,11 @@ crate::relations! {
                JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
                WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
                  AND v.function_node_id = v.sink_function_node_id \
-                 AND NOT (v.identity AND v.upstream_identity AND NOT v.through_call \
-                   AND NOT v.local_through_call AND NOT v.upstream_through_call \
-                   AND NOT v.captured AND f.identity AND NOT f.through_call \
-                   AND EXISTS (SELECT 1 FROM summary_flows s \
+                 AND NOT EXISTS (SELECT 1 FROM summary_flows s \
                      WHERE s.function_node_id = v.sink_function_node_id \
                        AND s.parameter_node_id = v.parameter_node_id \
                        AND s.source_flow_fact_id = v.flow_value_fact_id \
-                       AND s.condition_id = v.condition_id)) \
+                       AND s.condition_id = v.condition_id) \
              ) SELECT snapshot_id, function_node_id, parameter_node_id, \
                       source_flow_fact_id, condition_id, \
                     CAST(CASE WHEN MAX(CASE WHEN through_call OR local_through_call \

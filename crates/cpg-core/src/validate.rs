@@ -381,7 +381,7 @@ async fn validate_modeled_assignment_return_paths(
 async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<SummaryFlowsRow> =
         sql::fetch(ctx, &stored_summary_flows(), sql::Params::new()).await?;
-    let mut expected = match crate::summaries::direct_flows(ctx).await {
+    let (mut expected, mut expected_steps) = match crate::summaries::finite_flows(ctx).await {
         Ok(rows) => rows,
         Err(error) => {
             return Ok(vec![Violation {
@@ -403,7 +403,6 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
     }
     let mut actual_steps: Vec<SummaryFlowStepsRow> =
         sql::fetch(ctx, &stored_summary_flow_steps(), sql::Params::new()).await?;
-    let mut expected_steps = crate::summaries::direct_flow_steps(&expected);
     let key = |r: &SummaryFlowStepsRow| (r.summary_id, r.ordinal);
     actual_steps.sort_by_key(key);
     expected_steps.sort_by_key(key);
