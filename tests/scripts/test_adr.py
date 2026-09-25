@@ -180,3 +180,22 @@ def test_a_status_claim_must_match_the_record(root: Path) -> None:
     )
     problems = adr.lint(root, check_git=False)
     assert len(problems) == 1 and "says ADR-0001 is accepted, but it is proposed" in problems[0]
+
+
+def test_moved_section_inherits_only_its_logical_parent(root: Path) -> None:
+    new(root, "moved", "[§4.2]", decide=False)
+    design = root / "docs/design/DESIGN.md"
+    design.write_text(
+        "# Design\n## §4 Pipeline\n> Decision: ADR-0001\n"
+        "### §4.2 Identity\n\n<!-- relocated-section -->\n[owner](sections/identity.md)\n"
+    )
+    sections = root / "docs/design/sections"
+    sections.mkdir()
+    owner = sections / "identity.md"
+    owner.write_text("# §4.2 Identity\nMeaning.\n```md\nADR-9999\n```\n")
+    run(root, "index")
+    assert adr.lint(root, check_git=False) == []
+    design.write_text(design.read_text().replace("> Decision: ADR-0001\n", ""))
+    assert any("no `> Decision:`" in problem for problem in adr.lint(root, check_git=False))
+    owner.unlink()
+    assert any("does not resolve" in problem for problem in adr.lint(root, check_git=False))

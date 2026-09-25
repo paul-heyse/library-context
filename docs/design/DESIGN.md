@@ -1,6 +1,6 @@
 # library-context — design
 
-**This file is the current design authority.** It distinguishes implemented state from accepted
+**This file plus `docs/design/sections/` is the current architectural authority.** It distinguishes implemented state from accepted
 targets through the labels below; an accepted target is not an implementation claim.
 `docs/adr/` says *why*, and what was rejected. Change a governed section only in the same commit as the ADR that decides it, and
 end the section with `> Decision: ADR-NNNN`. Sections are never renumbered: insert `§3.2.1` rather
@@ -19,7 +19,11 @@ maps every one of its sections to where it landed here, or why it did not.
 
 ---
 
+<a id="section-1"></a>
+
 ## §1 Scope
+
+<a id="section-1-1"></a>
 
 ### §1.1 Objective and the v1 promise
 
@@ -62,6 +66,8 @@ ADR-0025, Proposed). No generative model runs in the request path.
 set of searchable briefs for one subsystem, reached by the first two operations only.
 
 > Decision: ADR-0021, ADR-0025
+
+<a id="section-1-2"></a>
 
 ### §1.2 Increments
 
@@ -110,6 +116,8 @@ cache recovery remains **Proposed** until measured.
 
 > Decision: ADR-0021, ADR-0014, ADR-0013, ADR-0026, ADR-0040
 
+<a id="section-1-3"></a>
+
 ### §1.3 Non-goals for stage 1
 
 **Proposed.** Source: IP L2073–2087, L1878–1882; revised by ADR-0021.
@@ -131,6 +139,8 @@ cache recovery remains **Proposed** until measured.
 and alias analysis". Both are now in scope, as stated above.
 
 > Decision: ADR-0021
+
+<a id="section-1-4"></a>
 
 ### §1.4 Pilot, subsystem and gold reference
 
@@ -188,6 +198,8 @@ and alias analysis". Both are now in scope, as stated above.
   ADR-0021 amendment.
 
 > Decision: ADR-0021, ADR-0013
+
+<a id="section-1-5"></a>
 
 ### §1.5 Definition of done
 
@@ -249,7 +261,20 @@ handoff) each have an end-to-end example. Each example must show:
 
 ---
 
+<a id="section-2"></a>
+
 ## §2 Binding decisions
+
+**Accepted documentation policy; implementation Proposed** (ADR-0041, 2026-09-25). Focused
+architecture pages retain stable section IDs and replace moved prose with legacy pointers.
+One resolver drives ADR references and the generated section directory. Publication derives
+navigation and search from sources; it does not prove implementation. Documentation upkeep
+follows changes to meaning, boundaries and workflows. The
+[execution plan](../plans/architectural-documentation-and-search_2026-09-25.md) owns adoption.
+ADR-0040's review and disposition ownership remains in force.
+
+> Decision: ADR-0041
+
 
 **Implemented policy (ADR-0040, 2026-09-25).** These are the load-bearing choices. The
 repository owns core 3.0 and declares its standard in
@@ -270,6 +295,8 @@ evidence, while the active plan owns current disposition of scheduled findings. 
 that owner. Acceptance, implementation and verification remain distinct facts.
 
 > Decision: ADR-0040
+
+<a id="section-b1"></a>
 
 ### §B1 Ruff and Pyrefly are the only semantic front ends
 
@@ -293,6 +320,8 @@ that owner. Acceptance, implementation and verification remain distinct facts.
 
 > Decision: ADR-0012
 
+<a id="section-b2"></a>
+
 ### §B2 Arrow schemas are the authoritative data contract
 
 **Implemented** and **Tested** for the fact, derived and catalog tables (`contracts_snapshot`,
@@ -314,6 +343,8 @@ review, 2026-09-23); the serving and embedding clauses are **Proposed**.
 
 > Decision: ADR-0012
 
+<a id="section-b3"></a>
+
 ### §B3 DataFusion constructs and validates relations
 
 **Implemented** and **Tested** (C6 review, 2026-09-23): the derivations and the 496 rules run in
@@ -323,6 +354,8 @@ rule can prove is stated in §8 (its edit guards counted apart).
 - Most nodes and edges are joins, projections and unions over extracted facts.
 - Cross-table invariants are DataFusion queries, one per rule (§8).
 - The same validators run in tests and before publication.
+
+<a id="section-b4"></a>
 
 ### §B4 Graph algorithms have named owners
 
@@ -352,6 +385,8 @@ rule can prove is stated in §8 (its edit guards counted apart).
   the served model (§9.9), and none of them writes concept membership.
 
 > Decision: ADR-0011, ADR-0020
+
+<a id="section-b5"></a>
 
 ### §B5 Python semantics are custom Rust passes
 
@@ -435,6 +470,8 @@ step kinds require their own checked producer before they can establish a positi
 
 > Decision: ADR-0022, ADR-0028, ADR-0029, ADR-0030, ADR-0033, ADR-0034
 
+<a id="section-b6"></a>
+
 ### §B6 Facts are first-class assertions with provenance
 
 **Implemented** and **Tested** (the `fact:`/`fact-payload:` cases; `provider_disagreement` rows in
@@ -465,6 +502,8 @@ the derived snapshots; C6 review, 2026-09-23).
 
 > Decision: ADR-0014, ADR-0019, ADR-0034
 
+<a id="section-b7"></a>
+
 ### §B7 Delta canonical store, published by a `snapshots` append
 
 **Implemented** and **Tested** (`an_attempt_publishes_every_table_and_readers_see_only_published_rows`,
@@ -477,6 +516,8 @@ the derived snapshots; C6 review, 2026-09-23).
 - Readers resolve table versions through that row and filter by `snapshot_id` (§6).
 
 > Decision: ADR-0017 (superseding ADR-0009)
+
+<a id="section-b8"></a>
 
 ### §B8 Pyrefly and Ruff link in-process; one workspace, one process
 
@@ -497,6 +538,8 @@ revision, the driver and CLI parity. The panic policy is **Proposed**.
 
 > Decision: ADR-0012
 
+<a id="section-b9"></a>
+
 ### §B9 One pinned Rust dependency family
 
 **Tested** (§7).
@@ -505,6 +548,8 @@ DataFusion, Arrow/Parquet, object_store and delta-rs each resolve to exactly one
 the set in §7.
 
 > Decision: ADR-0002
+
+<a id="section-b10"></a>
 
 ### §B10 Exclusions
 
@@ -529,6 +574,8 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
 
 > Decision: ADR-0005, ADR-0022, ADR-0024
 
+<a id="section-b11"></a>
+
 ### §B11 Insight synthesis is programmatic; no LLM in the query path
 
 **Proposed.**
@@ -542,6 +589,8 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
 
 > Decision: ADR-0005
 
+<a id="section-b12"></a>
+
 ### §B12 Canonical store vs serving projections
 
 **Proposed.**
@@ -554,6 +603,8 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
 - **No cross-store transactions:** the bundle manifest names the snapshot it came from.
 
 > Decision: ADR-0017 (superseding ADR-0009)
+
+<a id="section-b13"></a>
 
 ### §B13 The agent interface is a FastMCP server over file-based generations
 
@@ -598,6 +649,8 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
 
 > Decision: ADR-0025 (superseding ADR-0010)
 
+<a id="section-b14"></a>
+
 ### §B14 One embedding spec, cached vectors
 
 **Interface-checked** (the vLLM and Qwen behaviour); **Proposed** (our spec).
@@ -620,12 +673,18 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
 
 ---
 
+<a id="section-3"></a>
+
 ## §3 Fact model
 
 **Proposed** unless marked. Source: IP L427–L746 (ontology and identity), L975–L1143 (Arrow
 contract), L1969–L2036 (v1 slice).
 
+<a id="section-3-1"></a>
+
 ### §3.1 Layers and node kinds
+
+> Decision: ADR-0014
 
 The full ontology below is the **target model**. Increments introduce kinds only as their
 consumers appear (§3.2).
@@ -659,7 +718,11 @@ declaration, and an AST node is not an execution point.
 - One syntactic occurrence has one node id and one kind. An argument or a reference is a role,
   identified from its carrier (§3.4.1).
 
+<a id="section-3-2"></a>
+
 ### §3.2 Fact families and authority
+
+> Decision: ADR-0013
 
 - **Family tables are authoritative.** Each fact family is a set of typed Arrow tables. The
   family is also:
@@ -763,6 +826,8 @@ its pinned `context_definitions` row. `EXTRACTOR_OUTPUT_VERSION` is 30 for this 
 
 > Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019, ADR-0022, ADR-0029, ADR-0030
 
+<a id="section-3-3"></a>
+
 ### §3.3 Physical profiles
 
 **Tested** (`every_table_round_trips_through_delta_exactly`; C6 review, 2026-09-23). Every data
@@ -792,6 +857,8 @@ with Parquet's default dictionary encoding and page statistics.
 
 > Decision: ADR-0012
 
+<a id="section-3-4"></a>
+
 ### §3.4 Identity rules
 
 - **A qualified name is a label, not an identity.** Package versions, roots, stubs and
@@ -811,7 +878,11 @@ with Parquet's default dictionary encoding and page statistics.
 
 > Decision: ADR-0012
 
+<a id="section-3-4-1"></a>
+
 ### §3.4.1 ID derivation
+
+> Decision: ADR-0014
 
 **Proposed**, except the extractor's ids: **Implemented** in slice 1 and pinned by an id-recipe
 snapshot (`extractor_id_recipes_snapshot`, **Tested** 2026-09-22).
@@ -890,6 +961,8 @@ migration (DP-24).
 
 > Decision: ADR-0013 (superseding ADR-0007), ADR-0019, ADR-0034
 
+<a id="section-3-5"></a>
+
 ### §3.5 Vocabularies and codebooks
 
 **Implemented** and **Tested** (`registry_snapshot`, `codes_are_dense_from_zero_and_names_unique`,
@@ -956,6 +1029,8 @@ the `codebook:boundaries.reason` case; C6 review, 2026-09-23).
 
 > Decision: ADR-0014, ADR-0012, ADR-0015
 
+<a id="section-3-5-1"></a>
+
 ### §3.5.1 Type observations and class order
 
 - `has_type` is a derived edge over `type_observations` that keeps the role on its evidence row.
@@ -971,6 +1046,8 @@ the `codebook:boundaries.reason` case; C6 review, 2026-09-23).
 - **Pyrefly's MRO** is kept exactly as reported. It excludes the class itself and `object`, so it
   is labelled as ancestors, not as a complete runtime MRO. It is never re-derived by
   topologically sorting base edges.
+
+<a id="section-3-6"></a>
 
 ### §3.6 Resolution is a set
 
@@ -993,6 +1070,8 @@ C6 review, 2026-09-23).
   `direct_delegation` without further evidence (§4.2.3).
 
 > Decision: ADR-0012
+
+<a id="section-3-7"></a>
 
 ### §3.7 Coverage and boundaries
 
@@ -1023,6 +1102,8 @@ C6 review, 2026-09-23).
   is never read as absence (CI-04, CI-08).
 
 > Decision: ADR-0014
+
+<a id="section-3-8"></a>
 
 ### §3.8 Graph catalog and edge registry
 
@@ -1238,288 +1319,15 @@ rules are generated from (DP-16).
 
 ### §3.9 Behavior model: places, conditions and verdicts
 
-**Proposed** (ADR-0022, 2026-09-24; revised by the Stage 2 review the same day). **Implemented**
-and **Tested** for the provider, the lowering and the encoding (`cpg-flow`, `flow_shapes`,
-`cpg_schema::condition`). Source: the behavioral-model review, §3 and §8.2.
+<!-- relocated-section -->
 
-**Places.** What a definition or use names:
-- a local name;
-- `self.f` or `self.f.g` (at most two fields below `self`);
-- a module global, settings singletons included (`fastmcp.settings.<field>`);
-- a ContextVar object (from Stage 5, with the framework models that read it; the ADR review's F14);
-- an attribute of a function object (`fn.__fastmcp__`).
+See [§3.9 Behavior model: places, conditions and verdicts](sections/behavior-model.md).
 
-A place is known in two layers (ADR-0022 §Places):
-- **spelled**, as written in its scope: a condition's text. Every source test carries its
-  evaluation site in its atom identity. Reaching definitions remain separate facts; even the
-  same definition set does not prove a value stayed stable across an impure call. Same-line
-  bindings remain distinct;
-- **resolved**, the join key across scopes: `Parameter[…]`, `Local[…]`, `Field[C.f]` or
-  `Global[module.name]`, then at most two segments (§9.9).
-
-Anything deeper, or reached through a computed name, is a boundary: `dynamic_access` for the
-getattr family and its kin, `unresolved_target` otherwise. It is never a guess.
-
-**The flow provider** (ADR-0022, D-2).
-- **What ty supplies.** `ty_python_core` 0.0.14, in the crate `cpg-flow`, builds the use-def map:
-  reaching definitions per use, each with its reachability as a decision diagram over predicates.
-  It also gives every statement's reachability, relative to its scope's entry.
-- **What crosses the boundary:** byte ranges, place text and our condition data (ADR-0012
-  amendment).
-- **Normalizations:**
-  - loop-header definitions become the body bindings they stand for (`loop_carried`);
-  - an import alias's target becomes the bound name;
-  - an augmented assignment's target is a use and a definition.
-- **Parity, both ways.** Every flow use joins a `references` row and every reference a flow use;
-  likewise for definitions and `bindings`. ty's reaching definitions stay within our candidates.
-  The residue is names inside annotations, which `references` does not model as reads. Counting
-  it per run is **Proposed**, not built (the Stage 2 end review's R10).
-- **ty's exception model is part of the stated model.** Ambient exceptions (`KeyboardInterrupt`)
-  are outside it.
-- **Panics abort the extraction.**
-
-**The runtime view.**
-- `TYPE_CHECKING` is false. ty decides it as true at index time, so before ty parses a module every
-  `TYPE_CHECKING` **name token** is renamed to a sentinel of the same length. Strings and comments
-  keep their text. ty then keeps both branches. Our evaluator decides only a name resolved by our
-  lexical facts to `typing.TYPE_CHECKING` or `typing_extensions.TYPE_CHECKING`, aliases included,
-  or an attribute on an imported `typing` module. A parameter with that spelling remains ordinary.
-- `sys.version_info` comparisons follow full tuple ordering, only when the root resolves to the
-  stdlib `sys` module. The context knows its first three numeric fields; a literal tuple of up to
-  three fields can be compared because the runtime tuple has two more fields. Longer literals
-  remain undecided until release level and serial are modeled.
-- `sys.platform` and `os.name` follow its platform (§4.0), only under resolved stdlib roots.
-- C3's static-branch marks (§4.2.4) remain the checker view that the CPG layers keep.
-
-**Conditions** are data in a closed language, in disjunctive normal form (ADR-0022 §Conditions).
-- **Literals.** A literal is an atom with a polarity. The atoms (codebook `condition_atom`) are
-  `is_none(p)`, `is_value(p,v)`, `equals(p,v)`, `member_of(p,{v…})`, `truthy(p)`, `isinstance(p,C)` and
-  `opaque("text")`.
-- **Literal values:** `None`, `True` and `False`; decimal integers; JSON strings. A test on any
-  other literal is opaque.
-- **Operators stay distinct:**
-  - a single-value set remains `member_of`;
-  - `== None` is `equals(p,None)`, distinct from `is_none`;
-  - `is True` is `is_value(p,True)`;
-  - the literal is the second operand.
-- **Encoding.**
-  - A translated literal is `[!]kind(place[,literal])#module:source`, where the source is a byte
-    site or a synthetic predicate identity. The module key includes path and content. Text labels
-    are not identities; tests never share by spelling. A definition-set encoding is reserved for
-    a later rule that proves value stability across sites, but none is emitted now.
-  - Conjunctions are sorted bytewise, deduplicated and joined by ` & `.
-  - Disjunctions are sorted, deduplicated, absorbed and joined by ` | `.
-  - `true` and `false` are the empty conjunction and the empty disjunction.
-  - The id is `H("condition", encoding)` (DP-04). Equality is syntactic, and that is declared.
-- **The lowering from ty's diagrams**, one procedure:
-  1. Follow only `if_true` and `if_false`.
-  2. Read ty's **ambiguous** terminal as `true`, because verdicts state **may**-behavior.
-  3. Map the predicates, evaluating the runtime view first.
-  4. Drop contradictions; self-subsuming resolution (`a & !y | y` is `a | y`, and
-     `a & r & !y | r & y` is `a & r | r & y`), to a fixpoint; absorb.
-- **Opaque text** is the test's source with comments removed and whitespace collapsed.
-- **Budget:** at most 16 conjunctions of 8 literals. A larger condition is not stated: its record
-  is `unknown` (`budget_reached`).
-- **Skipped false branches** are counted in each module's flow coverage detail by ty false,
-  resolved runtime-view decisions and stable-atom contradictions. Value-source branch skips are
-  counted separately. The generated-program `sys.monitoring` oracle checks every observed line
-  and local reaching definition against the flow model. Its developer CLI receives explicit
-  resolved-name spans for runtime-view cases; the separate extractor integration test proves
-  lexical resolution supplies those spans. Neither check alone is an end-to-end import resolver
-  differential.
-- **Predicates we do not read as tests:**
-  - calls are assumed to return (`NoReturn` is Stage 3's models);
-  - ty's non-empty-iterable, context-manager-suppression and finally-path predicates are opaque.
-- **Compatibility** of two conditions waits for its first question, Stage 3's Q9 (the Stage 2
-  review's F11). Stage 2 has no Python twin (the ADR review's F12).
-
-**Proposed Stage 3 condition kernel (ADR-0024).** The authoritative condition becomes a bounded
-decision diagram over per-evaluation atoms, persisted losslessly as nodes in the `flow` family.
-Variable order is the sorted atom identity. DNF becomes a capped display with a truncation marker,
-not the id input. `given`, `implies` and `compatible` run on the diagram with explicit node and
-invocation and pair-work budgets; a hit is `unknown`, not false. A typed exclusion needs
-`flow_test_leaves`, emitted per provider predicate and leaf before `flow_tests`' span-only
-deduplication. It retains distinct `match` arm atoms at a shared subject span. `flow_test_types`
-cites that leaf row: the Rust producer queries Pyrefly's expression trace at the exact operand-use
-span, joins it to the flow use by source identity, and records the leaf evaluation atom identity,
-`flow_test_leaves.fact_id`/`flow_uses.use_id`, type-term id,
-closed proof origin and cited facts. An absent or ambiguous trace proves nothing. The shared
-validator checks leaf support in its own root, span, role, type term, origin and facts.
-Runtime-exact origins are modeled literals or an exact `type(x) is builtin` guard.
-Same-evaluation identity proves stability only; broad Pyrefly annotations alone do not prove
-exactness. Different sites stay independent until an
-effect-stability witness connects them. Raw Boolean ids do not depend on the theory revision;
-theory-conditioned decisions cite a witness and revision. Condition rows name roots in the
-lossless node relation. Publication and native load validate terminals, child closure,
-acyclicity, atom order, reduction and recomputed Merkle ids. The result records whether ty's
-ambiguous terminal or a declared runtime assumption was admitted as `approximated`.
-
-**Implemented and Tested (2026-09-24, direct link only).** `flow_test_value_links` is a separate
-analysis relation, not a promotion of `flow_test_types` to exact-runtime proof. Its first origin
-requires one stated, non-approximated, non-loop-carried parameter reaching fact, an exact
-attributed test operand and no intervening source call, binding, potentially effectful syntax or
-prior predicate evaluation. The sole expression-statement exception is the exact recorded
-literal docstring span, which has no call-time effect. The effect-rule digest and source fact ids
-are stored on each link;
-publication recomputes the entire relation from its pinned raw views. A missing link remains
-unknown. Exact builtin value/type origins, modeled transfers and typed exclusion are still
-Proposed.
-
-**Proposed first typed-theory scope (2026-09-24).** An exact-origin relation must cite either a
-query-supplied literal or a resolved one-argument builtin `type(x) is <builtin>` guard, its inner
-operand use, branch condition and path-specific same-value witness. A parameter default is not
-an exact entry value for calls that may pass an argument. Initially, theory constraints cover
-`is_none` against a proved non-`None` singleton and unequal string `==` tests only where the
-runtime value is proved exact builtin `str`. Numeric/Boolean cross-equality, subclass equality,
-custom `__eq__` and all unproved relationships stay unknown. The existing bounded BDD kernel
-conjoins these constraints; a query-supplied exact literal may directly assign source atoms with
-checked same-value links rather than create a synthetic query atom. A satisfiable remainder stays
-unknown. The raw condition id remains independent of the theory revision.
-The trusted builtin `type` call is exempt from the effect barrier only with resolved builtin
-identity and a revisioned model. No generic SMT engine is included without a registered need.
-
-**Implemented and Tested (2026-09-24, source attribution only).** The flow translator emits a
-`type_is` atom for one-argument `type(x) is str|int|bool` only when lexical resolution identifies
-both names as builtins. It attributes the test operand to the inner `x` use; a shadowed `type` or
-class name stays opaque.
-
-**Implemented and Tested (2026-09-24, exact origin at the guard only).** The value-link producer
-admits its own resolved one-argument builtin `type(x)` call as a revisioned, cited exception to
-the call barrier; any other preceding call or effect still withholds the link. The separate
-`flow_test_exact_origins` relation cites that link and the guard leaf, and asserts exact builtin
-class only under the atom's true assignment. Publication recomputes both relations. This is
-not by itself a proof that a later use still observes the same value.
-
-The exact-class rule assumes the standard CPython builtin namespace has not been mutated by
-the embedding application or dynamic code. Lexical resolution does not establish that runtime
-environmental fact. Until a generation declares and enforces that assumption, a served negative
-answer depending on this origin must remain `unknown` (Deferred from the Stage 3.0 review).
-
-**Implemented and Tested (2026-09-24, narrow later-use proof).** A third value-link origin
-connects a later test operand to the same entry formal only when the exact guard's predicate
-contains that atom alone, the later reaching fact's path condition implies its true assignment,
-and no other source call, binding, effect-bearing syntax or prior predicate intervenes. The row
-cites the exact origin and reaching path condition. The nested positive fixture publishes one
-such link; an unknown call inside the guard withholds it. This remains a positive identity
-proof, not a served compatibility verdict. The exact-input primitive evaluator may refute a
-condition only when its checked link assignments make the bounded BDD false; a satisfiable
-remainder is unknown. Source-source exclusions and the served API remain Proposed.
-
-> Decision: ADR-0022, ADR-0024
-
-**Verdicts** (codebook `verdict`, append-only). Every behavioral answer carries exactly one, never
-a null, and a positive answer states **may**-behavior:
-
-| Verdict | Meaning |
-|---|---|
-| `established` | Derived under the stated model with no boundary in the region the claim reads |
-| `conditional` | Established under a stated condition |
-| `refuted_under_model` | The claim's premise holds (`negative_premises`, below). A rule rejects it anywhere else |
-| `unknown` | A boundary intervenes; its `boundary_reason` is named, `budget_reached` included |
-| `not_analyzed` | Out of scope or not requested |
-
-`established` and `conditional` admit may-behavior under the model; they do not prove a concrete
-execution exists. AMBIGUOUS is admitted, calls are assumed to return, primitive operators,
-f-strings and containers are computed directly. **Implemented and Tested in focused cases
-(2026-09-25; ADR-0027):** an explicit raise under a `try` or `with` body cannot establish
-escape until L2 proves the frame's action. An unframed raise retains its escape witness;
-`raise_sites.escapes = false` means unknown, not caught. A negative needs complete may-analysis
-and its premise.
-
-Discovery results (FCA, communities, vectors) carry no verdict: they are `statistically_derived`
-nominations.
-
-**An opaque condition is still stated.** Its record is `conditional`, and the opaque text is shown.
-
-**Premises per place kind** (`negative_premises`; ADR-0022 §Verdicts).
-
-| Place kind | The negative claim's premise |
-|---|---|
-| Parameter or local | No reference resolves to the binding, closures included |
-| Field `f` of `C` | No attribute load named `f` on any receiver anywhere in the release; no dynamic access reaches `C` |
-| Module global | No read of the resolved place anywhere in the release; no dynamic access reaches the module |
-| Forward chain | The operation's `behavior_status` is `established` |
-
-- Every premise also needs flow IR for the modules it reads.
-- External readers, such as serializers, are outside the model: "never read" means never read by
-  release code.
-- The rule `semantic:refuted-needs-complete-region` joins each `refuted_under_model` row to its
-  premise.
-
-**Boundary reasons the behavior model adds:**
-- `dynamic_access`: the getattr family (a non-literal name), `vars()`, `__dict__`,
-  `importlib.import_module` and `__import__` (module objects only), `exec` and `eval` (every
-  place).
-  - It reaches class `C`'s fields when the receiver's reaching definitions, through local copies,
-    include `self` in `C` or a relative, or a module global bound to an instance of `C`. A value
-    Pyrefly types as `C` or a relative is **Proposed**, not built (the Stage 2 end review's R10).
-    An `x.__dict__` load is resolved the same way.
-  - `Settings.get_setting`'s `settings = self; getattr(settings, name)` is the first kind, so "this
-    setting is never read" is `unknown` (review §5, journey b).
-  - A module `__getattr__` reaches no bound place.
-  - An untyped receiver is outside the model, and every negative answer names that assumption.
-- `override_dispatch`: a path through a `candidate` arc (`self.m(...)` that a subclass may
-  override) is `unknown`, as the delegation over it is.
-- `runtime_unreachable`: an operation whose seed declaration the runtime cannot reach.
-
-**The read phase** of a read comes from its site's scope:
-- a module or class body is `import`;
-- `__init__` or `__post_init__` is `construction`, and a `snapshot` when the value is stored to a
-  field;
-- anything else is `per_call`.
-
-A read reached from module scope through calls is Stage 3's.
-
-**Three vocabularies** (binding §3).
-- `modality` is a call-graph input: a behavior across a candidate or potential arc is at best
-  `unknown`.
-- `evidence_status` is a brief assertion's. When a brief renders a behavior:
-  - `established` and `conditional` become `structurally_observed`;
-  - `unknown` becomes `unresolved`;
-  - refuted and not-analyzed records are not rendered.
-
-**Identity (F9).**
-- The flow provider is part of the extractor's `producers.revision`, and so of `producer_id`.
-- A change to `cpg-flow`'s output bumps `EXTRACTOR_OUTPUT_VERSION`.
-- A registry concept's id is `H("concept", key)`. Its labels are data, digested into the registry
-  digest.
-
-**Composed layers (F11).**
-- The CPG layers keep the checker view.
-- A behavior takes the runtime view at its site:
-  - an unreachable site yields no behavior;
-  - a site that Pyrefly prunes but the runtime reaches yields `unknown`
-    (`outside_provider_model`).
-- The exports seed stays the checker view. An operation whose declaration the runtime cannot reach
-  is `unknown` (`runtime_unreachable`).
-
-**Implemented and Tested in focused cases (ADR-0028, 2026-09-25):** each `flow_values` use
-inside calls has raw, ordered outer-to-inner `flow_value_calls` steps. A step cites its parent
-value fact, byte span and callee/argument operand role; publication checks the path and rejects
-a skipped ordinal. A nested keyword path joins the same module's Ruff `call_syntax` and
-`arguments` facts by exact spans in a focused fixture. **Implemented and Tested in focused cases
-(2026-09-25):** `flow_value_call_links` persists the unique source join or an explicit
-missing/ambiguous status for every step. Focused cases cover matched nested keyword and callee
-roles, removed source calls, doubled source calls and a doctored status rejected by the shared
-validator. **Proposed:** L3 must withhold a positive transfer if a step is unmatched, a callee is
-relabelled as an argument, or the argument value is derived from its use. Existing
-`through_call` remains an unknown boundary until each modeled hop is proved.
-
-**Implemented and Tested in focused cases (ADR-0032, 2026-09-25):**
-`analysis_conditions` and `analysis_condition_nodes` persist the structural
-roots and reachable BDD nodes recomposed by the flow analysis. Provider
-`conditions` remain source facts; analysis roots have their own authority and
-are reconstructed and hydrated by the shared publication validator. Display
-DNF is not parsed to answer a condition question. Approximation remains on
-path rows because Boolean identity does not encode it. A boundary root
-continues to mean `unknown`. L3 must check this catalog before composing any
-derived condition.
-
-> Decision: ADR-0022, ADR-0027, ADR-0028, ADR-0032
-
----
+<a id="section-4"></a>
 
 ## §4 Pipeline
+
+<a id="section-4-0"></a>
 
 ### §4.0 Library acquisition and the run contract
 
@@ -1670,7 +1478,11 @@ named exception classes. A catalog edit therefore cannot reuse the prior produce
 
 > Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015, ADR-0017, ADR-0018, ADR-0029
 
+<a id="section-4-1"></a>
+
 ### §4.1 Stages
+
+> Decision: ADR-0013
 
 | Stage | Owner | Output |
 |---|---|---|
@@ -1687,7 +1499,11 @@ column. No inner join drops them.
 
 > Decision: ADR-0012, ADR-0019
 
+<a id="section-4-2"></a>
+
 ### §4.2 Extraction
+
+> Decision: ADR-0012
 
 **Labels.** A line that cites a spike result (S1–S7, `spike/pyrefly-inproc`, FastMCP 4.0.3,
 2026-09-22) is **Tested** or **Measured**. The rest is **Implemented** in `cpg-extract` and
@@ -1705,6 +1521,8 @@ one process.
 | Pyrefly's Pysa collectors, in memory (`pyrefly-pysa`) | `native_traversal` | `parameter_semantics`, `pysa_calls`, class ancestry; `type_observations` (increment 3) |
 | Pyrefly's public-name helpers (`pyrefly-public`) | `native_traversal` | `public_names`. **This defines "public"** |
 | Our local-binding recognizer over the Ruff AST | `recognizer` | `lexical` (C3) |
+
+<a id="section-4-2-1"></a>
 
 ### §4.2.1 Driver
 
@@ -1740,6 +1558,8 @@ one process.
 **Measured** (spike S7; FastMCP 4.0.3, 257 modules, release build): 5.4 s cold at `NumThreads(1)`
 (2.5 s check, 2.8 s extraction), peak RSS about 918 MB; 4.1 s and about 765 MB with `Inline`.
 
+<a id="section-4-2-2"></a>
+
 ### §4.2.2 Syntax: one walk over Pyrefly's parse
 
 - **Order (C2).** Per module the Pysa collectors run, then the walk. Placement depends on the
@@ -1762,6 +1582,8 @@ one process.
   "no API". Parse errors are read from Pyrefly's per-module errors (the `parse-error` kind). A
   recovered tree still yields facts, but **every** family of that module is `partial`, with a
   `boundaries` row, so recovery artefacts never read as complete.
+
+<a id="section-4-2-3"></a>
 
 ### §4.2.3 Semantics: Pyrefly's own collectors
 
@@ -1818,6 +1640,8 @@ one process.
   (a row keeping only the string would be `display_only`). Native `pyrefly_types::Type`
   (`native_structural`) is reachable through `Answers` when a consumer needs it (§13).
 
+<a id="section-4-2-4"></a>
+
 ### §4.2.4 Binding rule (conservative)
 
 - **The rule.** Any binding of a parameter's name that appears lexically before a guard or
@@ -1834,6 +1658,8 @@ one process.
   invisible.
 
 **Deferred:** Ruff's full semantic model, which nothing public drives (§13).
+
+<a id="section-4-2-5"></a>
 
 ### §4.2.5 Failure, determinism and the parity oracle
 
@@ -1855,6 +1681,8 @@ one process.
   lifecycle, lazy solving), not the correctness of Pysa. It is **Tested** (S4, and a nextest test
   on two fixtures, 2026-09-22). The CLI is never a production input.
 
+<a id="section-4-2-6"></a>
+
 ### §4.2.6 Upgrading Pyrefly
 
 1. Rebase the fork commit onto the new tag and regenerate `third_party/pyrefly-<ver>.patch`.
@@ -1873,6 +1701,8 @@ one process.
    `docs/pins.md`.
 
 > Decision: ADR-0012
+
+<a id="section-4-3"></a>
 
 ### §4.3 Fact construction and persistence
 
@@ -2004,6 +1834,8 @@ FastMCP 4.0.5 and its corpus; snapshot `15fecdab…`, content `10e56541…`; the
 
 ---
 
+<a id="section-5"></a>
+
 ## §5 Projections
 
 **Interface-checked** (petgraph skill). Source: IP L1335–L1415, L2233–L2362. The invocation
@@ -2089,14 +1921,22 @@ stay in Arrow).
 
 ---
 
+<a id="section-6"></a>
+
 ## §6 Persistence and publication
+
+> Decision: ADR-0017
 
 **Tested** where a line cites a spike or slice 2 (`cpg-core/tests/compile.rs`, 2026-09-22),
 otherwise **Interface-checked** (deltalake skill probes). Source: IP L1603–L1623, L2967–L3006. The ADR-0009 Delta probe ran in full on 2026-09-22: S6
 (CHECK, read cast), P1 (Binary statistics), P2 (a failed validation publishes nothing), P3 (an
 ambiguous append is classified by re-reading) and P4 (a byte-identical bundle rebuild).
 
+<a id="section-6-1"></a>
+
 ### §6.1 Canonical tables and publication
+
+> Decision: ADR-0012, ADR-0014
 
 - **Family tables.** Each fact family is a set of append-only Delta tables. Every row carries
   `snapshot_id` as a plain column; tables are not partitioned.
@@ -2148,7 +1988,11 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
   - Tested by a table created with `checkpointInterval = 2` and zero retention: an old version is
     unloadable under the defaults and loadable under ours.
 
+<a id="section-6-2"></a>
+
 ### §6.2 Readers
+
+> Decision: ADR-0012
 
 1. Resolve the snapshot's row set in `snapshots`.
 2. Load each table **at its recorded version** with
@@ -2171,7 +2015,11 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 5. Never scan the Parquet directory directly (`delta.read.2`).
 6. Register one object store per table root per session (`delta.storage.4`).
 
+<a id="section-6-3"></a>
+
 ### §6.3 Schema evolution
+
+> Decision: ADR-0012
 
 - **Additive nullable columns only**, via `SchemaMode::Merge`. Anything else is a new table
   (`edges_v2`), with the move recorded in `snapshots`.
@@ -2180,6 +2028,8 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 - **A change to a table's CHECK set is a migration**, like a column change: a new table, or an
   explicit constraint step recorded by ADR. The open-time verify (§4.3) refuses a table whose
   constraints differ from the declared set.
+
+<a id="section-6-4"></a>
 
 ### §6.4 Serving generations
 
@@ -2261,6 +2111,8 @@ ambiguous append is classified by re-reading) and P4 (a byte-identical bundle re
 
 ---
 
+<a id="section-7"></a>
+
 ## §7 Pinned dependency family
 
 | Component | Pin | Source of truth |
@@ -2282,6 +2134,8 @@ authoritative for them (ADR-0010, ADR-0011, ADR-0012).
 > Decision: ADR-0002
 
 ---
+
+<a id="section-8"></a>
 
 ## §8 Validation
 
@@ -2365,7 +2219,11 @@ concurrently, their violations reported in rule order (§4.3; `violations_come_b
 
 ---
 
+<a id="section-9"></a>
+
 ## §9 Analytics
+
+> Decision: ADR-0005, ADR-0011, ADR-0019
 
 **Proposed** (methods); **Interface-checked** (the libraries named). Source: IP L1735–L1885,
 L2233–L2578. Scope extended by ADR-0005 to cover community detection, concept analysis and
@@ -2440,6 +2298,8 @@ beside the config's (ADR-0011 review F4). Defaults below are starting budgets, n
 
 > Decision: ADR-0021, ADR-0022
 
+<a id="section-9-1"></a>
+
 ### §9.1 Pass A — public entry point and delegation
 
 **Implemented** and **Tested** (slice 1.4, 2026-09-23): `lctx_analytics::pass_a` with its
@@ -2490,6 +2350,8 @@ seed-resolution queries (Measured: "analyze: seed selection" 0.89 s before, 0.02
   - Each carries ordered witness call sites, depth, stop reason and an `omitted_paths` flag.
 - **Interpretation boundary.** A call edge never means "always reached" or "recommended". That
   needs `documented` evidence.
+
+<a id="section-9-2"></a>
 
 ### §9.2 Pass B — controls and local restrictions
 
@@ -2587,6 +2449,8 @@ deviation log D17, D18, D26):
   `meta` (rebound) and `task` (computed), `FastMCP.resource`'s `mime_type` and `meta` (rebound),
   and `FastMCP.mount`'s `namespace` (computed).
 
+<a id="section-9-3"></a>
+
 ### §9.3 Pass C — direct handoff
 
 - **Question.** Which public APIs already connect without an adapter?
@@ -2635,7 +2499,11 @@ log D24, D25, D30):
   has a pattern; doc blocks are named by document and fence (`docs/servers/authorization.mdx,
   code block 10`), and `custom_route`'s pattern now comes from a test that imports what it reads.
 
+<a id="section-9-4"></a>
+
 ### §9.4 Community detection
+
+> Decision: ADR-0020
 
 **Off by default since ADR-0020** (the §9.8 keep rule, 2026-09-23): the `+communities` variant. Its record below stands as the variant's.
 
@@ -2785,6 +2653,8 @@ by the increment-2 review** (U1; ADR-0011 amendment; deviation log D37):
   `fastmcp.FastMCP.__init__`, `tool`, `resource`, `call_tool`, `list_tools` (`mount` for two).
   No line names a method through an unrelated subclass. Stage E takes 3.9 s; the compile 35.1 s.
 
+<a id="section-9-5"></a>
+
 ### §9.5 Centrality
 
 - **Consumer.** Which operations get briefs (seed selection, §9.4) and the order of a Related
@@ -2855,7 +2725,11 @@ review, the `+pagerank` variant's method:
   `add_transform` 180, `add_provider` 174, `Tool.from_function` 162, `add_middleware` 142: the
   review's direct-usage list (§8 of that review), which it computed independently.
 
+<a id="section-9-6"></a>
+
 ### §9.6 Formal and relational concept analysis
+
+> Decision: ADR-0020
 
 **Off by default since ADR-0020** (the §9.8 keep rule, 2026-09-23): the `+fca` variant, with `+rca`. The record below stands as the variants'.
 
@@ -2966,7 +2840,11 @@ review, the `+pagerank` variant's method:
   coincidental overlaps the review named, now under Related and out of the retrieval header. The
   Applicable-case slot is absent on all five briefs (`absent_slots`: `applicable_case` 5).
 
+<a id="section-9-7"></a>
+
 ### §9.7 Embeddings in analytics
+
+> Decision: ADR-0020
 
 **Off by default since ADR-0020** (the §9.8 keep rule, 2026-09-23): the `+knn` variant. The record below stands as the variant's.
 
@@ -3011,6 +2889,8 @@ review, the `+pagerank` variant's method:
   embedding included. The §1.5 ranking check on that generation is **failed**: `FastMCP.tool`
   is first for 0 of 2 `fm.register` aliases (ranks 4 and 2; 1 of 2 at slice 1.9). 3.3's
   pre-registered evaluation judges it.
+
+<a id="section-9-8"></a>
 
 ### §9.8 Determinism and ablation
 
@@ -3093,560 +2973,15 @@ over all 44 gold aliases:
 
 ### §9.9 Summaries, models and the capability registry
 
-**Proposed** (ADR-0022, 2026-09-24; plan Stages 3–4).
+<!-- relocated-section -->
 
-**Models** are committed data (`crates/cpg-schema/models/{external,frameworks}.toml`):
-- **What a model states:** the effects and roles of stdlib, dependency and framework callables, in
-  the summary access-path grammar below.
-- **Effects** come from an append-only codebook: `io.read`, `io.write`, `net`, `log`, `timeout`,
-  `thread_dispatch`, `compress(format)`, `serialize(format)`, `validate(schema)`,
-  `register(container)`, `invoke(callable)`.
-- **Framework models** cover pydantic `BaseModel` and `Field` (a generated `__init__` and a
-  validation effect), pydantic-settings (environment binding), ContextVar `get`/`set`,
-  `functools.partial` and `wraps`, anyio and asyncio, `contextlib` and logging.
-- **Provenance:** origin `synthetic_model`; each file's digest joins `compiler_digest`.
-- **Authorship:** the operator, from library source and docs. **Never from `.claude/skills/`.**
-- **Normal completion** (ADR-0033): an optional authored assertion means that, after its
-  arguments have been evaluated, the pinned function target returns normally. It defaults
-  false (unknown), is permitted only with complete exception coverage and no exception rule,
-  and is carried on the validated `model_targets` row. It is not inferred from a transfer rule
-  or from the absence of modeled exceptions. The first two assertions are for pinned
-  `typing.cast` and `typing.assert_type`, whose CPython 3.14.7 bodies directly return `val`.
+See [§9.9 Summaries, models and the capability registry](sections/behavioral-analysis.md).
 
-**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 model assertion boundary):**
-Serde tagged enums with unknown-field rejection parse the committed `external.toml` catalog;
-one renderer writes display paths, while typed path components determine stable path ids.
-Source bytes, target pin and revision enter model identity, and catalog bytes join the compiler
-digest. An analyzed compile binds applicable targets to pinned `context_definitions` only when
-the module origin and exact Python or distribution pin match. `model_targets` cites the module
-and definition facts. An unreferenced target stays dormant; an active target with incomplete
-signatures or an unresolved formal fails before Delta writes. One compilation pass produces
-typed `model_transfers`, `model_effects`, `model_callbacks`, `model_resources` and
-`model_exceptions` assertions, all with `synthetic_model` provenance and an authored rule id.
-Transfer, effect and callback assertions distinguish definite from potential; callback and
-resource actions identify their exit. Each target declares transfer, effect, callback, resource
-and exception coverage independently as complete, partial or unspecified. Only complete
-coverage can later support a negative summary conclusion. The shared publication validator
-reconstructs every model row from the committed catalog and pinned context, rejecting missing,
-extra or altered rows. `typing.cast`, `typing.assert_type`, `builtins.print`, `json.dumps`,
-`json.dump`, `builtins.open` and `atexit.register` are the first authored targets. These rows
-remain model assertions: summary application, broader pure-model oracles and served behavioral
-claims remain Proposed. Focused
-release Nextest and Clippy passed; the integrated gate and fresh pilot are reserved for the
-assembled Stage 3 end.
-
-**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 decoding/compression data):**
-the pinned `json.loads`, `gzip.compress` and `gzip.decompress` targets add potential
-input-to-return transforms. Only `gzip.compress` asserts a potential `compress(gzip)` effect
-on its exact `data` formal. None asserts total normal completion or complete channel coverage:
-malformed inputs, resource exhaustion, and JSON's caller-supplied hooks leave those claims
-open. Pinned CPython 3.14.7 signatures and the Python standard-library JSON/gzip documentation
-support the authored paths; the focused analyzed fixture checks target binding, formal identity,
-source application, a shadowed-module withholding case and shared publication equality. These
-rows are candidates, not a positive transform summary or a CrossHair equivalence claim.
-
-**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 logging data):** the pinned
-`logging.Logger.warning(msg)` target asserts a potential `log` effect on its exact message
-formal. Logger configuration can suppress emission, and handlers can execute arbitrary code,
-so the other model channels and normal completion remain open. The source fixture has a
-bound object-receiver call, an untyped logger call and an unpacked message; only the first
-binds its `msg` subject. The method-binding rule is below (ADR-0035).
-
-**Implemented and Tested for authored parsing (2026-09-25, Stage 3.1 Pydantic candidate):**
-the pinned dependency target `pydantic==2.13.5` `TypeAdapter.validate_python(object)`
-declares a potential input-to-result transform. The adapter's schema is instance-selected;
-the current `validate(schema)` effect cannot name it without a false exact-schema claim.
-Arbitrary user validators can add effects or raise, so the other channels and normal completion
-stay open. The empty-site fixture correctly leaves this dependency model
-dormant. **Interface-checked (2026-09-25):** the pinned local source has the `object` formal,
-and a read-only earlier FastMCP snapshot contains its matching dependency module and method
-definition. Current-compiler binding to the full pinned dependency context is **not_run**
-until the integrated pilot; these observations do not certify a source application or summary.
-
-**Implemented and Tested in focused cases (2026-09-25, Stage 3 source/model bridge):**
-`model_applications` joins each source `call_targets` fact to an exactly pinned `model_targets`
-row, retaining the Pysa target's modality/origin and phase, the model's identity and revision,
-and `resolutions`' candidate-set completeness, unresolved remainder and target count. The row
-also carries the selected pinned target's authored normal-return assertion; neither the
-candidate-set-complete flag nor the assertion alone means this source call must return.
-Higher-order argument
-targets and annotation-only calls cannot masquerade as direct invocation. The shared validator
-reconstructs this join, and a shadowed builtin call has no application. This is evidence that a
-model applies at a call site, not evidence that a callback ran, a resource was released or a
-transfer completed. Those L2/L3 fates remain Proposed; the integrated gate is `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, typed formal-path bridge):** the
-catalog compiler also publishes `model_formal_paths`, keyed by rule, typed path identity and
-input/output role. A row names a pinned formal only when the catalog AST path refers to one;
-return values and globals produce no false formal. All authored formals were already checked
-against every pinned Pysa signature, and the shared validator reconstructs these rows from
-committed model bytes. Source-argument binding remains Proposed; callers must not parse the
-rendered path string to fill that gap.
-
-**Implemented and Tested in focused cases (2026-09-25, model argument boundary):**
-`model_argument_bindings` joins each applied model formal to the source call's explicit
-argument only if every pinned Pysa signature selects the same argument ordinal. It supports
-positional and named keyword binding. For a direct Ruff attribute callee whose Pysa target
-cites an implicit **object** receiver, the binder shifts positional signature ordinals past
-that receiver. An unpacked argument, class receiver, unsupported callee, absent argument
-or overload disagreement yields `unknown` with a boundary, never an inferred value. The row
-cites the chosen argument and its source fact when bound, and shared publication validation
-reconstructs every row. Binding is still local to one candidate model target. Dispatch
-closure, value stability, effects and summary composition remain Proposed; no served verdict
-follows from this relation alone.
-
-> Decision: ADR-0035
-
-**Implemented and Tested in focused cases (2026-09-25, modeled callback source):**
-`modeled_callback_sites` applies an authored callback action to a cited source call target
-without erasing the model exit, either modality, or the target-set boundary. It carries the
-bound source callback argument when every signature agreed, otherwise an explicit unknown
-binding reason. The first positive shape is `atexit.register`'s `registered` action on normal
-exit; starred and positional-only keyword calls retain unknown binding. The row is a
-candidate-local model action, not evidence of callback invocation or a whole-operation fate.
-Publication reconstructs it; other callback and resource sources and L3 composition remain
-Proposed.
-
-**Implemented and Tested in focused cases (2026-09-25, modeled resource source):**
-`model_resources` now carries the path kind compiled from its tagged AST, independent of
-the rendered access-path string. `modeled_resource_sites` applies an authored resource action
-to a pinned source call target. A `ReturnValue` path identifies the call expression as the
-source of the returned resource; a parameter path can identify an argument only through the
-exact `model_argument_bindings` relation. Field and global paths, failed argument bindings
-and open dispatch remain explicit boundaries. The row retains the action, exit and both
-modalities, so `builtins.open` yields a candidate `acquire` on normal return but a shadowed
-`open` does not. A call-expression id is not a runtime resource identity, and this relation
-does not prove the call completed or that any release happened. The shared validator
-reconstructs these rows and rejects a doctored source status. L2 lifecycle pairing and L3
-summary composition remain Proposed; the integrated gate is `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, modeled transfer source):**
-`model_transfers` now carries input and output path kinds compiled from the tagged catalog
-AST. `modeled_transfer_sites` applies one authored transfer to one cited source call candidate.
-For a parameter input it takes the exact source argument only from
-`model_argument_bindings`; for a `ReturnValue` output it identifies the call expression and
-call fact. Unsupported paths or argument shapes keep the endpoint `unknown` with a reason.
-The row retains the transfer kind, target and model modalities, candidate-set completeness,
-and unresolved remainder. `typing.cast`, `typing.assert_type` and `atexit.register` produce
-candidate identity
-transfers when their inputs bind; invalid keyword or unpacked arguments do not acquire a
-false source value. Shared publication validation reconstructs the relation and rejects a
-forged endpoint status. This is not yet a summary flow or a whole-operation verdict:
-the call's condition, dispatch, normal return and enclosing callable still need L3
-composition. The integrated gate remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, modeled effect source):**
-`model_effects` now carries an optional subject path kind from its tagged AST.
-`modeled_effect_sites` joins an authored effect to one cited source call candidate while
-retaining the effect kind and argument, target and model modalities, and open candidate-set
-state. A subjectless effect is explicitly `unqualified`, with no invented stream or value;
-a parameter subject is identified only through exact pinned-signature argument binding;
-other or unbound subjects remain `unknown` with a reason. The first fixture maps
-`builtins.print` to a potential I/O write at the `display` call, without claiming which
-stream receives it. Shared publication validation reconstructs the row and rejects a
-forged subject status. Source occurrence is not proof of a completed effect or a
-whole-operation fate; L3 composition and integrated Stage 3 testing remain open.
-
-**Implemented and Tested in focused cases (2026-09-25, JSON model family):** pinned
-`json.dumps` contributes a potential `Parameter[obj]` → `ReturnValue` transform and a
-potential JSON serialization action on `obj`; pinned `json.dump` contributes potential
-serialization of `obj` and a potential I/O write on the exact bound `fp` argument. A
-custom encoder or `default` callable leaves other effects and callback behavior open.
-The focused source fixture verified the typed formal bindings and candidate-local rows;
-these actions do not establish successful serialization, stream ownership, or a
-completed I/O effect. Integrated tests remain `not_run`.
-
-**Implemented and Tested in focused cases (ADR-0029, 2026-09-25, modeled exception source):**
-`model_exceptions` carries the uniquely pinned context class node and fact for each authored
-source and conversion class. `modeled_exception_sites` attaches an action such as the potential
-`builtins.OSError` of `builtins.open` to its cited source call candidate, retaining model and
-target modality and unresolved dispatch. An unreferenced model has no applied row. The shared
-publication validator reconstructs catalog and source rows and rejects forged class identity.
-These are candidate model actions, not observed exceptions, handler catches or exits. The
-integrated Stage 3 gate remains `not_run`.
-
-**Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
-CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
-identity; a deliberately wrong control produced `value=0`. This does not certify the generic
-model or its use in a summary. [Evidence](../design_review/evidence/2026-09-24_typing_cast_model_oracle/README.md).
-**Tested, narrow oracle (2026-09-25):** an isolated CrossHair 0.0.110 probe exhausted
-paths for the pure `int` specialization of `typing.assert_type` versus identity; a wrong
-control returned `value=0`. The generic model and summary use remain unproved.
-[Evidence](../design_review/evidence/2026-09-25_typing_assert_type_model_oracle/README.md).
-
-**Implemented and Tested (2026-09-24, Stage 3 L2 structural exits only):** every compile
-derives `exit_sites` from Ruff `syntax_nodes` and ty `flow_regions`. Explicit `return` and
-`raise` statements and direct actions in a `try` statement's `finally` body carry the owning
-function, source and region fact ids, path condition, and approximation flag. A `return` or
-`raise` directly in `finally` has both site kinds. The relation is independent of a Stage E
-analysis configuration; publication reconstructs it from the pinned raw views. It does not
-prove that a raised exception escapes, a handler catches it, or a `finally` action completes.
-Those fates, callbacks, resources and composed summaries remain Proposed.
-
-**Implemented and Tested in focused cases (2026-09-25, bounded return frames):**
-`return_exit_statuses` walks each attributed return's same-function syntax ancestry to a
-declared depth cap and cites the nearest controlling `with` or pending `finally` frame. A
-missing frame with no cap is only a local normal-return candidate, not proof that expression
-evaluation succeeds. Direct, modeled and acyclic local-call value summary seeds may now admit
-nested returns under ordinary branches, but require a status without an unresolved frame/cap
-boundary.
-Returns under `with` or an unproved pending `finally` remain `summary_boundaries` until L2 proves normal
-completion. The shared validator reconstructs the status rows; a focused analyzed fixture
-admits an `if` return while withholding both controlling frames. This is compiler output
-version 65 and a schema migration. Nested handler propagation, suppression, callback/resource
-fates and the integrated Stage 3 gate remain open.
-
-**Implemented and Tested in focused cases (2026-09-25, ordered pass finalizers):**
-`return_exit_statuses` admits a bounded chain of pending `try/finally` frames only when
-each entire direct `finalbody` is one literal `pass`. The one-frame status cites its pass
-node and fact; the multi-frame status leaves those singular fields null. A separate source
-query reconstructs every pass in inner-to-outer execution order, and each admitted finite
-summary cites all of them as ordered `finalizer_pass` steps. The return expression still
-needs its own normal-evaluation and condition proof. A nontrivial suite, `with`, and capped
-ancestry retain their control boundary. Direct and modeled analyzed fixtures prove the
-single and nested pass paths, and a mixed effectful outer finalizer stays unknown; the
-shared validator rejects missing pass evidence. The nullable one-pass status fields were
-introduced at compiler output version 66, and the ordered derivation changes output version
-70. Other handler, callback and resource fates and the integrated Stage 3 gate remain open.
-
-**Tested (2026-09-25, targeted CPython 3.14.7 oracle):** an isolated `sys.monitoring` worker
-observed a pending local value return through `finally: pass` and an overriding `finally`
-return control. `PY_RETURN` locates the first completion at the finalizer line, so the worker
-attributes the returned identity to the latest executed load at an AST `return Name` expression
-span rather than requiring the event line to equal the load line. This independently checks
-value-flow admission and observed exit regions for these two shapes; it does not prove the
-compiler's L3 summary closure or the remaining finally actions.
-
-**Implemented and Tested in focused finite-proof cases (2026-09-25):** direct identity and
-modeled/assignment/local-call summary producers use the same safe return status and cite
-each source pass from the ordered ancestry query; modeled proofs place the pass sequence
-immediately before `return_exit`. The canonical summary ID hashes these steps, and the
-shared validator rejects their removal. Uncontrolled frames still have no positive summary.
-The append-only step kind was introduced at output version 69. Full per-step source spans in
-FORMAT 7 and effectful-frame exit composition remain open.
-
-> Decision: ADR-0037
-
-**Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**
-`handler_clauses` cites a `try`, each authored `except` clause, its optional type expression,
-and the region reaching the `try`. `handler_actions` cites direct statements in that clause's
-body and their own ty regions. These rows are derived for every compile and reconstructed by
-the publication validator. **Implemented and Tested in focused cases (2026-09-25):**
-`handler_types` keeps one status per clause. A direct `Name` gets `pinned_builtin` only if its
-lexical reference resolves uniquely to a builtin and one matching class is present in the pinned
-context; bare `except` has its own status, while shadowed, compound or unbound types stay
-`unknown` with a boundary reason. The row cites the lexical and context facts and is
-reconstructed at publication.
-This identifies an authored handler class, not a catch. The `try` entry condition is not a
-handler-match condition, and a body action may fail or branch. Full exception matching, conversion
-and completion remain Proposed. The integrated repository and pilot gates remain `not_run` for
-Stage 3.
-
-**Implemented and Tested in focused cases (2026-09-25, local handler return):**
-`handler_return_none_sites` records a handler whose sole direct body statement is
-`return None`, citing that statement, its exact `None` literal and ty region.
-The region's `approximated` flag is retained: the focused `except` body is
-approximate under ty. A computed return or an earlier body statement produces
-no row. Shared publication validation reconstructs the relation and rejects
-missing rows. This is a local, pre-`finally` witness conditional on entering
-the handler, not a proof that the modeled exception selects it or that the
-operation completes normally. `COMPILER_OUTPUT_VERSION` is 45; integrated
-Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (ADR-0031, 2026-09-25):**
-`modeled_exception_return_none_paths` composes a modeled potential raise with
-the first provable matching clause of a direct function-body `try` and that
-handler's sole direct `return None`. A complete syntax-ancestor walk must show
-no inner `try` or `with`; the frame must have no `finally`. Each path retains
-the cited raise, class relationship, handler return and ty region, together
-with target/model modalities, open dispatch and approximation. This is a
-candidate-local path conditional on the modeled raise, not a completed
-operation-level catch or normal-return verdict. Nested frames, uncertain
-clause precedence, computed handler actions and finalizers remain unknown.
-Shared publication validation reconstructs the rows. `COMPILER_OUTPUT_VERSION`
-is 46; integrated Stage 3 tests remain `not_run`.
-
-> Decision: ADR-0031
-
-**Implemented and Tested in focused cases (2026-09-25, candidate handler frame):**
-`modeled_exception_handler_candidates` uses a bounded DataFusion recursive syntax-ancestor
-walk, stopping at an innermost-function boundary, to connect a modeled potential raise in a
-`try` body to each authored clause of that frame. It retains nested frames, clause ordinals,
-call/model/class facts and the handler type fact. The class relation is typed as same pinned
-class, bare handler, unresolved relationship between different pinned classes, or unresolved
-handler type. `modeled_exception_handler_walks` records one coverage row per modeled raise;
-missing source syntax and a 128-edge ancestry cap produce explicit reasons. Absence from the
-candidate relation is interpretable only when its walk is complete. Publication reconstructs
-and validates both relations. **Implemented and Tested in focused cases (2026-09-25):**
-`frame_possible` excludes a later clause after a proven earlier match within the same frame;
-`frame_first_match_if_raised` requires a positive match and no prior possible match. An
-unknown earlier class relationship leaves later clauses possible but not proven first.
-These booleans are conditional on the modeled raise reaching this frame. They do not decide
-whether the call raises, an inner frame propagates, or a handler completes. Those L2 fate
-decisions and integrated testing remain open.
-
-**Implemented and Tested in focused cases (ADR-0030, 2026-09-25):**
-`context_class_mro` retains Pyrefly's resolved ancestor identities or an empty/cyclic marker
-for each pinned context class. When a modeled raised class's MRO contains the pinned handler
-class, `modeled_exception_handler_candidates` records `pinned_ancestor` and the source MRO
-fact. A missing, unbound or cyclic relationship stays `class_relation_unknown`; absence from
-the MRO is not a negative match because a model class can denote possible subclasses. This is
-still a candidate catch relation. The integrated Stage 3 tests
-remain `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
-proved, an explicit raise inside a `try` or `with` body has no definite escape witness. The
-flow producer no longer parses handler/raised names from source text or assumes an opaque
-context manager cannot suppress. This is conservative withholding, not a caught-exception
-claim; an explicit unframed raise still establishes escape.
-
-**Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
-- **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
-  call the shared bounded diagram kernel. `summary_flows` and `summary_effects` reference
-  lossless condition roots; a rendered DNF is only display. Type-derived scalar exclusions
-  require a stable-value witness, and node-limit hits become explicit boundaries.
-- **Output tables:**
-  - `summary_flows`: callable, input path, output path, kind (`value`, `transform`, `constant`),
-    condition, verdict;
-  - `summary_effects`: callable, effect, role bindings, condition;
-  - `summary_boundaries`: callable, reason, site.
-- **Paths:** `Parameter[name]`, `Parameter[self].Field[f]`, `ReturnValue`,
-  `Argument[formal]@Call[target]`, `Global[<module>.<name>]`, `Raise[T]`. The shape is CodeQL's
-  models-as-data, without its file format. These are the **resolved** place key's written form
-  (§3.9's two layers; ADR-0022 §Places), never a third grammar.
-- **Order and fixpoint:** the call graph's SCCs in `tarjan_scc` order (callees first), each SCC
-  iterated to a fixpoint over a finite domain: path depth ≤ k and condition size ≤ c.
-  - **Widening** yields `unknown` (`budget_reached`), and the invocation records its budgets.
-  - **Override-open calls** join their candidates and stay marked open (§3.6).
-  - **Exceptions** convert through `handlers`.
-  - **A call alone never propagates an effect.**
-- **Oracle:** Pysa's inferred TITO models on the pinned library, run offline. It is differential,
-  not truth.
-
-**Tested (2026-09-25, Stage 3.4 targeted differential):** a separate Pysa 0.10.0 probe uses
-an actual source-to-sink rule, verified source/sink models and an explicit Pyrefly 1.3.1
-binary. It reports the expected source-to-sink issues and exact TITO ports for direct
-identity and a one-call wrapper, while a constant-return control has no issue. The local
-Pyrefly configuration prevents accidental reuse of this repository's unrelated project
-include list. No obscure-callee feature appears on the two positive ports. A byte-identical
-compiler fixture yields finite parameter-to-return summaries for the same identity and
-wrapper, and none for the constant control; shared publication validation passes. This is
-a targeted matched-source differential. Comparison with pinned FastMCP `summary_flows` and
-classification of its disagreements remain Proposed.
-[Probe](../design_review/evidence/2026-09-25_pysa-tito-rule/README.md).
-
-**Proposed call-result join (ADR-0028, 2026-09-25):** summaries read a validated,
-ordered `flow_values` call path through `value_flow_contributions`, then join each local step to one exact pinned call target and
-modeled argument/result pair. The path carries operand role and direct-value span; a
-`through_call` flag or shared text alone cannot discharge `call_transfer`. Missing,
-ambiguous, computed or budget-cut steps write a boundary. This bridge precedes SCC
-composition and negative claims.
-
-**Implemented and Tested in focused cases (ADR-0028, 2026-09-25, direct
-transfer candidate):** `modeled_exact_value_transfers` joins a raw return or definition-value
-fact and its unmerged parameter contribution to exactly one ordered call step,
-its uniquely bound Ruff argument, and a pinned model whose argument input and
-call-result output cite those same nodes. The call span must equal the full
-value sink span, excluding an enclosing computation or fallback.
-The upstream transfer must be
-identity and the source parameter must belong to the sink's callable.
-The row retains sink kind/span, condition, raw-fact approximation, target/model
-modality and open dispatch. An assigned intermediate's exact model-call value
-step is retained; nested calls and outer computations have no exact step. The
-predecessor chain still needs compatibility and completion proof. Shared
-publication validation reconstructs the relation and rejects dropped rows.
-This is a candidate source-to-value
-path, not proof that the call completes or a `summary_flows` verdict.
-The relation began as return-only in output version 47 and includes definition
-values in output version 52; integrated Stage 3 testing is `not_run`.
-**Implemented and Tested in focused cases (2026-09-25):** the exact
-call/sink-span equality closes the one-call outer-expression gap; output
-version 50. An outer Boolean fallback remains outside this direct bridge.
-
-**Implemented and Tested in focused cases (2026-09-25, argument-evaluation boundary):**
-`modeled_argument_evaluations` records every explicit argument of each exact one-call model
-candidate in source ordinal order. The selected source operand cites its raw candidate value
-fact and exact argument role. A direct Ruff string, bytes, number, Boolean, `None` or ellipsis
-literal sibling cites its syntax fact and has a local normal-evaluation witness. An exact
-unshadowed builtin-name sibling cites lexical resolution as its normal-evaluation witness.
-An unpacked, dynamic, shadowed or otherwise unproved sibling has an explicit
-`outside_provider_model` boundary and no evaluation witness. These rows do not yet prove the callee expression, source call completion or
-enclosing exit. The shared validator reconstructs them, including the candidate-specific source
-role; output version 60 and integrated Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (ADR-0028, 2026-09-25, predecessor
-candidate):** `value_flow_predecessor_candidates` joins an inherited-call
-contribution's use to a cited provider reaching definition, its value span,
-and a raw predecessor value fact with the same parameter origin and sink
-callable. Each edge retains the reaching condition, the separately recomposed
-predecessor/successor conditions, loop-carried and approximation flags, and
-whether the predecessor's call crossing is local or inherited. Assignment
-followed by return has a candidate edge; a nested call in one expression does
-not acquire an invented predecessor. The shared validator reconstructs the
-relation and rejects missing rows. This edge does not establish condition
-compatibility, uniqueness, transfer or completion. Recomposed analysis
-condition ids may lack rows in provider `conditions`; L3 must persist their
-structural BDD roots before composing them. `COMPILER_OUTPUT_VERSION` was 48
-for this candidate relation; integrated Stage 3 testing is `not_run`.
-
-**Implemented and Tested in focused cases (ADR-0032, 2026-09-25):**
-the flow analysis's recomposed condition ids now have a separate,
-content-addressed root/node catalog (`analysis_conditions`,
-`analysis_condition_nodes`). The producer serializes the existing BDD objects;
-publication reconstructs every row and uses the same `hydrate_catalog`
-structural checks as the provider and native loader. `modeled_exact_value_transfers`
-and `value_flow_predecessor_candidates` reference this catalog for recomposed
-conditions, while a raw reaching condition still references provider
-`conditions`. This closes the cited persistence prerequisite, not condition
-compatibility or summary completion. `COMPILER_OUTPUT_VERSION` is 49;
-integrated Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, bounded predecessor
-compatibility):** `lctx_analytics::summaries` hydrates the provider and
-flow-analysis BDD catalogs through the shared structural validator, then
-conjoins the predecessor, reaching and successor roots for each cited
-`value_flow_predecessor_candidates` edge. It writes a tri-state
-`value_flow_predecessor_compatibility` row: false refutes this source-path
-candidate under the declared atoms, true admits a may-compatible path, and
-loop-carried, missing or capped roots carry an explicit unknown boundary.
-An input catalog boundary that names a cap remains `budget_reached`; it is
-not relabelled as missing evidence.
-The compatibility check does not choose a reaching definition or prove the
-modeled call's transfer or completion. Publication reconstructs every row.
-`COMPILER_OUTPUT_VERSION` is 51; integrated Stage 3 testing is `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, two-step model path):**
-`modeled_assignment_return_paths` joins an exact whole-assignment modeled
-value step to a later raw identity return via one cited reaching definition.
-It keeps every separate candidate and its bounded BDD compatibility result,
-three condition ids, approximations, model provenance and open target status.
-A computed outer return cannot take this route. A true compatibility result
-admits only a may-path; call completion, handler/finally action and complete
-candidate selection still need L3. Publication reconstructs the relation.
-`COMPILER_OUTPUT_VERSION` is 53; integrated Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, finite summary base):**
-`summary_flows` begins with a narrow synchronous direct-body identity return
-of a local parameter, with no crossed call or generator yield. Each row cites
-its raw value fact, return syntax/region facts and recomposed structural BDD
-condition. The shared bounded kernel gives `established`, `conditional`, or a
-named `unknown`; a false condition yields no positive flow. Async returns,
-generators, unproved nested frames and modeled-call candidates are withheld until L2/L3
-proves their execution and completion semantics. Shared publication validation
-reconstructs the rows. The `summary_flow_kind` codebook was appended and
-`COMPILER_OUTPUT_VERSION` is 54. Effect summaries, SCC composition and
-integrated Stage 3 testing remain open.
-
-**Implemented and Tested in focused cases (2026-09-25, summary coverage):**
-`summary_boundaries` records each same-callable parameter-origin raw return
-path outside the finite direct summary producer. A crossed call retains
-`call_transfer`; other unproved control/execution shapes retain
-`unsupported_control_flow`. A positive contribution does not hide a separate
-unproved contribution to the same fact. Each row cites the raw value fact and
-condition id, and shared publication validation reconstructs it. This is
-unknown coverage rather than a negative verdict. `COMPILER_OUTPUT_VERSION` is
-55; full L3 closure and integrated Stage 3 testing remain open.
-
-**Implemented and Tested in a targeted sibling-origin case (2026-09-25):** the finite producer
-now suppresses a boundary for a proved raw fact/condition only when that key has exactly one
-same-callable parameter-origin contribution. A second contribution sharing the raw fact and
-condition keeps an aggregate boundary even if one summary is positive; the current boundary
-key cannot identify which sibling was proved. This conservative rule makes the earlier coverage
-claim true without treating a positive may-path as exhaustive. The shared validator uses the
-same derivation. Compiler output version 67; full path-specific origin closure remains open.
-
-**Implemented and Tested in focused cases (ADR-0034, 2026-09-25, summary proof identity):**
-`summary_flows` now keys on a canonical path id computed from callable, formal, input/output
-paths, transfer kind, condition, return site/region and ordered typed evidence. `summary_flow_steps` stores the first
-`raw_identity` witness citing its source `flow_values` fact and BDD condition. A pair of paths
-with equal endpoints but different evidence or order gets different ids. The publication
-validator reconstructs both tables; an omitted step is rejected. This changes the identity
-contract under compiler output version 58, without promoting a modeled call to a completed
-flow. The integrated gate remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, first modeled return):**
-An exact whole-expression `typing.cast` or `typing.assert_type` identity call can now seed a
-finite `summary_flows` value path when its sole source target is closed, both target and model
-modalities are definite, the pinned target asserts normal return, its callee is one resolved
-simple name, and every explicit argument has ordered local normal-evaluation evidence. The
-candidate BDD must be satisfiable and imply the direct synchronous return's region BDD;
-generator functions and unresolved control frames remain excluded. Typed steps cite callee
-resolution, argument evaluations, call syntax and target, the model rule, and return exit.
-The canonical summary id includes this ordered proof, which the shared validator rebuilds.
-`summary_boundaries` remains for return facts without an admitted path. This narrow positive
-producer does not establish assignment predecessors, broader call compositions, exception or
-effect fates. Compiler output version 61; integrated Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, assignment return):**
-The same completed model-call proof now admits a two-hop assignment-to-return identity path
-only when the returned use has one reaching-definition row, the provider predecessor is
-compatible, and its BDD condition implies the reaching, successor-value and direct return
-region conditions. Ordered steps cite the source call, model, unique definition edge and
-returned value; a different predecessor changes the summary id. Unproved siblings retain a
-named boundary. This is not recursive composition or general assignment transfer. Compiler
-output version 62; integrated Stage 3 testing remains `not_run`.
-
-**Implemented and Tested in focused cases (2026-09-25, source-call SCC topology):**
-`summary_components` records every release function's SCC, sorted members, canonical
-component id and deterministic callee-first schedule over attributed local call targets.
-Petgraph 0.8.3 computes the SCCs; a sorted condensation worklist makes ties independent of
-provider row order. A self-call marks a singleton recursive. Candidate/open dispatch contributes
-topology only, not a completed transfer or negative coverage claim. The shared validator
-reconstructs the rows from source calls. Compiler output version 63; composition, discharge
-and integrated Stage 3 testing remain open.
-
-**Implemented and Tested in focused cases (2026-09-25, first local composition):**
-An acyclic synchronous wrapper can inherit an unconditional value summary of its sole
-definite local target when ty's one-call value path, Ruff's exact one-positional-argument
-syntax, lexical callee resolution, Pass B's single formal mapping, closed source target set
-and direct return exit all agree. The caller condition must imply its return region; the
-callee condition must be true, avoiding unproved cross-scope atom substitution. The proof
-steps cite the callee summary id, so parallel callee paths stay distinct. A callee-first SCC
-schedule propagates these finite paths to later acyclic callers with depth capped at eight.
-Recursive and conditional callee paths remain unknown, and a depth refusal currently retains
-the generic `call_transfer` boundary pending a specific budget row. Compiler output version
-64; full SCC composition, effect summaries and integrated Stage 3 testing remain open.
-
-**Implemented and Tested in focused predecessor-control cases (2026-09-25):** version 71
-withheld all positive finite paths for recursive SCC members after an unconditional self-call
-exposed an unproved predecessor completion. Version 72 added an earlier same-function call
-screen, admitting a base return before recursion. Version 73 (ADR-0039) refines it with ty
-statement regions: DataFusion selects each call's narrowest enclosing region, then the bounded
-BDD kernel ignores an earlier call only if that region and the return-value condition have
-a proved false conjunction. Missing, approximate or over-budget conditions retain an
-explicit `summary_boundaries` unknown. An `else` return disjoint from an earlier `if` call
-now has a finite may-path; an unconditional recursive or nonrecursive prior call remains
-unknown. This is still not a normal-completion proof for a compatible call or non-call
-predecessor. The modeled and assignment producers withhold recursive members; the local-call
-producer already did so. Full predecessor execution and SCC worklist remain open, as does
-integrated acceptance.
-
-> Decision: ADR-0039
-
-**The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
-- **A concept** has:
-  - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
-    scope note and facets;
-  - a **definition**: a conjunctive query with shared variables over the `behavior` family and the
-    summaries, written as a Rust enum AST, compiled to DataFusion SQL and digested.
-- **`concept_members`** is materialized: concept, operation, role bindings, condition, verdict,
-  witness.
-- **Rules:**
-  - every member cites a definition digest and a witness;
-  - SKOS integrity: `broader` acyclic (a recursive CTE); `related`
-    disjoint from the `broader` closure.
-- **Discovery nominates, definitions decide.** FCA over behavioral attributes suggests facets;
-  vectors per view rank. Communities have no tool consumer (§9.8). None of them writes
-  `concept_members`.
-- **`lookup_concepts`** returns every concept with its labels and scope notes while the catalog is
-  small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
-  F14).
-
-> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0032, ADR-0033, ADR-0034
-
----
+<a id="section-10"></a>
 
 ## §10 Synthesis and briefs
+
+> Decision: ADR-0005, ADR-0019
 
 **Proposed.** Source: IP L1695–L1731, L1886–L1966, L2580–L2637. Changed by ADR-0005: there is no
 LLM interpreter. The increment-1 kinds, the kind policy, status derivation, the Outcome order and
@@ -3664,6 +2999,8 @@ the grounding rules below are **Implemented** and **Tested** (slice 1.5 and its 
 - Each rule rejects an injected violation in `the_analysis_rules_reject_their_violations`.
   The status rule, a floor and a ceiling, has three cases.
 
+<a id="section-10-1"></a>
+
 ### §10.1 Findings
 
 **A finding is a typed record,** carrying:
@@ -3676,6 +3013,8 @@ the grounding rules below are **Implemented** and **Tested** (slice 1.5 and its 
 - method and parameters.
 
 **It is never a sentence.** Text is produced only in §10.2.
+
+<a id="section-10-2"></a>
 
 ### §10.2 Assertions
 
@@ -3740,6 +3079,8 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 | `doc_link` (3.1) | Related | kNN `doc_link` findings | statistically_derived |
 | `shared_signature` (increment-2 review) | Related | the FCA concept of the seed's own scope with the most shared pairs | structurally_observed |
 | `documented_warning` (3.4; A3) | Limits and prerequisites | a `<Warning>` component of a passage that mentions the seed exactly, its inner bytes cited, and its anchoring mention cited as `scope` (§10.3; `semantic:documented-warning-anchored`) | documented |
+
+<a id="section-10-3"></a>
 
 ### §10.3 Brief structure and the Outcome order
 
@@ -3854,6 +3195,8 @@ a.evidence_status = 4 GROUP BY p.brief_section ORDER BY 1`.
 - A template or extractive-rule change bumps `synth::TEMPLATE_VERSION`; the analysis output is
   pinned to the versions in a test ledger (ADR-0019 review O4).
 
+<a id="section-10-4"></a>
+
 ### §10.4 Grounding checks
 
 These are mechanical and run before publication.
@@ -3873,6 +3216,8 @@ review is recorded as `briefs.review_state` with extraction mode `manual_review`
 checks cannot establish that (IP L1965, L2634).
 
 Repository text is treated as untrusted data. It is never an instruction to the compiler.
+
+<a id="section-10-5"></a>
 
 ### §10.5 Usage patterns
 
@@ -3906,11 +3251,17 @@ Repository text is treated as untrusted data. It is never an instruction to the 
 
 ---
 
+<a id="section-11"></a>
+
 ## §11 Serving and agent interface
+
+> Decision: ADR-0013
 
 **Tested** where a line cites spike E1–E3 (`spike/pyrefly-inproc`, 2026-09-22). Otherwise
 **Interface-checked** (fastmcp skill and installed FastMCP; vLLM 0.30.0 source; model card).
 Source: IP L2037–L2071, L2640–L2965.
+
+<a id="section-11-1"></a>
 
 ### §11.1 Embedding spec and vectors
 
@@ -3991,6 +3342,8 @@ read, and bundles copy the vectors they need from it.
 - A **deterministic fake embedder**, with its own spec hash, is used by tests and `just check`.
 - Mixing spec hashes within one generation is rejected.
 
+<a id="section-11-2"></a>
+
 ### §11.2 Retrieval
 
 **In-process, over the pinned generation.**
@@ -4029,6 +3382,8 @@ usage patterns, by deterministic lookup. It never depends on a second search.
 workspace (the ADR-0002 amendment).
 - Its hybrid, FTS and RRF call chain is Interface-checked.
 - Its wheel isolates its own Arrow 58 / DataFusion 54, so it would not affect §B9.
+
+<a id="section-11-3"></a>
 
 ### §11.3 FastMCP contract
 
@@ -4187,6 +3542,8 @@ if the depth budget is reached (§1.3, ADR-0025).
 
 ---
 
+<a id="section-12"></a>
+
 ## §12 Evaluation
 
 **Proposed.** Source: IP L2116–L2131, L3026–L3072.
@@ -4266,6 +3623,8 @@ model under §10.4 grounding.
 > Decision: ADR-0021, ADR-0013, ADR-0020
 
 ---
+
+<a id="section-13"></a>
 
 ## §13 Deferred
 
@@ -4373,3 +3732,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Direct-return admission can ignore an earlier source call only when its ty region is BDD-incompatible with the return condition; missing or bounded evidence withholds (§9.9) | ADR-0039 (supersedes ADR-0038) |
 | 2026-09-25 | Raw value-flow keys retain local/upstream transfer distinctions; shared validation accepts library-plus-corpus releases under one snapshot and compares distinct MRO ancestry assertions. Output version 74, reviewed schema/rule snapshots (§3.9) | Stage 3 preliminary gate repair |
 | 2026-09-25 | Core 3.0: six foundations, scenario-based architectural judgments, repository ownership, risk-based review cadence and single finding disposition owner (§1.2, §2) | ADR-0040 |
+| 2026-09-25 | Architectural collection, stable section owners, derived mdBook/Pagefind publication and isolated documentation qualification (§2) | ADR-0041 |
