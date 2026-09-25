@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
     ModeledTransferSitesRow, ModeledDirectReturnTransfersRow,
-    ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow,
+    ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -118,6 +118,7 @@ pub async fn validate_costed(
     violations.extend(validate_handlers(&cache).await?);
     violations.extend(validate_value_flow_contributions(&cache).await?);
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
+    violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
     violations.extend(validate_modeled_direct_return_transfers(&cache).await?);
     Ok((violations, costs))
 }
@@ -156,6 +157,9 @@ cpg_schema::relations! {
     stored_value_flow_predecessor_candidates = "validate_stored_value_flow_predecessor_candidates",
         deps = ["value_flow_predecessor_candidates"],
         sql = "SELECT * FROM value_flow_predecessor_candidates".to_owned();
+    stored_value_flow_predecessor_compatibility = "validate_stored_value_flow_predecessor_compatibility",
+        deps = ["value_flow_predecessor_compatibility"],
+        sql = "SELECT * FROM value_flow_predecessor_compatibility".to_owned();
     stored_modeled_direct_return_transfers = "validate_stored_modeled_direct_return_transfers",
         deps = ["modeled_direct_return_transfers"],
         sql = "SELECT * FROM modeled_direct_return_transfers".to_owned();
@@ -174,6 +178,40 @@ cpg_schema::query_row! {
 cpg_schema::query_row! {
     struct ValueFlowAnalysisCountRow {
         count: i64,
+    }
+}
+
+/// Recompute every bounded condition check from the persisted analysis BDD catalog.
+async fn validate_value_flow_predecessor_compatibility(
+    ctx: &SessionContext,
+) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<ValueFlowPredecessorCompatibilityRow> = sql::fetch(
+        ctx,
+        &stored_value_flow_predecessor_compatibility(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected = match crate::summaries::predecessor_compatibility(ctx).await {
+        Ok(rows) => rows,
+        Err(error) => return Ok(vec![Violation {
+            rule: "value-flow-predecessor-compatibility-input".to_owned(),
+            rows: 1,
+            sample: error.to_string(),
+        }]),
+    };
+    let key = |r: &ValueFlowPredecessorCompatibilityRow| {
+        (r.successor_fact_id, r.predecessor_fact_id, r.source_key.clone(), r.reaching_fact_id)
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "value-flow-predecessor-compatibility-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} compatibility rows; derived {}", actual.len(), expected.len()),
+        }])
     }
 }
 

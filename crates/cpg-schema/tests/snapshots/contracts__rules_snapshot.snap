@@ -182,6 +182,8 @@ key:analysis_condition_nodes
   SELECT snapshot_id, node_id, count(*) AS n FROM analysis_condition_nodes GROUP BY snapshot_id, node_id HAVING count(*) > 1
 key:value_flow_predecessor_candidates
   SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_candidates GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
+key:value_flow_predecessor_compatibility
+  SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_compatibility GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
 key:flow_test_value_links
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_value_links GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:model_targets
@@ -414,6 +416,18 @@ ref:value_flow_predecessor_candidates.successor_condition_id->analysis_condition
   SELECT f.successor_condition_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.successor_condition_id = r.k WHERE f.successor_condition_id IS NOT NULL
 ref:value_flow_predecessor_candidates.predecessor_condition_id->analysis_conditions
   SELECT f.predecessor_condition_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.predecessor_condition_id = r.k WHERE f.predecessor_condition_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.successor_fact_id->flow_values
+  SELECT f.successor_fact_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.successor_fact_id = r.k WHERE f.successor_fact_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.predecessor_fact_id->flow_values
+  SELECT f.predecessor_fact_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.predecessor_fact_id = r.k WHERE f.predecessor_fact_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.reaching_fact_id->facts
+  SELECT f.reaching_fact_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.reaching_fact_id = r.k WHERE f.reaching_fact_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.predecessor_condition_id->analysis_conditions
+  SELECT f.predecessor_condition_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.predecessor_condition_id = r.k WHERE f.predecessor_condition_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.successor_condition_id->analysis_conditions
+  SELECT f.successor_condition_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.successor_condition_id = r.k WHERE f.successor_condition_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.reaching_condition_id->conditions
+  SELECT f.reaching_condition_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.reaching_condition_id = r.k WHERE f.reaching_condition_id IS NOT NULL
 ref:model_exceptions.class_node_id->context_definitions
   SELECT f.class_node_id AS value FROM model_exceptions f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
 ref:model_exceptions.class_fact_id->facts
@@ -1224,6 +1238,8 @@ codebook:operation_facet_status.verdict
   SELECT verdict FROM operation_facet_status WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:value_flows.sink
   SELECT sink FROM value_flows WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
+codebook:value_flow_predecessor_compatibility.boundary_reason
+  SELECT boundary_reason FROM value_flow_predecessor_compatibility WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:flow_test_value_links.origin
   SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
 codebook:model_targets.transfer_coverage

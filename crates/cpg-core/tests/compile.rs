@@ -1424,6 +1424,22 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            "SELECT count(*) FROM value_flow_predecessor_compatibility p \
+             JOIN value_flow_predecessor_candidates c \
+               ON c.successor_fact_id = p.successor_fact_id \
+              AND c.predecessor_fact_id = p.predecessor_fact_id \
+              AND c.reaching_fact_id = p.reaching_fact_id \
+             JOIN declarations d ON d.node_id = c.function_node_id \
+             WHERE d.name = 'indirect_identity' \
+               AND p.compatible_under_atoms AND p.boundary_reason IS NULL",
+        )
+        .await,
+        1,
+        "the source candidate has a bounded may-compatible path, not a completed transfer"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             &format!(
                 "SELECT count(*) FROM modeled_transfer_sites s \
                  JOIN declarations d ON d.node_id = s.function_node_id \
@@ -2046,6 +2062,26 @@ budget = 1
     );
     ctx.deregister_table("value_flow_predecessor_candidates").unwrap();
     ctx.register_table("value_flow_predecessor_candidates", original_predecessors)
+        .unwrap();
+
+    let original_compatibility = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_compatibility")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_compatibility = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_compatibility WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("value_flow_predecessor_compatibility").unwrap();
+    ctx.register_table("value_flow_predecessor_compatibility", missing_compatibility)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "value-flow-predecessor-compatibility-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("value_flow_predecessor_compatibility").unwrap();
+    ctx.register_table("value_flow_predecessor_compatibility", original_compatibility)
         .unwrap();
 
     let original_analysis_conditions = sql::query(&ctx, "SELECT * FROM analysis_conditions")

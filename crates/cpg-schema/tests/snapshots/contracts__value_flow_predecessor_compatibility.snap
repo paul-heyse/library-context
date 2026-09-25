@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table value_flow_predecessor_compatibility
+family findings
+key snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id
+check decision_or_boundary: (compatible_under_atoms IS NULL AND boundary_reason IS NOT NULL) OR (compatible_under_atoms IS NOT NULL AND boundary_reason IS NULL)
+@lctx.family=findings
+@lctx.table=value_flow_predecessor_compatibility
+snapshot_id: FixedSizeBinary(16) NOT NULL
+successor_fact_id: FixedSizeBinary(16) NOT NULL
+predecessor_fact_id: FixedSizeBinary(16) NOT NULL
+source_key: Utf8 NOT NULL
+reaching_fact_id: FixedSizeBinary(16) NOT NULL
+predecessor_condition_id: FixedSizeBinary(16) NOT NULL
+reaching_condition_id: FixedSizeBinary(16) NOT NULL
+successor_condition_id: FixedSizeBinary(16) NOT NULL
+compatible_under_atoms: Boolean NULL
+boundary_reason: Int16 NULL [lctx.codebook=boundary_reason]

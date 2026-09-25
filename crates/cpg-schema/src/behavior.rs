@@ -1115,6 +1115,27 @@ table!(
 );
 
 table!(
+    /// Bounded propositional compatibility of the three cited conditions on one predecessor
+    /// candidate. `true` admits only a may-path; it does not prove value transfer or completion.
+    ValueFlowPredecessorCompatibility, ValueFlowPredecessorCompatibilityRow = "value_flow_predecessor_compatibility",
+    family = Findings,
+    key = [snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id],
+    checks = [("decision_or_boundary", "(compatible_under_atoms IS NULL AND boundary_reason IS NOT NULL) OR (compatible_under_atoms IS NOT NULL AND boundary_reason IS NULL)")],
+    {
+        snapshot_id: Id,
+        successor_fact_id: Id,
+        predecessor_fact_id: Id,
+        source_key: String,
+        reaching_fact_id: Id,
+        predecessor_condition_id: Id,
+        reaching_condition_id: Id,
+        successor_condition_id: Id,
+        compatible_under_atoms: Option<bool>,
+        boundary_reason: Option<BoundaryReason>,
+    }
+);
+
+table!(
     /// A conservative, cited identity bridge from a public operation's entry formal to the
     /// exact operand use of one source test. A Pyrefly type observation is not this proof.
     /// The initial origin permits only one direct reaching formal and no intervening effect.

@@ -3337,6 +3337,20 @@ conditions, while a raw reaching condition still references provider
 compatibility or summary completion. `COMPILER_OUTPUT_VERSION` is 49;
 integrated Stage 3 testing remains `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, bounded predecessor
+compatibility):** `lctx_analytics::summaries` hydrates the provider and
+flow-analysis BDD catalogs through the shared structural validator, then
+conjoins the predecessor, reaching and successor roots for each cited
+`value_flow_predecessor_candidates` edge. It writes a tri-state
+`value_flow_predecessor_compatibility` row: false refutes this source-path
+candidate under the declared atoms, true admits a may-compatible path, and
+loop-carried, missing or capped roots carry an explicit unknown boundary.
+An input catalog boundary that names a cap remains `budget_reached`; it is
+not relabelled as missing evidence.
+The compatibility check does not choose a reaching definition or prove the
+modeled call's transfer or completion. Publication reconstructs every row.
+`COMPILER_OUTPUT_VERSION` is 51; integrated Stage 3 testing is `not_run`.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
@@ -4050,3 +4064,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Reaching definitions now cite raw predecessor value facts for inherited call paths, while independent conditions and approximation flags remain unresolved pending structural BDD persistence (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Recomposed flow-analysis conditions now persist in a separate structural BDD catalog with shared hydration validation, giving L3 an authority for condition composition (§3.9, §9.9) | ADR-0032 |
 | 2026-09-25 | A direct modeled return now requires the call to occupy the entire return-value expression; an outer fallback cannot inherit an identity model (§9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | L3 begins with bounded BDD compatibility over cited predecessor, reaching and successor roots; loops and condition boundaries stay unknown (§9.9) | ADR-0024, ADR-0028 (proposed) |

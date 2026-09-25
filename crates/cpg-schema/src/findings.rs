@@ -493,6 +493,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::AnalysisConditions,
             $crate::behavior::AnalysisConditionNodes,
             $crate::behavior::ValueFlowPredecessorCandidates,
+            $crate::behavior::ValueFlowPredecessorCompatibility,
             $crate::behavior::FlowTestValueLinks,
             $crate::behavior::ModelTargets,
             $crate::behavior::ModelApplications,

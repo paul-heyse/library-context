@@ -173,6 +173,12 @@ pub const REFERENCES: &[Reference] = &[
     r("value_flow_predecessor_candidates", "definition_fact_id", FACT),
     r("value_flow_predecessor_candidates", "successor_condition_id", &[("analysis_conditions", "condition_id")]),
     r("value_flow_predecessor_candidates", "predecessor_condition_id", &[("analysis_conditions", "condition_id")]),
+    r("value_flow_predecessor_compatibility", "successor_fact_id", &[("flow_values", "fact_id")]),
+    r("value_flow_predecessor_compatibility", "predecessor_fact_id", &[("flow_values", "fact_id")]),
+    r("value_flow_predecessor_compatibility", "reaching_fact_id", FACT),
+    r("value_flow_predecessor_compatibility", "predecessor_condition_id", &[("analysis_conditions", "condition_id")]),
+    r("value_flow_predecessor_compatibility", "successor_condition_id", &[("analysis_conditions", "condition_id")]),
+    r("value_flow_predecessor_compatibility", "reaching_condition_id", &[("conditions", "condition_id")]),
     r(
         "model_exceptions",
         "class_node_id",

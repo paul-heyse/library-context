@@ -14,6 +14,7 @@ pub mod flow_model;
 pub mod primitive_theory;
 pub mod snapshot;
 pub mod sql;
+pub mod summaries;
 pub mod synth;
 pub mod udf;
 pub mod usage;

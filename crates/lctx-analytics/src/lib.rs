@@ -14,6 +14,7 @@ pub mod pass_b;
 pub mod pass_c;
 pub mod ranking;
 pub mod selection;
+pub mod summaries;
 
 /// What an analysis refuses.
 #[derive(Debug, thiserror::Error)]

@@ -73,7 +73,8 @@ pub struct Published {
 /// 48: raw predecessor candidates retain reaching-definition identity and separate conditions.
 /// 49: persist the BDD closures of recomposed flow-analysis conditions.
 /// 50: a direct modeled return requires the call result to be the entire sink expression.
-pub const COMPILER_OUTPUT_VERSION: u32 = 50;
+/// 51: bounded BDD compatibility of cited predecessor-path conditions.
+pub const COMPILER_OUTPUT_VERSION: u32 = 51;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -761,7 +762,7 @@ async fn finish(
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledDirectReturnTransfers, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlows,
+            RaiseSites, Singletons, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -797,6 +798,16 @@ async fn finish(
             root,
             snapshot_id,
             &value_flow_predecessor_candidates,
+            w,
+        )
+        .await?;
+        let predecessor_compatibility =
+            crate::summaries::predecessor_compatibility(&ctx).await?;
+        write_analysis::<ValueFlowPredecessorCompatibility>(
+            &ctx,
+            root,
+            snapshot_id,
+            &predecessor_compatibility,
             w,
         )
         .await?;
