@@ -14,4 +14,9 @@ target_module_fact_id: FixedSizeBinary(16) NOT NULL
 target_definition_fact_id: FixedSizeBinary(16) NOT NULL
 target_key: Utf8 NOT NULL
 revision: Int64 NOT NULL
+transfer_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]
+effect_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]
+callback_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]
+resource_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]
+exception_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]
 origin: Int16 NOT NULL [lctx.codebook=origin]

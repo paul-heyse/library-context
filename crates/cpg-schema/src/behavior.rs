@@ -29,9 +29,10 @@
 
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
-    ExactValueOrigin, ExitSiteKind, FlowSink, InvocationPhase, Modality, ModelEffectKind,
-    ModelTransferKind, OperationFacet, Origin, PremiseKind, ReadPhase, SourceRole, SyntaxKind,
-    TestValueLinkOrigin, ValueClass, Verdict,
+    ExactValueOrigin, ExitSiteKind, FlowSink, InvocationPhase, Modality, ModelCallbackAction,
+    ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole,
+    ModelResourceAction, ModelTransferKind, OperationFacet, Origin, PremiseKind, ReadPhase,
+    SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -53,7 +54,78 @@ table!(
         revision: i64,
         effect: ModelEffectKind,
         argument: Option<String>,
+        subject_path_id: Option<Id>,
         subject_path: Option<String>,
+        modality: Modality,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// Authored callback action of a pinned external definition. `callback_path_id` is the
+    /// canonical typed path's identity; `callback_path` is display only.
+    ModelCallbacks, ModelCallbacksRow = "model_callbacks",
+    family = Findings,
+    key = [snapshot_id, model_id, target_node_id, rule_id],
+    checks = [("revision_positive", "revision > 0")],
+    {
+        snapshot_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        revision: i64,
+        callback_path_id: Id,
+        callback_path: String,
+        action: ModelCallbackAction,
+        exit: ModelExit,
+        modality: Modality,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// Authored resource action of a pinned external definition. The typed path may refer to an
+    /// input or a returned resource, and the exit determines when the action is promised.
+    ModelResources, ModelResourcesRow = "model_resources",
+    family = Findings,
+    key = [snapshot_id, model_id, target_node_id, rule_id],
+    checks = [("revision_positive", "revision > 0")],
+    {
+        snapshot_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        revision: i64,
+        resource_path_id: Id,
+        resource_path: String,
+        resource_role: ModelPathRole,
+        action: ModelResourceAction,
+        exit: ModelExit,
+        modality: Modality,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// Authored exception action of a pinned external definition. A conversion must name its
+    /// replacement class; the class names remain unresolved until summary application.
+    ModelExceptions, ModelExceptionsRow = "model_exceptions",
+    family = Findings,
+    key = [snapshot_id, model_id, target_node_id, rule_id],
+    checks = [("revision_positive", "revision > 0")],
+    {
+        snapshot_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        revision: i64,
+        class: String,
+        action: ModelExceptionAction,
+        to_class: Option<String>,
+        modality: Modality,
         origin: Origin,
     }
 );
@@ -145,6 +217,11 @@ table!(
         target_definition_fact_id: Id,
         target_key: String,
         revision: i64,
+        transfer_coverage: ModelChannelCoverage,
+        effect_coverage: ModelChannelCoverage,
+        callback_coverage: ModelChannelCoverage,
+        resource_coverage: ModelChannelCoverage,
+        exception_coverage: ModelChannelCoverage,
         origin: Origin,
     }
 );
@@ -164,9 +241,12 @@ table!(
         rule_id: Id,
         target_definition_fact_id: Id,
         revision: i64,
+        input_path_id: Id,
         input_path: String,
+        output_path_id: Id,
         output_path: String,
         transfer: ModelTransferKind,
+        modality: Modality,
         origin: Origin,
     }
 );

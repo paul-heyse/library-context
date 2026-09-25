@@ -2969,30 +2969,26 @@ over all 44 gold aliases:
 - **Provenance:** origin `synthetic_model`; each file's digest joins `compiler_digest`.
 - **Authorship:** the operator, from library source and docs. **Never from `.claude/skills/`.**
 
-**Implemented and Tested (2026-09-24, Stage 3.1 parser boundary only):** the first committed
-`external.toml` model states `typing.cast`'s identity transfer on a typed input/output path.
-Serde's tagged enums and unknown-field rejection parse the model; one renderer writes access
-paths, and source bytes/revision/target enter model identity. Committed catalog bytes join the
-compiler digest, and analysis compilation rejects malformed catalog data before any Delta
-write. Target-to-pinned-source resolution, Arrow model rows, remaining model families,
-CrossHair oracle checks and summary application are still Proposed. No behavior claim derives
-from this catalog yet.
-
-**Implemented and Tested (2026-09-24, Stage 3.1 target/transfer boundary):** an
-analyzed compile binds an applicable committed model to `context_definitions` only when its
-`context_modules` origin and exact Python or distribution pin match. The `model_targets` row
-cites both source facts and carries `synthetic_model` provenance. Because external definitions
-are recorded only when referenced, a model with no callable row is dormant even if its module
-appears; an active model with missing or unresolved signatures/formals fails before any Delta
-write. Authored transfer rules for bound targets become typed `model_transfers` rows with
-canonical paths, a stable rule identity and synthetic-model provenance. Unimplemented rule
-families fail closed before writes.
-The shared publication validator reconstructs target and transfer rows from the committed
-catalog and pinned context views, rejecting missing, extra or altered model rows.
-Formal paths now resolve against every pinned Pysa signature for a bound external function;
-ellipsis, ParamSpec and a missing or duplicate formal reject that compile. Effect/other rule
-families, broader oracle checks and summary composition remain Proposed. A transfer row is an
-authored model claim, not a composed behavior verdict.
+**Implemented and Tested in focused cases (2026-09-25, Stage 3.1 model assertion boundary):**
+Serde tagged enums with unknown-field rejection parse the committed `external.toml` catalog;
+one renderer writes display paths, while typed path components determine stable path ids.
+Source bytes, target pin and revision enter model identity, and catalog bytes join the compiler
+digest. An analyzed compile binds applicable targets to pinned `context_definitions` only when
+the module origin and exact Python or distribution pin match. `model_targets` cites the module
+and definition facts. An unreferenced target stays dormant; an active target with incomplete
+signatures or an unresolved formal fails before Delta writes. One compilation pass produces
+typed `model_transfers`, `model_effects`, `model_callbacks`, `model_resources` and
+`model_exceptions` assertions, all with `synthetic_model` provenance and an authored rule id.
+Transfer, effect and callback assertions distinguish definite from potential; callback and
+resource actions identify their exit. Each target declares transfer, effect, callback, resource
+and exception coverage independently as complete, partial or unspecified. Only complete
+coverage can later support a negative summary conclusion. The shared publication validator
+reconstructs every model row from the committed catalog and pinned context, rejecting missing,
+extra or altered rows. `typing.cast`, `builtins.print`, `builtins.open` and `atexit.register` are
+the first authored targets. These rows remain model assertions: source L2 linkage, summary
+application, broader pure-model oracles and served behavioral claims remain Proposed. Focused
+release Nextest and Clippy passed; the integrated gate and fresh pilot are reserved for the
+assembled Stage 3 end.
 
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus

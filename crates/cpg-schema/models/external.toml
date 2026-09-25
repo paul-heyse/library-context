@@ -4,19 +4,64 @@ version = 1
 [[models]]
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
+coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
 
 [[models.rules]]
 kind = "transfer"
 from = { kind = "parameter", name = "val" }
 to = { kind = "return_value" }
 transfer = "identity"
+modality = "definite"
 
 # Python 3.14 print() writes text to a stream (sys.stdout by default, or file.write).
 # The stream identity is call-dependent, so this model claims the I/O effect without a subject.
 [[models]]
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "print" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
 
 [[models.rules]]
 kind = "effect"
 effect = { kind = "io_write" }
+modality = "potential"
+
+# A successful open returns a newly acquired file object. Mode-dependent read/write behavior is
+# deliberately not asserted. The returned resource needs an independent close/with witness.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "open" }
+coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "unspecified", resources = "partial", exceptions = "partial" }
+
+[[models.rules]]
+kind = "resource"
+resource = { role = "output", path = { kind = "return_value" } }
+action = "acquire"
+exit = "normal"
+modality = "definite"
+
+[[models.rules]]
+kind = "exception"
+class = "builtins.OSError"
+action = "raise"
+modality = "potential"
+
+# Registration stores a callback for interpreter shutdown and returns that same callable.
+# It is not an invocation at the registration call site.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "atexit", callable = "register" }
+coverage = { transfers = "complete", effects = "unspecified", callbacks = "partial", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "callback"
+callback = { kind = "parameter", name = "func" }
+action = "registered"
+exit = "normal"
+modality = "definite"
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "func" }
+to = { kind = "return_value" }
+transfer = "identity"
+modality = "definite"

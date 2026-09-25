@@ -12,7 +12,8 @@ use std::time::Instant;
 
 use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
-    HandlerClausesRow, ModelEffectsRow, ModelTargetsRow, ModelTransfersRow,
+    HandlerClausesRow, ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelResourcesRow,
+    ModelTargetsRow, ModelTransfersRow,
 };
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -210,6 +211,12 @@ cpg_schema::relations! {
         sql = "SELECT * FROM model_transfers".to_owned();
     model_effects = "validate_model_effects", deps = ["model_effects"],
         sql = "SELECT * FROM model_effects".to_owned();
+    model_callbacks = "validate_model_callbacks", deps = ["model_callbacks"],
+        sql = "SELECT * FROM model_callbacks".to_owned();
+    model_resources = "validate_model_resources", deps = ["model_resources"],
+        sql = "SELECT * FROM model_resources".to_owned();
+    model_exceptions = "validate_model_exceptions", deps = ["model_exceptions"],
+        sql = "SELECT * FROM model_exceptions".to_owned();
 }
 
 /// Rebuild model rows from the committed bytes and the pinned context views. A stored row cannot
@@ -231,44 +238,62 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
     let mut actual_effects: Vec<ModelEffectsRow> =
         sql::fetch(ctx, &model_effects(), sql::Params::new()).await?;
-    let analyzed = producers.iter().any(|p| p.tool == crate::analyze::TOOL);
-    if !analyzed
-        && actual_targets.is_empty()
+    let mut actual_callbacks: Vec<ModelCallbacksRow> =
+        sql::fetch(ctx, &model_callbacks(), sql::Params::new()).await?;
+    let mut actual_resources: Vec<ModelResourcesRow> =
+        sql::fetch(ctx, &model_resources(), sql::Params::new()).await?;
+    let mut actual_exceptions: Vec<ModelExceptionsRow> =
+        sql::fetch(ctx, &model_exceptions(), sql::Params::new()).await?;
+    let all_empty = actual_targets.is_empty()
         && actual_transfers.is_empty()
         && actual_effects.is_empty()
-    {
+        && actual_callbacks.is_empty()
+        && actual_resources.is_empty()
+        && actual_exceptions.is_empty();
+    let analyzed = producers.iter().any(|p| p.tool == crate::analyze::TOOL);
+    if !analyzed && all_empty {
         return Ok(Vec::new());
     }
     let Some(snapshot_id) = contexts.first().map(|row| row.snapshot_id) else {
-        return Ok(
-            if actual_targets.is_empty() && actual_transfers.is_empty() && actual_effects.is_empty()
-            {
-                Vec::new()
-            } else {
-                vec![Violation {
-                    rule: "model-catalog-context".into(),
-                    rows: 1,
-                    sample: "model rows without a pinned analysis context".into(),
-                }]
-            },
-        );
+        return Ok(if all_empty {
+            Vec::new()
+        } else {
+            vec![Violation {
+                rule: "model-catalog-context".into(),
+                rows: 1,
+                sample: "model rows without a pinned analysis context".into(),
+            }]
+        });
     };
     let catalog = cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
     let mut expected_targets = catalog
         .bind_targets(snapshot_id, &contexts, &modules, &definitions)
         .map_err(CoreError::Analysis)?;
-    let mut expected_transfers = catalog
-        .compile_transfers(&expected_targets, &definitions, &parameters)
-        .map_err(CoreError::Analysis)?;
-    let mut expected_effects = catalog
-        .compile_effects(&expected_targets, &definitions, &parameters)
+    let mut expected = catalog
+        .compile_rules(&expected_targets, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
     expected_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
     actual_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
-    expected_transfers.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    expected
+        .transfers
+        .sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
     actual_transfers.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
-    expected_effects.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    expected
+        .effects
+        .sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
     actual_effects.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    expected
+        .callbacks
+        .sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    actual_callbacks.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    expected
+        .resources
+        .sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    actual_resources.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    expected
+        .exceptions
+        .sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    actual_exceptions.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
     let mut violations = Vec::new();
     if !analyzed {
         violations.push(Violation {
@@ -288,27 +313,55 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
             ),
         });
     }
-    if expected_transfers != actual_transfers {
+    if expected.transfers != actual_transfers {
         violations.push(Violation {
             rule: "model-catalog-transfer-equality".into(),
             rows: 1,
             sample: format!(
                 "expected {} transfer rows, stored {}",
-                expected_transfers.len(),
+                expected.transfers.len(),
                 actual_transfers.len()
             ),
         });
     }
-    if expected_effects != actual_effects {
+    if expected.effects != actual_effects {
         violations.push(Violation {
             rule: "model-catalog-effect-equality".into(),
             rows: 1,
             sample: format!(
                 "expected {} effect rows, stored {}",
-                expected_effects.len(),
+                expected.effects.len(),
                 actual_effects.len()
             ),
         });
+    }
+    for (kind, expected_len, actual_len, unequal) in [
+        (
+            "callback",
+            expected.callbacks.len(),
+            actual_callbacks.len(),
+            expected.callbacks != actual_callbacks,
+        ),
+        (
+            "resource",
+            expected.resources.len(),
+            actual_resources.len(),
+            expected.resources != actual_resources,
+        ),
+        (
+            "exception",
+            expected.exceptions.len(),
+            actual_exceptions.len(),
+            expected.exceptions != actual_exceptions,
+        ),
+    ] {
+        if unequal {
+            violations.push(Violation {
+                rule: format!("model-catalog-{kind}-equality"),
+                rows: 1,
+                sample: format!("expected {expected_len} {kind} rows, stored {actual_len}"),
+            });
+        }
     }
     Ok(violations)
 }

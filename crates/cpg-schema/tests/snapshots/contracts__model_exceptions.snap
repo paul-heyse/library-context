@@ -2,21 +2,20 @@
 source: crates/cpg-schema/tests/contracts.rs
 expression: text
 ---
-table model_effects
+table model_exceptions
 family findings
 key snapshot_id, model_id, target_node_id, rule_id
 check revision_positive: revision > 0
 @lctx.family=findings
-@lctx.table=model_effects
+@lctx.table=model_exceptions
 snapshot_id: FixedSizeBinary(16) NOT NULL
 model_id: FixedSizeBinary(16) NOT NULL
 target_node_id: FixedSizeBinary(16) NOT NULL
 rule_id: FixedSizeBinary(16) NOT NULL
 target_definition_fact_id: FixedSizeBinary(16) NOT NULL
 revision: Int64 NOT NULL
-effect: Int16 NOT NULL [lctx.codebook=model_effect_kind]
-argument: Utf8 NULL
-subject_path_id: FixedSizeBinary(16) NULL
-subject_path: Utf8 NULL
+class: Utf8 NOT NULL
+action: Int16 NOT NULL [lctx.codebook=model_exception_action]
+to_class: Utf8 NULL
 modality: Int16 NOT NULL [lctx.codebook=modality]
 origin: Int16 NOT NULL [lctx.codebook=origin]

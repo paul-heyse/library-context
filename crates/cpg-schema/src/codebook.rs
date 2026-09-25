@@ -1403,6 +1403,61 @@ codebook!(
     }
 );
 
+codebook!(
+    /// What an authored model says a callable does with a callback parameter.
+    ModelCallbackAction = "model_callback_action" {
+        Stored = 0 => "stored",
+        Registered = 1 => "registered",
+        Forwarded = 2 => "forwarded",
+        Invoked = 3 => "invoked",
+    }
+);
+
+codebook!(
+    /// Resource lifecycle action asserted by a pinned callable model.
+    ModelResourceAction = "model_resource_action" {
+        Acquire = 0 => "acquire",
+        Release = 1 => "release",
+    }
+);
+
+codebook!(
+    /// Exit on which a modeled resource action applies.
+    ModelExit = "model_exit" {
+        Normal = 0 => "normal",
+        Exceptional = 1 => "exceptional",
+        Finally = 2 => "finally",
+    }
+);
+
+codebook!(
+    /// Exception action asserted by a pinned callable model.
+    ModelExceptionAction = "model_exception_action" {
+        Raise = 0 => "raise",
+        Catch = 1 => "catch",
+        Convert = 2 => "convert",
+        Suppress = 3 => "suppress",
+    }
+);
+
+codebook!(
+    /// Whether a modeled resource refers to an input or to a result of the call.
+    ModelPathRole = "model_path_role" {
+        Input = 0 => "input",
+        Output = 1 => "output",
+    }
+);
+
+codebook!(
+    /// Completeness of one authored model channel under its pinned runtime contract. Only
+    /// `complete` permits an absent rule to refute that channel in a composed summary.
+    ModelChannelCoverage = "model_channel_coverage" {
+        Complete = 0 => "complete",
+        Partial = 1 => "partial",
+        Unspecified = 2 => "unspecified",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1476,6 +1531,12 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<PremiseKind>(),
         CodebookEntry::of::<ExitSiteKind>(),
         CodebookEntry::of::<ModelEffectKind>(),
+        CodebookEntry::of::<ModelCallbackAction>(),
+        CodebookEntry::of::<ModelResourceAction>(),
+        CodebookEntry::of::<ModelExit>(),
+        CodebookEntry::of::<ModelExceptionAction>(),
+        CodebookEntry::of::<ModelPathRole>(),
+        CodebookEntry::of::<ModelChannelCoverage>(),
     ]
 }
 

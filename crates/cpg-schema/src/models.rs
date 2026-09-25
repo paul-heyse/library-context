@@ -9,9 +9,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 
-use crate::behavior::{ModelEffectsRow, ModelTargetsRow, ModelTransfersRow};
+use crate::behavior::{
+    ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelResourcesRow, ModelTargetsRow,
+    ModelTransfersRow,
+};
 use crate::codebook::{
-    DefinitionKind, ModelEffectKind, ModelTransferKind, ModuleOrigin, Origin, SignatureForm,
+    DefinitionKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
+    ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction, ModelTransferKind,
+    ModuleOrigin, Origin, SignatureForm,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
@@ -30,7 +35,54 @@ pub struct CatalogFile {
 pub struct Model {
     pub revision: u32,
     pub target: Target,
+    pub coverage: Channels,
     pub rules: Vec<Rule>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Channels {
+    pub transfers: ChannelCoverage,
+    pub effects: ChannelCoverage,
+    pub callbacks: ChannelCoverage,
+    pub resources: ChannelCoverage,
+    pub exceptions: ChannelCoverage,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelCoverage {
+    Complete,
+    Partial,
+    Unspecified,
+}
+
+impl ChannelCoverage {
+    fn codebook(self) -> ModelChannelCoverage {
+        match self {
+            Self::Complete => ModelChannelCoverage::Complete,
+            Self::Partial => ModelChannelCoverage::Partial,
+            Self::Unspecified => ModelChannelCoverage::Unspecified,
+        }
+    }
+}
+
+impl Channels {
+    fn validate_rule(&self, rule: &Rule) -> Result<(), String> {
+        let (family, coverage) = match rule {
+            Rule::Transfer { .. } => ("transfer", self.transfers),
+            Rule::Effect { .. } => ("effect", self.effects),
+            Rule::Callback { .. } => ("callback", self.callbacks),
+            Rule::Resource { .. } => ("resource", self.resources),
+            Rule::Exception { .. } => ("exception", self.exceptions),
+        };
+        if matches!(coverage, ChannelCoverage::Unspecified) {
+            return Err(format!(
+                "authored {family} rule requires partial or complete channel coverage"
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -142,6 +194,17 @@ impl InputPath {
         }
     }
 
+    pub fn id(&self) -> Id {
+        let mut hash = IdHasher::new("behavior-model-input-path");
+        match self {
+            Self::Parameter { name } => hash.str("parameter").str(name).finish_id(),
+            Self::ReceiverField { root, field } => {
+                hash.str("receiver_field").str(root).str(field).finish_id()
+            }
+            Self::Global { module, name } => hash.str("global").str(module).str(name).finish_id(),
+        }
+    }
+
     fn validate(&self) -> Result<(), String> {
         match self {
             Self::Parameter { name } if identifier(name) => Ok(()),
@@ -181,6 +244,19 @@ impl OutputPath {
         }
     }
 
+    pub fn id(&self) -> Id {
+        let mut hash = IdHasher::new("behavior-model-output-path");
+        match self {
+            Self::ReturnValue => hash.str("return_value").finish_id(),
+            Self::Parameter { name } => hash.str("parameter").str(name).finish_id(),
+            Self::ReceiverField { root, field } => {
+                hash.str("receiver_field").str(root).str(field).finish_id()
+            }
+            Self::Global { module, name } => hash.str("global").str(module).str(name).finish_id(),
+            Self::Raise { class } => hash.str("raise").str(class).finish_id(),
+        }
+    }
+
     fn validate(&self) -> Result<(), String> {
         match self {
             Self::ReturnValue => Ok(()),
@@ -200,23 +276,30 @@ pub enum Rule {
         from: InputPath,
         to: OutputPath,
         transfer: Transfer,
+        modality: RuleModality,
     },
     Effect {
         effect: Effect,
         subject: Option<InputPath>,
+        modality: RuleModality,
     },
     Callback {
         callback: InputPath,
         action: CallbackAction,
+        exit: Exit,
+        modality: RuleModality,
     },
     Resource {
-        resource: InputPath,
+        resource: ResourcePath,
         action: ResourceAction,
         exit: Exit,
+        modality: RuleModality,
     },
     Exception {
         class: String,
         action: ExceptionAction,
+        to_class: Option<String>,
+        modality: RuleModality,
     },
 }
 
@@ -227,14 +310,77 @@ impl Rule {
                 from.validate()?;
                 to.validate()
             }
-            Self::Effect { effect, subject } => {
+            Self::Effect {
+                effect, subject, ..
+            } => {
                 effect.validate()?;
                 subject.as_ref().map_or(Ok(()), InputPath::validate)
             }
             Self::Callback { callback, .. } => callback.validate(),
             Self::Resource { resource, .. } => resource.validate(),
-            Self::Exception { class, .. } if dotted_name(class) => Ok(()),
-            Self::Exception { class, .. } => Err(format!("invalid exception class: {class}")),
+            Self::Exception {
+                class,
+                action,
+                to_class,
+                ..
+            } if dotted_name(class)
+                && match action {
+                    ExceptionAction::Convert => to_class.as_deref().is_some_and(dotted_name),
+                    _ => to_class.is_none(),
+                } =>
+            {
+                Ok(())
+            }
+            Self::Exception { class, .. } => Err(format!(
+                "invalid exception class or conversion target: {class}"
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "role", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ResourcePath {
+    Input { path: InputPath },
+    Output { path: OutputPath },
+}
+
+impl ResourcePath {
+    fn formal(&self) -> Option<&str> {
+        match self {
+            Self::Input { path } => path.formal(),
+            Self::Output { path } => path.formal(),
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Input { path } => path.validate(),
+            Self::Output {
+                path: OutputPath::Raise { .. },
+            } => Err("a raised exception is not a resource path".into()),
+            Self::Output { path } => path.validate(),
+        }
+    }
+
+    pub fn render(&self) -> String {
+        match self {
+            Self::Input { path } => path.render(),
+            Self::Output { path } => path.render(),
+        }
+    }
+
+    pub fn id(&self) -> Id {
+        match self {
+            Self::Input { path } => path.id(),
+            Self::Output { path } => path.id(),
+        }
+    }
+
+    pub fn role(&self) -> ModelPathRole {
+        match self {
+            Self::Input { .. } => ModelPathRole::Input,
+            Self::Output { .. } => ModelPathRole::Output,
         }
     }
 }
@@ -307,9 +453,45 @@ pub enum CallbackAction {
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum RuleModality {
+    Definite,
+    Potential,
+}
+
+impl RuleModality {
+    fn codebook(self) -> Modality {
+        match self {
+            Self::Definite => Modality::Definite,
+            Self::Potential => Modality::Potential,
+        }
+    }
+}
+
+impl CallbackAction {
+    fn codebook(self) -> ModelCallbackAction {
+        match self {
+            Self::Stored => ModelCallbackAction::Stored,
+            Self::Registered => ModelCallbackAction::Registered,
+            Self::Forwarded => ModelCallbackAction::Forwarded,
+            Self::Invoked => ModelCallbackAction::Invoked,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ResourceAction {
     Acquire,
     Release,
+}
+
+impl ResourceAction {
+    fn codebook(self) -> ModelResourceAction {
+        match self {
+            Self::Acquire => ModelResourceAction::Acquire,
+            Self::Release => ModelResourceAction::Release,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -318,6 +500,16 @@ pub enum Exit {
     Normal,
     Exceptional,
     Finally,
+}
+
+impl Exit {
+    fn codebook(self) -> ModelExit {
+        match self {
+            Self::Normal => ModelExit::Normal,
+            Self::Exceptional => ModelExit::Exceptional,
+            Self::Finally => ModelExit::Finally,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -329,6 +521,17 @@ pub enum ExceptionAction {
     Suppress,
 }
 
+impl ExceptionAction {
+    fn codebook(self) -> ModelExceptionAction {
+        match self {
+            Self::Raise => ModelExceptionAction::Raise,
+            Self::Catch => ModelExceptionAction::Catch,
+            Self::Convert => ModelExceptionAction::Convert,
+            Self::Suppress => ModelExceptionAction::Suppress,
+        }
+    }
+}
+
 pub struct CompiledModel {
     pub model_id: Id,
     pub model: Model,
@@ -337,6 +540,15 @@ pub struct CompiledModel {
 pub struct Catalog {
     pub digest: Digest,
     pub models: Vec<CompiledModel>,
+}
+
+#[derive(Default)]
+pub struct CompiledRules {
+    pub transfers: Vec<ModelTransfersRow>,
+    pub effects: Vec<ModelEffectsRow>,
+    pub callbacks: Vec<ModelCallbacksRow>,
+    pub resources: Vec<ModelResourcesRow>,
+    pub exceptions: Vec<ModelExceptionsRow>,
 }
 
 impl Catalog {
@@ -361,6 +573,7 @@ impl Catalog {
             }
             for rule in &model.rules {
                 rule.validate()?;
+                model.coverage.validate_rule(rule)?;
             }
             let key = model.target.key();
             if !seen.insert(key.clone()) {
@@ -473,6 +686,11 @@ impl Catalog {
                         target_definition_fact_id: definition.fact_id,
                         target_key: target.key(),
                         revision: i64::from(compiled.model.revision),
+                        transfer_coverage: compiled.model.coverage.transfers.codebook(),
+                        effect_coverage: compiled.model.coverage.effects.codebook(),
+                        callback_coverage: compiled.model.coverage.callbacks.codebook(),
+                        resource_coverage: compiled.model.coverage.resources.codebook(),
+                        exception_coverage: compiled.model.coverage.exceptions.codebook(),
                         origin: Origin::SyntheticModel,
                     };
                     let key = (row.model_id, row.target_node_id);
@@ -490,20 +708,20 @@ impl Catalog {
         Ok(out.into_values().collect())
     }
 
-    /// Compile only rules whose targets have a source-fact binding. Unsupported rule families
-    /// fail closed until their own typed Arrow contract and consumer exist.
-    pub fn compile_transfers(
+    /// Compile every authored family in one pass, against the same pinned target and complete
+    /// signature set. The caller publishes these together, or publishes none of them.
+    pub fn compile_rules(
         &self,
         targets: &[ModelTargetsRow],
         definitions: &[ContextDefinitionsRow],
         parameters: &[ContextParametersRow],
-    ) -> Result<Vec<ModelTransfersRow>, String> {
+    ) -> Result<CompiledRules, String> {
         let by_id: BTreeMap<Id, &Model> = self
             .models
             .iter()
             .map(|compiled| (compiled.model_id, &compiled.model))
             .collect();
-        let mut out = Vec::new();
+        let mut out = CompiledRules::default();
         for target in targets {
             let model = by_id
                 .get(&target.model_id)
@@ -517,107 +735,131 @@ impl Catalog {
                 .filter(|count| *count > 0)
                 .ok_or_else(|| format!("no complete signature for {}", target.target_key))?;
             for (index, rule) in model.rules.iter().enumerate() {
-                let (from, to, transfer) = match rule {
-                    Rule::Transfer { from, to, transfer } => (from, to, transfer),
-                    Rule::Effect { .. } => continue,
-                    _ => {
-                        return Err(format!(
-                            "model rule family lacks a compiled contract: {} rule {index}",
-                            target.target_key
-                        ));
+                let formals: Vec<Option<&str>> = match rule {
+                    Rule::Transfer { from, to, .. } => vec![from.formal(), to.formal()],
+                    Rule::Effect { subject, .. } => {
+                        vec![subject.as_ref().and_then(InputPath::formal)]
                     }
+                    Rule::Callback { callback, .. } => vec![callback.formal()],
+                    Rule::Resource { resource, .. } => vec![resource.formal()],
+                    Rule::Exception { .. } => Vec::new(),
                 };
-                validate_formals(
-                    target,
-                    signature_count,
-                    parameters,
-                    &[from.formal(), to.formal()],
-                )?;
+                validate_formals(target, signature_count, parameters, &formals)?;
                 let rule_id = IdHasher::new("behavior-model-rule")
                     .opt_id(Some(target.model_id))
                     .i64(index as i64)
                     .finish_id();
-                out.push(ModelTransfersRow {
-                    snapshot_id: target.snapshot_id,
-                    model_id: target.model_id,
-                    target_node_id: target.target_node_id,
-                    rule_id,
-                    target_definition_fact_id: target.target_definition_fact_id,
-                    revision: target.revision,
-                    input_path: from.render(),
-                    output_path: to.render(),
-                    transfer: match transfer {
-                        Transfer::Identity => ModelTransferKind::Identity,
-                        Transfer::Transform => ModelTransferKind::Transform,
-                    },
-                    origin: Origin::SyntheticModel,
-                });
-            }
-        }
-        Ok(out)
-    }
-
-    /// Compile authored effects as typed model assertions. The target's complete pinned Pysa
-    /// signatures still witness any subject formal; the effect is not promoted to a release
-    /// summary until a call path applies this model.
-    pub fn compile_effects(
-        &self,
-        targets: &[ModelTargetsRow],
-        definitions: &[ContextDefinitionsRow],
-        parameters: &[ContextParametersRow],
-    ) -> Result<Vec<ModelEffectsRow>, String> {
-        let by_id: BTreeMap<Id, &Model> = self
-            .models
-            .iter()
-            .map(|compiled| (compiled.model_id, &compiled.model))
-            .collect();
-        let mut out = Vec::new();
-        for target in targets {
-            let model = by_id
-                .get(&target.model_id)
-                .ok_or_else(|| format!("unknown model id {}", target.model_id.hex()))?;
-            let definition = definitions
-                .iter()
-                .find(|d| d.fact_id == target.target_definition_fact_id)
-                .ok_or_else(|| format!("missing definition for {}", target.target_key))?;
-            let signature_count = definition
-                .signature_count
-                .filter(|count| *count > 0)
-                .ok_or_else(|| format!("no complete signature for {}", target.target_key))?;
-            for (index, rule) in model.rules.iter().enumerate() {
-                let (effect, subject) = match rule {
-                    Rule::Effect { effect, subject } => (effect, subject),
-                    Rule::Transfer { .. } => continue,
-                    _ => {
-                        return Err(format!(
-                            "model rule family lacks a compiled contract: {} rule {index}",
-                            target.target_key
-                        ));
+                match rule {
+                    Rule::Transfer {
+                        from,
+                        to,
+                        transfer,
+                        modality,
+                    } => {
+                        out.transfers.push(ModelTransfersRow {
+                            snapshot_id: target.snapshot_id,
+                            model_id: target.model_id,
+                            target_node_id: target.target_node_id,
+                            rule_id,
+                            target_definition_fact_id: target.target_definition_fact_id,
+                            revision: target.revision,
+                            input_path_id: from.id(),
+                            input_path: from.render(),
+                            output_path_id: to.id(),
+                            output_path: to.render(),
+                            transfer: match transfer {
+                                Transfer::Identity => ModelTransferKind::Identity,
+                                Transfer::Transform => ModelTransferKind::Transform,
+                            },
+                            modality: modality.codebook(),
+                            origin: Origin::SyntheticModel,
+                        });
                     }
-                };
-                validate_formals(
-                    target,
-                    signature_count,
-                    parameters,
-                    &[subject.as_ref().and_then(InputPath::formal)],
-                )?;
-                let rule_id = IdHasher::new("behavior-model-rule")
-                    .opt_id(Some(target.model_id))
-                    .i64(index as i64)
-                    .finish_id();
-                let (kind, argument) = effect.kind_argument();
-                out.push(ModelEffectsRow {
-                    snapshot_id: target.snapshot_id,
-                    model_id: target.model_id,
-                    target_node_id: target.target_node_id,
-                    rule_id,
-                    target_definition_fact_id: target.target_definition_fact_id,
-                    revision: target.revision,
-                    effect: kind,
-                    argument: argument.map(str::to_owned),
-                    subject_path: subject.as_ref().map(InputPath::render),
-                    origin: Origin::SyntheticModel,
-                });
+                    Rule::Effect {
+                        effect,
+                        subject,
+                        modality,
+                    } => {
+                        let (kind, argument) = effect.kind_argument();
+                        out.effects.push(ModelEffectsRow {
+                            snapshot_id: target.snapshot_id,
+                            model_id: target.model_id,
+                            target_node_id: target.target_node_id,
+                            rule_id,
+                            target_definition_fact_id: target.target_definition_fact_id,
+                            revision: target.revision,
+                            effect: kind,
+                            argument: argument.map(str::to_owned),
+                            subject_path_id: subject.as_ref().map(InputPath::id),
+                            subject_path: subject.as_ref().map(InputPath::render),
+                            modality: modality.codebook(),
+                            origin: Origin::SyntheticModel,
+                        });
+                    }
+                    Rule::Callback {
+                        callback,
+                        action,
+                        exit,
+                        modality,
+                    } => {
+                        out.callbacks.push(ModelCallbacksRow {
+                            snapshot_id: target.snapshot_id,
+                            model_id: target.model_id,
+                            target_node_id: target.target_node_id,
+                            rule_id,
+                            target_definition_fact_id: target.target_definition_fact_id,
+                            revision: target.revision,
+                            callback_path_id: callback.id(),
+                            callback_path: callback.render(),
+                            action: action.codebook(),
+                            exit: exit.codebook(),
+                            modality: modality.codebook(),
+                            origin: Origin::SyntheticModel,
+                        });
+                    }
+                    Rule::Resource {
+                        resource,
+                        action,
+                        exit,
+                        modality,
+                    } => {
+                        out.resources.push(ModelResourcesRow {
+                            snapshot_id: target.snapshot_id,
+                            model_id: target.model_id,
+                            target_node_id: target.target_node_id,
+                            rule_id,
+                            target_definition_fact_id: target.target_definition_fact_id,
+                            revision: target.revision,
+                            resource_path_id: resource.id(),
+                            resource_path: resource.render(),
+                            resource_role: resource.role(),
+                            action: action.codebook(),
+                            exit: exit.codebook(),
+                            modality: modality.codebook(),
+                            origin: Origin::SyntheticModel,
+                        });
+                    }
+                    Rule::Exception {
+                        class,
+                        action,
+                        to_class,
+                        modality,
+                    } => {
+                        out.exceptions.push(ModelExceptionsRow {
+                            snapshot_id: target.snapshot_id,
+                            model_id: target.model_id,
+                            target_node_id: target.target_node_id,
+                            rule_id,
+                            target_definition_fact_id: target.target_definition_fact_id,
+                            revision: target.revision,
+                            class: class.clone(),
+                            action: action.codebook(),
+                            to_class: to_class.clone(),
+                            modality: modality.codebook(),
+                            origin: Origin::SyntheticModel,
+                        });
+                    }
+                }
             }
         }
         Ok(out)
@@ -739,13 +981,14 @@ mod tests {
             name: Some("val".into()),
             required: Some(true),
         };
-        let transfers = catalog
-            .compile_transfers(
+        let compiled = catalog
+            .compile_rules(
                 &bound,
                 std::slice::from_ref(&definition),
                 std::slice::from_ref(&parameter),
             )
             .unwrap();
+        let transfers = compiled.transfers;
         assert_eq!(transfers.len(), 1);
         assert_eq!(transfers[0].target_node_id, definition.symbol_node_id);
         assert_eq!(transfers[0].input_path, "Parameter[val]");
@@ -753,7 +996,7 @@ mod tests {
         assert_eq!(transfers[0].transfer, ModelTransferKind::Identity);
         assert!(
             catalog
-                .compile_transfers(&bound, std::slice::from_ref(&definition), &[])
+                .compile_rules(&bound, std::slice::from_ref(&definition), &[])
                 .is_err()
         );
         let renamed = ContextParametersRow {
@@ -762,7 +1005,7 @@ mod tests {
         };
         assert!(
             catalog
-                .compile_transfers(&bound, std::slice::from_ref(&definition), &[renamed])
+                .compile_rules(&bound, std::slice::from_ref(&definition), &[renamed])
                 .is_err()
         );
 
@@ -808,7 +1051,7 @@ mod tests {
     fn committed_catalog_has_typed_identity_path_and_digest() {
         let catalog = Catalog::committed().unwrap();
         assert_eq!(catalog.digest, Catalog::committed_digest());
-        assert_eq!(catalog.models.len(), 2);
+        assert_eq!(catalog.models.len(), 4);
         let model = &catalog
             .models
             .iter()
@@ -820,12 +1063,101 @@ mod tests {
             from,
             to,
             transfer: Transfer::Identity,
+            modality: RuleModality::Definite,
         } = &model.rules[0]
         else {
             panic!("typing.cast must be an identity transfer");
         };
         assert_eq!(from.render(), "Parameter[val]");
         assert_eq!(to.render(), "ReturnValue");
+    }
+
+    #[test]
+    fn callback_resource_and_exception_models_preserve_distinct_claims() {
+        let catalog = Catalog::committed().unwrap();
+        let register = &catalog
+            .models
+            .iter()
+            .find(|m| m.model.target.key() == "stdlib:3.14.7:atexit.register")
+            .unwrap()
+            .model;
+        assert!(register.rules.iter().any(|rule| matches!(
+            rule,
+            Rule::Callback {
+                callback: InputPath::Parameter { name },
+                action: CallbackAction::Registered,
+                exit: Exit::Normal,
+                modality: RuleModality::Definite,
+            } if name == "func"
+        )));
+        assert!(!register.rules.iter().any(|rule| matches!(
+            rule,
+            Rule::Callback {
+                action: CallbackAction::Invoked,
+                ..
+            }
+        )));
+        let open = &catalog
+            .models
+            .iter()
+            .find(|m| m.model.target.key() == "stdlib:3.14.7:builtins.open")
+            .unwrap()
+            .model;
+        assert!(open.rules.iter().any(|rule| matches!(
+            rule,
+            Rule::Resource {
+                resource: ResourcePath::Output {
+                    path: OutputPath::ReturnValue,
+                },
+                action: ResourceAction::Acquire,
+                exit: Exit::Normal,
+                modality: RuleModality::Definite,
+            }
+        )));
+        assert!(open.rules.iter().any(|rule| matches!(
+            rule,
+            Rule::Exception {
+                class,
+                action: ExceptionAction::Raise,
+                to_class: None,
+                modality: RuleModality::Potential,
+            } if class == "builtins.OSError"
+        )));
+        assert!(
+            !open
+                .rules
+                .iter()
+                .any(|rule| matches!(rule, Rule::Effect { .. }))
+        );
+    }
+
+    #[test]
+    fn conversion_needs_a_target_and_resource_cannot_be_a_raise_path() {
+        let header = r#"version = 1
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "open" }
+coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "unspecified", resources = "partial", exceptions = "partial" }
+[[models.rules]]
+"#;
+        assert!(
+            Catalog::parse(
+                "bad.toml",
+                &format!(
+                    "{header}kind = \"exception\"\nclass = \"builtins.OSError\"\naction = \"convert\"\nmodality = \"potential\"\n"
+                )
+            )
+            .is_err()
+        );
+        assert!(
+            Catalog::parse(
+                "bad.toml",
+                &format!(
+                    "{header}kind = \"resource\"\nresource = {{ role = \"output\", path = {{ kind = \"raise\", class = \"builtins.OSError\" }} }}\naction = \"acquire\"\nexit = \"normal\"\nmodality = \"definite\"\n"
+                )
+            )
+            .is_err()
+        );
     }
 
     #[test]

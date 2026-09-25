@@ -14,7 +14,10 @@ target_node_id: FixedSizeBinary(16) NOT NULL
 rule_id: FixedSizeBinary(16) NOT NULL
 target_definition_fact_id: FixedSizeBinary(16) NOT NULL
 revision: Int64 NOT NULL
+input_path_id: FixedSizeBinary(16) NOT NULL
 input_path: Utf8 NOT NULL
+output_path_id: FixedSizeBinary(16) NOT NULL
 output_path: Utf8 NOT NULL
 transfer: Int16 NOT NULL [lctx.codebook=model_transfer_kind]
+modality: Int16 NOT NULL [lctx.codebook=modality]
 origin: Int16 NOT NULL [lctx.codebook=origin]

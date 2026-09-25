@@ -13,10 +13,14 @@ use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
 use cpg_schema::behavior::{
-    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelEffects, ModelEffectsRow, ModelTargets,
-    ModelTargetsRow, ModelTransfers, ModelTransfersRow,
+    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelCallbacks, ModelCallbacksRow,
+    ModelEffects, ModelEffectsRow, ModelExceptions, ModelExceptionsRow, ModelResources,
+    ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
-use cpg_schema::codebook::{Codebook, ExitSiteKind, ModelEffectKind, ModelTransferKind, Origin};
+use cpg_schema::codebook::{
+    Codebook, ExitSiteKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
+    ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction, ModelTransferKind, Origin,
+};
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::Id;
@@ -109,7 +113,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 40,
+        52 + 21 + 43,
         "every raw, derived and analysis table"
     );
 
@@ -410,6 +414,11 @@ async fn model_target_requires_its_cited_pinned_definition() {
         target_definition_fact_id: Id([4; 16]),
         target_key: "stdlib:3.14.7:typing.cast".into(),
         revision: 1,
+        transfer_coverage: ModelChannelCoverage::Complete,
+        effect_coverage: ModelChannelCoverage::Complete,
+        callback_coverage: ModelChannelCoverage::Complete,
+        resource_coverage: ModelChannelCoverage::Complete,
+        exception_coverage: ModelChannelCoverage::Complete,
         origin: Origin::SyntheticModel,
     }])
     .unwrap();
@@ -438,9 +447,12 @@ async fn model_target_requires_its_cited_pinned_definition() {
         rule_id: Id([5; 16]),
         target_definition_fact_id: Id([4; 16]),
         revision: 1,
+        input_path_id: Id([12; 16]),
         input_path: "Parameter[val]".into(),
+        output_path_id: Id([13; 16]),
         output_path: "ReturnValue".into(),
         transfer: ModelTransferKind::Identity,
+        modality: Modality::Definite,
         origin: Origin::SyntheticModel,
     }])
     .unwrap();
@@ -469,7 +481,9 @@ async fn model_target_requires_its_cited_pinned_definition() {
         revision: 1,
         effect: ModelEffectKind::IoRead,
         argument: None,
+        subject_path_id: None,
         subject_path: None,
+        modality: Modality::Potential,
         origin: Origin::SyntheticModel,
     }])
     .unwrap();
@@ -487,6 +501,84 @@ async fn model_target_requires_its_cited_pinned_definition() {
             .any(|v| v.rule == "model-catalog-effect-equality"),
         "{violations:?}"
     );
+
+    let forged_callback = ModelCallbacks::to_batch(&[ModelCallbacksRow {
+        snapshot_id: snapshot,
+        model_id: Id([1; 16]),
+        target_node_id: Id([2; 16]),
+        rule_id: Id([7; 16]),
+        target_definition_fact_id: Id([4; 16]),
+        revision: 1,
+        callback_path_id: Id([8; 16]),
+        callback_path: "Parameter[callback]".into(),
+        action: ModelCallbackAction::Registered,
+        exit: ModelExit::Normal,
+        modality: Modality::Definite,
+        origin: Origin::SyntheticModel,
+    }])
+    .unwrap();
+    ctx.deregister_table("model_callbacks").unwrap();
+    ctx.register_batch("model_callbacks", forged_callback)
+        .unwrap();
+    let forged_resource = ModelResources::to_batch(&[ModelResourcesRow {
+        snapshot_id: snapshot,
+        model_id: Id([1; 16]),
+        target_node_id: Id([2; 16]),
+        rule_id: Id([9; 16]),
+        target_definition_fact_id: Id([4; 16]),
+        revision: 1,
+        resource_path_id: Id([10; 16]),
+        resource_path: "ReturnValue".into(),
+        resource_role: ModelPathRole::Output,
+        action: ModelResourceAction::Acquire,
+        exit: ModelExit::Normal,
+        modality: Modality::Definite,
+        origin: Origin::SyntheticModel,
+    }])
+    .unwrap();
+    ctx.deregister_table("model_resources").unwrap();
+    ctx.register_batch("model_resources", forged_resource)
+        .unwrap();
+    let forged_exception = ModelExceptions::to_batch(&[ModelExceptionsRow {
+        snapshot_id: snapshot,
+        model_id: Id([1; 16]),
+        target_node_id: Id([2; 16]),
+        rule_id: Id([11; 16]),
+        target_definition_fact_id: Id([4; 16]),
+        revision: 1,
+        class: "builtins.OSError".into(),
+        action: ModelExceptionAction::Convert,
+        to_class: None,
+        modality: Modality::Potential,
+        origin: Origin::SyntheticModel,
+    }])
+    .unwrap();
+    ctx.deregister_table("model_exceptions").unwrap();
+    ctx.register_batch("model_exceptions", forged_exception)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    for expected in [
+        ("semantic:model-callback-target",),
+        ("semantic:model-resource-target",),
+        ("semantic:model-exception-target",),
+        ("semantic:model-exception-shape",),
+    ] {
+        assert!(
+            violations.iter().any(|v| v.rule == expected.0),
+            "missing {} in {violations:?}",
+            expected.0
+        );
+    }
+    for expected in [
+        "model-catalog-callback-equality",
+        "model-catalog-resource-equality",
+        "model-catalog-exception-equality",
+    ] {
+        assert!(
+            violations.iter().any(|v| v.rule == expected),
+            "missing {expected} in {violations:?}"
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -526,9 +618,15 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
-    assert_eq!(targets, 2, "typing.cast and builtins.print");
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 1);
+    assert_eq!(targets, 4, "cast, print, open and atexit.register");
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 2);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM model_exceptions").await,
+        1
+    );
     assert!(
         count(
             &ctx,

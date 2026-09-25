@@ -176,6 +176,12 @@ key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:model_effects
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_effects GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
+key:model_callbacks
+  SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_callbacks GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
+key:model_resources
+  SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_resources GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
+key:model_exceptions
+  SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_exceptions GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:exit_sites
   SELECT snapshot_id, function_node_id, site_node_id, kind, count(*) AS n FROM exit_sites GROUP BY snapshot_id, function_node_id, site_node_id, kind HAVING count(*) > 1
 key:handler_clauses
@@ -326,6 +332,18 @@ ref:model_effects.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_effects f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_effects.target_definition_fact_id->facts
   SELECT f.target_definition_fact_id AS value FROM model_effects f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:model_callbacks.target_node_id->context_definitions
+  SELECT f.target_node_id AS value FROM model_callbacks f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:model_callbacks.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM model_callbacks f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:model_resources.target_node_id->context_definitions
+  SELECT f.target_node_id AS value FROM model_resources f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:model_resources.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM model_resources f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:model_exceptions.target_node_id->context_definitions
+  SELECT f.target_node_id AS value FROM model_exceptions f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:model_exceptions.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM model_exceptions f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
 ref:exit_sites.function_node_id->declarations
   SELECT f.function_node_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
 ref:exit_sites.site_node_id->syntax_nodes
@@ -796,16 +814,54 @@ codebook:value_flows.sink
   SELECT sink FROM value_flows WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
 codebook:flow_test_value_links.origin
   SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
+codebook:model_targets.transfer_coverage
+  SELECT transfer_coverage FROM model_targets WHERE transfer_coverage IS NOT NULL AND transfer_coverage NOT IN (0, 1, 2)
+codebook:model_targets.effect_coverage
+  SELECT effect_coverage FROM model_targets WHERE effect_coverage IS NOT NULL AND effect_coverage NOT IN (0, 1, 2)
+codebook:model_targets.callback_coverage
+  SELECT callback_coverage FROM model_targets WHERE callback_coverage IS NOT NULL AND callback_coverage NOT IN (0, 1, 2)
+codebook:model_targets.resource_coverage
+  SELECT resource_coverage FROM model_targets WHERE resource_coverage IS NOT NULL AND resource_coverage NOT IN (0, 1, 2)
+codebook:model_targets.exception_coverage
+  SELECT exception_coverage FROM model_targets WHERE exception_coverage IS NOT NULL AND exception_coverage NOT IN (0, 1, 2)
 codebook:model_targets.origin
   SELECT origin FROM model_targets WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:model_transfers.transfer
   SELECT transfer FROM model_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
+codebook:model_transfers.modality
+  SELECT modality FROM model_transfers WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:model_transfers.origin
   SELECT origin FROM model_transfers WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:model_effects.effect
   SELECT effect FROM model_effects WHERE effect IS NOT NULL AND effect NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+codebook:model_effects.modality
+  SELECT modality FROM model_effects WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:model_effects.origin
   SELECT origin FROM model_effects WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:model_callbacks.action
+  SELECT action FROM model_callbacks WHERE action IS NOT NULL AND action NOT IN (0, 1, 2, 3)
+codebook:model_callbacks.exit
+  SELECT exit FROM model_callbacks WHERE exit IS NOT NULL AND exit NOT IN (0, 1, 2)
+codebook:model_callbacks.modality
+  SELECT modality FROM model_callbacks WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:model_callbacks.origin
+  SELECT origin FROM model_callbacks WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:model_resources.resource_role
+  SELECT resource_role FROM model_resources WHERE resource_role IS NOT NULL AND resource_role NOT IN (0, 1)
+codebook:model_resources.action
+  SELECT action FROM model_resources WHERE action IS NOT NULL AND action NOT IN (0, 1)
+codebook:model_resources.exit
+  SELECT exit FROM model_resources WHERE exit IS NOT NULL AND exit NOT IN (0, 1, 2)
+codebook:model_resources.modality
+  SELECT modality FROM model_resources WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:model_resources.origin
+  SELECT origin FROM model_resources WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:model_exceptions.action
+  SELECT action FROM model_exceptions WHERE action IS NOT NULL AND action NOT IN (0, 1, 2, 3)
+codebook:model_exceptions.modality
+  SELECT modality FROM model_exceptions WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:model_exceptions.origin
+  SELECT origin FROM model_exceptions WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:exit_sites.kind
   SELECT kind FROM exit_sites WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
 codebook:handler_actions.action_kind
@@ -904,6 +960,14 @@ semantic:model-transfer-target
   SELECT t.rule_id FROM model_transfers t LEFT JOIN model_targets m ON m.model_id = t.model_id AND m.target_node_id = t.target_node_id AND m.target_definition_fact_id = t.target_definition_fact_id AND m.revision = t.revision WHERE m.model_id IS NULL OR t.origin <> 4
 semantic:model-effect-target
   SELECT e.rule_id FROM model_effects e LEFT JOIN model_targets m ON m.model_id = e.model_id AND m.target_node_id = e.target_node_id AND m.target_definition_fact_id = e.target_definition_fact_id AND m.revision = e.revision WHERE m.model_id IS NULL OR e.origin <> 4
+semantic:model-callback-target
+  SELECT c.rule_id FROM model_callbacks c LEFT JOIN model_targets m ON m.model_id = c.model_id AND m.target_node_id = c.target_node_id AND m.target_definition_fact_id = c.target_definition_fact_id AND m.revision = c.revision WHERE m.model_id IS NULL OR c.origin <> 4
+semantic:model-resource-target
+  SELECT r.rule_id FROM model_resources r LEFT JOIN model_targets m ON m.model_id = r.model_id AND m.target_node_id = r.target_node_id AND m.target_definition_fact_id = r.target_definition_fact_id AND m.revision = r.revision WHERE m.model_id IS NULL OR r.origin <> 4
+semantic:model-exception-target
+  SELECT e.rule_id FROM model_exceptions e LEFT JOIN model_targets m ON m.model_id = e.model_id AND m.target_node_id = e.target_node_id AND m.target_definition_fact_id = e.target_definition_fact_id AND m.revision = e.revision WHERE m.model_id IS NULL OR e.origin <> 4
+semantic:model-exception-shape
+  SELECT rule_id FROM model_exceptions WHERE (action = 2 AND to_class IS NULL) OR (action <> 2 AND to_class IS NOT NULL)
 semantic:pysa-signatures-placed
   SELECT m.module_node_id, m.function_key FROM provider_node_map m              JOIN pysa_functions f                ON f.module_node_id = m.module_node_id AND f.function_key = m.function_key              LEFT ANTI JOIN signatures s                ON s.module_node_id = m.module_node_id AND s.function_key = m.function_key              WHERE m.node_id IS NOT NULL AND f.signature_count > 0
 semantic:resolution-has-boundary

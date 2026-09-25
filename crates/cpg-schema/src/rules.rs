@@ -141,6 +141,24 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("model_effects", "target_definition_fact_id", FACT),
     r(
+        "model_callbacks",
+        "target_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_callbacks", "target_definition_fact_id", FACT),
+    r(
+        "model_resources",
+        "target_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_resources", "target_definition_fact_id", FACT),
+    r(
+        "model_exceptions",
+        "target_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_exceptions", "target_definition_fact_id", FACT),
+    r(
         "exit_sites",
         "function_node_id",
         &[("declarations", "node_id")],
@@ -414,6 +432,52 @@ fn semantic() -> Vec<Rule> {
                    AND m.revision = e.revision \
                  WHERE m.model_id IS NULL OR e.origin <> {}",
                 crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-callback-target",
+            format!(
+                "SELECT c.rule_id FROM model_callbacks c \
+                 LEFT JOIN model_targets m ON m.model_id = c.model_id \
+                   AND m.target_node_id = c.target_node_id \
+                   AND m.target_definition_fact_id = c.target_definition_fact_id \
+                   AND m.revision = c.revision \
+                 WHERE m.model_id IS NULL OR c.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-resource-target",
+            format!(
+                "SELECT r.rule_id FROM model_resources r \
+                 LEFT JOIN model_targets m ON m.model_id = r.model_id \
+                   AND m.target_node_id = r.target_node_id \
+                   AND m.target_definition_fact_id = r.target_definition_fact_id \
+                   AND m.revision = r.revision \
+                 WHERE m.model_id IS NULL OR r.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-exception-target",
+            format!(
+                "SELECT e.rule_id FROM model_exceptions e \
+                 LEFT JOIN model_targets m ON m.model_id = e.model_id \
+                   AND m.target_node_id = e.target_node_id \
+                   AND m.target_definition_fact_id = e.target_definition_fact_id \
+                   AND m.revision = e.revision \
+                 WHERE m.model_id IS NULL OR e.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-exception-shape",
+            format!(
+                "SELECT rule_id FROM model_exceptions WHERE \
+                 (action = {} AND to_class IS NULL) OR \
+                 (action <> {} AND to_class IS NOT NULL)",
+                crate::codebook::ModelExceptionAction::Convert.code(),
+                crate::codebook::ModelExceptionAction::Convert.code()
             ),
         ),
         (

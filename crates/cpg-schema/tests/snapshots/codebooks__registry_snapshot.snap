@@ -690,3 +690,27 @@ model_effect_kind
   8 validate
   9 register
   10 invoke
+model_callback_action
+  0 stored
+  1 registered
+  2 forwarded
+  3 invoked
+model_resource_action
+  0 acquire
+  1 release
+model_exit
+  0 normal
+  1 exceptional
+  2 finally
+model_exception_action
+  0 raise
+  1 catch
+  2 convert
+  3 suppress
+model_path_role
+  0 input
+  1 output
+model_channel_coverage
+  0 complete
+  1 partial
+  2 unspecified
