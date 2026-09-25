@@ -2868,30 +2868,38 @@ budget = 1
             .collect::<Vec<_>>(),
     )
     .unwrap();
+    let query_links: Vec<cpg_schema::primitive_theory::ValueLink> = links.iter().map(Into::into).collect();
+    let query_leaves: Vec<cpg_schema::primitive_theory::TestLeaf> = leaves.iter().map(Into::into).collect();
     let proof = &origins[0];
     let guard = &diagrams[&proof.test_condition_id];
     assert!(
-        cpg_core::primitive_theory::refute_exact_input(
+        cpg_schema::primitive_theory::refute_exact_input(
             guard,
-            proof.operation_node_id,
-            proof.formal_node_id,
-            &Value::None,
-            cpg_core::primitive_theory::BuiltinNamespace::StandardAssumed,
-            &links,
-            &leaves,
+            cpg_schema::primitive_theory::ExactInput {
+                operation_node_id: proof.operation_node_id,
+                formal_node_id: proof.formal_node_id,
+                value: &Value::None,
+                builtin_namespace: cpg_schema::primitive_theory::BuiltinNamespace::StandardAssumed,
+                effect_model_digest: cpg_core::entry_links::digest(),
+            },
+            &query_links,
+            &query_leaves,
         )
         .unwrap()
         .is_some()
     );
     assert!(
-        cpg_core::primitive_theory::refute_exact_input(
+        cpg_schema::primitive_theory::refute_exact_input(
             guard,
-            proof.operation_node_id,
-            proof.formal_node_id,
-            &Value::Str("hi".to_owned()),
-            cpg_core::primitive_theory::BuiltinNamespace::StandardAssumed,
-            &links,
-            &leaves,
+            cpg_schema::primitive_theory::ExactInput {
+                operation_node_id: proof.operation_node_id,
+                formal_node_id: proof.formal_node_id,
+                value: &Value::Str("hi".to_owned()),
+                builtin_namespace: cpg_schema::primitive_theory::BuiltinNamespace::StandardAssumed,
+                effect_model_digest: cpg_core::entry_links::digest(),
+            },
+            &query_links,
+            &query_leaves,
         )
         .unwrap()
         .is_none()

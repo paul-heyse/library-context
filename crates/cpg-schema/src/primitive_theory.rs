@@ -8,15 +8,73 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cpg_schema::behavior::FlowTestValueLinksRow;
-use cpg_schema::codebook::TestValueLinkOrigin;
-use cpg_schema::condition::{Atom, Value};
-use cpg_schema::condition_kernel::{Diagram, KernelBoundary};
-use cpg_schema::id::{Id, IdHasher};
-use cpg_schema::tables::FlowTestLeavesRow;
+use crate::behavior::FlowTestValueLinksRow;
+use crate::codebook::TestValueLinkOrigin;
+use crate::condition::{Atom, Value};
+use crate::condition_kernel::{Diagram, KernelBoundary};
+use crate::id::{Digest, Id, IdHasher};
+use crate::tables::FlowTestLeavesRow;
 
 const MAX_ASSIGNMENTS: usize = 32;
 const MAX_ASSIGNMENT_WORK: usize = 1_000_000;
+
+/// The checked part of a value-link row needed by exact-input reasoning. The full publication
+/// row retains source spans and reaching facts; this is its lossless semantic query projection.
+#[derive(Clone, Debug)]
+pub struct ValueLink {
+    pub snapshot_id: Id,
+    pub link_id: Id,
+    pub operation_node_id: Id,
+    pub formal_node_id: Id,
+    pub module_node_id: Id,
+    pub leaf_fact_id: Id,
+    pub atom_id: Id,
+    pub condition_id: Id,
+    pub place: String,
+    pub origin: TestValueLinkOrigin,
+    pub effect_model_digest: Digest,
+}
+
+impl From<&FlowTestValueLinksRow> for ValueLink {
+    fn from(row: &FlowTestValueLinksRow) -> Self {
+        Self {
+            snapshot_id: row.snapshot_id,
+            link_id: row.link_id,
+            operation_node_id: row.operation_node_id,
+            formal_node_id: row.formal_node_id,
+            module_node_id: row.module_node_id,
+            leaf_fact_id: row.leaf_fact_id,
+            atom_id: row.atom_id,
+            condition_id: row.condition_id,
+            place: row.place.clone(),
+            origin: row.origin,
+            effect_model_digest: row.effect_model_digest,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TestLeaf {
+    pub snapshot_id: Id,
+    pub fact_id: Id,
+    pub module_node_id: Id,
+    pub atom_id: Id,
+    pub condition_id: Id,
+    pub atom: String,
+}
+
+impl From<&FlowTestLeavesRow> for TestLeaf {
+    fn from(row: &FlowTestLeavesRow) -> Self {
+        Self {
+            snapshot_id: row.snapshot_id,
+            fact_id: row.fact_id,
+            module_node_id: row.module_node_id,
+            atom_id: row.atom_id,
+            condition_id: row.condition_id,
+            atom: row.atom.clone(),
+        }
+    }
+}
 
 /// Whether a caller has explicitly admitted the standard CPython builtin-name model for this
 /// generation. Lexical reference resolution alone cannot establish runtime namespace identity.
@@ -39,26 +97,32 @@ pub struct Refutation {
     pub value_link_ids: Vec<Id>,
 }
 
+/// One operation/formal and its exact query value under an explicit builtin namespace model.
+#[derive(Clone, Copy)]
+pub struct ExactInput<'a> {
+    pub operation_node_id: Id,
+    pub formal_node_id: Id,
+    pub value: &'a Value,
+    pub builtin_namespace: BuiltinNamespace,
+    pub effect_model_digest: Digest,
+}
+
 /// Refute one condition for one exact query argument. `Ok(None)` is unknown: missing links,
 /// unsupported Python operators and a satisfiable BDD all leave executions possible.
 pub fn refute_exact_input(
     condition: &Diagram,
-    operation_node_id: Id,
-    formal_node_id: Id,
-    input: &Value,
-    builtin_namespace: BuiltinNamespace,
-    links: &[FlowTestValueLinksRow],
-    leaves: &[FlowTestLeavesRow],
+    query: ExactInput<'_>,
+    links: &[ValueLink],
+    leaves: &[TestLeaf],
 ) -> Result<Option<Refutation>, TheoryBoundary> {
-    let leaves: BTreeMap<Id, &FlowTestLeavesRow> =
+    let leaves: BTreeMap<Id, &TestLeaf> =
         leaves.iter().map(|leaf| (leaf.fact_id, leaf)).collect();
     let support: BTreeSet<&str> = condition.support().iter().map(String::as_str).collect();
     let mut assignments: BTreeMap<String, (bool, Id)> = BTreeMap::new();
-    let effect_digest = crate::entry_links::digest();
     for link in links {
-        if link.operation_node_id != operation_node_id
-            || link.formal_node_id != formal_node_id
-            || link.effect_model_digest != effect_digest
+        if link.operation_node_id != query.operation_node_id
+            || link.formal_node_id != query.formal_node_id
+            || link.effect_model_digest != query.effect_model_digest
         {
             continue;
         }
@@ -80,7 +144,7 @@ pub fn refute_exact_input(
         if atom.place() != Some(link.place.as_str()) {
             continue;
         }
-        let Some(value) = evaluate_exact_input(&atom, input, link.origin, builtin_namespace) else {
+        let Some(value) = evaluate_exact_input(&atom, query.value, link.origin, query.builtin_namespace) else {
             continue;
         };
         match assignments.entry(leaf.atom.clone()) {
@@ -169,13 +233,13 @@ fn evaluate_exact_input(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cpg_schema::codebook::LexicalScopeKind;
-    use cpg_schema::condition::EvaluationIdentity;
+    use crate::codebook::LexicalScopeKind;
+    use crate::condition::EvaluationIdentity;
 
     fn fixture(
         atom: Atom,
         origin: TestValueLinkOrigin,
-    ) -> (Diagram, FlowTestValueLinksRow, FlowTestLeavesRow) {
+    ) -> (Diagram, ValueLink, TestLeaf) {
         let atom = atom.evaluated(EvaluationIdentity::Site {
             module: Id([2; 16]).hex(),
             start: 10,
@@ -207,7 +271,7 @@ mod tests {
             place: "x".to_owned(),
             condition_id: diagram.id(),
             origin,
-            effect_model_digest: crate::entry_links::digest(),
+            effect_model_digest: Digest([11; 32]),
             stability_origin_id: None,
             stability_condition_id: None,
         };
@@ -227,7 +291,19 @@ mod tests {
             leaf_start_byte: 10,
             leaf_end_byte: 20,
         };
-        (diagram, link, leaf_row)
+        (diagram, ValueLink::from(&link), TestLeaf::from(&leaf_row))
+    }
+
+    fn exact<'a>(link: &ValueLink, value: &'a Value, builtin_namespace: BuiltinNamespace)
+        -> ExactInput<'a>
+    {
+        ExactInput {
+            operation_node_id: link.operation_node_id,
+            formal_node_id: link.formal_node_id,
+            value,
+            builtin_namespace,
+            effect_model_digest: link.effect_model_digest,
+        }
     }
 
     #[test]
@@ -242,10 +318,7 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                link.operation_node_id,
-                link.formal_node_id,
-                &Value::Str("http".to_owned()),
-                BuiltinNamespace::Unknown,
+                exact(&link, &Value::Str("http".to_owned()), BuiltinNamespace::Unknown),
                 std::slice::from_ref(&link),
                 std::slice::from_ref(&leaf),
             )
@@ -255,10 +328,7 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                link.operation_node_id,
-                link.formal_node_id,
-                &Value::Str("sse".to_owned()),
-                BuiltinNamespace::Unknown,
+                exact(&link, &Value::Str("sse".to_owned()), BuiltinNamespace::Unknown),
                 std::slice::from_ref(&link),
                 std::slice::from_ref(&leaf),
             )
@@ -268,10 +338,7 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                link.operation_node_id,
-                link.formal_node_id,
-                &Value::Str("http".to_owned()),
-                BuiltinNamespace::Unknown,
+                exact(&link, &Value::Str("http".to_owned()), BuiltinNamespace::Unknown),
                 &[],
                 &[leaf],
             )
@@ -292,10 +359,7 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                link.operation_node_id,
-                link.formal_node_id,
-                &Value::Bool(true),
-                BuiltinNamespace::Unknown,
+                exact(&link, &Value::Bool(true), BuiltinNamespace::Unknown),
                 &[link],
                 &[leaf],
             )
@@ -316,10 +380,7 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                link.operation_node_id,
-                link.formal_node_id,
-                &Value::None,
-                BuiltinNamespace::StandardAssumed,
+                exact(&link, &Value::None, BuiltinNamespace::StandardAssumed),
                 std::slice::from_ref(&link),
                 std::slice::from_ref(&leaf),
             )
@@ -329,10 +390,7 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                link.operation_node_id,
-                link.formal_node_id,
-                &Value::None,
-                BuiltinNamespace::Unknown,
+                exact(&link, &Value::None, BuiltinNamespace::Unknown),
                 std::slice::from_ref(&link),
                 std::slice::from_ref(&leaf),
             )
@@ -344,10 +402,7 @@ mod tests {
         assert!(
             refute_exact_input(
                 &diagram,
-                unproved.operation_node_id,
-                unproved.formal_node_id,
-                &Value::None,
-                BuiltinNamespace::StandardAssumed,
+                exact(&unproved, &Value::None, BuiltinNamespace::StandardAssumed),
                 &[unproved],
                 &[leaf],
             )

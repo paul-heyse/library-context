@@ -564,6 +564,11 @@ boundaries. A general constraint solver remains excluded. Stage 2 still uses bou
   operation/formal value-path lookup. This is a cited positive-path inspection boundary, not a
   served compatibility, effect or role filter. Source spans, bounded cursors, primitive origins
   and the user-facing semantic tool still need the rest of Stage 3.6.
+- **Implemented and Tested (2026-09-25, shared primitive kernel).** The bounded exact-input
+  refutation routine and its slim, typed value-link/leaf projection live in `cpg-schema`, next
+  to the BDD kernel. Its caller supplies the entry-value effect-rule digest; the compiler's
+  focused exact-origin case and the pure kernel tests exercise the same routine. A native
+  consumer and served compatibility verdict remain open.
 - Which facet rows are complete remains served data (`operation_facet_status`); facet names are
   held to the codebook by `specs/serving/facets.json`.
 

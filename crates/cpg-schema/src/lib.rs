@@ -23,6 +23,7 @@ pub mod metrics;
 pub mod models;
 pub mod neighbours;
 pub mod projection;
+pub mod primitive_theory;
 pub mod public;
 pub mod query;
 pub mod rules;
