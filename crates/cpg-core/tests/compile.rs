@@ -16,6 +16,7 @@ use cpg_schema::behavior::{
     FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelCallbacks, ModelCallbacksRow,
     ModelEffects, ModelEffectsRow, ModelExceptions, ModelExceptionsRow, ModelResources,
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
+    SummaryBoundariesRow, ValueFlowContributions,
 };
 use cpg_schema::codebook::{
     BoundaryReason, Codebook, DefinitionKind, ExitSiteKind, FlowCallLinkStatus, FlowCallOperandRole, FlowSink, ImplicitReceiver,
@@ -1773,6 +1774,39 @@ budget = 1
         0,
         "the proved direct identity path has no spurious boundary"
     );
+    // A distinct source contribution can share the raw return fact and condition with an
+    // admitted path. Its presence must keep this source key open rather than letting the
+    // positive summary suppress every sibling.
+    let baseline_boundaries: Vec<SummaryBoundariesRow> = sql::fetch(
+        &ctx, &cpg_schema::behavior::summary_boundaries(), sql::Params::new(),
+    ).await.unwrap();
+    let original_contributions = sql::query(&ctx, "SELECT * FROM value_flow_contributions")
+        .await.unwrap().into_view();
+    let columns = ValueFlowContributions::schema().fields().iter().map(|field| {
+        if field.name() == "source_key" {
+            "v.source_key || ':sibling' AS source_key".to_owned()
+        } else {
+            format!("v.{}", field.name())
+        }
+    }).collect::<Vec<_>>().join(", ");
+    let sibling_contributions = sql::query(&ctx, &format!(
+        "SELECT * FROM value_flow_contributions UNION ALL \
+         SELECT {columns} FROM value_flow_contributions v \
+         JOIN declarations d ON d.node_id = v.sink_function_node_id \
+         WHERE d.name = 'plain_identity'"
+    )).await.unwrap().into_view();
+    ctx.deregister_table("value_flow_contributions").unwrap();
+    ctx.register_table("value_flow_contributions", sibling_contributions).unwrap();
+    let sibling_boundaries: Vec<SummaryBoundariesRow> = sql::fetch(
+        &ctx, &cpg_schema::behavior::summary_boundaries(), sql::Params::new(),
+    ).await.unwrap();
+    assert_eq!(sibling_boundaries.len(), baseline_boundaries.len() + 1);
+    assert!(sibling_boundaries.iter().any(|row| {
+        row.reason == BoundaryReason::UnsupportedControlFlow
+            && !baseline_boundaries.contains(row)
+    }));
+    ctx.deregister_table("value_flow_contributions").unwrap();
+    ctx.register_table("value_flow_contributions", original_contributions).unwrap();
     assert_eq!(
         count(
             &ctx,

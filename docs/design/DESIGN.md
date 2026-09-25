@@ -3493,6 +3493,14 @@ condition id, and shared publication validation reconstructs it. This is
 unknown coverage rather than a negative verdict. `COMPILER_OUTPUT_VERSION` is
 55; full L3 closure and integrated Stage 3 testing remain open.
 
+**Implemented and Tested in a targeted sibling-origin case (2026-09-25):** the finite producer
+now suppresses a boundary for a proved raw fact/condition only when that key has exactly one
+same-callable parameter-origin contribution. A second contribution sharing the raw fact and
+condition keeps an aggregate boundary even if one summary is positive; the current boundary
+key cannot identify which sibling was proved. This conservative rule makes the earlier coverage
+claim true without treating a positive may-path as exhaustive. The shared validator uses the
+same derivation. Compiler output version 67; full path-specific origin closure remains open.
+
 **Implemented and Tested in focused cases (ADR-0034, 2026-09-25, summary proof identity):**
 `summary_flows` now keys on a canonical path id computed from callable, formal, input/output
 paths, transfer kind, condition, return site/region and ordered typed evidence. `summary_flow_steps` stores the first

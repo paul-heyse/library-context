@@ -88,7 +88,9 @@ pub struct Published {
 /// 63: attributed source call SCCs have canonical callee-first component rows.
 /// 64: acyclic exact local wrappers compose unconditional callee value summaries.
 /// 65: bounded return-frame statuses gate nested finite normal-return summary seeds.
-pub const COMPILER_OUTPUT_VERSION: u32 = 66;
+/// 66: one cited literal-finally-pass frame admits a pending normal return.
+/// 67: an admitted summary cannot erase a sibling source contribution's open boundary.
+pub const COMPILER_OUTPUT_VERSION: u32 = 67;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

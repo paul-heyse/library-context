@@ -2347,12 +2347,22 @@ crate::relations! {
         );
 
     /// Unknown-is-not-absent for every same-callable parameter-origin return fact not admitted
-    /// by the finite direct producer. A crossed call takes the more specific transfer reason;
-    /// other shapes await their control/execution proof.
+    /// by the finite producer. Multiple distinct contributions may share the same raw fact and
+    /// condition: one positive proof cannot erase an unproved sibling. A crossed call takes the
+    /// more specific transfer reason; other shapes await their control/execution proof.
     summary_boundaries = "behavior:summary_boundaries",
         deps = ["value_flow_contributions", "flow_values", "summary_flows"],
         sql = format!(
-            "WITH remaining AS ( \
+            "WITH origin_counts AS ( \
+               SELECT snapshot_id, sink_function_node_id AS function_node_id, parameter_node_id, \
+                      flow_value_fact_id AS source_flow_fact_id, condition_id, \
+                      COUNT(*) AS origin_count \
+               FROM value_flow_contributions \
+               WHERE parameter_node_id IS NOT NULL \
+                 AND function_node_id = sink_function_node_id \
+               GROUP BY snapshot_id, sink_function_node_id, parameter_node_id, \
+                        flow_value_fact_id, condition_id \
+             ), remaining AS ( \
                SELECT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                       v.parameter_node_id, v.flow_value_fact_id AS source_flow_fact_id, \
                       v.condition_id, v.through_call, v.local_through_call, \
@@ -2360,13 +2370,19 @@ crate::relations! {
                       f.approximated AS raw_approximated \
                FROM value_flow_contributions v \
                JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
+               JOIN origin_counts n ON n.snapshot_id = v.snapshot_id \
+                 AND n.function_node_id = v.sink_function_node_id \
+                 AND n.parameter_node_id = v.parameter_node_id \
+                 AND n.source_flow_fact_id = v.flow_value_fact_id \
+                 AND n.condition_id = v.condition_id \
                WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
                  AND v.function_node_id = v.sink_function_node_id \
                  AND NOT EXISTS (SELECT 1 FROM summary_flows s \
                      WHERE s.function_node_id = v.sink_function_node_id \
                        AND s.parameter_node_id = v.parameter_node_id \
                        AND s.source_flow_fact_id = v.flow_value_fact_id \
-                       AND s.condition_id = v.condition_id) \
+                       AND s.condition_id = v.condition_id \
+                       AND n.origin_count = 1) \
              ) SELECT snapshot_id, function_node_id, parameter_node_id, \
                       source_flow_fact_id, condition_id, \
                     CAST(CASE WHEN MAX(CASE WHEN through_call OR local_through_call \
