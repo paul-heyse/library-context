@@ -424,6 +424,67 @@ async fn handler_type_status_is_pinned_or_explicitly_unknown() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn unresolved_frames_withhold_raise_escape_guards() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([57; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["handlerpkg"]
+public_roots = ["handlerpkg"]
+[seeds]
+primary = ["handlerpkg.plain_raise"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw("handler_shapes", snapshot),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM raise_sites r JOIN declarations d \
+             ON d.node_id = r.function_node_id \
+             WHERE d.name IN ('opaque_with', 'finally_overrides', 'unrelated_handler') \
+             AND NOT r.escapes",
+        )
+        .await,
+        3,
+        "unresolved frame behavior cannot establish an escaping raise"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM raise_sites r JOIN declarations d \
+             ON d.node_id = r.function_node_id \
+             WHERE d.name = 'plain_raise' AND r.escapes",
+        )
+        .await,
+        1,
+        "an unframed explicit raise remains an escape witness"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn handler_clauses_and_actions_are_structural_and_validated() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([55; 16]);

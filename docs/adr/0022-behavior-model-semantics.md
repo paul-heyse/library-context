@@ -1,10 +1,10 @@
 ---
 id: ADR-0022
 title: The behavior model: a stated runtime flow abstraction, closed conditions, five verdicts, and models as data
-status: accepted
+status: superseded
 date: 2026-09-24
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0027
 design: [§B5, §B10, §3.2, §3.9, §9, §9.9]
 evidence: Proposed
 revisit: The structured evaluation finds a question class the closed condition language cannot express; or a ty upgrade breaks range parity or decides a test at index time that differs from runtime.

@@ -752,9 +752,9 @@ table!(
         /// The function's parameters whose value reaches a use inside a test of the condition
         /// (through the flow IR's reaching definitions), sorted.
         parameters: Vec<String>,
-        /// Whether the raise may leave its function: no enclosing `try` of the same function has
-        /// a handler that may catch it, and no enclosing `with` is over `suppress(...)`. Only an
-        /// escaping raise is a guard or a `raises_when` fate (ADR-0022 §Conditions).
+        /// A conservative escape witness: no enclosing `try` or `with` body in the same function
+        /// can alter this raise's fate. False means unknown, not caught. Only a witnessed escape
+        /// can become a guard or a `raises_when` fate (ADR-0022 §Conditions).
         escapes: bool,
     }
 );

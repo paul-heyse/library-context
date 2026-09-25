@@ -1312,8 +1312,11 @@ a null, and a positive answer states **may**-behavior:
 
 `established` and `conditional` admit may-behavior under the model; they do not prove a concrete
 execution exists. AMBIGUOUS is admitted, calls are assumed to return, primitive operators,
-f-strings and containers are computed directly, and context managers other than recognized
-`suppress` are assumed not to suppress. A negative needs complete may-analysis and its premise.
+f-strings and containers are computed directly. **Implemented and Tested in focused cases
+(2026-09-25; ADR-0027):** an explicit raise under a `try` or `with` body cannot establish
+escape until L2 proves the frame's action. An unframed raise retains its escape witness;
+`raise_sites.escapes = false` means unknown, not caught. A negative needs complete may-analysis
+and its premise.
 
 Discovery results (FCA, communities, vectors) carry no verdict: they are `statistically_derived`
 nominations.
@@ -1382,7 +1385,7 @@ A read reached from module scope through calls is Stage 3's.
 - The exports seed stays the checker view. An operation whose declaration the runtime cannot reach
   is `unknown` (`runtime_unreachable`).
 
-> Decision: ADR-0022
+> Decision: ADR-0022, ADR-0027
 
 ---
 
@@ -3019,6 +3022,12 @@ handler-match condition, and a body action may fail or branch. Exception matchin
 and completion remain Proposed. The integrated repository and pilot gates remain `not_run` for
 Stage 3.
 
+**Implemented and Tested in focused cases (2026-09-25; ADR-0027):** until those L2 fates are
+proved, an explicit raise inside a `try` or `with` body has no definite escape witness. The
+flow producer no longer parses handler/raised names from source text or assumes an opaque
+context manager cannot suppress. This is conservative withholding, not a caught-exception
+claim; an explicit unframed raise still establishes escape.
+
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
 - **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
   call the shared bounded diagram kernel. `summary_flows` and `summary_effects` reference
@@ -3061,7 +3070,7 @@ Stage 3.
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022, ADR-0024
+> Decision: ADR-0022, ADR-0024, ADR-0027
 
 ---
 
@@ -3740,3 +3749,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-24 | The review standard: §2's pointer moves from `ADDENDUM.md` to the library-context binding; charter and graph-guideline citations re-keyed to DP and CI IDs | ADR-0023 |
 | 2026-09-24 | Proposed Stage 3 kernel and serving design: bounded BDD conditions, typed proof links and same-generation native queries (§B10, §B13, §B14, §3.9, §9.9, §11.3). During design, editable native import and focused probes are the fast gate; clean wheel installation with a generation-pinned tool call waits for Stage 3.6 product acceptance, then repeats at release. | ADR-0024, ADR-0025 (proposed) |
 | 2026-09-24 | Development loop uses pinned stable Rust, 16 Cargo jobs, sccache with incremental off, Clang/mold, and the main working tree except for concurrent production-code edits (§1.2) | ADR-0026 (supersedes ADR-0001) |
+| 2026-09-25 | Stage 3 narrows raise escape to explicit unframed source sites; an unresolved `try` or `with` withholds definite escape until L2 proves the frame action (§3.9, §9.9) | ADR-0027 (supersedes ADR-0022's raise-escape shortcut; retains its other decisions) |

@@ -797,130 +797,9 @@ impl Model {
 
 /// A sink: its module, kind and span.
 type SinkKey = (Id, FlowSink, i64, i64);
-/// Where a raise may be caught in its function: (module, owner, body span, handler types, `None`
-/// being a bare `except` or a suppressing `with`).
-type Frame = (Id, Option<Id>, (i64, i64), Vec<Option<String>>);
-
-/// Python's builtin exception classes with their base (3.14): a raise of one is caught by a
-/// handler naming it or an ancestor.
-const BUILTIN_EXCEPTIONS: &[(&str, &str)] = &[
-    ("BaseException", ""),
-    ("BaseExceptionGroup", "BaseException"),
-    ("GeneratorExit", "BaseException"),
-    ("KeyboardInterrupt", "BaseException"),
-    ("SystemExit", "BaseException"),
-    ("Exception", "BaseException"),
-    ("ArithmeticError", "Exception"),
-    ("FloatingPointError", "ArithmeticError"),
-    ("OverflowError", "ArithmeticError"),
-    ("ZeroDivisionError", "ArithmeticError"),
-    ("AssertionError", "Exception"),
-    ("AttributeError", "Exception"),
-    ("BufferError", "Exception"),
-    ("EOFError", "Exception"),
-    ("ExceptionGroup", "Exception"),
-    ("ImportError", "Exception"),
-    ("ModuleNotFoundError", "ImportError"),
-    ("LookupError", "Exception"),
-    ("IndexError", "LookupError"),
-    ("KeyError", "LookupError"),
-    ("MemoryError", "Exception"),
-    ("NameError", "Exception"),
-    ("UnboundLocalError", "NameError"),
-    ("OSError", "Exception"),
-    ("IOError", "Exception"),
-    ("EnvironmentError", "Exception"),
-    ("BlockingIOError", "OSError"),
-    ("ChildProcessError", "OSError"),
-    ("ConnectionError", "OSError"),
-    ("BrokenPipeError", "ConnectionError"),
-    ("ConnectionAbortedError", "ConnectionError"),
-    ("ConnectionRefusedError", "ConnectionError"),
-    ("ConnectionResetError", "ConnectionError"),
-    ("FileExistsError", "OSError"),
-    ("FileNotFoundError", "OSError"),
-    ("InterruptedError", "OSError"),
-    ("IsADirectoryError", "OSError"),
-    ("NotADirectoryError", "OSError"),
-    ("PermissionError", "OSError"),
-    ("ProcessLookupError", "OSError"),
-    ("TimeoutError", "OSError"),
-    ("ReferenceError", "Exception"),
-    ("RuntimeError", "Exception"),
-    ("NotImplementedError", "RuntimeError"),
-    ("PythonFinalizationError", "RuntimeError"),
-    ("RecursionError", "RuntimeError"),
-    ("StopAsyncIteration", "Exception"),
-    ("StopIteration", "Exception"),
-    ("SyntaxError", "Exception"),
-    ("IndentationError", "SyntaxError"),
-    ("TabError", "IndentationError"),
-    ("SystemError", "Exception"),
-    ("TypeError", "Exception"),
-    ("ValueError", "Exception"),
-    ("UnicodeError", "ValueError"),
-    ("UnicodeDecodeError", "UnicodeError"),
-    ("UnicodeEncodeError", "UnicodeError"),
-    ("UnicodeTranslateError", "UnicodeError"),
-    ("Warning", "Exception"),
-    ("BytesWarning", "Warning"),
-    ("DeprecationWarning", "Warning"),
-    ("EncodingWarning", "Warning"),
-    ("FutureWarning", "Warning"),
-    ("ImportWarning", "Warning"),
-    ("PendingDeprecationWarning", "Warning"),
-    ("ResourceWarning", "Warning"),
-    ("RuntimeWarning", "Warning"),
-    ("SyntaxWarning", "Warning"),
-    ("UnicodeWarning", "Warning"),
-    ("UserWarning", "Warning"),
-];
-
-fn is_builtin_exception(name: &str) -> bool {
-    BUILTIN_EXCEPTIONS.iter().any(|(n, _)| *n == name)
-}
-
-/// A builtin exception's ancestors (itself aside), or `None` for a name that is not one.
-fn builtin_ancestors(name: &str) -> Option<Vec<&'static str>> {
-    let mut at = BUILTIN_EXCEPTIONS.iter().find(|(n, _)| *n == name)?.1;
-    let mut out = Vec::new();
-    while !at.is_empty() {
-        out.push(at);
-        at = BUILTIN_EXCEPTIONS
-            .iter()
-            .find(|(n, _)| *n == at)
-            .map_or("", |(_, p)| *p);
-    }
-    Some(out)
-}
-
-/// The simple names a handler's type names (`except (a.B, C):`), or `None` when it is not a
-/// name or a tuple of names (then it may catch anything).
-fn handler_names(text: &str) -> Option<Vec<String>> {
-    let inner = text.trim().trim_start_matches('(').trim_end_matches(')');
-    inner
-        .split(',')
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .map(|t| {
-            let ok = t
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '_' || c == '.');
-            ok.then(|| t.rsplit('.').next().unwrap_or(t).to_owned())
-        })
-        .collect()
-}
-
-/// The simple name of the class a `raise` statement raises (`raise a.B(...)` is `B`); `None` for a
-/// bare re-raise or anything but a name.
-fn raised_name(text: &str) -> Option<&str> {
-    let rest = text.trim_start().strip_prefix("raise")?.trim_start();
-    let end = rest
-        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
-        .unwrap_or(rest.len());
-    let name = rest[..end].rsplit('.').next()?;
-    (!name.is_empty()).then_some(name)
-}
+/// A frame whose body can change the fate of a raise: (module, owner, body span).
+/// Until L2 proves the handler or context-manager action, its interior cannot establish escape.
+type Frame = (Id, Option<Id>, (i64, i64));
 
 /// Per function, each guard that raises: its statement's start and the normal path past it (the
 /// guard's condition negated).
@@ -1228,7 +1107,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         }
     }
 
-    // A class's MRO (our edges, the class itself aside), and the release classes by simple name.
+    // A class's MRO (our edges, the class itself aside).
     let mro: HashMap<Id, BTreeSet<Id>> = ancestry_rows.iter().fold(HashMap::new(), |mut m, r| {
         if r.ancestor_node_id != r.class_node_id {
             m.entry(r.class_node_id)
@@ -1237,20 +1116,9 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         }
         m
     });
-    let mut classes_named: HashMap<&str, Vec<Id>> = HashMap::new();
-    for f in function_rows
-        .iter()
-        .filter(|f| f.kind == DeclarationKind::Class)
-    {
-        classes_named
-            .entry(f.name.as_str())
-            .or_default()
-            .push(f.node_id);
-    }
-
-    // Where a raise may be caught inside its own function (ADR-0022 §Conditions; the Stage 2 end
-    // review's R6): the body of a `try` with a handler that may catch it, or of a `with` over
-    // `suppress(...)`. Other context managers are assumed not to suppress (Stage 3's models).
+    // A try/finally may override an exception, and any context manager may suppress it. Until
+    // resolved L2 actions prove otherwise, an enclosed raise cannot become a definite escape
+    // or a negative guard. This deliberately withholds even when handler names differ.
     let mut clauses_of: BTreeMap<Id, Vec<&ClauseRow>> = BTreeMap::new();
     for c in &clause_rows {
         clauses_of.entry(c.parent_node_id).or_default().push(c);
@@ -1270,77 +1138,19 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         let Some(body) = span_of(cs, SyntaxField::Body) else {
             continue;
         };
-        match first.parent_kind {
-            SyntaxKind::StmtTry => {
-                let handlers: Vec<Option<String>> = cs
-                    .iter()
-                    .filter(|c| c.field == SyntaxField::Handler)
-                    .map(|h| {
-                        clauses_of
-                            .get(&h.node_id)
-                            .and_then(|hc| hc.iter().find(|c| c.field == SyntaxField::Test))
-                            .and_then(|t| {
-                                text_of(&texts, t.module_node_id, t.start_byte, t.end_byte)
-                            })
-                            .map(str::to_owned)
-                    })
-                    .collect();
-                if !handlers.is_empty() {
-                    frames.push((first.module_node_id, first.owner_node_id, body, handlers));
-                }
-            }
-            SyntaxKind::StmtWith => {
-                let suppresses = cs.iter().filter(|c| c.field == SyntaxField::Item).any(|i| {
-                    text_of(&texts, i.module_node_id, i.start_byte, i.end_byte)
-                        .is_some_and(|t| t.contains("suppress("))
-                });
-                if suppresses {
-                    frames.push((first.module_node_id, first.owner_node_id, body, vec![None]));
-                }
-            }
-            _ => {}
+        if matches!(
+            first.parent_kind,
+            SyntaxKind::StmtTry | SyntaxKind::StmtWith
+        ) {
+            frames.push((first.module_node_id, first.owner_node_id, body));
         }
     }
-    let release_class = |n: &str| classes_named.contains_key(n);
-    let may_catch = |handler: &Option<String>, raised: Option<&str>| -> bool {
-        let Some(text) = handler else { return true };
-        let Some(names) = handler_names(text) else {
-            return true;
-        };
-        let Some(n) = raised else { return true };
-        names.iter().any(|h| {
-            if h == "Exception" || h == "BaseException" || h == n {
-                return true;
-            }
-            if let Some(chain) = builtin_ancestors(n) {
-                // A builtin is caught by a builtin ancestor; an unknown name may alias one.
-                return chain.contains(&h.as_str())
-                    || (!is_builtin_exception(h) && !release_class(h));
-            }
-            match classes_named.get(n).map(Vec::as_slice) {
-                Some([id]) => {
-                    let ancestor = mro
-                        .get(id)
-                        .into_iter()
-                        .flatten()
-                        .any(|a| function.get(a).is_some_and(|f| f.name == *h));
-                    // A release class not in its MRO cannot catch it; a builtin or unknown one
-                    // may, through a base outside the release.
-                    ancestor || !release_class(h)
-                }
-                _ => true,
-            }
-        })
-    };
     let escapes = |r: &RaiseRow| -> bool {
-        let raised =
-            text_of(&texts, r.module_node_id, r.start_byte, r.end_byte).and_then(raised_name);
-        !frames.iter().any(|(module, owner, (s, e), handlers)| {
+        !frames.iter().any(|(module, owner, (s, e))| {
             *module == r.module_node_id
                 && *owner == Some(r.owner_node_id)
                 && *s <= r.start_byte
                 && r.end_byte <= *e
-                && handlers.iter().any(|h| may_catch(h, raised))
         })
     };
 
