@@ -1,38 +1,32 @@
 # Status
 
-_Updated 2026-09-24 under the handoff skill. Work is on `main`; no push was requested._
+_Updated 2026-09-24 under the handoff skill. Work is on `main`._
 
 ## Where we are
 
-- The separate Z3 migration installed LLVM/Clang/LLD 23.1.2 linked to Z3 5.1 and migrated the vLLM service's TileLang/Z3 pair. See [migration evidence](docs/design_review/evidence/2026-09-24_z3-5-migration/README.md). Repository work for this migration stopped at the user's request; host cleanup is an operator-run script.
-- The active scope is [the behavioral-model forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 2.9 is complete: ADR-0022 is accepted, the compact re-review and Stage 2 structured evaluation passed, and the live pilot smoke passed.
-- Stage 3 is in **design and focused-probe mode** by operator direction. The BDD spike (`2da15a6`) and the bounded kernel/native developer-probe foundation (`f2549cb`) are committed. ADR-0024 and ADR-0025 remain **proposed**. The [standard design review](docs/design_review/reviews/design_review_stage3_kernel_serving_standard_2026-09-24.md) accepts their corrected proposal, including the F05 leaf-identity correction at design level; the [compact review](docs/design_review/reviews/design_review_stage3_0_kernel_native_compact_2026-09-24.md) accepts only the foundation slice.
-- The user chose ADRs and focused probes for this phase. The proposed serving design permits bounded Rust semantic queries over one pinned generation, replacing ADR-0010's materialized-only executor constraint. Editable native import and focused tests are the design loop; one clean wheel install and generation-pinned tool call wait for Stage 3.6 product acceptance, then repeat at release. The wheel/archive and isolated wheel-test environment created during this session were removed.
+- The active scope is [the behavioral-model forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Stage 2.9 is complete. Stage 3.0 now has exact BDD conditions and leaf identities persisted through Delta and FORMAT 6, validated native graph loading, and attributed `flow_test_types` observations. The [persisted-graph compact review](docs/design_review/reviews/design_review_stage3_0_persisted_graph_native_load_compact_2026-09-24.md) accepts that scoped path; the [test-type compact review](docs/design_review/reviews/design_review_stage3_0_test_type_observation_compact_2026-09-24.md) accepts observations with a remaining served-proof boundary.
+- ADR-0024 and ADR-0025 remain proposed. Native `probe_*` calls are developer smoke, not served compatibility verdicts. Editable native import and focused probes are the design loop; a clean wheel install and generation-pinned tool call wait for Stage 3.6 product acceptance.
+- Commit `0eedcaa` makes stable Rust 1.98.1, 16 Cargo jobs, sccache, incremental compilation off, and Clang/mold the development defaults (ADR-0026). Routine work stays on `main` in the current tree; a worktree is for truly concurrent production-code edits. The [single-run build screen](docs/design_review/evidence/2026-09-24_rust-build-performance/README.md) does not establish the final configuration's speed.
+- The separate Z3/LLVM system migration is documented in [its evidence](docs/design_review/evidence/2026-09-24_z3-5-migration/README.md); its product acceptance boundaries are separate from this build-configuration slice.
 
 ## Last verified (2026-09-24)
 
 | Command | Outcome |
 |---|---|
-| `cargo test -p cpg-schema condition_kernel --lib --quiet` | passed: 8/8 bounded-kernel tests |
-| `uv run pytest python/lctx_mcp/tests/test_native_semantics.py -q` | passed: 1/1 editable native developer smoke |
-| `just test-all` at `f2549cb` | passed: 277/277 Rust, fixture generation 1/1, 94/94 Python, Pyrefly, 7/7 rules, 25 ADRs, 65 fixture parses, dependency/fork/shear/gold checks |
-| `just pilot` at `f2549cb` | passed: snapshot `ecf8b9cdc11ebaf4c1dae61fa9b35dee`, generation `88660525d69030df`, 20/20 FastMCP smoke; 44.9 s total, 4,227 MiB peak RSS. Compiler still uses Stage 2 DNF |
-| `CARGO_TARGET_DIR="$PWD/target" cargo run --locked --manifest-path docs/design_review/evidence/2026-09-24_bdd-pilot-survey/Cargo.toml -- build/store ecf8b9cdc11ebaf4c1dae61fa9b35dee` | passed: 13,775/13,775 stated conditions converted and validated in 0.97 s; p95 8, max 53 nodes per root; 23,760 unique node ids; one `SourceOverBudget` sentinel |
-| `cargo test -p cpg-flow --test flow_shapes --quiet` | passed: 28/28 existing Stage 2 flow shape checks; the read-only test-leaf join probe inspected pilot compound and fixture `match` cases |
-| `lctx query --store build/store --snapshot ecf8b9cdc11ebaf4c1dae61fa9b35dee` duplicate-`flow_uses.use_id` count | passed: 0 duplicate IDs in this pilot snapshot; source-use role remains unproved |
-| `target/release/lctx flow docs/design_review/evidence/2026-09-24_entry-value-bridge/probe.py` | passed: direct, rebind, post-call and nonlocal-write cases inspected; reaching alone does not establish cross-call value stability |
-| `just adr lint`; `just adr revisit`; `git diff --check` | passed: 25 ADR records, dependency revisit check, no whitespace errors |
-| `just check` for this design-only slice | not_run: operator chose ADRs and focused probes; the last broader gate is the `just test-all` result above |
-| Z3 migration qualification | passed: 13 Clang Z3 tests; installed LLVM SMTAPI probe; 5 installed TileLang solver/CUDA tests; service imports, lock and dependency checks |
-| Separate migration `just check` | interrupted at user request during Python fixture generation, after 278/278 Rust tests passed; full gate not established |
+| `just test-all` at the reviewed persisted-graph checkpoint | passed: 283/283 Rust, fixture generation, 96/96 Python, Pyrefly, rules, ADR/agent lint, fixtures, dependencies and gold |
+| `just pilot build/store-stage3-bdd-format6-final` at that checkpoint | passed: snapshot `226d70b7c94aabca98de16a0be968229`, generation `b31985ff58878132`, 20/20 smoke; zero `budget_reached` behaviors |
+| Focused test-type checks in the compact review | passed: flow leaf attribution, extractor type-row identity, and publication-link tamper rejection |
+| `uv run pytest tests/scripts/test_build_measurements.py -q` | passed: 5/5 after adapting uncached controls to the default wrapper |
+| `just adr lint`; `just lint-agents`; `git diff --check` | passed: 26 ADRs, instruction parity, no whitespace errors |
+| `just test-all` at `0eedcaa` | failed by operator interruption during Nextest: Clippy passed, 284/285 Rust tests passed, one long test received SIGINT; remaining gate steps did not run. No product-test assertion failed before interruption |
+| `just pilot` after `0eedcaa`; `just adr revisit` after ADR-0026 | not_run for this configuration slice at operator direction; no performance timing inferred from the interrupted gate |
 
 ## Open boundaries
 
-- The single Stage 2 `over_budget` condition row is referenced by 237 `flow_regions` and 846 `flow_reaching` facts across modules. Materialized-row conversion cannot recover those distinct source expressions. Construct BDDs in `cpg-flow` **before** DNF truncation, migrate `flow_model` with the root/node schema, then measure whether the 66 recorded `budget_reached` claims fall.
-- BDD nodes are not yet a published Delta or serving-bundle relation; the proposed `flow_test_leaves` row/key contract, typed test-use observations, exact-value/effect-stability proofs, generation-pinned semantic queries, models catalog, handlers/callbacks/resources, SCC summaries, Pysa differential, and Stage 3 structured exit evaluation are **not_run/not implemented**. The native `probe_*` calls are developer smoke only, not FastMCP verdicts.
-- ADR-0024/0025 remain proposed; ADR-0020 remains proposed on its separate increment-5 trigger. No new manual revisit trigger was established by this session. The standalone survey's own lock may differ in unrelated transitive packages from the product lock, so it is design evidence, not product acceptance.
-- Concurrent product changes, including `crates/cpg-schema/src/condition_kernel.rs`, are outside the Z3 migration and were preserved. The migration did not run full vLLM serving acceptance or privileged package cleanup.
+- Stage 3 still needs the cited operation-entry-to-test bridge, exact value/effect-stability proof, typed theory, served generation-pinned semantic queries, models and summaries, differential checks, and structured exit evaluation. The `flow_test_types` Pyrefly trace is an observation, not proof of an exact runtime class or a negative compatibility verdict. The persisted-graph review's F03 and test-type review's T02–T04 carry these boundaries.
+- ADR-0024/0025 remain proposed; ADR-0020 remains proposed on its increment-5 trigger. A stable 16-job, one-frontend-thread paired timing and cache recovery are not_run; ADR-0026 records the operator's chosen development defaults without claiming a speedup.
+- The interrupted `just test-all` is incomplete. The operator explicitly stopped full testing for the build-configuration changes. There is no task-owned Cargo, Nextest or rustc process left from that run.
 
 ## Next
 
-Probe exact source-use attribution for compound and synthetic pattern atoms against the proposed `flow_test_leaves` row contract; keep unproven mappings unknown. Then implement only the reviewed direct/no-effect proof in the later product slice. Keep broad packaging gates for the later product checkpoint.
+Continue the Stage 3 proof bridge from structurally attributed test leaves to operation-entry values, preserving `unknown` where source identity or effect stability is unproved. Use focused probes during design; run the broader product gate at its planned checkpoint.
