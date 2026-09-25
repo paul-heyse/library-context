@@ -12,6 +12,7 @@ _Updated 2026-09-25 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - FORMAT 7/native `inspect_value_paths` provides path-local inspection, not operation-wide compatibility/effect/role verdicts.
 
 - Documentation: ADR-0041 and the [execution/qualification plan](docs/plans/architectural-documentation-and-search_2026-09-25.md) implement focused section owners, mdBook/Pagefind search and isolated local/CI artifact commands (`b92857e`, `821173f`). Target and assembled reviews Accept; future reading/change-cost improvements remain Proposed.
+- Documentation migration: [execution plan](docs/plans/legacy-documentation-migration_2026-09-25.md) prepared (Proposed, 2026-09-25). It sequences review reconciliation, current rationale, legacy retirement and publication cleanup. Migration has not started; product findings remain open. Draft validation: `just docs-check` passed (212 pages, zero link errors); product gates `not_run` for planning.
 
 ## Last verified (2026-09-25)
 
