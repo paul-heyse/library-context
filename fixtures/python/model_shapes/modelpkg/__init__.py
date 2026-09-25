@@ -60,3 +60,23 @@ def json_text(value: object) -> str:
 
 def json_write(value: object, stream) -> None:
     json.dump(value, stream)
+
+
+def plain_identity(value: object) -> object:
+    return value
+
+
+async def async_identity(value: object) -> object:
+    return value
+
+
+def generator_identity(value: object):
+    yield value
+    return value
+
+
+def framed_identity(value: object) -> object:
+    try:
+        return value
+    finally:
+        pass

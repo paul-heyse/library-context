@@ -193,6 +193,12 @@ pub const REFERENCES: &[Reference] = &[
     r("modeled_assignment_return_paths", "predecessor_condition_id", &[("analysis_conditions", "condition_id")]),
     r("modeled_assignment_return_paths", "reaching_condition_id", &[("conditions", "condition_id")]),
     r("modeled_assignment_return_paths", "successor_condition_id", &[("analysis_conditions", "condition_id")]),
+    r("summary_flows", "function_node_id", &[("declarations", "node_id")]),
+    r("summary_flows", "parameter_node_id", &[("parameter_syntax", "node_id")]),
+    r("summary_flows", "condition_id", &[("analysis_conditions", "condition_id")]),
+    r("summary_flows", "source_flow_fact_id", &[("flow_values", "fact_id")]),
+    r("summary_flows", "return_site_fact_id", FACT),
+    r("summary_flows", "return_region_fact_id", FACT),
     r(
         "model_exceptions",
         "class_node_id",

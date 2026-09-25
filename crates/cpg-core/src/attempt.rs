@@ -76,7 +76,8 @@ pub struct Published {
 /// 51: bounded BDD compatibility of cited predecessor-path conditions.
 /// 52: exact model-call steps apply to whole definition values as well as whole returns.
 /// 53: cite a condition-checked identity return from a whole-assignment modeled value.
-pub const COMPILER_OUTPUT_VERSION: u32 = 53;
+/// 54: finite direct identity-return summary seeds with structural condition decisions.
+pub const COMPILER_OUTPUT_VERSION: u32 = 54;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -764,7 +765,7 @@ async fn finish(
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
+            RaiseSites, Singletons, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -858,6 +859,8 @@ async fn finish(
         )
         .await?;
         write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
+        let summary_flows = crate::summaries::direct_flows(&ctx).await?;
+        write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summary_flows, w).await?;
         let handler_clauses = crate::sql::fetch(
             &ctx,
             &cpg_schema::behavior::handler_clauses(),

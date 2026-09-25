@@ -1320,6 +1320,16 @@ codebook!(
 );
 
 codebook!(
+    /// What a finite callable summary says reaches its output (DESIGN §9.9). The kind alone
+    /// does not certify call completion or exhaustive candidate coverage.
+    SummaryFlowKind = "summary_flow_kind" {
+        Value = 0 => "value",
+        Transform = 1 => "transform",
+        Constant = 2 => "constant",
+    }
+);
+
+codebook!(
     /// What a flow value source's sink is (ADR-0022 §The flow provider; `cpg_flow::Sink`).
     FlowSink = "flow_sink" {
         /// A definition's value: an assignment's right-hand side, a walrus's value, an
@@ -1636,6 +1646,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<HandlerTypeStatus>(),
         CodebookEntry::of::<ModelArgumentStatus>(),
         CodebookEntry::of::<ModeledHandlerClassMatch>(),
+        CodebookEntry::of::<SummaryFlowKind>(),
     ]
 }
 

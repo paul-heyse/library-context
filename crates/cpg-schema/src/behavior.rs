@@ -34,7 +34,7 @@ use crate::codebook::{
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
     ModelTransferKind, ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind,
-    PremiseKind, ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    PremiseKind, ReadPhase, SourceRole, SummaryFlowKind, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -1176,6 +1176,36 @@ table!(
 );
 
 table!(
+    /// Finite source-to-output may-flow of one callable, with a lossless condition root and
+    /// source witness. The first producer admits only direct synchronous body returns whose
+    /// raw value is a local parameter identity with no crossed call. Other summary cases are
+    /// added only after their call and exit proofs exist.
+    SummaryFlows, SummaryFlowsRow = "summary_flows",
+    family = Findings,
+    key = [snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id],
+    checks = [
+        ("boundary_iff_unknown", "(verdict = 3 AND boundary_reason IS NOT NULL) OR (verdict IN (0, 1) AND boundary_reason IS NULL)"),
+        ("depth_nonnegative", "path_depth >= 0"),
+    ],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        input_path: String,
+        output_path: String,
+        kind: SummaryFlowKind,
+        condition_id: Id,
+        verdict: Verdict,
+        boundary_reason: Option<BoundaryReason>,
+        source_flow_fact_id: Id,
+        return_site_fact_id: Id,
+        return_region_fact_id: Id,
+        approximated: bool,
+        path_depth: i64,
+    }
+);
+
+table!(
     /// A conservative, cited identity bridge from a public operation's entry formal to the
     /// exact operand use of one source test. A Pyrefly type observation is not this proof.
     /// The initial origin permits only one direct reaching formal and no intervening effect.
@@ -1808,6 +1838,49 @@ crate::relations! {
                AND s.use_id = p.successor_use_id",
             definition_sink = FlowSink::Definition.code(),
             return_sink = FlowSink::Return.code(),
+        );
+
+    /// Initial finite summary seeds: an identity raw value returned directly from a
+    /// synchronous function body, with no local/inherited call crossing or generator yield.
+    /// The condition kernel decides whether each seed is admitted or bounded.
+    summary_flow_seeds = "behavior:summary_flow_seeds",
+        deps = ["value_flow_contributions", "flow_values", "flow_value_calls", "parameter_syntax",
+                "syntax_nodes", "declarations", "exit_sites"],
+        sql = format!(
+            "SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
+                    v.parameter_node_id, p.name AS parameter_name, \
+                    v.flow_value_fact_id AS source_flow_fact_id, v.condition_id, \
+                    e.source_fact_id AS return_site_fact_id, \
+                    e.region_fact_id AS return_region_fact_id, \
+                    (f.approximated OR e.approximated) AS approximated \
+             FROM value_flow_contributions v \
+             JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
+             JOIN parameter_syntax p ON p.node_id = v.parameter_node_id \
+               AND p.function_node_id = v.sink_function_node_id \
+             JOIN declarations d ON d.node_id = v.sink_function_node_id \
+               AND d.kind = {function_kind} \
+             JOIN syntax_nodes r ON r.owner_node_id = d.node_id \
+               AND r.parent_node_id = d.node_id AND r.field = {body_field} \
+               AND r.kind = {return_kind} AND r.module_node_id = f.module_node_id \
+               AND r.start_byte <= f.sink_start_byte AND r.end_byte >= f.sink_end_byte \
+             JOIN exit_sites e ON e.site_node_id = r.node_id \
+               AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             WHERE f.sink = {return_sink} AND f.identity AND NOT f.through_call \
+               AND v.identity AND v.upstream_identity AND NOT v.through_call \
+               AND NOT v.local_through_call AND NOT v.upstream_through_call \
+               AND NOT v.captured AND v.function_node_id = v.sink_function_node_id \
+               AND NOT EXISTS (SELECT 1 FROM flow_value_calls c \
+                 WHERE c.flow_value_fact_id = f.fact_id) \
+               AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
+                 WHERE y.owner_node_id = d.node_id \
+                   AND y.kind IN ({yield_kind}, {yield_from_kind}))",
+            function_kind = DeclarationKind::Function.code(),
+            body_field = crate::codebook::SyntaxField::Body.code(),
+            return_kind = SyntaxKind::StmtReturn.code(),
+            exit_return = ExitSiteKind::Return.code(),
+            return_sink = FlowSink::Return.code(),
+            yield_kind = SyntaxKind::ExprYield.code(),
+            yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
 
     /// A subjectless effect stays unqualified; a parameter subject needs an exact binding.

@@ -22,7 +22,7 @@ use cpg_schema::codebook::{
     HandlerTypeStatus, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
-    ModelTransferKind, ModeledHandlerClassMatch, Origin,
+    ModelTransferKind, ModeledHandlerClassMatch, Origin, Verdict,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -1373,6 +1373,34 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
+                 JOIN declarations d ON d.node_id = f.function_node_id \
+                 WHERE d.name = 'plain_identity' AND f.input_path = 'Parameter[value]' \
+                   AND f.output_path = 'ReturnValue' AND f.path_depth = 0 \
+                   AND f.verdict <> {} AND f.boundary_reason IS NULL",
+                Verdict::Unknown.code()
+            ),
+        )
+        .await,
+        1,
+        "a direct synchronous identity return has one finite condition-backed summary"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity', \
+                              'indirect_identity')",
+        )
+        .await,
+        0,
+        "deferred execution, finalizers and unproved model-call results cannot seed a positive flow"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM modeled_exact_value_transfers t \
              LEFT ANTI JOIN analysis_conditions c ON c.condition_id = t.condition_id",
         )
@@ -2104,6 +2132,26 @@ budget = 1
     );
     ctx.deregister_table("modeled_assignment_return_paths").unwrap();
     ctx.register_table("modeled_assignment_return_paths", original_assignment_paths)
+        .unwrap();
+
+    let original_summary_flows = sql::query(&ctx, "SELECT * FROM summary_flows")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_summary_flows = sql::query(&ctx, "SELECT * FROM summary_flows WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("summary_flows").unwrap();
+    ctx.register_table("summary_flows", missing_summary_flows)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "summary-flow-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("summary_flows").unwrap();
+    ctx.register_table("summary_flows", original_summary_flows)
         .unwrap();
 
     let original_predecessors = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_candidates")

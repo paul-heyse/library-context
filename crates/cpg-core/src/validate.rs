@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
     ModeledTransferSitesRow, ModeledExactValueTransfersRow, ModeledAssignmentReturnPathsRow,
-    ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
+    SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -121,6 +121,7 @@ pub async fn validate_costed(
     violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
     violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
+    violations.extend(validate_summary_flows(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -167,6 +168,8 @@ cpg_schema::relations! {
     stored_modeled_assignment_return_paths = "validate_stored_modeled_assignment_return_paths",
         deps = ["modeled_assignment_return_paths"],
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
+    stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
+        sql = "SELECT * FROM summary_flows".to_owned();
     value_flow_snapshot = "validate_value_flow_snapshot", deps = ["releases"],
         sql = "SELECT snapshot_id FROM releases".to_owned();
     value_flow_analysis_count = "validate_value_flow_analysis_count", deps = ["analysis_invocations"],
@@ -319,6 +322,41 @@ async fn validate_modeled_assignment_return_paths(
             rule: "modeled-assignment-return-path-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} paths; derived {}", actual.len(), expected.len()),
+        }])
+    }
+}
+
+/// Rebuild every finite direct-flow seed with the same bounded condition kernel used at write.
+async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<SummaryFlowsRow> =
+        sql::fetch(ctx, &stored_summary_flows(), sql::Params::new()).await?;
+    let mut expected = match crate::summaries::direct_flows(ctx).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            return Ok(vec![Violation {
+                rule: "summary-flow-input".to_owned(),
+                rows: 1,
+                sample: error.to_string(),
+            }]);
+        }
+    };
+    let key = |r: &SummaryFlowsRow| {
+        (
+            r.function_node_id,
+            r.parameter_node_id,
+            r.source_flow_fact_id,
+            r.condition_id,
+        )
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "summary-flow-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} summary flows; derived {}", actual.len(), expected.len()),
         }])
     }
 }

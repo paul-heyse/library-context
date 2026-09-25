@@ -495,6 +495,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ValueFlowPredecessorCandidates,
             $crate::behavior::ValueFlowPredecessorCompatibility,
             $crate::behavior::ModeledAssignmentReturnPaths,
+            $crate::behavior::SummaryFlows,
             $crate::behavior::FlowTestValueLinks,
             $crate::behavior::ModelTargets,
             $crate::behavior::ModelApplications,

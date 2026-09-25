@@ -4,12 +4,13 @@
 use std::collections::HashMap;
 
 use cpg_schema::behavior::{
-    AnalysisConditionNodesRow, AnalysisConditionsRow, ValueFlowPredecessorCandidatesRow,
-    ValueFlowPredecessorCompatibilityRow,
+    AnalysisConditionNodesRow, AnalysisConditionsRow, SummaryFlowsRow,
+    ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
-use cpg_schema::codebook::BoundaryReason;
-use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, KernelBoundary, hydrate_catalog};
+use cpg_schema::codebook::{BoundaryReason, SummaryFlowKind, Verdict};
+use cpg_schema::condition_kernel::{ConditionRoot, Diagram, DiagramNode, KernelBoundary, hydrate_catalog};
 use cpg_schema::id::Id;
+use cpg_schema::models::{InputPath, OutputPath};
 use datafusion::prelude::SessionContext;
 
 use crate::{CoreError, sql};
@@ -26,6 +27,20 @@ cpg_schema::relations! {
         sql = "SELECT * FROM analysis_condition_nodes".to_owned();
     predecessors = "summary_predecessors", deps = ["value_flow_predecessor_candidates"],
         sql = "SELECT * FROM value_flow_predecessor_candidates".to_owned();
+}
+
+cpg_schema::query_row! {
+    struct SummaryFlowSeed {
+        snapshot_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        parameter_name: String,
+        source_flow_fact_id: Id,
+        condition_id: Id,
+        return_site_fact_id: Id,
+        return_region_fact_id: Id,
+        approximated: bool,
+    }
 }
 
 cpg_schema::query_row! {
@@ -48,12 +63,71 @@ cpg_schema::query_row! {
 pub async fn predecessor_compatibility(
     ctx: &SessionContext,
 ) -> Result<Vec<ValueFlowPredecessorCompatibilityRow>, CoreError> {
+    let edges: Vec<ValueFlowPredecessorCandidatesRow> =
+        sql::fetch(ctx, &predecessors(), sql::Params::new()).await?;
+    let (diagrams, boundaries) = load_conditions(ctx).await?;
+    Ok(lctx_analytics::summaries::predecessor_compatibility(
+        &edges, &diagrams, &boundaries,
+    ))
+}
+
+/// The first finite summary case: a direct, synchronous body return of a local parameter.
+/// A bounded/missing condition is a named unknown, never an admitted positive flow.
+pub async fn direct_flows(ctx: &SessionContext) -> Result<Vec<SummaryFlowsRow>, CoreError> {
+    let seeds: Vec<SummaryFlowSeed> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::summary_flow_seeds(),
+        sql::Params::new(),
+    )
+    .await?;
+    let (diagrams, boundaries) = load_conditions(ctx).await?;
+    Ok(seeds
+        .into_iter()
+        .filter_map(|seed| {
+            let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
+                Some(diagram) if diagram.is_false() => return None,
+                Some(diagram) if diagram.is_true() => (Verdict::Established, None),
+                Some(_) => (Verdict::Conditional, None),
+                None => (
+                    Verdict::Unknown,
+                    Some(
+                        boundaries
+                            .get(&seed.condition_id)
+                            .copied()
+                            .unwrap_or(BoundaryReason::MissingEvidence),
+                    ),
+                ),
+            };
+            Some(SummaryFlowsRow {
+                snapshot_id: seed.snapshot_id,
+                function_node_id: seed.function_node_id,
+                parameter_node_id: seed.parameter_node_id,
+                input_path: InputPath::Parameter {
+                    name: seed.parameter_name,
+                }
+                .render(),
+                output_path: OutputPath::ReturnValue.render(),
+                kind: SummaryFlowKind::Value,
+                condition_id: seed.condition_id,
+                verdict,
+                boundary_reason,
+                source_flow_fact_id: seed.source_flow_fact_id,
+                return_site_fact_id: seed.return_site_fact_id,
+                return_region_fact_id: seed.return_region_fact_id,
+                approximated: seed.approximated,
+                path_depth: 0,
+            })
+        })
+        .collect())
+}
+
+async fn load_conditions(
+    ctx: &SessionContext,
+) -> Result<(HashMap<Id, Diagram>, HashMap<Id, BoundaryReason>), CoreError> {
     let roots: Vec<AnalysisConditionsRow> =
         sql::fetch(ctx, &analysis_conditions(), sql::Params::new()).await?;
     let nodes: Vec<AnalysisConditionNodesRow> =
         sql::fetch(ctx, &analysis_condition_nodes(), sql::Params::new()).await?;
-    let edges: Vec<ValueFlowPredecessorCandidatesRow> =
-        sql::fetch(ctx, &predecessors(), sql::Params::new()).await?;
     let provider_roots: Vec<ProviderCondition> =
         sql::fetch(ctx, &provider_conditions(), sql::Params::new()).await?;
     let provider_nodes: Vec<ProviderNode> =
@@ -105,7 +179,5 @@ pub async fn predecessor_compatibility(
         }
     }
     diagrams.extend(hydrate_catalog(&provider_roots, &provider_nodes).map_err(CoreError::Analysis)?);
-    Ok(lctx_analytics::summaries::predecessor_compatibility(
-        &edges, &diagrams, &boundaries,
-    ))
+    Ok((diagrams, boundaries))
 }

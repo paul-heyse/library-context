@@ -3364,6 +3364,18 @@ admits only a may-path; call completion, handler/finally action and complete
 candidate selection still need L3. Publication reconstructs the relation.
 `COMPILER_OUTPUT_VERSION` is 53; integrated Stage 3 testing remains `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, finite summary base):**
+`summary_flows` begins with a narrow synchronous direct-body identity return
+of a local parameter, with no crossed call or generator yield. Each row cites
+its raw value fact, return syntax/region facts and recomposed structural BDD
+condition. The shared bounded kernel gives `established`, `conditional`, or a
+named `unknown`; a false condition yields no positive flow. Async returns,
+generators, nested frames and modeled-call candidates are withheld until L2/L3
+proves their execution and completion semantics. Shared publication validation
+reconstructs the rows. The `summary_flow_kind` codebook was appended and
+`COMPILER_OUTPUT_VERSION` is 54. Effect summaries, SCC composition and
+integrated Stage 3 testing remain open.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
