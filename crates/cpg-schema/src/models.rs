@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Deserialize;
 
 use crate::behavior::{
-    ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelResourcesRow, ModelTargetsRow,
-    ModelTransfersRow,
+    ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
+    ModelTargetsRow, ModelTransfersRow,
 };
 use crate::codebook::{
     DefinitionKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
@@ -549,6 +549,7 @@ pub struct CompiledRules {
     pub callbacks: Vec<ModelCallbacksRow>,
     pub resources: Vec<ModelResourcesRow>,
     pub exceptions: Vec<ModelExceptionsRow>,
+    pub formals: Vec<ModelFormalPathsRow>,
 }
 
 impl Catalog {
@@ -749,6 +750,40 @@ impl Catalog {
                     .opt_id(Some(target.model_id))
                     .i64(index as i64)
                     .finish_id();
+                let paths: Vec<(ModelPathRole, Id, Option<&str>)> = match rule {
+                    Rule::Transfer { from, to, .. } => vec![
+                        (ModelPathRole::Input, from.id(), from.formal()),
+                        (ModelPathRole::Output, to.id(), to.formal()),
+                    ],
+                    Rule::Effect { subject, .. } => subject
+                        .as_ref()
+                        .map(|path| (ModelPathRole::Input, path.id(), path.formal()))
+                        .into_iter()
+                        .collect(),
+                    Rule::Callback { callback, .. } => {
+                        vec![(ModelPathRole::Input, callback.id(), callback.formal())]
+                    }
+                    Rule::Resource { resource, .. } => {
+                        vec![(resource.role(), resource.id(), resource.formal())]
+                    }
+                    Rule::Exception { .. } => Vec::new(),
+                };
+                for (path_role, path_id, formal_name) in paths {
+                    if let Some(formal_name) = formal_name {
+                        out.formals.push(ModelFormalPathsRow {
+                            snapshot_id: target.snapshot_id,
+                            model_id: target.model_id,
+                            target_node_id: target.target_node_id,
+                            rule_id,
+                            target_definition_fact_id: target.target_definition_fact_id,
+                            revision: target.revision,
+                            path_id,
+                            path_role,
+                            formal_name: formal_name.to_owned(),
+                            origin: Origin::SyntheticModel,
+                        });
+                    }
+                }
                 match rule {
                     Rule::Transfer {
                         from,

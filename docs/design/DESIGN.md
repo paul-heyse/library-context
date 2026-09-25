@@ -3002,6 +3002,14 @@ reconstructs this join, and a shadowed builtin call has no application. This is 
 model applies at a call site, not evidence that a callback ran, a resource was released or a
 transfer completed. Those L2/L3 fates remain Proposed; the integrated gate is `not_run`.
 
+**Implemented and Tested in focused cases (2026-09-25, typed formal-path bridge):** the
+catalog compiler also publishes `model_formal_paths`, keyed by rule, typed path identity and
+input/output role. A row names a pinned formal only when the catalog AST path refers to one;
+return values and globals produce no false formal. All authored formals were already checked
+against every pinned Pysa signature, and the shared validator reconstructs these rows from
+committed model bytes. Source-argument binding remains Proposed; callers must not parse the
+rendered path string to fill that gap.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic

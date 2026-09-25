@@ -91,6 +91,28 @@ table!(
 );
 
 table!(
+    /// A formal named by a typed model path. The catalog compiler emits this from its input or
+    /// output path AST, never by parsing the path's display spelling. It permits later source
+    /// argument binding without introducing a second model grammar.
+    ModelFormalPaths, ModelFormalPathsRow = "model_formal_paths",
+    family = Findings,
+    key = [snapshot_id, model_id, target_node_id, rule_id, path_role, path_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        model_id: Id,
+        target_node_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        revision: i64,
+        path_id: Id,
+        path_role: ModelPathRole,
+        formal_name: String,
+        origin: Origin,
+    }
+);
+
+table!(
     /// Authored callback action of a pinned external definition. `callback_path_id` is the
     /// canonical typed path's identity; `callback_path` is display only.
     ModelCallbacks, ModelCallbacksRow = "model_callbacks",

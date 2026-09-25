@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table model_formal_paths
+family findings
+key snapshot_id, model_id, target_node_id, rule_id, path_role, path_id
+@lctx.family=findings
+@lctx.table=model_formal_paths
+snapshot_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+target_definition_fact_id: FixedSizeBinary(16) NOT NULL
+revision: Int64 NOT NULL
+path_id: FixedSizeBinary(16) NOT NULL
+path_role: Int16 NOT NULL [lctx.codebook=model_path_role]
+formal_name: Utf8 NOT NULL
+origin: Int16 NOT NULL [lctx.codebook=origin]

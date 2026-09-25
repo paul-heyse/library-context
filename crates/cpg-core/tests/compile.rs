@@ -114,7 +114,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 45,
+        52 + 21 + 46,
         "every raw, derived and analysis table"
     );
 
@@ -767,6 +767,11 @@ budget = 1
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_callbacks").await, 1);
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_resources").await, 1);
     assert_eq!(
+        count(&ctx, "SELECT count(*) FROM model_formal_paths").await,
+        3,
+        "the cast input and two atexit func paths are compiled from typed model ASTs"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
         4,
         "each pinned model applies only at its resolved source call"
@@ -839,6 +844,36 @@ budget = 1
     );
     ctx.deregister_table("model_applications").unwrap();
     ctx.register_table("model_applications", original_applications)
+        .unwrap();
+
+    let original_formals = sql::query(&ctx, "SELECT * FROM model_formal_paths")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_formals = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (formal_name), '' AS formal_name FROM model_formal_paths",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("model_formal_paths").unwrap();
+    ctx.register_table("model_formal_paths", doctored_formals)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (formal_rule,) = ("semantic:model-formal-path-source",);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-formal-path-equality"),
+        "{violations:?}"
+    );
+    assert!(
+        violations.iter().any(|v| v.rule == formal_rule),
+        "{violations:?}"
+    );
+    ctx.deregister_table("model_formal_paths").unwrap();
+    ctx.register_table("model_formal_paths", original_formals)
         .unwrap();
 
     let doctored = sql::query(

@@ -174,6 +174,8 @@ key:model_targets
   SELECT snapshot_id, model_id, target_node_id, count(*) AS n FROM model_targets GROUP BY snapshot_id, model_id, target_node_id HAVING count(*) > 1
 key:model_applications
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, count(*) AS n FROM model_applications GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id HAVING count(*) > 1
+key:model_formal_paths
+  SELECT snapshot_id, model_id, target_node_id, rule_id, path_role, path_id, count(*) AS n FROM model_formal_paths GROUP BY snapshot_id, model_id, target_node_id, rule_id, path_role, path_id HAVING count(*) > 1
 key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:model_effects
@@ -346,6 +348,12 @@ ref:model_applications.target_module_fact_id->facts
   SELECT f.target_module_fact_id AS value FROM model_applications f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_module_fact_id = r.k WHERE f.target_module_fact_id IS NOT NULL
 ref:model_applications.target_definition_fact_id->facts
   SELECT f.target_definition_fact_id AS value FROM model_applications f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:model_formal_paths.target_node_id->model_targets
+  SELECT f.target_node_id AS value FROM model_formal_paths f LEFT ANTI JOIN (SELECT target_node_id AS k FROM model_targets) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:model_formal_paths.model_id->model_targets
+  SELECT f.model_id AS value FROM model_formal_paths f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:model_formal_paths.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM model_formal_paths f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
 ref:model_transfers.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_transfers.target_definition_fact_id->facts
@@ -874,6 +882,10 @@ codebook:model_applications.phase
   SELECT phase FROM model_applications WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
 codebook:model_applications.model_origin
   SELECT model_origin FROM model_applications WHERE model_origin IS NOT NULL AND model_origin NOT IN (0, 1, 2, 3, 4)
+codebook:model_formal_paths.path_role
+  SELECT path_role FROM model_formal_paths WHERE path_role IS NOT NULL AND path_role NOT IN (0, 1)
+codebook:model_formal_paths.origin
+  SELECT origin FROM model_formal_paths WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:model_transfers.transfer
   SELECT transfer FROM model_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:model_transfers.modality
@@ -1008,6 +1020,8 @@ semantic:flow-reaching-within-candidates
   SELECT fr.use_id FROM flow_reaching fr JOIN flow_uses u ON u.use_id = fr.use_id JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte JOIN flow_definitions d ON d.definition_id = fr.definition_id JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte LEFT ANTI JOIN reference_resolutions rr ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id
 semantic:model-target-provenance
   SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
+semantic:model-formal-path-source
+  SELECT p.rule_id FROM model_formal_paths p LEFT JOIN model_targets m ON m.model_id = p.model_id AND m.target_node_id = p.target_node_id AND m.target_definition_fact_id = p.target_definition_fact_id AND m.revision = p.revision WHERE m.model_id IS NULL OR p.formal_name = '' OR p.origin <> 4
 semantic:model-application-boundary
   SELECT a.call_site_node_id FROM model_applications a LEFT JOIN model_targets m ON m.model_id = a.model_id AND m.target_node_id = a.target_node_id AND m.target_definition_fact_id = a.target_definition_fact_id AND m.target_module_fact_id = a.target_module_fact_id AND m.revision = a.revision LEFT JOIN resolutions r ON r.call_site_node_id = a.call_site_node_id AND r.call_fact_id = a.call_fact_id WHERE m.model_id IS NULL OR r.call_site_node_id IS NULL OR a.candidate_set_complete_under_model <> r.candidate_set_complete_under_model OR a.has_unresolved_remainder <> r.has_unresolved_remainder OR (a.candidate_set_complete_under_model AND a.has_unresolved_remainder) OR a.model_origin <> 4
 semantic:model-transfer-target

@@ -158,6 +158,17 @@ pub const REFERENCES: &[Reference] = &[
     r("model_applications", "target_module_fact_id", FACT),
     r("model_applications", "target_definition_fact_id", FACT),
     r(
+        "model_formal_paths",
+        "target_node_id",
+        &[("model_targets", "target_node_id")],
+    ),
+    r(
+        "model_formal_paths",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r("model_formal_paths", "target_definition_fact_id", FACT),
+    r(
         "model_transfers",
         "target_node_id",
         &[("context_definitions", "symbol_node_id")],
@@ -461,6 +472,18 @@ fn semantic() -> Vec<Rule> {
                  LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id \
                    AND m.module_node_id = d.module_node_id \
                  WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:model-formal-path-source",
+            format!(
+                "SELECT p.rule_id FROM model_formal_paths p \
+                 LEFT JOIN model_targets m ON m.model_id = p.model_id \
+                   AND m.target_node_id = p.target_node_id \
+                   AND m.target_definition_fact_id = p.target_definition_fact_id \
+                   AND m.revision = p.revision \
+                 WHERE m.model_id IS NULL OR p.formal_name = '' OR p.origin <> {}",
                 crate::codebook::Origin::SyntheticModel.code()
             ),
         ),

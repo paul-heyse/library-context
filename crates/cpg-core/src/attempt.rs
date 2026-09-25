@@ -57,8 +57,8 @@ pub struct Published {
 /// except clauses and direct handler actions. 26: authored typed effects and their pinned binding.
 /// 27: typed callback, resource and exception model assertions. 28: cited handler type status.
 /// 29: unresolved try/with frames withhold definite raise escape (ADR-0027).
-/// 30: cited model applications at source call sites.
-pub const COMPILER_OUTPUT_VERSION: u32 = 30;
+/// 30: cited model applications at source call sites. 31: typed model formal paths.
+pub const COMPILER_OUTPUT_VERSION: u32 = 31;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -597,6 +597,14 @@ async fn finish(
         root,
         snapshot_id,
         &models.rules.exceptions,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<cpg_schema::behavior::ModelFormalPaths>(
+        &ctx,
+        root,
+        snapshot_id,
+        &models.rules.formals,
         &mut written,
     )
     .await?;

@@ -492,6 +492,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::FlowTestValueLinks,
             $crate::behavior::ModelTargets,
             $crate::behavior::ModelApplications,
+            $crate::behavior::ModelFormalPaths,
             $crate::behavior::ModelTransfers,
             $crate::behavior::ModelEffects,
             $crate::behavior::ModelCallbacks,

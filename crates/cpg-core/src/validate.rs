@@ -13,9 +13,9 @@ use std::time::Instant;
 use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
     HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelCallbacksRow, ModelEffectsRow,
-    ModelExceptionsRow, ModelResourcesRow, ModelTargetsRow, ModelTransfersRow,
+    ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow, ModelTargetsRow, ModelTransfersRow,
 };
-use cpg_schema::codebook::TestTypeOrigin;
+use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::{Id, IdHasher};
@@ -232,6 +232,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM model_targets".to_owned();
     model_applications = "validate_model_applications", deps = ["model_applications"],
         sql = "SELECT * FROM model_applications".to_owned();
+    model_formal_paths = "validate_model_formal_paths", deps = ["model_formal_paths"],
+        sql = "SELECT * FROM model_formal_paths".to_owned();
     model_transfers = "validate_model_transfers", deps = ["model_transfers"],
         sql = "SELECT * FROM model_transfers".to_owned();
     model_effects = "validate_model_effects", deps = ["model_effects"],
@@ -261,6 +263,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_targets(), sql::Params::new()).await?;
     let mut actual_applications: Vec<ModelApplicationsRow> =
         sql::fetch(ctx, &model_applications(), sql::Params::new()).await?;
+    let mut actual_formals: Vec<ModelFormalPathsRow> =
+        sql::fetch(ctx, &model_formal_paths(), sql::Params::new()).await?;
     let mut actual_transfers: Vec<ModelTransfersRow> =
         sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
     let mut actual_effects: Vec<ModelEffectsRow> =
@@ -273,6 +277,7 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_exceptions(), sql::Params::new()).await?;
     let all_empty = actual_targets.is_empty()
         && actual_applications.is_empty()
+        && actual_formals.is_empty()
         && actual_transfers.is_empty()
         && actual_effects.is_empty()
         && actual_callbacks.is_empty()
@@ -311,6 +316,24 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
     expected_applications
         .sort_by_key(|row| (row.call_site_node_id, row.pysa_fact_id, row.model_id));
     actual_applications.sort_by_key(|row| (row.call_site_node_id, row.pysa_fact_id, row.model_id));
+    expected.formals.sort_by_key(|row| {
+        (
+            row.model_id,
+            row.target_node_id,
+            row.rule_id,
+            row.path_role.code(),
+            row.path_id,
+        )
+    });
+    actual_formals.sort_by_key(|row| {
+        (
+            row.model_id,
+            row.target_node_id,
+            row.rule_id,
+            row.path_role.code(),
+            row.path_id,
+        )
+    });
     expected
         .transfers
         .sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
@@ -361,6 +384,17 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
                 "expected {} model call applications, stored {}",
                 expected_applications.len(),
                 actual_applications.len()
+            ),
+        });
+    }
+    if expected.formals != actual_formals {
+        violations.push(Violation {
+            rule: "model-catalog-formal-path-equality".into(),
+            rows: actual_formals.len().abs_diff(expected.formals.len()).max(1),
+            sample: format!(
+                "expected {} typed model formal paths, stored {}",
+                expected.formals.len(),
+                actual_formals.len()
             ),
         });
     }
