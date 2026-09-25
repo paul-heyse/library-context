@@ -1,0 +1,65 @@
+# Publication choices only. Architecture/lifecycle remain with their existing owners.
+[site]
+repository = "https://github.com/paul-heyse/library-context"
+branch = "main"
+base_url = "/"
+
+[tools]
+mdbook = "0.5.4"
+pagefind = "1.5.2"
+lychee = "0.24.2"
+
+[publication]
+entrypoints = ["README.md", "docs/README.md", "docs/design/README.md", "STATUS.md", "AGENTS.md", "docs/publishing.md"]
+current_work = ["docs/plans/behavioral-model-forward-plan_2026-09-24.md", "docs/plans/architectural-documentation-and-search_2026-09-25.md"]
+exclude = ["docs/lightweight_architectural_documentation_and_search_other_repo.md"]
+assets = []
+
+[titles]
+"docs/behavioral_model_pivot.md" = "Behavioral model pivot research"
+"docs/full_cpg_pipeline_external_review.md" = "Full CPG pipeline external review"
+
+[[collections]]
+title = "Start here"
+include = ["README.md", "STATUS.md", "AGENTS.md"]
+scope = "Current"
+[[collections]]
+title = "Documentation"
+include = ["docs/*.md"]
+scope = "Reference"
+[[collections]]
+title = "Architecture"
+include = ["docs/design/**/*.md"]
+scope = "Current"
+[[collections]]
+title = "Decisions"
+include = ["docs/adr/*.md"]
+scope = "Reference"
+[[collections]]
+title = "Work plans"
+include = ["docs/plans/**/*.md"]
+scope = "History"
+[[collections]]
+title = "Design standard"
+include = ["docs/design_review/design_principles/**/*.md"]
+scope = "History"
+[[collections]]
+title = "Reviews"
+include = ["docs/design_review/reviews/**/*.md"]
+scope = "History"
+[[collections]]
+title = "Evidence"
+include = ["docs/design_review/evidence/**/README.md"]
+scope = "History"
+[[collections]]
+title = "Initial research"
+include = ["docs/initial_plan/**/*.md"]
+scope = "History"
+[[collections]]
+title = "Process"
+include = [".claude/skills/README.md", ".claude/skills/adr/*.md", ".claude/skills/design-review/*.md", ".claude/skills/design-review-code-intelligence/*.md", ".claude/skills/handoff/*.md", ".claude/skills/pin-check/*.md", ".claude/agents/*.md"]
+scope = "Current"
+[[collections]]
+title = "Libraries"
+include = ["libraries/README.md"]
+scope = "Reference"

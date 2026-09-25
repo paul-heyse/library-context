@@ -1,0 +1,27 @@
+[book]
+title = "library-context"
+description = "Architecture, decisions and working context"
+authors = ["Paul Heyse"]
+language = "en"
+src = "src"
+
+[build]
+create-missing = false
+use-default-preprocessors = false
+
+[preprocessor.links]
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+no-section-label = true
+
+[output.html.fold]
+enable = true
+level = 0
+
+[output.html.search]
+enable = false
+
+[output.html.print]
+enable = false

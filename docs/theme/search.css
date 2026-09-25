@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
+/* Copyright (c) 2026 Paul Heyse */
+:root {
+    --pf-outline-focus: var(--links);
+    --pf-text: var(--fg);
+    --pf-background: var(--bg);
+    --pf-border: var(--table-border-color);
+    --pf-text-secondary: var(--fg);
+    --pf-text-muted: var(--fg);
+    --pf-hover: var(--quote-bg);
+    --pf-mark: var(--links);
+    --pf-font: var(--main-font);
+}
+.search-scope { display: block; margin: 0.5rem 0 1rem; color: var(--fg); font-family: var(--pf-font); font-size: 14px; }
+.search-scope select { margin-left: 0.5rem; color: var(--fg); background: var(--bg); }
+.build-context { font-size: 0.85em; opacity: 0.8; margin-top: 3rem; }
+.right-buttons pagefind-modal-trigger { display: inline-block; vertical-align: middle; }
+
+.local-reference-label { font-size: 0.85em; color: var(--fg); }

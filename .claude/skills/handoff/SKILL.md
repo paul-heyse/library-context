@@ -5,7 +5,7 @@ description: Update STATUS.md from the actual tree after work changes the projec
 
 # Handoff
 
-Keep STATUS.md within 60 lines. It is a current checkpoint; DESIGN owns architecture, ADRs own
+Keep STATUS.md within 60 lines. It is a current checkpoint; the architectural collection owns architecture, ADRs own
 rationale, reviews own dated evidence and the active plan owns scheduled findings' current status.
 The binding defines disposition transfer and closure. Link to that owner rather than maintaining
 another mutable finding list. Preserve historical receipts with their date and scope.
@@ -32,3 +32,6 @@ another mutable finding list. Preserve historical receipts with their date and s
 Read shared files again before writing. Preserve changes made by other work, and do not claim
 this session tested them. The tree establishes implemented state; a target remains labeled until
 implemented and supported by the appropriate evidence.
+
+For documentation work, record focused docs checks separately from product qualification and remote
+CI. Link the current plan; navigation and search selection must not become another progress list.

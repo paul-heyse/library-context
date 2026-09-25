@@ -117,11 +117,11 @@ rules-test:
 # ADR tooling: new <slug> [--title T] | supersede <ADR-NNNN> <slug> | index | lint | revisit
 [positional-arguments]
 adr *args:
-    @uv run python scripts/adr.py "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/adr.py "$@"
 
 # Claude/Codex parity and dead-reference check for agent instructions and skills
 lint-agents:
-    uv run python scripts/check_agents.py
+    uv run --no-project --offline --no-python-downloads python scripts/check_agents.py
 
 # Tool presence and versions (compare with docs/pins.md)
 doctor:
@@ -132,9 +132,30 @@ doctor:
     printf '%-14s ' ruff; uv run ruff --version
     printf '%-14s ' pyrefly; uv run pyrefly --version
     printf '%-14s ' python; uv run python --version
+    uv run --no-project --offline --no-python-downloads python scripts/docs.py doctor
 
 # Isolated build measurements: `preflight`, `capture <dir>`, `run <dir> --variant ...`, `report <dir>`.
 # `run` is the only subcommand that compiles the Rust workspace.
 [positional-arguments]
 bench-builds *args:
     @uv run --no-sync python scripts/build_measurements.py "$@"
+
+# Install declared documentation binaries and isolated test dependencies (network allowed)
+bootstrap-docs:
+    uv run --no-project python scripts/docs.py bootstrap
+
+# Build Markdown, Pagefind and offline link/fragment checks without product dependencies
+docs:
+    uv run --no-project --offline --no-python-downloads python scripts/docs.py build
+
+# Existing metadata checks plus a complete publication
+docs-check:
+    uv run --no-project --offline --no-python-downloads python scripts/docs.py check
+
+# Focused documentation/ADR regressions only
+docs-test:
+    uv run --no-project --offline --no-python-downloads python scripts/docs.py test
+
+# Build then serve the finished artifact; no watcher or reindex during serving
+docs-serve port="8000":
+    uv run --no-project --offline --no-python-downloads python scripts/docs.py serve --port {{port}}

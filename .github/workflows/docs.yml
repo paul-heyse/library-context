@@ -1,0 +1,59 @@
+name: Documentation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: &docs-paths
+      - 'docs/**'
+      - '*.md'
+      - '.claude/agents/**'
+      - '.claude/skills/**'
+      - '.agents/**'
+      - 'libraries/README.md'
+      - 'scripts/adr.py'
+      - 'scripts/design_sections.py'
+      - 'scripts/docs.py'
+      - 'scripts/repo_paths.py'
+      - 'scripts/check_agents.py'
+      - 'tests/scripts/test_adr.py'
+      - 'tests/scripts/test_design_sections.py'
+      - 'tests/scripts/test_docs.py'
+      - 'justfile'
+      - '.python-version'
+      - 'uv.lock'
+      - 'pyproject.toml'
+      - '.gitignore'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths: *docs-paths
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: false
+      - uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2.87.12
+        with:
+          tool: just@1.58.0,cargo-binstall
+      - name: Prepare documentation tools and isolated tests
+        run: just bootstrap-docs
+      - name: Test and publish documentation
+        run: |
+          just docs-test
+          just docs-check
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: library-context-docs
+          path: build/docs/site/
+          include-hidden-files: true # tracked process pages preserve .claude/ paths
+          if-no-files-found: error

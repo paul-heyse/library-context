@@ -1,5 +1,9 @@
 # Proposal: architectural documentation and search for library-context
 
+**Adoption update, 2026-09-25:** adopted through [ADR-0041](adr/0041-architectural-documentation.md).
+The [execution plan](plans/architectural-documentation-and-search_2026-09-25.md) owns implementation
+and qualification. The original proposal and baseline below are retained as dated context.
+
 **Status: Proposed · 2026-09-25.** This is a target-system proposal, not an adopted decision or
 implementation receipt. It builds on [ADR-0040](adr/0040-architecture-change-scenarios.md) and the
 supplied `docs/lightweight_architectural_documentation_and_search_other_repo.md`. All proposed

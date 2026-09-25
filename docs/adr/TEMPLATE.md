@@ -12,7 +12,7 @@ evidence: Proposed
 ## Context
 
 What forces this decision now; the expected change and affected owners/consumer contracts.
-Cite DESIGN sections and source findings where they carry the argument. Identify current
+Cite stable architectural section IDs and direct owner links and source findings where they carry the argument. Identify current
 implementation separately from the proposed target.
 
 ## Options
@@ -24,7 +24,7 @@ implementation separately from the proposed target.
 ## Decision
 
 State the selected responsibility/contract/mechanism so a future session can assess it.
-Amend governed DESIGN sections in the same commit, ending with `> Decision: ADR-NNNN`.
+Amend governed sections in DESIGN or the focused architectural collection in the same commit, ending with `> Decision: ADR-NNNN`.
 
 ## Consequences
 

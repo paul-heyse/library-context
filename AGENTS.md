@@ -26,15 +26,17 @@ real consumer.
 ## Start of session
 
 1. Read `STATUS.md`: where we are and what's next.
-2. For design questions, read `docs/design/DESIGN.md` (the current truth) and
-   `docs/adr/README.md` (why, and what was superseded). `docs/initial_plan/Initial_plan.md` is
+2. For design questions, start at `docs/design/README.md`, then read the relevant owner in
+   `docs/design/DESIGN.md` or `docs/design/sections/` and adjacent consumers. Read
+   `docs/adr/README.md` for rationale and supersession. `docs/initial_plan/Initial_plan.md` is
    the research input; don't edit it.
 
 ## Where things are
 
 | Path | What |
 |---|---|
-| `docs/design/DESIGN.md` | Current design. §2 holds the binding decisions §B1–§B14 |
+| `docs/design/DESIGN.md`, `docs/design/sections/` | Architectural collection; stable § IDs. DESIGN §2 holds §B1–§B14 |
+| `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
 | `docs/adr/` | Decision records, a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority |
@@ -60,6 +62,7 @@ real consumer.
 | Format (mutating) | `just fmt` |
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
+| Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | Tools present? | `just doctor` |
 
 The Rust toolchain is pinned to 1.98.1 in `rust-toolchain.toml`. The machine default is
@@ -133,7 +136,7 @@ capability is absent.
 ## Decisions and reviews
 
 - **Write an ADR** (the `adr` skill) when a change alters a §B decision, chooses between real
-  alternatives, or would surprise a future session. Amend DESIGN.md in the same commit. To pivot,
+  alternatives, or would surprise a future session. Amend the owning architectural section in the same commit. To pivot,
   supersede the old ADR; accepted ADRs are immutable.
 - **Design reviews** use `design-review` and its declared profiles, usually through the
   `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence

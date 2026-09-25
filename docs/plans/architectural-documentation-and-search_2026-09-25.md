@@ -12,9 +12,9 @@ reviews retain their existing owners; this work closes none of their product fin
 | P00 | ADR, DESIGN authority and this plan | Independent target review; preserve ADR-0040 | Complete |
 | P01 | Shared section resolver; move §3.9 and §9.9 | Unique owners, fences/stubs, cross-file decisions, legacy fragments, immutable ADR tests | Complete |
 | P02 | Root/docs/architecture entry pages | Task routes, ownership and target/implementation distinction | Complete |
-| P03 | Stdlib publisher, site/book declarations | Deterministic discovery, titles, one output/source, bounded assets and truthful source links | Pending |
-| P04 | Pagefind UI and transactional artifact | Current default, all scopes, heading links, root/prefix, offline fragments, failure preservation | Pending |
-| P05 | Isolated commands/bootstrap and docs-only CI artifact | Single pins, no product dependencies, real build, SHA-pinned actions, no deployment | Pending |
+| P03 | Stdlib publisher, site/book declarations | Deterministic discovery, titles, one output/source, bounded assets and truthful source links | Complete |
+| P04 | Pagefind UI and transactional artifact | Current default, all scopes, heading links, root/prefix, offline fragments, failure preservation | Complete |
+| P05 | Isolated commands/bootstrap and docs-only CI artifact | Single pins, no product dependencies, real build, SHA-pinned actions, no deployment | Complete; remote run not_run |
 | P06 | Instructions, skills, final review and handoff | Collection-aware bounded reading; focused checks; independent assembled review | Pending |
 
 Dependencies: P00 → P01 → P02/P03 → P04 → P05 → P06. Source entry points need no website.

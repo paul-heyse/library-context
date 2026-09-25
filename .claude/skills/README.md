@@ -8,7 +8,7 @@ Workflows for building this repository. A skill is added when a workflow has act
 
 | Skill | Use |
 |---|---|
-| [`adr/`](adr/SKILL.md) | Record or supersede a decision; amend DESIGN.md in the same commit |
+| [`adr/`](adr/SKILL.md) | Record or supersede a decision; amend the owning architectural section in the same commit |
 | [`design-review/`](design-review/SKILL.md) | Review ownership, contracts and change scenarios against the layered design standard (`docs/design_review/design_principles/standard.toml`); cadence in the library-context binding |
 | [`design-review-code-intelligence/`](design-review-code-intelligence/SKILL.md) | The code-intelligence profile, loaded with `design-review` |
 | [`handoff/`](handoff/SKILL.md) | Rewrite STATUS.md from the actual tree at session end |

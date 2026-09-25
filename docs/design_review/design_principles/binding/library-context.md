@@ -3,8 +3,7 @@
 The repository layer of the design standard, and the successor to `ADDENDUM.md`. It defines no
 principles; it maps the [core design principles](../core/design-principles.md) and the
 [code-intelligence profile](../profiles/code-intelligence/principles.md) onto this repository's
-binding decisions, review cadence, vocabularies and code. `docs/design/DESIGN.md` is the single
-source for what each decision says; DESIGN §2 delegates review mechanics to this page under
+binding decisions, review cadence, vocabularies and code. `docs/design/DESIGN.md` plus `docs/design/sections/` is the architectural collection; DESIGN §2 delegates review mechanics to this page under
 ADR-0040. Other design contracts and accepted decisions govern their domains; report a conflict and its resolution route.
 
 ## Standard applied
@@ -39,15 +38,23 @@ version semantics; FP-01–FP-06 and A1–A3 supply the architecture structure.
     reasoning triggers, not new blocking hooks.
   - `compact`, `standard`, `deep` in historical records describe effort. The odd/even increment
     schedule is retired. A local pass never certifies the enclosing architecture.
-- **Authority:** DESIGN.md is authoritative, so a divergence from an implemented claim is a code defect
+- **Authority:** the architectural collection is authoritative, so a divergence from an implemented claim is a code defect
   or a stale DESIGN section; distinguish both from an accepted target still awaiting implementation. `docs/initial_plan/Initial_plan.md` is
-  research input: DESIGN.md may depart from it when DESIGN.md or an ADR says so, and an
+  research input: the collection may depart from it when its owner section or an ADR says so, and an
   unrecorded departure is a finding.
 - **Outcomes and labels:** check outcomes are `passed`/`failed`/`blocked`/`not_run` with the
   command (AGENTS.md *Reporting*); historical test receipts keep their original date and scope
   and are not fresh runs; a mocked provider is never a pass; outcomes are never turned into a percentage.
-- **Reviews are evidence, never authority.** DESIGN.md changes only through the ADR that
+- **Reviews are evidence, never authority.** A governed architectural section changes through the ADR that
   responds to a finding.
+
+**Documentation boundary (ADR-0041).** Read the architecture map, relevant section owner and
+adjacent consumers. Stable section IDs survive relocation; one resolver supplies ADR lint and the
+site directory. Update prose for enduring meaning, boundaries and workflow changes. Derived
+navigation/search and link checks serve readers; they do not certify implementation or historical
+claims. Internal changes require no additional evidence packet. Current-work selection links to
+existing disposition owners and never copies their status. Documentation tooling uses focused
+`just docs-test` / `just docs-check`, independently of integrated product qualification.
 
 ## 1. Binding decisions and what they bear on
 

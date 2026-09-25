@@ -265,7 +265,8 @@ handoff) each have an end-to-end example. Each example must show:
 
 ## §2 Binding decisions
 
-**Accepted documentation policy; implementation Proposed** (ADR-0041, 2026-09-25). Focused
+**Implemented documentation policy and publisher** (ADR-0041, 2026-09-25); focused
+qualification is recorded in the execution plan. Improved reading/change cost remains **Proposed**. Focused
 architecture pages retain stable section IDs and replace moved prose with legacy pointers.
 One resolver drives ADR references and the generated section directory. Publication derives
 navigation and search from sources; it does not prove implementation. Documentation upkeep

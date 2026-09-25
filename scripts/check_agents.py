@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from repo_paths import local_skill
+
 ROOT = Path(__file__).resolve().parent.parent
 PROCESS_SKILLS = ("adr", "design-review", "design-review-code-intelligence", "handoff", "pin-check")
 LINK_RE = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
@@ -70,13 +72,17 @@ def check(root: Path) -> list[str]:
         for target in LINK_RE.findall(text):
             if "://" in target or PLACEHOLDER.search(target):
                 continue
-            if not (doc.parent / target).exists():
+            if not (doc.parent / target).exists() and not local_skill(
+                root, (doc.parent / target).resolve()
+            ):
                 problems.append(f"{rel}: link target does not exist: {target}")
         for token in TICK_RE.findall(text):
             token = token.rstrip(".,:;")
             if not token.startswith(PATH_ROOTS) or PLACEHOLDER.search(token):
                 continue
-            if not (root / token.split(":")[0]).exists():
+            if not (root / token.split(":")[0]).exists() and not local_skill(
+                root, root / token.split(":")[0]
+            ):
                 problems.append(f"{rel}: path does not exist: {token}")
         for recipe in JUST_RE.findall(text):
             if recipe not in known:

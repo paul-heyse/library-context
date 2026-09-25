@@ -36,6 +36,11 @@ Historical reviews use their recorded version and are not retroactively certifie
   hides an encountered in-scope defect.
 - **slug:** infer from the subject when omitted.
 
+Start from task routes and the relevant architectural section owners, expanding on a concrete
+dependency or contradiction. Section IDs span DESIGN and the declared focused collection. Website
+search is navigation; mechanical publication checks establish links and ownership, not architectural
+quality. Source prose changes when meaning, boundaries or workflows change.
+
 For a design review, include the affected owners and adjacent consumers. A slice review examines
 its changed boundary and identifies what remains unresolved in the enclosing architecture.
 Ask only if ambiguity would materially change the judgment; otherwise state the bounded scope.

@@ -1,7 +1,7 @@
 # Pins
 
 Every pin with how and when it was last verified. Change a pin with the
-`pin-check` skill: read the primary source, change it, run `just deps` and the
+`pin-check` skill: read the primary source; product pin changes run `just deps` and the
 tests, and add a dated row here. Design authority for the Rust family is
 DESIGN §7 / ADR-0002. A row without a date is not verified.
 
@@ -122,3 +122,11 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | cargo-deny | 0.20.2 (does not see dev-only duplicates; see ADR-0002) | 2026-09-22 | tested with a synthetic duplicate |
 | ast-grep | 0.45.3 | 2026-09-22 | `just doctor` |
 | just | 1.58.0 | 2026-09-22 | `just --version` |
+
+## Documentation tooling
+
+The single version declaration is [site.toml](site.toml), consumed by local bootstrap, doctor and
+CI. Verified 2026-09-25 with `mdbook --version`, `pagefind --version` and `lychee --version`.
+Python retains `.python-version`; isolated script tests use pytest from `uv.lock`. Qualification
+is `just docs-test` plus `just docs-check`, recorded in the
+[documentation plan](plans/architectural-documentation-and-search_2026-09-25.md).

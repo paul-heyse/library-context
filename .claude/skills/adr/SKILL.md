@@ -5,7 +5,7 @@ description: Record, supersede or check an architectural decision, including own
 
 # ADR
 
-DESIGN.md owns accepted architecture and labeled targets; ADRs own why and what was rejected.
+DESIGN.md plus `docs/design/sections/` owns accepted architecture and labeled targets; ADRs own why and what was rejected.
 Read the generated `docs/adr/README.md` for decisions and supersession chains.
 
 ## When
@@ -23,7 +23,7 @@ Read the generated `docs/adr/README.md` for decisions and supersession chains.
 2. Use Context → Options → Decision → Consequences. Identify the expected change, responsible
    components and affected consumer contracts. Include the simplest viable alternative; compare
    coupling, composition, local testing and total integration burden where they distinguish options.
-3. `design:` lists governed DESIGN.md sections. Amend them in the same commit, retaining section
+3. `design:` lists stable governed section IDs across the architectural collection. Amend them in the same commit, retaining section
    IDs and a `> Decision: ADR-NNNN` line; add a revision-history row. Reference executable contracts
    rather than duplicating their field definitions.
 4. `evidence:` labels the stated claim at its established strength. `status: accepted` means the
@@ -39,3 +39,8 @@ Read the generated `docs/adr/README.md` for decisions and supersession chains.
 
 `just adr revisit` executes runnable triggers. Inspect them and use it when relevant; a handoff
 or process edit does not by itself require running unrelated functional checks.
+
+Start with the architecture map and relevant owner, not the entire collection. A move keeps the
+ID, governing references and legacy heading/fragment with a relocation marker and direct owner
+link. The shared resolver drives lint and the website directory. Publication metadata carries no
+architectural authority. Internal implementation changes need no new documentation proof packet.
