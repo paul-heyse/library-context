@@ -360,6 +360,7 @@ table!(
     key = [snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id],
     checks = [
         ("operand_span_order", "operand_start_byte >= 0 AND operand_end_byte > operand_start_byte"),
+        ("stability_witness", "(origin = 2 AND stability_origin_id IS NOT NULL AND stability_condition_id IS NOT NULL) OR (origin <> 2 AND stability_origin_id IS NULL AND stability_condition_id IS NULL)"),
     ],
     {
         snapshot_id: Id,
@@ -379,12 +380,17 @@ table!(
         condition_id: Id,
         origin: TestValueLinkOrigin,
         effect_model_digest: Digest,
+        /// Exact guard origin used to prove stability to a later test; null for origins 0 and 1.
+        stability_origin_id: Option<Id>,
+        /// The reaching fact's path condition that entails the exact guard atom.
+        stability_condition_id: Option<Id>,
     }
 );
 
 table!(
     /// Under this leaf atom's TRUE assignment, the entry formal has exactly the named builtin
-    /// runtime class. The cited value link proves the guard's inner operand is that entry value;
+    /// runtime class under the standard-builtin-namespace model. The cited value link proves
+    /// the guard's inner operand is that entry value;
     /// a later operand needs its own stability proof. The test root may include other atoms.
     FlowTestExactOrigins, FlowTestExactOriginsRow = "flow_test_exact_origins",
     family = Findings,

@@ -403,8 +403,16 @@ contradiction or served compatibility result follows from that count.
 The next source slice is **Implemented and Tested** on a focused fixture (2026-09-24): resolved
 builtin `type(x) is C` yields an attributed atom, a guarded entry-value link and a separate
 exact-class origin conditional on that atom being true. Shadowed builtin names and a preceding
-unknown call withhold the origin. It does not establish stability at a later use or a served
-negative verdict. The integrated repository and pilot gates remain for the Stage 3 end.
+unknown call withhold the origin. That first origin by itself does not establish stability at a
+later use or a served negative verdict. The integrated repository and pilot gates remain for
+the Stage 3 end.
+
+The narrow later-use extension is also **Implemented and Tested** on a focused nested fixture:
+the unique reaching fact's path condition must imply the exact guard atom, and all other effects
+and predicates remain barriers. An unknown call inside the guard withholds the link. The
+query-supplied exact-literal evaluator uses only checked links to assign source atoms and can
+refute when the bounded diagram becomes false; a satisfiable remainder remains unknown. This
+has no serving consumer yet, and the integrated gate remains `not_run`.
 
 1. **Finish identity before theory.** Keep `flow_test_types` as Pyrefly observation and
    `flow_test_value_links` as a separate positive proof. Extend the link origin codebook only
@@ -431,9 +439,10 @@ negative verdict. The integrated repository and pilot gates remain for the Stage
    atoms proved to concern the same stable entry value. Safe initial exclusions are `is_none`
    against a proved non-`None` singleton, and unequal string equality tests when the value is
    proved to be exact builtin `str`. Do not treat `==` like `is`, or assume distinct integer
-   and Boolean literals compare unequal (`1 == True`). A query about an operation's formal
-   introduces a separate query atom; checked links and exact-origin witnesses provide the
-   equivalences or exclusions that connect it to source evaluation atoms. Conjoin these
+   and Boolean literals compare unequal (`1 == True`). A query-supplied exact primitive input
+   can assign source atoms with checked links to that operation/formal without introducing a
+   synthetic query variable. Other comparisons still need independently cited equivalences or
+   exclusions. Conjoin these
    constraints with the existing diagram through the kernel's node- and pair-work-capped apply.
    A cap, unproved link or unproved exact origin returns `unknown` with a boundary; it never
    becomes `false`. This uses biodivine-lib-bdd 0.6.3's bounded Boolean operations instead of

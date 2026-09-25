@@ -6,6 +6,7 @@ table flow_test_value_links
 family findings
 key snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id
 check operand_span_order: operand_start_byte >= 0 AND operand_end_byte > operand_start_byte
+check stability_witness: (origin = 2 AND stability_origin_id IS NOT NULL AND stability_condition_id IS NOT NULL) OR (origin <> 2 AND stability_origin_id IS NULL AND stability_condition_id IS NULL)
 @lctx.family=findings
 @lctx.table=flow_test_value_links
 snapshot_id: FixedSizeBinary(16) NOT NULL
@@ -25,3 +26,5 @@ place: Utf8 NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 origin: Int16 NOT NULL [lctx.codebook=test_value_link_origin]
 effect_model_digest: FixedSizeBinary(32) NOT NULL
+stability_origin_id: FixedSizeBinary(16) NULL
+stability_condition_id: FixedSizeBinary(16) NULL

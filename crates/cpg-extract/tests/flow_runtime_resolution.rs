@@ -86,7 +86,7 @@ fn exact_type_guard_requires_resolved_builtins_and_names_the_inner_use() {
     let typed: Vec<_> = (0..leaves.num_rows())
         .filter(|&i| cell(leaves, "atom", i).starts_with("type_is(x,str)#"))
         .collect();
-    assert_eq!(typed.len(), 2, "both unshadowed builtin guards are exact");
+    assert_eq!(typed.len(), 4, "the unshadowed builtin guards are exact");
     let exact_start = source.find("if type(x) is str:").unwrap();
     let operand = exact_start + "if type(".len();
     let rows = out.table("flow_test_types").unwrap();

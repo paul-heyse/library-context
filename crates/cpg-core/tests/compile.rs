@@ -12,10 +12,16 @@ use cpg_core::delta::read_at;
 use cpg_core::snapshot::{published, resolve};
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, extract};
+use cpg_schema::behavior::{FlowTestExactOriginsRow, FlowTestValueLinksRow};
 use cpg_schema::codebook::Codebook;
+use cpg_schema::condition::Value;
+use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::Id;
+use cpg_schema::query::Relation;
 use cpg_schema::table::Table;
-use cpg_schema::tables::{Declarations, SnapshotsRow};
+use cpg_schema::tables::{
+    ConditionNodesRow, ConditionsRow, Declarations, FlowTestLeavesRow, SnapshotsRow,
+};
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::prelude::SessionContext;
 use lctx_analytics::config::AnalyticsConfig;
@@ -282,7 +288,7 @@ budget = 1
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM flow_test_exact_origins").await,
-        1
+        3
     );
     assert_eq!(
         count(
@@ -293,9 +299,133 @@ budget = 1
                AND o.atom_id = l.atom_id AND o.use_id = l.use_id",
         )
         .await,
-        1
+        3
+    );
+    let stable_count = count(
+        &ctx,
+        "SELECT count(*) FROM flow_test_value_links l \
+            JOIN declarations d ON d.node_id = l.operation_node_id \
+            WHERE d.name = 'nested' AND l.origin = 2 AND l.stability_origin_id IS NOT NULL",
+    )
+    .await;
+    assert_eq!(
+        stable_count,
+        1,
+        "{}\n{}\n{}",
+        text(
+            &ctx,
+            "SELECT d.name, l.atom, l.leaf_start_byte, l.leaf_end_byte, \
+            l.condition_id, c.encoding FROM flow_test_leaves l \
+            JOIN declarations d ON d.module_node_id = l.module_node_id \
+                AND d.name_start_byte = l.scope_start_byte \
+                AND d.name_end_byte = l.scope_end_byte \
+            JOIN conditions c ON c.condition_id = l.condition_id \
+            WHERE d.name = 'nested' ORDER BY l.leaf_start_byte"
+        )
+        .await,
+        text(
+            &ctx,
+            "SELECT d.name, l.origin, l.place, l.operand_start_byte, l.condition_id \
+            FROM flow_test_value_links l JOIN declarations d ON d.node_id = l.operation_node_id \
+            WHERE d.name = 'nested'"
+        )
+        .await,
+        text(
+            &ctx,
+            "SELECT u.start_byte, u.place, r.condition_id, c.encoding, r.approximated, r.loop_carried \
+            FROM flow_uses u JOIN flow_reaching r ON r.use_id = u.use_id \
+            JOIN conditions c ON c.condition_id = r.condition_id \
+            JOIN declarations d ON d.module_node_id = u.module_node_id \
+                AND d.name_start_byte = u.scope_start_byte \
+                AND d.name_end_byte = u.scope_end_byte \
+            WHERE d.name = 'nested' AND u.place = 'x' ORDER BY u.start_byte"
+        )
+        .await
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM flow_test_value_links l \
+            JOIN declarations d ON d.node_id = l.operation_node_id \
+            WHERE d.name = 'nested_after_call' AND l.origin = 2"
+        )
+        .await,
+        0
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    let table = |name: &'static str| Relation {
+        name,
+        sql: format!("SELECT * FROM {name}"),
+        deps: &[],
+    };
+    let links: Vec<FlowTestValueLinksRow> =
+        sql::fetch(&ctx, &table("flow_test_value_links"), sql::Params::new())
+            .await
+            .unwrap();
+    let origins: Vec<FlowTestExactOriginsRow> =
+        sql::fetch(&ctx, &table("flow_test_exact_origins"), sql::Params::new())
+            .await
+            .unwrap();
+    let leaves: Vec<FlowTestLeavesRow> =
+        sql::fetch(&ctx, &table("flow_test_leaves"), sql::Params::new())
+            .await
+            .unwrap();
+    let roots: Vec<ConditionsRow> = sql::fetch(&ctx, &table("conditions"), sql::Params::new())
+        .await
+        .unwrap();
+    let nodes: Vec<ConditionNodesRow> =
+        sql::fetch(&ctx, &table("condition_nodes"), sql::Params::new())
+            .await
+            .unwrap();
+    let diagrams = hydrate_catalog(
+        &roots
+            .into_iter()
+            .map(|row| ConditionRoot {
+                condition_id: row.condition_id,
+                root_id: row.root_id,
+                boundary_reason: row.boundary_reason,
+            })
+            .collect::<Vec<_>>(),
+        &nodes
+            .into_iter()
+            .map(|row| DiagramNode {
+                node_id: row.node_id,
+                atom: row.atom,
+                low: row.low_id,
+                high: row.high_id,
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    let proof = &origins[0];
+    let guard = &diagrams[&proof.test_condition_id];
+    assert!(
+        cpg_core::primitive_theory::refute_exact_input(
+            guard,
+            proof.operation_node_id,
+            proof.formal_node_id,
+            &Value::None,
+            cpg_core::primitive_theory::BuiltinNamespace::StandardAssumed,
+            &links,
+            &leaves,
+        )
+        .unwrap()
+        .is_some()
+    );
+    assert!(
+        cpg_core::primitive_theory::refute_exact_input(
+            guard,
+            proof.operation_node_id,
+            proof.formal_node_id,
+            &Value::Str("hi".to_owned()),
+            cpg_core::primitive_theory::BuiltinNamespace::StandardAssumed,
+            &links,
+            &leaves,
+        )
+        .unwrap()
+        .is_none()
+    );
 
     let doctored = sql::query(
         &ctx,

@@ -103,8 +103,7 @@ pub async fn validate_costed(
     }
     violations.extend(validate_condition_graph(&cache).await?);
     violations.extend(validate_test_type_links(&cache).await?);
-    violations.extend(validate_test_value_links(&cache).await?);
-    violations.extend(validate_exact_origins(&cache).await?);
+    violations.extend(validate_entry_proofs(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -123,58 +122,21 @@ cpg_schema::relations! {
         sql = "SELECT DISTINCT snapshot_id FROM flow_uses LIMIT 2".to_owned();
 }
 
-async fn validate_exact_origins(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
-    let mut actual: Vec<FlowTestExactOriginsRow> =
-        sql::fetch(ctx, &exact_origins(), sql::Params::new()).await?;
-    let links: Vec<FlowTestValueLinksRow> =
-        sql::fetch(ctx, &test_value_links(), sql::Params::new()).await?;
-    let sources: Vec<SourceSnapshot> =
-        sql::fetch(ctx, &test_value_source_snapshots(), sql::Params::new()).await?;
-    let mut expected = if let [source] = sources.as_slice() {
-        crate::entry_links::exact_origins(ctx, source.snapshot_id, &links).await?
-    } else {
-        Vec::new()
-    };
-    let key = |row: &FlowTestExactOriginsRow| {
-        (
-            row.operation_node_id,
-            row.formal_node_id,
-            row.leaf_fact_id,
-            row.use_id,
-            row.origin_id,
-        )
-    };
-    actual.sort_by_key(&key);
-    expected.sort_by_key(&key);
-    if sources.len() <= 1 && actual == expected {
-        Ok(Vec::new())
-    } else {
-        Ok(vec![Violation {
-            rule: "flow-test-exact-origin".to_owned(),
-            rows: actual.len().abs_diff(expected.len()).max(1),
-            sample: format!(
-                "stored {} origins; derived {} from {} source snapshot(s)",
-                actual.len(),
-                expected.len(),
-                sources.len()
-            ),
-        }])
-    }
-}
-
 /// Reconstruct every proof from the pinned raw views. This also catches missing, duplicate and
 /// doctored rows; no consumer may treat a persisted link as authority before this check passes.
-async fn validate_test_value_links(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
-    let mut actual: Vec<FlowTestValueLinksRow> =
+async fn validate_entry_proofs(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual_links: Vec<FlowTestValueLinksRow> =
         sql::fetch(ctx, &test_value_links(), sql::Params::new()).await?;
+    let mut actual_origins: Vec<FlowTestExactOriginsRow> =
+        sql::fetch(ctx, &exact_origins(), sql::Params::new()).await?;
     let sources: Vec<SourceSnapshot> =
         sql::fetch(ctx, &test_value_source_snapshots(), sql::Params::new()).await?;
-    let mut expected = if let [source] = sources.as_slice() {
-        crate::entry_links::run(ctx, source.snapshot_id).await?
+    let (mut expected_links, mut expected_origins) = if let [source] = sources.as_slice() {
+        crate::entry_links::all(ctx, source.snapshot_id).await?
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
-    let key = |row: &FlowTestValueLinksRow| {
+    let link_key = |row: &FlowTestValueLinksRow| {
         (
             row.operation_node_id,
             row.formal_node_id,
@@ -183,22 +145,45 @@ async fn validate_test_value_links(ctx: &SessionContext) -> Result<Vec<Violation
             row.link_id,
         )
     };
-    actual.sort_by_key(&key);
-    expected.sort_by_key(&key);
-    if sources.len() <= 1 && actual == expected {
-        Ok(Vec::new())
-    } else {
-        Ok(vec![Violation {
+    actual_links.sort_by_key(&link_key);
+    expected_links.sort_by_key(&link_key);
+    let origin_key = |row: &FlowTestExactOriginsRow| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+            row.origin_id,
+        )
+    };
+    actual_origins.sort_by_key(&origin_key);
+    expected_origins.sort_by_key(&origin_key);
+    let mut violations = Vec::new();
+    if sources.len() > 1 || actual_links != expected_links {
+        violations.push(Violation {
             rule: "flow-test-value-proof-link".to_owned(),
-            rows: actual.len().abs_diff(expected.len()).max(1),
+            rows: actual_links.len().abs_diff(expected_links.len()).max(1),
             sample: format!(
                 "stored {} links; derived {} from {} source snapshot(s)",
-                actual.len(),
-                expected.len(),
+                actual_links.len(),
+                expected_links.len(),
                 sources.len()
             ),
-        }])
+        });
     }
+    if sources.len() > 1 || actual_origins != expected_origins {
+        violations.push(Violation {
+            rule: "flow-test-exact-origin".to_owned(),
+            rows: actual_origins.len().abs_diff(expected_origins.len()).max(1),
+            sample: format!(
+                "stored {} origins; derived {} from {} source snapshot(s)",
+                actual_origins.len(),
+                expected_origins.len(),
+                sources.len()
+            ),
+        });
+    }
+    Ok(violations)
 }
 
 cpg_schema::query_row! {

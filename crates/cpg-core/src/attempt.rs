@@ -48,8 +48,9 @@ pub struct Published {
 /// scopes keyed by node, attributes from term structure (no `Unknown`, one raised class). 16: the
 /// selection invocation records the whole technique set (the ADR-0020 review's F3).
 /// 17: direct entry-formal/test-use links (Stage 3.0). 18: resolved builtin `type(x) is C`
-/// atoms, their guarded entry-value links and exact-class origins.
-pub const COMPILER_OUTPUT_VERSION: u32 = 18;
+/// atoms, their guarded entry-value links and exact-class origins. 19: path-stable later-use
+/// links under an exact type guard.
+pub const COMPILER_OUTPUT_VERSION: u32 = 19;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -488,13 +489,9 @@ async fn finish(
         }
         None => crate::flow_model::FlowModelRows::default(),
     };
-    let entry_links = match analysis {
-        Some(_) => crate::entry_links::run(&ctx, snapshot_id).await?,
-        None => Vec::new(),
-    };
-    let exact_origins = match analysis {
-        Some(_) => crate::entry_links::exact_origins(&ctx, snapshot_id, &entry_links).await?,
-        None => Vec::new(),
+    let (entry_links, exact_origins) = match analysis {
+        Some(_) => crate::entry_links::all(&ctx, snapshot_id).await?,
+        None => (Vec::new(), Vec::new()),
     };
     // The behavior model's Stage 1 (ADR-0021, ADR-0022): the whole public surface, before Stage E.
     let behavior = match analysis {

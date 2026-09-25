@@ -709,7 +709,7 @@ codebook:operation_facet_status.verdict
 codebook:value_flows.sink
   SELECT sink FROM value_flows WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
 codebook:flow_test_value_links.origin
-  SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1)
+  SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
 codebook:flow_test_exact_origins.origin
   SELECT origin FROM flow_test_exact_origins WHERE origin IS NOT NULL AND origin NOT IN (0)
 codebook:ambient_reads.phase

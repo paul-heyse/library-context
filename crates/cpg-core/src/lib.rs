@@ -11,6 +11,7 @@ pub mod diff;
 pub mod embed;
 pub mod entry_links;
 pub mod flow_model;
+pub mod primitive_theory;
 pub mod snapshot;
 pub mod sql;
 pub mod synth;

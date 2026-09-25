@@ -1264,7 +1264,9 @@ an exact entry value for calls that may pass an argument. Initially, theory cons
 `is_none` against a proved non-`None` singleton and unequal string `==` tests only where the
 runtime value is proved exact builtin `str`. Numeric/Boolean cross-equality, subclass equality,
 custom `__eq__` and all unproved relationships stay unknown. The existing bounded BDD kernel
-conjoins these constraints; the raw condition id remains independent of the theory revision.
+conjoins these constraints; a query-supplied exact literal may directly assign source atoms with
+checked same-value links rather than create a synthetic query atom. A satisfiable remainder stays
+unknown. The raw condition id remains independent of the theory revision.
 The trusted builtin `type` call is exempt from the effect barrier only with resolved builtin
 identity and a revisioned model. No generic SMT engine is included without a registered need.
 
@@ -1278,8 +1280,22 @@ admits its own resolved one-argument builtin `type(x)` call as a revisioned, cit
 the call barrier; any other preceding call or effect still withholds the link. The separate
 `flow_test_exact_origins` relation cites that link and the guard leaf, and asserts exact builtin
 class only under the atom's true assignment. Publication recomputes both relations. This is
-not a proof that a later use still observes the same value. A later-use stability witness and
-the bounded primitive constraints are still Proposed; no typed exclusion is served yet.
+not by itself a proof that a later use still observes the same value.
+
+The exact-class rule assumes the standard CPython builtin namespace has not been mutated by
+the embedding application or dynamic code. Lexical resolution does not establish that runtime
+environmental fact. Until a generation declares and enforces that assumption, a served negative
+answer depending on this origin must remain `unknown` (Deferred from the Stage 3.0 review).
+
+**Implemented and Tested (2026-09-24, narrow later-use proof).** A third value-link origin
+connects a later test operand to the same entry formal only when the exact guard's predicate
+contains that atom alone, the later reaching fact's path condition implies its true assignment,
+and no other source call, binding, effect-bearing syntax or prior predicate intervenes. The row
+cites the exact origin and reaching path condition. The nested positive fixture publishes one
+such link; an unknown call inside the guard withholds it. This remains a positive identity
+proof, not a served compatibility verdict. The exact-input primitive evaluator may refute a
+condition only when its checked link assignments make the bounded BDD false; a satisfiable
+remainder is unknown. Source-source exclusions and the served API remain Proposed.
 
 > Decision: ADR-0022, ADR-0024
 

@@ -14,12 +14,14 @@ use cpg_schema::codebook::{
     TestValueLinkOrigin,
 };
 use cpg_schema::condition::Atom;
+use cpg_schema::condition_kernel::{Diagram, DiagramNode};
 use cpg_schema::id::{Id, IdHasher};
+use cpg_schema::tables::{ConditionNodesRow, ConditionsRow};
 use datafusion::prelude::SessionContext;
 
 use crate::{CoreError, sql};
 
-const EFFECT_RULE_REVISION: &[u8] = b"entry-no-effect-and-resolved-builtin-type/v3";
+const EFFECT_RULE_REVISION: &[u8] = b"entry-type-guard-and-path-stability/v4";
 
 cpg_schema::query_row! {
     struct TestUse {
@@ -70,6 +72,7 @@ cpg_schema::query_row! {
     struct PriorTest {
         module_node_id: Id,
         operation_node_id: Id,
+        leaf_fact_id: Id,
         end_byte: i64,
     }
 }
@@ -80,6 +83,9 @@ cpg_schema::query_row! {
         atom_id: Id,
         atom: String,
         condition_id: Id,
+        module_node_id: Id,
+        leaf_start_byte: i64,
+        leaf_end_byte: i64,
     }
 }
 
@@ -164,14 +170,19 @@ cpg_schema::relations! {
     prior_tests = "entry_links_prior_tests",
         deps = ["flow_test_leaves", "declarations"],
         sql = "SELECT DISTINCT l.module_node_id, d.node_id AS operation_node_id, \
-                      l.leaf_end_byte AS end_byte \
+                      l.fact_id AS leaf_fact_id, l.leaf_end_byte AS end_byte \
                FROM flow_test_leaves l JOIN declarations d \
                  ON d.module_node_id = l.module_node_id \
                 AND d.name_start_byte = l.scope_start_byte \
                 AND d.name_end_byte = l.scope_end_byte \
                ORDER BY 1, 2, 3".to_owned();
     exact_leaves = "entry_links_exact_leaves", deps = ["flow_test_leaves"],
-        sql = "SELECT fact_id, atom_id, atom, condition_id FROM flow_test_leaves ORDER BY fact_id".to_owned();
+        sql = "SELECT fact_id, atom_id, atom, condition_id, module_node_id, \
+                      leaf_start_byte, leaf_end_byte FROM flow_test_leaves ORDER BY fact_id".to_owned();
+    condition_roots = "entry_links_condition_roots", deps = ["conditions"],
+        sql = "SELECT * FROM conditions".to_owned();
+    condition_nodes = "entry_links_condition_nodes", deps = ["condition_nodes"],
+        sql = "SELECT * FROM condition_nodes".to_owned();
 }
 
 pub fn digest() -> cpg_schema::id::Digest {
@@ -306,6 +317,8 @@ pub async fn run(
             condition_id: test.condition_id,
             origin,
             effect_model_digest,
+            stability_origin_id: None,
+            stability_condition_id: None,
         });
     }
     out.sort_by_key(|row| {
@@ -394,4 +407,257 @@ pub async fn exact_origins(
         )
     });
     Ok(out)
+}
+
+/// A second positive link origin: a later test on the TRUE branch of a pure exact-type guard.
+/// The current type guard must itself have a checked entry-value link. Source order alone is
+/// never sufficient: the later condition must imply the guard atom, and every other earlier
+/// call, binding, effect-bearing syntax or predicate remains a barrier.
+pub async fn stable_after_exact_guards(
+    ctx: &SessionContext,
+    snapshot_id: Id,
+    base_links: &[FlowTestValueLinksRow],
+    origins: &[FlowTestExactOriginsRow],
+) -> Result<Vec<FlowTestValueLinksRow>, CoreError> {
+    if origins.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tests: Vec<TestUse> = sql::fetch(ctx, &test_uses(), sql::Params::new()).await?;
+    let reaches: Vec<Reach> = sql::fetch(ctx, &reaches(), sql::Params::new()).await?;
+    let barriers: Vec<Barrier> = sql::fetch(ctx, &barriers(), sql::Params::new()).await?;
+    let prior_tests: Vec<PriorTest> = sql::fetch(ctx, &prior_tests(), sql::Params::new()).await?;
+    let leaves: Vec<ExactLeaf> = sql::fetch(ctx, &exact_leaves(), sql::Params::new()).await?;
+    let roots: Vec<ConditionsRow> = sql::fetch(ctx, &condition_roots(), sql::Params::new()).await?;
+    let nodes: Vec<ConditionNodesRow> =
+        sql::fetch(ctx, &condition_nodes(), sql::Params::new()).await?;
+    let leaves: BTreeMap<Id, ExactLeaf> =
+        leaves.into_iter().map(|row| (row.fact_id, row)).collect();
+    let roots: BTreeMap<Id, Id> = roots
+        .into_iter()
+        .filter_map(|row| row.root_id.map(|root| (row.condition_id, root)))
+        .collect();
+    let nodes: std::collections::HashMap<Id, DiagramNode> = nodes
+        .into_iter()
+        .map(|row| {
+            (
+                row.node_id,
+                DiagramNode {
+                    node_id: row.node_id,
+                    atom: row.atom,
+                    low: row.low_id,
+                    high: row.high_id,
+                },
+            )
+        })
+        .collect();
+    let links: BTreeMap<Id, &FlowTestValueLinksRow> =
+        base_links.iter().map(|link| (link.link_id, link)).collect();
+    let mut guards: BTreeMap<(Id, Id), Vec<(&FlowTestExactOriginsRow, &ExactLeaf, Diagram)>> =
+        BTreeMap::new();
+    for origin in origins {
+        let (Some(leaf), Some(link)) = (
+            leaves.get(&origin.leaf_fact_id),
+            links.get(&origin.value_link_id),
+        ) else {
+            continue;
+        };
+        if origin.module_node_id != leaf.module_node_id
+            || origin.atom_id != leaf.atom_id
+            || origin.test_condition_id != leaf.condition_id
+            || link.origin != TestValueLinkOrigin::ResolvedBuiltinTypeOperand
+        {
+            continue;
+        }
+        let Ok(atom @ Atom::Evaluated { .. }) = Atom::parse_encoded(&leaf.atom) else {
+            continue;
+        };
+        let Ok(diagram) = Diagram::from_atom(&atom) else {
+            continue;
+        };
+        // A compound guard could evaluate another Python predicate with side effects.
+        if diagram.id() != origin.test_condition_id {
+            continue;
+        }
+        guards
+            .entry((origin.operation_node_id, origin.formal_node_id))
+            .or_default()
+            .push((origin, leaf, diagram));
+    }
+    let mut by_use: BTreeMap<Id, Vec<Reach>> = BTreeMap::new();
+    for row in reaches {
+        by_use.entry(row.use_id).or_default().push(row);
+    }
+    let mut blocked: BTreeMap<(Id, Id), Vec<Barrier>> = BTreeMap::new();
+    for row in barriers {
+        blocked
+            .entry((row.module_node_id, row.operation_node_id))
+            .or_default()
+            .push(row);
+    }
+    let mut prior: BTreeMap<(Id, Id), Vec<PriorTest>> = BTreeMap::new();
+    for row in prior_tests {
+        prior
+            .entry((row.module_node_id, row.operation_node_id))
+            .or_default()
+            .push(row);
+    }
+    let mut diagrams: BTreeMap<Id, Diagram> = BTreeMap::new();
+    let mut out = Vec::new();
+    let effect_model_digest = digest();
+    for test in tests {
+        let Ok(atom @ Atom::Evaluated { .. }) = Atom::parse_encoded(&test.atom) else {
+            continue;
+        };
+        let Atom::Evaluated { atom: inner, .. } = &atom else {
+            unreachable!()
+        };
+        if !matches!(
+            inner.as_ref(),
+            Atom::IsNone { .. }
+                | Atom::IsValue { .. }
+                | Atom::Truthy { .. }
+                | Atom::Equals {
+                    value: cpg_schema::condition::Value::Str(_),
+                    ..
+                }
+        ) {
+            continue;
+        }
+        let Some([reach]) = by_use.get(&test.use_id).map(Vec::as_slice) else {
+            continue;
+        };
+        let (Some(formal), Some(function), Some(definition), Some(start)) = (
+            reach.formal_node_id,
+            reach.function_node_id,
+            reach.definition_fact_id,
+            reach.definition_end_byte,
+        ) else {
+            continue;
+        };
+        if function != test.operation_node_id
+            || reach.approximated
+            || reach.loop_carried
+            || !reach.stated
+            || start >= test.operand_start_byte
+        {
+            continue;
+        }
+        let Some(candidates) = guards.get(&(function, formal)) else {
+            continue;
+        };
+        let Some(&root) = roots.get(&reach.condition_id) else {
+            continue;
+        };
+        let condition = if let Some(found) = diagrams.get(&reach.condition_id) {
+            found.clone()
+        } else {
+            let Ok(found) = Diagram::from_catalog(root, &nodes) else {
+                continue;
+            };
+            diagrams.insert(reach.condition_id, found.clone());
+            found
+        };
+        for (guard, guard_leaf, guard_atom) in candidates {
+            if guard.module_node_id != test.module_node_id
+                || guard_leaf.leaf_end_byte >= test.operand_start_byte
+                || start >= guard_leaf.leaf_start_byte
+                || condition.implies(guard_atom) != Ok(true)
+            {
+                continue;
+            }
+            let has_barrier = blocked
+                .get(&(test.module_node_id, function))
+                .is_some_and(|sites| {
+                    sites.iter().any(|barrier| {
+                        if barrier.start_byte < start
+                            || barrier.start_byte >= test.operand_start_byte
+                        {
+                            return false;
+                        }
+                        !(barrier.call_barrier
+                            && barrier.start_byte == guard_leaf.leaf_start_byte
+                            && barrier.end_byte > guard_leaf.leaf_start_byte
+                            && barrier.end_byte <= guard_leaf.leaf_end_byte
+                            && barrier.positional_count == Some(1)
+                            && barrier.keyword_count == Some(0))
+                    })
+                });
+            let has_other_test = prior
+                .get(&(test.module_node_id, function))
+                .is_some_and(|rows| {
+                    rows.iter().any(|row| {
+                        row.end_byte > start
+                            && row.end_byte <= test.operand_start_byte
+                            && row.leaf_fact_id != guard.leaf_fact_id
+                    })
+                });
+            if has_barrier || has_other_test {
+                continue;
+            }
+            out.push(FlowTestValueLinksRow {
+                snapshot_id,
+                link_id: IdHasher::new("flow-test-value-link")
+                    .id(function)
+                    .id(formal)
+                    .id(test.leaf_fact_id)
+                    .id(test.use_id)
+                    .finish_id(),
+                operation_node_id: function,
+                formal_node_id: formal,
+                module_node_id: test.module_node_id,
+                leaf_fact_id: test.leaf_fact_id,
+                atom_id: test.atom_id,
+                use_id: test.use_id,
+                use_fact_id: test.use_fact_id,
+                reaching_fact_id: reach.reaching_fact_id,
+                definition_fact_id: definition,
+                operand_start_byte: test.operand_start_byte,
+                operand_end_byte: test.operand_end_byte,
+                place: test.place.clone(),
+                condition_id: test.condition_id,
+                origin: TestValueLinkOrigin::StableAfterExactTypeGuard,
+                effect_model_digest,
+                stability_origin_id: Some(guard.origin_id),
+                stability_condition_id: Some(reach.condition_id),
+            });
+            break;
+        }
+    }
+    out.sort_by_key(|row| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+        )
+    });
+    out.dedup_by_key(|row| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+        )
+    });
+    Ok(out)
+}
+
+/// Build the complete proof pair in dependency order, once per attempt or validation.
+pub async fn all(
+    ctx: &SessionContext,
+    snapshot_id: Id,
+) -> Result<(Vec<FlowTestValueLinksRow>, Vec<FlowTestExactOriginsRow>), CoreError> {
+    let mut links = run(ctx, snapshot_id).await?;
+    let origins = exact_origins(ctx, snapshot_id, &links).await?;
+    let stable = stable_after_exact_guards(ctx, snapshot_id, &links, &origins).await?;
+    links.extend(stable);
+    links.sort_by_key(|row| {
+        (
+            row.operation_node_id,
+            row.formal_node_id,
+            row.leaf_fact_id,
+            row.use_id,
+        )
+    });
+    Ok((links, origins))
 }

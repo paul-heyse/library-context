@@ -459,6 +459,7 @@ test_type_origin
 test_value_link_origin
   0 direct_parameter_reach_no_effect
   1 resolved_builtin_type_operand
+  2 stable_after_exact_type_guard
 exact_value_origin
   0 resolved_builtin_type_guard
 record_kind

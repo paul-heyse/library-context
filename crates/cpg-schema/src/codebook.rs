@@ -801,6 +801,8 @@ codebook!(
         DirectParameterReachNoEffect = 0 => "direct_parameter_reach_no_effect",
         /// The only intervening call is this leaf's resolved one-argument builtin `type(x)`.
         ResolvedBuiltinTypeOperand = 1 => "resolved_builtin_type_operand",
+        /// A later use on the true branch of a cited, effect-free exact-type guard.
+        StableAfterExactTypeGuard = 2 => "stable_after_exact_type_guard",
     }
 );
 

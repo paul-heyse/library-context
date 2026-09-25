@@ -112,9 +112,11 @@ synthetic atoms share the same subject span.
   independently justified primitive constraints. It may separate `is_none` from a proved
   non-`None` singleton, and unequal string `==` atoms only after an exact builtin `str` origin
   and a same-value witness. It does not identify `==` with `is` or assume distinct numeric and
-  Boolean literals compare unequal (`1 == True`). A query-supplied exact literal has its own
-  entry-value origin; a parameter default is not such an origin when an explicit argument can
-  replace it. If proof is absent or capped, the typed result is unknown, irrespective of raw
+  Boolean literals compare unequal (`1 == True`). A query-supplied exact literal is an explicit
+  entry-value input; it need not add a synthetic BDD variable. Checked entry-value links permit
+  assignments to source atoms that read that value. The bounded BDD may refute a condition only
+  when the conjunction is false; a satisfiable remainder is unknown. A parameter default is not
+  such an origin when an explicit argument can replace it. If proof is absent or capped, the typed result is unknown, irrespective of raw
   propositional compatibility. This stays within biodivine's bounded apply; Z3 is reconsidered
   only for a registered question requiring arithmetic or another genuinely non-Boolean theory.
 - The exact `type(x) is <builtin>` origin resolves both the `type` call and the class operand to
@@ -123,6 +125,10 @@ synthetic atoms share the same subject span.
   only under that resolution and a revisioned model. A later test needs a path-specific
   stability witness across the guard; the current direct-link origin's blanket prior-predicate
   barrier is not weakened by inference from source order alone.
+  Lexical builtin resolution assumes the runtime builtin namespace retains its standard CPython
+  bindings. The compiler does not currently prove that environmental assumption; a served
+  refutation depending on it remains unknown until the generation contract declares and checks
+  the assumption or a narrower source proof excludes mutation.
 - The `flow_test_types` relation cites `flow_test_leaves.fact_id` and its leaf evaluation atom
   identity, exact `flow_uses.use_id`, operand span and role (`tested_place`), type-term id,
   proof-origin code and cited fact ids. A test-span id alone cannot identify which BDD variable
@@ -154,8 +160,11 @@ measures pilot `budget_reached`, limit hits and compile time.
 resolved `type_is` atom with the inner operand use. The guarded entry-value link and separate
 exact-class origin are published with cited source identities and recomputed by the shared
 validator. A focused fixture confirms shadowed names and a preceding unknown call withhold the
-origin and that a doctored stored class is rejected. This does not establish later-use stability,
-primitive-theory compatibility or native serving; the ADR remains proposed pending those gates.
+origin and that a doctored stored class is rejected. A second focused fixture proves one later
+test use under the exact guard by the reaching path condition, and withholds it after an unknown
+call. The exact-input evaluator uses the bounded BDD to refute an incompatible source condition;
+numeric/Boolean cross-equality and missing links remain unknown. Source-source theory,
+generation-pinned native serving and pilot acceptance remain open, so this ADR remains proposed.
 
 Summaries and serving can ask semantic questions of the same Rust authority, and compact
 Boolean functions need not be discarded for DNF expansion. Node serialization, stable-place
