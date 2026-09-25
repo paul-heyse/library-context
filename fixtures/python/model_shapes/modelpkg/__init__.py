@@ -141,6 +141,13 @@ def framed_identity(value: object) -> object:
         pass
 
 
+def framed_modeled_identity(value: object) -> object:
+    try:
+        return cast(object, value)
+    finally:
+        pass
+
+
 def validate_data(value: object) -> int:
     return TypeAdapter(int).validate_python(value)
 

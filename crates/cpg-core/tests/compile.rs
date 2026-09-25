@@ -671,6 +671,20 @@ budget = 1
         1,
         "the sole pass finalizer has its own source proof"
     );
+    assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN return_exit_statuses x ON x.source_fact_id = f.return_site_fact_id \
+             JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
+             WHERE d.name = 'finally_pass_identity' \
+               AND p.kind = {} AND p.ordinal = 1 \
+               AND p.evidence_id = x.pass_fact_id",
+            cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+        )).await,
+        1,
+        "the finite proof itself cites the completed finalizer"
+    );
     for name in ["finally_identity", "nested_finally_pass_identity", "with_identity"] {
         assert_eq!(
             count(
@@ -711,6 +725,19 @@ budget = 1
         "two pending finalizers need an ordered exit proof before completion"
     );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
+        .await.unwrap().into_view();
+    let missing_pass_step = sql::query(&ctx, &format!(
+        "SELECT * FROM summary_flow_steps WHERE kind <> {}",
+        cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+    )).await.unwrap().into_view();
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", missing_pass_step).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
+        "{violations:?}");
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", original_steps).unwrap();
     let original_statuses = sql::query(&ctx, "SELECT * FROM return_exit_statuses")
         .await.unwrap().into_view();
     let forged_pass = sql::query(
@@ -1709,6 +1736,22 @@ budget = 1
         "one pass finalizer leaves a cited normal-return candidate"
     );
     assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN return_exit_statuses x ON x.source_fact_id = f.return_site_fact_id \
+             JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
+               AND p.kind = {pass} AND p.evidence_id = x.pass_fact_id \
+             JOIN summary_flow_steps r ON r.summary_id = f.summary_id \
+               AND r.kind = {exit} AND r.ordinal = p.ordinal + 1 \
+             WHERE d.name = 'framed_modeled_identity' AND f.path_depth = 1",
+            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+            exit = cpg_schema::codebook::SummaryFlowStepKind::ReturnExit.code(),
+        )).await,
+        1,
+        "a modeled return cites its finalizer before the completed exit"
+    );
+    assert_eq!(
         count(
             &ctx,
             &format!(
@@ -1951,7 +1994,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        18,
+        19,
         "the typing, JSON, gzip and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -2436,7 +2479,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        23,
+        24,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

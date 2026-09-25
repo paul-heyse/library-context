@@ -3290,6 +3290,15 @@ span rather than requiring the event line to equal the load line. This independe
 value-flow admission and observed exit regions for these two shapes; it does not prove the
 compiler's L3 summary closure or the remaining finally actions.
 
+**Implemented and Tested in a focused finite-proof case (2026-09-25):** a summary admitted
+through the sole literal `finally: pass` frame carries an ordered `finalizer_pass` proof step
+citing that pass fact. Direct identity and modeled/assignment/local-call producers all read the
+same `return_exit_statuses` witness; the latter insert the pass immediately before their
+`return_exit` step. The canonical summary ID hashes the added step, and the shared validator
+rejects its removal. Uncontrolled frames still have no positive summary. The append-only step
+codebook and derivation change use compiler output version 69. Full per-step source spans in
+FORMAT 7 and multi-frame exit composition remain open.
+
 > Decision: ADR-0036
 
 **Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**

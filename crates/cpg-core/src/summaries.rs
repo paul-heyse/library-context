@@ -73,6 +73,7 @@ cpg_schema::query_row! {
         condition_id: Id,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
+        finalizer_pass_fact_id: Option<Id>,
         approximated: bool,
     }
 }
@@ -95,6 +96,7 @@ cpg_schema::query_row! {
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         return_condition_id: Id,
+        finalizer_pass_fact_id: Option<Id>,
         approximated: bool,
     }
 }
@@ -121,6 +123,7 @@ cpg_schema::query_row! {
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         return_condition_id: Id,
+        finalizer_pass_fact_id: Option<Id>,
         approximated: bool,
     }
 }
@@ -142,6 +145,7 @@ cpg_schema::query_row! {
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         return_condition_id: Id,
+        finalizer_pass_fact_id: Option<Id>,
         approximated: bool,
     }
 }
@@ -171,6 +175,7 @@ struct FinitePath {
     condition_is_true: bool,
     return_site_fact_id: Id,
     return_region_fact_id: Id,
+    finalizer_pass_fact_id: Option<Id>,
     approximated: bool,
     path_depth: i64,
     proof: Vec<recipe::SummaryFlowProofStep>,
@@ -243,18 +248,18 @@ async fn direct_flows(
     ctx: &SessionContext,
     diagrams: &HashMap<Id, Diagram>,
     boundaries: &HashMap<Id, BoundaryReason>,
-) -> Result<Vec<SummaryFlowsRow>, CoreError> {
+) -> Result<(Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>), CoreError> {
     let seeds: Vec<SummaryFlowSeed> = sql::fetch(
         ctx,
         &cpg_schema::behavior::summary_flow_seeds(),
         sql::Params::new(),
     )
     .await?;
-    Ok(seeds
-        .into_iter()
-        .filter_map(|seed| {
+    let mut flows = Vec::new();
+    let mut steps = Vec::new();
+    for seed in seeds {
             let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
-                Some(diagram) if diagram.is_false() => return None,
+                Some(diagram) if diagram.is_false() => continue,
                 Some(diagram) if diagram.is_true() => (Verdict::Established, None),
                 Some(_) => (Verdict::Conditional, None),
                 None => (
@@ -272,23 +277,32 @@ async fn direct_flows(
             }
             .render();
             let output_path = OutputPath::ReturnValue.render();
-            Some(SummaryFlowsRow {
+            let mut proof = vec![recipe::SummaryFlowProofStep {
+                kind: SummaryFlowStepKind::RawIdentity,
+                evidence_id: seed.source_flow_fact_id,
+                condition_id: seed.condition_id,
+            }];
+            if let Some(pass) = seed.finalizer_pass_fact_id {
+                proof.push(recipe::SummaryFlowProofStep {
+                    kind: SummaryFlowStepKind::FinalizerPass,
+                    evidence_id: pass,
+                    condition_id: seed.condition_id,
+                });
+            }
+            let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
+                function: seed.function_node_id,
+                parameter: seed.parameter_node_id,
+                input_path: &input_path,
+                output_path: &output_path,
+                transfer_kind: SummaryFlowKind::Value,
+                condition: seed.condition_id,
+                return_site: seed.return_site_fact_id,
+                return_region: seed.return_region_fact_id,
+                steps: &proof,
+            });
+            flows.push(SummaryFlowsRow {
                 snapshot_id: seed.snapshot_id,
-                summary_id: recipe::summary_flow(&recipe::SummaryFlowIdentity {
-                    function: seed.function_node_id,
-                    parameter: seed.parameter_node_id,
-                    input_path: &input_path,
-                    output_path: &output_path,
-                    transfer_kind: SummaryFlowKind::Value,
-                    condition: seed.condition_id,
-                    return_site: seed.return_site_fact_id,
-                    return_region: seed.return_region_fact_id,
-                    steps: &[recipe::SummaryFlowProofStep {
-                        kind: SummaryFlowStepKind::RawIdentity,
-                        evidence_id: seed.source_flow_fact_id,
-                        condition_id: seed.condition_id,
-                    }],
-                }),
+                summary_id,
                 function_node_id: seed.function_node_id,
                 parameter_node_id: seed.parameter_node_id,
                 input_path,
@@ -302,25 +316,17 @@ async fn direct_flows(
                 return_region_fact_id: seed.return_region_fact_id,
                 approximated: seed.approximated,
                 path_depth: 0,
-            })
-        })
-        .collect())
-}
-
-/// A direct-flow proof has one raw local-identity step; modeled paths use a separate typed
-/// sequence. The canonical summary id hashes the ordered list.
-pub fn direct_flow_steps(flows: &[SummaryFlowsRow]) -> Vec<SummaryFlowStepsRow> {
-    flows
-        .iter()
-        .map(|flow| SummaryFlowStepsRow {
-            snapshot_id: flow.snapshot_id,
-            summary_id: flow.summary_id,
-            ordinal: 0,
-            kind: SummaryFlowStepKind::RawIdentity,
-            evidence_id: flow.source_flow_fact_id,
-            condition_id: flow.condition_id,
-        })
-        .collect()
+            });
+            steps.extend(proof.into_iter().enumerate().map(|(ordinal, step)| SummaryFlowStepsRow {
+                snapshot_id: seed.snapshot_id,
+                summary_id,
+                ordinal: ordinal as i64,
+                kind: step.kind,
+                evidence_id: step.evidence_id,
+                condition_id: step.condition_id,
+            }));
+    }
+    Ok((flows, steps))
 }
 
 /// One completed candidate call path, shared by direct returns and the first assignment hop.
@@ -386,6 +392,17 @@ fn push_finite_path(
 ) {
     let input_path = InputPath::Parameter { name: path.parameter_name }.render();
     let output_path = OutputPath::ReturnValue.render();
+    let mut proof = path.proof;
+    if let Some(pass) = path.finalizer_pass_fact_id {
+        let index = proof.iter().position(|step| step.kind == SummaryFlowStepKind::ReturnExit)
+            .unwrap_or(proof.len());
+        let condition_id = proof.get(index).map_or(path.condition_id, |step| step.condition_id);
+        proof.insert(index, recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::FinalizerPass,
+            evidence_id: pass,
+            condition_id,
+        });
+    }
     let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
         function: path.function_node_id,
         parameter: path.parameter_node_id,
@@ -395,7 +412,7 @@ fn push_finite_path(
         condition: path.condition_id,
         return_site: path.return_site_fact_id,
         return_region: path.return_region_fact_id,
-        steps: &path.proof,
+        steps: &proof,
     });
     flows.push(SummaryFlowsRow {
         snapshot_id: path.snapshot_id,
@@ -414,7 +431,7 @@ fn push_finite_path(
         approximated: path.approximated,
         path_depth: path.path_depth,
     });
-    steps.extend(path.proof.into_iter().enumerate().map(|(ordinal, step)| SummaryFlowStepsRow {
+    steps.extend(proof.into_iter().enumerate().map(|(ordinal, step)| SummaryFlowStepsRow {
         snapshot_id: path.snapshot_id,
         summary_id,
         ordinal: ordinal as i64,
@@ -430,8 +447,7 @@ pub async fn finite_flows(
     ctx: &SessionContext,
 ) -> Result<(Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>), CoreError> {
     let (diagrams, boundaries) = load_conditions(ctx).await?;
-    let mut flows = direct_flows(ctx, &diagrams, &boundaries).await?;
-    let mut steps = direct_flow_steps(&flows);
+    let (mut flows, mut steps) = direct_flows(ctx, &diagrams, &boundaries).await?;
     let seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(
         ctx,
         &cpg_schema::behavior::modeled_summary_flow_seeds(),
@@ -496,6 +512,7 @@ pub async fn finite_flows(
             condition_is_true: condition.is_true(),
             return_site_fact_id: seed.return_site_fact_id,
             return_region_fact_id: seed.return_region_fact_id,
+            finalizer_pass_fact_id: seed.finalizer_pass_fact_id,
             approximated: seed.approximated,
             path_depth: 1,
             proof,
@@ -551,6 +568,7 @@ pub async fn finite_flows(
             condition_is_true: condition.is_true(),
             return_site_fact_id: seed.return_site_fact_id,
             return_region_fact_id: seed.return_region_fact_id,
+            finalizer_pass_fact_id: seed.finalizer_pass_fact_id,
             approximated: seed.approximated,
             path_depth: 2,
             proof,
@@ -634,6 +652,7 @@ pub async fn finite_flows(
                 condition_is_true: condition.is_true(),
                 return_site_fact_id: seed.return_site_fact_id,
                 return_region_fact_id: seed.return_region_fact_id,
+                finalizer_pass_fact_id: seed.finalizer_pass_fact_id,
                 approximated: seed.approximated || callee.approximated,
                 path_depth: callee.path_depth + 1,
                 proof,

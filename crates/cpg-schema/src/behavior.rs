@@ -2087,6 +2087,7 @@ crate::relations! {
                     v.flow_value_fact_id AS source_flow_fact_id, v.condition_id, \
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
+                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
@@ -2136,6 +2137,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
+                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM modeled_exact_value_transfers m \
              JOIN model_applications a ON a.call_site_node_id = m.call_site_node_id \
@@ -2202,6 +2204,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
+                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (q.predecessor_raw_approximated OR q.reaching_approximated \
                      OR q.successor_raw_approximated OR e.approximated) AS approximated \
              FROM modeled_assignment_return_paths q \
@@ -2283,6 +2286,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
+                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
