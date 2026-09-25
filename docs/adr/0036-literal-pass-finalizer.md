@@ -1,10 +1,10 @@
 ---
 id: ADR-0036
 title: Discharge a sole literal pass finalizer on a pending return
-status: accepted
+status: superseded
 date: 2026-09-25
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0037
 design: [§9.9]
 evidence: Tested
 revisit: A CPython 3.14.7 counterexample shows a literal pass suite changes a pending return, or the pinned Ruff syntax no longer identifies its sole finalbody child.

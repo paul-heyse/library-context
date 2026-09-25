@@ -3266,21 +3266,24 @@ missing frame with no cap is only a local normal-return candidate, not proof tha
 evaluation succeeds. Direct, modeled and acyclic local-call value summary seeds may now admit
 nested returns under ordinary branches, but require a status without an unresolved frame/cap
 boundary.
-Returns under `with` or a pending `finally` remain `summary_boundaries` until L2 proves normal
+Returns under `with` or an unproved pending `finally` remain `summary_boundaries` until L2 proves normal
 completion. The shared validator reconstructs the status rows; a focused analyzed fixture
 admits an `if` return while withholding both controlling frames. This is compiler output
 version 65 and a schema migration. Nested handler propagation, suppression, callback/resource
 fates and the integrated Stage 3 gate remain open.
 
-**Implemented and Tested in focused cases (2026-09-25, sole pass finalizer):**
-`return_exit_statuses` admits one pending `try/finally` frame only when its entire direct
-`finalbody` is one literal `pass`, citing that pass node and fact on the status row. The
-return expression still needs its own normal-evaluation and condition proof. A nontrivial
-suite, two nested pass finalizers, `with`, and capped ancestry retain their control boundary.
-The single-pass fixture yields a finite parameter-to-return summary; a forged pass fact is
-rejected by the shared validator. The two nullable evidence columns migrate the schema at
-compiler output version 66 (ADR-0036). The broader ordered exit/fate work and integrated
-Stage 3 gate remain open.
+**Implemented and Tested in focused cases (2026-09-25, ordered pass finalizers):**
+`return_exit_statuses` admits a bounded chain of pending `try/finally` frames only when
+each entire direct `finalbody` is one literal `pass`. The one-frame status cites its pass
+node and fact; the multi-frame status leaves those singular fields null. A separate source
+query reconstructs every pass in inner-to-outer execution order, and each admitted finite
+summary cites all of them as ordered `finalizer_pass` steps. The return expression still
+needs its own normal-evaluation and condition proof. A nontrivial suite, `with`, and capped
+ancestry retain their control boundary. Direct and modeled analyzed fixtures prove the
+single and nested pass paths, and a mixed effectful outer finalizer stays unknown; the
+shared validator rejects missing pass evidence. The nullable one-pass status fields were
+introduced at compiler output version 66, and the ordered derivation changes output version
+70. Other handler, callback and resource fates and the integrated Stage 3 gate remain open.
 
 **Tested (2026-09-25, targeted CPython 3.14.7 oracle):** an isolated `sys.monitoring` worker
 observed a pending local value return through `finally: pass` and an overriding `finally`
@@ -3290,16 +3293,15 @@ span rather than requiring the event line to equal the load line. This independe
 value-flow admission and observed exit regions for these two shapes; it does not prove the
 compiler's L3 summary closure or the remaining finally actions.
 
-**Implemented and Tested in a focused finite-proof case (2026-09-25):** a summary admitted
-through the sole literal `finally: pass` frame carries an ordered `finalizer_pass` proof step
-citing that pass fact. Direct identity and modeled/assignment/local-call producers all read the
-same `return_exit_statuses` witness; the latter insert the pass immediately before their
-`return_exit` step. The canonical summary ID hashes the added step, and the shared validator
-rejects its removal. Uncontrolled frames still have no positive summary. The append-only step
-codebook and derivation change use compiler output version 69. Full per-step source spans in
-FORMAT 7 and multi-frame exit composition remain open.
+**Implemented and Tested in focused finite-proof cases (2026-09-25):** direct identity and
+modeled/assignment/local-call summary producers use the same safe return status and cite
+each source pass from the ordered ancestry query; modeled proofs place the pass sequence
+immediately before `return_exit`. The canonical summary ID hashes these steps, and the
+shared validator rejects their removal. Uncontrolled frames still have no positive summary.
+The append-only step kind was introduced at output version 69. Full per-step source spans in
+FORMAT 7 and effectful-frame exit composition remain open.
 
-> Decision: ADR-0036
+> Decision: ADR-0037
 
 **Implemented and Tested (2026-09-24, Stage 3 L2 handler source boundary):**
 `handler_clauses` cites a `try`, each authored `except` clause, its optional type expression,
@@ -4325,3 +4327,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | A Pysa object receiver plus a direct Ruff attribute callee shifts pinned model positional formals past `self`; class receivers and unpacking remain unknown. `logging.Logger.warning` adds a potential subject-bound log candidate (§9.9) | ADR-0035 |
 | 2026-09-25 | One literal `finally: pass` frame now preserves a pending return with cited pass syntax evidence; nested and effectful frames remain unresolved. `return_exit_statuses` gains two nullable proof columns and compiler output version 66 (§9.9) | ADR-0036 |
 | 2026-09-25 | A verified Pysa source-to-sink rule with explicit Pyrefly pin and a byte-identical compiler fixture agree on two positive value paths and a constant control; the pinned FastMCP differential remains open (§9.9) | — |
+| 2026-09-25 | Nested pass-only finalizers now preserve a pending return with an inner-to-outer sequence of cited source steps; effectful finalizers and `with` remain open, and derivation output version is 70 (§9.9) | ADR-0037 (supersedes ADR-0036) |

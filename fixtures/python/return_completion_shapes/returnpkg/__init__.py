@@ -36,9 +36,19 @@ def nested_finally_pass_identity(value):
         pass
 
 
+def nested_effectful_finalizer(value):
+    try:
+        try:
+            return value
+        finally:
+            pass
+    finally:
+        marker = 1
+
+
 def with_identity(value, manager):
     with manager:
         return value
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "with_identity"]
+__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity"]

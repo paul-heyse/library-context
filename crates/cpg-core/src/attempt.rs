@@ -92,7 +92,8 @@ pub struct Published {
 /// 67: an admitted summary cannot erase a sibling source contribution's open boundary.
 /// 68: pinned Pydantic TypeAdapter validation candidate model and fixture coverage.
 /// 69: finite returns through a sole pass finalizer cite the pass in ordered summary steps.
-pub const COMPILER_OUTPUT_VERSION: u32 = 69;
+/// 70: nested pass-only finalizers cite every source action in inner-to-outer proof order.
+pub const COMPILER_OUTPUT_VERSION: u32 = 70;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

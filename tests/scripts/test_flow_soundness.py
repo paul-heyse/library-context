@@ -420,6 +420,24 @@ result = run(INPUT)
     assert any(fate["event"] == "return" for fate in observed["fates"])
 
 
+def test_pending_value_return_through_nested_inert_finalizers_is_admitted() -> None:
+    source = """def run(n):
+    value = object()
+    try:
+        try:
+            return value
+        finally:
+            pass
+    finally:
+        pass
+result = run(INPUT)
+"""
+    model, observed = _flow(source, 1)
+    assert _assert_return_value_flow(source, model, observed) > 0
+    assert _assert_exit_admitted(source, model, observed) > 0
+    assert any(fate["event"] == "return" for fate in observed["fates"])
+
+
 def test_finally_override_does_not_observe_the_pending_value_return() -> None:
     source = """def run(n):
     value = object()

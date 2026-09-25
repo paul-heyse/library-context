@@ -644,7 +644,7 @@ budget = 1
         count(&ctx, &format!("SELECT count(*) FROM value_flows WHERE sink = {}", FlowSink::Return.code())).await > 0,
         "the fixture must actually produce return value facts"
     );
-    for name in ["plain_identity", "nested_identity", "finally_pass_identity"] {
+    for name in ["plain_identity", "nested_identity", "finally_pass_identity", "nested_finally_pass_identity"] {
         assert!(
             count(
                 &ctx,
@@ -685,7 +685,34 @@ budget = 1
         1,
         "the finite proof itself cites the completed finalizer"
     );
-    for name in ["finally_identity", "nested_finally_pass_identity", "with_identity"] {
+    assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps inner_pass ON inner_pass.summary_id = f.summary_id \
+             JOIN summary_flow_steps outer_pass ON outer_pass.summary_id = f.summary_id \
+             JOIN syntax_nodes inner_source ON inner_source.fact_id = inner_pass.evidence_id \
+             JOIN syntax_nodes outer_source ON outer_source.fact_id = outer_pass.evidence_id \
+             WHERE d.name = 'nested_finally_pass_identity' \
+               AND inner_pass.kind = {pass} AND outer_pass.kind = {pass} \
+               AND inner_pass.ordinal = 1 AND outer_pass.ordinal = 2 \
+               AND inner_source.start_byte < outer_source.start_byte",
+            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+        )).await,
+        1,
+        "the two nested passes must be cited in execution order"
+    );
+    assert_eq!(
+        count(&ctx,
+            "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
+             ON d.node_id = x.function_node_id \
+             WHERE d.name = 'nested_finally_pass_identity' \
+               AND x.reason IS NULL AND x.pass_fact_id IS NULL"
+        ).await,
+        1,
+        "the one-pass field is deliberately empty for an ordered multi-frame proof"
+    );
+    for name in ["finally_identity", "nested_effectful_finalizer", "with_identity"] {
         assert_eq!(
             count(
                 &ctx,
@@ -712,18 +739,6 @@ budget = 1
             1
         );
     }
-    assert_eq!(
-        count(
-            &ctx,
-            "SELECT count(*) FROM return_exit_statuses x JOIN declarations d \
-             ON d.node_id = x.function_node_id \
-             WHERE d.name = 'nested_finally_pass_identity' \
-               AND x.reason IS NOT NULL AND x.pass_fact_id IS NULL",
-        )
-        .await,
-        1,
-        "two pending finalizers need an ordered exit proof before completion"
-    );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
     let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
         .await.unwrap().into_view();
@@ -733,6 +748,24 @@ budget = 1
     )).await.unwrap().into_view();
     ctx.deregister_table("summary_flow_steps").unwrap();
     ctx.register_table("summary_flow_steps", missing_pass_step).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
+        "{violations:?}");
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", original_steps).unwrap();
+    let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
+        .await.unwrap().into_view();
+    let reversed_passes = sql::query(&ctx, &format!(
+        "SELECT s.* EXCLUDE (ordinal), \
+         CASE WHEN d.name = 'nested_finally_pass_identity' \
+           AND s.kind = {pass} AND s.ordinal IN (1, 2) \
+           THEN 3 - s.ordinal ELSE s.ordinal END AS ordinal \
+         FROM summary_flow_steps s JOIN summary_flows f ON f.summary_id = s.summary_id \
+         JOIN declarations d ON d.node_id = f.function_node_id",
+        pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+    )).await.unwrap().into_view();
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", reversed_passes).unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
         "{violations:?}");
@@ -1752,6 +1785,27 @@ budget = 1
         "a modeled return cites its finalizer before the completed exit"
     );
     assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps inner_pass ON inner_pass.summary_id = f.summary_id \
+             JOIN summary_flow_steps outer_pass ON outer_pass.summary_id = f.summary_id \
+             JOIN summary_flow_steps r ON r.summary_id = f.summary_id \
+             JOIN syntax_nodes inner_source ON inner_source.fact_id = inner_pass.evidence_id \
+             JOIN syntax_nodes outer_source ON outer_source.fact_id = outer_pass.evidence_id \
+             WHERE d.name = 'nested_framed_modeled_identity' \
+               AND f.path_depth = 1 \
+               AND inner_pass.kind = {pass} AND outer_pass.kind = {pass} \
+               AND r.kind = {exit} AND r.ordinal = outer_pass.ordinal + 1 \
+               AND outer_pass.ordinal = inner_pass.ordinal + 1 \
+               AND inner_source.start_byte < outer_source.start_byte",
+            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+            exit = cpg_schema::codebook::SummaryFlowStepKind::ReturnExit.code(),
+        )).await,
+        1,
+        "a modeled return cites both nested finalizers before its completed exit"
+    );
+    assert_eq!(
         count(
             &ctx,
             &format!(
@@ -1994,7 +2048,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        19,
+        20,
         "the typing, JSON, gzip and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -2479,7 +2533,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        24,
+        25,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

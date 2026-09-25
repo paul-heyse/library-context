@@ -531,9 +531,10 @@ table!(
 );
 
 table!(
-    /// A return's bounded syntax ancestry and nearest `with` or `try/finally` frame. Exactly
-    /// one pending `finally: pass` frame can be discharged with its pass fact; another frame
-    /// stays unknown. Null reason is still only a local normal-return candidate and does not
+    /// A return's bounded syntax ancestry and nearest `with` or `try/finally` frame. All
+    /// pending frames must be sole `finally: pass` suites to discharge them; the nullable
+    /// pass fields retain the one-frame case, while ordered multi-frame evidence is queried
+    /// from source syntax. Null reason is still only a local normal-return candidate and does not
     /// establish that evaluating the return expression succeeds.
     ReturnExitStatuses, ReturnExitStatusesRow = "return_exit_statuses",
     family = Findings,
@@ -2087,7 +2088,6 @@ crate::relations! {
                     v.flow_value_fact_id AS source_flow_fact_id, v.condition_id, \
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
-                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
@@ -2137,7 +2137,6 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
-                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM modeled_exact_value_transfers m \
              JOIN model_applications a ON a.call_site_node_id = m.call_site_node_id \
@@ -2204,7 +2203,6 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
-                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (q.predecessor_raw_approximated OR q.reaching_approximated \
                      OR q.successor_raw_approximated OR e.approximated) AS approximated \
              FROM modeled_assignment_return_paths q \
@@ -2286,7 +2284,6 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
-                    x.pass_fact_id AS finalizer_pass_fact_id, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
@@ -2795,8 +2792,8 @@ crate::relations! {
             try_ = crate::codebook::SyntaxKind::StmtTry.code(),
         );
 
-    /// A single literal `finally: pass` cannot replace or raise over a pending return. Every
-    /// other context/finally frame, including multiple nested frames, stays unresolved.
+    /// An ordered chain of literal `finally: pass` suites cannot replace or raise over a
+    /// pending return. Every other context/finally frame stays unresolved.
     return_exit_statuses = "behavior:return_exit_statuses",
         deps = ["exit_sites", "syntax_nodes"],
         sql = format!(
@@ -2824,6 +2821,8 @@ crate::relations! {
                SELECT c.site_node_id, p.node_id AS frame_node_id, p.fact_id AS frame_fact_id, \
                       sf.pass_node_id, sf.pass_fact_id, \
                       COUNT(*) OVER (PARTITION BY c.site_node_id) AS frame_count, \
+                      COUNT(*) FILTER (WHERE sf.pass_node_id IS NULL) \
+                        OVER (PARTITION BY c.site_node_id) AS unsafe_count, \
                       ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
                         ORDER BY c.depth, p.node_id) AS pick \
                FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
@@ -2848,8 +2847,7 @@ crate::relations! {
                     CASE WHEN w.capped = 0 AND b.frame_count = 1 \
                          THEN b.pass_fact_id END AS pass_fact_id, \
                     CAST(CASE WHEN w.capped > 0 THEN {budget} \
-                              WHEN b.frame_node_id IS NOT NULL \
-                                AND (b.frame_count <> 1 OR b.pass_node_id IS NULL) \
+                              WHEN b.unsafe_count > 0 \
                                 THEN {control} \
                               ELSE NULL END AS SMALLINT) AS reason \
              FROM exit_sites e JOIN walks w ON w.site_node_id = e.site_node_id \
@@ -2863,6 +2861,40 @@ crate::relations! {
             pass_kind = SyntaxKind::StmtPass.code(),
             budget = BoundaryReason::BudgetReached.code(),
             control = BoundaryReason::UnsupportedControlFlow.code(),
+        );
+
+    /// Source-cited finalizer passes in the order a pending return executes them. The
+    /// return status first proves that the ancestry walk is complete and every frame is safe.
+    /// This query is reconstructed by the finite-summary publisher and validator; its rows
+    /// are persisted as ordered `finalizer_pass` proof steps, not a second output table.
+    return_exit_pass_steps = "behavior:return_exit_pass_steps",
+        deps = ["return_exit_statuses", "syntax_nodes"],
+        sql = format!(
+            "WITH RECURSIVE climb AS ( \
+               SELECT x.site_node_id, x.source_fact_id AS return_site_fact_id, \
+                      x.condition_id, s.parent_node_id, s.field, \
+                      CAST(0 AS BIGINT) AS depth, x.function_node_id \
+               FROM return_exit_statuses x JOIN syntax_nodes s \
+                 ON s.node_id = x.site_node_id \
+               WHERE x.reason IS NULL \
+               UNION ALL \
+               SELECT c.site_node_id, c.return_site_fact_id, c.condition_id, \
+                      p.parent_node_id, p.field, c.depth + 1, c.function_node_id \
+               FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+               WHERE c.depth < {max_depth} AND p.owner_node_id = c.function_node_id \
+             ) \
+             SELECT c.return_site_fact_id, f.fact_id AS pass_fact_id, c.condition_id, \
+                    ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
+                      ORDER BY c.depth, p.node_id) - 1 AS ordinal \
+             FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
+               AND p.owner_node_id = c.function_node_id \
+             JOIN syntax_nodes f ON f.parent_node_id = p.node_id \
+               AND f.field = {finalbody} AND f.kind = {pass_kind} \
+             WHERE p.kind = {try_kind} AND c.field <> {finalbody}",
+            max_depth = MODELED_HANDLER_MAX_ANCESTOR_DEPTH,
+            try_kind = SyntaxKind::StmtTry.code(),
+            finalbody = crate::codebook::SyntaxField::Finalbody.code(),
+            pass_kind = SyntaxKind::StmtPass.code(),
         );
 
     /// `argument_flows`: `flows::argument_flows_sql`, with the snapshot id.
