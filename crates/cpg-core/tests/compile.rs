@@ -1382,7 +1382,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        9,
+        10,
         "the pure, JSON and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -1402,11 +1402,11 @@ budget = 1
             &ctx,
             "SELECT count(*) FROM modeled_direct_return_transfers t \
              JOIN declarations d ON d.node_id = t.function_node_id \
-             WHERE d.name IN ('indirect_identity', 'nested_identity')",
+             WHERE d.name IN ('indirect_identity', 'nested_identity', 'computed_identity')",
         )
         .await,
         0,
-        "inherited and nested call paths require further predecessor evidence"
+        "inherited, nested and computed outer expressions cannot use the direct call-result rule"
     );
     assert_eq!(
         count(
@@ -1717,7 +1717,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        12,
+        13,
         "each pinned model applies only at its resolved source call"
     );
     assert_eq!(

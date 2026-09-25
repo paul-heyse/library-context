@@ -72,7 +72,8 @@ pub struct Published {
 /// 47: direct one-call return candidates join raw parameter flows to pinned model transfers.
 /// 48: raw predecessor candidates retain reaching-definition identity and separate conditions.
 /// 49: persist the BDD closures of recomposed flow-analysis conditions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 49;
+/// 50: a direct modeled return requires the call result to be the entire sink expression.
+pub const COMPILER_OUTPUT_VERSION: u32 = 50;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

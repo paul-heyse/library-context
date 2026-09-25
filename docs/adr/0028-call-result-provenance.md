@@ -45,6 +45,9 @@ The first L3 bridge admits only a direct return whose raw value fact has exactly
 one ordered call step, an exact Ruff argument link, an unchanged upstream
 parameter value owned by the same callable, and a pinned model transfer whose
 input argument and output call expression are those same source nodes. It
+also requires the call span to equal the return-value sink span, so an outer
+operator, Boolean fallback or other computation cannot borrow the call's
+identity model as the entire return. It
 retains flow approximation, condition and both modalities. An assigned
 intermediate or nested call is withheld until its predecessor path can be
 proved. This is a candidate transfer path, not a completed summary or verdict.

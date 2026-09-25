@@ -46,6 +46,10 @@ def nested_identity(value: object) -> object:
     return cast(object, str(value))
 
 
+def computed_identity(value: object) -> object:
+    return cast(object, value) or "fallback"
+
+
 def asserted_type(value: object) -> object:
     return assert_type(value, object)
 

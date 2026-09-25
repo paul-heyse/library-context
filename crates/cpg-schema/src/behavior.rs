@@ -1650,6 +1650,8 @@ crate::relations! {
              JOIN step_counts sc ON sc.flow_value_fact_id = v.flow_value_fact_id AND sc.n = 1 \
              JOIN flow_value_calls fc ON fc.flow_value_fact_id = v.flow_value_fact_id \
                AND fc.step = 0 AND fc.use_id = v.use_id \
+               AND fc.call_start_byte = f.sink_start_byte \
+               AND fc.call_end_byte = f.sink_end_byte \
              JOIN flow_value_call_links l ON l.flow_value_call_fact_id = fc.fact_id \
                AND l.status = {bound_argument} \
              JOIN modeled_transfer_sites m ON m.call_site_node_id = l.call_node_id \

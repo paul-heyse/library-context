@@ -3296,7 +3296,9 @@ composition and negative claims.
 transfer candidate):** `modeled_direct_return_transfers` joins a raw return-value
 fact and its unmerged parameter contribution to exactly one ordered call step,
 its uniquely bound Ruff argument, and a pinned model whose argument input and
-call-result output cite those same nodes. The upstream transfer must be
+call-result output cite those same nodes. The call span must equal the full
+return-value sink span, excluding an enclosing computation or fallback.
+The upstream transfer must be
 identity and the source parameter must belong to the return's callable.
 The row retains condition, raw-fact approximation, target/model modality and open
 dispatch. Assigned intermediates and nested calls produce no direct row; their
@@ -3304,6 +3306,9 @@ predecessor chain remains unknown. Shared publication validation reconstructs
 the relation and rejects dropped rows. This is a candidate source-to-return
 path, not proof that the call completes or a `summary_flows` verdict.
 `COMPILER_OUTPUT_VERSION` is 47; integrated Stage 3 testing is `not_run`.
+**Implemented and Tested in focused cases (2026-09-25):** the exact
+call/sink-span equality closes the one-call outer-expression gap; output
+version 50. An outer Boolean fallback remains outside this direct bridge.
 
 **Implemented and Tested in focused cases (ADR-0028, 2026-09-25, predecessor
 candidate):** `value_flow_predecessor_candidates` joins an inherited-call
@@ -4044,3 +4049,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | The first source-to-model direct-return bridge requires one exact call step and matching argument/result nodes, with inherited and nested call paths withheld (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Reaching definitions now cite raw predecessor value facts for inherited call paths, while independent conditions and approximation flags remain unresolved pending structural BDD persistence (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | Recomposed flow-analysis conditions now persist in a separate structural BDD catalog with shared hydration validation, giving L3 an authority for condition composition (§3.9, §9.9) | ADR-0032 |
+| 2026-09-25 | A direct modeled return now requires the call to occupy the entire return-value expression; an outer fallback cannot inherit an identity model (§9.9) | ADR-0028 (proposed) |
