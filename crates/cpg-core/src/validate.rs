@@ -17,7 +17,7 @@ use cpg_schema::behavior::{
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
-    ModeledTransferSitesRow,
+    ModeledTransferSitesRow, ModeledDirectReturnTransfersRow,
     ValueFlowContributionsRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
@@ -117,6 +117,7 @@ pub async fn validate_costed(
     violations.extend(validate_exit_sites(&cache).await?);
     violations.extend(validate_handlers(&cache).await?);
     violations.extend(validate_value_flow_contributions(&cache).await?);
+    violations.extend(validate_modeled_direct_return_transfers(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -145,6 +146,9 @@ cpg_schema::relations! {
     stored_value_flow_contributions = "validate_stored_value_flow_contributions",
         deps = ["value_flow_contributions"],
         sql = "SELECT * FROM value_flow_contributions".to_owned();
+    stored_modeled_direct_return_transfers = "validate_stored_modeled_direct_return_transfers",
+        deps = ["modeled_direct_return_transfers"],
+        sql = "SELECT * FROM modeled_direct_return_transfers".to_owned();
     value_flow_snapshot = "validate_value_flow_snapshot", deps = ["releases"],
         sql = "SELECT snapshot_id FROM releases".to_owned();
     value_flow_analysis_count = "validate_value_flow_analysis_count", deps = ["analysis_invocations"],
@@ -160,6 +164,38 @@ cpg_schema::query_row! {
 cpg_schema::query_row! {
     struct ValueFlowAnalysisCountRow {
         count: i64,
+    }
+}
+
+/// Reconstruct the exact local model join; omitted or forged candidate paths cannot publish.
+async fn validate_modeled_direct_return_transfers(
+    ctx: &SessionContext,
+) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<ModeledDirectReturnTransfersRow> = sql::fetch(
+        ctx,
+        &stored_modeled_direct_return_transfers(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected: Vec<ModeledDirectReturnTransfersRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_direct_return_transfers(),
+        sql::Params::new(),
+    )
+    .await?;
+    let key = |r: &ModeledDirectReturnTransfersRow| {
+        (r.flow_value_fact_id, r.parameter_node_id, r.pysa_fact_id, r.model_id, r.rule_id)
+    };
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "modeled-direct-return-transfer-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} direct transfers; derived {}", actual.len(), expected.len()),
+        }])
     }
 }
 

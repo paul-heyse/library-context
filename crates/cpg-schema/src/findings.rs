@@ -498,6 +498,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ModeledCallbackSites,
             $crate::behavior::ModeledResourceSites,
             $crate::behavior::ModeledTransferSites,
+            $crate::behavior::ModeledDirectReturnTransfers,
             $crate::behavior::ModeledEffectSites,
             $crate::behavior::ModelTransfers,
             $crate::behavior::ModelEffects,

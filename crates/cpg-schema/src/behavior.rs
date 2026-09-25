@@ -29,7 +29,7 @@
 
 use crate::codebook::{
     ArgumentKind, BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind,
-    EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowSink, HandlerTypeStatus, ImplicitReceiver,
+    EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus, ImplicitReceiver,
     InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
@@ -646,6 +646,43 @@ table!(
         output_expression_fact_id: Option<Id>,
         output_status: ModelTransferEndpointStatus,
         output_reason: Option<BoundaryReason>,
+        transfer: ModelTransferKind,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// A direct, one-call source-to-return candidate through a pinned model transfer. The
+    /// parameter reaches the exact argument unchanged before the call; the modeled result is
+    /// still conditional on target choice, normal completion and the model's modality.
+    ModeledDirectReturnTransfers, ModeledDirectReturnTransfersRow = "modeled_direct_return_transfers",
+    family = Findings,
+    key = [snapshot_id, flow_value_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        flow_value_fact_id: Id,
+        flow_value_call_fact_id: Id,
+        call_site_node_id: Id,
+        call_fact_id: Id,
+        argument_node_id: Id,
+        argument_fact_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        use_id: Id,
+        condition_id: Id,
+        condition: String,
+        /// Approximation on this raw flow fact only; predecessor reachability is not closed.
+        raw_flow_approximated: bool,
+        pysa_fact_id: Id,
+        target_node_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
         transfer: ModelTransferKind,
         target_modality: Modality,
         model_modality: Modality,
@@ -1525,6 +1562,44 @@ crate::relations! {
             unknown = ModelTransferEndpointStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
             input = ModelPathRole::Input.code(),
+        );
+
+    /// Only an exact one-call path can currently compose a model input into a returned
+    /// expression. Nested calls and inherited call transfer need predecessor-path evidence;
+    /// neither is inferred from a merged flow row or shared source span.
+    modeled_direct_return_transfers = "behavior:modeled_direct_return_transfers",
+        deps = ["value_flow_contributions", "flow_values", "flow_value_calls", "flow_value_call_links", "modeled_transfer_sites"],
+        sql = format!(
+            "WITH step_counts AS ( \
+               SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \
+               GROUP BY flow_value_fact_id) \
+             SELECT v.snapshot_id, v.flow_value_fact_id, fc.fact_id AS flow_value_call_fact_id, \
+                    l.call_node_id AS call_site_node_id, l.call_fact_id, \
+                    l.argument_node_id, l.argument_fact_id, v.sink_function_node_id AS function_node_id, \
+                    v.parameter_node_id, v.use_id, v.condition_id, v.condition, \
+                    f.approximated AS raw_flow_approximated, m.pysa_fact_id, m.target_node_id, \
+                    m.model_id, m.rule_id, m.target_definition_fact_id, m.transfer, \
+                    m.target_modality, m.model_modality, m.candidate_set_complete_under_model, \
+                    m.has_unresolved_remainder, m.origin \
+             FROM value_flow_contributions v \
+             JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
+             JOIN step_counts sc ON sc.flow_value_fact_id = v.flow_value_fact_id AND sc.n = 1 \
+             JOIN flow_value_calls fc ON fc.flow_value_fact_id = v.flow_value_fact_id \
+               AND fc.step = 0 AND fc.use_id = v.use_id \
+             JOIN flow_value_call_links l ON l.flow_value_call_fact_id = fc.fact_id \
+               AND l.status = {bound_argument} \
+             JOIN modeled_transfer_sites m ON m.call_site_node_id = l.call_node_id \
+               AND m.input_expression_node_id = l.argument_node_id \
+               AND m.output_expression_node_id = l.call_node_id \
+               AND m.input_status = {bound_input} AND m.output_status = {call_result} \
+               AND m.function_node_id = v.sink_function_node_id \
+             WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
+               AND v.function_node_id = v.sink_function_node_id \
+               AND v.upstream_identity AND v.local_through_call",
+            bound_argument = FlowCallLinkStatus::BoundArgument.code(),
+            bound_input = ModelTransferEndpointStatus::BoundArgument.code(),
+            call_result = ModelTransferEndpointStatus::CallResult.code(),
+            return_sink = FlowSink::Return.code(),
         );
 
     /// A subjectless effect stays unqualified; a parameter subject needs an exact binding.

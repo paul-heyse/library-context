@@ -3282,6 +3282,19 @@ modeled argument/result pair. The path carries operand role and direct-value spa
 ambiguous, computed or budget-cut steps write a boundary. This bridge precedes SCC
 composition and negative claims.
 
+**Implemented and Tested in focused cases (ADR-0028, 2026-09-25, direct
+transfer candidate):** `modeled_direct_return_transfers` joins a raw return-value
+fact and its unmerged parameter contribution to exactly one ordered call step,
+its uniquely bound Ruff argument, and a pinned model whose argument input and
+call-result output cite those same nodes. The upstream transfer must be
+identity and the source parameter must belong to the return's callable.
+The row retains condition, raw-fact approximation, target/model modality and open
+dispatch. Assigned intermediates and nested calls produce no direct row; their
+predecessor chain remains unknown. Shared publication validation reconstructs
+the relation and rejects dropped rows. This is a candidate source-to-return
+path, not proof that the call completes or a `summary_flows` verdict.
+`COMPILER_OUTPUT_VERSION` is 47; integrated Stage 3 testing is `not_run`.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
@@ -3991,3 +4004,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Raw value-flow contributions retain the upstream transfer before the local fact; a later one-call summary may refuse inherited call uncertainty (§B5, §9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | A handler with one direct `return None` gets a source/region-cited, pre-finally witness; ty region approximation remains explicit and no catch/completion fate follows (§9.9) | — |
 | 2026-09-25 | A bounded direct `try` and sole `return None` handler yields only a candidate-local conditional modeled-exception path, with nested frames and finalizers withheld (§9.9) | ADR-0031 |
+| 2026-09-25 | The first source-to-model direct-return bridge requires one exact call step and matching argument/result nodes, with inherited and nested call paths withheld (§B5, §9.9) | ADR-0028 (proposed) |

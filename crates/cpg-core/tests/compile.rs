@@ -1371,8 +1371,31 @@ budget = 1
     assert_eq!(count(&ctx, "SELECT count(*) FROM model_transfers").await, 4);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        7,
+        9,
         "the pure, JSON and atexit transfers apply to resolved source calls"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_direct_return_transfers t \
+             JOIN declarations d ON d.node_id = t.function_node_id \
+             WHERE d.name IN ('identity', 'identity_keyword', 'asserted_type') \
+               AND t.parameter_node_id IS NOT NULL AND t.flow_value_call_fact_id IS NOT NULL",
+        )
+        .await,
+        3,
+        "only exact direct identity call paths compose the source parameter and model input"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_direct_return_transfers t \
+             JOIN declarations d ON d.node_id = t.function_node_id \
+             WHERE d.name IN ('indirect_identity', 'nested_identity')",
+        )
+        .await,
+        0,
+        "inherited and nested call paths require further predecessor evidence"
     );
     assert_eq!(
         count(
@@ -1670,7 +1693,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        10,
+        12,
         "each pinned model applies only at its resolved source call"
     );
     assert_eq!(
@@ -1959,6 +1982,26 @@ budget = 1
     );
     ctx.deregister_table("modeled_transfer_sites").unwrap();
     ctx.register_table("modeled_transfer_sites", original_transfer_sites)
+        .unwrap();
+
+    let original_direct_transfers = sql::query(&ctx, "SELECT * FROM modeled_direct_return_transfers")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_direct_transfers = sql::query(&ctx, "SELECT * FROM modeled_direct_return_transfers WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("modeled_direct_return_transfers").unwrap();
+    ctx.register_table("modeled_direct_return_transfers", missing_direct_transfers)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "modeled-direct-return-transfer-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_direct_return_transfers").unwrap();
+    ctx.register_table("modeled_direct_return_transfers", original_direct_transfers)
         .unwrap();
 
     let original_effect_sites = sql::query(&ctx, "SELECT * FROM modeled_effect_sites")

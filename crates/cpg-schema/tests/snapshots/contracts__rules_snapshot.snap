@@ -192,6 +192,8 @@ key:modeled_resource_sites
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_resource_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:modeled_transfer_sites
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_transfer_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
+key:modeled_direct_return_transfers
+  SELECT snapshot_id, flow_value_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_direct_return_transfers GROUP BY snapshot_id, flow_value_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:modeled_effect_sites
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_effect_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:model_transfers
@@ -352,6 +354,36 @@ ref:value_flow_contributions.parameter_node_id->parameter_syntax
   SELECT f.parameter_node_id AS value FROM value_flow_contributions f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
 ref:value_flow_contributions.class_node_id->declarations
   SELECT f.class_node_id AS value FROM value_flow_contributions f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
+ref:modeled_direct_return_transfers.flow_value_fact_id->flow_values
+  SELECT f.flow_value_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.flow_value_fact_id = r.k WHERE f.flow_value_fact_id IS NOT NULL
+ref:modeled_direct_return_transfers.flow_value_call_fact_id->flow_value_calls
+  SELECT f.flow_value_call_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_value_calls) r ON f.flow_value_call_fact_id = r.k WHERE f.flow_value_call_fact_id IS NOT NULL
+ref:modeled_direct_return_transfers.call_site_node_id->call_syntax
+  SELECT f.call_site_node_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT node_id AS k FROM call_syntax) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:modeled_direct_return_transfers.call_fact_id->facts
+  SELECT f.call_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.call_fact_id = r.k WHERE f.call_fact_id IS NOT NULL
+ref:modeled_direct_return_transfers.argument_node_id->arguments
+  SELECT f.argument_node_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT node_id AS k FROM arguments) r ON f.argument_node_id = r.k WHERE f.argument_node_id IS NOT NULL
+ref:modeled_direct_return_transfers.argument_fact_id->facts
+  SELECT f.argument_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.argument_fact_id = r.k WHERE f.argument_fact_id IS NOT NULL
+ref:modeled_direct_return_transfers.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:modeled_direct_return_transfers.parameter_node_id->parameter_syntax
+  SELECT f.parameter_node_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
+ref:modeled_direct_return_transfers.use_id->flow_uses
+  SELECT f.use_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.use_id = r.k WHERE f.use_id IS NOT NULL
+ref:modeled_direct_return_transfers.condition_id->conditions
+  SELECT f.condition_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
+ref:modeled_direct_return_transfers.pysa_fact_id->facts
+  SELECT f.pysa_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:modeled_direct_return_transfers.target_node_id->model_targets
+  SELECT f.target_node_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT target_node_id AS k FROM model_targets) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:modeled_direct_return_transfers.model_id->model_targets
+  SELECT f.model_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:modeled_direct_return_transfers.rule_id->model_transfers
+  SELECT f.rule_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_transfers) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:modeled_direct_return_transfers.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM modeled_direct_return_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
 ref:model_exceptions.class_node_id->context_definitions
   SELECT f.class_node_id AS value FROM model_exceptions f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
 ref:model_exceptions.class_fact_id->facts
@@ -1246,6 +1278,14 @@ codebook:modeled_transfer_sites.model_modality
   SELECT model_modality FROM modeled_transfer_sites WHERE model_modality IS NOT NULL AND model_modality NOT IN (0, 1, 2)
 codebook:modeled_transfer_sites.origin
   SELECT origin FROM modeled_transfer_sites WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:modeled_direct_return_transfers.transfer
+  SELECT transfer FROM modeled_direct_return_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
+codebook:modeled_direct_return_transfers.target_modality
+  SELECT target_modality FROM modeled_direct_return_transfers WHERE target_modality IS NOT NULL AND target_modality NOT IN (0, 1, 2)
+codebook:modeled_direct_return_transfers.model_modality
+  SELECT model_modality FROM modeled_direct_return_transfers WHERE model_modality IS NOT NULL AND model_modality NOT IN (0, 1, 2)
+codebook:modeled_direct_return_transfers.origin
+  SELECT origin FROM modeled_direct_return_transfers WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:modeled_effect_sites.effect
   SELECT effect FROM modeled_effect_sites WHERE effect IS NOT NULL AND effect NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 codebook:modeled_effect_sites.subject_path_kind

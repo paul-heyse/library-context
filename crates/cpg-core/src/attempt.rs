@@ -69,7 +69,8 @@ pub struct Published {
 /// 44: preserve the upstream transfer before each raw value fact's local call path.
 /// 45: direct, pre-finally return-None witnesses for handler bodies.
 /// 46: candidate modeled raises compose through a direct first handler to a return-None path.
-pub const COMPILER_OUTPUT_VERSION: u32 = 46;
+/// 47: direct one-call return candidates join raw parameter flows to pinned model transfers.
+pub const COMPILER_OUTPUT_VERSION: u32 = 47;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -755,7 +756,7 @@ async fn finish(
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
             HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
-            ModeledExceptionReturnNonePaths, NegativePremises,
+            ModeledExceptionReturnNonePaths, ModeledDirectReturnTransfers, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
             RaiseSites, Singletons, ValueFlowContributions, ValueFlows,
         };
@@ -767,6 +768,20 @@ async fn finish(
             root,
             snapshot_id,
             &m.value_flow_contributions,
+            w,
+        )
+        .await?;
+        let modeled_direct_return_transfers = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::modeled_direct_return_transfers(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ModeledDirectReturnTransfers>(
+            &ctx,
+            root,
+            snapshot_id,
+            &modeled_direct_return_transfers,
             w,
         )
         .await?;

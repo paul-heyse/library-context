@@ -1,0 +1,33 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table modeled_direct_return_transfers
+family findings
+key snapshot_id, flow_value_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id
+@lctx.family=findings
+@lctx.table=modeled_direct_return_transfers
+snapshot_id: FixedSizeBinary(16) NOT NULL
+flow_value_fact_id: FixedSizeBinary(16) NOT NULL
+flow_value_call_fact_id: FixedSizeBinary(16) NOT NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+call_fact_id: FixedSizeBinary(16) NOT NULL
+argument_node_id: FixedSizeBinary(16) NOT NULL
+argument_fact_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+parameter_node_id: FixedSizeBinary(16) NOT NULL
+use_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+condition: Utf8 NOT NULL
+raw_flow_approximated: Boolean NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+target_node_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+target_definition_fact_id: FixedSizeBinary(16) NOT NULL
+transfer: Int16 NOT NULL [lctx.codebook=model_transfer_kind]
+target_modality: Int16 NOT NULL [lctx.codebook=modality]
+model_modality: Int16 NOT NULL [lctx.codebook=modality]
+candidate_set_complete_under_model: Boolean NOT NULL
+has_unresolved_remainder: Boolean NOT NULL
+origin: Int16 NOT NULL [lctx.codebook=origin]

@@ -41,10 +41,19 @@ parameter's owner. A nested function can read a captured outer parameter;
 summaries belong to the inner callable even though the source identity belongs
 to the outer one.
 
+The first L3 bridge admits only a direct return whose raw value fact has exactly
+one ordered call step, an exact Ruff argument link, an unchanged upstream
+parameter value owned by the same callable, and a pinned model transfer whose
+input argument and output call expression are those same source nodes. It
+retains flow approximation, condition and both modalities. An assigned
+intermediate or nested call is withheld until its predecessor path can be
+proved. This is a candidate transfer path, not a completed summary or verdict.
+
 ## Consequences
 
 A nested modeled call can be composed in order with exact input/output citations; unsupported chains remain diagnosable. This adds a raw fact family and an exact-join validator, and requires an explicit extractor/schema migration. Focused direct, nested, callee, computed and keyword cases precede summary use; the Stage 3 pilot later measures row counts and work. Revisit if exact joins prove too incomplete or costly, but do not replace unknown with a textual heuristic.
 
 The contribution relation and its full reconstruction validator are implemented
-and focused-tested on 2026-09-25. The remaining transfer discharge and SCC
-composition are still proposed; the integrated pilot has not run on this change.
+and focused-tested on 2026-09-25. The direct candidate bridge is likewise
+focused-tested. Completed transfer discharge and SCC composition are still
+proposed; the integrated pilot has not run on this change.

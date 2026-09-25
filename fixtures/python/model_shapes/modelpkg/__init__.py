@@ -37,6 +37,15 @@ def identity_keyword(value: object) -> object:
     return cast(typ=object, val=value)
 
 
+def indirect_identity(value: object) -> object:
+    result = cast(object, value)
+    return result
+
+
+def nested_identity(value: object) -> object:
+    return cast(object, str(value))
+
+
 def asserted_type(value: object) -> object:
     return assert_type(value, object)
 
