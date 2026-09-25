@@ -101,7 +101,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        51 + 21 + 33,
+        51 + 21 + 36,
         "every raw, derived and analysis table"
     );
 
@@ -281,6 +281,12 @@ async fn model_target_requires_its_cited_pinned_definition() {
         violations.iter().any(|v| v.rule == expected),
         "{violations:?}"
     );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-target-equality"),
+        "{violations:?}"
+    );
 
     ctx.deregister_table("model_targets").unwrap();
     ctx.register_batch("model_targets", ModelTargets::to_batch(&[]).unwrap())
@@ -305,6 +311,12 @@ async fn model_target_requires_its_cited_pinned_definition() {
     let (expected,) = ("semantic:model-transfer-target",);
     assert!(
         violations.iter().any(|v| v.rule == expected),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-transfer-equality"),
         "{violations:?}"
     );
 }

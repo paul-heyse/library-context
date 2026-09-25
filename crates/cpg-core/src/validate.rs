@@ -10,7 +10,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use cpg_schema::behavior::{FlowTestExactOriginsRow, FlowTestValueLinksRow};
+use cpg_schema::behavior::{
+    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargetsRow, ModelTransfersRow,
+};
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -104,7 +106,100 @@ pub async fn validate_costed(
     violations.extend(validate_condition_graph(&cache).await?);
     violations.extend(validate_test_type_links(&cache).await?);
     violations.extend(validate_entry_proofs(&cache).await?);
+    violations.extend(validate_models(&cache).await?);
     Ok((violations, costs))
+}
+
+cpg_schema::relations! {
+    inventory model_relations;
+    model_contexts = "validate_model_contexts", deps = ["contexts"],
+        sql = "SELECT * FROM contexts".to_owned();
+    model_producers = "validate_model_producers", deps = ["producers"],
+        sql = "SELECT * FROM producers".to_owned();
+    model_modules = "validate_model_modules", deps = ["context_modules"],
+        sql = "SELECT * FROM context_modules".to_owned();
+    model_definitions = "validate_model_definitions", deps = ["context_definitions"],
+        sql = "SELECT * FROM context_definitions".to_owned();
+    model_targets = "validate_model_targets", deps = ["model_targets"],
+        sql = "SELECT * FROM model_targets".to_owned();
+    model_transfers = "validate_model_transfers", deps = ["model_transfers"],
+        sql = "SELECT * FROM model_transfers".to_owned();
+}
+
+/// Rebuild model rows from the committed bytes and the pinned context views. A stored row cannot
+/// invent a model id, transfer path or target citation, and a missing applicable row is invalid.
+async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let contexts: Vec<cpg_schema::tables::ContextsRow> =
+        sql::fetch(ctx, &model_contexts(), sql::Params::new()).await?;
+    let producers: Vec<cpg_schema::tables::ProducersRow> =
+        sql::fetch(ctx, &model_producers(), sql::Params::new()).await?;
+    let modules: Vec<cpg_schema::tables::ContextModulesRow> =
+        sql::fetch(ctx, &model_modules(), sql::Params::new()).await?;
+    let definitions: Vec<cpg_schema::tables::ContextDefinitionsRow> =
+        sql::fetch(ctx, &model_definitions(), sql::Params::new()).await?;
+    let mut actual_targets: Vec<ModelTargetsRow> =
+        sql::fetch(ctx, &model_targets(), sql::Params::new()).await?;
+    let mut actual_transfers: Vec<ModelTransfersRow> =
+        sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
+    let analyzed = producers.iter().any(|p| p.tool == crate::analyze::TOOL);
+    if !analyzed && actual_targets.is_empty() && actual_transfers.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(snapshot_id) = contexts.first().map(|row| row.snapshot_id) else {
+        return Ok(
+            if actual_targets.is_empty() && actual_transfers.is_empty() {
+                Vec::new()
+            } else {
+                vec![Violation {
+                    rule: "model-catalog-context".into(),
+                    rows: 1,
+                    sample: "model rows without a pinned analysis context".into(),
+                }]
+            },
+        );
+    };
+    let catalog = cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
+    let mut expected_targets = catalog
+        .bind_targets(snapshot_id, &contexts, &modules, &definitions)
+        .map_err(CoreError::Analysis)?;
+    let mut expected_transfers = catalog
+        .compile_transfers(&expected_targets)
+        .map_err(CoreError::Analysis)?;
+    expected_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
+    actual_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
+    expected_transfers.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    actual_transfers.sort_by_key(|row| (row.model_id, row.target_node_id, row.rule_id));
+    let mut violations = Vec::new();
+    if !analyzed {
+        violations.push(Violation {
+            rule: "model-catalog-context".into(),
+            rows: 1,
+            sample: "model rows without a compiler run".into(),
+        });
+    }
+    if expected_targets != actual_targets {
+        violations.push(Violation {
+            rule: "model-catalog-target-equality".into(),
+            rows: 1,
+            sample: format!(
+                "expected {} target rows, stored {}",
+                expected_targets.len(),
+                actual_targets.len()
+            ),
+        });
+    }
+    if expected_transfers != actual_transfers {
+        violations.push(Violation {
+            rule: "model-catalog-transfer-equality".into(),
+            rows: 1,
+            sample: format!(
+                "expected {} transfer rows, stored {}",
+                expected_transfers.len(),
+                actual_transfers.len()
+            ),
+        });
+    }
+    Ok(violations)
 }
 
 cpg_schema::query_row! {

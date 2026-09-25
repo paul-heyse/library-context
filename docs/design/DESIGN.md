@@ -2985,9 +2985,16 @@ cites both source facts and carries `synthetic_model` provenance; a pinned modul
 callable fails before any Delta write. A model for another pin is dormant. Authored transfer
 rules for bound targets become typed `model_transfers` rows with canonical paths, a stable rule
 identity and synthetic-model provenance. Unimplemented rule families fail closed before writes.
-Formal path resolution against signatures, effect/other rule families, CrossHair checks and
+The shared publication validator reconstructs target and transfer rows from the committed
+catalog and pinned context views, rejecting missing, extra or altered model rows.
+Formal path resolution against signatures, effect/other rule families, broader oracle checks and
 summary composition remain Proposed. A transfer row is an authored model claim, not a composed
 behavior verdict.
+
+**Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
+CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
+identity; a deliberately wrong control produced `value=0`. This does not certify the generic
+model or its use in a summary. [Evidence](../design_review/evidence/2026-09-24_typing_cast_model_oracle/README.md).
 
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
 - **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
