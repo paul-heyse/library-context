@@ -42,6 +42,7 @@ accesses = []
 stores = {}
 loads = {}
 returns = []
+fates = []
 instructions = {}
 mon = sys.monitoring
 tool = mon.PROFILER_ID
@@ -91,17 +92,37 @@ def on_return(c, offset, value):
         for item in candidates
         if item["value_id"] == id(value) and item["load"][0] == return_line
     )
+    if return_line is not None:
+        fates.append({"event": "return", "line": return_line})
+
+def on_fate(event):
+    def record(c, offset, _exception):
+        if c.co_filename != path:
+            return
+        if c not in instructions:
+            instructions[c] = {i.offset: i for i in dis.get_instructions(c)}
+        instruction = instructions[c].get(offset)
+        if instruction is not None and instruction.positions.lineno is not None:
+            fates.append({"event": event, "line": instruction.positions.lineno})
+    return record
 
 try:
     mon.register_callback(tool, mon.events.LINE, on_line)
     mon.register_callback(tool, mon.events.INSTRUCTION, on_instruction)
     mon.register_callback(tool, mon.events.PY_RETURN, on_return)
-    mon.set_events(tool, mon.events.LINE | mon.events.INSTRUCTION | mon.events.PY_RETURN)
+    mon.register_callback(tool, mon.events.RAISE, on_fate("raise"))
+    mon.register_callback(tool, mon.events.RERAISE, on_fate("reraise"))
+    mon.register_callback(tool, mon.events.EXCEPTION_HANDLED, on_fate("handled"))
+    mon.register_callback(tool, mon.events.PY_UNWIND, on_fate("unwind"))
+    mon.set_events(tool, mon.events.LINE | mon.events.INSTRUCTION | mon.events.PY_RETURN
+                   | mon.events.RAISE | mon.events.RERAISE
+                   | mon.events.EXCEPTION_HANDLED | mon.events.PY_UNWIND)
     exec(code, {"INPUT": json.loads(sys.argv[2])})
 finally:
     mon.set_events(tool, 0)
     mon.free_tool_id(tool)
-print(json.dumps({"lines": sorted(lines), "accesses": accesses, "returns": returns}))
+print(json.dumps({"lines": sorted(lines), "accesses": accesses, "returns": returns,
+                  "fates": fates}))
 """
 
 
@@ -192,6 +213,20 @@ def _assert_return_value_flow(source: str, model: dict, observed: dict) -> int:
             row["sink"] == "Return" and row["use_ix"] in uses and row["condition"] != "false"
             for row in model["values"]
         ), ("observed local-to-return flow absent", returned, model)
+        matched += 1
+    return matched
+
+
+def _assert_exit_admitted(source: str, model: dict, observed: dict) -> int:
+    matched = 0
+    for fate in observed["fates"]:
+        regions = [
+            row for row in model["regions"]
+            if source.count("\n", 0, row["span"][0]) + 1 == fate["line"]
+        ]
+        assert regions and any(row["condition"] != "false" for row in regions), (
+            "observed exit or exception has no admitted region", fate, source, regions
+        )
         matched += 1
     return matched
 
@@ -338,6 +373,30 @@ result = run(INPUT)
         missing = {**model, "values": [v for v in model["values"] if v["sink"] != "Return"]}
         with pytest.raises(AssertionError, match="observed local-to-return flow absent"):
             _assert_return_value_flow(source, missing, observed)
+
+
+def test_observed_exception_and_exit_regions_are_admitted() -> None:
+    source = """def run(flag):
+    try:
+        if flag:
+            raise ValueError("expected")
+        return 1
+    except ValueError:
+        return 2
+    finally:
+        marker = 3
+result = run(INPUT)
+"""
+    for flag in (False, True):
+        model, observed = _flow(source, flag)
+        assert _assert_exit_admitted(source, model, observed) > 0
+        if flag:
+            assert any(row["event"] == "raise" for row in observed["fates"])
+        else:
+            assert any(row["event"] == "return" for row in observed["fates"])
+    missing = {**model, "regions": []}
+    with pytest.raises(AssertionError, match="observed exit or exception has no admitted region"):
+        _assert_exit_admitted(source, missing, observed)
 
 
 def test_runtime_binding_spans_are_checked_before_the_oracle_runs() -> None:
