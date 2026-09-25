@@ -3020,6 +3020,16 @@ reconstructs every row. Binding is still local to one candidate model target. Di
 closure, value stability, effects and summary composition remain Proposed; no served verdict
 follows from this relation alone.
 
+**Implemented and Tested in focused cases (2026-09-25, modeled callback source):**
+`modeled_callback_sites` applies an authored callback action to a cited source call target
+without erasing the model exit, either modality, or the target-set boundary. It carries the
+bound source callback argument when every signature agreed, otherwise an explicit unknown
+binding reason. The first positive shape is `atexit.register`'s `registered` action on normal
+exit; starred and positional-only keyword calls retain unknown binding. The row is a
+candidate-local model action, not evidence of callback invocation or a whole-operation fate.
+Publication reconstructs it; other callback and resource sources and L3 composition remain
+Proposed.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic

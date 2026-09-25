@@ -141,6 +141,39 @@ table!(
 );
 
 table!(
+    /// A source call site and an authored callback action on one candidate modeled target.
+    /// The binding status names whether the callback value is an exact source argument;
+    /// the target's openness and rule exit/modalities remain separate from that identity.
+    ModeledCallbackSites, ModeledCallbackSitesRow = "modeled_callback_sites",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        function_node_id: Option<Id>,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        target_node_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        callback_path_id: Id,
+        argument_node_id: Option<Id>,
+        argument_fact_id: Option<Id>,
+        binding_status: ModelArgumentStatus,
+        binding_reason: Option<BoundaryReason>,
+        action: ModelCallbackAction,
+        exit: ModelExit,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
+        origin: Origin,
+    }
+);
+
+table!(
     /// Authored callback action of a pinned external definition. `callback_path_id` is the
     /// canonical typed path's identity; `callback_path` is display only.
     ModelCallbacks, ModelCallbacksRow = "model_callbacks",
@@ -1037,6 +1070,36 @@ crate::relations! {
             outside = BoundaryReason::OutsideProviderModel.code(),
             missing = BoundaryReason::MissingEvidence.code(),
             ambiguous = BoundaryReason::AmbiguousBinding.code(),
+        );
+
+    /// Applying a callback model does not prove its source argument or that the call took its
+    /// modeled exit. Preserve both unknown binding and candidate/open dispatch in every row.
+    modeled_callback_sites = "behavior:modeled_callback_sites",
+        deps = ["model_applications", "model_callbacks", "model_argument_bindings"],
+        sql = format!(
+            "SELECT a.snapshot_id, a.call_site_node_id, a.function_node_id, \
+                    a.call_fact_id, a.pysa_fact_id, a.target_node_id, a.model_id, \
+                    m.rule_id, m.target_definition_fact_id, m.callback_path_id, \
+                    b.argument_node_id, b.argument_fact_id, \
+                    CAST(COALESCE(b.status, {unknown}) AS SMALLINT) AS binding_status, \
+                    CAST(CASE WHEN b.rule_id IS NULL THEN {outside} ELSE b.reason END \
+                      AS SMALLINT) AS binding_reason, \
+                    m.action, m.exit, a.target_modality, m.modality AS model_modality, \
+                    a.candidate_set_complete_under_model, a.has_unresolved_remainder, \
+                    m.origin \
+             FROM model_applications a \
+             JOIN model_callbacks m ON m.model_id = a.model_id \
+               AND m.target_node_id = a.target_node_id \
+               AND m.target_definition_fact_id = a.target_definition_fact_id \
+               AND m.revision = a.revision \
+             LEFT JOIN model_argument_bindings b \
+               ON b.call_site_node_id = a.call_site_node_id \
+              AND b.pysa_fact_id = a.pysa_fact_id \
+              AND b.model_id = a.model_id AND b.rule_id = m.rule_id \
+              AND b.path_id = m.callback_path_id AND b.path_role = {input}",
+            unknown = ModelArgumentStatus::Unknown.code(),
+            outside = BoundaryReason::OutsideProviderModel.code(),
+            input = ModelPathRole::Input.code(),
         );
 
     /// Except clauses with their authored type expression and the try-entry region.

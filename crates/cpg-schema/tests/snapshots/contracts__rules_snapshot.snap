@@ -178,6 +178,8 @@ key:model_formal_paths
   SELECT snapshot_id, model_id, target_node_id, rule_id, path_role, path_id, count(*) AS n FROM model_formal_paths GROUP BY snapshot_id, model_id, target_node_id, rule_id, path_role, path_id HAVING count(*) > 1
 key:model_argument_bindings
   SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, path_role, path_id, count(*) AS n FROM model_argument_bindings GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, path_role, path_id HAVING count(*) > 1
+key:modeled_callback_sites
+  SELECT snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_callback_sites GROUP BY snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
 key:model_effects
@@ -370,6 +372,28 @@ ref:model_argument_bindings.argument_node_id->arguments
   SELECT f.argument_node_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT node_id AS k FROM arguments) r ON f.argument_node_id = r.k WHERE f.argument_node_id IS NOT NULL
 ref:model_argument_bindings.argument_fact_id->facts
   SELECT f.argument_fact_id AS value FROM model_argument_bindings f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.argument_fact_id = r.k WHERE f.argument_fact_id IS NOT NULL
+ref:modeled_callback_sites.call_site_node_id->model_applications
+  SELECT f.call_site_node_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT call_site_node_id AS k FROM model_applications) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:modeled_callback_sites.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:modeled_callback_sites.call_fact_id->facts
+  SELECT f.call_fact_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.call_fact_id = r.k WHERE f.call_fact_id IS NOT NULL
+ref:modeled_callback_sites.pysa_fact_id->facts
+  SELECT f.pysa_fact_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:modeled_callback_sites.target_node_id->model_targets
+  SELECT f.target_node_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT target_node_id AS k FROM model_targets) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:modeled_callback_sites.model_id->model_targets
+  SELECT f.model_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:modeled_callback_sites.rule_id->model_callbacks
+  SELECT f.rule_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_callbacks) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:modeled_callback_sites.target_definition_fact_id->facts
+  SELECT f.target_definition_fact_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:modeled_callback_sites.callback_path_id->model_callbacks
+  SELECT f.callback_path_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT callback_path_id AS k FROM model_callbacks) r ON f.callback_path_id = r.k WHERE f.callback_path_id IS NOT NULL
+ref:modeled_callback_sites.argument_node_id->arguments
+  SELECT f.argument_node_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM arguments) r ON f.argument_node_id = r.k WHERE f.argument_node_id IS NOT NULL
+ref:modeled_callback_sites.argument_fact_id->facts
+  SELECT f.argument_fact_id AS value FROM modeled_callback_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.argument_fact_id = r.k WHERE f.argument_fact_id IS NOT NULL
 ref:model_transfers.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_transfers.target_definition_fact_id->facts
@@ -908,6 +932,20 @@ codebook:model_argument_bindings.status
   SELECT status FROM model_argument_bindings WHERE status IS NOT NULL AND status NOT IN (0, 1)
 codebook:model_argument_bindings.reason
   SELECT reason FROM model_argument_bindings WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:modeled_callback_sites.binding_status
+  SELECT binding_status FROM modeled_callback_sites WHERE binding_status IS NOT NULL AND binding_status NOT IN (0, 1)
+codebook:modeled_callback_sites.binding_reason
+  SELECT binding_reason FROM modeled_callback_sites WHERE binding_reason IS NOT NULL AND binding_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+codebook:modeled_callback_sites.action
+  SELECT action FROM modeled_callback_sites WHERE action IS NOT NULL AND action NOT IN (0, 1, 2, 3)
+codebook:modeled_callback_sites.exit
+  SELECT exit FROM modeled_callback_sites WHERE exit IS NOT NULL AND exit NOT IN (0, 1, 2)
+codebook:modeled_callback_sites.target_modality
+  SELECT target_modality FROM modeled_callback_sites WHERE target_modality IS NOT NULL AND target_modality NOT IN (0, 1, 2)
+codebook:modeled_callback_sites.model_modality
+  SELECT model_modality FROM modeled_callback_sites WHERE model_modality IS NOT NULL AND model_modality NOT IN (0, 1, 2)
+codebook:modeled_callback_sites.origin
+  SELECT origin FROM modeled_callback_sites WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:model_transfers.transfer
   SELECT transfer FROM model_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:model_transfers.modality
@@ -1042,6 +1080,8 @@ semantic:flow-reaching-within-candidates
   SELECT fr.use_id FROM flow_reaching fr JOIN flow_uses u ON u.use_id = fr.use_id JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte JOIN flow_definitions d ON d.definition_id = fr.definition_id JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte LEFT ANTI JOIN reference_resolutions rr ON rr.reference_id = r.node_id AND rr.binding_id = b.node_id
 semantic:model-target-provenance
   SELECT mt.model_id FROM model_targets mt LEFT JOIN context_definitions d ON d.fact_id = mt.target_definition_fact_id AND d.symbol_node_id = mt.target_node_id LEFT JOIN context_modules m ON m.fact_id = mt.target_module_fact_id AND m.module_node_id = d.module_node_id WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> 4
+semantic:modeled-callback-site-shape
+  SELECT rule_id FROM modeled_callback_sites WHERE (binding_status = 0 AND (argument_node_id IS NULL OR argument_fact_id IS NULL OR binding_reason IS NOT NULL)) OR (binding_status = 1 AND (argument_node_id IS NOT NULL OR argument_fact_id IS NOT NULL OR binding_reason IS NULL)) OR (candidate_set_complete_under_model AND has_unresolved_remainder) OR origin <> 4
 semantic:model-argument-status-shape
   SELECT rule_id FROM model_argument_bindings WHERE signature_count <= 0 OR (status = 0 AND (argument_node_id IS NULL OR argument_fact_id IS NULL OR reason IS NOT NULL OR matched_signatures <> signature_count)) OR (status = 1 AND (argument_node_id IS NOT NULL OR argument_fact_id IS NOT NULL OR reason IS NULL))
 semantic:model-formal-path-source

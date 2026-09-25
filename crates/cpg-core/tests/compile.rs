@@ -114,7 +114,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 47,
+        52 + 21 + 48,
         "every raw, derived and analysis table"
     );
 
@@ -846,6 +846,45 @@ budget = 1
         "starred arguments withhold both authored func paths"
     );
     assert_eq!(
+        count(&ctx, "SELECT count(*) FROM modeled_callback_sites").await,
+        3,
+        "only the three atexit call sites carry the authored registration action"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_callback_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name = 'on_shutdown' AND s.action = {} AND s.exit = {} \
+                   AND s.binding_status = {} AND s.argument_node_id IS NOT NULL \
+                   AND s.candidate_set_complete_under_model",
+                ModelCallbackAction::Registered.code(),
+                ModelExit::Normal.code(),
+                ModelArgumentStatus::Bound.code()
+            )
+        )
+        .await,
+        1,
+        "registration remains a candidate-local modeled action with a cited argument"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_callback_sites s \
+                 JOIN declarations d ON d.node_id = s.function_node_id \
+                 WHERE d.name IN ('on_shutdown_keyword', 'on_shutdown_unpacked') \
+                   AND s.binding_status = {} AND s.binding_reason IS NOT NULL \
+                   AND s.argument_node_id IS NULL",
+                ModelArgumentStatus::Unknown.code()
+            )
+        )
+        .await,
+        2,
+        "unsupported callback argument shapes retain explicit unknown sites"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
         7,
         "each pinned model applies only at its resolved source call"
@@ -982,6 +1021,40 @@ budget = 1
     );
     ctx.deregister_table("model_argument_bindings").unwrap();
     ctx.register_table("model_argument_bindings", original_bindings)
+        .unwrap();
+
+    let original_callback_sites = sql::query(&ctx, "SELECT * FROM modeled_callback_sites")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_callback_sites = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (binding_status), CAST({} AS SMALLINT) AS binding_status \
+             FROM modeled_callback_sites",
+            ModelArgumentStatus::Bound.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_callback_sites").unwrap();
+    ctx.register_table("modeled_callback_sites", doctored_callback_sites)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (callback_rule,) = ("semantic:modeled-callback-site-shape",);
+    assert!(
+        violations.iter().any(|v| v.rule == callback_rule),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-callback-site-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_callback_sites").unwrap();
+    ctx.register_table("modeled_callback_sites", original_callback_sites)
         .unwrap();
 
     let doctored = sql::query(

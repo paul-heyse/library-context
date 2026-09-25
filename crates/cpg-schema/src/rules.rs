@@ -196,6 +196,45 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("model_argument_bindings", "argument_fact_id", FACT),
     r(
+        "modeled_callback_sites",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r(
+        "modeled_callback_sites",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r("modeled_callback_sites", "call_fact_id", FACT),
+    r("modeled_callback_sites", "pysa_fact_id", FACT),
+    r(
+        "modeled_callback_sites",
+        "target_node_id",
+        &[("model_targets", "target_node_id")],
+    ),
+    r(
+        "modeled_callback_sites",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r(
+        "modeled_callback_sites",
+        "rule_id",
+        &[("model_callbacks", "rule_id")],
+    ),
+    r("modeled_callback_sites", "target_definition_fact_id", FACT),
+    r(
+        "modeled_callback_sites",
+        "callback_path_id",
+        &[("model_callbacks", "callback_path_id")],
+    ),
+    r(
+        "modeled_callback_sites",
+        "argument_node_id",
+        &[("arguments", "node_id")],
+    ),
+    r("modeled_callback_sites", "argument_fact_id", FACT),
+    r(
         "model_transfers",
         "target_node_id",
         &[("context_definitions", "symbol_node_id")],
@@ -500,6 +539,21 @@ fn semantic() -> Vec<Rule> {
                    AND m.module_node_id = d.module_node_id \
                  WHERE d.fact_id IS NULL OR m.fact_id IS NULL OR mt.origin <> {}",
                 crate::codebook::Origin::SyntheticModel.code()
+            ),
+        ),
+        (
+            "semantic:modeled-callback-site-shape",
+            format!(
+                "SELECT rule_id FROM modeled_callback_sites WHERE \
+                 (binding_status = {bound} AND (argument_node_id IS NULL \
+                   OR argument_fact_id IS NULL OR binding_reason IS NOT NULL)) \
+                 OR (binding_status = {unknown} AND (argument_node_id IS NOT NULL \
+                   OR argument_fact_id IS NOT NULL OR binding_reason IS NULL)) \
+                 OR (candidate_set_complete_under_model AND has_unresolved_remainder) \
+                 OR origin <> {synthetic}",
+                bound = crate::codebook::ModelArgumentStatus::Bound.code(),
+                unknown = crate::codebook::ModelArgumentStatus::Unknown.code(),
+                synthetic = crate::codebook::Origin::SyntheticModel.code(),
             ),
         ),
         (

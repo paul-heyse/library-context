@@ -59,7 +59,8 @@ pub struct Published {
 /// 29: unresolved try/with frames withhold definite raise escape (ADR-0027).
 /// 30: cited model applications at source call sites. 31: typed model formal paths.
 /// 32: exact per-signature model formal to source-argument bindings.
-pub const COMPILER_OUTPUT_VERSION: u32 = 32;
+/// 33: candidate-local modeled callback sites and binding boundaries.
+pub const COMPILER_OUTPUT_VERSION: u32 = 33;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -634,6 +635,20 @@ async fn finish(
         root,
         snapshot_id,
         &model_argument_bindings,
+        &mut written,
+    )
+    .await?;
+    let modeled_callback_sites = crate::sql::fetch(
+        &ctx,
+        &cpg_schema::behavior::modeled_callback_sites(),
+        crate::sql::Params::new(),
+    )
+    .await?;
+    write_analysis::<cpg_schema::behavior::ModeledCallbackSites>(
+        &ctx,
+        root,
+        snapshot_id,
+        &modeled_callback_sites,
         &mut written,
     )
     .await?;
