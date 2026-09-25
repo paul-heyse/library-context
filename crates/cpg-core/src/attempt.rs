@@ -79,7 +79,9 @@ pub struct Published {
 /// 54: finite direct identity-return summary seeds with structural condition decisions.
 /// 55: explicit incomplete parameter-to-return summary boundaries.
 /// 56: pinned model targets carry an explicit total-normal-return assertion.
-pub const COMPILER_OUTPUT_VERSION: u32 = 57;
+/// 57: model applications retain actual target count and selected target completion assertion.
+/// 58: finite summary paths gain canonical ids and ordered, typed proof steps.
+pub const COMPILER_OUTPUT_VERSION: u32 = 58;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -767,7 +769,7 @@ async fn finish(
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, ModeledAssignmentReturnPaths, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, Singletons, SummaryBoundaries, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
+            RaiseSites, Singletons, SummaryBoundaries, SummaryFlowSteps, SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -863,6 +865,8 @@ async fn finish(
         write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
         let summary_flows = crate::summaries::direct_flows(&ctx).await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summary_flows, w).await?;
+        let summary_steps = crate::summaries::direct_flow_steps(&summary_flows);
+        write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summary_steps, w).await?;
         let summary_boundaries = crate::sql::fetch(
             &ctx,
             &cpg_schema::behavior::summary_boundaries(),

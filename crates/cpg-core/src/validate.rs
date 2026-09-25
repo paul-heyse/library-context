@@ -18,7 +18,7 @@ use cpg_schema::behavior::{
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
     ModeledTransferSitesRow, ModeledExactValueTransfersRow, ModeledAssignmentReturnPathsRow,
-    SummaryBoundariesRow, SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
+    SummaryBoundariesRow, SummaryFlowStepsRow, SummaryFlowsRow, ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -171,6 +171,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_summary_flow_steps = "validate_stored_summary_flow_steps", deps = ["summary_flow_steps"],
+        sql = "SELECT * FROM summary_flow_steps".to_owned();
     stored_summary_boundaries = "validate_stored_summary_boundaries", deps = ["summary_boundaries"],
         sql = "SELECT * FROM summary_boundaries".to_owned();
     value_flow_snapshot = "validate_value_flow_snapshot", deps = ["releases"],
@@ -343,25 +345,30 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
             }]);
         }
     };
-    let key = |r: &SummaryFlowsRow| {
-        (
-            r.function_node_id,
-            r.parameter_node_id,
-            r.source_flow_fact_id,
-            r.condition_id,
-        )
-    };
-    actual.sort_by_key(key);
-    expected.sort_by_key(key);
-    if actual == expected {
-        Ok(Vec::new())
-    } else {
-        Ok(vec![Violation {
+    actual.sort_by_key(|r| r.summary_id);
+    expected.sort_by_key(|r| r.summary_id);
+    let mut violations = Vec::new();
+    if actual != expected {
+        violations.push(Violation {
             rule: "summary-flow-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} summary flows; derived {}", actual.len(), expected.len()),
-        }])
+        });
     }
+    let mut actual_steps: Vec<SummaryFlowStepsRow> =
+        sql::fetch(ctx, &stored_summary_flow_steps(), sql::Params::new()).await?;
+    let mut expected_steps = crate::summaries::direct_flow_steps(&expected);
+    let key = |r: &SummaryFlowStepsRow| (r.summary_id, r.ordinal);
+    actual_steps.sort_by_key(key);
+    expected_steps.sort_by_key(key);
+    if actual_steps != expected_steps {
+        violations.push(Violation {
+            rule: "summary-flow-step-source-equality".to_owned(),
+            rows: actual_steps.len().abs_diff(expected_steps.len()).max(1),
+            sample: format!("stored {} summary steps; derived {}", actual_steps.len(), expected_steps.len()),
+        });
+    }
+    Ok(violations)
 }
 
 /// Reconstruct the explicit complement of the finite source-to-return summary proof.

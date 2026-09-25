@@ -4,12 +4,12 @@
 use std::collections::HashMap;
 
 use cpg_schema::behavior::{
-    AnalysisConditionNodesRow, AnalysisConditionsRow, SummaryFlowsRow,
+    AnalysisConditionNodesRow, AnalysisConditionsRow, SummaryFlowStepsRow, SummaryFlowsRow,
     ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
-use cpg_schema::codebook::{BoundaryReason, SummaryFlowKind, Verdict};
+use cpg_schema::codebook::{BoundaryReason, SummaryFlowKind, SummaryFlowStepKind, Verdict};
 use cpg_schema::condition_kernel::{ConditionRoot, Diagram, DiagramNode, KernelBoundary, hydrate_catalog};
-use cpg_schema::id::Id;
+use cpg_schema::id::{Id, recipe};
 use cpg_schema::models::{InputPath, OutputPath};
 use datafusion::prelude::SessionContext;
 
@@ -98,15 +98,32 @@ pub async fn direct_flows(ctx: &SessionContext) -> Result<Vec<SummaryFlowsRow>, 
                     ),
                 ),
             };
+            let input_path = InputPath::Parameter {
+                name: seed.parameter_name,
+            }
+            .render();
+            let output_path = OutputPath::ReturnValue.render();
             Some(SummaryFlowsRow {
                 snapshot_id: seed.snapshot_id,
+                summary_id: recipe::summary_flow(&recipe::SummaryFlowIdentity {
+                    function: seed.function_node_id,
+                    parameter: seed.parameter_node_id,
+                    input_path: &input_path,
+                    output_path: &output_path,
+                    transfer_kind: SummaryFlowKind::Value,
+                    condition: seed.condition_id,
+                    return_site: seed.return_site_fact_id,
+                    return_region: seed.return_region_fact_id,
+                    steps: &[recipe::SummaryFlowProofStep {
+                        kind: SummaryFlowStepKind::RawIdentity,
+                        evidence_id: seed.source_flow_fact_id,
+                        condition_id: seed.condition_id,
+                    }],
+                }),
                 function_node_id: seed.function_node_id,
                 parameter_node_id: seed.parameter_node_id,
-                input_path: InputPath::Parameter {
-                    name: seed.parameter_name,
-                }
-                .render(),
-                output_path: OutputPath::ReturnValue.render(),
+                input_path,
+                output_path,
                 kind: SummaryFlowKind::Value,
                 condition_id: seed.condition_id,
                 verdict,
@@ -119,6 +136,22 @@ pub async fn direct_flows(ctx: &SessionContext) -> Result<Vec<SummaryFlowsRow>, 
             })
         })
         .collect())
+}
+
+/// The initial direct-flow proof has one raw local-identity step. Later producers append
+/// typed steps to their own summary paths; the canonical summary id hashes the ordered list.
+pub fn direct_flow_steps(flows: &[SummaryFlowsRow]) -> Vec<SummaryFlowStepsRow> {
+    flows
+        .iter()
+        .map(|flow| SummaryFlowStepsRow {
+            snapshot_id: flow.snapshot_id,
+            summary_id: flow.summary_id,
+            ordinal: 0,
+            kind: SummaryFlowStepKind::RawIdentity,
+            evidence_id: flow.source_flow_fact_id,
+            condition_id: flow.condition_id,
+        })
+        .collect()
 }
 
 async fn load_conditions(

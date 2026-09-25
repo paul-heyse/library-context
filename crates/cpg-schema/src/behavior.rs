@@ -34,7 +34,7 @@ use crate::codebook::{
     ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
     ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus,
     ModelTransferKind, ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind,
-    PremiseKind, ReadPhase, SourceRole, SummaryFlowKind, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    PremiseKind, ReadPhase, SourceRole, SummaryFlowKind, SummaryFlowStepKind, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -1190,13 +1190,15 @@ table!(
     /// added only after their call and exit proofs exist.
     SummaryFlows, SummaryFlowsRow = "summary_flows",
     family = Findings,
-    key = [snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id],
+    key = [snapshot_id, summary_id],
     checks = [
         ("boundary_iff_unknown", "(verdict = 3 AND boundary_reason IS NOT NULL) OR (verdict IN (0, 1) AND boundary_reason IS NULL)"),
         ("depth_nonnegative", "path_depth >= 0"),
     ],
     {
         snapshot_id: Id,
+        /// Canonical identity of the finite path and its ordered evidence, independent of row order.
+        summary_id: Id,
         function_node_id: Id,
         parameter_node_id: Id,
         input_path: String,
@@ -1210,6 +1212,25 @@ table!(
         return_region_fact_id: Id,
         approximated: bool,
         path_depth: i64,
+    }
+);
+
+table!(
+    /// Ordered proof steps for a finite summary. This initial step cites the raw local identity
+    /// fact; call/model/reaching variants are added only with their source-path producer.
+    SummaryFlowSteps, SummaryFlowStepsRow = "summary_flow_steps",
+    family = Findings,
+    key = [snapshot_id, summary_id, ordinal],
+    checks = [("ordinal_nonnegative", "ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        summary_id: Id,
+        ordinal: i64,
+        kind: SummaryFlowStepKind,
+        /// The source relation is selected by `kind`; currently `raw_identity` references a
+        /// `flow_values.fact_id`. Future kinds must add their own checked source reference.
+        evidence_id: Id,
+        condition_id: Id,
     }
 );
 

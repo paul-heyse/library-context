@@ -1330,6 +1330,14 @@ codebook!(
 );
 
 codebook!(
+    /// An ordered source fact in one finite summary proof. Append variants only when the
+    /// corresponding proof producer and publication validator exist.
+    SummaryFlowStepKind = "summary_flow_step_kind" {
+        RawIdentity = 0 => "raw_identity",
+    }
+);
+
+codebook!(
     /// What a flow value source's sink is (ADR-0022 §The flow provider; `cpg_flow::Sink`).
     FlowSink = "flow_sink" {
         /// A definition's value: an assignment's right-hand side, a walrus's value, an
@@ -1647,6 +1655,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelArgumentStatus>(),
         CodebookEntry::of::<ModeledHandlerClassMatch>(),
         CodebookEntry::of::<SummaryFlowKind>(),
+        CodebookEntry::of::<SummaryFlowStepKind>(),
     ]
 }
 

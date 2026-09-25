@@ -4,12 +4,13 @@ expression: text
 ---
 table summary_flows
 family findings
-key snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id
+key snapshot_id, summary_id
 check boundary_iff_unknown: (verdict = 3 AND boundary_reason IS NOT NULL) OR (verdict IN (0, 1) AND boundary_reason IS NULL)
 check depth_nonnegative: path_depth >= 0
 @lctx.family=findings
 @lctx.table=summary_flows
 snapshot_id: FixedSizeBinary(16) NOT NULL
+summary_id: FixedSizeBinary(16) NOT NULL
 function_node_id: FixedSizeBinary(16) NOT NULL
 parameter_node_id: FixedSizeBinary(16) NOT NULL
 input_path: Utf8 NOT NULL

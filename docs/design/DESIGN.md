@@ -403,7 +403,13 @@ role span. A keyword value excludes the `name=` prefix; a direct positional argu
 equal role and value spans. The schema enforces value-span containment and the extractor
 output version is 27. This alone identifies no flow-call path or completed transfer.
 
-> Decision: ADR-0022, ADR-0028, ADR-0029, ADR-0030, ADR-0033
+**Implemented and Tested in focused cases (ADR-0034, 2026-09-25):** a finite summary is
+identified by its callable, input/output paths, transfer kind, condition, exit and ordered
+typed proof steps, not by one
+raw return fact. The initial step kind cites a raw identity fact. Later call/model/reaching
+step kinds require their own checked producer before they can establish a positive flow.
+
+> Decision: ADR-0022, ADR-0028, ADR-0029, ADR-0030, ADR-0033, ADR-0034
 
 ### §B6 Facts are first-class assertions with provenance
 
@@ -427,8 +433,13 @@ the derived snapshots; C6 review, 2026-09-23).
   through a `facts` row of its own.
 - Independent assertions are kept, including disagreement. They are never collapsed into mutable
   node properties.
+- **Finite summary proof paths** (ADR-0034; **Implemented and Tested in focused cases**, 2026-09-25)
+  have a canonical `summary_id` derived from the ordered typed witness sequence. The
+  `summary_flow_steps` relation retains source evidence and condition ids per step in the same
+  snapshot; the shared validator reconstructs it. A new proof variant is appended only with its
+  cited source relation and validation rule.
 
-> Decision: ADR-0014, ADR-0019
+> Decision: ADR-0014, ADR-0019, ADR-0034
 
 ### §B7 Delta canonical store, published by a `snapshots` append
 
@@ -783,6 +794,7 @@ migration (DP-24).
 | `fact_id` | `run_id`, record kind, subject id(s), canonical payload bytes. Provenance is outside the id: the same payload with different provenance fails the run (Tested) | per run |
 | `finding_id`, `assertion_id`, `brief_id`, `evidence_id`, `invocation_id` (ADR-0019) | kind, subject `node_id`(s), canonical payload. **No config digest**, so an unchanged finding keeps its ID when parameters change; ablation diffs are joins. A finding's payload names its witness steps by call-site and callee node ids, never by `edge_id` (producer-scoped, ADR-0014 O6). An assertion's includes its sorted supports; a brief's, its seed, applicable case and sorted (section, ordinal, assertion); `review_state` is outside it. An invocation's is its method, parameters digest, projection digest, subject and seed. `capability_id` = `brief_id` | content |
 | `behavior_id` (ADR-0021; increment 3's deep review, F8) | `H("behavior", operation, kind, parameter, callee, target, value, site)`: the claim. The **verdict, boundary reason, depth and `conditional` are outside it**: they grade the claim. A re-grade keeps the id, and `lctx diff` keys behaviors by id **and** verdict so it shows. Two rows under one id are an error of the scan, never merged | content |
+| `summary_id` (ADR-0034; **Implemented and Tested in focused cases**, 2026-09-25) | `H("summary-flow", callable, formal, input path, output path, transfer kind, condition id, return site/region facts, ordered (step kind, evidence id, step condition id))`. The verdict, boundary and approximation are outside the identity. Raw fact ids in its steps make the path producer-scoped; two parallel proofs with equal endpoints remain distinct. | derived, producer-scoped |
 | `condition_id` (ADR-0022 §Conditions) | `H("condition", encoding)`, the canonical DNF encoding | content |
 | `edge_id` (C1, **Implemented** and **Tested**: `the_catalogs_hold_every_graph_shape`, `the_catalogs_are_the_same_across_runs_order_and_location`; byte-identical on a pilot rerun and relocation, C6 review 2026-09-23) | `edge`, edge kind, source and target node ids, then the kind's discriminator: an ordinal, or for a provider row joined at one site its run-independent payload digest (`pysa_calls.payload_id` = `pysa-call` over the row's payload). Never a `fact_id` | stable across snapshots and runs |
 | Role and derived node ids (C1, C3, C4, C5 **Implemented**) | Argument: `argument`, call node, ordinal (Rust). Export: `export`, `release_id`, access path (SQL). Synthetic callable: `synthetic_callable`, module node, Pysa function key (SQL). External module: `external_module`, owner, owner version, module name (Rust), where the owner is the distribution whose `RECORD` lists the file and its version, else `pyrefly-bundled` and the fork revision, else `unowned` and the file's content digest. External symbol: `external_symbol`, the external module id, definition kind, Pysa key (Rust). Its qualified name is a label, because conditional definitions can share one. Reference (C3): `reference`, the name's syntax id. Type term (C4): `type`, kind, detail, class pair and type-variable identity, then each child's role, ordinal, id, parameter name, kind and requiredness; a variable's is its identity alone, a display-only kind's includes its display (Rust; a Merkle id with no SQL form, so no `id:` rule). It is producer-scoped like syntax and external-symbol ids: it hashes Pyrefly's detail text, Pysa class keys and anchor byte offsets, so a Pyrefly bump or an edit earlier in a module renames it. Field (C4): `field`, class node, name (Rust; `id:record_fields`). Document (C5): `document`, release, path. Passage and code block (C5): `passage` or `code_block`, document node, ordinal (Rust; `id:documents`, `id:passages`, `id:code_blocks`) | stable across snapshots and runs for the same inputs; Pysa keys make external symbols producer-scoped, like syntax ids |
@@ -840,7 +852,7 @@ migration (DP-24).
   Pass A inherits. Calls inside an unbound `def` still read `missing_evidence` (Pysa has no record
   of them). **Tested** on `derive_cases` (2026-09-22).
 
-> Decision: ADR-0013 (superseding ADR-0007), ADR-0019
+> Decision: ADR-0013 (superseding ADR-0007), ADR-0019, ADR-0034
 
 ### §3.5 Vocabularies and codebooks
 
@@ -3400,6 +3412,15 @@ condition id, and shared publication validation reconstructs it. This is
 unknown coverage rather than a negative verdict. `COMPILER_OUTPUT_VERSION` is
 55; full L3 closure and integrated Stage 3 testing remain open.
 
+**Implemented and Tested in focused cases (ADR-0034, 2026-09-25, summary proof identity):**
+`summary_flows` now keys on a canonical path id computed from callable, formal, input/output
+paths, transfer kind, condition, return site/region and ordered typed evidence. `summary_flow_steps` stores the first
+`raw_identity` witness citing its source `flow_values` fact and BDD condition. A pair of paths
+with equal endpoints but different evidence or order gets different ids. The publication
+validator reconstructs both tables; an omitted step is rejected. This changes the identity
+contract under compiler output version 58, without promoting a modeled call to a completed
+flow. The integrated gate remains `not_run`.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a
@@ -3419,7 +3440,7 @@ unknown coverage rather than a negative verdict. `COMPILER_OUTPUT_VERSION` is
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0032, ADR-0033
+> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0032, ADR-0033, ADR-0034
 
 ---
 
@@ -4115,4 +4136,5 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | A direct modeled return now requires the call to occupy the entire return-value expression; an outer fallback cannot inherit an identity model (§9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | L3 begins with bounded BDD compatibility over cited predecessor, reaching and successor roots; loops and condition boundaries stay unknown (§9.9) | ADR-0024, ADR-0028 (proposed) |
 | 2026-09-25 | The exact one-call model step now covers whole definition values as well as whole returns, enabling a cited assignment predecessor without promoting it to a summary (§9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | Finite summary paths gain canonical ids from ordered typed proof steps; the initial raw identity step is cited and source-equality validated, while model-call variants remain pending (§B5, §B6, §9.9) | ADR-0034 |
 | 2026-09-25 | Pinned function models can assert total normal return independently of transfer modality and exception silence; the first assertions cover `typing.cast` and `typing.assert_type`, with source-call composition still conditional (§B5, §9.9) | ADR-0033 |

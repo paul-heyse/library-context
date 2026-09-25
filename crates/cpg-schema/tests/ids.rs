@@ -1,6 +1,7 @@
 //! Id derivation (DESIGN §3.4.1, ADR-0007 oracles).
 
-use cpg_schema::id::{IdHasher, content_digest, kind};
+use cpg_schema::id::{Id, IdHasher, content_digest, kind, recipe};
+use cpg_schema::codebook::{SummaryFlowKind, SummaryFlowStepKind};
 use proptest::prelude::*;
 
 #[test]
@@ -19,6 +20,39 @@ fn optional_absent_and_empty_differ() {
     let absent = IdHasher::new("t").opt_str(None).finish_id();
     let empty = IdHasher::new("t").opt_str(Some("")).finish_id();
     assert_ne!(absent, empty);
+}
+
+#[test]
+fn summary_identity_retains_the_ordered_evidence_path() {
+    fn summary(output_path: &str, steps: &[recipe::SummaryFlowProofStep]) -> Id {
+        recipe::summary_flow(&recipe::SummaryFlowIdentity {
+            function: Id([1; 16]),
+            parameter: Id([2; 16]),
+            input_path: "Parameter[x]",
+            output_path,
+            transfer_kind: SummaryFlowKind::Value,
+            condition: Id([3; 16]),
+            return_site: Id([4; 16]),
+            return_region: Id([5; 16]),
+            steps,
+        })
+    }
+    let steps = [
+        recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::RawIdentity,
+            evidence_id: Id([6; 16]),
+            condition_id: Id([3; 16]),
+        },
+        recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::RawIdentity,
+            evidence_id: Id([7; 16]),
+            condition_id: Id([3; 16]),
+        },
+    ];
+    let id = summary("ReturnValue", &steps);
+    assert_eq!(id, summary("ReturnValue", &steps));
+    assert_ne!(id, summary("ReturnValue", &[steps[1], steps[0]]));
+    assert_ne!(id, summary("Field[y]", &steps));
 }
 
 proptest! {

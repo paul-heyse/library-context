@@ -1,0 +1,16 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table summary_flow_steps
+family findings
+key snapshot_id, summary_id, ordinal
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=findings
+@lctx.table=summary_flow_steps
+snapshot_id: FixedSizeBinary(16) NOT NULL
+summary_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=summary_flow_step_kind]
+evidence_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL

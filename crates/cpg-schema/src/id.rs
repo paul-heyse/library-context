@@ -94,6 +94,7 @@ pub mod kind {
     pub const EVIDENCE: &str = "evidence";
     pub const ASSERTION: &str = "assertion";
     pub const BRIEF: &str = "brief";
+    pub const SUMMARY_FLOW: &str = "summary-flow";
 }
 
 /// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
@@ -101,6 +102,7 @@ pub mod kind {
 /// the `opt_*` encoding, as the UDF does.
 pub mod recipe {
     use super::{Digest, Id, IdHasher, kind};
+    use crate::codebook::{Codebook, SummaryFlowKind, SummaryFlowStepKind};
 
     /// A call's argument at an ordinal: a role, never the expression's own id.
     pub fn argument(call: Id, ordinal: i64) -> Id {
@@ -204,6 +206,45 @@ pub mod recipe {
             .opt_i64(Some(i64::from(definition_kind)))
             .opt_str(Some(key))
             .finish_id()
+    }
+
+    /// A finite summary path, not merely its endpoints. Ordered typed evidence keeps parallel
+    /// call chains distinct even when they reach the same raw return fact and condition.
+    #[derive(Clone, Copy)]
+    pub struct SummaryFlowProofStep {
+        pub kind: SummaryFlowStepKind,
+        pub evidence_id: Id,
+        pub condition_id: Id,
+    }
+
+    pub struct SummaryFlowIdentity<'a> {
+        pub function: Id,
+        pub parameter: Id,
+        pub input_path: &'a str,
+        pub output_path: &'a str,
+        pub transfer_kind: SummaryFlowKind,
+        pub condition: Id,
+        pub return_site: Id,
+        pub return_region: Id,
+        pub steps: &'a [SummaryFlowProofStep],
+    }
+
+    pub fn summary_flow(spec: &SummaryFlowIdentity<'_>) -> Id {
+        let mut hasher = IdHasher::new(kind::SUMMARY_FLOW);
+        hasher
+            .id(spec.function)
+            .id(spec.parameter)
+            .str(spec.input_path)
+            .str(spec.output_path)
+            .i64(i64::from(spec.transfer_kind.code()))
+            .id(spec.condition)
+            .id(spec.return_site)
+            .id(spec.return_region)
+            .i64(spec.steps.len() as i64);
+        for step in spec.steps {
+            hasher.i64(i64::from(step.kind.code())).id(step.evidence_id).id(step.condition_id);
+        }
+        hasher.finish_id()
     }
 }
 

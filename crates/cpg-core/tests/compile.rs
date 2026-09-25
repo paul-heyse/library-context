@@ -1402,9 +1402,11 @@ budget = 1
             &ctx,
             &format!(
                 "SELECT count(*) FROM summary_flows f \
+                 JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
                  JOIN declarations d ON d.node_id = f.function_node_id \
                  WHERE d.name = 'plain_identity' AND f.input_path = 'Parameter[value]' \
                    AND f.output_path = 'ReturnValue' AND f.path_depth = 0 \
+                   AND p.ordinal = 0 AND p.evidence_id = f.source_flow_fact_id \
                    AND f.verdict <> {} AND f.boundary_reason IS NULL",
                 Verdict::Unknown.code()
             ),
@@ -2261,6 +2263,28 @@ budget = 1
     );
     ctx.deregister_table("summary_flows").unwrap();
     ctx.register_table("summary_flows", original_summary_flows)
+        .unwrap();
+
+    let original_summary_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_summary_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", missing_summary_steps)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-flow-step-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", original_summary_steps)
         .unwrap();
 
     let original_summary_boundaries = sql::query(&ctx, "SELECT * FROM summary_boundaries")
