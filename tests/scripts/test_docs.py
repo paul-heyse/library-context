@@ -103,6 +103,13 @@ def test_lifecycle_scopes_and_evidence_exclusion(root, settings):
         "History",
     ]
     assert not any(p.path.name == "raw.md" for p in pages)
+    assert docs.scope_options(pages) == ["Current", "Reference", "History", "Everything"]
+
+
+def test_a_scope_without_pages_is_not_offered(root, settings):
+    pages = docs.discover(root, settings)
+    assert {p.scope for p in pages} == {"Current", "Reference"}
+    assert docs.scope_options(pages) == ["Current", "Reference", "Everything"]
 
 
 def rewrite(root, settings, text, tracked=()):

@@ -400,7 +400,7 @@ Deleted at completion. Pre-removal revision: `df52bafb27bc7ff40658a81108f03e1452
 - [x] M2: ADR-0042 accepted after target review (F01–F05 applied); ADR tooling and process instructions.
 - [x] M3: eight section owners rewritten; ADR-0043–0047 consolidate 0010–0014, 0017, 0019, 0022, 0027, 0029–0035, 0037, 0039.
 - [x] M4: 155 tracked paths retired at the commit after `f54b09d`; 19 ADRs, 3 reviews, 12 evidence folders remain.
-- [ ] M5: publication.
+- [x] M5: curated collections (Current/Reference only), scope options derived from published pages, routes updated; browser-checked at `/` and `/library-context/`.
 - [ ] M6: acceptance and handoff.
 
 ## 5. Ongoing lifecycle after migration

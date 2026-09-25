@@ -298,8 +298,18 @@ def rewrite_links(
     return text
 
 
+def scope_options(pages: list[Page]) -> list[str]:
+    """Search scopes with published pages, in reading order; Everything spans them."""
+    present = {page.scope for page in pages}
+    return [scope for scope in ("Current", "Reference", "History") if scope in present] + [
+        "Everything"
+    ]
+
+
 def annotate(root: Path, site: Path, pages: list[Page], settings: dict) -> None:
     revision = run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True).stdout.strip()
+    # A scope with no pages (History once retired records leave the tree) is never offered.
+    scopes = ",".join(scope_options(pages))
     dirty = bool(run(["git", "status", "--porcelain"], cwd=root, capture_output=True).stdout)
     tracked = tracked_files(root)
     published = {p.path.with_suffix(".html") for p in pages}
@@ -333,6 +343,7 @@ def annotate(root: Path, site: Path, pages: list[Page], settings: dict) -> None:
         )
         text = text.replace("</main>", banner + "</main>", 1)
         assets = (
+            f'<meta name="doc-scopes" content="{scopes}">'
             f'<link rel="stylesheet" href="{prefix}/pagefind/pagefind-component-ui.css">'
             f'<link rel="stylesheet" href="{prefix}/theme/search.css">'
             f'<script type="module" src="{prefix}/theme/search.js"></script>'
