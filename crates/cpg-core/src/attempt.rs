@@ -74,7 +74,8 @@ pub struct Published {
 /// 49: persist the BDD closures of recomposed flow-analysis conditions.
 /// 50: a direct modeled return requires the call result to be the entire sink expression.
 /// 51: bounded BDD compatibility of cited predecessor-path conditions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 51;
+/// 52: exact model-call steps apply to whole definition values as well as whole returns.
+pub const COMPILER_OUTPUT_VERSION: u32 = 52;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -760,7 +761,7 @@ async fn finish(
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
             HandlerActions, HandlerClauses, HandlerReturnNoneSites, HandlerTypes, Handoffs,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
-            ModeledExceptionReturnNonePaths, ModeledDirectReturnTransfers, NegativePremises,
+            ModeledExceptionReturnNonePaths, ModeledExactValueTransfers, NegativePremises,
             OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
             RaiseSites, Singletons, ValueFlowContributions, ValueFlowPredecessorCandidates, ValueFlowPredecessorCompatibility, ValueFlows,
         };
@@ -811,17 +812,17 @@ async fn finish(
             w,
         )
         .await?;
-        let modeled_direct_return_transfers = crate::sql::fetch(
+        let modeled_exact_value_transfers = crate::sql::fetch(
             &ctx,
-            &cpg_schema::behavior::modeled_direct_return_transfers(),
+            &cpg_schema::behavior::modeled_exact_value_transfers(),
             crate::sql::Params::new(),
         )
         .await?;
-        write_analysis::<ModeledDirectReturnTransfers>(
+        write_analysis::<ModeledExactValueTransfers>(
             &ctx,
             root,
             snapshot_id,
-            &modeled_direct_return_transfers,
+            &modeled_exact_value_transfers,
             w,
         )
         .await?;

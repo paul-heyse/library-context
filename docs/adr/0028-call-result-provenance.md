@@ -52,6 +52,13 @@ retains flow approximation, condition and both modalities. An assigned
 intermediate or nested call is withheld until its predecessor path can be
 proved. This is a candidate transfer path, not a completed summary or verdict.
 
+The same exact one-call rule now applies to a definition's whole value
+expression. The return-only relation becomes `modeled_exact_value_transfers`,
+carrying the raw sink kind and span. An assignment followed by a return can
+cite the assignment's model step and a separate reaching-definition
+predecessor candidate; compatibility and completion still have to be proved
+before it becomes a summary.
+
 For an inherited call, the next bridge joins the successor raw fact's use to
 each cited `flow_reaching` definition, that definition's value span to earlier
 raw `flow_values` facts, and the same source parameter's unmerged contribution.

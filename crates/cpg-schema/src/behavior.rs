@@ -656,13 +656,13 @@ table!(
 );
 
 table!(
-    /// A direct, one-call source-to-return candidate through a pinned model transfer. The
-    /// parameter reaches the exact argument unchanged before the call; the modeled result is
-    /// still conditional on target choice, normal completion and the model's modality.
-    ModeledDirectReturnTransfers, ModeledDirectReturnTransfersRow = "modeled_direct_return_transfers",
+    /// A one-call source-to-value candidate through a pinned model transfer. The call must
+    /// occupy the entire return or definition value expression; the modeled result remains
+    /// conditional on target choice, normal completion and model modality.
+    ModeledExactValueTransfers, ModeledExactValueTransfersRow = "modeled_exact_value_transfers",
     family = Findings,
     key = [snapshot_id, flow_value_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id],
-    checks = [],
+    checks = [("sink_span_order", "sink_start_byte >= 0 AND sink_end_byte > sink_start_byte")],
     {
         snapshot_id: Id,
         flow_value_fact_id: Id,
@@ -674,6 +674,9 @@ table!(
         function_node_id: Id,
         parameter_node_id: Id,
         use_id: Id,
+        sink: FlowSink,
+        sink_start_byte: i64,
+        sink_end_byte: i64,
         /// Recomposition by the flow analysis; the provider `conditions` table may omit it.
         condition_id: Id,
         condition: String,
@@ -1649,10 +1652,10 @@ crate::relations! {
             input = ModelPathRole::Input.code(),
         );
 
-    /// Only an exact one-call path can currently compose a model input into a returned
-    /// expression. Nested calls and inherited call transfer need predecessor-path evidence;
+    /// Only an exact one-call path can currently identify a modeled return or definition
+    /// value step. Nested calls and inherited call transfer need predecessor-path evidence;
     /// neither is inferred from a merged flow row or shared source span.
-    modeled_direct_return_transfers = "behavior:modeled_direct_return_transfers",
+    modeled_exact_value_transfers = "behavior:modeled_exact_value_transfers",
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls", "flow_value_call_links", "modeled_transfer_sites"],
         sql = format!(
             "WITH step_counts AS ( \
@@ -1661,7 +1664,8 @@ crate::relations! {
              SELECT v.snapshot_id, v.flow_value_fact_id, fc.fact_id AS flow_value_call_fact_id, \
                     l.call_node_id AS call_site_node_id, l.call_fact_id, \
                     l.argument_node_id, l.argument_fact_id, v.sink_function_node_id AS function_node_id, \
-                    v.parameter_node_id, v.use_id, v.condition_id, v.condition, \
+                    v.parameter_node_id, v.use_id, f.sink, f.sink_start_byte, f.sink_end_byte, \
+                    v.condition_id, v.condition, \
                     f.approximated AS raw_flow_approximated, m.pysa_fact_id, m.target_node_id, \
                     m.model_id, m.rule_id, m.target_definition_fact_id, m.transfer, \
                     m.target_modality, m.model_modality, m.candidate_set_complete_under_model, \
@@ -1680,13 +1684,15 @@ crate::relations! {
                AND m.output_expression_node_id = l.call_node_id \
                AND m.input_status = {bound_input} AND m.output_status = {call_result} \
                AND m.function_node_id = v.sink_function_node_id \
-             WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
+             WHERE f.sink IN ({return_sink}, {definition_sink}) \
+               AND v.parameter_node_id IS NOT NULL \
                AND v.function_node_id = v.sink_function_node_id \
                AND v.upstream_identity AND v.local_through_call",
             bound_argument = FlowCallLinkStatus::BoundArgument.code(),
             bound_input = ModelTransferEndpointStatus::BoundArgument.code(),
             call_result = ModelTransferEndpointStatus::CallResult.code(),
             return_sink = FlowSink::Return.code(),
+            definition_sink = FlowSink::Definition.code(),
         );
 
     /// The provider's reaching definition gives a predecessor value expression, but its

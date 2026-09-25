@@ -3293,19 +3293,22 @@ ambiguous, computed or budget-cut steps write a boundary. This bridge precedes S
 composition and negative claims.
 
 **Implemented and Tested in focused cases (ADR-0028, 2026-09-25, direct
-transfer candidate):** `modeled_direct_return_transfers` joins a raw return-value
+transfer candidate):** `modeled_exact_value_transfers` joins a raw return or definition-value
 fact and its unmerged parameter contribution to exactly one ordered call step,
 its uniquely bound Ruff argument, and a pinned model whose argument input and
 call-result output cite those same nodes. The call span must equal the full
-return-value sink span, excluding an enclosing computation or fallback.
+value sink span, excluding an enclosing computation or fallback.
 The upstream transfer must be
-identity and the source parameter must belong to the return's callable.
-The row retains condition, raw-fact approximation, target/model modality and open
-dispatch. Assigned intermediates and nested calls produce no direct row; their
-predecessor chain remains unknown. Shared publication validation reconstructs
-the relation and rejects dropped rows. This is a candidate source-to-return
+identity and the source parameter must belong to the sink's callable.
+The row retains sink kind/span, condition, raw-fact approximation, target/model
+modality and open dispatch. An assigned intermediate's exact model-call value
+step is retained; nested calls and outer computations have no exact step. The
+predecessor chain still needs compatibility and completion proof. Shared
+publication validation reconstructs the relation and rejects dropped rows.
+This is a candidate source-to-value
 path, not proof that the call completes or a `summary_flows` verdict.
-`COMPILER_OUTPUT_VERSION` is 47; integrated Stage 3 testing is `not_run`.
+The relation began as return-only in output version 47 and includes definition
+values in output version 52; integrated Stage 3 testing is `not_run`.
 **Implemented and Tested in focused cases (2026-09-25):** the exact
 call/sink-span equality closes the one-call outer-expression gap; output
 version 50. An outer Boolean fallback remains outside this direct bridge.
@@ -3330,7 +3333,7 @@ the flow analysis's recomposed condition ids now have a separate,
 content-addressed root/node catalog (`analysis_conditions`,
 `analysis_condition_nodes`). The producer serializes the existing BDD objects;
 publication reconstructs every row and uses the same `hydrate_catalog`
-structural checks as the provider and native loader. `modeled_direct_return_transfers`
+structural checks as the provider and native loader. `modeled_exact_value_transfers`
 and `value_flow_predecessor_candidates` reference this catalog for recomposed
 conditions, while a raw reaching condition still references provider
 `conditions`. This closes the cited persistence prerequisite, not condition
@@ -4065,3 +4068,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-25 | Recomposed flow-analysis conditions now persist in a separate structural BDD catalog with shared hydration validation, giving L3 an authority for condition composition (§3.9, §9.9) | ADR-0032 |
 | 2026-09-25 | A direct modeled return now requires the call to occupy the entire return-value expression; an outer fallback cannot inherit an identity model (§9.9) | ADR-0028 (proposed) |
 | 2026-09-25 | L3 begins with bounded BDD compatibility over cited predecessor, reaching and successor roots; loops and condition boundaries stay unknown (§9.9) | ADR-0024, ADR-0028 (proposed) |
+| 2026-09-25 | The exact one-call model step now covers whole definition values as well as whole returns, enabling a cited assignment predecessor without promoting it to a summary (§9.9) | ADR-0028 (proposed) |

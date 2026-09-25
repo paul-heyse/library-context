@@ -1373,7 +1373,7 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
-            "SELECT count(*) FROM modeled_direct_return_transfers t \
+            "SELECT count(*) FROM modeled_exact_value_transfers t \
              LEFT ANTI JOIN analysis_conditions c ON c.condition_id = t.condition_id",
         )
         .await,
@@ -1388,10 +1388,11 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
-            "SELECT count(*) FROM modeled_direct_return_transfers t \
+            &format!("SELECT count(*) FROM modeled_exact_value_transfers t \
              JOIN declarations d ON d.node_id = t.function_node_id \
              WHERE d.name IN ('identity', 'identity_keyword', 'asserted_type') \
-               AND t.parameter_node_id IS NOT NULL AND t.flow_value_call_fact_id IS NOT NULL",
+               AND t.parameter_node_id IS NOT NULL AND t.flow_value_call_fact_id IS NOT NULL \
+               AND t.sink = {}", FlowSink::Return.code()),
         )
         .await,
         3,
@@ -1400,13 +1401,26 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
-            "SELECT count(*) FROM modeled_direct_return_transfers t \
+            &format!("SELECT count(*) FROM modeled_exact_value_transfers t \
              JOIN declarations d ON d.node_id = t.function_node_id \
-             WHERE d.name IN ('indirect_identity', 'nested_identity', 'computed_identity')",
+             WHERE d.name IN ('indirect_identity', 'nested_identity', 'computed_identity') \
+               AND t.sink = {}", FlowSink::Return.code()),
         )
         .await,
         0,
         "inherited, nested and computed outer expressions cannot use the direct call-result rule"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!("SELECT count(*) FROM modeled_exact_value_transfers t \
+             JOIN declarations d ON d.node_id = t.function_node_id \
+             WHERE d.name = 'indirect_identity' AND t.sink = {}",
+                FlowSink::Definition.code()),
+        )
+        .await,
+        1,
+        "the assignment value has one exact model-call result step"
     );
     assert_eq!(
         count(
@@ -2024,24 +2038,24 @@ budget = 1
     ctx.register_table("modeled_transfer_sites", original_transfer_sites)
         .unwrap();
 
-    let original_direct_transfers = sql::query(&ctx, "SELECT * FROM modeled_direct_return_transfers")
+    let original_exact_transfers = sql::query(&ctx, "SELECT * FROM modeled_exact_value_transfers")
         .await
         .unwrap()
         .into_view();
-    let missing_direct_transfers = sql::query(&ctx, "SELECT * FROM modeled_direct_return_transfers WHERE false")
+    let missing_exact_transfers = sql::query(&ctx, "SELECT * FROM modeled_exact_value_transfers WHERE false")
         .await
         .unwrap()
         .into_view();
-    ctx.deregister_table("modeled_direct_return_transfers").unwrap();
-    ctx.register_table("modeled_direct_return_transfers", missing_direct_transfers)
+    ctx.deregister_table("modeled_exact_value_transfers").unwrap();
+    ctx.register_table("modeled_exact_value_transfers", missing_exact_transfers)
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "modeled-direct-return-transfer-source-equality"),
+        violations.iter().any(|v| v.rule == "modeled-exact-value-transfer-source-equality"),
         "{violations:?}"
     );
-    ctx.deregister_table("modeled_direct_return_transfers").unwrap();
-    ctx.register_table("modeled_direct_return_transfers", original_direct_transfers)
+    ctx.deregister_table("modeled_exact_value_transfers").unwrap();
+    ctx.register_table("modeled_exact_value_transfers", original_exact_transfers)
         .unwrap();
 
     let original_predecessors = sql::query(&ctx, "SELECT * FROM value_flow_predecessor_candidates")

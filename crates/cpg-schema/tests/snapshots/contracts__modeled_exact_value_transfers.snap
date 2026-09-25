@@ -2,11 +2,12 @@
 source: crates/cpg-schema/tests/contracts.rs
 expression: text
 ---
-table modeled_direct_return_transfers
+table modeled_exact_value_transfers
 family findings
 key snapshot_id, flow_value_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id
+check sink_span_order: sink_start_byte >= 0 AND sink_end_byte > sink_start_byte
 @lctx.family=findings
-@lctx.table=modeled_direct_return_transfers
+@lctx.table=modeled_exact_value_transfers
 snapshot_id: FixedSizeBinary(16) NOT NULL
 flow_value_fact_id: FixedSizeBinary(16) NOT NULL
 flow_value_call_fact_id: FixedSizeBinary(16) NOT NULL
@@ -17,6 +18,9 @@ argument_fact_id: FixedSizeBinary(16) NOT NULL
 function_node_id: FixedSizeBinary(16) NOT NULL
 parameter_node_id: FixedSizeBinary(16) NOT NULL
 use_id: FixedSizeBinary(16) NOT NULL
+sink: Int16 NOT NULL [lctx.codebook=flow_sink]
+sink_start_byte: Int64 NOT NULL
+sink_end_byte: Int64 NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 condition: Utf8 NOT NULL
 raw_flow_approximated: Boolean NOT NULL

@@ -17,7 +17,7 @@ use cpg_schema::behavior::{
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
     ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
     ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
-    ModeledTransferSitesRow, ModeledDirectReturnTransfersRow,
+    ModeledTransferSitesRow, ModeledExactValueTransfersRow,
     ValueFlowContributionsRow, ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
@@ -119,7 +119,7 @@ pub async fn validate_costed(
     violations.extend(validate_value_flow_contributions(&cache).await?);
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
     violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
-    violations.extend(validate_modeled_direct_return_transfers(&cache).await?);
+    violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -160,9 +160,9 @@ cpg_schema::relations! {
     stored_value_flow_predecessor_compatibility = "validate_stored_value_flow_predecessor_compatibility",
         deps = ["value_flow_predecessor_compatibility"],
         sql = "SELECT * FROM value_flow_predecessor_compatibility".to_owned();
-    stored_modeled_direct_return_transfers = "validate_stored_modeled_direct_return_transfers",
-        deps = ["modeled_direct_return_transfers"],
-        sql = "SELECT * FROM modeled_direct_return_transfers".to_owned();
+    stored_modeled_exact_value_transfers = "validate_stored_modeled_exact_value_transfers",
+        deps = ["modeled_exact_value_transfers"],
+        sql = "SELECT * FROM modeled_exact_value_transfers".to_owned();
     value_flow_snapshot = "validate_value_flow_snapshot", deps = ["releases"],
         sql = "SELECT snapshot_id FROM releases".to_owned();
     value_flow_analysis_count = "validate_value_flow_analysis_count", deps = ["analysis_invocations"],
@@ -248,22 +248,22 @@ async fn validate_value_flow_predecessor_candidates(
 }
 
 /// Reconstruct the exact local model join; omitted or forged candidate paths cannot publish.
-async fn validate_modeled_direct_return_transfers(
+async fn validate_modeled_exact_value_transfers(
     ctx: &SessionContext,
 ) -> Result<Vec<Violation>, CoreError> {
-    let mut actual: Vec<ModeledDirectReturnTransfersRow> = sql::fetch(
+    let mut actual: Vec<ModeledExactValueTransfersRow> = sql::fetch(
         ctx,
-        &stored_modeled_direct_return_transfers(),
+        &stored_modeled_exact_value_transfers(),
         sql::Params::new(),
     )
     .await?;
-    let mut expected: Vec<ModeledDirectReturnTransfersRow> = sql::fetch(
+    let mut expected: Vec<ModeledExactValueTransfersRow> = sql::fetch(
         ctx,
-        &cpg_schema::behavior::modeled_direct_return_transfers(),
+        &cpg_schema::behavior::modeled_exact_value_transfers(),
         sql::Params::new(),
     )
     .await?;
-    let key = |r: &ModeledDirectReturnTransfersRow| {
+    let key = |r: &ModeledExactValueTransfersRow| {
         (r.flow_value_fact_id, r.parameter_node_id, r.pysa_fact_id, r.model_id, r.rule_id)
     };
     actual.sort_by_key(key);
@@ -272,7 +272,7 @@ async fn validate_modeled_direct_return_transfers(
         Ok(Vec::new())
     } else {
         Ok(vec![Violation {
-            rule: "modeled-direct-return-transfer-source-equality".to_owned(),
+            rule: "modeled-exact-value-transfer-source-equality".to_owned(),
             rows: actual.len().abs_diff(expected.len()).max(1),
             sample: format!("stored {} direct transfers; derived {}", actual.len(), expected.len()),
         }])
