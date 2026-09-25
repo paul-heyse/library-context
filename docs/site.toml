@@ -11,7 +11,7 @@ lychee = "0.24.2"
 
 [publication]
 entrypoints = ["README.md", "docs/README.md", "docs/design/README.md", "STATUS.md", "AGENTS.md", "docs/publishing.md"]
-current_work = ["docs/plans/behavioral-model-forward-plan_2026-09-24.md", "docs/plans/legacy-documentation-migration_2026-09-25.md"]
+current_work = ["docs/plans/behavioral-model-forward-plan_2026-09-24.md"]
 exclude = []
 assets = []
 
