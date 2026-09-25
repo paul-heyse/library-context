@@ -2969,6 +2969,15 @@ over all 44 gold aliases:
 - **Provenance:** origin `synthetic_model`; each file's digest joins `compiler_digest`.
 - **Authorship:** the operator, from library source and docs. **Never from `.claude/skills/`.**
 
+**Implemented and Tested (2026-09-24, Stage 3.1 parser boundary only):** the first committed
+`external.toml` model states `typing.cast`'s identity transfer on a typed input/output path.
+Serde's tagged enums and unknown-field rejection parse the model; one renderer writes access
+paths, and source bytes/revision/target enter model identity. Committed catalog bytes join the
+compiler digest, and analysis compilation rejects malformed catalog data before any Delta
+write. Target-to-pinned-source resolution, Arrow model rows, remaining model families,
+CrossHair oracle checks and summary application are still Proposed. No behavior claim derives
+from this catalog yet.
+
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
 - **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
   call the shared bounded diagram kernel. `summary_flows` and `summary_effects` reference

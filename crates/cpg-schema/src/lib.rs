@@ -20,6 +20,7 @@ pub mod hash;
 pub mod id;
 pub mod mdx;
 pub mod metrics;
+pub mod models;
 pub mod neighbours;
 pub mod projection;
 pub mod public;

@@ -1,0 +1,12 @@
+version = 1
+
+# `typing.cast` returns its value unchanged at runtime. The annotated type is not a value source.
+[[models]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "val" }
+to = { kind = "return_value" }
+transfer = "identity"

@@ -49,8 +49,8 @@ pub struct Published {
 /// selection invocation records the whole technique set (the ADR-0020 review's F3).
 /// 17: direct entry-formal/test-use links (Stage 3.0). 18: resolved builtin `type(x) is C`
 /// atoms, their guarded entry-value links and exact-class origins. 19: path-stable later-use
-/// links under an exact type guard.
-pub const COMPILER_OUTPUT_VERSION: u32 = 19;
+/// links under an exact type guard. 20: committed typed model catalog identity and validation.
+pub const COMPILER_OUTPUT_VERSION: u32 = 20;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -120,6 +120,10 @@ pub fn compiler_digest() -> Digest {
             .hex(),
     ));
     queries.push(("concept_relations", cpg_schema::concepts::digest().hex()));
+    queries.push((
+        "behavior_models_catalog",
+        cpg_schema::models::Catalog::committed_digest().hex(),
+    ));
     queries.push((
         "neighbour_relations",
         cpg_schema::neighbours::digest().hex(),
@@ -365,6 +369,9 @@ pub async fn compile_analyzed(
     raw: &[(&str, RecordBatch)],
     analysis: Option<&Analysis>,
 ) -> Result<Published, CoreError> {
+    if analysis.is_some() {
+        cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
+    }
     let mut raw = raw.to_vec();
     let compiler = analysis
         .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
@@ -382,6 +389,9 @@ pub async fn compile_owned(
     mut raw: Vec<(&'static str, RecordBatch)>,
     analysis: Option<&Analysis>,
 ) -> Result<Published, CoreError> {
+    if analysis.is_some() {
+        cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
+    }
     let compiler = analysis
         .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
         .transpose()?;
