@@ -34,14 +34,15 @@ use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
-    ConditionLiterals, ConditionNodes, Conditions, ContextDefinitions, ContextModules, Contexts,
-    ContextsRow, Coverage, CoverageRow, Declarations, Distributions, DistributionsRow,
-    DocComponentAttributes, DocComponents, DocLinks, Documents, ExportSyntax, Facts,
-    FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions, FlowTestLeaves, FlowTestTypes,
-    FlowTests, FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax,
-    Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
-    RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes,
-    SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
+    ConditionLiterals, ConditionNodes, Conditions, ContextDefinitions, ContextModules,
+    ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations, Distributions,
+    DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents, ExportSyntax,
+    Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions, FlowTestLeaves,
+    FlowTestTypes, FlowTests, FlowUses, FlowValues, Mentions, ParameterDocs, ParameterSemantics,
+    ParameterSyntax, Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses,
+    PysaFunctions, RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs,
+    RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs,
+    TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -1041,6 +1042,7 @@ fn run_release(
     dedup_by_fact(&mut pysa.classes, |r| r.fact_id);
     dedup_by_fact(&mut context_out.modules, |r| r.fact_id);
     dedup_by_fact(&mut context_out.definitions, |r| r.fact_id);
+    dedup_by_fact(&mut context_out.parameters, |r| r.fact_id);
     dedup_by_fact(&mut pysa.calls, |r| r.fact_id);
     dedup_by_fact(&mut public, |r| r.fact_id);
     dedup_by_fact(&mut docs_out.documents, |r| r.fact_id);
@@ -1081,6 +1083,10 @@ fn run_release(
         (
             ContextDefinitions::NAME,
             ContextDefinitions::to_sorted_batch(&context_out.definitions)?,
+        ),
+        (
+            ContextParameters::NAME,
+            ContextParameters::to_sorted_batch(&context_out.parameters)?,
         ),
         (
             Declarations::NAME,

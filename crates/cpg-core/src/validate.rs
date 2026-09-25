@@ -120,6 +120,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM context_modules".to_owned();
     model_definitions = "validate_model_definitions", deps = ["context_definitions"],
         sql = "SELECT * FROM context_definitions".to_owned();
+    model_parameters = "validate_model_parameters", deps = ["context_parameters"],
+        sql = "SELECT * FROM context_parameters".to_owned();
     model_targets = "validate_model_targets", deps = ["model_targets"],
         sql = "SELECT * FROM model_targets".to_owned();
     model_transfers = "validate_model_transfers", deps = ["model_transfers"],
@@ -137,6 +139,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_modules(), sql::Params::new()).await?;
     let definitions: Vec<cpg_schema::tables::ContextDefinitionsRow> =
         sql::fetch(ctx, &model_definitions(), sql::Params::new()).await?;
+    let parameters: Vec<cpg_schema::tables::ContextParametersRow> =
+        sql::fetch(ctx, &model_parameters(), sql::Params::new()).await?;
     let mut actual_targets: Vec<ModelTargetsRow> =
         sql::fetch(ctx, &model_targets(), sql::Params::new()).await?;
     let mut actual_transfers: Vec<ModelTransfersRow> =
@@ -163,7 +167,7 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         .bind_targets(snapshot_id, &contexts, &modules, &definitions)
         .map_err(CoreError::Analysis)?;
     let mut expected_transfers = catalog
-        .compile_transfers(&expected_targets)
+        .compile_transfers(&expected_targets, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
     expected_targets.sort_by_key(|row| (row.model_id, row.target_node_id));
     actual_targets.sort_by_key(|row| (row.model_id, row.target_node_id));

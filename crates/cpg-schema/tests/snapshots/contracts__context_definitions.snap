@@ -17,3 +17,4 @@ key: Utf8 NOT NULL
 name: Utf8 NOT NULL
 qualified_name: Utf8 NOT NULL
 is_top_level: Boolean NOT NULL
+signature_count: Int64 NULL

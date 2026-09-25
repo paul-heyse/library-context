@@ -10,9 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Deserialize;
 
 use crate::behavior::{ModelTargetsRow, ModelTransfersRow};
-use crate::codebook::{DefinitionKind, ModelTransferKind, ModuleOrigin, Origin};
+use crate::codebook::{DefinitionKind, ModelTransferKind, ModuleOrigin, Origin, SignatureForm};
 use crate::id::{Digest, Id, IdHasher};
-use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextsRow};
+use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
 pub const FORMAT: u32 = 1;
 
@@ -363,8 +363,8 @@ impl Catalog {
     }
 
     /// Bind each applicable authored target to its pinned context definition. A model for a
-    /// different Python or dependency version is dormant. If its pinned module is present but
-    /// the callable is absent, the catalog is stale and compilation fails before publication.
+    /// different Python or dependency version is dormant. Context definitions are sparse: a
+    /// pinned module without this referenced callable also leaves the model dormant.
     /// This does not apply the model's rules or assert that its formal paths resolve.
     pub fn bind_targets(
         &self,
@@ -430,13 +430,6 @@ impl Catalog {
                             && matches!(d.kind, DefinitionKind::Function | DefinitionKind::Class)
                     })
                     .collect();
-                if matches.is_empty() {
-                    return Err(format!(
-                        "model target {} has no pinned definition in module fact {}",
-                        target.key(),
-                        module.fact_id.hex()
-                    ));
-                }
                 for definition in matches {
                     let row = ModelTargetsRow {
                         snapshot_id,
@@ -468,6 +461,8 @@ impl Catalog {
     pub fn compile_transfers(
         &self,
         targets: &[ModelTargetsRow],
+        definitions: &[ContextDefinitionsRow],
+        parameters: &[ContextParametersRow],
     ) -> Result<Vec<ModelTransfersRow>, String> {
         let by_id: BTreeMap<Id, &Model> = self
             .models
@@ -479,6 +474,14 @@ impl Catalog {
             let model = by_id
                 .get(&target.model_id)
                 .ok_or_else(|| format!("unknown model id {}", target.model_id.hex()))?;
+            let definition = definitions
+                .iter()
+                .find(|d| d.fact_id == target.target_definition_fact_id)
+                .ok_or_else(|| format!("missing definition for {}", target.target_key))?;
+            let signature_count = definition
+                .signature_count
+                .filter(|count| *count > 0)
+                .ok_or_else(|| format!("no complete signature for {}", target.target_key))?;
             for (index, rule) in model.rules.iter().enumerate() {
                 let Rule::Transfer { from, to, transfer } = rule else {
                     return Err(format!(
@@ -486,6 +489,46 @@ impl Catalog {
                         target.target_key
                     ));
                 };
+                let input_formal = match from {
+                    InputPath::Parameter { name } => Some(name.as_str()),
+                    InputPath::ReceiverField { root, .. } => Some(root.as_str()),
+                    InputPath::Global { .. } => None,
+                };
+                let output_formal = match to {
+                    OutputPath::Parameter { name } => Some(name.as_str()),
+                    OutputPath::ReceiverField { root, .. } => Some(root.as_str()),
+                    OutputPath::ReturnValue
+                    | OutputPath::Global { .. }
+                    | OutputPath::Raise { .. } => None,
+                };
+                for signature_index in 0..signature_count {
+                    let rows: Vec<_> = parameters
+                        .iter()
+                        .filter(|p| {
+                            p.symbol_node_id == target.target_node_id
+                                && p.signature_index == signature_index
+                        })
+                        .collect();
+                    if rows.is_empty() || rows.iter().any(|p| p.form != SignatureForm::List) {
+                        return Err(format!(
+                            "unresolved signature {signature_index} for {}",
+                            target.target_key
+                        ));
+                    }
+                    for formal in [input_formal, output_formal].into_iter().flatten() {
+                        if rows
+                            .iter()
+                            .filter(|p| p.name.as_deref() == Some(formal))
+                            .count()
+                            != 1
+                        {
+                            return Err(format!(
+                                "unresolved formal {formal} in signature {signature_index} of {}",
+                                target.target_key
+                            ));
+                        }
+                    }
+                }
                 let rule_id = IdHasher::new("behavior-model-rule")
                     .opt_id(Some(target.model_id))
                     .i64(index as i64)
@@ -564,6 +607,7 @@ mod tests {
             name: "cast".into(),
             qualified_name: "cast".into(),
             is_top_level: true,
+            signature_count: Some(1),
         };
         let bound = catalog
             .bind_targets(
@@ -577,12 +621,44 @@ mod tests {
         assert_eq!(bound[0].target_node_id, definition.symbol_node_id);
         assert_eq!(bound[0].target_definition_fact_id, definition.fact_id);
         assert_eq!(bound[0].origin, Origin::SyntheticModel);
-        let transfers = catalog.compile_transfers(&bound).unwrap();
+        let parameter = ContextParametersRow {
+            snapshot_id,
+            fact_id: Id([7; 16]),
+            symbol_node_id: definition.symbol_node_id,
+            module_node_id,
+            signature_index: 0,
+            form: SignatureForm::List,
+            ordinal: Some(1),
+            kind: Some(crate::codebook::ParameterKind::PositionalOrKeyword),
+            name: Some("val".into()),
+            required: Some(true),
+        };
+        let transfers = catalog
+            .compile_transfers(
+                &bound,
+                std::slice::from_ref(&definition),
+                std::slice::from_ref(&parameter),
+            )
+            .unwrap();
         assert_eq!(transfers.len(), 1);
         assert_eq!(transfers[0].target_node_id, definition.symbol_node_id);
         assert_eq!(transfers[0].input_path, "Parameter[val]");
         assert_eq!(transfers[0].output_path, "ReturnValue");
         assert_eq!(transfers[0].transfer, ModelTransferKind::Identity);
+        assert!(
+            catalog
+                .compile_transfers(&bound, std::slice::from_ref(&definition), &[])
+                .is_err()
+        );
+        let renamed = ContextParametersRow {
+            name: Some("value".into()),
+            ..parameter
+        };
+        assert!(
+            catalog
+                .compile_transfers(&bound, std::slice::from_ref(&definition), &[renamed])
+                .is_err()
+        );
 
         assert!(
             catalog
@@ -592,7 +668,8 @@ mod tests {
                     std::slice::from_ref(&module),
                     &[],
                 )
-                .is_err()
+                .unwrap()
+                .is_empty()
         );
         let wrong_context = ContextsRow {
             python_version: "3.14.6".into(),

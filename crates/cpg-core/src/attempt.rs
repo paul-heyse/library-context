@@ -52,8 +52,9 @@ pub struct Published {
 /// atoms, their guarded entry-value links and exact-class origins. 19: path-stable later-use
 /// links under an exact type guard. 20: committed typed model catalog identity and validation.
 /// 21: pinned-source model target bindings and their publication contract. 22: compiled authored
-/// transfer rows, gated on those target bindings.
-pub const COMPILER_OUTPUT_VERSION: u32 = 22;
+/// transfer rows, gated on those target bindings. 23: external Pysa signatures and model formal
+/// path validation.
+pub const COMPILER_OUTPUT_VERSION: u32 = 23;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -446,16 +447,21 @@ fn bind_models(
         Ok(T::Row::read_batch(&batch)?)
     }
     let catalog = cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
+    let definitions = rows::<cpg_schema::tables::ContextDefinitions>(raw)?;
     let targets = catalog
         .bind_targets(
             snapshot_id,
             &rows::<cpg_schema::tables::Contexts>(raw)?,
             &rows::<cpg_schema::tables::ContextModules>(raw)?,
-            &rows::<cpg_schema::tables::ContextDefinitions>(raw)?,
+            &definitions,
         )
         .map_err(CoreError::Analysis)?;
     let transfers = catalog
-        .compile_transfers(&targets)
+        .compile_transfers(
+            &targets,
+            &definitions,
+            &rows::<cpg_schema::tables::ContextParameters>(raw)?,
+        )
         .map_err(CoreError::Analysis)?;
     Ok((targets, transfers))
 }

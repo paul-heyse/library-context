@@ -2981,15 +2981,18 @@ from this catalog yet.
 **Implemented and Tested (2026-09-24, Stage 3.1 target/transfer boundary):** an
 analyzed compile binds an applicable committed model to `context_definitions` only when its
 `context_modules` origin and exact Python or distribution pin match. The `model_targets` row
-cites both source facts and carries `synthetic_model` provenance; a pinned module that lacks the
-callable fails before any Delta write. A model for another pin is dormant. Authored transfer
-rules for bound targets become typed `model_transfers` rows with canonical paths, a stable rule
-identity and synthetic-model provenance. Unimplemented rule families fail closed before writes.
+cites both source facts and carries `synthetic_model` provenance. Because external definitions
+are recorded only when referenced, a model with no callable row is dormant even if its module
+appears; an active model with missing or unresolved signatures/formals fails before any Delta
+write. Authored transfer rules for bound targets become typed `model_transfers` rows with
+canonical paths, a stable rule identity and synthetic-model provenance. Unimplemented rule
+families fail closed before writes.
 The shared publication validator reconstructs target and transfer rows from the committed
 catalog and pinned context views, rejecting missing, extra or altered model rows.
-Formal path resolution against signatures, effect/other rule families, broader oracle checks and
-summary composition remain Proposed. A transfer row is an authored model claim, not a composed
-behavior verdict.
+Formal paths now resolve against every pinned Pysa signature for a bound external function;
+ellipsis, ParamSpec and a missing or duplicate formal reject that compile. Effect/other rule
+families, broader oracle checks and summary composition remain Proposed. A transfer row is an
+authored model claim, not a composed behavior verdict.
 
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus

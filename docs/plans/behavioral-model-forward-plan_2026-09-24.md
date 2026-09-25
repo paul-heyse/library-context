@@ -453,8 +453,8 @@ has no serving consumer yet, and the integrated gate remains `not_run`.
    resource and exception variants. One canonical renderer emits the DESIGN §9.9 access-path
    spelling for Arrow and display; model authors do not hand-author another free-text grammar.
    Model identity includes file bytes, target callable identity, target library pin and model
-   revision. The catalog digest joins `compiler_digest`; malformed or unresolved targets fail
-   before publication. Distinguish a model of a dependency callable from an observation of the
+   revision. The catalog digest joins `compiler_digest`; malformed or unresolved referenced
+   targets fail before publication, while unreferenced models remain dormant. Distinguish a model of a dependency callable from an observation of the
    analyzed release, and keep `synthetic_model` provenance on its derived effects. Author the
    Stage 3.1 list in small families (pure identity/value constructors; I/O and serialization;
    async/timeouts/context; pydantic and HTTP), using pinned library source/docs. CrossHair
@@ -465,9 +465,9 @@ has no serving consumer yet, and the integrated gate remains `not_run`.
    catalog is validated before an analyzed attempt writes Delta. The first target-binding
    boundary now resolves applicable stdlib and dependency models to pinned context definitions
    and writes cited `model_targets` rows; release targets remain deliberately unsupported.
-   Applicable authored transfers are compiled into typed `model_transfers` rows, while rule
-   families without a table/consumer fail closed. The rest of the model list, formal path
-   binding, broader CrossHair checks and summary application remain open; model rows alone do
+   Applicable authored transfers are compiled into typed `model_transfers` rows after every
+   pinned Pysa signature resolves their formal paths; rule families without a table/consumer
+   fail closed. The rest of the model list, broader CrossHair checks and summary application remain open; model rows alone do
    not establish behavioral findings. One isolated CrossHair control/diffbehavior probe exhausted
    paths for the `int` specialization of `typing.cast` identity, not the generic model.
 5. **Derive the remaining L2 relations before summaries.** `handlers` names caught types and

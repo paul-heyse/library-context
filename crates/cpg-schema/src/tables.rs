@@ -219,6 +219,30 @@ table!(
         qualified_name: String,
         /// Defined at module level (what an export can trace to).
         is_top_level: bool,
+        /// Pysa's number of undecorated signatures, for a function only. A model's formal path
+        /// must resolve in every signature before the model can be applied.
+        signature_count: Option<i64>,
+    }
+);
+
+table!(
+    /// The pinned Pysa signature parameters of a referenced external function. Every overload
+    /// form is retained so authored model paths can be checked against all signatures before use.
+    ContextParameters, ContextParametersRow = "context_parameters",
+    family = Provenance,
+    key = [snapshot_id, symbol_node_id, signature_index, fact_id],
+    checks = [("signature_index_nonnegative", "signature_index >= 0")],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        symbol_node_id: Id,
+        module_node_id: Id,
+        signature_index: i64,
+        form: SignatureForm,
+        ordinal: Option<i64>,
+        kind: Option<ParameterKind>,
+        name: Option<String>,
+        required: Option<bool>,
     }
 );
 
@@ -1426,6 +1450,7 @@ macro_rules! for_each_table {
             $crate::tables::SourceFiles,
             $crate::tables::ContextModules,
             $crate::tables::ContextDefinitions,
+            $crate::tables::ContextParameters,
             $crate::tables::Declarations,
             $crate::tables::ExportSyntax,
             $crate::tables::PublicNames,

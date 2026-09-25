@@ -1,5 +1,6 @@
 //! The dependency context a release's facts reference (DESIGN §3.2, §3.8; ADR-0014):
-//! `context_modules` and `context_definitions`, the `external_module` and `external_symbol` nodes.
+//! `context_modules`, `context_definitions` and their pinned `context_parameters`, the
+//! `external_module` and `external_symbol` nodes.
 //!
 //! Every dependency module a mapped row referenced (by Pysa module id), and every module a public
 //! export traces to, is resolved to its handle from the release's own import context and checked
@@ -20,6 +21,7 @@ use cpg_schema::id::{Id, recipe};
 use cpg_schema::metrics::Stages;
 use cpg_schema::tables::{
     ContextDefinitions, ContextDefinitionsRow, ContextModules, ContextModulesRow,
+    ContextParameters, ContextParametersRow,
 };
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
@@ -35,12 +37,13 @@ use pyrefly_python::module_path::ModulePathDetails;
 use crate::ExtractError;
 use crate::config::{ExtractInput, PYREFLY_REV};
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
-use crate::pysa_map::ModuleRefs;
+use crate::pysa_map::{ModuleRefs, parameter_shapes};
 
 #[derive(Default)]
 pub(crate) struct ContextOut {
     pub modules: Vec<ContextModulesRow>,
     pub definitions: Vec<ContextDefinitionsRow>,
+    pub parameters: Vec<ContextParametersRow>,
 }
 
 fn provenance(fidelity: Fidelity) -> Provenance {
@@ -282,43 +285,48 @@ pub(crate) fn context_facts(
             .iter()
             .map(|(cid, c)| (cid.to_int(), (c.name.clone(), &c.parent)))
             .collect();
-        let mut emit =
-            |kind_code: DefinitionKind, key: String, def_name: String, parent: &ScopeParent| {
-                let top = matches!(parent, ScopeParent::TopLevel);
-                let wanted = referenced.contains(&(name.clone(), kind_code, key.clone()))
-                    || (top && exported.contains(&(name.clone(), def_name.clone())));
-                if !wanted {
-                    return;
-                }
-                let symbol_node_id = recipe::external_symbol(
+        let mut emit = |kind_code: DefinitionKind,
+                        key: String,
+                        def_name: String,
+                        parent: &ScopeParent,
+                        signature_count: Option<i64>| {
+            let top = matches!(parent, ScopeParent::TopLevel);
+            let wanted = referenced.contains(&(name.clone(), kind_code, key.clone()))
+                || (top && exported.contains(&(name.clone(), def_name.clone())));
+            if !wanted {
+                return;
+            }
+            let symbol_node_id = recipe::external_symbol(
+                module_node_id,
+                cpg_schema::Codebook::code(kind_code),
+                &key,
+            );
+            out.definitions.push(fact_row!(
+                sink,
+                ContextDefinitions,
+                provenance(Fidelity::ReportProjection),
+                ContextDefinitionsRow {
+                    snapshot_id: Id::ZERO,
+                    fact_id: Id::ZERO,
+                    symbol_node_id,
                     module_node_id,
-                    cpg_schema::Codebook::code(kind_code),
-                    &key,
-                );
-                out.definitions.push(fact_row!(
-                    sink,
-                    ContextDefinitions,
-                    provenance(Fidelity::ReportProjection),
-                    ContextDefinitionsRow {
-                        snapshot_id: Id::ZERO,
-                        fact_id: Id::ZERO,
-                        symbol_node_id,
-                        module_node_id,
-                        module_name: name.clone(),
-                        kind: kind_code,
-                        key,
-                        qualified_name: format!("{}{def_name}", prefix(parent, &classes)),
-                        name: def_name,
-                        is_top_level: top,
-                    }
-                ));
-            };
+                    module_name: name.clone(),
+                    kind: kind_code,
+                    key,
+                    qualified_name: format!("{}{def_name}", prefix(parent, &classes)),
+                    name: def_name,
+                    is_top_level: top,
+                    signature_count,
+                }
+            ));
+        };
         for (fid, def) in defs.function_definitions.as_map() {
             emit(
                 DefinitionKind::Function,
                 fid.serialize_to_string(),
                 def.base.name.to_string(),
                 &def.base.parent,
+                Some(def.undecorated_signatures.len() as i64),
             );
         }
         for (cid, c) in &defs.class_definitions {
@@ -327,7 +335,45 @@ pub(crate) fn context_facts(
                 cid.to_int().to_string(),
                 c.name.clone(),
                 &c.parent,
+                None,
             );
+        }
+        let included: BTreeSet<Id> = out
+            .definitions
+            .iter()
+            .filter(|d| d.module_node_id == module_node_id)
+            .map(|d| d.symbol_node_id)
+            .collect();
+        for (fid, def) in defs.function_definitions.as_map() {
+            let symbol_node_id = recipe::external_symbol(
+                module_node_id,
+                cpg_schema::Codebook::code(DefinitionKind::Function),
+                &fid.serialize_to_string(),
+            );
+            if !included.contains(&symbol_node_id) {
+                continue;
+            }
+            for (signature_index, signature) in def.undecorated_signatures.iter().enumerate() {
+                for shape in parameter_shapes(&signature.parameters) {
+                    out.parameters.push(fact_row!(
+                        sink,
+                        ContextParameters,
+                        provenance(Fidelity::ReportProjection),
+                        ContextParametersRow {
+                            snapshot_id: Id::ZERO,
+                            fact_id: Id::ZERO,
+                            symbol_node_id,
+                            module_node_id,
+                            signature_index: signature_index as i64,
+                            form: shape.form,
+                            ordinal: shape.ordinal,
+                            kind: shape.kind,
+                            name: shape.name,
+                            required: shape.required,
+                        }
+                    ));
+                }
+            }
         }
     }
     for name in &not_found {

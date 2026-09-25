@@ -134,6 +134,16 @@ pub const REFERENCES: &[Reference] = &[
         &[("context_definitions", "symbol_node_id")],
     ),
     r("model_transfers", "target_definition_fact_id", FACT),
+    r(
+        "context_parameters",
+        "symbol_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r(
+        "context_parameters",
+        "module_node_id",
+        &[("context_modules", "module_node_id")],
+    ),
     r("provider_node_map", "pysa_fact_id", FACT),
     r("provider_node_map", "declaration_fact_id", FACT),
     r("provider_class_map", "pysa_fact_id", FACT),

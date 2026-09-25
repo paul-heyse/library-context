@@ -44,6 +44,14 @@ fn copy(src: &Path, dst: &Path) {
 
 /// The extractor's raw batches for a fixture, under `snapshot_id`.
 fn raw(fixture: &str, snapshot_id: Id) -> Vec<(&'static str, RecordBatch)> {
+    raw_version(fixture, snapshot_id, (3, 14, 0))
+}
+
+fn raw_version(
+    fixture: &str,
+    snapshot_id: Id,
+    python_version: (u32, u32, u32),
+) -> Vec<(&'static str, RecordBatch)> {
     let dir = tempfile::tempdir().unwrap();
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let release = dir.path().join("release");
@@ -55,7 +63,7 @@ fn raw(fixture: &str, snapshot_id: Id) -> Vec<(&'static str, RecordBatch)> {
             .unwrap(),
         venv_root: std::fs::canonicalize(dir.path().join("venv")).unwrap(),
         site_packages: vec![std::fs::canonicalize(&site).unwrap()],
-        python_version: (3, 14, 0),
+        python_version,
         python_platform: "linux".to_owned(),
         snapshot_id,
         corpus: None,
@@ -101,7 +109,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        51 + 21 + 36,
+        52 + 21 + 36,
         "every raw, derived and analysis table"
     );
 
@@ -313,6 +321,77 @@ async fn model_target_requires_its_cited_pinned_definition() {
         violations.iter().any(|v| v.rule == expected),
         "{violations:?}"
     );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-transfer-equality"),
+        "{violations:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pinned_cast_model_requires_and_publishes_its_real_formal() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([52; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["modelpkg"]
+public_roots = ["modelpkg"]
+[seeds]
+primary = ["modelpkg.identity"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("model_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
+    assert!(targets > 0);
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM model_transfers").await,
+        targets
+    );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM context_parameters p JOIN model_targets t \
+             ON p.symbol_node_id = t.target_node_id WHERE p.name = 'val'"
+        )
+        .await
+            >= targets
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+
+    let doctored = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (input_path), 'Parameter[wrong]' AS input_path FROM model_transfers",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("model_transfers").unwrap();
+    ctx.register_table("model_transfers", doctored).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
         violations
             .iter()

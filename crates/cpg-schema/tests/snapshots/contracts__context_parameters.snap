@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table context_parameters
+family provenance
+key snapshot_id, symbol_node_id, signature_index, fact_id
+check signature_index_nonnegative: signature_index >= 0
+@lctx.family=provenance
+@lctx.table=context_parameters
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+symbol_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+signature_index: Int64 NOT NULL
+form: Int16 NOT NULL [lctx.codebook=signature_form]
+ordinal: Int64 NULL
+kind: Int16 NULL [lctx.codebook=parameter_kind]
+name: Utf8 NULL
+required: Boolean NULL

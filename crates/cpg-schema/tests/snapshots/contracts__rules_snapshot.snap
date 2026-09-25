@@ -20,6 +20,8 @@ key:context_modules
   SELECT snapshot_id, module_node_id, fact_id, count(*) AS n FROM context_modules GROUP BY snapshot_id, module_node_id, fact_id HAVING count(*) > 1
 key:context_definitions
   SELECT snapshot_id, symbol_node_id, fact_id, count(*) AS n FROM context_definitions GROUP BY snapshot_id, symbol_node_id, fact_id HAVING count(*) > 1
+key:context_parameters
+  SELECT snapshot_id, symbol_node_id, signature_index, fact_id, count(*) AS n FROM context_parameters GROUP BY snapshot_id, symbol_node_id, signature_index, fact_id HAVING count(*) > 1
 key:declarations
   SELECT snapshot_id, module_node_id, start_byte, end_byte, node_id, count(*) AS n FROM declarations GROUP BY snapshot_id, module_node_id, start_byte, end_byte, node_id HAVING count(*) > 1
 key:export_syntax
@@ -312,6 +314,10 @@ ref:model_transfers.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_transfers.target_definition_fact_id->facts
   SELECT f.target_definition_fact_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:context_parameters.symbol_node_id->context_definitions
+  SELECT f.symbol_node_id AS value FROM context_parameters f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.symbol_node_id = r.k WHERE f.symbol_node_id IS NOT NULL
+ref:context_parameters.module_node_id->context_modules
+  SELECT f.module_node_id AS value FROM context_parameters f LEFT ANTI JOIN (SELECT module_node_id AS k FROM context_modules) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
 ref:provider_node_map.pysa_fact_id->facts
   SELECT f.pysa_fact_id AS value FROM provider_node_map f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
 ref:provider_node_map.declaration_fact_id->facts
@@ -360,6 +366,10 @@ fact:context_definitions
   SELECT t.fact_id FROM context_definitions t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'context_definitions'
 fact-payload:context_definitions
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN context_definitions t ON t.fact_id = f.fact_id WHERE f.table_name = 'context_definitions'
+fact:context_parameters
+  SELECT t.fact_id FROM context_parameters t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'context_parameters'
+fact-payload:context_parameters
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN context_parameters t ON t.fact_id = f.fact_id WHERE f.table_name = 'context_parameters'
 fact:declarations
   SELECT t.fact_id FROM declarations t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'declarations'
 fact-payload:declarations
@@ -525,7 +535,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -540,6 +550,10 @@ codebook:context_modules.origin
   SELECT origin FROM context_modules WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:context_definitions.kind
   SELECT kind FROM context_definitions WHERE kind IS NOT NULL AND kind NOT IN (0, 1)
+codebook:context_parameters.form
+  SELECT form FROM context_parameters WHERE form IS NOT NULL AND form NOT IN (0, 1, 2)
+codebook:context_parameters.kind
+  SELECT kind FROM context_parameters WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4)
 codebook:declarations.kind
   SELECT kind FROM declarations WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
 codebook:export_syntax.kind

@@ -274,6 +274,96 @@ fn annotation(refs: &ModuleRefs, t: &PysaType) -> (Vec<String>, Option<bool>, Ve
     (classes, Some(t.class_names.is_exhaustive), scalar)
 }
 
+/// The one pinned-Pysa parameter-shape mapping shared by release signatures and referenced
+/// external definitions. An ellipsis or ParamSpec is retained as an unresolved signature form.
+pub(crate) struct ParameterShape<'a> {
+    pub form: SignatureForm,
+    pub ordinal: Option<i64>,
+    pub kind: Option<ParameterKind>,
+    pub name: Option<String>,
+    pub required: Option<bool>,
+    pub annotation: Option<&'a PysaType>,
+}
+
+pub(crate) fn parameter_shapes(parameters: &FunctionParameters) -> Vec<ParameterShape<'_>> {
+    match parameters {
+        FunctionParameters::List(ps) => ps
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let (kind, name, required, annotation) = match p {
+                    FunctionParameter::PosOnly {
+                        name,
+                        annotation,
+                        required,
+                    } => (
+                        ParameterKind::PositionalOnly,
+                        name.as_ref().map(ToString::to_string),
+                        Some(*required),
+                        annotation,
+                    ),
+                    FunctionParameter::Pos {
+                        name,
+                        annotation,
+                        required,
+                    } => (
+                        ParameterKind::PositionalOrKeyword,
+                        Some(name.to_string()),
+                        Some(*required),
+                        annotation,
+                    ),
+                    FunctionParameter::VarArg { name, annotation } => (
+                        ParameterKind::VarPositional,
+                        name.as_ref().map(ToString::to_string),
+                        None,
+                        annotation,
+                    ),
+                    FunctionParameter::KwOnly {
+                        name,
+                        annotation,
+                        required,
+                    } => (
+                        ParameterKind::KeywordOnly,
+                        Some(name.to_string()),
+                        Some(*required),
+                        annotation,
+                    ),
+                    FunctionParameter::Kwargs { name, annotation } => (
+                        ParameterKind::VarKeyword,
+                        name.as_ref().map(ToString::to_string),
+                        None,
+                        annotation,
+                    ),
+                };
+                ParameterShape {
+                    form: SignatureForm::List,
+                    ordinal: Some(i as i64),
+                    kind: Some(kind),
+                    name,
+                    required,
+                    annotation: Some(annotation),
+                }
+            })
+            .collect(),
+        FunctionParameters::Ellipsis => vec![ParameterShape {
+            form: SignatureForm::Ellipsis,
+            ordinal: None,
+            kind: None,
+            name: None,
+            required: None,
+            annotation: None,
+        }],
+        FunctionParameters::ParamSpec => vec![ParameterShape {
+            form: SignatureForm::ParamSpec,
+            ordinal: None,
+            kind: None,
+            name: None,
+            required: None,
+            annotation: None,
+        }],
+    }
+}
+
 pub(crate) fn map_definitions(
     here: &Here<'_>,
     defs: &PysaModuleDefinitions,
@@ -323,64 +413,11 @@ pub(crate) fn map_definitions(
             }
         ));
         for (si, sig) in def.undecorated_signatures.iter().enumerate() {
-            let rows: Vec<(SignatureForm, Option<i64>, Option<&FunctionParameter>)> =
-                match &sig.parameters {
-                    FunctionParameters::List(ps) => ps
-                        .iter()
-                        .enumerate()
-                        .map(|(i, p)| (SignatureForm::List, Some(i as i64), Some(p)))
-                        .collect(),
-                    FunctionParameters::Ellipsis => vec![(SignatureForm::Ellipsis, None, None)],
-                    FunctionParameters::ParamSpec => vec![(SignatureForm::ParamSpec, None, None)],
-                };
-            for (form, ordinal, param) in rows {
-                let (pkind, name, required, ann) = match param {
-                    None => (None, None, None, None),
-                    Some(FunctionParameter::PosOnly {
-                        name,
-                        annotation,
-                        required,
-                    }) => (
-                        Some(ParameterKind::PositionalOnly),
-                        name.as_ref().map(ToString::to_string),
-                        Some(*required),
-                        Some(annotation),
-                    ),
-                    Some(FunctionParameter::Pos {
-                        name,
-                        annotation,
-                        required,
-                    }) => (
-                        Some(ParameterKind::PositionalOrKeyword),
-                        Some(name.to_string()),
-                        Some(*required),
-                        Some(annotation),
-                    ),
-                    Some(FunctionParameter::VarArg { name, annotation }) => (
-                        Some(ParameterKind::VarPositional),
-                        name.as_ref().map(ToString::to_string),
-                        None,
-                        Some(annotation),
-                    ),
-                    Some(FunctionParameter::KwOnly {
-                        name,
-                        annotation,
-                        required,
-                    }) => (
-                        Some(ParameterKind::KeywordOnly),
-                        Some(name.to_string()),
-                        Some(*required),
-                        Some(annotation),
-                    ),
-                    Some(FunctionParameter::Kwargs { name, annotation }) => (
-                        Some(ParameterKind::VarKeyword),
-                        name.as_ref().map(ToString::to_string),
-                        None,
-                        Some(annotation),
-                    ),
-                };
-                let (classes, exhaustive, scalar) =
-                    ann.map(|a| annotation(refs, a)).unwrap_or_default();
+            for shape in parameter_shapes(&sig.parameters) {
+                let (classes, exhaustive, scalar) = shape
+                    .annotation
+                    .map(|a| annotation(refs, a))
+                    .unwrap_or_default();
                 out.parameters.push(fact_row!(
                     sink,
                     ParameterSemantics,
@@ -392,12 +429,12 @@ pub(crate) fn map_definitions(
                         module_name: here.module_name.to_owned(),
                         function_key: key.clone(),
                         signature_index: si as i64,
-                        form,
-                        ordinal,
-                        kind: pkind,
-                        name,
-                        required,
-                        annotation: ann.map(|a| a.string.clone()),
+                        form: shape.form,
+                        ordinal: shape.ordinal,
+                        kind: shape.kind,
+                        name: shape.name,
+                        required: shape.required,
+                        annotation: shape.annotation.map(|a| a.string.clone()),
                         annotation_classes: classes,
                         annotation_classes_exhaustive: exhaustive,
                         annotation_scalar: scalar,
