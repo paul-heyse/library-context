@@ -193,38 +193,78 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
             [_id("operation_node_id"), _id("formal_node_id"), _utf8("name")]
         ),
         "summary_flows": pa.schema(
-            [_id("summary_id"), _id("function_node_id"), _id("parameter_node_id"),
-             _utf8("input_path"), _utf8("output_path"), _utf8("kind"),
-             _id("condition_id"), _utf8("verdict"), _utf8("boundary_reason", True),
-             _id("source_flow_fact_id"), _id("return_site_fact_id"),
-             _id("return_region_fact_id"), pa.field("approximated", pa.bool_(), nullable=False),
-             _int("path_depth")]
+            [
+                _id("summary_id"),
+                _id("function_node_id"),
+                _id("parameter_node_id"),
+                _utf8("input_path"),
+                _utf8("output_path"),
+                _utf8("kind"),
+                _id("condition_id"),
+                _utf8("verdict"),
+                _utf8("boundary_reason", True),
+                _id("source_flow_fact_id"),
+                _id("return_site_fact_id"),
+                _id("return_region_fact_id"),
+                pa.field("approximated", pa.bool_(), nullable=False),
+                _int("path_depth"),
+            ]
         ),
         "summary_flow_steps": pa.schema(
-            [_id("summary_id"), _int("ordinal"), _utf8("kind"), _id("evidence_id"),
-             _id("condition_id")]
+            [
+                _id("summary_id"),
+                _int("ordinal"),
+                _utf8("kind"),
+                _id("evidence_id"),
+                _id("condition_id"),
+            ]
         ),
         "summary_boundaries": pa.schema(
-            [_id("function_node_id"), _id("parameter_node_id"), _id("source_flow_fact_id"),
-             _id("condition_id"), _utf8("reason"),
-             pa.field("local_through_call", pa.bool_(), nullable=False),
-             pa.field("upstream_through_call", pa.bool_(), nullable=False),
-             pa.field("raw_approximated", pa.bool_(), nullable=False)]
+            [
+                _id("function_node_id"),
+                _id("parameter_node_id"),
+                _id("source_flow_fact_id"),
+                _id("condition_id"),
+                _utf8("reason"),
+                pa.field("local_through_call", pa.bool_(), nullable=False),
+                pa.field("upstream_through_call", pa.bool_(), nullable=False),
+                pa.field("raw_approximated", pa.bool_(), nullable=False),
+            ]
         ),
         "flow_test_leaves": pa.schema(
-            [_id("fact_id"), _id("module_node_id"), _id("condition_id"),
-             _id("atom_id"), _utf8("atom"), _utf8("path", True),
-             _int("leaf_start_byte"), _int("leaf_end_byte")]
+            [
+                _id("fact_id"),
+                _id("module_node_id"),
+                _id("condition_id"),
+                _id("atom_id"),
+                _utf8("atom"),
+                _utf8("path", True),
+                _int("leaf_start_byte"),
+                _int("leaf_end_byte"),
+            ]
         ),
         "flow_test_value_links": pa.schema(
-            [_id("link_id"), _id("operation_node_id"), _id("formal_node_id"),
-             _id("module_node_id"), _id("leaf_fact_id"), _id("atom_id"),
-             _id("condition_id"), _utf8("place"), _utf8("origin"),
-             pa.field("effect_model_digest", pa.binary(32), nullable=False),
-             _id("use_id"), _id("use_fact_id"), _id("reaching_fact_id"),
-             _id("definition_fact_id"), _id("stability_origin_id", True),
-             _id("stability_condition_id", True), _utf8("path", True),
-             _int("operand_start_byte"), _int("operand_end_byte")]
+            [
+                _id("link_id"),
+                _id("operation_node_id"),
+                _id("formal_node_id"),
+                _id("module_node_id"),
+                _id("leaf_fact_id"),
+                _id("atom_id"),
+                _id("condition_id"),
+                _utf8("place"),
+                _utf8("origin"),
+                pa.field("effect_model_digest", pa.binary(32), nullable=False),
+                _id("use_id"),
+                _id("use_fact_id"),
+                _id("reaching_fact_id"),
+                _id("definition_fact_id"),
+                _id("stability_origin_id", True),
+                _id("stability_condition_id", True),
+                _utf8("path", True),
+                _int("operand_start_byte"),
+                _int("operand_end_byte"),
+            ]
         ),
         # FORMAT 5 (Stage 2): singletons, their fields' reads, and field and setting claims.
         "singletons": pa.schema([_utf8("global"), _id("class_node_id")]),
@@ -328,9 +368,21 @@ def _read(root: Path, manifest: dict, name: str, schema: pa.Schema) -> pa.Table:
     path = root / entry["file"]
     if path.is_symlink():
         raise GenerationError(f"{entry['file']}: a served file cannot be a symlink")
-    if name in {"conditions", "condition_nodes", "analysis_conditions",
-                "analysis_condition_nodes", "summary_flows", "summary_flow_steps",
-                "summary_boundaries", "flow_test_leaves", "flow_test_value_links"} and path.stat().st_size > MAX_CONDITION_FILE_BYTES:
+    if (
+        name
+        in {
+            "conditions",
+            "condition_nodes",
+            "analysis_conditions",
+            "analysis_condition_nodes",
+            "summary_flows",
+            "summary_flow_steps",
+            "summary_boundaries",
+            "flow_test_leaves",
+            "flow_test_value_links",
+        }
+        and path.stat().st_size > MAX_CONDITION_FILE_BYTES
+    ):
         raise GenerationError(f"{entry['file']}: condition file exceeds the load budget")
     data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != entry["sha256"]:
@@ -381,12 +433,19 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     schemas = expected_schemas(dimensions)
     tables = {name: _read(root, manifest, name, schema) for name, schema in schemas.items()}
     max_conditions, max_nodes = catalog_limits()
-    if (tables["conditions"].num_rows + tables["analysis_conditions"].num_rows > max_conditions
-            or tables["condition_nodes"].num_rows
-            + tables["analysis_condition_nodes"].num_rows > max_nodes):
+    if (
+        tables["conditions"].num_rows + tables["analysis_conditions"].num_rows > max_conditions
+        or tables["condition_nodes"].num_rows + tables["analysis_condition_nodes"].num_rows
+        > max_nodes
+    ):
         raise GenerationError("condition catalog exceeds native load limits")
-    for name in ("summary_flows", "summary_flow_steps", "summary_boundaries",
-                 "flow_test_leaves", "flow_test_value_links"):
+    for name in (
+        "summary_flows",
+        "summary_flow_steps",
+        "summary_boundaries",
+        "flow_test_leaves",
+        "flow_test_value_links",
+    ):
         if tables[name].num_rows > MAX_SUMMARY_ROWS:
             raise GenerationError(f"{name} exceeds native load limits")
     for name in ("operations", "public_paths", "operation_parameters"):
@@ -396,49 +455,94 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     nodes_by_id: dict[str, tuple[str, str, str, str]] = {}
     for name in ("conditions", "analysis_conditions"):
         for row in tables[name].to_pylist():
-            item = (row["condition_id"].hex(),
-                    None if row["root_id"] is None else row["root_id"].hex(),
-                    row["boundary_reason"])
+            item = (
+                row["condition_id"].hex(),
+                None if row["root_id"] is None else row["root_id"].hex(),
+                row["boundary_reason"],
+            )
             if item[0] in conditions_by_id and conditions_by_id[item[0]] != item:
                 raise GenerationError(f"conflicting condition {item[0]} across catalogs")
             conditions_by_id[item[0]] = item
     for name in ("condition_nodes", "analysis_condition_nodes"):
         for row in tables[name].to_pylist():
-            item = (row["node_id"].hex(), row["atom"], row["low_id"].hex(),
-                    row["high_id"].hex())
+            item = (row["node_id"].hex(), row["atom"], row["low_id"].hex(), row["high_id"].hex())
             if item[0] in nodes_by_id and nodes_by_id[item[0]] != item:
                 raise GenerationError(f"conflicting condition node {item[0]} across catalogs")
             nodes_by_id[item[0]] = item
     try:
         condition_graph = SemanticExecutor(
-            KERNEL_FORMAT, manifest["snapshot_id"], manifest["entry_value_effect_digest"],
-            list(conditions_by_id.values()), list(nodes_by_id.values()),
+            KERNEL_FORMAT,
+            manifest["snapshot_id"],
+            manifest["entry_value_effect_digest"],
+            list(conditions_by_id.values()),
+            list(nodes_by_id.values()),
             [r["node_id"].hex() for r in tables["operations"].to_pylist()],
-            [(r["access_path"], r["node_id"].hex())
-             for r in tables["public_paths"].to_pylist()],
-            [(r["operation_node_id"].hex(), r["formal_node_id"].hex(), r["name"])
-             for r in tables["operation_parameters"].to_pylist()],
-            [(r["summary_id"].hex(), r["function_node_id"].hex(),
-              r["parameter_node_id"].hex(), r["condition_id"].hex(),
-              r["verdict"], r["boundary_reason"], r["path_depth"])
-             for r in tables["summary_flows"].to_pylist()],
-            [(r["summary_id"].hex(), r["ordinal"], r["kind"],
-              r["evidence_id"].hex(), r["condition_id"].hex())
-             for r in tables["summary_flow_steps"].to_pylist()],
-            [(r["function_node_id"].hex(), r["parameter_node_id"].hex(),
-              r["source_flow_fact_id"].hex(), r["condition_id"].hex(), r["reason"])
-             for r in tables["summary_boundaries"].to_pylist()],
-            [(r["fact_id"].hex(), r["module_node_id"].hex(),
-              r["condition_id"].hex(), r["atom_id"].hex(), r["atom"], r["path"],
-              r["leaf_start_byte"], r["leaf_end_byte"])
-             for r in tables["flow_test_leaves"].to_pylist()],
-            [(r["link_id"].hex(), r["operation_node_id"].hex(),
-              r["formal_node_id"].hex(), r["module_node_id"].hex(),
-              r["leaf_fact_id"].hex(), r["atom_id"].hex(),
-              r["condition_id"].hex(), r["place"], r["origin"],
-              r["effect_model_digest"].hex(),
-              (r["path"], r["operand_start_byte"], r["operand_end_byte"]))
-             for r in tables["flow_test_value_links"].to_pylist()],
+            [(r["access_path"], r["node_id"].hex()) for r in tables["public_paths"].to_pylist()],
+            [
+                (r["operation_node_id"].hex(), r["formal_node_id"].hex(), r["name"])
+                for r in tables["operation_parameters"].to_pylist()
+            ],
+            [
+                (
+                    r["summary_id"].hex(),
+                    r["function_node_id"].hex(),
+                    r["parameter_node_id"].hex(),
+                    r["condition_id"].hex(),
+                    r["verdict"],
+                    r["boundary_reason"],
+                    r["path_depth"],
+                )
+                for r in tables["summary_flows"].to_pylist()
+            ],
+            [
+                (
+                    r["summary_id"].hex(),
+                    r["ordinal"],
+                    r["kind"],
+                    r["evidence_id"].hex(),
+                    r["condition_id"].hex(),
+                )
+                for r in tables["summary_flow_steps"].to_pylist()
+            ],
+            [
+                (
+                    r["function_node_id"].hex(),
+                    r["parameter_node_id"].hex(),
+                    r["source_flow_fact_id"].hex(),
+                    r["condition_id"].hex(),
+                    r["reason"],
+                )
+                for r in tables["summary_boundaries"].to_pylist()
+            ],
+            [
+                (
+                    r["fact_id"].hex(),
+                    r["module_node_id"].hex(),
+                    r["condition_id"].hex(),
+                    r["atom_id"].hex(),
+                    r["atom"],
+                    r["path"],
+                    r["leaf_start_byte"],
+                    r["leaf_end_byte"],
+                )
+                for r in tables["flow_test_leaves"].to_pylist()
+            ],
+            [
+                (
+                    r["link_id"].hex(),
+                    r["operation_node_id"].hex(),
+                    r["formal_node_id"].hex(),
+                    r["module_node_id"].hex(),
+                    r["leaf_fact_id"].hex(),
+                    r["atom_id"].hex(),
+                    r["condition_id"].hex(),
+                    r["place"],
+                    r["origin"],
+                    r["effect_model_digest"].hex(),
+                    (r["path"], r["operand_start_byte"], r["operand_end_byte"]),
+                )
+                for r in tables["flow_test_value_links"].to_pylist()
+            ],
         )
     except ValueError as e:
         raise GenerationError(f"invalid semantic index: {e}") from e

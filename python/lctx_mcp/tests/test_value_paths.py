@@ -35,14 +35,21 @@ def test_native_page_reports_path_local_refutation_and_open_boundary(generation:
     assert page.theory_work == page.paths[0].theory_work
 
     open_page = inspect(
-        gen, gen.snapshot_id, "pkg.controls.build", "label",
-        ExactPrimitive(kind="str", value="x"), True, 1, None,
+        gen,
+        gen.snapshot_id,
+        "pkg.controls.build",
+        "label",
+        ExactPrimitive(kind="str", value="x"),
+        True,
+        1,
+        None,
     )
     assert open_page.paths == [] and open_page.boundaries[0].reason == "call_transfer"
     assert open_page.theory_work.bdd_preflight_pairs == 0
     with pytest.raises(OperationError, match="cursor"):
-        inspect(gen, gen.snapshot_id, "pkg.controls.strict", "value", exact,
-                True, 1, "not a cursor")
+        inspect(
+            gen, gen.snapshot_id, "pkg.controls.strict", "value", exact, True, 1, "not a cursor"
+        )
     with pytest.raises(OperationError, match="snapshot"):
         inspect(gen, "00" * 16, "pkg.controls.strict", "value", exact, True, 1, None)
 
@@ -55,8 +62,12 @@ async def test_value_path_inspection_round_trips_as_structured_mcp(generation: P
         assert "inspect_value_paths" in tools
         result = await client.call_tool(
             "inspect_value_paths",
-            {"snapshot_id": snapshot, "operation": "pkg.controls.strict",
-             "formal": "value", "exact_input": {"kind": "none", "value": None}},
+            {
+                "snapshot_id": snapshot,
+                "operation": "pkg.controls.strict",
+                "formal": "value",
+                "exact_input": {"kind": "none", "value": None},
+            },
         )
         assert result.structured_content is not None
         assert result.structured_content["paths"][0]["exact_input_result"] == (
@@ -64,8 +75,12 @@ async def test_value_path_inspection_round_trips_as_structured_mcp(generation: P
         )
         compatible = await client.call_tool(
             "inspect_value_paths",
-            {"snapshot_id": snapshot, "operation": "pkg.controls.strict",
-             "formal": "value", "exact_input": {"kind": "int", "value": 1}},
+            {
+                "snapshot_id": snapshot,
+                "operation": "pkg.controls.strict",
+                "formal": "value",
+                "exact_input": {"kind": "int", "value": 1},
+            },
         )
         assert compatible.structured_content is not None
         assert compatible.structured_content["paths"][0]["exact_input_result"] == (
@@ -76,6 +91,10 @@ async def test_value_path_inspection_round_trips_as_structured_mcp(generation: P
         with pytest.raises(ToolError):
             await client.call_tool(
                 "inspect_value_paths",
-                {"snapshot_id": snapshot, "operation": "pkg.controls.strict",
-                 "formal": "value", "exact_input": {"kind": "int", "value": True}},
+                {
+                    "snapshot_id": snapshot,
+                    "operation": "pkg.controls.strict",
+                    "formal": "value",
+                    "exact_input": {"kind": "int", "value": True},
+                },
             )

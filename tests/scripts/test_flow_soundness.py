@@ -227,11 +227,15 @@ def _assert_exit_admitted(source: str, model: dict, observed: dict) -> int:
     matched = 0
     for fate in observed["fates"]:
         regions = [
-            row for row in model["regions"]
+            row
+            for row in model["regions"]
             if source.count("\n", 0, row["span"][0]) + 1 == fate["line"]
         ]
         assert regions and any(row["condition"] != "false" for row in regions), (
-            "observed exit or exception has no admitted region", fate, source, regions
+            "observed exit or exception has no admitted region",
+            fate,
+            source,
+            regions,
         )
         matched += 1
     return matched

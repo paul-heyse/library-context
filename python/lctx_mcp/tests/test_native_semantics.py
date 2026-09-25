@@ -60,9 +60,7 @@ def test_generation_condition_graph_is_hydrated_and_rejects_bad_nodes(generation
 def test_native_index_resolves_one_public_formal_and_its_proof(generation: Path) -> None:
     index = load(generation, None).condition_graph
     assert index is not None
-    paths, reasons, truncated, work = index.value_paths(
-        "pkg.controls.passthrough", "options", 10
-    )
+    paths, reasons, truncated, work = index.value_paths("pkg.controls.passthrough", "options", 10)
     assert len(paths) == 1 and paths[0][1] == "established"
     assert len(paths[0][3]) > 0 and reasons == []
     assert not truncated and work == 1
@@ -77,8 +75,11 @@ def test_native_index_resolves_one_public_formal_and_its_proof(generation: Path)
 def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
     loaded = load(generation, None)
     conditions = [
-        (r["condition_id"].hex(),
-         None if r["root_id"] is None else r["root_id"].hex(), r["boundary_reason"])
+        (
+            r["condition_id"].hex(),
+            None if r["root_id"] is None else r["root_id"].hex(),
+            r["boundary_reason"],
+        )
         for r in loaded.tables["conditions"].to_pylist()
     ]
     nodes = [
@@ -87,15 +88,21 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
     ]
     condition = next(r[0] for r in conditions if r[1] is not None)
     operation, formal, summary = ("01" * 16, "02" * 16, "03" * 16)
-    args = (kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
-            conditions, nodes, [operation], [("pkg.one", operation)],
-            [(operation, formal, "value")],
-            [(summary, operation, formal, condition, "established", None, 0)])
+    args = (
+        kernel_format(),
+        loaded.snapshot_id,
+        loaded.manifest["entry_value_effect_digest"],
+        conditions,
+        nodes,
+        [operation],
+        [("pkg.one", operation)],
+        [(operation, formal, "value")],
+        [(summary, operation, formal, condition, "established", None, 0)],
+    )
     with pytest.raises(ValueError, match="no proof steps"):
         SemanticExecutor(*args, [], [], [], [])
     with pytest.raises(ValueError, match="missing cited callee summary"):
-        SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)],
-                         [], [], [])
+        SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)], [], [], [])
 
 
 def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None:
@@ -121,9 +128,10 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
     assert boundary is None
     assert theory_work[1] == 1
     # `is None` does not depend on a builtin name in the runtime namespace.
-    assert index.assess_value_path(
-        "pkg.controls.strict", "value", summary, "none", "", False
-    )[0] == "refuted_under_model"
+    assert (
+        index.assess_value_path("pkg.controls.strict", "value", summary, "none", "", False)[0]
+        == "refuted_under_model"
+    )
 
     paths, boundaries, total, truncated, work = index.inspect_value_paths(
         "pkg.controls.strict", "value", "none", "", True, 0, 1
@@ -132,9 +140,13 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
     assert paths[0][0] == summary and paths[0][4] == "refuted_under_model"
     assert paths[0][7][1] == 1
     assert boundaries == [] and not truncated
-    assert index.inspect_value_paths(
-        "pkg.controls.strict", "value", "none", "", True, 1, 1
-    ) == ([], [], 1, False, 0)
+    assert index.inspect_value_paths("pkg.controls.strict", "value", "none", "", True, 1, 1) == (
+        [],
+        [],
+        1,
+        False,
+        0,
+    )
     with pytest.raises(ValueError, match="cursor offset"):
         index.inspect_value_paths("pkg.controls.strict", "value", "none", "", True, 2, 1)
 
@@ -148,8 +160,11 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
 def test_native_value_path_page_has_stable_bounded_boundary_order(generation: Path) -> None:
     loaded = load(generation, None)
     conditions = [
-        (r["condition_id"].hex(),
-         None if r["root_id"] is None else r["root_id"].hex(), r["boundary_reason"])
+        (
+            r["condition_id"].hex(),
+            None if r["root_id"] is None else r["root_id"].hex(),
+            r["boundary_reason"],
+        )
         for r in loaded.tables["conditions"].to_pylist()
     ]
     nodes = [
@@ -159,12 +174,22 @@ def test_native_value_path_page_has_stable_bounded_boundary_order(generation: Pa
     condition = next(r[0] for r in conditions if r[1] is not None)
     operation, formal = "01" * 16, "02" * 16
     index = SemanticExecutor(
-        kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
-        conditions, nodes, [operation], [("pkg.one", operation)],
-        [(operation, formal, "value")], [], [],
-        [(operation, formal, "04" * 16, condition, "call_transfer"),
-         (operation, formal, "03" * 16, condition, "unsupported_control_flow")],
-        [], [],
+        kernel_format(),
+        loaded.snapshot_id,
+        loaded.manifest["entry_value_effect_digest"],
+        conditions,
+        nodes,
+        [operation],
+        [("pkg.one", operation)],
+        [(operation, formal, "value")],
+        [],
+        [],
+        [
+            (operation, formal, "04" * 16, condition, "call_transfer"),
+            (operation, formal, "03" * 16, condition, "unsupported_control_flow"),
+        ],
+        [],
+        [],
     )
     first = index.inspect_value_paths("pkg.one", "value", "none", "", True, 0, 1)
     second = index.inspect_value_paths("pkg.one", "value", "none", "", True, 1, 1)

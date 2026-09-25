@@ -22,25 +22,42 @@ changes a §B decision lands its ADR, and a `standard` review of it, first.
 
 ### Restart checkpoint (2026-09-25, Stage 3 in progress)
 
-The latest functional slice is `87bd3a9` on `main`. This updates execution state, not the
-Stage 3 target below. All current verification remains targeted by operator direction.
+This checkpoint builds through `4af94e8` on `main`: ADR-0039's BDD-incompatible predecessor
+screen, schema-key and multi-release validation repairs, accepted snapshots, and deferred
+formatting.
+This records execution state, not a change to the Stage 3 target below. The operator considers
+the present tests sufficient and assumes the remaining gate will pass; that assumption is not
+a completed `just test-all` or fresh-pilot receipt.
 
 | Scope | Current state | Evidence and remaining boundary |
 |---|---|---|
-| Stage 3.0 conditions | **Partially Implemented and Tested** | Bounded BDD catalogs, exact entry-value links, narrow primitive refutation and per-path native work accounting are focused-tested (`00323e8`). Flow-recomposed roots remain separate from provider roots. No operation-wide compatibility verdict exists. |
-| Stage 3.1 pinned models | **Partially Implemented and Tested** | Typed transfer/effect/callback/resource/exception assertions and exact source applications publish with shared validation. `typing.cast` and `typing.assert_type` have pinned total-normal-return assertions. A Pydantic 2.13.5 `TypeAdapter.validate_python` potential transform is authored but dormant in the empty-site fixture (`5b86f0e`); real dependency binding is not yet run. Pure/helper, async/context and HTTP/server families remain narrow or absent. |
+| Stage 3.0 conditions | **Partially Implemented; focused tests passed** | Bounded BDD catalogs, exact entry-value links, narrow primitive refutation and per-path native work accounting exist (`00323e8`). Flow-recomposed roots remain separate from provider roots. No operation-wide compatibility verdict exists. |
+| Stage 3.1 pinned models | **Partially Implemented; focused tests passed** | Typed transfer/effect/callback/resource/exception assertions and exact source applications publish with shared validation. `typing.cast` and `typing.assert_type` assert total normal return. A Pydantic 2.13.5 `TypeAdapter.validate_python` potential transform is authored but dormant in the empty-site fixture (`5b86f0e`); real dependency binding is untested. Pure/helper, async/context and HTTP/server families remain narrow or absent. |
 | Stage 3.2 L2 fates | **Partially Implemented and Tested** | Handler clauses, pinned class/MRO candidates, direct handler `return None` and candidate modeled-exception paths are cited. A bounded chain of sole literal `finally: pass` suites now has ordered source proof steps (`e97e6ba`); a separate CPython monitoring control observed the pending return. Other finalizers, context-manager exits, handler propagation, callback fate and resource acquire/release pairing remain unknown. |
-| Stage 3.3 source paths and summaries | **Partially Implemented and Tested** | Finite direct, modeled, unique assignment and unconditional acyclic local-wrapper value paths have canonical ordered proofs and source-equality validation. Petgraph yields callee-first SCC components; recursive members now retain unknown value paths until a bounded worklist proves completion (`87bd3a9`). A same-key open sibling remains in `summary_boundaries` (`6f009d2`). Preceding-statement normal completion, recursive worklist, effect/exception/role summaries, path-specific boundary identity and `call_transfer` discharge remain. |
-| Stage 3.4–3.6 and exit | **Partially Implemented; integrated exit not run** | Targeted matched-source Pysa TITO and CPython value/exit oracles passed; FORMAT 7 structural condition/summary data and a partial native value-path executor exist. Full proof source spans, typed operation-wide compatibility/effect/role filters, broader independent challenges, Q01/Q03/Q05/Q09, structured evaluation, clean wheel and increment-end review remain. The last complete `just test-all` and fresh pilot were at `d61a497`; neither certifies current HEAD. |
+| Stage 3.3 source paths and summaries | **Partially Implemented; focused tests passed** | Finite direct, modeled, unique-assignment and unconditional acyclic local-wrapper value paths have canonical ordered proofs and source-equality validation. Petgraph yields callee-first SCC components; recursive members retain unknown value paths pending a bounded worklist (`87bd3a9`). ADR-0039 replaces ADR-0038's byte-only screen: a prior call is ignored only if its ty region is definitely BDD-incompatible with the return; a compatible, missing, approximate or capped call withholds the direct positive. A same-key open sibling remains in `summary_boundaries` (`6f009d2`). Preceding-statement normal completion, recursive worklist, effect/exception/role summaries, path-specific boundary identity and `call_transfer` discharge remain. |
+| Stage 3.4–3.6 and exit | **Partially Implemented; provisional gate only** | Targeted matched-source Pysa TITO and CPython value/exit oracles passed; FORMAT 7 structural condition/summary data and a partial native value-path executor exist. Full proof source spans, typed operation-wide compatibility/effect/role filters, broader independent challenges, Q01/Q03/Q05/Q09, structured evaluation, clean wheel and increment-end review remain. A `just test-all` attempt observed 313/313 release Rust tests passed and 110/112 Python tests passed; the two failures were a stale expected tool list. `uv run pytest -q python/lctx_mcp/tests/test_server.py` subsequently passed 12/12 after adding `inspect_value_paths`. A full rerun was started and stopped at operator direction before completion. Fresh `just pilot` remains `not_run` for this tree. |
 
-**Next dependency:** finish source-path normal-completion witnesses for preceding statements,
-inner/outer exit frames and unresolved calls; region truth alone cannot prove that an earlier
-call returns. Then compose finite path summaries over petgraph SCCs with BDD condition,
-modality, handler and budget boundaries. Extend the remaining model and L2 families before
-interpreting summary silence as a negative. The operator requires only targeted checks until
-all Stage 3 functional scope is implemented; `just fmt`, `just test-all`, fresh-store
-`just pilot`, structured evaluation and clean wheel/native query follow only at the integrated
-end.
+**Next dependency:** finish source-path normal-completion witnesses for compatible preceding
+calls, other preceding statements, inner/outer exit frames and unresolved operations; region
+truth and BDD compatibility do not prove that an earlier action returns. Then compose finite
+path summaries over petgraph SCCs with BDD condition, modality, handler and budget boundaries.
+Extend the remaining model and L2 families before interpreting summary silence as a negative.
+The earlier targeted-only restriction was lifted for this checkpoint: `just fmt` ran and a
+provisional `just test-all` exposed and drove independent contract repairs. The operator now
+directs documentation without further test execution. A complete Stage 3 exit still requires
+the order-10 acceptance below.
+
+**Provisional gate evidence and repair (2026-09-25):** `just fmt` passed. The first full
+`just test-all` found 31 Rust failures: raw contribution key collisions, a validator that
+mistook a corpus's second release for a second snapshot, an MRO rule that counted duplicated
+library/corpus ancestry as conflicting, missing corruption-test recognition, and stale
+snapshots/version expectations. The corrected gate reached 313/313 release Rust tests passed;
+Python then reported only the two stale MCP tool-list expectations. The targeted server test
+passed after that correction. The last full gate was interrupted, so the operator's expectation
+of a pass is recorded as an assumption, not a `passed` outcome. Schema migration: the
+`value_flow_contributions` key now includes local/upstream transfer flags (output version 74);
+its contract/rule snapshots and the finalizer-step codebook snapshot were inspected and
+accepted. `just pilot`, structured evaluation and clean-wheel acceptance are `not_run` here.
 
 ### Detailed remaining Stage 3 execution queue (2026-09-25)
 
@@ -61,7 +78,7 @@ The final column names a *targeted* check, not an integrated acceptance run.
 | 7 | **Behavior claim discharge.** Reconstruct `summary_flows`, `summary_effects` and `summary_boundaries` through shared validators. Update behavior derivation so `call_transfer` changes to established/conditional only with the matching proof; a refutation requires complete source/model/handler coverage. Keep unrelated or ambiguous call candidates unknown. | Use the existing five-verdict codebook and DataFusion invariants; focused `behavior_shapes` part 2 includes logging-only and disabled-option wrappers. No pilot count is claimed before the final run. |
 | 8 | **Independent challenge.** Compare pure model instances with exhausted CrossHair `diffbehavior`; Pysa TITO with an actual source→sink rule and pinned Pyrefly binary; CPython 3.14 `sys.monitoring` + Hypothesis for observed flow, exception and exit admission. Disagreement becomes a fixture or an explicit unresolved boundary. | Keep oracles out of compiler inputs and the gold out of analysis. Run only targeted oracle cases while implementing; batch the preregistered full comparison at the integrated end. |
 | 9 | **FORMAT 7 and native serving.** Migrate one snapshot to validated structural condition/proof/summary tables, load them into one immutable PyO3 executor per FastMCP process, and expose typed compatibility plus effect/role filters. Resolve a request's operation/formal and exact primitive origin before BDD evaluation. Unsupported proof, caps and cursor exhaustion return explicit unknown/truncated with work accounting. | Reuse Arrow/DataFusion for generation, the BDD kernel for condition operations and FastMCP's structured result API. Targeted editable-import and native query cases first; only after all functionality lands run the clean-wheel query. |
-| 10 | **Integrated exit, after orders 1–9.** Run `just fmt`, `just test-all`, a fresh-store `just pilot`, Q01/Q03/Q05/Q09 and the structured Stage 3 evaluation, then one clean-wheel generation-pinned FastMCP/native query and the increment-end design review. A material fix repeats only the affected gate plus any invalidated integrated acceptance. | Report each command `passed`, `failed`, `blocked` or `not_run`, exact pilot `call_transfer` before/after counts, condition budget counts, compile time/RSS and serving bounds. No integrated/formatting command runs during orders 1–9 by operator direction. |
+| 10 | **Integrated exit, after orders 1–9.** Run `just fmt`, `just test-all`, a fresh-store `just pilot`, Q01/Q03/Q05/Q09 and the structured Stage 3 evaluation, then one clean-wheel generation-pinned FastMCP/native query and the increment-end design review. A material fix repeats only the affected gate plus any invalidated integrated acceptance. | Report each command `passed`, `failed`, `blocked` or `not_run`, exact pilot `call_transfer` before/after counts, condition budget counts, compile time/RSS and serving bounds. The 2026-09-25 preliminary formatting/gate run was an operator-directed checkpoint, not this exit. |
 
 The additional architectural constraint over the original plan is proof-path identity before SCC
 composition: the current `summary_flows` key can cite one raw return fact but cannot distinguish
@@ -77,6 +94,17 @@ is treated as a provider of Python runtime semantics.
 potential input-to-return transform. Do not populate `schema` with the adapter class name or
 equate a validation call with a particular schema. A typed dynamic-schema case, with a source
 witness if one can be proved, must precede any validation-effect or negative-coverage claim.
+
+**Implementation deviations and carry-forward decisions (2026-09-25):**
+
+| Planned order | What changed and why | What the next agent must preserve or finish |
+|---|---|---|
+| 1, 3, 4 | Canonical ordered summary proof identity (ADR-0034) and a separate pinned total-normal-return assertion (ADR-0033) landed before the full predecessor-execution relation. They let narrow direct/model/assignment paths publish without treating a transfer rule or a reachable region as call completion. | Keep the exact source argument/target counts and shared reconstruction validator. Add typed normal-outcome steps for every compatible predecessor; no generic `return x` positive after an unproved call. |
+| 2 | ADR-0036's single pass-only finalizer proof became ADR-0037's ordered nested pass chain after CPython monitoring showed pending returns survive those frames. | Keep effectful finalizers and `with` unknown until their frame actions and suppression are cited; do not generalize the pass-only proof. |
+| 5 | A pinned Pydantic candidate was authored as a potential transform, but its runtime-selected schema cannot satisfy the current named-schema validation action. | Test actual Pydantic binding and add a typed dynamic-schema representation before any definite validation effect. Expand the remaining model families only from pinned source evidence. |
+| 6 | Recursive SCC members were first withheld wholesale (`87bd3a9`), then a source-order screen (ADR-0038) recovered a base return before recursion. ADR-0039 superseded that screen with bounded BDD disjointness, recovering an alternate-branch return while still withholding compatible prior calls. | Replace this interim screen with an execution-ordered, condition-compatible predecessor witness and bounded SCC worklist. Preserve explicit unknowns for missing/approximate/capped evidence. |
+| 9 | A partial FORMAT 7/native `inspect_value_paths` tool and path-local work counts were implemented before operation-wide compatibility/effect/role claims. | Keep it labeled as path-local inspection; complete source spans, typed operation/formal resolution, effect/role filters and clean-wheel generation-pinned query. |
+| 10 | At the operator's later request, formatting and a preliminary full gate ran before Stage 3 functionality was complete. They exposed a raw-contribution key migration and multi-release/MRO validator mistakes in addition to stale snapshots and tool-list expectations. | Treat accepted snapshots as reviewed schema/codebook migrations. The post-fix complete gate and fresh pilot are not observed; repeat them at final integrated exit. |
 
 ---
 
@@ -759,8 +787,8 @@ stage's output is read.
 
 ## 13. Standing conventions
 
-- Small commits to `main`, each naming its stage and ADR and stating the focused check outcome;
-  mark the full integrated gate `not_run` until the Stage 3 end.
+- Small commits to `main`, each naming its stage and ADR and stating the observed check outcome;
+  a preliminary gate cannot certify the Stage 3 end while orders 1–9 remain open.
   Never push, force-push or `reset --hard`.
 - Snapshot changes: read the `.snap.new`, then `cargo insta accept`; a schema snapshot change is a
   declared migration. Never run `cargo insta review`.

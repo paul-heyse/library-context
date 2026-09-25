@@ -383,8 +383,14 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         paths and open boundaries remain possible; there is no operation-wide negative."""
         try:
             return value_paths.inspect(
-                ctx.lifespan_context["served"].generation, snapshot_id, operation, formal,
-                exact_input, standard_builtins, limit, cursor,
+                ctx.lifespan_context["served"].generation,
+                snapshot_id,
+                operation,
+                formal,
+                exact_input,
+                standard_builtins,
+                limit,
+                cursor,
             )
         except ops.OperationError as e:
             raise CapabilityError(str(e)) from e

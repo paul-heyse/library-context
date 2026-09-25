@@ -4,31 +4,30 @@ _Updated 2026-09-25 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Increment and slice
 
-- Active: [Stage 3 of increment 4](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Latest functional commits: `e97e6ba` (ordered pass-only finalizer proof, ADR-0037) and `87bd3a9` (recursive finite-flow boundary). The plan checkpoint and this handoff are the only edits in flight.
-- Conditions: bounded BDD catalogs, exact entry-value links, narrow primitive refutation and native per-path work accounting are focused-tested. Operation-wide semantic compatibility is open.
-- Pinned models: typed five-channel catalog and exact source applications are focused-tested. `typing.cast`/`assert_type` have asserted normal completion; Pydantic `TypeAdapter.validate_python` is a dormant potential transform with dynamic schema/effects open. Other required semantic families remain incomplete.
-- L2 exits: a nested chain of sole `finally: pass` frames now has ordered source proof steps and a CPython monitoring control; other finalizers, `with`, handler propagation, callback execution and resource release remain open.
-- Finite summaries: direct, modeled, unique-assignment and unconditional acyclic local value paths have canonical ordered proofs and shared reconstruction. Recursive SCC members now retain unknown boundaries until a bounded worklist proves completion. Effect/exception/role summaries and behavior `call_transfer` discharge remain open.
-- Partial FORMAT 7/native serving exists for exact primitive path-local inspection. Full source-span evidence and typed operation-wide compatibility/effect/role filters are unfinished.
+- Active: [Stage 3 of increment 4](docs/plans/behavioral-model-forward-plan_2026-09-24.md). Commit `4af94e8` contains ADR-0039's BDD predecessor refinement, provisional-gate repairs, accepted snapshots and deferred Rust formatting. The Python tool-inventory correction and deferred Python formatting accompany this handoff. Stage 3 is not functionally complete.
+- L1/L1.5: bounded BDD catalogs, exact entry-value links, narrow primitive refutation and native path-local work accounting exist. Operation-wide compatibility is open.
+- L4: typed five-channel pinned models and exact source applications exist. `typing.cast`/`assert_type` assert total normal return; Pydantic `TypeAdapter.validate_python` remains a dormant potential transform with dynamic schema/effects open. Broader pure/helper, async/context and HTTP/server families remain.
+- L2/L3: pass-only nested finalizers have ordered proof steps; other frame fates remain unknown. Direct, exact modeled, unique-assignment and unconditional acyclic wrapper value paths have canonical ordered proofs and shared reconstruction. ADR-0039 ignores a prior call only when its ty region is definitely BDD-incompatible with the return; compatible/missing/approximate/capped predecessors withhold a direct positive. Recursive modeled/assignment members, effect/exception/role summaries and `call_transfer` discharge remain open.
+- FORMAT 7/native `inspect_value_paths` provides path-local inspection, not operation-wide compatibility/effect/role verdicts.
 
 ## Last verified (2026-09-25)
 
 | Command | Outcome |
 |---|---|
-| `RUST_MIN_STACK=33554432 cargo test -p cpg-core --test compile nested_returns_need_an_uncontrolled_exit_before_becoming_value_summaries -- --exact` | `passed`; nested pass order, effectful/`with` withholding, recursive SCC boundary, shared-validator tamper controls. |
-| `RUST_MIN_STACK=33554432 cargo test -p cpg-core --test compile pinned_identity_models_require_and_publish_their_real_formals -- --exact` | `passed`; modeled nested finalizer and prior model/source contracts. |
-| `RUST_MIN_STACK=33554432 cargo test -p cpg-core --test compile explicit_exit_sites_have_regions_and_reject_a_doctored_span -- --exact` | `passed`; exit source equality. |
-| `uv run pytest -q tests/scripts/test_flow_soundness.py::test_pending_value_return_through_nested_inert_finalizers_is_admitted` | `passed`; independent CPython 3.14 monitoring control. |
-| `cargo clippy -p cpg-core --test compile -- -D warnings`; `uv run ruff check tests/scripts/test_flow_soundness.py`; `just adr lint`; `git diff --check` | `passed` after their respective latest code edits; ADR lint counted 37 records. |
-| `just fmt`; `just check`; `just test-all`; fresh-store `just pilot`; Q01/Q03/Q05/Q09; structured evaluation; clean-wheel query; `just adr revisit` | `not_run`: operator requires integrated tests and formatting only after the entire Stage 3 functional scope is implemented. The earlier full gate at `d61a497` does not certify this tree. |
+| `just fmt` | `passed`; deferred Rust/Python formatting applied. |
+| `just test-all` (post-repair attempt) | `failed`: 313/313 release Rust tests passed; Python had 110 passed and 2 stale tool-inventory failures. The gate stopped before pyrefly, rules, fixtures, deps and gold. |
+| `uv run pytest -q python/lctx_mcp/tests/test_server.py` | `passed`: 12/12 after adding `inspect_value_paths` to the protocol expectation. |
+| `just test-all` (final rerun) | `not_run` to completion: started, then stopped at operator direction during the Rust phase. The operator assumes the remaining checks will pass; that is an expectation, not an observed complete-gate result. |
+| `just adr lint`; `just adr revisit`; `git diff --check` | `passed` before a separate draft ADR-0040 appeared in the shared tree; ADR lint counted 39 records at that point. |
+| Fresh `just pilot`; Q01/Q03/Q05/Q09; structured evaluation; clean-wheel query; increment-end review | `not_run`; Stage 3 functionality and exit are incomplete. |
 
 ## Known failures, blocks and decisions
 
-- No current focused test failure is known. Stage 3 is incomplete; a true region on `return x` does not prove preceding calls finish. The recursive guard is conservative and also withholds finite base branches.
-- The latest compact reviews defer a shared frame-action source for future non-pass exits, effectful finalizer/context-manager completion, per-path recursive base admission and preceding-statement normal-outcome witnesses. `summary_boundaries` still has aggregate identity coarser than source contributions.
-- ADR-0020, ADR-0024, ADR-0025 and ADR-0028 are proposed. ADR-0037 supersedes ADR-0036 for ordered pass-only frames. `just adr index` and `just adr lint` passed; `just adr revisit` remains `not_run` under the targeted-only phase.
-- Pinned FastMCP/Pydantic binding, broader Pysa/CrossHair/CPython challenges, SCC value/effect/exception/role composition, operation verdict discharge, FORMAT 7 completion, and all integrated acceptance remain unverified.
+- No unresolved focused semantic failure is known. The corrected raw value-flow contribution key is a schema migration: local and upstream transfer flags now distinguish paths; compiler output version is 74. The multi-release validator now selects one distinct snapshot, and MRO shape validation compares distinct ancestor facts while preserving library/corpus provenance. Reviewed schema, rule, codebook and fixture snapshots were accepted.
+- The preliminary full gate did not finish. In particular, the post-fix whole Python suite, pyrefly, rules, fixture parsing, dependency policy and gold checks have no observed current-tree pass; record the operator's pass assumption separately. The pilot and all Stage 3 exit measurements are still absent.
+- Deferred review findings: normal completion of compatible preceding calls and non-call operations; effectful finalizers/`with`; callback/resource fates; bounded SCC composition; path-specific boundary identity; dynamic-schema Pydantic effects; full native evidence and filters. An empty summary remains unknown, never refuted.
+- ADR-0020, ADR-0024, ADR-0025 and ADR-0028 remain proposed. ADR-0039 supersedes ADR-0038; ADR-0037 supersedes ADR-0036. Separate uncommitted draft ADR-0040, ADR-0023 edits and core design-standard edits appeared in this shared tree during the checkpoint; preserve and reconcile them independently from this Stage 3 work. The last ADR index/lint predate that draft.
 
 ## Next
 
-Prove statement and call normal completion along one proposed return path, with a terminating recursive base branch versus an unconditional self-call as controls. Reuse Ruff/ty source facts, DataFusion joins and the existing bounded SCC/BDD owners; keep every unsupported predecessor as an explicit unknown. Continue focused checks only until the full Stage 3 functional scope lands.
+Build a cited normal-outcome witness for a compatible preceding source call, with unconditional self-recursion, finite base-before-recursion and disjoint-branch controls. Then extend it to non-call predecessors and SCC composition per the plan queue. At the eventual integrated exit, run the complete gate, fresh pilot and listed evaluation/serving checks; do not promote the present assumption to a measured result.

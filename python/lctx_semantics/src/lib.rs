@@ -9,8 +9,8 @@ use cpg_schema::condition_kernel::{
 };
 use cpg_schema::id::{Digest, Id, IdHasher};
 use cpg_schema::primitive_theory::{
-    BuiltinNamespace, ExactInput, ExactInputOutcome, TestLeaf, TheoryBoundary, ValueLink,
-    TheoryWork, assess_exact_input_with_work,
+    BuiltinNamespace, ExactInput, ExactInputOutcome, TestLeaf, TheoryBoundary, TheoryWork,
+    ValueLink, assess_exact_input_with_work,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -24,18 +24,55 @@ type ValuePath = (String, String, String, Vec<ProofStep>);
 type Boundary = (String, String, String);
 type ValuePathsAnswer = (Vec<ValuePath>, Vec<Boundary>, bool, usize);
 type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, String)>>;
-type LeafInput = (String, String, String, String, String, Option<String>, i64, i64);
-type LinkInput = (String, String, String, String, String, String, String, String,
-    String, String, (Option<String>, i64, i64));
+type LeafInput = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    i64,
+    i64,
+);
+type LinkInput = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    (Option<String>, i64, i64),
+);
 type WorkAnswer = (usize, usize, usize, usize);
-type RefutationAnswer = (String, Vec<(String, Option<String>, i64, i64)>, Option<String>, WorkAnswer);
-type InspectedPath = (String, String, String, Vec<ProofStep>, String,
-    Vec<(String, Option<String>, i64, i64)>, Option<String>, WorkAnswer);
+type RefutationAnswer = (
+    String,
+    Vec<(String, Option<String>, i64, i64)>,
+    Option<String>,
+    WorkAnswer,
+);
+type InspectedPath = (
+    String,
+    String,
+    String,
+    Vec<ProofStep>,
+    String,
+    Vec<(String, Option<String>, i64, i64)>,
+    Option<String>,
+    WorkAnswer,
+);
 type ValuePathPage = (Vec<InspectedPath>, Vec<Boundary>, usize, bool, usize);
 
 fn work_answer(work: TheoryWork) -> WorkAnswer {
-    (work.links_examined, work.assignments_applied,
-        work.bdd_preflight_pairs, work.peak_bdd_nodes)
+    (
+        work.links_examined,
+        work.assignments_applied,
+        work.bdd_preflight_pairs,
+        work.peak_bdd_nodes,
+    )
 }
 
 #[pyfunction]
@@ -54,8 +91,7 @@ fn id(value: &str) -> PyResult<Id> {
 }
 
 fn digest(value: &str) -> PyResult<Digest> {
-    Digest::from_hex(value)
-        .ok_or_else(|| PyValueError::new_err("invalid effect-model digest"))
+    Digest::from_hex(value).ok_or_else(|| PyValueError::new_err("invalid effect-model digest"))
 }
 
 /// Hydrated once from rows of one validated, immutable generation.
@@ -164,7 +200,10 @@ struct SemanticExecutor {
 #[pymethods]
 impl SemanticExecutor {
     #[new]
-    #[allow(clippy::too_many_arguments, reason = "one checked generation crosses this constructor")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one checked generation crosses this constructor"
+    )]
     fn new(
         kernel_format: u32,
         snapshot_id: String,
@@ -180,23 +219,31 @@ impl SemanticExecutor {
         leaves: Vec<LeafInput>,
         links: Vec<LinkInput>,
     ) -> PyResult<Self> {
-        if operations.len() > MAX_SURFACE_ROWS || public_paths.len() > MAX_SURFACE_ROWS
-            || parameters.len() > MAX_SURFACE_ROWS || flows.len() > MAX_SUMMARY_ROWS
-            || steps.len() > MAX_SUMMARY_ROWS || boundaries.len() > MAX_SUMMARY_ROWS
-            || leaves.len() > MAX_SUMMARY_ROWS || links.len() > MAX_SUMMARY_ROWS
+        if operations.len() > MAX_SURFACE_ROWS
+            || public_paths.len() > MAX_SURFACE_ROWS
+            || parameters.len() > MAX_SURFACE_ROWS
+            || flows.len() > MAX_SUMMARY_ROWS
+            || steps.len() > MAX_SUMMARY_ROWS
+            || boundaries.len() > MAX_SUMMARY_ROWS
+            || leaves.len() > MAX_SUMMARY_ROWS
+            || links.len() > MAX_SUMMARY_ROWS
         {
             return Err(PyValueError::new_err("semantic index exceeds load limits"));
         }
         let graph = ConditionGraph::new(kernel_format, conditions, nodes)?;
         let snapshot_id = id(&snapshot_id)?;
         let effect_model_digest = digest(&effect_model_digest)?;
-        let operations = operations.into_iter().map(|value| id(&value))
+        let operations = operations
+            .into_iter()
+            .map(|value| id(&value))
             .collect::<PyResult<HashSet<_>>>()?;
         let mut paths = HashMap::new();
         for (path, node) in public_paths {
             let node = id(&node)?;
             if operations.contains(&node) && paths.insert(path.clone(), node).is_some() {
-                return Err(PyValueError::new_err(format!("duplicate public path {path}")));
+                return Err(PyValueError::new_err(format!(
+                    "duplicate public path {path}"
+                )));
             }
         }
         let mut formals = HashMap::new();
@@ -210,8 +257,10 @@ impl SemanticExecutor {
                 return Err(PyValueError::new_err(format!("duplicate formal {name}")));
             }
         }
-        let formal_ids: HashSet<(Id, Id)> = formals.iter()
-            .map(|(&(operation, _), &formal)| (operation, formal)).collect();
+        let formal_ids: HashSet<(Id, Id)> = formals
+            .iter()
+            .map(|(&(operation, _), &formal)| (operation, formal))
+            .collect();
         let mut summaries = HashMap::new();
         let mut by_formal: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
         for (summary, function, formal, condition, verdict, boundary, path_depth) in flows {
@@ -229,37 +278,69 @@ impl SemanticExecutor {
                 return Err(PyValueError::new_err("invalid summary verdict/boundary"));
             }
             if verdict != "unknown"
-                && !graph.diagrams.get(&condition).is_some_and(|root| !root.is_false())
+                && !graph
+                    .diagrams
+                    .get(&condition)
+                    .is_some_and(|root| !root.is_false())
             {
-                return Err(PyValueError::new_err("positive summary has no finite condition"));
+                return Err(PyValueError::new_err(
+                    "positive summary has no finite condition",
+                ));
             }
-            if summaries.insert(summary, NativeSummary {
-                condition_id: condition, verdict, boundary, path_depth, steps: Vec::new(),
-            }).is_some() {
+            if summaries
+                .insert(
+                    summary,
+                    NativeSummary {
+                        condition_id: condition,
+                        verdict,
+                        boundary,
+                        path_depth,
+                        steps: Vec::new(),
+                    },
+                )
+                .is_some()
+            {
                 return Err(PyValueError::new_err("duplicate summary id"));
             }
-            by_formal.entry((function, formal)).or_default().push(summary);
+            by_formal
+                .entry((function, formal))
+                .or_default()
+                .push(summary);
         }
         let mut ordinals: HashMap<Id, Vec<(i64, String, Id, Id)>> = HashMap::new();
         for (summary, ordinal, kind, evidence, condition) in steps {
             let summary = id(&summary)?;
             let evidence = id(&evidence)?;
             let condition = id(&condition)?;
-            if ordinal < 0 || !summaries.contains_key(&summary)
+            if ordinal < 0
+                || !summaries.contains_key(&summary)
                 || !graph.has_condition(condition)
-                || !matches!(kind.as_str(), "raw_identity" | "callee_resolution"
-                    | "argument_evaluation" | "call_target" | "model_rule"
-                    | "return_exit" | "call_site" | "definition_reaching"
-                    | "return_source" | "callee_summary")
+                || !matches!(
+                    kind.as_str(),
+                    "raw_identity"
+                        | "callee_resolution"
+                        | "argument_evaluation"
+                        | "call_target"
+                        | "model_rule"
+                        | "return_exit"
+                        | "call_site"
+                        | "definition_reaching"
+                        | "return_source"
+                        | "callee_summary"
+                )
             {
                 return Err(PyValueError::new_err("invalid summary proof step"));
             }
-            if summaries[&summary].verdict != "unknown"
-                && !graph.diagrams.contains_key(&condition)
+            if summaries[&summary].verdict != "unknown" && !graph.diagrams.contains_key(&condition)
             {
-                return Err(PyValueError::new_err("positive proof step has no finite condition"));
+                return Err(PyValueError::new_err(
+                    "positive proof step has no finite condition",
+                ));
             }
-            ordinals.entry(summary).or_default().push((ordinal, kind, evidence, condition));
+            ordinals
+                .entry(summary)
+                .or_default()
+                .push((ordinal, kind, evidence, condition));
         }
         for (summary_id, summary) in &mut summaries {
             let Some(mut proof) = ordinals.remove(summary_id) else {
@@ -272,8 +353,10 @@ impl SemanticExecutor {
             if proof.len() > 64 {
                 return Err(PyValueError::new_err("summary proof exceeds depth limit"));
             }
-            summary.steps = proof.into_iter().map(|(_, kind, evidence, condition)|
-                (kind, evidence, condition)).collect();
+            summary.steps = proof
+                .into_iter()
+                .map(|(_, kind, evidence, condition)| (kind, evidence, condition))
+                .collect();
         }
         for summary in summaries.values() {
             for (kind, evidence, _) in &summary.steps {
@@ -297,9 +380,13 @@ impl SemanticExecutor {
         for (function, formal, source, condition, reason) in boundaries {
             let condition = id(&condition)?;
             if !graph.has_condition(condition) {
-                return Err(PyValueError::new_err("boundary references absent condition"));
+                return Err(PyValueError::new_err(
+                    "boundary references absent condition",
+                ));
             }
-            boundary_index.entry((id(&function)?, id(&formal)?)).or_default()
+            boundary_index
+                .entry((id(&function)?, id(&formal)?))
+                .or_default()
                 .push((id(&source)?, condition, reason));
         }
         for reasons in boundary_index.values_mut() {
@@ -311,15 +398,21 @@ impl SemanticExecutor {
             let fact = id(&fact)?;
             let condition = id(&condition)?;
             let atom_id = id(&atom_id)?;
-            if start < 0 || end < start || !graph.has_condition(condition)
+            if start < 0
+                || end < start
+                || !graph.has_condition(condition)
                 || IdHasher::new("bdd-atom").str(&atom).finish_id() != atom_id
                 || Atom::parse_encoded(&atom).is_err()
             {
                 return Err(PyValueError::new_err("invalid test leaf"));
             }
             let leaf = TestLeaf {
-                snapshot_id, fact_id: fact, module_node_id: id(&module)?,
-                atom_id, condition_id: condition, atom,
+                snapshot_id,
+                fact_id: fact,
+                module_node_id: id(&module)?,
+                atom_id,
+                condition_id: condition,
+                atom,
             };
             if leaves_by_id.insert(fact, leaf).is_some() {
                 return Err(PyValueError::new_err("duplicate test leaf"));
@@ -327,8 +420,20 @@ impl SemanticExecutor {
         }
         let mut links_by_formal: HashMap<(Id, Id), Vec<ValueLink>> = HashMap::new();
         let mut link_spans = HashMap::new();
-        for (link, operation, formal, module, leaf, atom, condition, place,
-             origin, effect, (path, start, end)) in links {
+        for (
+            link,
+            operation,
+            formal,
+            module,
+            leaf,
+            atom,
+            condition,
+            place,
+            origin,
+            effect,
+            (path, start, end),
+        ) in links
+        {
             let link = id(&link)?;
             let operation = id(&operation)?;
             let formal = id(&formal)?;
@@ -336,16 +441,24 @@ impl SemanticExecutor {
             let leaf = id(&leaf)?;
             let atom = id(&atom)?;
             let condition = id(&condition)?;
-            let origin = TestValueLinkOrigin::all().iter().copied()
+            let origin = TestValueLinkOrigin::all()
+                .iter()
+                .copied()
                 .find(|candidate| candidate.text() == origin)
                 .ok_or_else(|| PyValueError::new_err("invalid value-link origin"))?;
-            let source = leaves_by_id.get(&leaf)
+            let source = leaves_by_id
+                .get(&leaf)
                 .ok_or_else(|| PyValueError::new_err("value link has no test leaf"))?;
-            if start < 0 || end <= start || digest(&effect)? != effect_model_digest
-                || source.module_node_id != module || source.atom_id != atom
+            if start < 0
+                || end <= start
+                || digest(&effect)? != effect_model_digest
+                || source.module_node_id != module
+                || source.atom_id != atom
                 || source.condition_id != condition
-                || Atom::parse_encoded(&source.atom).ok()
-                    .and_then(|parsed| parsed.place().map(str::to_owned)).as_deref()
+                || Atom::parse_encoded(&source.atom)
+                    .ok()
+                    .and_then(|parsed| parsed.place().map(str::to_owned))
+                    .as_deref()
                     != Some(place.as_str())
                 || !formal_ids.contains(&(operation, formal))
             {
@@ -354,28 +467,55 @@ impl SemanticExecutor {
             if link_spans.insert(link, (path, start, end)).is_some() {
                 return Err(PyValueError::new_err("duplicate value link"));
             }
-            links_by_formal.entry((operation, formal)).or_default().push(ValueLink {
-                snapshot_id, link_id: link, operation_node_id: operation,
-                formal_node_id: formal, module_node_id: module, leaf_fact_id: leaf,
-                atom_id: atom, condition_id: condition, place, origin,
-                effect_model_digest,
-            });
+            links_by_formal
+                .entry((operation, formal))
+                .or_default()
+                .push(ValueLink {
+                    snapshot_id,
+                    link_id: link,
+                    operation_node_id: operation,
+                    formal_node_id: formal,
+                    module_node_id: module,
+                    leaf_fact_id: leaf,
+                    atom_id: atom,
+                    condition_id: condition,
+                    place,
+                    origin,
+                    effect_model_digest,
+                });
         }
         let mut leaves_by_formal = HashMap::new();
         for (key, links) in &mut links_by_formal {
             links.sort_by_key(|link| link.link_id);
             let ids: BTreeSet<Id> = links.iter().map(|link| link.leaf_fact_id).collect();
-            leaves_by_formal.insert(*key, ids.iter().map(|id| leaves_by_id[id].clone()).collect());
+            leaves_by_formal.insert(
+                *key,
+                ids.iter().map(|id| leaves_by_id[id].clone()).collect(),
+            );
         }
-        Ok(Self { graph, effect_model_digest, paths, formals, summaries, by_formal,
-            boundaries: boundary_index, links_by_formal, leaves_by_formal, link_spans })
+        Ok(Self {
+            graph,
+            effect_model_digest,
+            paths,
+            formals,
+            summaries,
+            by_formal,
+            boundaries: boundary_index,
+            links_by_formal,
+            leaves_by_formal,
+            link_spans,
+        })
     }
 
     #[getter]
-    fn condition_count(&self) -> usize { self.graph.condition_count() }
+    fn condition_count(&self) -> usize {
+        self.graph.condition_count()
+    }
 
     #[getter]
-    fn node_count(&self) -> usize { self.graph.node_count() }
+    fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
 
     fn compatible(&self, left: &str, right: &str) -> PyResult<(Option<bool>, Option<String>)> {
         self.graph.compatible(left, right)
@@ -387,22 +527,33 @@ impl SemanticExecutor {
 
     /// A positive path is offered only if its own proof and condition are present. Unknown
     /// boundaries remain visible; an empty result is never a negative transfer conclusion.
-    fn value_paths(&self, operation_path: &str, formal_name: &str, limit: usize)
-        -> PyResult<ValuePathsAnswer>
-    {
+    fn value_paths(
+        &self,
+        operation_path: &str,
+        formal_name: &str,
+        limit: usize,
+    ) -> PyResult<ValuePathsAnswer> {
         if limit == 0 || limit > 100 {
             return Err(PyValueError::new_err("limit must be between 1 and 100"));
         }
-        let operation = *self.paths.get(operation_path)
+        let operation = *self
+            .paths
+            .get(operation_path)
             .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
-        let formal = *self.formals.get(&(operation, formal_name.to_owned()))
+        let formal = *self
+            .formals
+            .get(&(operation, formal_name.to_owned()))
             .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
         let ids = self.by_formal.get(&(operation, formal));
         let total = ids.map_or(0, Vec::len);
         let mut result = Vec::new();
-        let mut reasons: Vec<Boundary> = self.boundaries.get(&(operation, formal))
-            .into_iter().flatten().map(|(source, condition, reason)|
-                (source.hex(), condition.hex(), reason.clone())).collect();
+        let mut reasons: Vec<Boundary> = self
+            .boundaries
+            .get(&(operation, formal))
+            .into_iter()
+            .flatten()
+            .map(|(source, condition, reason)| (source.hex(), condition.hex(), reason.clone()))
+            .collect();
         for summary_id in ids.into_iter().flatten().take(limit) {
             let summary = &self.summaries[summary_id];
             if summary.verdict == "unknown" {
@@ -411,10 +562,18 @@ impl SemanticExecutor {
                 }
                 continue;
             }
-            result.push((summary_id.hex(), summary.verdict.clone(),
-                summary.condition_id.hex(), summary.steps.iter()
-                    .map(|(kind, evidence, condition)|
-                        (kind.clone(), evidence.hex(), condition.hex())).collect()));
+            result.push((
+                summary_id.hex(),
+                summary.verdict.clone(),
+                summary.condition_id.hex(),
+                summary
+                    .steps
+                    .iter()
+                    .map(|(kind, evidence, condition)| {
+                        (kind.clone(), evidence.hex(), condition.hex())
+                    })
+                    .collect(),
+            ));
         }
         reasons.sort();
         reasons.dedup();
@@ -423,80 +582,153 @@ impl SemanticExecutor {
 
     /// An exact primitive input may refute one cited summary path. A satisfiable remainder or
     /// absent value link is unknown, never proof that a Python execution reaches the return.
-    fn assess_value_path(&self, operation_path: &str, formal_name: &str,
-        summary_id: &str, kind: &str, value: &str, standard_builtins: bool)
-        -> PyResult<RefutationAnswer>
-    {
-        let operation = *self.paths.get(operation_path)
+    fn assess_value_path(
+        &self,
+        operation_path: &str,
+        formal_name: &str,
+        summary_id: &str,
+        kind: &str,
+        value: &str,
+        standard_builtins: bool,
+    ) -> PyResult<RefutationAnswer> {
+        let operation = *self
+            .paths
+            .get(operation_path)
             .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
-        let formal = *self.formals.get(&(operation, formal_name.to_owned()))
+        let formal = *self
+            .formals
+            .get(&(operation, formal_name.to_owned()))
             .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
         let summary_id = id(summary_id)?;
-        if !self.by_formal.get(&(operation, formal)).is_some_and(|ids| ids.contains(&summary_id)) {
-            return Err(PyValueError::new_err("summary does not belong to operation formal"));
+        if !self
+            .by_formal
+            .get(&(operation, formal))
+            .is_some_and(|ids| ids.contains(&summary_id))
+        {
+            return Err(PyValueError::new_err(
+                "summary does not belong to operation formal",
+            ));
         }
         let summary = &self.summaries[&summary_id];
         if summary.verdict == "unknown" {
-            return Ok(("unknown".to_owned(), Vec::new(), summary.boundary.clone(),
-                work_answer(TheoryWork::default())));
+            return Ok((
+                "unknown".to_owned(),
+                Vec::new(),
+                summary.boundary.clone(),
+                work_answer(TheoryWork::default()),
+            ));
         }
         let Some(diagram) = self.graph.diagrams.get(&summary.condition_id) else {
-            return Ok(("unknown".to_owned(), Vec::new(),
-                Some("condition_boundary".to_owned()), work_answer(TheoryWork::default())));
+            return Ok((
+                "unknown".to_owned(),
+                Vec::new(),
+                Some("condition_boundary".to_owned()),
+                work_answer(TheoryWork::default()),
+            ));
         };
         let input = match kind {
             "none" if value.is_empty() => Value::None,
             "bool" if value == "true" || value == "false" => Value::Bool(value == "true"),
-            "int" => Value::Int(value.parse().map_err(|_| PyValueError::new_err("invalid int"))?),
+            "int" => Value::Int(
+                value
+                    .parse()
+                    .map_err(|_| PyValueError::new_err("invalid int"))?,
+            ),
             "str" => Value::Str(value.to_owned()),
             _ => return Err(PyValueError::new_err("invalid exact primitive input")),
         };
         let key = (operation, formal);
-        let links = self.links_by_formal.get(&key).map_or(&[][..], Vec::as_slice);
-        let leaves = self.leaves_by_formal.get(&key).map_or(&[][..], Vec::as_slice);
+        let links = self
+            .links_by_formal
+            .get(&key)
+            .map_or(&[][..], Vec::as_slice);
+        let leaves = self
+            .leaves_by_formal
+            .get(&key)
+            .map_or(&[][..], Vec::as_slice);
         let query = ExactInput {
-            operation_node_id: operation, formal_node_id: formal, value: &input,
-            builtin_namespace: if standard_builtins { BuiltinNamespace::StandardAssumed }
-                else { BuiltinNamespace::Unknown },
+            operation_node_id: operation,
+            formal_node_id: formal,
+            value: &input,
+            builtin_namespace: if standard_builtins {
+                BuiltinNamespace::StandardAssumed
+            } else {
+                BuiltinNamespace::Unknown
+            },
             effect_model_digest: self.effect_model_digest,
         };
-        let link_evidence = |ids: &[Id]| ids.iter().map(|link| {
+        let link_evidence = |ids: &[Id]| {
+            ids.iter()
+                .map(|link| {
                     let (path, start, end) = &self.link_spans[link];
                     (link.hex(), path.clone(), *start, *end)
-                }).collect();
+                })
+                .collect()
+        };
         let assessment = assess_exact_input_with_work(diagram, query, links, leaves);
         let work = work_answer(assessment.work);
         match assessment.outcome {
-            Ok(ExactInputOutcome::Refuted(proof)) => Ok(("refuted_under_model".to_owned(),
-                link_evidence(&proof.value_link_ids), None, work)),
-            Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids }) =>
-                Ok(("compatible_under_model".to_owned(), link_evidence(&value_link_ids), None,
-                    work)),
+            Ok(ExactInputOutcome::Refuted(proof)) => Ok((
+                "refuted_under_model".to_owned(),
+                link_evidence(&proof.value_link_ids),
+                None,
+                work,
+            )),
+            Ok(ExactInputOutcome::CompatibleUnderModel { value_link_ids }) => Ok((
+                "compatible_under_model".to_owned(),
+                link_evidence(&value_link_ids),
+                None,
+                work,
+            )),
             Ok(ExactInputOutcome::Unknown) => Ok(("unknown".to_owned(), Vec::new(), None, work)),
-            Err(reason) => Ok(("unknown".to_owned(), Vec::new(), Some(match reason {
-                TheoryBoundary::Kernel(boundary) => boundary.code().to_owned(),
-                TheoryBoundary::AssignmentBudget => "budget_reached".to_owned(),
-                TheoryBoundary::ConflictingProof => "conflicting_proof".to_owned(),
-            }), work)),
+            Err(reason) => Ok((
+                "unknown".to_owned(),
+                Vec::new(),
+                Some(match reason {
+                    TheoryBoundary::Kernel(boundary) => boundary.code().to_owned(),
+                    TheoryBoundary::AssignmentBudget => "budget_reached".to_owned(),
+                    TheoryBoundary::ConflictingProof => "conflicting_proof".to_owned(),
+                }),
+                work,
+            )),
         }
     }
 
     /// Page through one formal's finite summary paths and open boundaries. Each path's exact
     /// input result is local to that path; the page never claims complete operation behavior.
-    #[allow(clippy::too_many_arguments, reason = "the typed Python request is unpacked at the native boundary")]
-    fn inspect_value_paths(&self, operation_path: &str, formal_name: &str,
-        kind: &str, value: &str, standard_builtins: bool, offset: usize, limit: usize)
-        -> PyResult<ValuePathPage>
-    {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the typed Python request is unpacked at the native boundary"
+    )]
+    fn inspect_value_paths(
+        &self,
+        operation_path: &str,
+        formal_name: &str,
+        kind: &str,
+        value: &str,
+        standard_builtins: bool,
+        offset: usize,
+        limit: usize,
+    ) -> PyResult<ValuePathPage> {
         if limit == 0 || limit > 50 {
             return Err(PyValueError::new_err("limit must be between 1 and 50"));
         }
-        let operation = *self.paths.get(operation_path)
+        let operation = *self
+            .paths
+            .get(operation_path)
             .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
-        let formal = *self.formals.get(&(operation, formal_name.to_owned()))
+        let formal = *self
+            .formals
+            .get(&(operation, formal_name.to_owned()))
             .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
-        let ids = self.by_formal.get(&(operation, formal)).map_or(&[][..], Vec::as_slice);
-        let open = self.boundaries.get(&(operation, formal)).map_or(&[][..], Vec::as_slice);
+        let ids = self
+            .by_formal
+            .get(&(operation, formal))
+            .map_or(&[][..], Vec::as_slice);
+        let open = self
+            .boundaries
+            .get(&(operation, formal))
+            .map_or(&[][..], Vec::as_slice);
         let total = ids.len() + open.len();
         if offset > total {
             return Err(PyValueError::new_err("cursor offset exceeds result size"));
@@ -508,14 +740,29 @@ impl SemanticExecutor {
             if let Some(summary_id) = ids.get(index) {
                 let summary = &self.summaries[summary_id];
                 let (result, links, boundary, theory_work) = self.assess_value_path(
-                    operation_path, formal_name, &summary_id.hex(), kind, value,
+                    operation_path,
+                    formal_name,
+                    &summary_id.hex(),
+                    kind,
+                    value,
                     standard_builtins,
                 )?;
-                paths.push((summary_id.hex(), summary.verdict.clone(),
-                    summary.condition_id.hex(), summary.steps.iter()
-                        .map(|(step_kind, evidence, condition)|
-                            (step_kind.clone(), evidence.hex(), condition.hex())).collect(),
-                    result, links, boundary, theory_work));
+                paths.push((
+                    summary_id.hex(),
+                    summary.verdict.clone(),
+                    summary.condition_id.hex(),
+                    summary
+                        .steps
+                        .iter()
+                        .map(|(step_kind, evidence, condition)| {
+                            (step_kind.clone(), evidence.hex(), condition.hex())
+                        })
+                        .collect(),
+                    result,
+                    links,
+                    boundary,
+                    theory_work,
+                ));
             } else {
                 let (source, condition, reason) = &open[index - ids.len()];
                 boundaries.push((source.hex(), condition.hex(), reason.clone()));

@@ -101,11 +101,17 @@ class ValuePathPage(BaseModel):
     )
 
 
-def _query_hash(gen: Generation, operation: str, formal: str, exact: ExactPrimitive,
-                standard_builtins: bool) -> str:
-    request = {"snapshot": gen.snapshot_id, "generation": gen.key, "operation": operation,
-               "formal": formal, "exact": exact.model_dump(),
-               "standard_builtins": standard_builtins}
+def _query_hash(
+    gen: Generation, operation: str, formal: str, exact: ExactPrimitive, standard_builtins: bool
+) -> str:
+    request = {
+        "snapshot": gen.snapshot_id,
+        "generation": gen.key,
+        "operation": operation,
+        "formal": formal,
+        "exact": exact.model_dump(),
+        "standard_builtins": standard_builtins,
+    }
     body = json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(body).hexdigest()[:32]
 
@@ -126,8 +132,14 @@ def _offset(gen: Generation, query_hash: str, cursor: str | None) -> int:
 
 
 def inspect(
-    gen: Generation, snapshot_id: str, operation: str, formal: str,
-    exact: ExactPrimitive, standard_builtins: bool, limit: int, cursor: str | None,
+    gen: Generation,
+    snapshot_id: str,
+    operation: str,
+    formal: str,
+    exact: ExactPrimitive,
+    standard_builtins: bool,
+    limit: int,
+    cursor: str | None,
 ) -> ValuePathPage:
     """One bounded native page, with no operation-wide negative claim."""
     if snapshot_id != gen.snapshot_id:
@@ -161,20 +173,40 @@ def inspect(
         peak_bdd_nodes=max((row[7][3] for row in rows), default=0),
     )
     return ValuePathPage(
-        snapshot_id=gen.snapshot_id, generation=gen.key, operation=path, formal=formal,
-        exact_input=exact, standard_builtins=standard_builtins,
-        paths=[ValuePath(
-            summary_id=row[0], source_verdict=row[1], condition_id=row[2],
-            steps=[ProofStep(kind=s[0], evidence_id=s[1], condition_id=s[2]) for s in row[3]],
-            exact_input_result=row[4],
-            value_links=[ValueLinkEvidence(link_id=e[0], path=e[1], start_byte=e[2],
-                                           end_byte=e[3]) for e in row[5]],
-            boundary_reason=row[6],
-            theory_work=TheoryWork(links_examined=row[7][0], assignments_applied=row[7][1],
-                                   bdd_preflight_pairs=row[7][2], peak_bdd_nodes=row[7][3]),
-        ) for row in rows],
-        boundaries=[OpenBoundary(source_flow_fact_id=r[0], condition_id=r[1], reason=r[2])
-                    for r in open_rows],
-        total_rows=total, examined_rows=work, theory_work=page_work,
-        truncated=truncated, next_cursor=next_cursor,
+        snapshot_id=gen.snapshot_id,
+        generation=gen.key,
+        operation=path,
+        formal=formal,
+        exact_input=exact,
+        standard_builtins=standard_builtins,
+        paths=[
+            ValuePath(
+                summary_id=row[0],
+                source_verdict=row[1],
+                condition_id=row[2],
+                steps=[ProofStep(kind=s[0], evidence_id=s[1], condition_id=s[2]) for s in row[3]],
+                exact_input_result=row[4],
+                value_links=[
+                    ValueLinkEvidence(link_id=e[0], path=e[1], start_byte=e[2], end_byte=e[3])
+                    for e in row[5]
+                ],
+                boundary_reason=row[6],
+                theory_work=TheoryWork(
+                    links_examined=row[7][0],
+                    assignments_applied=row[7][1],
+                    bdd_preflight_pairs=row[7][2],
+                    peak_bdd_nodes=row[7][3],
+                ),
+            )
+            for row in rows
+        ],
+        boundaries=[
+            OpenBoundary(source_flow_fact_id=r[0], condition_id=r[1], reason=r[2])
+            for r in open_rows
+        ],
+        total_rows=total,
+        examined_rows=work,
+        theory_work=page_work,
+        truncated=truncated,
+        next_cursor=next_cursor,
     )
