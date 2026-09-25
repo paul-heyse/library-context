@@ -293,7 +293,8 @@ table!(
 
 table!(
     /// Authored exception action of a pinned external definition. A conversion must name its
-    /// replacement class; the class names remain unresolved until summary application.
+    /// replacement class. Referenced models resolve both names to unique pinned context class
+    /// facts before publication; a display string is never the class identity.
     ModelExceptions, ModelExceptionsRow = "model_exceptions",
     family = Findings,
     key = [snapshot_id, model_id, target_node_id, rule_id],
@@ -306,9 +307,45 @@ table!(
         target_definition_fact_id: Id,
         revision: i64,
         class: String,
+        class_node_id: Id,
+        class_fact_id: Id,
         action: ModelExceptionAction,
         to_class: Option<String>,
+        to_class_node_id: Option<Id>,
+        to_class_fact_id: Option<Id>,
         modality: Modality,
+        origin: Origin,
+    }
+);
+
+table!(
+    /// One candidate modeled exception action at a source call. The class is pinned, but a
+    /// potential raise is not an observed exceptional exit and open dispatch stays visible.
+    ModeledExceptionSites, ModeledExceptionSitesRow = "modeled_exception_sites",
+    family = Findings,
+    key = [snapshot_id, call_site_node_id, pysa_fact_id, model_id, rule_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        call_site_node_id: Id,
+        function_node_id: Option<Id>,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        target_node_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        target_definition_fact_id: Id,
+        class: String,
+        class_node_id: Id,
+        class_fact_id: Id,
+        action: ModelExceptionAction,
+        to_class: Option<String>,
+        to_class_node_id: Option<Id>,
+        to_class_fact_id: Option<Id>,
+        target_modality: Modality,
+        model_modality: Modality,
+        candidate_set_complete_under_model: bool,
+        has_unresolved_remainder: bool,
         origin: Origin,
     }
 );
@@ -1348,6 +1385,21 @@ crate::relations! {
             outside = BoundaryReason::OutsideProviderModel.code(),
             input = ModelPathRole::Input.code(),
         );
+
+    /// A pinned exception class and action applied at a candidate source call. The call may
+    /// raise under the model; this row does not yet decide a handler or exceptional exit.
+    modeled_exception_sites = "behavior:modeled_exception_sites",
+        deps = ["model_applications", "model_exceptions"],
+        sql = "SELECT a.snapshot_id, a.call_site_node_id, a.function_node_id, \
+                     a.call_fact_id, a.pysa_fact_id, a.target_node_id, a.model_id, \
+                     m.rule_id, m.target_definition_fact_id, m.class, m.class_node_id, \
+                     m.class_fact_id, m.action, m.to_class, m.to_class_node_id, \
+                     m.to_class_fact_id, a.target_modality, m.modality AS model_modality, \
+                     a.candidate_set_complete_under_model, a.has_unresolved_remainder, m.origin \
+              FROM model_applications a JOIN model_exceptions m \
+                ON m.model_id = a.model_id AND m.target_node_id = a.target_node_id \
+               AND m.target_definition_fact_id = a.target_definition_fact_id \
+               AND m.revision = a.revision".to_owned();
 
     /// Except clauses with their authored type expression and the try-entry region.
     handler_clauses = "behavior:handler_clauses",

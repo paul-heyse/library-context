@@ -325,7 +325,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        53 + 22 + 51,
+        53 + 22 + 52,
         "every raw, derived and analysis table"
     );
 
@@ -905,8 +905,12 @@ async fn model_target_requires_its_cited_pinned_definition() {
         target_definition_fact_id: Id([4; 16]),
         revision: 1,
         class: "builtins.OSError".into(),
+        class_node_id: Id([12; 16]),
+        class_fact_id: Id([13; 16]),
         action: ModelExceptionAction::Convert,
         to_class: None,
+        to_class_node_id: None,
+        to_class_fact_id: None,
         modality: Modality::Potential,
         origin: Origin::SyntheticModel,
     }])
@@ -920,6 +924,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         ("semantic:model-resource-target",),
         ("semantic:model-exception-target",),
         ("semantic:model-exception-shape",),
+        ("semantic:model-exception-class-identity",),
     ] {
         assert!(
             violations.iter().any(|v| v.rule == expected.0),
@@ -1257,6 +1262,31 @@ budget = 1
         count(&ctx, "SELECT count(*) FROM model_exceptions").await,
         1
     );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM model_exceptions e \
+             JOIN context_definitions d ON d.symbol_node_id = e.class_node_id \
+               AND d.fact_id = e.class_fact_id \
+             WHERE e.class = 'builtins.OSError' AND d.module_name = 'builtins' \
+               AND d.qualified_name = 'OSError'"
+        )
+        .await,
+        1,
+        "the model exception class is pinned to a context definition"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_exception_sites s \
+             JOIN declarations d ON d.node_id = s.function_node_id \
+             WHERE d.name = 'acquire' AND s.class = 'builtins.OSError' \
+               AND s.call_site_node_id IS NOT NULL AND s.candidate_set_complete_under_model"
+        )
+        .await,
+        1,
+        "the modeled potential OSError is attached to the exact open call candidate"
+    );
     assert!(
         count(
             &ctx,
@@ -1526,6 +1556,32 @@ budget = 1
     );
     ctx.deregister_table("modeled_effect_sites").unwrap();
     ctx.register_table("modeled_effect_sites", original_effect_sites)
+        .unwrap();
+
+    let original_exception_sites = sql::query(&ctx, "SELECT * FROM modeled_exception_sites")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_exception_sites = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (class_node_id), target_node_id AS class_node_id \
+         FROM modeled_exception_sites",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_exception_sites").unwrap();
+    ctx.register_table("modeled_exception_sites", doctored_exception_sites)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "modeled-exception-site-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_exception_sites").unwrap();
+    ctx.register_table("modeled_exception_sites", original_exception_sites)
         .unwrap();
 
     let doctored = sql::query(

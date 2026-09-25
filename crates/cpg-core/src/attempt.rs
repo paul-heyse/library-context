@@ -62,7 +62,8 @@ pub struct Published {
 /// 33: candidate-local modeled callback sites and binding boundaries.
 /// 34: candidate-local modeled resource sites. 35: candidate-local modeled transfer sites.
 /// 36: candidate-local modeled effect sites. 37: exact flow-call source links (ADR-0028).
-pub const COMPILER_OUTPUT_VERSION: u32 = 37;
+/// 38: pinned exception class identities and candidate-local modeled exception sites.
+pub const COMPILER_OUTPUT_VERSION: u32 = 38;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -693,6 +694,20 @@ async fn finish(
         root,
         snapshot_id,
         &modeled_effect_sites,
+        &mut written,
+    )
+    .await?;
+    let modeled_exception_sites = crate::sql::fetch(
+        &ctx,
+        &cpg_schema::behavior::modeled_exception_sites(),
+        crate::sql::Params::new(),
+    )
+    .await?;
+    write_analysis::<cpg_schema::behavior::ModeledExceptionSites>(
+        &ctx,
+        root,
+        snapshot_id,
+        &modeled_exception_sites,
         &mut written,
     )
     .await?;

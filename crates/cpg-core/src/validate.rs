@@ -15,7 +15,7 @@ use cpg_schema::behavior::{
     HandlerClausesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
     ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
     ModelTargetsRow, ModelTransfersRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
-    ModeledResourceSitesRow, ModeledTransferSitesRow,
+    ModeledExceptionSitesRow, ModeledResourceSitesRow, ModeledTransferSitesRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -246,6 +246,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_transfer_sites".to_owned();
     modeled_effect_sites = "validate_modeled_effect_sites", deps = ["modeled_effect_sites"],
         sql = "SELECT * FROM modeled_effect_sites".to_owned();
+    modeled_exception_sites = "validate_modeled_exception_sites", deps = ["modeled_exception_sites"],
+        sql = "SELECT * FROM modeled_exception_sites".to_owned();
     model_transfers = "validate_model_transfers", deps = ["model_transfers"],
         sql = "SELECT * FROM model_transfers".to_owned();
     model_effects = "validate_model_effects", deps = ["model_effects"],
@@ -287,6 +289,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &modeled_transfer_sites(), sql::Params::new()).await?;
     let mut actual_effect_sites: Vec<ModeledEffectSitesRow> =
         sql::fetch(ctx, &modeled_effect_sites(), sql::Params::new()).await?;
+    let mut actual_exception_sites: Vec<ModeledExceptionSitesRow> =
+        sql::fetch(ctx, &modeled_exception_sites(), sql::Params::new()).await?;
     let mut actual_transfers: Vec<ModelTransfersRow> =
         sql::fetch(ctx, &model_transfers(), sql::Params::new()).await?;
     let mut actual_effects: Vec<ModelEffectsRow> =
@@ -305,6 +309,7 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         && actual_resource_sites.is_empty()
         && actual_transfer_sites.is_empty()
         && actual_effect_sites.is_empty()
+        && actual_exception_sites.is_empty()
         && actual_transfers.is_empty()
         && actual_effects.is_empty()
         && actual_callbacks.is_empty()
@@ -365,6 +370,12 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
     let mut expected_effect_sites: Vec<ModeledEffectSitesRow> = sql::fetch(
         ctx,
         &cpg_schema::behavior::modeled_effect_sites(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut expected_exception_sites: Vec<ModeledExceptionSitesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_exception_sites(),
         sql::Params::new(),
     )
     .await?;
@@ -468,6 +479,22 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         )
     });
     actual_effect_sites.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
+            row.rule_id,
+        )
+    });
+    expected_exception_sites.sort_by_key(|row| {
+        (
+            row.call_site_node_id,
+            row.pysa_fact_id,
+            row.model_id,
+            row.rule_id,
+        )
+    });
+    actual_exception_sites.sort_by_key(|row| {
         (
             row.call_site_node_id,
             row.pysa_fact_id,
@@ -606,6 +633,20 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
                 "expected {} modeled effect sites, stored {}",
                 expected_effect_sites.len(),
                 actual_effect_sites.len()
+            ),
+        });
+    }
+    if expected_exception_sites != actual_exception_sites {
+        violations.push(Violation {
+            rule: "modeled-exception-site-source-equality".into(),
+            rows: actual_exception_sites
+                .len()
+                .abs_diff(expected_exception_sites.len())
+                .max(1),
+            sample: format!(
+                "expected {} modeled exception sites, stored {}",
+                expected_exception_sites.len(),
+                actual_exception_sites.len()
             ),
         });
     }

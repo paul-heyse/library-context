@@ -353,6 +353,10 @@ rule can prove is stated in §8 (its edit guards counted apart).
   it, are never relabelled as runtime dataflow. Pyrefly's binding graph is a parity oracle only.
 - **Meaning comes from models, propagation from summaries** (§9.9). A call alone never propagates a
   capability.
+- **Implemented and Tested in focused cases (ADR-0029, 2026-09-25):** an applicable authored
+  exception class binds to one pinned context class fact before its candidate source call is
+  published. Class spelling is display, not handler-match authority. An absent or ambiguous
+  class fails the model compile; a dormant model remains dormant.
 
 **Implemented and Tested in focused cases (ADR-0028, 2026-09-25):** the flow producer retains
 each value use's ordered, outer-to-inner call path with callee/argument roles and exact byte spans.
@@ -371,7 +375,7 @@ role span. A keyword value excludes the `name=` prefix; a direct positional argu
 equal role and value spans. The schema enforces value-span containment and the extractor
 output version is 27. This alone identifies no flow-call path or completed transfer.
 
-> Decision: ADR-0022, ADR-0028
+> Decision: ADR-0022, ADR-0028, ADR-0029
 
 ### §B6 Facts are first-class assertions with provenance
 
@@ -671,7 +675,12 @@ the semantics are in §3.9):
 now in scope. General alias analysis stays out (§1.3). Type structure and `record_fields` are
 built in C4 (ADR-0014).
 
-> Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019, ADR-0022
+**Implemented and Tested in focused cases (ADR-0029, 2026-09-25):** the dependency context also
+retains a class definition named by a committed exception model when its module is already
+described. This lets the model compiler cite a pinned class identity even if the analyzed source
+does not itself mention that class. Context capture does not assert an exception occurrence.
+
+> Decision: ADR-0014, ADR-0012, ADR-0015, ADR-0019, ADR-0022, ADR-0029
 
 ### §3.3 Physical profiles
 
@@ -1562,7 +1571,12 @@ paths, give the same `release_id` and `content_digest`.
   ADR-0017, H1 review F2; `a_rejected_attempt_is_inspected_at_its_own_commits`). For inspecting a
   failure, never for a reader.
 
-> Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015, ADR-0017, ADR-0018
+**Implemented and Tested in focused cases (ADR-0029, 2026-09-25):** the extractor producer build
+digest includes the committed model catalog digest, because context extraction now retains model-
+named exception classes. A catalog edit therefore cannot reuse the prior producer/run identity;
+`EXTRACTOR_OUTPUT_VERSION` is 29 for this migration.
+
+> Decision: ADR-0013 (superseding ADR-0007), ADR-0012, ADR-0015, ADR-0017, ADR-0018, ADR-0029
 
 ### §4.1 Stages
 
@@ -3098,6 +3112,15 @@ stream receives it. Shared publication validation reconstructs the row and rejec
 forged subject status. Source occurrence is not proof of a completed effect or a
 whole-operation fate; L3 composition and integrated Stage 3 testing remain open.
 
+**Implemented and Tested in focused cases (ADR-0029, 2026-09-25, modeled exception source):**
+`model_exceptions` carries the uniquely pinned context class node and fact for each authored
+source and conversion class. `modeled_exception_sites` attaches an action such as the potential
+`builtins.OSError` of `builtins.open` to its cited source call candidate, retaining model and
+target modality and unresolved dispatch. An unreferenced model has no applied row. The shared
+publication validator reconstructs catalog and source rows and rejects forged class identity.
+These are candidate model actions, not observed exceptions, handler catches or exits. The
+integrated Stage 3 gate remains `not_run`.
+
 **Tested, narrow oracle (2026-09-24):** an isolated CrossHair 0.0.110 `diffbehavior` probe on
 CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.cast` versus
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic
@@ -3182,7 +3205,7 @@ composition and negative claims.
   small: 20–40 authored. Ranked lookup waits until the catalog outgrows one page (the ADR review's
   F14).
 
-> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028
+> Decision: ADR-0022, ADR-0024, ADR-0027, ADR-0028, ADR-0029
 
 ---
 
@@ -3863,3 +3886,4 @@ Each item returns by ADR when a consumer needs it.
 | 2026-09-24 | Development loop uses pinned stable Rust, 16 Cargo jobs, sccache with incremental off, Clang/mold, and the main working tree except for concurrent production-code edits (§1.2) | ADR-0026 (supersedes ADR-0001) |
 | 2026-09-25 | Stage 3 narrows raise escape to explicit unframed source sites; an unresolved `try` or `with` withholds definite escape until L2 proves the frame action (§3.9, §9.9) | ADR-0027 (supersedes ADR-0022's raise-escape shortcut; retains its other decisions) |
 | 2026-09-25 | Proposed call-result provenance for Stage 3 summaries: ordered nested call steps and argument value spans preserve the source-to-model join (§B5, §3.9, §9.9) | ADR-0028 (proposed) |
+| 2026-09-25 | Model-authored exception classes bind to pinned context definitions before source application; the extractor producer identity includes model catalog bytes (§B5, §3.2, §4.0, §9.9) | ADR-0029 |

@@ -28,7 +28,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 28;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 29;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -423,7 +423,12 @@ pub(crate) fn producer() -> Producer {
     );
     let config = format!("threads=inline; stack_bytes={DRIVER_STACK_BYTES}");
     let build = format!("{}/{EXTRACTOR_OUTPUT_VERSION}", env!("CARGO_PKG_VERSION"));
-    let build_digest = content_digest(build.as_bytes());
+    // Context facts now retain classes named by committed model rules. Changing those bytes can
+    // change extraction output even when the Rust mapping and release bytes are unchanged.
+    let build_digest = IdHasher::new("extractor-build")
+        .str(&build)
+        .bytes(cpg_schema::models::Catalog::committed_digest().bytes())
+        .finish_digest();
     let config_digest = content_digest(config.as_bytes());
     let id = cpg_schema::id::recipe::producer(TOOL, &revision, build_digest);
     Producer {

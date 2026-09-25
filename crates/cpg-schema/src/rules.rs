@@ -116,6 +116,58 @@ pub const REFERENCES: &[Reference] = &[
         &[("arguments", "node_id")],
     ),
     r("flow_value_call_links", "argument_fact_id", FACT),
+    r(
+        "model_exceptions",
+        "class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_exceptions", "class_fact_id", FACT),
+    r(
+        "model_exceptions",
+        "to_class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("model_exceptions", "to_class_fact_id", FACT),
+    r(
+        "modeled_exception_sites",
+        "call_site_node_id",
+        &[("model_applications", "call_site_node_id")],
+    ),
+    r(
+        "modeled_exception_sites",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r("modeled_exception_sites", "call_fact_id", FACT),
+    r("modeled_exception_sites", "pysa_fact_id", FACT),
+    r(
+        "modeled_exception_sites",
+        "target_node_id",
+        &[("model_targets", "target_node_id")],
+    ),
+    r(
+        "modeled_exception_sites",
+        "model_id",
+        &[("model_targets", "model_id")],
+    ),
+    r(
+        "modeled_exception_sites",
+        "rule_id",
+        &[("model_exceptions", "rule_id")],
+    ),
+    r("modeled_exception_sites", "target_definition_fact_id", FACT),
+    r(
+        "modeled_exception_sites",
+        "class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("modeled_exception_sites", "class_fact_id", FACT),
+    r(
+        "modeled_exception_sites",
+        "to_class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("modeled_exception_sites", "to_class_fact_id", FACT),
     r("assertions", "run_id", &[("runs", "run_id")]),
     r("assertions", "subject_node_id", NODE),
     r(
@@ -949,10 +1001,35 @@ fn semantic() -> Vec<Rule> {
             "semantic:model-exception-shape",
             format!(
                 "SELECT rule_id FROM model_exceptions WHERE \
-                 (action = {} AND to_class IS NULL) OR \
-                 (action <> {} AND to_class IS NOT NULL)",
+                 (action = {} AND (to_class IS NULL OR to_class_node_id IS NULL \
+                   OR to_class_fact_id IS NULL)) OR \
+                 (action <> {} AND (to_class IS NOT NULL OR to_class_node_id IS NOT NULL \
+                   OR to_class_fact_id IS NOT NULL))",
                 crate::codebook::ModelExceptionAction::Convert.code(),
                 crate::codebook::ModelExceptionAction::Convert.code()
+            ),
+        ),
+        (
+            "semantic:model-exception-class-identity",
+            format!(
+                "SELECT e.rule_id FROM model_exceptions e \
+                 LEFT JOIN context_definitions d ON d.symbol_node_id = e.class_node_id \
+                   AND d.fact_id = e.class_fact_id AND d.kind = {class_kind} \
+                   AND concat(d.module_name, '.', d.qualified_name) = e.class \
+                 LEFT JOIN context_definitions t ON t.symbol_node_id = e.to_class_node_id \
+                   AND t.fact_id = e.to_class_fact_id AND t.kind = {class_kind} \
+                   AND concat(t.module_name, '.', t.qualified_name) = e.to_class \
+                 WHERE d.fact_id IS NULL OR (e.to_class IS NOT NULL AND t.fact_id IS NULL)",
+                class_kind = crate::codebook::DefinitionKind::Class.code(),
+            ),
+        ),
+        (
+            "semantic:modeled-exception-site-shape",
+            format!(
+                "SELECT rule_id FROM modeled_exception_sites WHERE \
+                 (candidate_set_complete_under_model AND has_unresolved_remainder) \
+                 OR origin <> {}",
+                crate::codebook::Origin::SyntheticModel.code(),
             ),
         ),
         (

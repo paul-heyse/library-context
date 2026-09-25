@@ -909,6 +909,11 @@ impl Catalog {
                         to_class,
                         modality,
                     } => {
+                        let source_class = resolve_exception_class(class, definitions)?;
+                        let replacement = to_class
+                            .as_deref()
+                            .map(|name| resolve_exception_class(name, definitions))
+                            .transpose()?;
                         out.exceptions.push(ModelExceptionsRow {
                             snapshot_id: target.snapshot_id,
                             model_id: target.model_id,
@@ -917,8 +922,12 @@ impl Catalog {
                             target_definition_fact_id: target.target_definition_fact_id,
                             revision: target.revision,
                             class: class.clone(),
+                            class_node_id: source_class.symbol_node_id,
+                            class_fact_id: source_class.fact_id,
                             action: action.codebook(),
                             to_class: to_class.clone(),
+                            to_class_node_id: replacement.map(|row| row.symbol_node_id),
+                            to_class_fact_id: replacement.map(|row| row.fact_id),
                             modality: modality.codebook(),
                             origin: Origin::SyntheticModel,
                         });
@@ -928,6 +937,24 @@ impl Catalog {
         }
         Ok(out)
     }
+}
+
+fn resolve_exception_class<'a>(
+    name: &str,
+    definitions: &'a [ContextDefinitionsRow],
+) -> Result<&'a ContextDefinitionsRow, String> {
+    let mut matches = definitions.iter().filter(|d| {
+        d.kind == DefinitionKind::Class && format!("{}.{}", d.module_name, d.qualified_name) == name
+    });
+    let class = matches
+        .next()
+        .ok_or_else(|| format!("model exception class {name} has no pinned context definition"))?;
+    if matches.next().is_some() {
+        return Err(format!(
+            "model exception class {name} has multiple pinned context definitions"
+        ));
+    }
+    Ok(class)
 }
 
 fn validate_formals(

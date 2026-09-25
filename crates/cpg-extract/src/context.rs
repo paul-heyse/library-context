@@ -19,6 +19,7 @@ use cpg_schema::codebook::{
 };
 use cpg_schema::id::{Id, recipe};
 use cpg_schema::metrics::Stages;
+use cpg_schema::models::{Catalog, Rule};
 use cpg_schema::tables::{
     ContextDefinitions, ContextDefinitionsRow, ContextModules, ContextModulesRow,
     ContextParameters, ContextParametersRow,
@@ -192,6 +193,22 @@ pub(crate) fn context_facts(
         .map(|(h, n)| (h.module().to_string(), n.clone()))
         .collect();
     let referenced = refs.referenced.borrow().clone();
+    let catalog = Catalog::committed().map_err(ExtractError::Context)?;
+    let mut modeled_classes = BTreeSet::new();
+    for compiled in &catalog.models {
+        for rule in &compiled.model.rules {
+            if let Rule::Exception {
+                class, to_class, ..
+            } = rule
+            {
+                for name in std::iter::once(class.as_str()).chain(to_class.as_deref()) {
+                    if let Some((module, qualified)) = name.rsplit_once('.') {
+                        modeled_classes.insert((module.to_owned(), qualified.to_owned()));
+                    }
+                }
+            }
+        }
+    }
 
     let list: Vec<Handle> = handles.values().cloned().collect();
     txn.run(&list, Require::Everything, None);
@@ -291,8 +308,11 @@ pub(crate) fn context_facts(
                         parent: &ScopeParent,
                         signature_count: Option<i64>| {
             let top = matches!(parent, ScopeParent::TopLevel);
+            let qualified_name = format!("{}{def_name}", prefix(parent, &classes));
             let wanted = referenced.contains(&(name.clone(), kind_code, key.clone()))
-                || (top && exported.contains(&(name.clone(), def_name.clone())));
+                || (top && exported.contains(&(name.clone(), def_name.clone())))
+                || (kind_code == DefinitionKind::Class
+                    && modeled_classes.contains(&(name.clone(), qualified_name.clone())));
             if !wanted {
                 return;
             }
@@ -313,7 +333,7 @@ pub(crate) fn context_facts(
                     module_name: name.clone(),
                     kind: kind_code,
                     key,
-                    qualified_name: format!("{}{def_name}", prefix(parent, &classes)),
+                    qualified_name,
                     name: def_name,
                     is_top_level: top,
                     signature_count,
