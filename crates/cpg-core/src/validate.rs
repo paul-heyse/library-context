@@ -12,8 +12,8 @@ use std::time::Instant;
 
 use cpg_schema::behavior::{
     ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow,
-    HandlerClausesRow, ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelResourcesRow,
-    ModelTargetsRow, ModelTransfersRow,
+    HandlerClausesRow, HandlerTypesRow, ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow,
+    ModelResourcesRow, ModelTargetsRow, ModelTransfersRow,
 };
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -120,6 +120,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM exit_sites".to_owned();
     stored_handler_clauses = "validate_stored_handler_clauses", deps = ["handler_clauses"],
         sql = "SELECT * FROM handler_clauses".to_owned();
+    stored_handler_types = "validate_stored_handler_types", deps = ["handler_types"],
+        sql = "SELECT * FROM handler_types".to_owned();
     stored_handler_actions = "validate_stored_handler_actions", deps = ["handler_actions"],
         sql = "SELECT * FROM handler_actions".to_owned();
 }
@@ -156,6 +158,16 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
     .await?;
     actual_clauses.sort_by_key(|r| r.handler_node_id);
     expected_clauses.sort_by_key(|r| r.handler_node_id);
+    let mut actual_types: Vec<HandlerTypesRow> =
+        sql::fetch(ctx, &stored_handler_types(), sql::Params::new()).await?;
+    let mut expected_types: Vec<HandlerTypesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::handler_types(),
+        sql::Params::new(),
+    )
+    .await?;
+    actual_types.sort_by_key(|r| r.handler_node_id);
+    expected_types.sort_by_key(|r| r.handler_node_id);
     let mut actual_actions: Vec<HandlerActionsRow> =
         sql::fetch(ctx, &stored_handler_actions(), sql::Params::new()).await?;
     let mut expected_actions: Vec<HandlerActionsRow> = sql::fetch(
@@ -187,6 +199,17 @@ async fn validate_handlers(ctx: &SessionContext) -> Result<Vec<Violation>, CoreE
                 "stored {} actions; derived {}",
                 actual_actions.len(),
                 expected_actions.len()
+            ),
+        });
+    }
+    if actual_types != expected_types {
+        violations.push(Violation {
+            rule: "handler-type-source-equality".to_owned(),
+            rows: actual_types.len().abs_diff(expected_types.len()).max(1),
+            sample: format!(
+                "stored {} handler types; derived {}",
+                actual_types.len(),
+                expected_types.len()
             ),
         });
     }

@@ -55,8 +55,8 @@ pub struct Published {
 /// transfer rows, gated on those target bindings. 23: external Pysa signatures and model formal
 /// path validation. 24: attributed explicit exits and finally-body actions. 25: attributed
 /// except clauses and direct handler actions. 26: authored typed effects and their pinned binding.
-/// 27: typed callback, resource and exception model assertions.
-pub const COMPILER_OUTPUT_VERSION: u32 = 27;
+/// 27: typed callback, resource and exception model assertions. 28: cited handler type status.
+pub const COMPILER_OUTPUT_VERSION: u32 = 28;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -634,9 +634,9 @@ async fn finish(
         use cpg_schema::behavior::{
             AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
             ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards,
-            HandlerActions, HandlerClauses, Handoffs, NegativePremises, OperationDocuments,
-            OperationFacetStatus, OperationFacets, Operations, ParameterReads, RaiseSites,
-            Singletons, ValueFlows,
+            HandlerActions, HandlerClauses, HandlerTypes, Handoffs, NegativePremises,
+            OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
+            RaiseSites, Singletons, ValueFlows,
         };
         let w = &mut written;
         let m = &flow_model;
@@ -665,6 +665,13 @@ async fn finish(
         )
         .await?;
         write_analysis::<HandlerClauses>(&ctx, root, snapshot_id, &handler_clauses, w).await?;
+        let handler_types = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::handler_types(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<HandlerTypes>(&ctx, root, snapshot_id, &handler_types, w).await?;
         let handler_actions = crate::sql::fetch(
             &ctx,
             &cpg_schema::behavior::handler_actions(),

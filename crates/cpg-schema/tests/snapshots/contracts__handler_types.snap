@@ -1,0 +1,22 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table handler_types
+family findings
+key snapshot_id, handler_node_id
+@lctx.family=findings
+@lctx.table=handler_types
+snapshot_id: FixedSizeBinary(16) NOT NULL
+handler_node_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+type_node_id: FixedSizeBinary(16) NULL
+type_fact_id: FixedSizeBinary(16) NULL
+reference_fact_id: FixedSizeBinary(16) NULL
+resolution_fact_id: FixedSizeBinary(16) NULL
+class_node_id: FixedSizeBinary(16) NULL
+class_fact_id: FixedSizeBinary(16) NULL
+class_module_fact_id: FixedSizeBinary(16) NULL
+class_name: Utf8 NULL
+status: Int16 NOT NULL [lctx.codebook=handler_type_status]
+reason: Int16 NULL [lctx.codebook=boundary_reason]

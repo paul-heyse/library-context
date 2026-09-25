@@ -3008,9 +3008,16 @@ Those fates, callbacks, resources and composed summaries remain Proposed.
 `handler_clauses` cites a `try`, each authored `except` clause, its optional type expression,
 and the region reaching the `try`. `handler_actions` cites direct statements in that clause's
 body and their own ty regions. These rows are derived for every compile and reconstructed by
-the publication validator. An authored type expression is not yet a resolved caught class,
-the `try` entry condition is not a handler-match condition, and a body action may fail or
-branch. Exception matching, conversion and completion remain Proposed.
+the publication validator. **Implemented and Tested in focused cases (2026-09-25):**
+`handler_types` keeps one status per clause. A direct `Name` gets `pinned_builtin` only if its
+lexical reference resolves uniquely to a builtin and one matching class is present in the pinned
+context; bare `except` has its own status, while shadowed, compound or unbound types stay
+`unknown` with a boundary reason. The row cites the lexical and context facts and is
+reconstructed at publication.
+This identifies an authored handler class, not a catch. The `try` entry condition is not a
+handler-match condition, and a body action may fail or branch. Exception matching, conversion
+and completion remain Proposed. The integrated repository and pilot gates remain `not_run` for
+Stage 3.
 
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
 - **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions

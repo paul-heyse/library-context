@@ -29,10 +29,10 @@
 
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
-    ExactValueOrigin, ExitSiteKind, FlowSink, InvocationPhase, Modality, ModelCallbackAction,
-    ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole,
-    ModelResourceAction, ModelTransferKind, OperationFacet, Origin, PremiseKind, ReadPhase,
-    SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    ExactValueOrigin, ExitSiteKind, FlowSink, HandlerTypeStatus, InvocationPhase, Modality,
+    ModelCallbackAction, ModelChannelCoverage, ModelEffectKind, ModelExceptionAction, ModelExit,
+    ModelPathRole, ModelResourceAction, ModelTransferKind, OperationFacet, Origin, PremiseKind,
+    ReadPhase, SourceRole, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -176,6 +176,30 @@ table!(
         end_byte: i64,
         condition_id: Id,
         approximated: bool,
+    }
+);
+
+table!(
+    /// Resolution of an authored except type. Only an exact lexical builtin name bound to one
+    /// pinned context class gets `pinned_builtin`. This is class identity, not a catch verdict.
+    HandlerTypes, HandlerTypesRow = "handler_types",
+    family = Findings,
+    key = [snapshot_id, handler_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        handler_node_id: Id,
+        function_node_id: Id,
+        type_node_id: Option<Id>,
+        type_fact_id: Option<Id>,
+        reference_fact_id: Option<Id>,
+        resolution_fact_id: Option<Id>,
+        class_node_id: Option<Id>,
+        class_fact_id: Option<Id>,
+        class_module_fact_id: Option<Id>,
+        class_name: Option<String>,
+        status: HandlerTypeStatus,
+        reason: Option<BoundaryReason>,
     }
 );
 
@@ -858,6 +882,71 @@ crate::relations! {
             function = DeclarationKind::Function.code(),
             async_function = DeclarationKind::AsyncFunction.code(),
             try_ = SyntaxKind::StmtTry.code(),
+        );
+
+    /// Keep every clause, including bare and unresolved types. Only one exact builtin
+    /// reference and one pinned class can become a class identity; a tuple, attribute, alias
+    /// or shadowed name stays unknown until a broader resolver proves it.
+    handler_types = "behavior:handler_types",
+        deps = ["handler_clauses", "syntax_nodes", "references", "reference_resolutions", "context_definitions", "context_modules"],
+        sql = format!(
+            "WITH candidates AS ( \
+               SELECT h.snapshot_id, h.handler_node_id, h.function_node_id, \
+                      h.type_node_id, h.type_fact_id, r.fact_id AS reference_fact_id, \
+                      rr.fact_id AS resolution_fact_id, d.symbol_node_id AS class_node_id, \
+                      d.fact_id AS class_fact_id, m.fact_id AS class_module_fact_id, \
+                      rr.builtin_name AS class_name \
+               FROM handler_clauses h \
+               LEFT JOIN syntax_nodes t ON t.node_id = h.type_node_id AND t.kind = {name} \
+               LEFT JOIN references r ON r.name_node_id = t.node_id \
+                 AND r.module_node_id = h.module_node_id \
+               LEFT JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+                 AND rr.builtin_name = r.name AND rr.binding_id IS NULL \
+               LEFT JOIN context_definitions d ON d.module_name = 'builtins' \
+                 AND d.qualified_name = rr.builtin_name AND d.kind = {class_kind} \
+               LEFT JOIN context_modules m ON m.module_node_id = d.module_node_id \
+                 AND m.module_name = 'builtins' AND m.origin = {typeshed} \
+             ), ranked AS ( \
+               SELECT *, COUNT(reference_fact_id) OVER (PARTITION BY handler_node_id) AS refs, \
+                      COUNT(resolution_fact_id) OVER (PARTITION BY handler_node_id) AS resolutions, \
+                      COUNT(class_module_fact_id) OVER (PARTITION BY handler_node_id) AS classes, \
+                      ROW_NUMBER() OVER (PARTITION BY handler_node_id \
+                        ORDER BY class_name, class_fact_id) AS pick \
+               FROM candidates \
+             ) \
+             SELECT snapshot_id, handler_node_id, function_node_id, type_node_id, type_fact_id, \
+                    CASE WHEN refs = 1 AND resolutions = 1 AND classes = 1 \
+                         THEN reference_fact_id END AS reference_fact_id, \
+                    CASE WHEN refs = 1 AND resolutions = 1 AND classes = 1 \
+                         THEN resolution_fact_id END AS resolution_fact_id, \
+                    CASE WHEN refs = 1 AND resolutions = 1 AND classes = 1 \
+                         THEN class_node_id END AS class_node_id, \
+                    CASE WHEN refs = 1 AND resolutions = 1 AND classes = 1 \
+                         THEN class_fact_id END AS class_fact_id, \
+                    CASE WHEN refs = 1 AND resolutions = 1 AND classes = 1 \
+                         THEN class_module_fact_id END AS class_module_fact_id, \
+                    CASE WHEN refs = 1 AND resolutions = 1 AND classes = 1 \
+                         THEN class_name END AS class_name, \
+                    CAST(CASE WHEN type_node_id IS NULL THEN {bare} \
+                              WHEN refs = 1 AND resolutions = 1 AND classes = 1 \
+                              THEN {pinned} ELSE {unknown} END AS SMALLINT) AS status, \
+                    CAST(CASE WHEN type_node_id IS NULL \
+                                 OR (refs = 1 AND resolutions = 1 AND classes = 1) THEN NULL \
+                                 WHEN refs > 1 OR resolutions > 1 OR classes > 1 THEN {ambiguous} \
+                                 WHEN refs = 0 THEN {unsupported} \
+                                 WHEN resolutions = 0 THEN {unresolved} \
+                                 ELSE {missing} END AS SMALLINT) AS reason \
+             FROM ranked WHERE pick = 1",
+            name = SyntaxKind::ExprName.code(),
+            class_kind = crate::codebook::DefinitionKind::Class.code(),
+            typeshed = crate::codebook::ModuleOrigin::BundledTypeshed.code(),
+            bare = HandlerTypeStatus::Bare.code(),
+            pinned = HandlerTypeStatus::PinnedBuiltin.code(),
+            unknown = HandlerTypeStatus::Unknown.code(),
+            ambiguous = BoundaryReason::AmbiguousBinding.code(),
+            unsupported = BoundaryReason::OutsideProviderModel.code(),
+            unresolved = BoundaryReason::UnresolvedTarget.code(),
+            missing = BoundaryReason::MissingEvidence.code(),
         );
 
     /// Direct handler-body statements with their own reachability region.

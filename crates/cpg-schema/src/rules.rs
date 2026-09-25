@@ -159,6 +159,31 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("model_exceptions", "target_definition_fact_id", FACT),
     r(
+        "handler_types",
+        "handler_node_id",
+        &[("handler_clauses", "handler_node_id")],
+    ),
+    r(
+        "handler_types",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r(
+        "handler_types",
+        "type_node_id",
+        &[("syntax_nodes", "node_id")],
+    ),
+    r("handler_types", "type_fact_id", FACT),
+    r("handler_types", "reference_fact_id", FACT),
+    r("handler_types", "resolution_fact_id", FACT),
+    r(
+        "handler_types",
+        "class_node_id",
+        &[("context_definitions", "symbol_node_id")],
+    ),
+    r("handler_types", "class_fact_id", FACT),
+    r("handler_types", "class_module_fact_id", FACT),
+    r(
         "exit_sites",
         "function_node_id",
         &[("declarations", "node_id")],
@@ -478,6 +503,23 @@ fn semantic() -> Vec<Rule> {
                  (action <> {} AND to_class IS NOT NULL)",
                 crate::codebook::ModelExceptionAction::Convert.code(),
                 crate::codebook::ModelExceptionAction::Convert.code()
+            ),
+        ),
+        (
+            "semantic:handler-type-status-shape",
+            format!(
+                "SELECT handler_node_id FROM handler_types WHERE \
+                 (status = {bare} AND (type_node_id IS NOT NULL OR class_node_id IS NOT NULL \
+                   OR reason IS NOT NULL)) \
+                 OR (status = {pinned} AND (type_node_id IS NULL OR type_fact_id IS NULL \
+                   OR reference_fact_id IS NULL OR resolution_fact_id IS NULL \
+                   OR class_node_id IS NULL OR class_fact_id IS NULL \
+                   OR class_module_fact_id IS NULL OR class_name IS NULL OR reason IS NOT NULL)) \
+                 OR (status = {unknown} AND (type_node_id IS NULL OR class_node_id IS NOT NULL \
+                   OR class_fact_id IS NOT NULL OR class_name IS NOT NULL OR reason IS NULL))",
+                bare = crate::codebook::HandlerTypeStatus::Bare.code(),
+                pinned = crate::codebook::HandlerTypeStatus::PinnedBuiltin.code(),
+                unknown = crate::codebook::HandlerTypeStatus::Unknown.code(),
             ),
         ),
         (

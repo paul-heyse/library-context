@@ -18,8 +18,9 @@ use cpg_schema::behavior::{
     ModelResourcesRow, ModelTargets, ModelTargetsRow, ModelTransfers, ModelTransfersRow,
 };
 use cpg_schema::codebook::{
-    Codebook, ExitSiteKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
-    ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction, ModelTransferKind, Origin,
+    Codebook, ExitSiteKind, HandlerTypeStatus, Modality, ModelCallbackAction, ModelChannelCoverage,
+    ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathRole, ModelResourceAction,
+    ModelTransferKind, Origin,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -113,7 +114,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 43,
+        52 + 21 + 44,
         "every raw, derived and analysis table"
     );
 
@@ -339,6 +340,87 @@ async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
             .any(|v| v.rule == "exit-site-source-equality"),
         "{violations:?}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn handler_type_status_is_pinned_or_explicitly_unknown() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([56; 16]);
+    compile(root.path(), snapshot, &raw("handler_shapes", snapshot))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM handler_types h JOIN declarations d \
+                 ON d.node_id = h.function_node_id WHERE d.name = 'pinned_handler' \
+                 AND h.status = {}",
+                HandlerTypeStatus::PinnedBuiltin.code()
+            )
+        )
+        .await,
+        1,
+        "a non-shadowed builtin handler has one pinned class identity"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM handler_types h JOIN declarations d \
+                 ON d.node_id = h.function_node_id WHERE d.name = 'shadowed_handler' \
+                 AND h.status = {} AND h.reason IS NOT NULL",
+                HandlerTypeStatus::Unknown.code()
+            )
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM handler_types h JOIN declarations d \
+                 ON d.node_id = h.function_node_id WHERE d.name = 'bare_handler' \
+                 AND h.status = {} AND h.reason IS NULL",
+                HandlerTypeStatus::Bare.code()
+            )
+        )
+        .await,
+        1
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let original_types = sql::query(&ctx, "SELECT * FROM handler_types")
+        .await
+        .unwrap()
+        .into_view();
+    let doctored_types = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * EXCLUDE (status), CAST({} AS SMALLINT) AS status FROM handler_types",
+            HandlerTypeStatus::Bare.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("handler_types").unwrap();
+    ctx.register_table("handler_types", doctored_types).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    let (expected,) = ("semantic:handler-type-status-shape",);
+    assert!(
+        violations.iter().any(|v| v.rule == expected),
+        "{violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "handler-type-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("handler_types").unwrap();
+    ctx.register_table("handler_types", original_types).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

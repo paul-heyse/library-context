@@ -714,3 +714,7 @@ model_channel_coverage
   0 complete
   1 partial
   2 unspecified
+handler_type_status
+  0 bare
+  1 pinned_builtin
+  2 unknown

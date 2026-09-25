@@ -1458,6 +1458,16 @@ codebook!(
     }
 );
 
+codebook!(
+    /// How far an except clause's authored type is resolved. A pinned class identifies the
+    /// name; it does not prove that a particular raised value matches or is caught.
+    HandlerTypeStatus = "handler_type_status" {
+        Bare = 0 => "bare",
+        PinnedBuiltin = 1 => "pinned_builtin",
+        Unknown = 2 => "unknown",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1537,6 +1547,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ModelExceptionAction>(),
         CodebookEntry::of::<ModelPathRole>(),
         CodebookEntry::of::<ModelChannelCoverage>(),
+        CodebookEntry::of::<HandlerTypeStatus>(),
     ]
 }
 
