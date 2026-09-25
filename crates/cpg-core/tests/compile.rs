@@ -1433,6 +1433,26 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
+                 JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
+                   AND p.kind = {} \
+                 JOIN summary_flows callee ON callee.summary_id = p.evidence_id \
+                 JOIN declarations d ON d.node_id = f.function_node_id \
+                 JOIN declarations td ON td.node_id = callee.function_node_id \
+                 WHERE d.name = 'local_wrapper' AND td.name = 'plain_identity' \
+                   AND f.path_depth = 1 AND f.verdict <> {}",
+                cpg_schema::codebook::SummaryFlowStepKind::CalleeSummary.code(),
+                Verdict::Unknown.code(),
+            ),
+        )
+        .await,
+        1,
+        "an exact local wrapper inherits the unconditional callee value flow"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              WHERE d.name IN ('async_identity', 'generator_identity', 'framed_identity')",

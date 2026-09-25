@@ -769,6 +769,7 @@ summary_flow_step_kind
   6 call_site
   7 definition_reaching
   8 return_source
+  9 callee_summary
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal

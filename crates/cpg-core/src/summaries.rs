@@ -45,6 +45,8 @@ cpg_schema::relations! {
                        WHERE t.argument_node_id IS NULL AND NOT c.in_annotation",
                       f = cpg_schema::codebook::DeclarationKind::Function.code(),
                       af = cpg_schema::codebook::DeclarationKind::AsyncFunction.code());
+    published_components = "summary_published_components", deps = ["summary_components"],
+        sql = "SELECT * FROM summary_components".to_owned();
 }
 
 cpg_schema::query_row! {
@@ -116,6 +118,27 @@ cpg_schema::query_row! {
         rule_id: Id,
         callee_resolution_fact_id: Id,
         argument_count: i64,
+        return_site_fact_id: Id,
+        return_region_fact_id: Id,
+        return_condition_id: Id,
+        approximated: bool,
+    }
+}
+
+cpg_schema::query_row! {
+    struct LocalCallSummaryFlowSeed {
+        snapshot_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        parameter_name: String,
+        source_flow_fact_id: Id,
+        condition_id: Id,
+        call_site_node_id: Id,
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        callee_node_id: Id,
+        callee_parameter_node_id: Id,
+        callee_resolution_fact_id: Id,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         return_condition_id: Id,
@@ -532,6 +555,94 @@ pub async fn finite_flows(
             path_depth: 2,
             proof,
         });
+    }
+    // The first interprocedural case needs no cross-scope atom substitution: the callee's
+    // admitted path is unconditional. Acyclic components run after their callees, while
+    // recursive components retain their existing unknown boundary until the bounded worklist.
+    let components: Vec<SummaryComponentsRow> = sql::fetch(
+        ctx, &published_components(), sql::Params::new(),
+    ).await?;
+    let component_by_function: HashMap<Id, (i64, bool)> = components.into_iter()
+        .map(|row| (row.function_node_id, (row.component_order, row.recursive)))
+        .collect();
+    let mut local_seeds: Vec<LocalCallSummaryFlowSeed> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::local_call_summary_flow_seeds(),
+        sql::Params::new(),
+    ).await?;
+    local_seeds.sort_by_key(|seed| (
+        component_by_function.get(&seed.function_node_id).map_or(i64::MAX, |c| c.0),
+        seed.function_node_id,
+        seed.call_site_node_id,
+        seed.source_flow_fact_id,
+        seed.pysa_fact_id,
+    ));
+    let mut by_formal: HashMap<(Id, Id), Vec<SummaryFlowsRow>> = HashMap::new();
+    for flow in &flows {
+        by_formal.entry((flow.function_node_id, flow.parameter_node_id))
+            .or_default().push(flow.clone());
+    }
+    const MAX_LOCAL_PATH_DEPTH: i64 = 8;
+    for seed in local_seeds {
+        let Some((_, false)) = component_by_function.get(&seed.function_node_id) else {
+            continue;
+        };
+        let Some(condition) = diagrams.get(&seed.condition_id) else {
+            continue;
+        };
+        let Some(exit_condition) = diagrams.get(&seed.return_condition_id) else {
+            continue;
+        };
+        if condition.is_false() || condition.implies(exit_condition) != Ok(true) {
+            continue;
+        }
+        let Some(callee_paths) = by_formal.get(&(
+            seed.callee_node_id, seed.callee_parameter_node_id,
+        )).cloned() else {
+            continue;
+        };
+        for callee in callee_paths {
+            if callee.verdict != Verdict::Established
+                || callee.boundary_reason.is_some()
+                || callee.kind != SummaryFlowKind::Value
+                || callee.output_path != OutputPath::ReturnValue.render()
+                || callee.path_depth >= MAX_LOCAL_PATH_DEPTH
+                || !diagrams.get(&callee.condition_id).is_some_and(Diagram::is_true)
+            {
+                continue;
+            }
+            let proof = [
+                (SummaryFlowStepKind::CalleeResolution, seed.callee_resolution_fact_id,
+                    seed.condition_id),
+                (SummaryFlowStepKind::ArgumentEvaluation, seed.source_flow_fact_id,
+                    seed.condition_id),
+                (SummaryFlowStepKind::CallSite, seed.call_fact_id, seed.condition_id),
+                (SummaryFlowStepKind::CallTarget, seed.pysa_fact_id, seed.condition_id),
+                (SummaryFlowStepKind::CalleeSummary, callee.summary_id, callee.condition_id),
+                (SummaryFlowStepKind::ReturnExit, seed.return_site_fact_id,
+                    seed.return_condition_id),
+            ].into_iter().map(|(kind, evidence_id, condition_id)| {
+                recipe::SummaryFlowProofStep { kind, evidence_id, condition_id }
+            }).collect();
+            push_finite_path(&mut flows, &mut steps, FinitePath {
+                snapshot_id: seed.snapshot_id,
+                function_node_id: seed.function_node_id,
+                parameter_node_id: seed.parameter_node_id,
+                parameter_name: seed.parameter_name.clone(),
+                source_flow_fact_id: seed.source_flow_fact_id,
+                condition_id: seed.condition_id,
+                condition_is_true: condition.is_true(),
+                return_site_fact_id: seed.return_site_fact_id,
+                return_region_fact_id: seed.return_region_fact_id,
+                approximated: seed.approximated || callee.approximated,
+                path_depth: callee.path_depth + 1,
+                proof,
+            });
+            if let Some(flow) = flows.last() {
+                by_formal.entry((flow.function_node_id, flow.parameter_node_id))
+                    .or_default().push(flow.clone());
+            }
+        }
     }
     Ok((flows, steps))
 }

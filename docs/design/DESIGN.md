@@ -3463,6 +3463,18 @@ topology only, not a completed transfer or negative coverage claim. The shared v
 reconstructs the rows from source calls. Compiler output version 63; composition, discharge
 and integrated Stage 3 testing remain open.
 
+**Implemented and Tested in focused cases (2026-09-25, first local composition):**
+An acyclic synchronous wrapper can inherit an unconditional value summary of its sole
+definite local target when ty's one-call value path, Ruff's exact one-positional-argument
+syntax, lexical callee resolution, Pass B's single formal mapping, closed source target set
+and direct return exit all agree. The caller condition must imply its return region; the
+callee condition must be true, avoiding unproved cross-scope atom substitution. The proof
+steps cite the callee summary id, so parallel callee paths stay distinct. A callee-first SCC
+schedule propagates these finite paths to later acyclic callers with depth capped at eight.
+Recursive and conditional callee paths remain unknown, and a depth refusal currently retains
+the generic `call_transfer` boundary pending a specific budget row. Compiler output version
+64; full SCC composition, effect summaries and integrated Stage 3 testing remain open.
+
 **The capability registry** lives in `cpg-schema`, as TOML compiled to Arrow.
 - **A concept** has:
   - an append-only id, a `prefLabel`, `altLabels` (each with its source), `broader`/`related`, a

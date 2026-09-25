@@ -504,8 +504,8 @@ ref:summary_flows.return_region_fact_id->facts
   SELECT f.return_region_fact_id AS value FROM summary_flows f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.return_region_fact_id = r.k WHERE f.return_region_fact_id IS NOT NULL
 ref:summary_flow_steps.summary_id->summary_flows
   SELECT f.summary_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT summary_id AS k FROM summary_flows) r ON f.summary_id = r.k WHERE f.summary_id IS NOT NULL
-ref:summary_flow_steps.evidence_id->flow_values|reference_resolutions|syntax_nodes|call_syntax|call_targets|model_transfers|flow_reaching
-  SELECT f.evidence_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values UNION ALL SELECT fact_id AS k FROM reference_resolutions UNION ALL SELECT fact_id AS k FROM syntax_nodes UNION ALL SELECT fact_id AS k FROM call_syntax UNION ALL SELECT pysa_fact_id AS k FROM call_targets UNION ALL SELECT rule_id AS k FROM model_transfers UNION ALL SELECT fact_id AS k FROM flow_reaching) r ON f.evidence_id = r.k WHERE f.evidence_id IS NOT NULL
+ref:summary_flow_steps.evidence_id->flow_values|reference_resolutions|syntax_nodes|call_syntax|call_targets|model_transfers|flow_reaching|summary_flows
+  SELECT f.evidence_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values UNION ALL SELECT fact_id AS k FROM reference_resolutions UNION ALL SELECT fact_id AS k FROM syntax_nodes UNION ALL SELECT fact_id AS k FROM call_syntax UNION ALL SELECT pysa_fact_id AS k FROM call_targets UNION ALL SELECT rule_id AS k FROM model_transfers UNION ALL SELECT fact_id AS k FROM flow_reaching UNION ALL SELECT summary_id AS k FROM summary_flows) r ON f.evidence_id = r.k WHERE f.evidence_id IS NOT NULL
 ref:summary_flow_steps.condition_id->analysis_conditions
   SELECT f.condition_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:summary_boundaries.function_node_id->declarations
@@ -1343,7 +1343,7 @@ codebook:summary_flows.verdict
 codebook:summary_flows.boundary_reason
   SELECT boundary_reason FROM summary_flows WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:summary_flow_steps.kind
-  SELECT kind FROM summary_flow_steps WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
+  SELECT kind FROM summary_flow_steps WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
 codebook:summary_boundaries.reason
   SELECT reason FROM summary_boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 codebook:flow_test_value_links.origin

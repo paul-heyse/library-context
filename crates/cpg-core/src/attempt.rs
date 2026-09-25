@@ -86,7 +86,8 @@ pub struct Published {
 /// 61: first finite modeled identity-return paths carry complete ordered call proofs.
 /// 62: unique assignment-to-return predecessors gain finite model-call summaries.
 /// 63: attributed source call SCCs have canonical callee-first component rows.
-pub const COMPILER_OUTPUT_VERSION: u32 = 63;
+/// 64: acyclic exact local wrappers compose unconditional callee value summaries.
+pub const COMPILER_OUTPUT_VERSION: u32 = 64;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

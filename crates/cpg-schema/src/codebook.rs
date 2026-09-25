@@ -1342,6 +1342,7 @@ codebook!(
         CallSite = 6 => "call_site",
         DefinitionReaching = 7 => "definition_reaching",
         ReturnSource = 8 => "return_source",
+        CalleeSummary = 9 => "callee_summary",
     }
 );
 

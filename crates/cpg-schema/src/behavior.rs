@@ -2213,6 +2213,96 @@ crate::relations! {
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
 
+    /// One exact source-call result returned by a synchronous caller, with one positional
+    /// parameter operand and one definite closed local target. Callee summaries are joined in
+    /// the bounded SCC worklist, not here: a call edge by itself is never a transfer proof.
+    local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
+        deps = ["value_flow_contributions", "flow_values", "flow_value_calls",
+                "flow_value_call_links", "call_syntax", "call_targets", "resolutions",
+                "argument_flows", "arguments", "parameter_syntax", "declarations",
+                "syntax_nodes", "references", "reference_resolutions", "exit_sites"],
+        sql = format!(
+            "WITH {callee_candidates}, step_counts AS ( \
+               SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \
+               GROUP BY flow_value_fact_id \
+             ), mappings AS ( \
+               SELECT a.*, count(*) OVER (PARTITION BY a.call_site_node_id, a.target_node_id, \
+                 a.argument_node_id, a.source_parameter_node_id) AS mapping_count \
+               FROM argument_flows a \
+             ) \
+             SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
+                    v.parameter_node_id, p.name AS parameter_name, \
+                    v.flow_value_fact_id AS source_flow_fact_id, v.condition_id, \
+                    c.node_id AS call_site_node_id, c.fact_id AS call_fact_id, \
+                    t.pysa_fact_id, t.target_node_id AS callee_node_id, \
+                    a.formal_node_id AS callee_parameter_node_id, \
+                    cc.resolution_fact_id AS callee_resolution_fact_id, \
+                    e.source_fact_id AS return_site_fact_id, \
+                    e.region_fact_id AS return_region_fact_id, \
+                    e.condition_id AS return_condition_id, \
+                    (f.approximated OR e.approximated) AS approximated \
+             FROM value_flow_contributions v \
+             JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
+               AND f.sink = {return_sink} \
+             JOIN step_counts sc ON sc.flow_value_fact_id = f.fact_id AND sc.n = 1 \
+             JOIN flow_value_calls fc ON fc.flow_value_fact_id = f.fact_id \
+               AND fc.step = 0 AND fc.use_id = v.use_id \
+               AND fc.call_start_byte = f.sink_start_byte \
+               AND fc.call_end_byte = f.sink_end_byte \
+             JOIN flow_value_call_links l ON l.flow_value_call_fact_id = fc.fact_id \
+               AND l.status = {bound_argument} \
+             JOIN call_syntax c ON c.node_id = l.call_node_id \
+               AND c.owner_node_id = v.sink_function_node_id \
+               AND c.positional_count = 1 AND c.keyword_count = 0 \
+             JOIN arguments arg ON arg.node_id = l.argument_node_id \
+               AND arg.fact_id = l.argument_fact_id \
+               AND arg.call_node_id = c.node_id AND arg.kind = {positional} \
+             JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
+               AND cc.candidate_count = 1 \
+             JOIN resolutions r ON r.call_site_node_id = c.node_id \
+               AND r.target_count = 1 AND r.candidate_set_complete_under_model \
+               AND NOT r.has_unresolved_remainder \
+             JOIN call_targets t ON t.call_site_node_id = c.node_id \
+               AND t.argument_node_id IS NULL AND t.target_node_id IS NOT NULL \
+             JOIN mappings a ON a.call_site_node_id = c.node_id \
+               AND a.target_node_id = t.target_node_id \
+               AND a.argument_node_id = arg.node_id \
+               AND a.source_parameter_node_id = v.parameter_node_id \
+               AND a.caller_node_id = v.sink_function_node_id \
+               AND a.mapping_count = 1 AND a.modality = {definite} \
+               AND a.phase = {call_phase} \
+             JOIN parameter_syntax p ON p.node_id = v.parameter_node_id \
+               AND p.function_node_id = v.sink_function_node_id \
+             JOIN declarations d ON d.node_id = v.sink_function_node_id \
+               AND d.kind = {function_kind} \
+             JOIN declarations target ON target.node_id = t.target_node_id \
+               AND target.kind = {function_kind} \
+             JOIN syntax_nodes ret ON ret.owner_node_id = d.node_id \
+               AND ret.parent_node_id = d.node_id AND ret.field = {body_field} \
+               AND ret.kind = {return_kind} AND ret.module_node_id = f.module_node_id \
+               AND ret.start_byte <= f.sink_start_byte AND ret.end_byte >= f.sink_end_byte \
+             JOIN exit_sites e ON e.site_node_id = ret.node_id \
+               AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             WHERE v.parameter_node_id IS NOT NULL \
+               AND v.function_node_id = v.sink_function_node_id \
+               AND v.upstream_identity AND v.local_through_call \
+               AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
+                 WHERE y.owner_node_id = d.node_id \
+                   AND y.kind IN ({yield_kind}, {yield_from_kind}))",
+            callee_candidates = modeled_callee_candidates_sql(),
+            return_sink = FlowSink::Return.code(),
+            bound_argument = FlowCallLinkStatus::BoundArgument.code(),
+            positional = ArgumentKind::Positional.code(),
+            definite = Modality::Definite.code(),
+            call_phase = InvocationPhase::Call.code(),
+            function_kind = DeclarationKind::Function.code(),
+            body_field = crate::codebook::SyntaxField::Body.code(),
+            return_kind = SyntaxKind::StmtReturn.code(),
+            exit_return = ExitSiteKind::Return.code(),
+            yield_kind = SyntaxKind::ExprYield.code(),
+            yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
+        );
+
     /// Unknown-is-not-absent for every same-callable parameter-origin return fact not admitted
     /// by the finite direct producer. A crossed call takes the more specific transfer reason;
     /// other shapes await their control/execution proof.
