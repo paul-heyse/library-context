@@ -674,3 +674,7 @@ premise_kind
   1 field
   2 global
   3 forward_chain
+exit_site_kind
+  0 return
+  1 raise
+  2 finally_body

@@ -478,6 +478,13 @@ has no serving consumer yet, and the integrated gate remains `not_run`.
    identity, ty flow and DataFusion joins for local relations; do not infer a handled exception
    or invoked callback from syntactic containment. Each relation gets a schema, codebook where
    needed, publication validator and one positive plus one withholding case.
+
+   **Partial implementation (Tested, 2026-09-24):** `exit_sites` records explicit return/raise
+   statements and direct finally-body actions with a ty region citation for every compile.
+   The shared validator reconstructs all rows. A focused `flow_shapes` case exercises a raise,
+   a finally action, withholding outside finally, and span tampering. This is a structural
+   source relation only; handler outcomes, exception escape, callbacks and resources remain
+   unimplemented.
 6. **Compose finite summaries with existing graph and condition kernels.** Resolve call targets
    relationally, use petgraph's SCC decomposition with callees first, then a monotone worklist
    within each SCC. Canonical summary keys contain callable, input/output resolved paths,

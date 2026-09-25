@@ -11,7 +11,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cpg_schema::behavior::{
-    FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargetsRow, ModelTransfersRow,
+    ExitSitesRow, FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargetsRow,
+    ModelTransfersRow,
 };
 use cpg_schema::codebook::TestTypeOrigin;
 use cpg_schema::condition::{Atom, EvaluationIdentity};
@@ -107,7 +108,35 @@ pub async fn validate_costed(
     violations.extend(validate_test_type_links(&cache).await?);
     violations.extend(validate_entry_proofs(&cache).await?);
     violations.extend(validate_models(&cache).await?);
+    violations.extend(validate_exit_sites(&cache).await?);
     Ok((violations, costs))
+}
+
+cpg_schema::relations! {
+    inventory exit_relations;
+    stored_exit_sites = "validate_stored_exit_sites", deps = ["exit_sites"],
+        sql = "SELECT * FROM exit_sites".to_owned();
+}
+
+/// Publication and consumers use the same derivation as the compiler. Equality also rejects a
+/// missing structural site, an altered condition and a mismatched source/region citation.
+async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<ExitSitesRow> =
+        sql::fetch(ctx, &stored_exit_sites(), sql::Params::new()).await?;
+    let mut expected: Vec<ExitSitesRow> =
+        sql::fetch(ctx, &cpg_schema::behavior::exit_sites(), sql::Params::new()).await?;
+    let key = |row: &ExitSitesRow| (row.function_node_id, row.site_node_id, row.kind);
+    actual.sort_by_key(key);
+    expected.sort_by_key(key);
+    if actual == expected {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "exit-site-source-equality".to_owned(),
+            rows: actual.len().abs_diff(expected.len()).max(1),
+            sample: format!("stored {} sites; derived {}", actual.len(), expected.len()),
+        }])
+    }
 }
 
 cpg_schema::relations! {

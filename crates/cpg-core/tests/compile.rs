@@ -16,7 +16,7 @@ use cpg_schema::behavior::{
     FlowTestExactOriginsRow, FlowTestValueLinksRow, ModelTargets, ModelTargetsRow, ModelTransfers,
     ModelTransfersRow,
 };
-use cpg_schema::codebook::{Codebook, ModelTransferKind, Origin};
+use cpg_schema::codebook::{Codebook, ExitSiteKind, ModelTransferKind, Origin};
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
 use cpg_schema::id::Id;
@@ -109,7 +109,7 @@ async fn an_attempt_publishes_every_table_and_readers_see_only_published_rows() 
     assert_eq!(versions, out.versions);
     assert_eq!(
         versions.len(),
-        52 + 21 + 36,
+        52 + 21 + 37,
         "every raw, derived and analysis table"
     );
 
@@ -257,6 +257,82 @@ async fn published_test_type_link_tamper_is_rejected() {
         violations
             .iter()
             .any(|v| v.rule == "flow-test-type-proof-link"),
+        "{violations:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([54; 16]);
+    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM exit_sites e JOIN declarations d \
+                 ON d.node_id = e.function_node_id WHERE d.name = 'guarded' \
+                 AND e.kind = {}",
+                ExitSiteKind::Raise.code()
+            )
+        )
+        .await
+            > 0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM exit_sites e JOIN declarations d \
+                 ON d.node_id = e.function_node_id WHERE d.name = 'guarded' \
+                 AND e.kind = {}",
+                ExitSiteKind::FinallyBody.code()
+            )
+        )
+        .await,
+        0,
+        "ordinary branch actions are not finally actions"
+    );
+    assert!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM exit_sites e JOIN declarations d \
+                 ON d.node_id = e.function_node_id WHERE d.name = 'handled' \
+                 AND e.kind = {}",
+                ExitSiteKind::FinallyBody.code()
+            )
+        )
+        .await
+            > 0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM exit_sites e LEFT JOIN flow_regions r \
+             ON r.fact_id = e.region_fact_id WHERE r.fact_id IS NULL"
+        )
+        .await,
+        0
+    );
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
+    let doctored = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (start_byte), start_byte + 1 AS start_byte FROM exit_sites",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("exit_sites").unwrap();
+    ctx.register_table("exit_sites", doctored).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "exit-site-source-equality"),
         "{violations:?}"
     );
 }

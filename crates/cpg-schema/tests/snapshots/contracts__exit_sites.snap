@@ -1,0 +1,21 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table exit_sites
+family findings
+key snapshot_id, function_node_id, site_node_id, kind
+check span_order: start_byte >= 0 AND end_byte >= start_byte
+@lctx.family=findings
+@lctx.table=exit_sites
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+site_node_id: FixedSizeBinary(16) NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=exit_site_kind]
+module_node_id: FixedSizeBinary(16) NOT NULL
+source_fact_id: FixedSizeBinary(16) NOT NULL
+region_fact_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+approximated: Boolean NOT NULL

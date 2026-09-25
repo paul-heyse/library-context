@@ -174,6 +174,8 @@ key:model_targets
   SELECT snapshot_id, model_id, target_node_id, count(*) AS n FROM model_targets GROUP BY snapshot_id, model_id, target_node_id HAVING count(*) > 1
 key:model_transfers
   SELECT snapshot_id, model_id, target_node_id, rule_id, count(*) AS n FROM model_transfers GROUP BY snapshot_id, model_id, target_node_id, rule_id HAVING count(*) > 1
+key:exit_sites
+  SELECT snapshot_id, function_node_id, site_node_id, kind, count(*) AS n FROM exit_sites GROUP BY snapshot_id, function_node_id, site_node_id, kind HAVING count(*) > 1
 key:flow_test_exact_origins
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_exact_origins GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:field_accesses
@@ -314,6 +316,18 @@ ref:model_transfers.target_node_id->context_definitions
   SELECT f.target_node_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
 ref:model_transfers.target_definition_fact_id->facts
   SELECT f.target_definition_fact_id AS value FROM model_transfers f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.target_definition_fact_id = r.k WHERE f.target_definition_fact_id IS NOT NULL
+ref:exit_sites.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:exit_sites.site_node_id->syntax_nodes
+  SELECT f.site_node_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT node_id AS k FROM syntax_nodes) r ON f.site_node_id = r.k WHERE f.site_node_id IS NOT NULL
+ref:exit_sites.module_node_id->source_files
+  SELECT f.module_node_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT module_node_id AS k FROM source_files) r ON f.module_node_id = r.k WHERE f.module_node_id IS NOT NULL
+ref:exit_sites.source_fact_id->syntax_nodes
+  SELECT f.source_fact_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM syntax_nodes) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:exit_sites.region_fact_id->flow_regions
+  SELECT f.region_fact_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_regions) r ON f.region_fact_id = r.k WHERE f.region_fact_id IS NOT NULL
+ref:exit_sites.condition_id->conditions
+  SELECT f.condition_id AS value FROM exit_sites f LEFT ANTI JOIN (SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:context_parameters.symbol_node_id->context_definitions
   SELECT f.symbol_node_id AS value FROM context_parameters f LEFT ANTI JOIN (SELECT symbol_node_id AS k FROM context_definitions) r ON f.symbol_node_id = r.k WHERE f.symbol_node_id IS NOT NULL
 ref:context_parameters.module_node_id->context_modules
@@ -744,6 +758,8 @@ codebook:model_transfers.transfer
   SELECT transfer FROM model_transfers WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:model_transfers.origin
   SELECT origin FROM model_transfers WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
+codebook:exit_sites.kind
+  SELECT kind FROM exit_sites WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
 codebook:flow_test_exact_origins.origin
   SELECT origin FROM flow_test_exact_origins WHERE origin IS NOT NULL AND origin NOT IN (0)
 codebook:ambient_reads.phase

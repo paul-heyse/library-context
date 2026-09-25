@@ -135,6 +135,32 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("model_transfers", "target_definition_fact_id", FACT),
     r(
+        "exit_sites",
+        "function_node_id",
+        &[("declarations", "node_id")],
+    ),
+    r("exit_sites", "site_node_id", &[("syntax_nodes", "node_id")]),
+    r(
+        "exit_sites",
+        "module_node_id",
+        &[("source_files", "module_node_id")],
+    ),
+    r(
+        "exit_sites",
+        "source_fact_id",
+        &[("syntax_nodes", "fact_id")],
+    ),
+    r(
+        "exit_sites",
+        "region_fact_id",
+        &[("flow_regions", "fact_id")],
+    ),
+    r(
+        "exit_sites",
+        "condition_id",
+        &[("conditions", "condition_id")],
+    ),
+    r(
         "context_parameters",
         "symbol_node_id",
         &[("context_definitions", "symbol_node_id")],

@@ -53,8 +53,8 @@ pub struct Published {
 /// links under an exact type guard. 20: committed typed model catalog identity and validation.
 /// 21: pinned-source model target bindings and their publication contract. 22: compiled authored
 /// transfer rows, gated on those target bindings. 23: external Pysa signatures and model formal
-/// path validation.
-pub const COMPILER_OUTPUT_VERSION: u32 = 23;
+/// path validation. 24: attributed explicit exits and finally-body actions.
+pub const COMPILER_OUTPUT_VERSION: u32 = 24;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -605,7 +605,7 @@ async fn finish(
     {
         use cpg_schema::behavior::{
             AmbientReads, ArgumentFlows, BehaviorSteps, Behaviors, Delegations, DynamicAccesses,
-            FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards, Handoffs,
+            ExitSites, FieldAccesses, FlowTestExactOrigins, FlowTestValueLinks, Guards, Handoffs,
             NegativePremises, OperationDocuments, OperationFacetStatus, OperationFacets,
             Operations, ParameterReads, RaiseSites, Singletons, ValueFlows,
         };
@@ -622,6 +622,13 @@ async fn finish(
         write_analysis::<NegativePremises>(&ctx, root, snapshot_id, &m.premises, w).await?;
         write_analysis::<ArgumentFlows>(&ctx, root, snapshot_id, &behavior.argument_flows, w)
             .await?;
+        let exit_sites = crate::sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::exit_sites(),
+            crate::sql::Params::new(),
+        )
+        .await?;
+        write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
         write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
             .await?;

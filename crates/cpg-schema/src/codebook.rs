@@ -1375,6 +1375,16 @@ codebook!(
     }
 );
 
+codebook!(
+    /// Source-observed exit/control sites; a `finally` row marks a body action, not a completed
+    /// normal or exceptional exit (Stage 3 L2).
+    ExitSiteKind = "exit_site_kind" {
+        Return = 0 => "return",
+        Raise = 1 => "raise",
+        FinallyBody = 2 => "finally_body",
+    }
+);
+
 /// Every codebook, in declaration order: the snapshot-tested registry.
 pub fn registry() -> Vec<CodebookEntry> {
     vec![
@@ -1446,6 +1456,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ReadPhase>(),
         CodebookEntry::of::<DynamicKind>(),
         CodebookEntry::of::<PremiseKind>(),
+        CodebookEntry::of::<ExitSiteKind>(),
     ]
 }
 

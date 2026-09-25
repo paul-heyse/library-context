@@ -29,11 +29,35 @@
 
 use crate::codebook::{
     BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EmbeddingView,
-    ExactValueOrigin, FlowSink, InvocationPhase, Modality, ModelTransferKind, OperationFacet,
-    Origin, PremiseKind, ReadPhase, SourceRole, TestValueLinkOrigin, ValueClass, Verdict,
+    ExactValueOrigin, ExitSiteKind, FlowSink, InvocationPhase, Modality, ModelTransferKind,
+    OperationFacet, Origin, PremiseKind, ReadPhase, SourceRole, TestValueLinkOrigin, ValueClass,
+    Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
+
+table!(
+    /// Explicit return/raise statements and direct finally-body actions in release functions.
+    /// These are attributed source/control sites, not a proof that an exception is handled or
+    /// that a return is the only path. The flow region supplies the path condition.
+    ExitSites, ExitSitesRow = "exit_sites",
+    family = Findings,
+    key = [snapshot_id, function_node_id, site_node_id, kind],
+    checks = [("span_order", "start_byte >= 0 AND end_byte >= start_byte")],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        site_node_id: Id,
+        kind: ExitSiteKind,
+        module_node_id: Id,
+        source_fact_id: Id,
+        region_fact_id: Id,
+        start_byte: i64,
+        end_byte: i64,
+        condition_id: Id,
+        approximated: bool,
+    }
+);
 
 table!(
     /// An authored model bound to a definition in the pinned analysis context. This is a target
@@ -652,6 +676,53 @@ fn with_snapshot(sql: &str) -> String {
 
 crate::relations! {
     inventory all;
+
+    /// Source-observed explicit exits and finally-body actions with ty's statement region.
+    exit_sites = "behavior:exit_sites",
+        deps = ["syntax_nodes", "flow_regions", "declarations"],
+        sql = format!(
+            "WITH sites AS ( \
+               SELECT s.snapshot_id, s.owner_node_id AS function_node_id, \
+                      s.node_id AS site_node_id, s.kind AS syntax_kind, s.field, \
+                      p.kind AS parent_kind, s.module_node_id, \
+                      s.fact_id AS source_fact_id, r.fact_id AS region_fact_id, \
+                      s.start_byte, s.end_byte, r.condition_id, r.approximated \
+               FROM syntax_nodes s JOIN flow_regions r \
+               ON r.module_node_id = s.module_node_id \
+              AND r.start_byte = s.start_byte AND r.end_byte = s.end_byte \
+              AND r.scope_kind = {function_scope} \
+             JOIN declarations d ON d.node_id = s.owner_node_id \
+               AND d.kind IN ({function}, {async_function}) \
+               AND r.scope_start_byte = d.name_start_byte \
+               AND r.scope_end_byte = d.name_end_byte \
+             LEFT JOIN syntax_nodes p ON p.node_id = s.parent_node_id \
+               AND p.module_node_id = s.module_node_id \
+             WHERE s.kind IN ({ret}, {raise}) \
+                OR (s.field = {finalbody} AND p.kind = {try_}) \
+             ) \
+             SELECT snapshot_id, function_node_id, site_node_id, \
+                    CAST(CASE WHEN syntax_kind = {ret} THEN {return_kind} \
+                              ELSE {raise_kind} END AS SMALLINT) AS kind, \
+                    module_node_id, source_fact_id, region_fact_id, start_byte, end_byte, \
+                    condition_id, approximated \
+             FROM sites WHERE syntax_kind IN ({ret}, {raise}) \
+             UNION ALL \
+             SELECT snapshot_id, function_node_id, site_node_id, \
+                    CAST({finally_kind} AS SMALLINT) AS kind, \
+                    module_node_id, source_fact_id, region_fact_id, start_byte, end_byte, \
+                    condition_id, approximated \
+             FROM sites WHERE field = {finalbody} AND parent_kind = {try_}",
+            ret = crate::codebook::SyntaxKind::StmtReturn.code(),
+            raise = crate::codebook::SyntaxKind::StmtRaise.code(),
+            return_kind = ExitSiteKind::Return.code(),
+            raise_kind = ExitSiteKind::Raise.code(),
+            finally_kind = ExitSiteKind::FinallyBody.code(),
+            function_scope = crate::codebook::LexicalScopeKind::Function.code(),
+            function = DeclarationKind::Function.code(),
+            async_function = DeclarationKind::AsyncFunction.code(),
+            finalbody = crate::codebook::SyntaxField::Finalbody.code(),
+            try_ = crate::codebook::SyntaxKind::StmtTry.code(),
+        );
 
     /// `argument_flows`: `flows::argument_flows_sql`, with the snapshot id.
     argument_flows = "behavior:argument_flows",

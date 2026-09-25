@@ -2999,6 +2999,15 @@ CPython 3.14.7 exhausted the paths for the pure `int` specialization of `typing.
 identity; a deliberately wrong control produced `value=0`. This does not certify the generic
 model or its use in a summary. [Evidence](../design_review/evidence/2026-09-24_typing_cast_model_oracle/README.md).
 
+**Implemented and Tested (2026-09-24, Stage 3 L2 structural exits only):** every compile
+derives `exit_sites` from Ruff `syntax_nodes` and ty `flow_regions`. Explicit `return` and
+`raise` statements and direct actions in a `try` statement's `finally` body carry the owning
+function, source and region fact ids, path condition, and approximation flag. A `return` or
+`raise` directly in `finally` has both site kinds. The relation is independent of a Stage E
+analysis configuration; publication reconstructs it from the pinned raw views. It does not
+prove that a raised exception escapes, a handler catches it, or a `finally` action completes.
+Those fates, callbacks, resources and composed summaries remain Proposed.
+
 **Transfer summaries** are a Stage E kernel (`lctx_analytics::summaries`).
 - **Condition semantics (ADR-0024, Proposed):** summary composition and Stage 4 definitions
   call the shared bounded diagram kernel. `summary_flows` and `summary_effects` reference
