@@ -271,6 +271,58 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
     assert boundaries[0][2] == "call_transfer" and not truncated
 
 
+def test_native_string_membership_and_integer_equality_stay_path_local() -> None:
+    # Rows come from the production Diagram/IdHasher probe in the W11 evidence folder.
+    false_id = "b9902e4735719efc29674ec10253ffeb"
+    true_id = "119f0180894a5ece441560e03b8236a6"
+    entries = (
+        ("1e620f8e6baa4f80335aa61d523df131", "35f0fe9b56ec63e62d552dcec6baea49",
+         "11c2c3afeac4740229637d741053f688",
+         'member_of(transport,{"http","sse"})#02020202020202020202020202020202:s10-20'),
+        ("5eb046a3c7c73c13eda3af197414aabd", "75dbd3aa23cbd30889b03a140ad17cc1",
+         "91e83ddc13998c845e62e903de83f584",
+         "equals(transport,2)#02020202020202020202020202020202:s10-20"),
+    )
+    snapshot, effect = "aa" * 16, "bb" * 32
+    operation, formal, module = "01" * 16, "03" * 16, "02" * 16
+    conditions = [(condition, root, None) for condition, root, _, _ in entries]
+    nodes = [(root, atom, false_id, true_id) for _, root, _, atom in entries]
+    flows = [(f"{index:02x}" * 16, operation, formal, condition, "conditional", None, 0)
+             for index, (condition, _, _, _) in enumerate(entries, start=4)]
+    steps = [(summary, 0, "finalizer_pass", "09" * 16, condition)
+             for summary, _, _, condition, _, _, _ in flows]
+    leaves = [(f"{index:02x}" * 16, module, condition, atom_id, atom, "pkg/transport.py", 10, 20)
+              for index, (condition, _, atom_id, atom) in enumerate(entries, start=6)]
+    links = [(f"{index:02x}" * 16, operation, formal, module, leaf[0], atom_id, condition,
+              "transport", "direct_parameter_reach_no_effect", effect,
+              ("pkg/transport.py", 10, 20))
+             for index, ((condition, _, atom_id, _), leaf) in enumerate(zip(entries, leaves), start=8)]
+    index = SemanticExecutor(
+        kernel_format(), snapshot, effect, conditions, nodes,
+        [operation], [("pkg.transport", operation)], [(operation, formal, "transport")],
+        flows, steps, [], leaves, links,
+    )
+
+    def results(kind: str, value: str) -> dict[str, str]:
+        paths, boundaries, total, truncated, work = index.inspect_value_paths(
+            "pkg.transport", "transport", kind, value, True, 0, 10
+        )
+        assert total == work == 2 and not truncated and boundaries == []
+        return {path[0]: path[4] for path in paths}
+
+    member, equals = (flow[0] for flow in flows)
+    assert results("str", "stdio") == {
+        member: "refuted_under_model", equals: "unknown",
+    }
+    assert results("str", "http") == {
+        member: "compatible_under_model", equals: "unknown",
+    }
+    assert results("int", "3") == {
+        member: "unknown", equals: "refuted_under_model",
+    }
+    assert results("bool", "true") == {member: "unknown", equals: "unknown"}
+
+
 def test_native_value_path_page_has_stable_bounded_boundary_order(generation: Path) -> None:
     loaded = load(generation, None)
     conditions = [

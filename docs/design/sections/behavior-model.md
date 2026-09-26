@@ -231,8 +231,9 @@ catalog, below the stored-node and root caps, is refused at the production retai
 before hydration. Native admission uses that same validator and its targeted large-reference
 control confirms the limit is reported as a load error. The native control repeats one root to
 avoid a large fixture; the valid-root control is in Rust. Cube restriction now nominates a factor
-with an exact equality gate; W11's focused CPython literal-lowering control passed, while served
-round trips and the operation-wide Q09 comparison remain open.
+with an exact equality gate; W11's focused CPython literal-lowering and synthetic native
+path-local controls passed, while a Delta/MCP served round trip and the operation-wide Q09
+comparison remain open.
 
 ### Typed primitive theory, value links and exact origins
 
@@ -290,7 +291,9 @@ reasoning, and every step is cited.
   matrix checks the production finite-literal evaluator for string membership/equality, non-bool
   integer equality, truthiness, `is None`, and exact builtin `type(x) is str` (**Tested in a focused
   control, 2026-09-26**). Bool/int cross-kind predicates remain unknown even where CPython
-  evaluates true. Served round trips and the operation-wide Q09 check remain.
+  evaluates true. A synthetic native executor independently loads two cited conditions and
+  keeps string membership and integer equality refutations path-local (**Tested**, 2026-09-26).
+  A real Delta/MCP served round trip and the operation-wide Q09 check remain.
 - **Proposed.** Source-to-source exclusions between atoms on one proved-stable value
   (`is_none` against a proved non-`None` singleton; unequal string `==` under an exact `str`
   origin and same-value witness); typed exclusion from Pyrefly terms; custom `__eq__`, subclasses

@@ -20,3 +20,16 @@ This probes the finite literal lowering only. It does not establish that a
 source operand is the queried entry formal, that a generation serves the
 right path, or that Q09 is answered operation-wide. Those require the
 separate cited-link and served-path controls in the Stage 3 plan.
+
+`native_probe.rs` constructs two evaluated atoms and their content-addressed
+catalog rows through production `Diagram` and `IdHasher`. Its output feeds
+`test_native_string_membership_and_integer_equality_stay_path_local`, which
+loads a synthetic native executor with two independently cited paths. The
+targeted PyO3 test passed on 2026-09-26: `stdio` refutes only membership,
+integer `3` refutes only equality, `http` remains compatible only on
+membership, and `True` leaves both paths unknown. This tests native path-local
+semantics, not a Delta generation or structured MCP response. Reproduce the
+rows by temporarily copying `native_probe.rs` to
+`crates/cpg-schema/examples/native_probe.rs` and running
+`cargo run -p cpg-schema --example native_probe --quiet`; remove the temporary
+example afterward.
