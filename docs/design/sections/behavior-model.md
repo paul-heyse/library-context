@@ -319,8 +319,11 @@ reasoning, and every step is cited.
   parents get `flow_reach_boundaries` with `budget_reached`; known source conditions widen to
   unknown, summary boundary candidates retain the budget cause, and field/global negative
   premises are withheld. This whole-use worklist replaces the planned SCC-local schedule
-  for now; a measured cost or semantic gap reopens that choice. The production cap's published
-  behavior and pilot cost are not yet verified.
+  for now; a measured cost or semantic gap reopens that choice. Reversing real extracted
+  `flow_reaching` and `flow_values` rows before two analyzed compiles leaves canonical Arrow IPC
+  bytes identical for published contributions, merged value flows and negative premises
+  (**Tested in a focused fixture, 2026-09-26**). The production cap's published/native behavior
+  and pilot cost are not yet verified.
 
 ## Verdicts
 

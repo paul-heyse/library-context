@@ -306,7 +306,8 @@ singleton recursive. Candidate/open dispatch contributes topology only.
   work- and node-limit reasons through the pure producer and boundary decision in focused tests
   (2026-09-26). Their Delta/native publication controls and persisted origin identity remain open.
 - W7: the flow model's cyclic reach uses the bounded source fixed point (§3.9); its production-cap
-  native trace, shuffled real extraction bytes and fresh pilot cost remain open.
+  native trace and fresh pilot cost remain open. A real extracted-flow row shuffle now preserves
+  canonical published contribution, value-flow and premise bytes in a focused fixture.
 - W12: the engine for bounded SCC composition (a native SCC worklist, Ascent or datafrog) is an
   open comparison on one semantic state and refusal contract, after W5; none is adopted. A
   wall-clock timeout is not a deterministic budget.

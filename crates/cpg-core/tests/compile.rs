@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch};
+use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch, UInt32Array};
 use cpg_core::CoreError;
 use cpg_core::analyze::{Analysis, Techniques};
 use cpg_core::attempt::{compile, compile_analyzed, publish};
@@ -106,6 +106,65 @@ async fn count(ctx: &SessionContext, statement: &str) -> i64 {
         .downcast_ref::<arrow_array::Int64Array>()
         .unwrap();
     a.value(0)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn real_flow_input_row_order_keeps_published_contribution_bytes() {
+    let snapshot = Id([94; 16]);
+    let ordered = raw("return_completion_shapes", snapshot);
+    let mut shuffled = ordered.clone();
+    let mut reversed_rows = 0;
+    for (name, batch) in &mut shuffled {
+        if !matches!(*name, "flow_reaching" | "flow_values") || batch.num_rows() < 2 {
+            continue;
+        }
+        let indices = UInt32Array::from((0..batch.num_rows() as u32).rev().collect::<Vec<_>>());
+        let columns = batch.columns().iter().map(|column| {
+            arrow_select::take::take(column.as_ref(), &indices, None).unwrap()
+        }).collect();
+        *batch = RecordBatch::try_new(batch.schema(), columns).unwrap();
+        reversed_rows += batch.num_rows();
+    }
+    assert!(reversed_rows > 2, "the real fixture must exercise reordered flow inputs");
+
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            "version = 1\n[subsystem]\nmodule_prefixes = [\"returnpkg\"]\n\
+             public_roots = [\"returnpkg\"]\n[seeds]\nprimary = [\"returnpkg.plain_identity\"]\n\
+             distractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\n\
+             max_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n",
+        ).unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(first.path(), snapshot, &ordered, Some(&analysis)).await.unwrap();
+    compile_analyzed(second.path(), snapshot, &shuffled, Some(&analysis)).await.unwrap();
+    let (_, first_ctx) = published(first.path(), snapshot).await.unwrap().unwrap();
+    let (_, second_ctx) = published(second.path(), snapshot).await.unwrap().unwrap();
+    assert!(count(&first_ctx, "SELECT count(*) FROM value_flow_contributions").await > 0);
+    async fn bytes(ctx: &SessionContext, table: &str) -> Vec<u8> {
+        let frame = sql::query(ctx, &format!("SELECT * FROM {table}"))
+            .await.unwrap();
+        let schema = Arc::new(frame.schema().as_arrow().clone());
+        let columns = schema.fields().iter().map(|field| format!("\"{}\"", field.name()))
+            .collect::<Vec<_>>().join(", ");
+        let sorted = sql::query(ctx, &format!("SELECT * FROM {table} ORDER BY {columns}"))
+            .await.unwrap().collect().await.unwrap();
+        let batch = arrow_select::concat::concat_batches(&schema, &sorted).unwrap();
+        let mut out = Vec::new();
+        {
+            let mut writer = arrow_ipc::writer::StreamWriter::try_new(&mut out, &schema).unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+        }
+        out
+    }
+    for table in ["value_flow_contributions", "value_flows", "negative_premises"] {
+        assert_eq!(bytes(&first_ctx, table).await, bytes(&second_ctx, table).await,
+            "{table} changed when real extraction rows were reversed");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
