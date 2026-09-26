@@ -1390,4 +1390,61 @@ mod tests {
             Err(NodeValidationError::Limit)
         );
     }
+
+    #[test]
+    fn decision_checks_large_result_and_over_preflight_contradiction() {
+        fn equality_diagrams(bits: usize, gate: bool) -> (Diagram, Diagram) {
+            let mut support = Vec::new();
+            if gate {
+                support.push(Atom::Truthy { place: "0_gate".to_owned() }.encode());
+            }
+            for prefix in ["a", "b"] {
+                for bit in 0..bits {
+                    support.push(Atom::Truthy {
+                        place: format!("{prefix}{bit:02}"),
+                    }.encode());
+                }
+            }
+            let names: Vec<String> = support.iter().map(|atom| atom_name(atom)).collect();
+            let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+            let ctx = BddVariableSet::new(&refs);
+            let vars = ctx.variables();
+            let offset = usize::from(gate);
+            let mut equality = ctx.mk_true();
+            let mut first = ctx.mk_true();
+            let mut second = ctx.mk_true();
+            for bit in 0..bits {
+                let a = ctx.mk_literal(vars[offset + bit], true);
+                let b = ctx.mk_literal(vars[offset + bits + bit], true);
+                let pair = a.iff(&b);
+                if gate {
+                    equality = equality.and(&pair);
+                }
+                if bit < bits / 2 {
+                    first = first.and(&pair);
+                } else {
+                    second = second.and(&pair);
+                }
+            }
+            if gate {
+                let positive = ctx.mk_literal(vars[0], true);
+                let negative = ctx.mk_literal(vars[0], false);
+                (Diagram::effective(support.clone(), ctx.clone(), equality.and(&positive)).unwrap(),
+                 Diagram::effective(support, ctx, equality.and(&negative)).unwrap())
+            } else {
+                (Diagram::effective(support.clone(), ctx.clone(), first).unwrap(),
+                 Diagram::effective(support, ctx, second).unwrap())
+            }
+        }
+
+        let (left, right) = equality_diagrams(16, false);
+        assert!(left.bdd.size() < MAX_NODES && right.bdd.size() < MAX_NODES);
+        assert_eq!(left.compatible(&right), Ok(true));
+        assert_eq!(left.and(&right).err(), Some(KernelBoundary::NodeLimit));
+
+        let (left, right) = equality_diagrams(10, true);
+        assert!(left.bdd.size() * right.bdd.size() > MAX_PAIR_WORK);
+        assert_eq!(left.compatible(&right), Ok(false));
+        assert_eq!(left.and(&right).err(), Some(KernelBoundary::WorkPreflight));
+    }
 }

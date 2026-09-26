@@ -212,22 +212,23 @@ The **accepted** parts (ADR-0045):
 
 The **general kernel allowance** is ADR-0024, which is proposed: the kernel owns `and`, `or`,
 `not`, `given`, `implies` (incompatibility of `a ∧ ¬b`) and `compatible` (satisfiability of
-`a ∧ b`), each preflighted against support (≤128 atoms), input-node product (≤1,000,000 pair
-work) and a 50,000-node result cap; catalogs admit ≤100,000 conditions and ≤100,000 nodes. A
+`a ∧ b`). Materialized operations preflight support (≤128 atoms), input-node product
+(≤1,000,000 pair work) and a 50,000-node result cap; `compatible` and `implies` use the pinned
+BDD library's non-allocating, task-bounded decision operation. Catalogs admit ≤100,000 conditions,
+≤100,000 stored nodes and ≤1,000,000 retained nodes across hydrated roots. A
 preflight refusal and a node-limit hit are distinct causes; both are unknown, and there is no
 wall-clock guarantee. `given` nominates a quotient by the Stage 2 rule and accepts it only after
 checking `original == factor ∧ quotient`, else `not_factored`. The target adds restriction and
 existential projection, so that a node limit is the only point where information is cut.
 
-**Known defects** ([plan W6, W11](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-`compatible`/`implies` build the full result under the node cap, so a decidable pair can answer
-`NodeLimit` (Tested); declared support never shrinks, so atom-limit admission depends on
-construction history (Tested); catalog caps count shared stored rows while hydration retains
-per-root expansions (256 roots over a shared 64-node tail hydrate to 17,152 owned nodes, Tested),
-so no aggregate preparation budget exists yet. `given` still nominates from the DNF and returns
-the original when that is over budget, which loses factoring exactly for large conditions; cube
-restriction is the intended candidate generator, with the equality gate kept (restriction is not
-factor division).
+**Current W6 boundary** ([plan W6, W11](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+The non-allocating decisions, effective-support normalization, retained-node catalog admission,
+and native stored/retained diagnostics are **Tested in focused cases (2026-09-26)**. A pair whose
+materialized conjunction exceeds 50,000 nodes still decides compatibility; a contradiction
+whose input-node product exceeds the materializing preflight also decides. A production-budget
+task-limit control and complete native aggregate refusal remain open. Cube restriction now
+nominates a factor with an exact equality gate; W11's Python lowering and Q09 served comparison
+remain open.
 
 ### Typed primitive theory, value links and exact origins
 
