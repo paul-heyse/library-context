@@ -5,8 +5,9 @@
 - **Hook:** `scripts/hooks/format_edited.sh` runs after every Edit/Write and formats only the
   edited file (rustfmt / ruff format). It never blocks. If a file changes on disk after your
   edit, that is the formatter.
-- **Diagnostics:** the pyright plugin is disabled for this project (`.claude/settings.json`);
-  in-session Python diagnostics come from pyrefly.
+- **Diagnostics:** the pyright plugin is disabled for this project (`.claude/settings.json`)
+  because pyrefly is the type checker. There is no in-session Python language server; run
+  `uv run pyrefly check` for Python diagnostics.
 - **Subagent:** `.claude/agents/design-reviewer.md` runs the `design-review` skill with fresh
   context. Give it the target and expected change scenarios; the binding selects tier and purpose.
 - **Memory:** project memory records the low-friction process preference; the repository binding under ADR-0040 owns current
