@@ -1,0 +1,17 @@
+{"kind": "str_member", "lowered": true, "python": true, "value": "http"}
+{"kind": "str_member", "lowered": true, "python": false, "value": "stdio"}
+{"kind": "int_equal", "lowered": true, "python": true, "value": 2}
+{"kind": "int_equal", "lowered": true, "python": false, "value": 3}
+{"kind": "str_equal", "lowered": true, "python": true, "value": "http"}
+{"kind": "str_equal", "lowered": true, "python": false, "value": "HTTP"}
+{"kind": "truthy", "lowered": true, "python": false, "value": null}
+{"kind": "truthy", "lowered": true, "python": false, "value": false}
+{"kind": "truthy", "lowered": true, "python": true, "value": -1}
+{"kind": "truthy", "lowered": true, "python": false, "value": ""}
+{"kind": "truthy", "lowered": true, "python": true, "value": "x"}
+{"kind": "is_none", "lowered": true, "python": true, "value": null}
+{"kind": "is_none", "lowered": true, "python": false, "value": 0}
+{"kind": "type_is_str", "lowered": true, "python": true, "value": "x"}
+{"kind": "type_is_str", "lowered": true, "python": false, "value": 1}
+{"kind": "int_member", "lowered": false, "python": true, "value": true}
+{"kind": "equal_one", "lowered": false, "python": true, "value": true}

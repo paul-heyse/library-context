@@ -685,6 +685,55 @@ mod tests {
     }
 
     #[test]
+    fn finite_primitive_lowering_matches_recorded_cpython_314_predicates() {
+        let observations = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/design_review/evidence/2026-09-26_primitive-python-lowering/observations.jsonl"
+        ));
+        for line in observations.lines() {
+            let row: serde_json::Value = serde_json::from_str(line).unwrap();
+            let kind = row["kind"].as_str().unwrap();
+            let input = match &row["value"] {
+                serde_json::Value::Null => Value::None,
+                serde_json::Value::Bool(value) => Value::Bool(*value),
+                serde_json::Value::Number(value) => Value::Int(value.as_i64().unwrap()),
+                serde_json::Value::String(value) => Value::Str(value.clone()),
+                other => panic!("unexpected oracle input {other}"),
+            };
+            let atom = match kind {
+                "str_member" => Atom::member_of("x".to_owned(), vec![
+                    Value::Str("sse".to_owned()), Value::Str("http".to_owned())]),
+                "int_member" => Atom::member_of("x".to_owned(), vec![Value::Int(1)]),
+                "int_equal" => Atom::Equals { place: "x".to_owned(), value: Value::Int(2) },
+                "equal_one" => Atom::Equals { place: "x".to_owned(), value: Value::Int(1) },
+                "str_equal" => Atom::Equals {
+                    place: "x".to_owned(), value: Value::Str("http".to_owned()),
+                },
+                "truthy" => Atom::Truthy { place: "x".to_owned() },
+                "is_none" => Atom::IsNone { place: "x".to_owned() },
+                "type_is_str" => Atom::TypeIs {
+                    place: "x".to_owned(), class: "str".to_owned(),
+                },
+                other => panic!("unexpected oracle predicate {other}"),
+            }.evaluated(EvaluationIdentity::Site {
+                module: Id([2; 16]).hex(), start: 10, end: 20,
+            });
+            let origin = if kind == "type_is_str" {
+                TestValueLinkOrigin::ResolvedBuiltinTypeOperand
+            } else {
+                TestValueLinkOrigin::DirectParameterReachNoEffect
+            };
+            let expected = row["lowered"].as_bool().unwrap()
+                .then(|| row["python"].as_bool().unwrap());
+            assert_eq!(
+                evaluate_exact_input(&atom, &input, origin, BuiltinNamespace::StandardAssumed),
+                expected,
+                "{kind} on {input:?}",
+            );
+        }
+    }
+
+    #[test]
     fn refutation_drops_an_irrelevant_earlier_link() {
         let input = Value::Str("query".to_owned());
         let mut diagrams = Vec::new();
