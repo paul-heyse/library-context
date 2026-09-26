@@ -293,9 +293,12 @@ evidence stays an explicit unknown. No generic `return x` positive after an unpr
 
 **Schedule and recursion.** `summary_components` records every release function's SCC, sorted
 members, canonical component id and a callee-first schedule over attributed local call targets;
-petgraph 0.8.3's `tarjan_scc` computes components and a sorted condensation worklist makes ties
-independent of row order. A self-call marks a singleton recursive. Candidate/open dispatch
-contributes topology only.
+petgraph 0.8.3's iterative `kosaraju_scc` computes components and a sorted condensation
+worklist makes ties independent of row order. A 30,000-edge chain and the existing
+mutual/self-recursion order control passed in focused tests (2026-09-26). A self-call marks a
+singleton recursive. Candidate/open dispatch contributes topology only.
+
+> Decision: ADR-0052
 
 **Known gaps** ([plan W5, W7, W12, W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - W5 (ARC-02/03) has focused production and native evidence for explicit finite inputs and
@@ -305,8 +308,9 @@ contributes topology only.
 - W12: the engine for bounded SCC composition (a native SCC worklist, Ascent or datafrog) is an
   open comparison on one semantic state and refusal contract, after W5; none is adopted. A
   wall-clock timeout is not a deterministic budget.
-- W13: whether the recursive `tarjan_scc` routine is stack-safe on large call graphs is open, and
-  the SCC routine and ownership are unresolved; the keyed ordering stays bespoke.
+- W13: iterative SCC routine and schedule ownership are decided by ADR-0052 and tested in a
+  deep chain. The separate type-term recursive CTE identity/provenance case and pilot cost remain
+  open; keyed condensation ordering stays repository-owned.
 
 ## Native serving boundary
 

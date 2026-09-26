@@ -12,7 +12,7 @@ use cpg_schema::codebook::BoundaryReason;
 use cpg_schema::condition_kernel::Diagram;
 use cpg_schema::id::Id;
 use petgraph::Directed;
-use petgraph::algo::tarjan_scc;
+use petgraph::algo::kosaraju_scc;
 use petgraph::graph::{Graph, NodeIndex};
 
 use crate::AnalyticsError;
@@ -55,7 +55,7 @@ pub fn call_components(
             .try_add_edge(NodeIndex::new(src), NodeIndex::new(dst), ())
             .map_err(|e| AnalyticsError::Graph(e.to_string()))?;
     }
-    let mut components: Vec<CallComponent> = tarjan_scc(&graph)
+    let mut components: Vec<CallComponent> = kosaraju_scc(&graph)
         .into_iter()
         .map(|component| {
             let mut members: Vec<_> = component
@@ -209,6 +209,23 @@ mod tests {
             call_components(&[a], &[(a, b)]),
             Err(AnalyticsError::UnknownVertex(_))
         ));
+    }
+
+    #[test]
+    fn deep_call_chain_is_stack_safe_and_callee_first() {
+        fn node(number: u64) -> Id {
+            let mut bytes = [0; 16];
+            bytes[..8].copy_from_slice(&number.to_be_bytes());
+            Id(bytes)
+        }
+        let functions: Vec<_> = (0..30_000).rev().map(node).collect();
+        let calls: Vec<_> = (0..29_999).rev()
+            .map(|number| (node(number), node(number + 1))).collect();
+        let components = call_components(&functions, &calls).unwrap();
+        assert_eq!(components.len(), functions.len());
+        assert_eq!(components.first().unwrap().members, [node(29_999)]);
+        assert_eq!(components.last().unwrap().members, [node(0)]);
+        assert!(components.iter().all(|component| !component.recursive));
     }
 
     #[test]
