@@ -1,0 +1,13 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table flow_reach_boundaries
+family findings
+key snapshot_id, use_id
+check budget_only: reason = 6
+@lctx.family=findings
+@lctx.table=flow_reach_boundaries
+snapshot_id: FixedSizeBinary(16) NOT NULL
+use_id: FixedSizeBinary(16) NOT NULL
+reason: Int16 NOT NULL [lctx.codebook=boundary_reason]

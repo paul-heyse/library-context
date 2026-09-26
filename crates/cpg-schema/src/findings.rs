@@ -489,6 +489,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::OperationFacets,
             $crate::behavior::OperationFacetStatus,
             $crate::behavior::ValueFlows,
+            $crate::behavior::FlowReachBoundaries,
             $crate::behavior::ValueFlowContributions,
             $crate::behavior::AnalysisConditions,
             $crate::behavior::AnalysisConditionNodes,

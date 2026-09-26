@@ -107,6 +107,7 @@ cpg_schema::query_row! {
         upstream_through_call: bool,
         raw_through_call: bool,
         raw_approximated: bool,
+        reach_budget: bool,
     }
 }
 
@@ -184,7 +185,9 @@ fn summarize_boundaries(
     flows: &[SummaryFlowsRow],
     refusals: &[SummaryRefusal],
 ) -> Vec<SummaryBoundariesRow> {
-    let proved: HashSet<BoundaryKey> = flows.iter().map(|flow| (
+    let proved: HashSet<BoundaryKey> = flows.iter()
+        .filter(|flow| flow.verdict != Verdict::Unknown)
+        .map(|flow| (
         flow.snapshot_id, flow.function_node_id, flow.parameter_node_id,
         flow.source_flow_fact_id, flow.condition_id,
     )).collect();
@@ -206,9 +209,13 @@ fn summarize_boundaries(
         }
         let crossed_call = origins.iter().any(|o| o.through_call || o.local_through_call
             || o.upstream_through_call || o.raw_through_call);
-        let fallback = if crossed_call { BoundaryReason::CallTransfer }
+        let fallback = if origins.iter().any(|o| o.reach_budget) {
+            BoundaryReason::BudgetReached
+        } else if crossed_call { BoundaryReason::CallTransfer }
             else { BoundaryReason::UnsupportedControlFlow };
-        let reason = if origins.len() == 1 {
+        let reason = if origins.iter().any(|o| o.reach_budget) {
+            BoundaryReason::BudgetReached
+        } else if origins.len() == 1 {
             refused.get(&key).and_then(|reasons| reasons.iter()
                 .filter(|reason| !matches!(reason,
                     BoundaryReason::MissingEvidence | BoundaryReason::CallTransfer))
@@ -970,6 +977,7 @@ mod tests {
                 upstream_through_call: false,
                 raw_through_call: false,
                 raw_approximated: false,
+                reach_budget: false,
             }],
         }
     }
@@ -1046,6 +1054,7 @@ mod tests {
                 upstream_through_call: false,
                 raw_through_call: true,
                 raw_approximated: false,
+                reach_budget: false,
             });
         }
         let result = finite_flows(input);
@@ -1076,5 +1085,12 @@ mod tests {
         let result = finite_flows(bounded);
         assert!(result.flows.is_empty());
         assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionWorkLimit);
+
+        let mut capped_reach = inputs();
+        capped_reach.direct_seeds.clear();
+        capped_reach.boundary_candidates[0].reach_budget = true;
+        let result = finite_flows(capped_reach);
+        assert!(result.flows.is_empty());
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::BudgetReached);
     }
 }

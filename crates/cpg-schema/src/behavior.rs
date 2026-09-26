@@ -1035,6 +1035,20 @@ table!(
 );
 
 table!(
+    /// A use whose finite source fixed point exhausted deterministic work. Its missing
+    /// origins are unknown, never absent; dependent summary positives must be withheld.
+    FlowReachBoundaries, FlowReachBoundariesRow = "flow_reach_boundaries",
+    family = Findings,
+    key = [snapshot_id, use_id],
+    checks = [("budget_only", "reason = 6")],
+    {
+        snapshot_id: Id,
+        use_id: Id,
+        reason: BoundaryReason,
+    }
+);
+
+table!(
     /// One source origin contributing to one raw `flow_values` fact before the presentation
     /// view merges origins and keeps only the strongest transfer. L3 must join its parent fact
     /// to `flow_value_call_links`; a sink span or `through_call` flag is not a call identity.
@@ -2380,16 +2394,19 @@ crate::relations! {
     /// Raw, path-specific origins supplied to the finite summary decision. This query does
     /// not infer a refusal from missing summary rows; the analytics producer does that.
     summary_boundary_candidates = "behavior:summary_boundary_candidates",
-        deps = ["value_flow_contributions", "flow_values"],
+        deps = ["value_flow_contributions", "flow_values", "flow_reach_boundaries"],
         sql = format!(
             "SELECT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, v.flow_value_fact_id AS source_flow_fact_id, \
                     v.condition_id, v.use_id, v.source_key, v.through_call, \
                     v.local_through_call, v.upstream_through_call, \
                     f.through_call AS raw_through_call, \
-                    f.approximated AS raw_approximated \
+                    f.approximated AS raw_approximated, \
+                    (b.use_id IS NOT NULL) AS reach_budget \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
+             LEFT JOIN flow_reach_boundaries b ON b.snapshot_id = v.snapshot_id \
+               AND b.use_id = v.use_id \
              WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
                AND v.function_node_id = v.sink_function_node_id",
             return_sink = FlowSink::Return.code(),

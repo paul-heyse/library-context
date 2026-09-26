@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use cpg_schema::behavior::{
     AmbientReadsRow, AnalysisConditionNodesRow, AnalysisConditionsRow, DynamicAccessesRow,
-    FieldAccessesRow, NegativePremisesRow, RaiseSitesRow, SingletonsRow, ValueFlowContributionsRow,
+    FieldAccessesRow, FlowReachBoundariesRow, NegativePremisesRow, RaiseSitesRow, SingletonsRow, ValueFlowContributionsRow,
     ValueFlowsRow,
 };
 use cpg_schema::codebook::{
@@ -547,6 +547,7 @@ pub fn digest() -> cpg_schema::id::Digest {
 #[derive(Debug, Default)]
 pub struct FlowModelRows {
     pub value_flows: Vec<ValueFlowsRow>,
+    pub reach_boundaries: Vec<FlowReachBoundariesRow>,
     pub value_flow_contributions: Vec<ValueFlowContributionsRow>,
     pub field_accesses: Vec<FieldAccessesRow>,
     pub ambient_reads: Vec<AmbientReadsRow>,
@@ -684,6 +685,15 @@ fn merge(into: &mut Sources, origin: Origin, s: Source) {
     }
 }
 
+const MAX_REACH_WORK: usize = 1_000_000;
+
+fn same_sources(left: &Sources, right: &Sources) -> bool {
+    left.len() == right.len() && left.iter().all(|(key, source)| {
+        right.get(key).is_some_and(|other| source.captured == other.captured
+            && source.condition.id() == other.condition.id())
+    })
+}
+
 /// Plain definitions pass a value unchanged; loop, `with` and comprehension targets and
 /// augmented assignments compute it.
 fn plain(kind: BindingKind) -> bool {
@@ -706,6 +716,7 @@ struct Model {
     /// A use naming `<receiver>.<field>` in a method: its class and field.
     fields: HashMap<Id, (Id, String)>,
     memo: HashMap<(Id, bool), Rc<Sources>>,
+    incomplete: HashSet<(Id, bool)>,
     /// Receivers count as origins (the dynamic-access check reads through local copies of
     /// `self`).
     keep_receivers: bool,
@@ -719,24 +730,21 @@ impl Model {
             .unwrap_or_else(|| ModelCondition::unknown(KernelBoundary::SourceOverBudget))
     }
 
-    /// The parameters reaching a use (see the module docs), with the shallowest depth of `stack`
-    /// at which a cycle was cut below it (`usize::MAX`: none). A result computed while a cycle
-    /// through a use above it was cut lacks that use's sources, so it is not memoized; the use
-    /// the cycle closes at is complete (the Stage 2 end review's R5; Tarjan's lowlink).
-    fn reach(&mut self, u: Id, stack: &mut Vec<Id>) -> (Rc<Sources>, usize) {
-        if let Some(s) = self.memo.get(&(u, self.keep_receivers)) {
-            return (s.clone(), usize::MAX);
-        }
-        if let Some(depth) = stack.iter().position(|&v| v == u) {
-            return (Rc::new(Sources::new()), depth);
-        }
-        let depth = stack.len();
-        stack.push(u);
-        let mut low = usize::MAX;
+    /// Recompute a use from the current source lattice. No recursive DFS result is cached at
+    /// a cycle head: every changed child reschedules its dependents until the least fixed point.
+    fn reach_step(
+        &self,
+        u: Id,
+        states: &HashMap<Id, Rc<Sources>>,
+        work: &mut usize,
+        max_work: usize,
+    ) -> Option<Sources> {
         let mut out = Sources::new();
         let rows = self.reaching.get(&u).cloned().unwrap_or_default();
         let this = self.uses.get(&u).cloned();
         for (def, condition_id, carried) in rows {
+            *work += 1;
+            if *work > max_work { return None; }
             let at = self.condition(condition_id);
             let Some(def) = def else {
                 // A receiver's field with no local definition: the field is the origin.
@@ -813,9 +821,12 @@ impl Model {
                 Transfer::Derived
             };
             for (_, u2, transfer, c2) in inner {
-                let (sources, below) = self.reach(u2, stack);
-                low = low.min(below);
+                *work += 1;
+                if *work > max_work { return None; }
+                let Some(sources) = states.get(&u2) else { continue; };
                 for ((o, t3), s) in sources.iter() {
+                    *work += 1;
+                    if *work > max_work { return None; }
                     // Around a loop's back edge the definition's conditions are an earlier
                     // iteration's, and its tests are spelled like this iteration's: only the use's
                     // side is kept, a sound over-approximation (the Stage 2 end review's R4a).
@@ -836,13 +847,85 @@ impl Model {
                 }
             }
         }
-        stack.pop();
-        let out = Rc::new(out);
-        if low >= depth {
-            self.memo.insert((u, self.keep_receivers), out.clone());
-            low = usize::MAX;
+        Some(out)
+    }
+
+    fn solve_reach(&mut self, max_work: usize) {
+        let mode = self.keep_receivers;
+        let mut uses: BTreeSet<Id> = self.uses.keys().copied().collect();
+        uses.extend(self.reaching.keys().copied());
+        let mut parents: HashMap<Id, BTreeSet<Id>> = HashMap::new();
+        for (&u, rows) in &self.reaching {
+            for (def, _, _) in rows {
+                let Some(d) = def.and_then(|id| self.defs.get(&id)) else { continue; };
+                let (Some(vs), Some(ve)) = (d.value_start_byte, d.value_end_byte) else { continue; };
+                for (_, child, _, _) in self.values.get(&(d.module_node_id, FlowSink::Definition, vs, ve))
+                    .into_iter().flatten() {
+                    uses.insert(*child);
+                    parents.entry(*child).or_default().insert(u);
+                }
+            }
         }
-        (out, low)
+        let mut pending = uses.clone();
+        let mut states: HashMap<Id, Rc<Sources>> = HashMap::new();
+        let mut work = 0;
+        while let Some(u) = pending.pop_first() {
+            let Some(next) = self.reach_step(u, &states, &mut work, max_work) else {
+                pending.insert(u);
+                break;
+            };
+            let changed = states.get(&u).is_none_or(|old| !same_sources(old, &next));
+            if changed {
+                states.insert(u, Rc::new(next));
+                pending.extend(parents.get(&u).into_iter().flatten().copied());
+            }
+        }
+        if !pending.is_empty() {
+            // A capped fixed point is incomplete, including every ancestor that depends on
+            // the frontier. Existing origins are widened to unknown; missing origins must be
+            // reported by the separate use-boundary relation, never read as absent.
+            let mut incomplete = pending.clone();
+            while let Some(child) = pending.pop_first() {
+                for &parent in parents.get(&child).into_iter().flatten() {
+                    if incomplete.insert(parent) { pending.insert(parent); }
+                }
+            }
+            for u in incomplete {
+                self.incomplete.insert((u, mode));
+                if let Some(old) = states.get_mut(&u) {
+                    let mut widened = (**old).clone();
+                    for source in widened.values_mut() {
+                        source.condition = ModelCondition::unknown(KernelBoundary::SourceOverBudget);
+                    }
+                    *old = Rc::new(widened);
+                }
+            }
+        }
+        for u in uses {
+            self.memo.insert((u, mode), states.remove(&u)
+                .unwrap_or_else(|| Rc::new(Sources::new())));
+        }
+    }
+
+    fn reach(&mut self, u: Id, _stack: &mut Vec<Id>) -> (Rc<Sources>, usize) {
+        if !self.memo.contains_key(&(u, self.keep_receivers)) {
+            self.solve_reach(MAX_REACH_WORK);
+        }
+        (self.memo.entry((u, self.keep_receivers))
+            .or_insert_with(|| Rc::new(Sources::new())).clone(), usize::MAX)
+    }
+
+    fn reach_boundary_rows(&self, snapshot_id: Id) -> Vec<FlowReachBoundariesRow> {
+        let mut rows: Vec<_> = self.incomplete.iter()
+            .filter(|(_, keep_receivers)| !keep_receivers)
+            .map(|(use_id, _)| FlowReachBoundariesRow {
+                snapshot_id,
+                use_id: *use_id,
+                reason: BoundaryReason::BudgetReached,
+            })
+            .collect();
+        rows.sort_by_key(|row| row.use_id);
+        rows
     }
 
     /// Keep a separate contribution for every provider value fact and source origin. The
@@ -1140,6 +1223,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         receivers: receiver_set,
         fields: field_uses,
         memo: HashMap::new(),
+        incomplete: HashSet::new(),
         keep_receivers: false,
     };
     let mut region_map: HashMap<Id, Vec<(i64, i64, Id)>> = HashMap::new();
@@ -2195,6 +2279,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     let all_complete = module_rows
         .iter()
         .all(|m| complete.contains(&m.module_node_id));
+    let reach_complete = model.incomplete.is_empty();
     let related = |class: Id| -> bool {
         dynamic_classes.contains(&class)
             || ancestors
@@ -2279,6 +2364,12 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     "an attribute load named `{field}` exists in the release"
                 )),
             )
+        } else if !reach_complete {
+            (
+                false,
+                Some(BoundaryReason::BudgetReached),
+                Some("the source fixed point reached its work budget".to_owned()),
+            )
         } else if !all_complete {
             (
                 false,
@@ -2327,6 +2418,12 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                         "an attribute load named `{field}` exists in the release"
                     )),
                 )
+            } else if !reach_complete {
+                (
+                    false,
+                    Some(BoundaryReason::BudgetReached),
+                    Some("the source fixed point reached its work budget".to_owned()),
+                )
             } else if !all_complete {
                 (
                     false,
@@ -2357,6 +2454,98 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         }
     }
     out.premises = premises.into_values().collect();
+    out.reach_boundaries = model.reach_boundary_rows(snapshot_id);
     out.condition_models = condition_models;
     Ok(out)
+}
+
+#[cfg(test)]
+mod reach_fixed_point_tests {
+    use super::*;
+
+    fn id(byte: u8) -> Id { Id([byte; 16]) }
+
+    fn definition(byte: u8, parameter: Option<Id>, value: Option<(i64, i64)>) -> DefRow {
+        DefRow {
+            definition_id: id(byte),
+            module_node_id: id(0),
+            place: "value".to_owned(),
+            kind: if parameter.is_some() { BindingKind::Parameter }
+                else { BindingKind::Assignment },
+            scope_kind: LexicalScopeKind::Function,
+            start_byte: i64::from(byte),
+            end_byte: i64::from(byte) + 1,
+            value_start_byte: value.map(|v| v.0),
+            value_end_byte: value.map(|v| v.1),
+            function_node_id: Some(id(1)),
+            parameter_node_id: parameter,
+        }
+    }
+
+    fn model(cyclic: bool) -> Model {
+        Model {
+            uses: HashMap::new(),
+            defs: [
+                (id(10), definition(10, Some(id(9)), None)),
+                (id(11), definition(11, None, Some((11, 12)))),
+                (id(12), definition(12, None, Some((12, 13)))),
+            ].into(),
+            reaching: [
+                (id(2), vec![(Some(id(10)), id(1), false),
+                    (Some(id(11)), id(1), true)]),
+                (id(3), vec![(Some(if cyclic { id(12) } else { id(10) }),
+                    id(1), false)]),
+            ].into(),
+            values: [
+                ((id(0), FlowSink::Definition, 11, 12),
+                    vec![(id(21), id(3), Transfer::Call, id(1))]),
+                ((id(0), FlowSink::Definition, 12, 13),
+                    vec![(id(22), id(2), Transfer::Identity, id(1))]),
+            ].into(),
+            conditions: [(id(1), ModelCondition::always())].into(),
+            captured: HashMap::new(),
+            receivers: HashSet::new(),
+            fields: HashMap::new(),
+            memo: HashMap::new(),
+            incomplete: HashSet::new(),
+            keep_receivers: false,
+        }
+    }
+
+    #[test]
+    fn cycle_head_reaches_the_same_transfer_variants_in_both_query_orders() {
+        let transfer_set = |model: &mut Model, use_id| model.reach(use_id, &mut Vec::new())
+            .0.keys().map(|(_, transfer)| *transfer).collect::<BTreeSet<_>>();
+        let expected = BTreeSet::from([Transfer::Identity, Transfer::Call]);
+        let mut a_first = model(true);
+        assert_eq!(transfer_set(&mut a_first, id(2)), expected);
+        assert_eq!(transfer_set(&mut a_first, id(3)), expected);
+        let mut b_first = model(true);
+        assert_eq!(transfer_set(&mut b_first, id(3)), expected);
+        assert_eq!(transfer_set(&mut b_first, id(2)), expected);
+        assert_eq!(transfer_set(&mut model(false), id(2)), expected);
+        let mut reversed = model(true);
+        for rows in reversed.reaching.values_mut() { rows.reverse(); }
+        for rows in reversed.values.values_mut() { rows.reverse(); }
+        assert_eq!(transfer_set(&mut reversed, id(2)), expected);
+        let ids = |model: &Model| model.memo[&(id(2), false)].iter()
+            .map(|(key, source)| (key.clone(), source.condition.id()))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(ids(&a_first), ids(&reversed));
+    }
+
+    #[test]
+    fn work_cap_marks_cycle_head_and_dependent_sources_unknown() {
+        let mut model = model(true);
+        model.solve_reach(5);
+        assert!(model.incomplete.contains(&(id(2), false)));
+        assert!(model.incomplete.contains(&(id(3), false)));
+        let head = model.memo.get(&(id(2), false)).unwrap();
+        assert!(head.values().all(|source| matches!(source.condition.diagram(),
+            Err(KernelBoundary::SourceOverBudget))));
+        assert_eq!(model.reach_boundary_rows(id(1)).iter()
+            .map(|row| (row.use_id, row.reason)).collect::<Vec<_>>(),
+            vec![(id(2), BoundaryReason::BudgetReached),
+                 (id(3), BoundaryReason::BudgetReached)]);
+    }
 }

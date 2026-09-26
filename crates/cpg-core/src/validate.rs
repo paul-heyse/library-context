@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cpg_schema::behavior::{
-    AnalysisConditionNodesRow, AnalysisConditionsRow, ExitSitesRow, FlowTestExactOriginsRow,
+    AnalysisConditionNodesRow, AnalysisConditionsRow, ExitSitesRow, FlowReachBoundariesRow, FlowTestExactOriginsRow,
     FlowTestValueLinksRow, HandlerActionsRow, HandlerClausesRow, HandlerReturnNoneSitesRow,
     HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow, ModelCallbacksRow,
     ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow, ModelTargetsRow,
@@ -157,6 +157,9 @@ cpg_schema::relations! {
     stored_value_flow_contributions = "validate_stored_value_flow_contributions",
         deps = ["value_flow_contributions"],
         sql = "SELECT * FROM value_flow_contributions".to_owned();
+    stored_flow_reach_boundaries = "validate_stored_flow_reach_boundaries",
+        deps = ["flow_reach_boundaries"],
+        sql = "SELECT * FROM flow_reach_boundaries".to_owned();
     stored_analysis_conditions = "validate_stored_analysis_conditions",
         deps = ["analysis_conditions"],
         sql = "SELECT * FROM analysis_conditions".to_owned();
@@ -535,6 +538,8 @@ async fn validate_value_flow_contributions(
     }
     let mut actual: Vec<ValueFlowContributionsRow> =
         sql::fetch(ctx, &stored_value_flow_contributions(), sql::Params::new()).await?;
+    let mut actual_reach_boundaries: Vec<FlowReachBoundariesRow> =
+        sql::fetch(ctx, &stored_flow_reach_boundaries(), sql::Params::new()).await?;
     let mut actual_conditions: Vec<AnalysisConditionsRow> =
         sql::fetch(ctx, &stored_analysis_conditions(), sql::Params::new()).await?;
     let mut actual_nodes: Vec<AnalysisConditionNodesRow> =
@@ -542,17 +547,20 @@ async fn validate_value_flow_contributions(
     let invocation_count: Vec<ValueFlowAnalysisCountRow> =
         sql::fetch(ctx, &value_flow_analysis_count(), sql::Params::new()).await?;
     if invocation_count[0].count == 0 {
-        return if actual.is_empty() && actual_conditions.is_empty() && actual_nodes.is_empty() {
+        return if actual.is_empty() && actual_reach_boundaries.is_empty()
+            && actual_conditions.is_empty() && actual_nodes.is_empty() {
             Ok(Vec::new())
         } else {
             Ok(vec![Violation {
                 rule: "value-flow-contributions-without-analysis".to_owned(),
-                rows: actual.len() + actual_conditions.len() + actual_nodes.len(),
+                rows: actual.len() + actual_reach_boundaries.len()
+                    + actual_conditions.len() + actual_nodes.len(),
                 sample: "flow analysis rows exist without an analysis invocation".to_owned(),
             }])
         };
     }
     let model = crate::flow_model::run(ctx, snapshots[0].snapshot_id).await?;
+    let mut expected_reach_boundaries = model.reach_boundaries;
     let mut expected = model.value_flow_contributions;
     let (expected_conditions, expected_nodes) = crate::flow_model::condition_catalog_rows(
         snapshots[0].snapshot_id,
@@ -583,6 +591,17 @@ async fn validate_value_flow_contributions(
                 actual.len(),
                 expected.len()
             ),
+        });
+    }
+    actual_reach_boundaries.sort_by_key(|row| row.use_id);
+    expected_reach_boundaries.sort_by_key(|row| row.use_id);
+    if actual_reach_boundaries != expected_reach_boundaries {
+        violations.push(Violation {
+            rule: "flow-reach-boundary-source-equality".to_owned(),
+            rows: actual_reach_boundaries.len()
+                .abs_diff(expected_reach_boundaries.len()).max(1),
+            sample: format!("stored {} reach boundaries; derived {}",
+                actual_reach_boundaries.len(), expected_reach_boundaries.len()),
         });
     }
     actual_conditions.sort_by_key(|r| r.condition_id);

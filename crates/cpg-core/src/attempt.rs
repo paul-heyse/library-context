@@ -782,7 +782,7 @@ async fn finish(
         use cpg_schema::behavior::{
             AmbientReads, AnalysisConditionNodes, AnalysisConditions, ArgumentFlows, BehaviorSteps,
             Behaviors, Delegations, DynamicAccesses, ExitSites, FieldAccesses,
-            FlowTestExactOrigins, FlowTestValueLinks, Guards, HandlerActions, HandlerClauses,
+            FlowReachBoundaries, FlowTestExactOrigins, FlowTestValueLinks, Guards, HandlerActions, HandlerClauses,
             HandlerReturnNoneSites, HandlerTypes, Handoffs, ModeledArgumentEvaluations,
             ModeledAssignmentReturnPaths, ModeledExactValueTransfers,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
@@ -807,6 +807,7 @@ async fn finish(
         )
         .await?;
         write_analysis::<ValueFlows>(&ctx, root, snapshot_id, &m.value_flows, w).await?;
+        write_analysis::<FlowReachBoundaries>(&ctx, root, snapshot_id, &m.reach_boundaries, w).await?;
         write_analysis::<ValueFlowContributions>(
             &ctx,
             root,

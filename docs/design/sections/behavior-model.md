@@ -26,7 +26,7 @@ typed primitive theory, value links and exact origins are **Implemented and Test
 cases** (2026-09-24/25); the kernel's general allowance remains proposed (ADR-0024). Integrated
 Stage 3 acceptance (`just test-all`, a fresh `just pilot`, the Stage 3 questions) is `not_run`
 ([plan §1](../../plans/behavioral-model-forward-plan_2026-09-24.md#1-current-state-and-qualification-boundary)).
-The rationale is ADR-0045.
+The rationale is ADR-0045 and ADR-0051.
 
 ## Places
 
@@ -307,12 +307,16 @@ reasoning, and every step is cited.
   parameter's owner. **Implemented and Tested in focused cases (2026-09-25).** Proposed: L3
   withholds a positive transfer if a step is unmatched, a callee is relabelled as an argument or
   the argument value is derived from its use; `through_call` alone never upgrades a verdict.
-- **Known defect** ([plan W7](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)):
-  `Model::reach` (`flow_model.rs`) is not a fixed point at a cycle head. A query-order
-  reproduction loses a transfer variant (Tested), and dense loops have no work bound. The
-  intended contract is an SCC fixed point with a work cap writing `budget_reached`. The
-  demonstrated impact is missing contributions and seed/boundary coverage; a broader
-  negative-premise consequence was not established.
+- **Bounded source fixed point** (**Tested in focused cases**, ADR-0051; [plan W7](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+  `Model::reach` recomputes `(origin, transfer, condition)` states over a sorted
+  reverse-dependency worklist until no use changes. It preserves the weaker call-transfer
+  sibling around a cycle irrespective of query order. One million visited rows, value edges
+  and child-source pairs is the deterministic work cap. An unfinished use and its dependent
+  parents get `flow_reach_boundaries` with `budget_reached`; known source conditions widen to
+  unknown, summary boundary candidates retain the budget cause, and field/global negative
+  premises are withheld. This whole-use worklist replaces the planned SCC-local schedule
+  for now; a measured cost or semantic gap reopens that choice. The production cap's published
+  behavior and pilot cost are not yet verified.
 
 ## Verdicts
 
@@ -433,6 +437,6 @@ question; "when it runs" versus "when called" for coroutines and generators is S
   (`semantic:unreachable-not-established`). `unreachable_in_context` keeps its meaning: the
   checker never binds it.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0051
 
 ---

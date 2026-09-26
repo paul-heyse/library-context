@@ -25,6 +25,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0048](0048-schema-rebuild-policy.md) | Rebuild the current store from pinned inputs after schema changes | 2026-09-25 | [§6.3](../design/sections/storage-and-publication.md#section-6-3) | Interface-checked |  |
 | [ADR-0049](0049-served-support-closure.md) | Serve cited finding and witness closure in each generation | 2026-09-25 | [§6.4](../design/sections/storage-and-publication.md#section-6-4), [§10](../design/sections/synthesis-and-serving.md#section-10), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Tested |  |
 | [ADR-0050](0050-finite-summary-outcomes.md) | Compose finite summaries over explicit inputs and publish typed refusals | 2026-09-25 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Tested |  |
+| [ADR-0051](0051-value-reach-worklist.md) | Compute source reach as a bounded fixed point over uses | 2026-09-26 | [§3.9](../design/sections/behavior-model.md#section-3-9) | Tested |  |
 
 ## Proposed: open choices, not accepted decisions
 

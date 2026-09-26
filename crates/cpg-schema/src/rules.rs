@@ -94,6 +94,7 @@ pub const REFERENCES: &[Reference] = &[
         &[("flow_values", "fact_id")],
     ),
     r("flow_value_calls", "use_id", &[("flow_uses", "use_id")]),
+    r("flow_reach_boundaries", "use_id", &[("flow_uses", "use_id")]),
     r(
         "flow_value_call_links",
         "flow_value_call_fact_id",

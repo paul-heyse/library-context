@@ -176,6 +176,8 @@ key:operation_facet_status
   SELECT snapshot_id, node_id, facet, count(*) AS n FROM operation_facet_status GROUP BY snapshot_id, node_id, facet HAVING count(*) > 1
 key:value_flows
   SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity, count(*) AS n FROM value_flows GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity HAVING count(*) > 1
+key:flow_reach_boundaries
+  SELECT snapshot_id, use_id, count(*) AS n FROM flow_reach_boundaries GROUP BY snapshot_id, use_id HAVING count(*) > 1
 key:value_flow_contributions
   SELECT snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call, local_through_call, upstream_identity, upstream_through_call, count(*) AS n FROM value_flow_contributions GROUP BY snapshot_id, flow_value_fact_id, use_id, source_key, identity, through_call, local_through_call, upstream_identity, upstream_through_call HAVING count(*) > 1
 key:analysis_conditions
@@ -354,6 +356,8 @@ ref:flow_value_calls.flow_value_fact_id->flow_values
   SELECT f.flow_value_fact_id AS value FROM flow_value_calls f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.flow_value_fact_id = r.k WHERE f.flow_value_fact_id IS NOT NULL
 ref:flow_value_calls.use_id->flow_uses
   SELECT f.use_id AS value FROM flow_value_calls f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.use_id = r.k WHERE f.use_id IS NOT NULL
+ref:flow_reach_boundaries.use_id->flow_uses
+  SELECT f.use_id AS value FROM flow_reach_boundaries f LEFT ANTI JOIN (SELECT use_id AS k FROM flow_uses) r ON f.use_id = r.k WHERE f.use_id IS NOT NULL
 ref:flow_value_call_links.flow_value_call_fact_id->flow_value_calls
   SELECT f.flow_value_call_fact_id AS value FROM flow_value_call_links f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_value_calls) r ON f.flow_value_call_fact_id = r.k WHERE f.flow_value_call_fact_id IS NOT NULL
 ref:flow_value_call_links.flow_value_fact_id->flow_values
@@ -1177,7 +1181,7 @@ codebook:bindings.static_branch
 codebook:references.field
   SELECT field FROM references WHERE field IS NOT NULL AND field NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)
 codebook:reference_resolutions.reason
-  SELECT reason FROM reference_resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM reference_resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:type_terms.kind
   SELECT kind FROM type_terms WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)
 codebook:type_term_args.role
@@ -1237,23 +1241,23 @@ codebook:coverage.fact_family
 codebook:coverage.status
   SELECT status FROM coverage WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3, 4)
 codebook:coverage.reason
-  SELECT reason FROM coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:boundaries.fact_family
   SELECT fact_family FROM boundaries WHERE fact_family IS NOT NULL AND fact_family NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 codebook:boundaries.reason
-  SELECT reason FROM boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:provider_node_map.reason
-  SELECT reason FROM provider_node_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM provider_node_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:provider_class_map.reason
-  SELECT reason FROM provider_class_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM provider_class_map WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:exports.reason
-  SELECT reason FROM exports WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM exports WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:signatures.form
   SELECT form FROM signatures WHERE form IS NOT NULL AND form NOT IN (0, 1, 2)
 codebook:signatures.reason
-  SELECT reason FROM signatures WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM signatures WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:parameters.reason
-  SELECT reason FROM parameters WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM parameters WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:resolutions.status
   SELECT status FROM resolutions WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3)
 codebook:resolutions.domain
@@ -1261,31 +1265,31 @@ codebook:resolutions.domain
 codebook:resolutions.unresolved_reason
   SELECT unresolved_reason FROM resolutions WHERE unresolved_reason IS NOT NULL AND unresolved_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 codebook:resolutions.reason
-  SELECT reason FROM resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM resolutions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:argument_resolutions.status
   SELECT status FROM argument_resolutions WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3)
 codebook:argument_resolutions.unresolved_reason
   SELECT unresolved_reason FROM argument_resolutions WHERE unresolved_reason IS NOT NULL AND unresolved_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 codebook:call_targets.reason
-  SELECT reason FROM call_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM call_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:ancestry_targets.reason
-  SELECT reason FROM ancestry_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM ancestry_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:override_targets.reason
-  SELECT reason FROM override_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM override_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:site_targets.reason
-  SELECT reason FROM site_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM site_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:identifier_targets.reason
-  SELECT reason FROM identifier_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM identifier_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:import_targets.reason
-  SELECT reason FROM import_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM import_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:flow_value_call_links.status
   SELECT status FROM flow_value_call_links WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3, 4, 5)
 codebook:type_class_targets.reason
-  SELECT reason FROM type_class_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM type_class_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:type_binders.reason
-  SELECT reason FROM type_binders WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM type_binders WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:mention_targets.reason
-  SELECT reason FROM mention_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM mention_targets WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:nodes.node_kind
   SELECT node_kind FROM nodes WHERE node_kind IS NOT NULL AND node_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 codebook:edges.edge_kind
@@ -1295,7 +1299,7 @@ codebook:edges.src_kind
 codebook:edges.dst_kind
   SELECT dst_kind FROM edges WHERE dst_kind IS NOT NULL AND dst_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 codebook:graph_gaps.reason
-  SELECT reason FROM graph_gaps WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM graph_gaps WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:edge_kinds.edge_kind
   SELECT edge_kind FROM edge_kinds WHERE edge_kind IS NOT NULL AND edge_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35)
 codebook:edge_kinds.derivation
@@ -1325,7 +1329,7 @@ codebook:operations.kind
 codebook:operations.behavior_status
   SELECT behavior_status FROM operations WHERE behavior_status IS NOT NULL AND behavior_status NOT IN (0, 1, 2, 3, 4)
 codebook:operations.boundary_reason
-  SELECT boundary_reason FROM operations WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT boundary_reason FROM operations WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:operation_facets.facet
   SELECT facet FROM operation_facets WHERE facet IS NOT NULL AND facet NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 codebook:operation_facets.verdict
@@ -1336,10 +1340,12 @@ codebook:operation_facet_status.verdict
   SELECT verdict FROM operation_facet_status WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:value_flows.sink
   SELECT sink FROM value_flows WHERE sink IS NOT NULL AND sink NOT IN (0, 1, 2, 3, 4)
+codebook:flow_reach_boundaries.reason
+  SELECT reason FROM flow_reach_boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:value_flow_predecessor_compatibility.boundary_reason
-  SELECT boundary_reason FROM value_flow_predecessor_compatibility WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT boundary_reason FROM value_flow_predecessor_compatibility WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_assignment_return_paths.boundary_reason
-  SELECT boundary_reason FROM modeled_assignment_return_paths WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT boundary_reason FROM modeled_assignment_return_paths WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_assignment_return_paths.transfer
   SELECT transfer FROM modeled_assignment_return_paths WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:modeled_assignment_return_paths.target_modality
@@ -1351,11 +1357,11 @@ codebook:summary_flows.kind
 codebook:summary_flows.verdict
   SELECT verdict FROM summary_flows WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:summary_flows.boundary_reason
-  SELECT boundary_reason FROM summary_flows WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT boundary_reason FROM summary_flows WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:summary_flow_steps.kind
   SELECT kind FROM summary_flow_steps WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 codebook:summary_boundaries.reason
-  SELECT reason FROM summary_boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM summary_boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:flow_test_value_links.origin
   SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
 codebook:model_targets.transfer_coverage
@@ -1387,11 +1393,11 @@ codebook:model_argument_bindings.path_role
 codebook:model_argument_bindings.status
   SELECT status FROM model_argument_bindings WHERE status IS NOT NULL AND status NOT IN (0, 1)
 codebook:model_argument_bindings.reason
-  SELECT reason FROM model_argument_bindings WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM model_argument_bindings WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_callback_sites.binding_status
   SELECT binding_status FROM modeled_callback_sites WHERE binding_status IS NOT NULL AND binding_status NOT IN (0, 1)
 codebook:modeled_callback_sites.binding_reason
-  SELECT binding_reason FROM modeled_callback_sites WHERE binding_reason IS NOT NULL AND binding_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT binding_reason FROM modeled_callback_sites WHERE binding_reason IS NOT NULL AND binding_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_callback_sites.action
   SELECT action FROM modeled_callback_sites WHERE action IS NOT NULL AND action NOT IN (0, 1, 2, 3)
 codebook:modeled_callback_sites.exit
@@ -1409,7 +1415,7 @@ codebook:modeled_resource_sites.resource_path_kind
 codebook:modeled_resource_sites.source_status
   SELECT source_status FROM modeled_resource_sites WHERE source_status IS NOT NULL AND source_status NOT IN (0, 1, 2)
 codebook:modeled_resource_sites.source_reason
-  SELECT source_reason FROM modeled_resource_sites WHERE source_reason IS NOT NULL AND source_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT source_reason FROM modeled_resource_sites WHERE source_reason IS NOT NULL AND source_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_resource_sites.action
   SELECT action FROM modeled_resource_sites WHERE action IS NOT NULL AND action NOT IN (0, 1)
 codebook:modeled_resource_sites.exit
@@ -1425,13 +1431,13 @@ codebook:modeled_transfer_sites.input_path_kind
 codebook:modeled_transfer_sites.input_status
   SELECT input_status FROM modeled_transfer_sites WHERE input_status IS NOT NULL AND input_status NOT IN (0, 1, 2)
 codebook:modeled_transfer_sites.input_reason
-  SELECT input_reason FROM modeled_transfer_sites WHERE input_reason IS NOT NULL AND input_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT input_reason FROM modeled_transfer_sites WHERE input_reason IS NOT NULL AND input_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_transfer_sites.output_path_kind
   SELECT output_path_kind FROM modeled_transfer_sites WHERE output_path_kind IS NOT NULL AND output_path_kind NOT IN (0, 1, 2, 3, 4)
 codebook:modeled_transfer_sites.output_status
   SELECT output_status FROM modeled_transfer_sites WHERE output_status IS NOT NULL AND output_status NOT IN (0, 1, 2)
 codebook:modeled_transfer_sites.output_reason
-  SELECT output_reason FROM modeled_transfer_sites WHERE output_reason IS NOT NULL AND output_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT output_reason FROM modeled_transfer_sites WHERE output_reason IS NOT NULL AND output_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_transfer_sites.transfer
   SELECT transfer FROM modeled_transfer_sites WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1)
 codebook:modeled_transfer_sites.target_modality
@@ -1453,7 +1459,7 @@ codebook:modeled_exact_value_transfers.origin
 codebook:modeled_argument_evaluations.status
   SELECT status FROM modeled_argument_evaluations WHERE status IS NOT NULL AND status NOT IN (0, 1, 2, 3)
 codebook:modeled_argument_evaluations.reason
-  SELECT reason FROM modeled_argument_evaluations WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM modeled_argument_evaluations WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_effect_sites.effect
   SELECT effect FROM modeled_effect_sites WHERE effect IS NOT NULL AND effect NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 codebook:modeled_effect_sites.subject_path_kind
@@ -1461,7 +1467,7 @@ codebook:modeled_effect_sites.subject_path_kind
 codebook:modeled_effect_sites.subject_status
   SELECT subject_status FROM modeled_effect_sites WHERE subject_status IS NOT NULL AND subject_status NOT IN (0, 1, 2)
 codebook:modeled_effect_sites.subject_reason
-  SELECT subject_reason FROM modeled_effect_sites WHERE subject_reason IS NOT NULL AND subject_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT subject_reason FROM modeled_effect_sites WHERE subject_reason IS NOT NULL AND subject_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_effect_sites.target_modality
   SELECT target_modality FROM modeled_effect_sites WHERE target_modality IS NOT NULL AND target_modality NOT IN (0, 1, 2)
 codebook:modeled_effect_sites.model_modality
@@ -1523,17 +1529,17 @@ codebook:modeled_exception_sites.origin
 codebook:exit_sites.kind
   SELECT kind FROM exit_sites WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
 codebook:return_exit_statuses.reason
-  SELECT reason FROM return_exit_statuses WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM return_exit_statuses WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:handler_types.status
   SELECT status FROM handler_types WHERE status IS NOT NULL AND status NOT IN (0, 1, 2)
 codebook:handler_types.reason
-  SELECT reason FROM handler_types WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM handler_types WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:modeled_exception_handler_candidates.handler_type_status
   SELECT handler_type_status FROM modeled_exception_handler_candidates WHERE handler_type_status IS NOT NULL AND handler_type_status NOT IN (0, 1, 2)
 codebook:modeled_exception_handler_candidates.class_match
   SELECT class_match FROM modeled_exception_handler_candidates WHERE class_match IS NOT NULL AND class_match NOT IN (0, 1, 2, 3, 4)
 codebook:modeled_exception_handler_walks.reason
-  SELECT reason FROM modeled_exception_handler_walks WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT reason FROM modeled_exception_handler_walks WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:handler_actions.action_kind
   SELECT action_kind FROM handler_actions WHERE action_kind IS NOT NULL AND action_kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93)
 codebook:modeled_exception_return_none_paths.class_match
@@ -1551,13 +1557,13 @@ codebook:dynamic_accesses.kind
 codebook:negative_premises.kind
   SELECT kind FROM negative_premises WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3)
 codebook:negative_premises.boundary_reason
-  SELECT boundary_reason FROM negative_premises WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT boundary_reason FROM negative_premises WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:behaviors.kind
   SELECT kind FROM behaviors WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 codebook:behaviors.verdict
   SELECT verdict FROM behaviors WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:behaviors.boundary_reason
-  SELECT boundary_reason FROM behaviors WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT boundary_reason FROM behaviors WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 codebook:behaviors.phase
   SELECT phase FROM behaviors WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3)
 codebook:behavior_steps.modality
