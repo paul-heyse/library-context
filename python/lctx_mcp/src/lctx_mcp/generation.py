@@ -25,6 +25,14 @@ FORMAT = 7
 KERNEL_FORMAT = 1
 MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
 MAX_SUMMARY_ROWS = 100_000
+NATIVE_IPC_FILES = frozenset(
+    {
+        "conditions", "condition_nodes", "analysis_conditions", "analysis_condition_nodes",
+        "operations", "public_paths", "operation_parameters", "summary_flows",
+        "summary_flow_steps", "summary_boundaries", "flow_test_leaves",
+        "flow_test_value_links",
+    }
+)
 
 
 class GenerationError(RuntimeError):
@@ -359,7 +367,13 @@ class Generation:
         return self.manifest["library"]
 
 
-def _read(root: Path, manifest: dict, name: str, schema: pa.Schema) -> pa.Table:
+def _read(
+    root: Path,
+    manifest: dict,
+    name: str,
+    schema: pa.Schema,
+    native_ipc: dict[str, bytes] | None = None,
+) -> pa.Table:
     entry = manifest["files"].get(name)
     if entry is None:
         raise GenerationError(f"MANIFEST.json lists no {name}")
@@ -397,6 +411,8 @@ def _read(root: Path, manifest: dict, name: str, schema: pa.Schema) -> pa.Table:
         raise GenerationError(f"{entry['file']}: its schema differs from its schema digest")
     if table.num_rows != entry["rows"]:
         raise GenerationError(f"{entry['file']}: {table.num_rows} rows, not the manifest's")
+    if native_ipc is not None and name in NATIVE_IPC_FILES:
+        native_ipc[name] = data
     return table
 
 
@@ -431,7 +447,11 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
             )
         dimensions = spec.dimensions
     schemas = expected_schemas(dimensions)
-    tables = {name: _read(root, manifest, name, schema) for name, schema in schemas.items()}
+    native_ipc: dict[str, bytes] = {}
+    tables = {
+        name: _read(root, manifest, name, schema, native_ipc)
+        for name, schema in schemas.items()
+    }
     max_conditions, max_nodes, _max_retained_nodes = catalog_limits()
     if (
         tables["conditions"].num_rows + tables["analysis_conditions"].num_rows > max_conditions
@@ -451,98 +471,12 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     for name in ("operations", "public_paths", "operation_parameters"):
         if tables[name].num_rows > 200_000:
             raise GenerationError(f"{name} exceeds native load limits")
-    conditions_by_id: dict[str, tuple[str, str | None, str | None]] = {}
-    nodes_by_id: dict[str, tuple[str, str, str, str]] = {}
-    for name in ("conditions", "analysis_conditions"):
-        for row in tables[name].to_pylist():
-            item = (
-                row["condition_id"].hex(),
-                None if row["root_id"] is None else row["root_id"].hex(),
-                row["boundary_reason"],
-            )
-            if item[0] in conditions_by_id and conditions_by_id[item[0]] != item:
-                raise GenerationError(f"conflicting condition {item[0]} across catalogs")
-            conditions_by_id[item[0]] = item
-    for name in ("condition_nodes", "analysis_condition_nodes"):
-        for row in tables[name].to_pylist():
-            item = (row["node_id"].hex(), row["atom"], row["low_id"].hex(), row["high_id"].hex())
-            if item[0] in nodes_by_id and nodes_by_id[item[0]] != item:
-                raise GenerationError(f"conflicting condition node {item[0]} across catalogs")
-            nodes_by_id[item[0]] = item
     try:
-        condition_graph = SemanticExecutor(
+        condition_graph = SemanticExecutor.from_ipc(
             KERNEL_FORMAT,
             manifest["snapshot_id"],
             manifest["entry_value_effect_digest"],
-            list(conditions_by_id.values()),
-            list(nodes_by_id.values()),
-            [r["node_id"].hex() for r in tables["operations"].to_pylist()],
-            [(r["access_path"], r["node_id"].hex()) for r in tables["public_paths"].to_pylist()],
-            [
-                (r["operation_node_id"].hex(), r["formal_node_id"].hex(), r["name"])
-                for r in tables["operation_parameters"].to_pylist()
-            ],
-            [
-                (
-                    r["summary_id"].hex(),
-                    r["function_node_id"].hex(),
-                    r["parameter_node_id"].hex(),
-                    r["condition_id"].hex(),
-                    r["verdict"],
-                    r["boundary_reason"],
-                    r["path_depth"],
-                )
-                for r in tables["summary_flows"].to_pylist()
-            ],
-            [
-                (
-                    r["summary_id"].hex(),
-                    r["ordinal"],
-                    r["kind"],
-                    r["evidence_id"].hex(),
-                    r["condition_id"].hex(),
-                )
-                for r in tables["summary_flow_steps"].to_pylist()
-            ],
-            [
-                (
-                    r["function_node_id"].hex(),
-                    r["parameter_node_id"].hex(),
-                    r["source_flow_fact_id"].hex(),
-                    r["condition_id"].hex(),
-                    r["reason"],
-                )
-                for r in tables["summary_boundaries"].to_pylist()
-            ],
-            [
-                (
-                    r["fact_id"].hex(),
-                    r["module_node_id"].hex(),
-                    r["condition_id"].hex(),
-                    r["atom_id"].hex(),
-                    r["atom"],
-                    r["path"],
-                    r["leaf_start_byte"],
-                    r["leaf_end_byte"],
-                )
-                for r in tables["flow_test_leaves"].to_pylist()
-            ],
-            [
-                (
-                    r["link_id"].hex(),
-                    r["operation_node_id"].hex(),
-                    r["formal_node_id"].hex(),
-                    r["module_node_id"].hex(),
-                    r["leaf_fact_id"].hex(),
-                    r["atom_id"].hex(),
-                    r["condition_id"].hex(),
-                    r["place"],
-                    r["origin"],
-                    r["effect_model_digest"].hex(),
-                    (r["path"], r["operand_start_byte"], r["operand_end_byte"]),
-                )
-                for r in tables["flow_test_value_links"].to_pylist()
-            ],
+            list(native_ipc.items()),
         )
     except ValueError as e:
         raise GenerationError(f"invalid semantic index: {e}") from e

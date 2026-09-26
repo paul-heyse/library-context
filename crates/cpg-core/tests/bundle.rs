@@ -46,13 +46,21 @@ fn copy(src: &Path, dst: &Path) {
 }
 
 /// `analysis_shapes` compiled under `sub` with the fake embedder; returns the directory and store.
-async fn compiled(sub: &str, reverse: bool) -> (tempfile::TempDir, PathBuf) {
+async fn compiled(sub: &str, reverse: bool, finalizer: bool) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join(sub);
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/analysis_shapes");
     copy(&fixture.join("release"), &base.join("release"));
     copy(&fixture.join("site"), &base.join("venv/site-packages"));
+    if finalizer {
+        let path = base.join("release/pkg/controls.py");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let before = "def passthrough(**options):\n    return options";
+        let after = "def passthrough(**options):\n    try:\n        return options\n    finally:\n        pass";
+        assert!(source.contains(before));
+        std::fs::write(path, source.replace(before, after)).unwrap();
+    }
     let out = extract(&ExtractInput {
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(base.join("release")).unwrap(),
@@ -84,6 +92,42 @@ async fn compiled(sub: &str, reverse: bool) -> (tempfile::TempDir, PathBuf) {
     (dir, store)
 }
 
+/// W1: a real finalizer proof survives extraction, Delta publication, IPC generation and the
+/// native reader. The Python process only loads the generation and issues the semantic query.
+#[tokio::test(flavor = "multi_thread")]
+async fn finalizer_proof_round_trips_through_the_native_generation_reader() {
+    let (dir, store) = compiled("finalizer", false, true).await;
+    let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
+        .await
+        .unwrap();
+    let script = r#"
+import sys
+from pathlib import Path
+from lctx_mcp.generation import load
+index = load(Path(sys.argv[1]), None).condition_graph
+paths, boundaries, truncated, _ = index.value_paths(
+    "pkg.controls.passthrough", "options", 20
+)
+assert not truncated and not boundaries, (paths, boundaries)
+assert any(
+    path[1] in ("established", "conditional")
+    and any(step[0] == "finalizer_pass" for step in path[3])
+    for path in paths
+), paths
+"#;
+    let output = std::process::Command::new("uv")
+        .args(["run", "--no-sync", "python", "-c", script])
+        .arg(&generation.dir)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "native finalizer query failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn files_of(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut out: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
         .unwrap()
@@ -103,7 +147,7 @@ fn files_of(dir: &Path) -> Vec<(String, Vec<u8>)> {
 /// same library, from another location and module order, gives the same generation.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_generation_rebuilds_to_the_same_bytes() {
-    let (dir, store) = compiled("one", false).await;
+    let (dir, store) = compiled("one", false, false).await;
     let a = bundle(&store, SNAPSHOT, &dir.path().join("gen-a"))
         .await
         .unwrap();
@@ -212,7 +256,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
         ]
     );
 
-    let (other_dir, other_store) = compiled("elsewhere", true).await;
+    let (other_dir, other_store) = compiled("elsewhere", true, false).await;
     let c = bundle(&other_store, SNAPSHOT, &other_dir.path().join("gen"))
         .await
         .unwrap();
@@ -223,7 +267,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
 /// A changed file, or a generation under another name, is refused against its manifest.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_changed_generation_is_refused() {
-    let (dir, store) = compiled("one", false).await;
+    let (dir, store) = compiled("one", false, false).await;
     let g = bundle(&store, SNAPSHOT, &dir.path().join("gen"))
         .await
         .unwrap();
@@ -251,7 +295,7 @@ async fn a_changed_generation_is_refused() {
 /// §6.4: a generation never mixes vector spaces: two specs in the snapshot refuse the build.
 #[tokio::test(flavor = "multi_thread")]
 async fn mixed_embedding_specs_are_refused() {
-    let (dir, store) = compiled("one", false).await;
+    let (dir, store) = compiled("one", false, false).await;
     let (_, ctx) = published(&store, SNAPSHOT).await.unwrap().unwrap();
     let doctored = sql::query(
         &ctx,
@@ -308,7 +352,7 @@ async fn writes_the_python_fixture_generation() {
         return;
     };
     let out = PathBuf::from(out);
-    let (_dir, store) = compiled("fixture", false).await;
+    let (_dir, store) = compiled("fixture", false, false).await;
     let g = bundle(&store, SNAPSHOT, &out).await.unwrap();
     std::fs::write(out.join("CURRENT"), &g.key).unwrap();
 }

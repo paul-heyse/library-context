@@ -11,6 +11,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 cpg-schema = { path = "../../crates/cpg-schema" }
+arrow-array.workspace = true
+arrow-ipc.workspace = true
 pyo3.workspace = true
 
 [lints]

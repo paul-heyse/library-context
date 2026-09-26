@@ -15,6 +15,8 @@ use cpg_schema::primitive_theory::{
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+mod ipc_input;
+
 const MAX_SMOKE_INPUT_BYTES: usize = 64 * 1024;
 const MAX_SUMMARY_ROWS: usize = 100_000;
 const MAX_SURFACE_ROWS: usize = 200_000;
@@ -214,6 +216,33 @@ struct SemanticExecutor {
 
 #[pymethods]
 impl SemanticExecutor {
+    /// Production loader: validate the IPC file schemas against cpg-schema and decode columns
+    /// by name. The tuple constructor remains for focused synthetic proof tests.
+    #[staticmethod]
+    fn from_ipc(
+        kernel_format: u32,
+        snapshot_id: String,
+        effect_model_digest: String,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> PyResult<Self> {
+        let input = ipc_input::decode(files)?;
+        Self::new(
+            kernel_format,
+            snapshot_id,
+            effect_model_digest,
+            input.conditions,
+            input.nodes,
+            input.operations,
+            input.public_paths,
+            input.parameters,
+            input.flows,
+            input.steps,
+            input.boundaries,
+            input.leaves,
+            input.links,
+        )
+    }
+
     #[new]
     #[allow(
         clippy::too_many_arguments,
@@ -526,6 +555,11 @@ impl SemanticExecutor {
     #[getter]
     fn node_count(&self) -> usize {
         self.graph.node_count()
+    }
+
+    #[getter]
+    fn retained_node_count(&self) -> usize {
+        self.graph.retained_node_count()
     }
 
     fn compatible(&self, left: &str, right: &str) -> PyResult<(Option<bool>, Option<String>)> {

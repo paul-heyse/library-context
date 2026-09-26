@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.ipc as ipc
 import pytest
 from lctx_semantics import (
     ConditionGraph,
@@ -12,7 +14,7 @@ from lctx_semantics import (
     probe_implies,
 )
 
-from lctx_mcp.generation import load
+from lctx_mcp.generation import NATIVE_IPC_FILES, load
 
 
 def test_native_condition_boundary_uses_the_rust_kernel() -> None:
@@ -132,6 +134,31 @@ def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(
     assert paths[0][3][0][0] == "finalizer_pass"
     with pytest.raises(ValueError, match="invalid summary proof step"):
         SemanticExecutor(*prefix, [(summary, 0, "invented_step", "04" * 16, condition)], [], [], [])
+
+
+def test_native_ipc_projection_rejects_schema_drift(generation: Path) -> None:
+    loaded = load(generation, None)
+    files = [(name, (generation / f"{name}.arrow").read_bytes()) for name in NATIVE_IPC_FILES]
+    index = SemanticExecutor.from_ipc(
+        kernel_format(), loaded.snapshot_id,
+        loaded.manifest["entry_value_effect_digest"], files,
+    )
+    assert index.condition_count == loaded.condition_graph.condition_count
+
+    steps = ipc.open_file(generation / "summary_flow_steps.arrow").read_all()
+    changed = steps.append_column("unexpected", pa.array([False] * steps.num_rows))
+    sink = pa.BufferOutputStream()
+    with ipc.new_file(sink, changed.schema) as writer:
+        writer.write_table(changed)
+    drifted = [
+        (name, sink.getvalue().to_pybytes() if name == "summary_flow_steps" else data)
+        for name, data in files
+    ]
+    with pytest.raises(ValueError, match="native serving schema drift"):
+        SemanticExecutor.from_ipc(
+            kernel_format(), loaded.snapshot_id,
+            loaded.manifest["entry_value_effect_digest"], drifted,
+        )
 
 
 def _hex(value: bytes | None) -> str | None:

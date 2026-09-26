@@ -3650,6 +3650,8 @@ dependencies = [
 name = "lctx-semantics"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-ipc",
  "cpg-schema",
  "pyo3",
 ]
