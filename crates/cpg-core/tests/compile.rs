@@ -2578,7 +2578,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        27,
+        29,
         "the typing, JSON, gzip and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -2716,7 +2716,7 @@ budget = 1
         1,
         "the outer literal precedes the inner call, whose result precedes the outer call"
     );
-    for name in ["nested_identity", "nested_raising_identity"] {
+    for name in ["nested_identity", "nested_raising_identity", "nested_deleted_identity"] {
         assert_eq!(
             count(&ctx, &format!("SELECT count(*) FROM summary_flows f \
                 JOIN declarations d ON d.node_id = f.function_node_id \
@@ -2724,6 +2724,7 @@ budget = 1
             0,
             "{name} has no exact normally completed inner identity"
         );
+        if name == "nested_deleted_identity" { continue; }
         assert!(
             count(&ctx, &format!("SELECT count(*) FROM summary_boundaries b \
                 JOIN declarations d ON d.node_id = b.function_node_id \
@@ -2731,6 +2732,13 @@ budget = 1
             "{name} keeps an explicit open source origin"
         );
     }
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM value_flow_contributions v \
+            JOIN declarations d ON d.node_id = v.sink_function_node_id \
+            WHERE d.name = 'nested_deleted_identity' AND v.parameter_node_id IS NOT NULL").await,
+        0,
+        "a deleted formal has no parameter-origin contribution to discharge or bound"
+    );
     assert_eq!(
         count(
             &ctx,
@@ -3124,7 +3132,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        32,
+        34,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

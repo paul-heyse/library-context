@@ -36,9 +36,10 @@ The projection selects raw return contributions with at least two calls and
 keeps each candidate's argument multiplicity. The producer requires a dense
 step sequence, the exact source-argument span of each next call, one source
 argument per call, every other argument's normal witness, a proven return
-condition and the preceding-call completion check. It sorts rows before
-proof construction. The finite cap is eight call steps and 128 argument rows;
-the explicit depth/work boundaries preserve unknown rather than claiming a
+condition and the preceding-call completion check. The innermost direct formal
+read needs one exact ty reaching definition, cited beside its raw flow fact.
+It sorts rows before proof construction. The finite cap is eight call steps
+and 128 argument rows; the explicit depth/work boundaries preserve unknown rather than claiming a
 completed or absent path. The established DataFusion joins, window count and
 typed query row fit the existing §B2/§B3 contract; the custom Rust loop is the
 Python evaluation-order rule under §B5. A generic graph reachability library
@@ -66,9 +67,11 @@ pilot budget; ADR-0028's pilot-cost revisit remains due at integrated exit.
 argument controls.
 `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p cpg-core --test compile pinned_identity_models_require_and_publish_their_real_formals --quiet`
 passed the two- and three-call real-source/Delta/publication positives and the
-raising/nonidentity withholding cases.
+raising/nonidentity withholding cases. A deleted-formal control has no
+parameter-origin contribution and no positive path.
 `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p cpg-core --test bundle finite_depth_and_unsupported_refusals_reach_the_native_response --quiet`
-passed the two- and three-call native positives and raising sibling unknown.
+passed the two- and three-call native positives, raising sibling unknown, and
+deleted formal's empty source path.
 `just fmt`, `just test-all` and `just pilot` are **not_run** pending functional
 completion.
 

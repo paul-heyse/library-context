@@ -85,6 +85,11 @@ def nested_raising_identity(value: object) -> object:
     return cast(object, cast(1 / 0, value))
 
 
+def nested_deleted_identity(value: object) -> object:
+    del value
+    return cast(object, cast(object, value))
+
+
 def computed_identity(value: object) -> object:
     return cast(object, value) or "fallback"
 

@@ -796,7 +796,17 @@ fn modeled_chain_proof(rows: &[ModeledChainArgument])
                     visit(index + 1, steps, raw, proof)?;
                     steps[index + 1][0].call_fact_id
                 } else {
-                    raw
+                    if argument.evaluation_status
+                        != ModeledArgumentEvaluationStatus::ParameterNameNormal
+                    {
+                        return Err(BoundaryReason::MissingEvidence);
+                    }
+                    proof.push(recipe::SummaryFlowProofStep {
+                        kind: SummaryFlowStepKind::RawIdentity,
+                        evidence_id: raw,
+                        condition_id: call.condition_id,
+                    });
+                    argument.evaluation_evidence_id.ok_or(BoundaryReason::MissingEvidence)?
                 }
             } else {
                 if argument.evaluation_status == ModeledArgumentEvaluationStatus::Unknown
@@ -1588,10 +1598,13 @@ mod tests {
                 argument_fact_id: if ordinal == 0 { id(40 + step) } else { id(30 + step) },
                 evaluation_status: if ordinal == 0 {
                     ModeledArgumentEvaluationStatus::LiteralNormal
+                } else if step == 2 {
+                    ModeledArgumentEvaluationStatus::ParameterNameNormal
                 } else {
                     ModeledArgumentEvaluationStatus::SourceOperand
                 },
-                evaluation_evidence_id: (ordinal == 0).then(|| id(50 + step)),
+                evaluation_evidence_id: if ordinal == 0 { Some(id(50 + step)) }
+                    else if step == 2 { Some(id(100 + step)) } else { None },
                 return_site_fact_id: id(5), return_region_fact_id: id(6),
                 return_condition_id: Diagram::always().id(), return_start_byte: 8,
                 approximated: false,
@@ -1610,11 +1623,17 @@ mod tests {
         assert_eq!(proof[0].kind, SummaryFlowStepKind::CalleeResolution);
         assert_eq!(proof[1].evidence_id, id(50));
         assert_eq!(proof[2].kind, SummaryFlowStepKind::CalleeResolution);
+        assert_eq!(proof.iter().filter(|step| step.kind == SummaryFlowStepKind::RawIdentity).count(), 1);
+        assert!(proof.iter().any(|step| step.kind == SummaryFlowStepKind::ArgumentEvaluation
+            && step.evidence_id == id(102)));
         let mut missing = rows.clone();
         missing.retain(|row| !(row.step == 1 && row.argument_ordinal == 0));
         assert_eq!(modeled_chain_proof(&missing).err(), Some(BoundaryReason::MissingEvidence));
         let mut raising = rows;
         raising[0].evaluation_status = ModeledArgumentEvaluationStatus::Unknown;
+        assert_eq!(modeled_chain_proof(&raising).err(), Some(BoundaryReason::MissingEvidence));
+        raising[0].evaluation_status = ModeledArgumentEvaluationStatus::LiteralNormal;
+        raising[5].evaluation_status = ModeledArgumentEvaluationStatus::Unknown;
         assert_eq!(modeled_chain_proof(&raising).err(), Some(BoundaryReason::MissingEvidence));
     }
 

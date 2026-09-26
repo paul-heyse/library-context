@@ -156,7 +156,9 @@ The shared simple-argument evaluator admits `not` only over a direct Boolean lit
 records the real positive/raising contrast and the remaining expression boundary.
 An exact whole-return chain of two or three closed total `typing.cast` identity models now
 composes from the ordered raw call path, one bound source argument per step and normal-evaluation
-witnesses for every sibling. Its inner call proof is inserted where its outer argument evaluates;
+witnesses for every sibling. The innermost direct formal read must have one exact ty reaching
+definition, cited alongside the raw flow fact; a deleted formal has no parameter-origin path.
+Its inner call proof is inserted where its outer argument evaluates;
 the same pure relation is bounded to eight steps and 128 argument rows. The real provider,
 shared validator and native generation were checked with two- and three-call positives and a
 raising inner sibling; [the scoped review](../design_review/reviews/design_review_modeled-call-chain_2026-09-26.md)

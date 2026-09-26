@@ -249,8 +249,11 @@ witness.
   row per step and argument; it checks dense steps, exact spans, source and return identity, and
   inserts the inner call proof at its outer source-argument position. The limit is eight call
   steps and 128 argument rows per source contribution; exceeding it records a boundary. A missing
-  or unresolved step never supplies a normal result. Focused real-provider and native checks admit
-  two- and three-call `typing.cast` chains and withhold a raising inner sibling (2026-09-26).
+  or unresolved step never supplies a normal result. The innermost source must be a direct formal
+  read with one exact ty reaching definition; its proof cites both the raw flow fact and that
+  reaching fact. Focused real-provider and native checks admit two- and three-call `typing.cast`
+  chains and withhold a raising inner sibling (2026-09-26). A deleted formal has no
+  parameter-origin contribution and supplies no positive path.
   This covers exact total identity chains, not arbitrary nested expressions or transforms.
 - **Assignment then return:** the same model-call proof on a whole assignment value, then a
   returned use with exactly one reaching definition whose bounded compatibility is proved and

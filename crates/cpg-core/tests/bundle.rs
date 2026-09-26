@@ -463,6 +463,8 @@ assert any(
 paths, boundaries, total, truncated, work = inspect("capspkg.nested_raising_identity", "value")
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.nested_deleted_identity", "value")
+assert not truncated and not paths and not boundaries, (paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.nested_three_total_identity", "value")
 assert not truncated and paths and not boundaries, (paths, boundaries)
 assert any(

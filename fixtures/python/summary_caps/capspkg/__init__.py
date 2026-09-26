@@ -113,6 +113,12 @@ def nested_raising_identity(value: object) -> object:
     return cast(object, cast(1 / 0, value))
 
 
+def nested_deleted_identity(value: object) -> object:
+    """An unbound source formal cannot inherit the nested models' normal return."""
+    del value
+    return cast(object, cast(object, value))
+
+
 def string_member_identity(transport: str) -> str | None:
     """A source-local membership guard constrains the returned formal."""
     if transport in ("http", "sse"):
