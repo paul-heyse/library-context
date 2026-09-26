@@ -12,4 +12,10 @@ nonterminal rows, while native hydration owns four nonterminal nodes across
 the two condition roots. The targeted native test passed with
 `uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py::test_native_catalog_distinguishes_stored_from_retained_shared_tail -q`.
 This tests the exposed diagnostics for a shared tail; the aggregate admission
-limit itself is covered by the Rust catalog-limit test, not by this tiny probe.
+limit itself is covered by a Rust production-limit test using 84,000 distinct
+valid roots and 84,011 stored nodes, and a native constructor test using a
+repeated 11-node root to confirm the error crosses the PyO3 boundary before
+hydration. The repeated native input is intentionally not a valid final
+catalog; the distinct-root Rust case establishes the valid-catalog refusal.
+The `L`/`M` lines from `catalog_probe.rs` supply the native test's 11-node
+fixture. Both targeted controls passed on 2026-09-26.

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use cpg_schema::condition::Condition;
+use cpg_schema::condition::Atom;
 use cpg_schema::condition_kernel::Diagram;
 
 fn main() {
@@ -15,6 +16,18 @@ fn main() {
     }
     for node in nodes.into_values() {
         println!("N {} {} {} {}", node.node_id.hex(), node.atom,
+            node.low.hex(), node.high.hex());
+    }
+    let mut chain = Diagram::always();
+    for index in 0..11 {
+        chain = chain.and(&Diagram::from_atom(&Atom::Truthy {
+            place: format!("z{index:02}"),
+        }).unwrap()).unwrap();
+    }
+    let (root, closure) = chain.root_and_nodes();
+    println!("L {} {}", chain.id().hex(), root.hex());
+    for node in closure {
+        println!("M {} {} {} {}", node.node_id.hex(), node.atom,
             node.low.hex(), node.high.hex());
     }
 }

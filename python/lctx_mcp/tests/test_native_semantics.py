@@ -54,6 +54,36 @@ def test_native_catalog_distinguishes_stored_from_retained_shared_tail() -> None
     assert graph.retained_node_count == 4
 
 
+def test_native_catalog_refuses_aggregate_retained_limit_before_hydration() -> None:
+    # The same production catalog loader is exercised with repeated references to an
+    # eleven-node root. The Rust control uses distinct, valid roots at the configured cap;
+    # repetition here verifies that native admission happens before expensive copying.
+    false_id = "b9902e4735719efc29674ec10253ffeb"
+    true_id = "119f0180894a5ece441560e03b8236a6"
+    ids = (
+        "17a8c3d15be3c074398bb4b484123cc8",
+        "2576b7e779e8aa40e032efe52e061641",
+        "eb0d589677720f1489c6d517b4aa0066",
+        "d0aff079b711428859eb0614f6867a3d",
+        "62c50676ad4ea5d1fde7a36e9d09579a",
+        "c0b7c125452ecd3a69ffcc24a9467696",
+        "9c7ce3f7340f4bfd2d22ac4b5eb3f1e8",
+        "cbe127cab1b7fac81855bec6efc7cda5",
+        "796f8e76684305f20b34adc2c7291610",
+        "214c3a74021a666c82559bcabd7a1fad",
+        "d3473c5b395252a1f574d6698644ff7a",
+    )
+    nodes = [
+        (node, f"truthy(z{index:02})", false_id, ids[index + 1] if index < 10 else true_id)
+        for index, node in enumerate(ids)
+    ]
+    assert len(nodes) < catalog_limits()[1]
+    conditions = [("38c7573afdd004939e33697b0dd1120e", ids[0], None)] * 90_910
+    assert len(conditions) < catalog_limits()[0]
+    with pytest.raises(ValueError, match="11 stored, over 1000000 expanded"):
+        ConditionGraph(kernel_format(), conditions, nodes)
+
+
 def test_generation_condition_graph_is_hydrated_and_rejects_bad_nodes(generation: Path) -> None:
     loaded = load(generation, None)
     graph = loaded.condition_graph

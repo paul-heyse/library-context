@@ -225,10 +225,13 @@ existential projection, so that a node limit is the only point where information
 The non-allocating decisions, effective-support normalization, retained-node catalog admission,
 and native stored/retained diagnostics are **Tested in focused cases (2026-09-26)**. A pair whose
 materialized conjunction exceeds 50,000 nodes still decides compatibility; a contradiction
-whose input-node product exceeds the materializing preflight also decides. A production-budget
-task-limit control and complete native aggregate refusal remain open. Cube restriction now
-nominates a factor with an exact equality gate; W11's Python lowering and Q09 served comparison
-remain open.
+whose input-node product exceeds the materializing preflight also decides. A distinct pair reaches
+the production 1,000,000-task decision cap and stays `unknown`. A valid 84,000-root shared-tail
+catalog, below the stored-node and root caps, is refused at the production retained-node limit
+before hydration. Native admission uses that same validator and its targeted large-reference
+control confirms the limit is reported as a load error. The native control repeats one root to
+avoid a large fixture; the valid-root control is in Rust. Cube restriction now nominates a factor
+with an exact equality gate; W11's Python lowering and Q09 served comparison remain open.
 
 ### Typed primitive theory, value links and exact origins
 

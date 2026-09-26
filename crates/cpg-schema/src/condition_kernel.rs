@@ -1172,6 +1172,33 @@ mod tests {
     }
 
     #[test]
+    fn production_retained_limit_refuses_valid_shared_tail_before_hydration() {
+        let mut nodes = Vec::new();
+        let mut tail = true_terminal();
+        for index in (0..11).rev() {
+            let atom = Atom::Truthy { place: format!("z{index:02}") }.encode();
+            let root = node_id(&atom, false_terminal(), tail);
+            nodes.push(DiagramNode { node_id: root, atom, low: false_terminal(), high: tail });
+            tail = root;
+        }
+        let mut conditions = Vec::new();
+        for index in 0..84_000 {
+            let atom = Atom::Truthy { place: format!("a{index:05}") }.encode();
+            let root = node_id(&atom, false_terminal(), tail);
+            nodes.push(DiagramNode { node_id: root, atom, low: false_terminal(), high: tail });
+            conditions.push(ConditionRoot {
+                condition_id: IdHasher::new("condition-bdd").id(root).finish_id(),
+                root_id: Some(root),
+                boundary_reason: None,
+            });
+        }
+        assert!(nodes.len() < MAX_CATALOG_NODES);
+        assert!(conditions.len() < MAX_CATALOG_CONDITIONS);
+        let error = hydrate_catalog(&conditions, &nodes).err().unwrap();
+        assert!(error.contains("84011 stored, over 1000000 expanded"), "{error}");
+    }
+
+    #[test]
     fn bounded_operations_and_rendering_keep_unknown_explicit() {
         let a = d("truthy(a)");
         let b = d("truthy(b)");
@@ -1446,5 +1473,12 @@ mod tests {
         assert!(left.bdd.size() * right.bdd.size() > MAX_PAIR_WORK);
         assert_eq!(left.compatible(&right), Ok(false));
         assert_eq!(left.and(&right).err(), Some(KernelBoundary::WorkPreflight));
+
+        // Both operands and vocabulary are admitted, but the decision itself must stop at
+        // its task budget. The dry run's `None` is unknown, not a contradiction.
+        let (left, right) = equality_diagrams(20, false);
+        assert!(left.bdd.size() < MAX_NODES && right.bdd.size() < MAX_NODES);
+        assert_eq!(left.compatible(&right), Err(KernelBoundary::WorkPreflight));
+        assert_eq!(left.implies(&right), Err(KernelBoundary::WorkPreflight));
     }
 }
