@@ -146,7 +146,8 @@ later call cannot hide an earlier unproved call. The modeled direct-return produ
 that same earlier-call witness: a preceding pinned total call is cited, while an opaque earlier
 call leaves an explicit unknown even when the returned model call is exact. The assignment-then-return
 route uses it too, including its source call; a later opaque call blocks that path. These positive and withholding controls passed
-through the real provider and native generation. This is narrower than order 1's exit:
+through the real provider and native generation. A local wrapper now uses the same earlier-call
+check before composing the callee's cited summary; an opaque predecessor blocks it. This is narrower than order 1's exit:
 nested-call arguments, callee forms other than an unconditional module-level import,
 general predecessor sequencing, path-specific predecessor status, possible raises and the full
 return-path evaluation sequence

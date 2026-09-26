@@ -239,6 +239,16 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 2,
         "assignment return must cite both its source and later completed call");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
+        WHERE d.name = 'local_after_completed' AND f.path_depth = 1 \
+          AND p.kind = {}",
+        SummaryFlowStepKind::PrecedingCallNormal.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "local wrapper must cite earlier normal completion");
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         WHERE d.name = 'modeled_after_opaque'")
@@ -267,6 +277,20 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "opaque assignment predecessor retains control boundary");
+    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'local_after_opaque'")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "opaque predecessor cannot certify local wrapper");
+    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
+        JOIN declarations d ON d.node_id = b.function_node_id \
+        WHERE d.name = 'local_after_opaque' AND b.reason = 4")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "opaque local predecessor retains control boundary");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
         JOIN call_syntax c ON c.fact_id = p.call_fact_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
@@ -325,6 +349,7 @@ for operation, expected in (
     ("capspkg.unconditional_self_call", "unsupported_control_flow"),
     ("capspkg.modeled_after_opaque", "unsupported_control_flow"),
     ("capspkg.assigned_modeled_after_opaque", "unsupported_control_flow"),
+    ("capspkg.local_after_opaque", "unsupported_control_flow"),
 ):
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated, (operation, paths, boundaries)
@@ -335,6 +360,9 @@ for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecesso
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
 paths, boundaries, truncated, _ = index.value_paths("capspkg.two_completed_predecessors", "value", 20)
 assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for path in paths), paths
+paths, boundaries, truncated, _ = index.value_paths("capspkg.local_after_completed", "value", 20)
+assert not truncated and not boundaries, (paths, boundaries)
+assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
 paths, boundaries, truncated, _ = index.value_paths("capspkg.modeled_after_completed", "value", 20)
 assert not truncated and not boundaries, (paths, boundaries)
 assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths

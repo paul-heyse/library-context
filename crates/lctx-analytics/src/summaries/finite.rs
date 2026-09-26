@@ -89,6 +89,7 @@ cpg_schema::query_row! {
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         return_condition_id: Id,
+        return_start_byte: i64,
         approximated: bool,
     }
 }
@@ -943,6 +944,15 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                 continue;
             },
         }
+        let predecessor_proof = match preceding_call_steps(seed.function_node_id,
+            seed.return_start_byte, seed.condition_id, &preceding_calls,
+            &normal_by_call, &diagrams, &boundaries) {
+            Ok(proof) => proof,
+            Err(reason) => {
+                refuse(&mut refusals, key, reason);
+                continue;
+            }
+        };
         let Some(callee_paths) = by_formal
             .get(&(seed.callee_node_id, seed.callee_parameter_node_id))
             .cloned()
@@ -968,7 +978,8 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                 continue;
             }
             admitted = true;
-            let proof = [
+            let mut proof = predecessor_proof.clone();
+            proof.extend([
                 (
                     SummaryFlowStepKind::CalleeResolution,
                     seed.callee_resolution_fact_id,
@@ -1008,7 +1019,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                     condition_id,
                 },
             )
-            .collect();
+            );
             push_finite_path(
                 &mut flows,
                 &mut steps,

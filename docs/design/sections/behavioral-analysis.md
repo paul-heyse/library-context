@@ -249,7 +249,9 @@ witness.
   its sole definite local target when ty's one-call value path, Ruff's exact one-positional-argument
   syntax, lexical callee resolution, Pass B's single formal mapping, a closed target set and a
   direct return exit agree, along a callee-first schedule capped at depth 8. Conditional callee
-  paths are withheld (cross-scope atom substitution is unproved).
+  paths are withheld (cross-scope atom substitution is unproved). Compatible earlier calls in
+  the caller must independently complete normally; the returned wrapper call itself is proved
+  by its cited callee summary.
 
 Supporting candidate relations: `modeled_exact_value_transfers` (a raw return or definition value
 joined to one exact model step), `value_flow_predecessor_candidates` (a successor use joined to a

@@ -14,7 +14,7 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   vLLM launch. W15 [ADR-0048](docs/adr/0048-schema-rebuild-policy.md) chooses a fresh current
   store rebuild instead of historical binary compatibility. These have focused evidence only.
 - **Stage 3 progress:** [ADR-0050](docs/adr/0050-finite-summary-outcomes.md) owns finite inputs and refusals. The order-1 predecessor proof admits simple literal, builtin, parameter and unique-assignment arguments for one pinned normal-return target, and source-orders two calls without losing a raising sibling or shuffled earlier unknown.
-  A terminating branch differs from an unconditional recursive predecessor. Direct and assignment modeled returns now check earlier calls before admission. W5 atom-limit publication reaches Delta/native; work/node limits reach the pure producer. W6 decision, effective-support and aggregate native admission controls pass.
+  A terminating branch differs from an unconditional recursive predecessor. Direct, modeled, assignment and local-wrapper returns now check earlier calls before admission. W5 atom-limit publication reaches Delta/native; work/node limits reach the pure producer. W6 decision, effective-support and aggregate native admission controls pass.
   W7's bounded worklist ([ADR-0051](docs/adr/0051-value-reach-worklist.md)) passes cyclic, shuffle and production-cap pure controls. W11 passes CPython literal and real-source Delta/native/MCP string/int controls. W13 uses iterative petgraph SCCs ([ADR-0052](docs/adr/0052-iterative-scc-schedule.md)) and DataFusion distinct recursive type-term closures. L2 admits ordered pass-only finalizer suites.
 
 ## Last verified (2026-09-26)
@@ -32,6 +32,7 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p lctx-analytics --lib shuffled_ --quiet`; same environment with `cargo test -p cpg-core --test bundle finite_depth_and_unsupported_refusals_reach_the_native_response --quiet` | `passed`: shuffled pure inputs remain sound; predecessor and real-source primitive conditions reach Delta/native/MCP. |
 | Same focused `cpg-core --test bundle finite_depth_and_unsupported_refusals_reach_the_native_response --quiet` with `RUST_MIN_STACK=16777216 INSTA_UPDATE=no` | `passed`: modeled direct and assignment returns cite earlier total calls; opaque predecessors stay unknown in Delta/native. |
 | `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p cpg-core --test compile pinned_identity_models_require_and_publish_their_real_formals --quiet`; same environment with `cargo test -p cpg-schema --test contracts --quiet` | `passed`: existing modeled identity and ten schema contracts after predecessor gating. |
+| Focused `cpg-core --test bundle finite_depth_and_unsupported_refusals_reach_the_native_response --quiet` with `RUST_MIN_STACK=16777216 INSTA_UPDATE=no` | `passed`: local-wrapper completion witness and opaque refusal through Delta/native. |
 | `just adr lint`; `git diff --check` | `passed` on the 2026-09-26 focused work. |
 | `just fmt`; `just test-all`; fresh `just pilot`; all-techniques digest; Q01/Q03/Q05/Q09; structured evaluation; clean-wheel query | `not_run`: defer until all planned functional scope is implemented. |
 

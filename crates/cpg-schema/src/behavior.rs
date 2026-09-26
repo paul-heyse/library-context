@@ -2471,6 +2471,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
+                    ret.start_byte AS return_start_byte, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \

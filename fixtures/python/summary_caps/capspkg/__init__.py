@@ -120,6 +120,18 @@ def assigned_modeled_after_opaque(value: object) -> object:
     return result
 
 
+def local_after_completed(value: object) -> object:
+    """A local wrapper may follow an independently completed call."""
+    cast(object, 1)
+    return f0(value)
+
+
+def local_after_opaque(value: object) -> object:
+    """An earlier opaque call blocks an otherwise unconditional callee flow."""
+    opaque()
+    return f0(value)
+
+
 def completed_then_raising(value: object) -> object:
     """An earlier completed call cannot certify a later raising sibling."""
     cast(object, 1)
