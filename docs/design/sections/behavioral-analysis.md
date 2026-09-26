@@ -363,20 +363,18 @@ singleton recursive. Candidate/open dispatch contributes topology only.
 
 ## Native serving boundary
 
-A FORMAT 7 generation carries the structural condition catalogs, summaries, proof steps and
-boundaries, validated before the native executor (`python/lctx_semantics`, one immutable PyO3
-executor per process) admits them; the Python layer validates requests and shapes results. The
-current endpoint `inspect_value_paths` pages one formal's finite paths and open boundaries: each
-exact-input result is **path-local inspection, never an operation-wide verdict**. **Implemented;
-Tested in focused cases (2026-09-25).** Serve-time semantic selection is ADR-0025, which is
-proposed ([§11.3](synthesis-and-serving.md#section-11-3)).
-
-- **Known defect** ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), ARC-01):
-  the native loader re-whitelists proof-step kinds and decodes positional string tuples, so a
-  generation with the compiler's `finalizer_pass` step is rejected, and every new kind or column
-  must be edited on both sides. The intended contract derives admission from the schema codebook
-  with one owned typed projection decoder; transport (Arrow IPC or other) is chosen by total
-  conversion cost.
+A FORMAT 8 generation carries the structural condition catalogs, summaries, proof steps and
+boundaries. The native executor (`python/lctx_semantics`, one immutable PyO3 executor per
+process) checks the schema-owned Arrow IPC projection and codebook before admission; Python
+validates requests and shapes results. `inspect_value_paths` pages one formal's finite paths
+and open boundaries. Each positive path exposes its cited summary, source-flow fact and
+source-origin IDs; an open boundary exposes its separate source fact and origin. Each exact-input
+result is **path-local inspection, never an operation-wide verdict**. **Implemented; Tested in
+focused cases (2026-09-26)** through a real same-fact sibling-origin Delta/native generation.
+The former duplicate native proof-kind whitelist and positional Python production decoder are
+closed under [plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition).
+Serve-time semantic selection remains a proposed ADR-0025 target
+([§11.3](synthesis-and-serving.md#section-11-3)).
 - **Target** (Proposed; plan order 9): typed operation-wide compatibility, effect and role
   filters. A request names a real public operation and formal and a typed primitive predicate; the
   operation/formal and exact primitive origin are resolved before any BDD evaluation; missing

@@ -456,6 +456,8 @@ paths, boundaries, total, truncated, work = inspect("capspkg.mixed_origin", "val
 assert not truncated and len(paths) == 1 and not boundaries, (paths, boundaries)
 positive = next(row for row in generation.tables["summary_flows"].to_pylist()
                 if row["summary_id"].hex() == paths[0][0])
+assert paths[0][8] == positive["source_flow_fact_id"].hex()
+assert paths[0][9] == positive["source_origin_id"].hex()
 paths, boundaries, total, truncated, work = inspect("capspkg.mixed_origin", "other")
 assert not truncated and not paths and len(boundaries) == 1, (paths, boundaries)
 assert boundaries[0][3] == "call_transfer", boundaries
@@ -463,6 +465,7 @@ withheld = next(row for row in generation.tables["summary_boundaries"].to_pylist
                 if row["source_origin_id"].hex() == boundaries[0][1])
 assert positive["source_flow_fact_id"] == withheld["source_flow_fact_id"]
 assert positive["source_origin_id"] != withheld["source_origin_id"]
+assert paths == [] and boundaries[0][0] == positive["source_flow_fact_id"].hex()
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script,

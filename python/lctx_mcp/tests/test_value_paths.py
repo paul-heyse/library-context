@@ -29,6 +29,8 @@ def test_native_page_reports_path_local_refutation_and_open_boundary(generation:
     assert page.total_rows == page.examined_rows == 1
     assert not page.truncated and page.next_cursor is None
     assert page.paths[0].exact_input_result == "refuted_under_model"
+    assert len(page.paths[0].source_flow_fact_id) == 32
+    assert len(page.paths[0].source_origin_id) == 32
     assert page.paths[0].value_links[0].path == "pkg/controls.py"
     assert page.paths[0].theory_work.assignments_applied == 1
     assert page.theory_work.bdd_preflight_pairs > 0
@@ -74,6 +76,7 @@ async def test_value_path_inspection_round_trips_as_structured_mcp(generation: P
         assert result.structured_content["paths"][0]["exact_input_result"] == (
             "refuted_under_model"
         )
+        assert len(result.structured_content["paths"][0]["source_origin_id"]) == 32
         compatible = await client.call_tool(
             "inspect_value_paths",
             {

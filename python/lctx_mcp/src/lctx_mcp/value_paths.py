@@ -65,6 +65,8 @@ class TheoryWork(BaseModel):
 
 class ValuePath(BaseModel):
     summary_id: str
+    source_flow_fact_id: str
+    source_origin_id: str
     source_verdict: str
     condition_id: str
     steps: list[ProofStep]
@@ -183,6 +185,8 @@ def inspect(
         paths=[
             ValuePath(
                 summary_id=row[0],
+                source_flow_fact_id=row[8],
+                source_origin_id=row[9],
                 source_verdict=row[1],
                 condition_id=row[2],
                 steps=[ProofStep(kind=s[0], evidence_id=s[1], condition_id=s[2]) for s in row[3]],

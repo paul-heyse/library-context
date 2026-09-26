@@ -20,7 +20,7 @@ mod ipc_input;
 const MAX_SMOKE_INPUT_BYTES: usize = 64 * 1024;
 const MAX_SUMMARY_ROWS: usize = 100_000;
 const MAX_SURFACE_ROWS: usize = 200_000;
-type FlowInput = (String, String, String, String, String, Option<String>, i64);
+type FlowInput = (String, String, String, String, String, Option<String>, i64, String, String);
 type ProofStep = (String, String, String);
 type OpenPathBoundary = (String, String, String, String);
 type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, Id, String)>>;
@@ -63,6 +63,8 @@ type InspectedPath = (
     Vec<(String, Option<String>, i64, i64)>,
     Option<String>,
     WorkAnswer,
+    String,
+    String,
 );
 type ValuePathPage = (Vec<InspectedPath>, Vec<OpenPathBoundary>, usize, bool, usize);
 
@@ -191,6 +193,8 @@ impl ConditionGraph {
 struct NativeSummary {
     function_node_id: Id,
     condition_id: Id,
+    source_flow_fact_id: Id,
+    source_origin_id: Id,
     verdict: String,
     boundary: Option<String>,
     path_depth: i64,
@@ -306,11 +310,14 @@ impl SemanticExecutor {
             .collect();
         let mut summaries = HashMap::new();
         let mut by_formal: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
-        for (summary, function, formal, condition, verdict, boundary, path_depth) in flows {
+        for (summary, function, formal, condition, verdict, boundary, path_depth,
+             source_flow_fact, source_origin) in flows {
             let summary = id(&summary)?;
             let function = id(&function)?;
             let formal = id(&formal)?;
             let condition = id(&condition)?;
+            let source_flow_fact = id(&source_flow_fact)?;
+            let source_origin = id(&source_origin)?;
             if !graph.has_condition(condition) {
                 return Err(PyValueError::new_err("summary references absent condition"));
             }
@@ -336,6 +343,8 @@ impl SemanticExecutor {
                     NativeSummary {
                         function_node_id: function,
                         condition_id: condition,
+                        source_flow_fact_id: source_flow_fact,
+                        source_origin_id: source_origin,
                         verdict,
                         boundary,
                         path_depth,
@@ -768,6 +777,8 @@ impl SemanticExecutor {
                     links,
                     boundary,
                     theory_work,
+                    summary.source_flow_fact_id.hex(),
+                    summary.source_origin_id.hex(),
                 ));
             } else {
                 let (source, origin, condition, reason) = &open[index - ids.len()];

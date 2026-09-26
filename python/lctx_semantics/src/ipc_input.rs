@@ -195,7 +195,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
     let table = batch(&batches, "operation_parameters");
     let parameters = (0..table.len()).map(|row| Ok((table.id("operation_node_id", row)?, table.id("formal_node_id", row)?, table.text("name", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_flows");
-    let flows = (0..table.len()).map(|row| Ok((table.id("summary_id", row)?, table.id("function_node_id", row)?, table.id("parameter_node_id", row)?, table.id("condition_id", row)?, table.text("verdict", row)?, table.optional_text("boundary_reason", row)?, table.integer("path_depth", row)?))).collect::<PyResult<_>>()?;
+    let flows = (0..table.len()).map(|row| Ok((table.id("summary_id", row)?, table.id("function_node_id", row)?, table.id("parameter_node_id", row)?, table.id("condition_id", row)?, table.text("verdict", row)?, table.optional_text("boundary_reason", row)?, table.integer("path_depth", row)?, table.id("source_flow_fact_id", row)?, table.id("source_origin_id", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_flow_steps");
     let steps = (0..table.len()).map(|row| Ok((table.id("summary_id", row)?, table.integer("ordinal", row)?, table.text("kind", row)?, table.id("evidence_id", row)?, table.id("condition_id", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_boundaries");

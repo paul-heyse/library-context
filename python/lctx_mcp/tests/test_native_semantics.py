@@ -186,7 +186,8 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
         [operation],
         [("pkg.one", operation)],
         [(operation, formal, "value")],
-        [(summary, operation, formal, condition, "established", None, 0)],
+        [(summary, operation, formal, condition, "established", None, 0,
+          "06" * 16, "07" * 16)],
     )
     with pytest.raises(ValueError, match="no proof steps"):
         SemanticExecutor(*args, [], [], [], [])
@@ -194,8 +195,10 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
         SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)], [], [], [])
     caller = "05" * 16
     conditional = (
-        (summary, operation, formal, condition, "conditional", None, 0),
-        (caller, operation, formal, condition, "conditional", None, 1),
+        (summary, operation, formal, condition, "conditional", None, 0,
+         "06" * 16, "07" * 16),
+        (caller, operation, formal, condition, "conditional", None, 1,
+         "08" * 16, "09" * 16),
     )
     with pytest.raises(ValueError, match="conditional callee lacks a test link"):
         SemanticExecutor(
@@ -224,7 +227,8 @@ def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(
         kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
         conditions, nodes, [operation], [("pkg.finalizer", operation)],
         [(operation, formal, "value")],
-        [(summary, operation, formal, condition, "established", None, 0)],
+        [(summary, operation, formal, condition, "established", None, 0,
+          "06" * 16, "07" * 16)],
     )
     finalizer = (summary, 0, "finalizer_pass", "04" * 16, condition)
     index = SemanticExecutor(*prefix, [finalizer], [], [], [])
@@ -232,6 +236,7 @@ def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(
         "pkg.finalizer", "value", "none", "", True, 0, 1
     )
     assert paths[0][3][0][0] == "finalizer_pass"
+    assert paths[0][8:] == ("06" * 16, "07" * 16)
     with pytest.raises(ValueError, match="invalid summary proof step"):
         SemanticExecutor(*prefix, [(summary, 0, "invented_step", "04" * 16, condition)], [], [], [])
 
@@ -336,16 +341,19 @@ def test_native_string_membership_and_integer_equality_stay_path_local() -> None
     operation, formal, module = "01" * 16, "03" * 16, "02" * 16
     conditions = [(condition, root, None) for condition, root, _, _ in entries]
     nodes = [(root, atom, false_id, true_id) for _, root, _, atom in entries]
-    flows = [(f"{index:02x}" * 16, operation, formal, condition, "conditional", None, 0)
+    flows = [(f"{index:02x}" * 16, operation, formal, condition, "conditional", None, 0,
+              "0a" * 16, f"{index + 10:02x}" * 16)
              for index, (condition, _, _, _) in enumerate(entries, start=4)]
     steps = [(summary, 0, "finalizer_pass", "09" * 16, condition)
-             for summary, _, _, condition, _, _, _ in flows]
+             for summary, _, _, condition, _, _, _, _, _ in flows]
     leaves = [(f"{index:02x}" * 16, module, condition, atom_id, atom, "pkg/transport.py", 10, 20)
               for index, (condition, _, atom_id, atom) in enumerate(entries, start=6)]
     links = [(f"{index:02x}" * 16, operation, formal, module, leaf[0], atom_id, condition,
               "transport", "direct_parameter_reach_no_effect", effect,
               ("pkg/transport.py", 10, 20))
-             for index, ((condition, _, atom_id, _), leaf) in enumerate(zip(entries, leaves), start=8)]
+             for index, ((condition, _, atom_id, _), leaf) in enumerate(
+                 zip(entries, leaves, strict=True), start=8
+             )]
     index = SemanticExecutor(
         kernel_format(), snapshot, effect, conditions, nodes,
         [operation], [("pkg.transport", operation)], [(operation, formal, "transport")],
