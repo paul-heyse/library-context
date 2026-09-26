@@ -15,7 +15,7 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   store rebuild instead of historical binary compatibility. These have focused evidence only.
 - **Stage 3 progress:** [ADR-0050](docs/adr/0050-finite-summary-outcomes.md) owns finite inputs and refusals. The order-1 predecessor proof admits simple literal, builtin, parameter and unique-assignment arguments for one pinned normal-return target, and source-orders two calls without losing a raising sibling or shuffled earlier unknown.
   A terminating branch differs from an unconditional recursive predecessor. W5 atom-limit publication reaches Delta/native; work/node limits reach the pure producer. W6 decision, effective-support and aggregate native admission controls pass.
-  W7's bounded worklist ([ADR-0051](docs/adr/0051-value-reach-worklist.md)) passes cyclic, shuffle and production-cap pure controls. W11 passes CPython literal and native string/int controls. W13 uses iterative petgraph SCCs ([ADR-0052](docs/adr/0052-iterative-scc-schedule.md)) and DataFusion distinct recursive type-term closures. L2 admits ordered pass-only finalizer suites.
+  W7's bounded worklist ([ADR-0051](docs/adr/0051-value-reach-worklist.md)) passes cyclic, shuffle and production-cap pure controls. W11 passes CPython literal and real-source Delta/native/MCP string/int controls. W13 uses iterative petgraph SCCs ([ADR-0052](docs/adr/0052-iterative-scc-schedule.md)) and DataFusion distinct recursive type-term closures. L2 admits ordered pass-only finalizer suites.
 
 ## Last verified (2026-09-26)
 
@@ -29,7 +29,7 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `cargo test -p cpg-core --lib production_work_cap_keeps_cycle_dependents_open --quiet`; `cargo test -p cpg-extract --lib edited_or_added_unselected_helper_facts_equal_a_clean_recomputation --quiet` | `passed`: production work cap and warm/clean corpus edit/addition. |
 | `uv run --no-sync python docs/design_review/evidence/2026-09-26_primitive-python-lowering/probe.py`; `cargo test -p cpg-schema --lib finite_primitive_lowering_matches_recorded_cpython_314_predicates --quiet`; `uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py::test_native_string_membership_and_integer_equality_stay_path_local -q` | `passed`: CPython 3.14.7 finite lowering and native two-path control. |
 | Focused `cpg-core --test compile nested_returns_need_an_uncontrolled_exit_before_becoming_value_summaries` and `--test bundle finalizer_proof_round_trips_through_the_native_generation_reader` (`RUST_MIN_STACK=16777216 INSTA_UPDATE=no`, `--quiet`) | `passed`: two ordered pass steps through Delta, shared validation and native reader. |
-| `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p lctx-analytics --lib shuffled_ --quiet`; same environment with `cargo test -p cpg-core --test bundle finite_depth_and_unsupported_refusals_reach_the_native_response --quiet` | `passed`: shuffled pure inputs remain sound; two completed calls and later raising sibling reach Delta/native. |
+| `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p lctx-analytics --lib shuffled_ --quiet`; same environment with `cargo test -p cpg-core --test bundle finite_depth_and_unsupported_refusals_reach_the_native_response --quiet` | `passed`: shuffled pure inputs remain sound; predecessor and real-source primitive conditions reach Delta/native/MCP. |
 | `just adr lint`; `git diff --check` | `passed` on the 2026-09-26 focused work. |
 | `just fmt`; `just test-all`; fresh `just pilot`; all-techniques digest; Q01/Q03/Q05/Q09; structured evaluation; clean-wheel query | `not_run`: defer until all planned functional scope is implemented. |
 
@@ -42,7 +42,7 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Orders 2–9 (exit/fate, composition proof identity, modeled results/families, recursive summaries,
   discharge, independent challenge and complete serving) are not finished. W5 work/node caps lack
   Delta/native publication traces; W7's production cap lacks one; W9 live replay lacks a running
-  controlled embed service; W11 lacks real Delta/MCP Q09; W12 engine comparison and pilot cost
+  controlled embed service; W11 lacks full FastMCP Q09; W12 engine comparison and pilot cost
   remain. W10 and W14/F15 retain the plan's deferred triggers.
 - Do not count a fake embedder as live W9 evidence. W6's large native repeated-root input checks
   the shared loader preflight; the distinct-valid-root production limit is proved in Rust. No

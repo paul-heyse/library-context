@@ -73,6 +73,20 @@ def signed_literal_predecessor(value: object) -> object:
     return value
 
 
+def string_member_identity(transport: str) -> str | None:
+    """A source-local membership guard constrains the returned formal."""
+    if transport in ("http", "sse"):
+        return transport
+    return None
+
+
+def integer_equal_identity(level: int) -> int | None:
+    """A non-boolean integer guard constrains the returned formal."""
+    if level == 2:
+        return level
+    return None
+
+
 def two_completed_predecessors(value: object) -> object:
     """Two independently evaluated calls precede the direct return in source order."""
     cast(object, 1)

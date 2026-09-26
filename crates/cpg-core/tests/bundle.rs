@@ -255,8 +255,11 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .await.unwrap();
     let script = r#"
 import sys
+import asyncio
 from pathlib import Path
+from fastmcp import Client
 from lctx_mcp.generation import load
+from lctx_mcp.server import build_server
 generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
 for operation, expected in (
@@ -281,6 +284,38 @@ for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecesso
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
 paths, boundaries, truncated, _ = index.value_paths("capspkg.two_completed_predecessors", "value", 20)
 assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for path in paths), paths
+for operation, formal, kind, value, expected in (
+    ("capspkg.string_member_identity", "transport", "str", "stdio", "refuted_under_model"),
+    ("capspkg.string_member_identity", "transport", "str", "http", "compatible_under_model"),
+    ("capspkg.integer_equal_identity", "level", "int", "3", "refuted_under_model"),
+    ("capspkg.integer_equal_identity", "level", "int", "2", "compatible_under_model"),
+    ("capspkg.integer_equal_identity", "level", "bool", "true", "unknown"),
+):
+    paths, boundaries, total, truncated, work = index.inspect_value_paths(
+        operation, formal, kind, value, True, 0, 10
+    )
+    assert not truncated and paths and not boundaries, (operation, paths, boundaries)
+    assert any(path[4] == expected for path in paths), (operation, expected, paths)
+async def check_mcp():
+    async with Client(build_server(generation.root, None)) as client:
+        for operation, formal, kind, value, expected in (
+            ("capspkg.string_member_identity", "transport", "str", "stdio", "refuted_under_model"),
+            ("capspkg.string_member_identity", "transport", "str", "http", "compatible_under_model"),
+            ("capspkg.integer_equal_identity", "level", "int", 3, "refuted_under_model"),
+            ("capspkg.integer_equal_identity", "level", "int", 2, "compatible_under_model"),
+            ("capspkg.integer_equal_identity", "level", "bool", True, "unknown"),
+        ):
+            result = await client.call_tool("inspect_value_paths", {
+                "snapshot_id": generation.snapshot_id,
+                "operation": operation,
+                "formal": formal,
+                "exact_input": {"kind": kind, "value": value},
+                "standard_builtins": True,
+            })
+            page = result.structured_content
+            assert page and page["paths"] and not page["boundaries"], (operation, page)
+            assert any(path["exact_input_result"] == expected for path in page["paths"]), (operation, expected, page)
+asyncio.run(check_mcp())
 paths, boundaries, truncated, _ = index.value_paths("capspkg.terminating_branch_before_recursion", "value", 20)
 assert not truncated and paths, (paths, boundaries)
 assert any(boundary[2] == "unsupported_control_flow" for boundary in boundaries), boundaries
