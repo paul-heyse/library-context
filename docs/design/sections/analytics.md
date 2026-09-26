@@ -35,20 +35,23 @@ are **Implemented** and **Tested** as off-by-default variants (§9.8).
 **Algorithm ownership** (ADR-0044; DESIGN [§B4](../DESIGN.md#section-b4)). Traversal is an
 explicit BFS over immutable petgraph projections; communities use leiden-rs with RBER; PageRank
 and FCA (NextClosure) are our own code, with independent oracles (`leiden_rs::compute_flow`,
-`fcars`). Transfer summaries run in petgraph `tarjan_scc` order (callees first): that is the
-implemented schedule. `tarjan_scc` recurses, and whether a large call graph needs an iterative
-routine is an **open** stack-safety question, together with who owns the SCC/topological order
+`fcars`). Transfer summaries use petgraph's iterative `kosaraju_scc` for component discovery;
+`lctx-analytics` owns sorted members and canonical callee-first condensation order
+([ADR-0052](../../adr/0052-iterative-scc-schedule.md)). A 30,000-edge chain and real
+component-order control passed in focused tests (2026-09-26); pilot cost remains open
 ([plan W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 The engine for recursive summary composition (bounded native worklist, Ascent or datafrog) is an
 **open comparison** at plan order 6, not an adopted dependency
 ([plan W12](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
 **Recursive relational walks.** The type-term walks behind the type layer (§9.4) and FCA's
-type attributes (§9.6) are DataFusion recursive CTEs over `type_term_args`. They are intended to
-compute a set closure that terminates on any input; today they use `UNION ALL`, so shared
-sub-terms repeat rows and termination rests on extraction's depth cap, not on the query. Row
-identity and provenance are resolved before the walk is changed
-([plan W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+type attributes (§9.6) are DataFusion recursive CTEs over `type_term_args`. They use `UNION`
+distinct at each iteration. Unknown ancestry has one row per term id; the type layer has one row
+per function and term id. Both downstream consumers use set membership, so repeat paths carry no
+separate evidence or modality. A cyclic edge now terminates and produces the same attributes and
+type-layer membership as its acyclic counterpart in focused tests (2026-09-26), rather than
+relying on extraction's depth cap. The next integrated all-techniques digest must be repinned
+after this SQL change ([plan W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
 **The public paths** (**Implemented** and **Tested**, 2026-09-24). One relation,
 `cpg_schema::public::public_paths`, names every public spelling of every public function and

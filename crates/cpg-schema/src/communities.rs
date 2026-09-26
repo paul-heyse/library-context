@@ -34,6 +34,7 @@ pub fn co_use_sql() -> String {
 /// The type layer's relation (slice 3.2, the `+type-layer` variant): each function with each
 /// release class its declared parameter types name anywhere in their structure (the receiver
 /// aside), ordered by `(function, class)`. Two functions taking one class are a pair, 1 per class.
+/// The recursive CTE uses `UNION` over `(function, term)`; its output is set membership only.
 pub fn shared_types_sql() -> String {
     format!(
         "WITH RECURSIVE receivers AS ({receivers}), \
@@ -44,7 +45,7 @@ pub fn shared_types_sql() -> String {
            LEFT ANTI JOIN receivers r ON r.parameter_node_id = ps.node_id), \
          reach(function_node_id, term_node_id) AS ( \
            SELECT function_node_id, term_node_id FROM declared \
-           UNION ALL \
+           UNION \
            SELECT r.function_node_id, a.child_node_id FROM reach r \
            JOIN type_term_args a ON a.parent_node_id = r.term_node_id) \
          SELECT DISTINCT r.function_node_id AS target_node_id, \

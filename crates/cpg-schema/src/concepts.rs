@@ -15,7 +15,8 @@
 //! A type Pyrefly could not determine is no attribute (the increment-2 review's F2): a term that
 //! is, or holds anywhere in its structure, an `Any` of style `error` or `implicit` (displayed
 //! `Unknown`), found by walking `type_term_args` up from those terms. Two APIs are never grouped
-//! for sharing what the analysis does not know.
+//! for sharing what the analysis does not know. The recursive CTE uses `UNION` over term id:
+//! only membership is consumed, so repeated paths carry no distinct provenance.
 
 use crate::codebook::{Codebook, DeclarationKind, ParameterKind, TypeRole, TypeTermKind};
 use crate::flows::{codes, receivers_sql};
@@ -35,7 +36,7 @@ pub fn attributes_sql(functions: &[Id]) -> String {
     format!(
         "WITH RECURSIVE unknown(node_id) AS ( \
            SELECT node_id FROM type_terms WHERE kind = {any} AND detail IN ('error', 'implicit') \
-           UNION ALL \
+           UNION \
            SELECT a.parent_node_id FROM type_term_args a \
            JOIN unknown u ON u.node_id = a.child_node_id), \
          known AS (SELECT t.node_id, t.kind, t.display FROM type_terms t \

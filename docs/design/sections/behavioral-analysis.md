@@ -309,8 +309,9 @@ singleton recursive. Candidate/open dispatch contributes topology only.
   open comparison on one semantic state and refusal contract, after W5; none is adopted. A
   wall-clock timeout is not a deterministic budget.
 - W13: iterative SCC routine and schedule ownership are decided by ADR-0052 and tested in a
-  deep chain. The separate type-term recursive CTE identity/provenance case and pilot cost remain
-  open; keyed condensation ordering stays repository-owned.
+  deep chain. The separate type-term recursive set closures now terminate on cyclic controls;
+  pilot cost and the integrated digest remain open. Keyed condensation ordering stays
+  repository-owned.
 
 ## Native serving boundary
 
