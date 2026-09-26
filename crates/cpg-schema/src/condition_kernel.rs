@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::condition::{Atom, Condition, Literal, MAX_CONJUNCTIONS, MAX_LITERALS};
 use crate::id::{Id, IdHasher};
-use biodivine_lib_bdd::{Bdd, BddNode, BddPointer, BddVariableSet, op_function};
+use biodivine_lib_bdd::{Bdd, BddNode, BddPointer, BddVariable, BddVariableSet, op_function};
 
 /// Version of the structural node encoding persisted in a serving generation.
 pub const KERNEL_FORMAT: u32 = 1;
@@ -651,6 +651,28 @@ impl Diagram {
             return Err(KernelBoundary::NodeLimit);
         }
         Self::effective(self.support.clone(), self.ctx.clone(), self.bdd.not())
+    }
+
+    /// Cofactor a diagram under exact assignments to atoms already in its support. The result
+    /// is still a condition over any unfixed atoms, not evidence that the assignments hold in
+    /// Python. Restriction visits at most the input diagram for each assigned variable.
+    pub fn restrict_atoms(&self, assignments: &[(&str, bool)]) -> Result<Self, KernelBoundary> {
+        if self
+            .node_count()
+            .checked_mul(assignments.len())
+            .is_none_or(|work| work > MAX_PAIR_WORK)
+        {
+            return Err(KernelBoundary::WorkPreflight);
+        }
+        let mut values = Vec::with_capacity(assignments.len());
+        for &(atom, value) in assignments {
+            let index = self
+                .support
+                .binary_search_by(|candidate| candidate.as_str().cmp(atom))
+                .map_err(|_| KernelBoundary::TransferUnsupported)?;
+            values.push((BddVariable::from_index(index), value));
+        }
+        Self::effective(self.support.clone(), self.ctx.clone(), self.bdd.restrict(&values))
     }
 
     /// A proposed quotient is accepted only when a capped equality check verifies it.

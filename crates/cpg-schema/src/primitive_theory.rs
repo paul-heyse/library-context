@@ -93,7 +93,8 @@ pub enum TheoryBoundary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refutation {
-    /// Every value link whose atom assignment was conjoined before the diagram became false.
+    /// An irredundant set of value links when the bounded minimization completed; otherwise a
+    /// valid deterministic superset. Every retained link is an admitted exact assignment.
     pub value_link_ids: Vec<Id>,
 }
 
@@ -106,8 +107,8 @@ pub enum ExactInputOutcome {
     Unknown,
 }
 
-/// Work performed for one path. `bdd_preflight_pairs` is the sum of input-node products
-/// considered by the bounded apply, not the number of internal BDD pairs actually visited.
+/// Work performed for one path. `bdd_preflight_pairs` is a conservative restriction-work
+/// estimate (diagram nodes times assigned atoms), not a count of visited BDD nodes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TheoryWork {
     pub links_examined: usize,
@@ -233,42 +234,63 @@ fn assess_exact_input_inner(
             _ => {}
         }
     }
-    let mut constrained = condition.clone();
-    let mut witnesses = Vec::new();
+    let mut selected = Vec::new();
     let mut remaining_work = MAX_ASSIGNMENT_WORK;
     for (encoded, (value, link_id)) in assignments {
-        if witnesses.len() >= MAX_ASSIGNMENTS {
+        if selected.len() >= MAX_ASSIGNMENTS {
             return Err(TheoryBoundary::AssignmentBudget);
         }
-        let atom = Atom::parse_encoded(&encoded).map_err(|_| TheoryBoundary::ConflictingProof)?;
-        let literal = Diagram::from_atom(&atom).map_err(TheoryBoundary::Kernel)?;
-        let literal = if value {
-            literal
-        } else {
-            literal.not().map_err(TheoryBoundary::Kernel)?
-        };
-        let pair_bound = constrained
-            .node_count()
-            .saturating_mul(literal.node_count());
-        work.bdd_preflight_pairs = work.bdd_preflight_pairs.saturating_add(pair_bound);
+        let restriction_work = condition.node_count().saturating_mul(selected.len() + 1);
+        work.bdd_preflight_pairs = work.bdd_preflight_pairs.saturating_add(restriction_work);
         remaining_work = remaining_work
-            .checked_sub(pair_bound)
+            .checked_sub(restriction_work)
             .ok_or(TheoryBoundary::AssignmentBudget)?;
-        constrained = constrained.and(&literal).map_err(TheoryBoundary::Kernel)?;
+        selected.push((encoded, value, link_id));
+        let fixed: Vec<(&str, bool)> = selected
+            .iter()
+            .map(|(atom, value, _)| (atom.as_str(), *value))
+            .collect();
+        let constrained = condition
+            .restrict_atoms(&fixed)
+            .map_err(TheoryBoundary::Kernel)?;
         work.assignments_applied += 1;
         work.peak_bdd_nodes = work.peak_bdd_nodes.max(constrained.node_count());
-        witnesses.push(link_id);
         if constrained.is_false() {
+            // Deletion gives an irredundant proof when the remaining work budget permits. On
+            // exhaustion, the current set is still a sound refutation; no extra work is spent.
+            let mut index = 0;
+            while index < selected.len() {
+                let trial: Vec<(&str, bool)> = selected
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, (atom, value, _))| (i != index).then_some((atom.as_str(), *value)))
+                    .collect();
+                let cost = condition.node_count().saturating_mul(trial.len());
+                let Some(left) = remaining_work.checked_sub(cost) else {
+                    break;
+                };
+                remaining_work = left;
+                work.bdd_preflight_pairs = work.bdd_preflight_pairs.saturating_add(cost);
+                let reduced = condition
+                    .restrict_atoms(&trial)
+                    .map_err(TheoryBoundary::Kernel)?;
+                work.peak_bdd_nodes = work.peak_bdd_nodes.max(reduced.node_count());
+                if reduced.is_false() {
+                    selected.remove(index);
+                } else {
+                    index += 1;
+                }
+            }
             return Ok(ExactInputOutcome::Refuted(Refutation {
-                value_link_ids: witnesses,
+                value_link_ids: selected.into_iter().map(|(_, _, link_id)| link_id).collect(),
             }));
         }
     }
-    if witnesses.is_empty() {
+    if selected.is_empty() {
         Ok(ExactInputOutcome::Unknown)
     } else {
         Ok(ExactInputOutcome::CompatibleUnderModel {
-            value_link_ids: witnesses,
+            value_link_ids: selected.into_iter().map(|(_, _, link_id)| link_id).collect(),
         })
     }
 }
@@ -660,5 +682,45 @@ mod tests {
                 refuted,
             );
         }
+    }
+
+    #[test]
+    fn refutation_drops_an_irrelevant_earlier_link() {
+        let input = Value::Str("query".to_owned());
+        let mut diagrams = Vec::new();
+        let mut links = Vec::new();
+        let mut leaves = Vec::new();
+        for (index, expected) in ["query", "other", "another"].into_iter().enumerate() {
+            let (diagram, mut link, mut leaf) = fixture(
+                Atom::Equals {
+                    place: format!("x{index}"),
+                    value: Value::Str(expected.to_owned()),
+                },
+                TestValueLinkOrigin::DirectParameterReachNoEffect,
+            );
+            link.place = format!("x{index}");
+            link.link_id = Id([index as u8 + 20; 16]);
+            link.leaf_fact_id = Id([index as u8 + 30; 16]);
+            leaf.fact_id = link.leaf_fact_id;
+            diagrams.push(diagram);
+            links.push(link);
+            leaves.push(leaf);
+        }
+        // x0 is true for this input, but x1 and x2 being false refutes the disjunction
+        // independently of x0. The old prefix citation included all three links.
+        let condition = diagrams[0].and(&diagrams[1].or(&diagrams[2]).unwrap()).unwrap();
+        for (link, leaf) in links.iter_mut().zip(&mut leaves) {
+            link.condition_id = condition.id();
+            leaf.condition_id = condition.id();
+        }
+        let proof = refute_exact_input(
+            &condition,
+            exact(&links[0], &input, BuiltinNamespace::Unknown),
+            &links,
+            &leaves,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(proof.value_link_ids, vec![links[1].link_id, links[2].link_id]);
     }
 }
