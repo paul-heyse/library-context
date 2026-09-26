@@ -904,7 +904,7 @@ mod corpus_identity_tests {
     }
 
     #[test]
-    fn edited_unselected_helper_facts_equal_a_clean_recomputation() {
+    fn edited_or_added_unselected_helper_facts_equal_a_clean_recomputation() {
         fn input(root: &Path, helper: &str) -> ExtractInput {
             let release = root.join("release");
             let tree = root.join("corpus");
@@ -952,5 +952,24 @@ mod corpus_identity_tests {
         assert_eq!(changed.tables, fresh.tables, "warm extraction differs from clean facts");
         assert_ne!(first.table("type_observations"), changed.table("type_observations"),
             "the helper signature edit did not change the selected example's type facts");
+
+        let added_clean = tempfile::tempdir().unwrap();
+        for root in [reused.path(), added_clean.path()] {
+            fs_err::create_dir_all(root.join("corpus")).unwrap();
+            fs_err::write(root.join("corpus/extra_helper.pyi"),
+                "def optional(value: str) -> str: ...\n").unwrap();
+        }
+        let added_input = input(reused.path(), after);
+        let added = extract(&added_input).unwrap();
+        let added_fresh_input = input(added_clean.path(), after);
+        let added_fresh = extract(&added_fresh_input).unwrap();
+        assert_ne!(changed_input.corpus.as_ref().unwrap().release.release_id,
+            added_input.corpus.as_ref().unwrap().release.release_id,
+            "the added unselected helper kept the old corpus input identity");
+        assert_eq!(added_input.corpus.as_ref().unwrap().release.release_id,
+            added_fresh_input.corpus.as_ref().unwrap().release.release_id,
+            "relocation changed the added-helper corpus input identity");
+        assert_eq!(added.tables, added_fresh.tables,
+            "warm extraction after helper addition differs from clean facts");
     }
 }

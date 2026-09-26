@@ -144,8 +144,10 @@ The corpus `release_id` now hashes content and membership of every analyzer-read
 that root, whether selected or not, and refuses analyzer-readable symlinks. Ordinary
 site-packages content and membership were already hashed. Editing an unselected imported helper
 between extractions now yields the same fact tables as extracting the edited tree in a fresh
-location; its corpus release identity changes and is relocation invariant. A fresh pilot run
-remains outstanding before claiming end-to-end hermeticity.
+location. Adding an unselected analyzer-readable helper after a warm extraction also matches a
+clean extraction of the augmented tree. Both changes move corpus release identity while
+relocation preserves it. A fresh pilot run remains outstanding before claiming end-to-end
+hermeticity.
 
 **Run.** A run is one producer applied to one context for a declared set of families under one
 analysis configuration. `runs` records that. `producers` records the tool, the revision (for the
