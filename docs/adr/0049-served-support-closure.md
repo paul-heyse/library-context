@@ -53,3 +53,8 @@ it does not add a second evidence framework or a server-side Delta dependency. S
 members name only a fact identity without a generic source span, so the response says `fact_only`
 or `unavailable` where no witness span exists. Integrated Stage 3 qualification and the fresh
 pilot remain pending under the plan; this ADR alone does not close W3.
+
+## Amendments
+
+- 2026-09-25: The implementation also caps each support IPC file at 64 MiB at build and load.
+  This adds a resource limit without changing the selected projection or authority boundary.

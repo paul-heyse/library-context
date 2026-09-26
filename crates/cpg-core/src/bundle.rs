@@ -50,6 +50,7 @@ use crate::{CoreError, sql};
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
 pub const FORMAT: u64 = 8;
 const MAX_SUPPORT_ROWS: usize = 100_000;
+const MAX_SUPPORT_FILE_BYTES: usize = 64 * 1024 * 1024;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -804,7 +805,11 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
             return Err(bad(format!("{} exceeds the support projection row limit", file.name)));
         }
         let digest = schema_digest(&file.schema).map_err(bad)?;
-        built.push((file.name, ipc_bytes(&batch)?, batch.num_rows(), digest));
+        let bytes = ipc_bytes(&batch)?;
+        if file.name.starts_with("support_") && bytes.len() > MAX_SUPPORT_FILE_BYTES {
+            return Err(bad(format!("{} exceeds the support projection byte limit", file.name)));
+        }
+        built.push((file.name, bytes, batch.num_rows(), digest));
     }
     let embedded = counted(
         ctx,

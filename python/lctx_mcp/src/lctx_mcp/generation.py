@@ -25,6 +25,7 @@ FORMAT = 8
 KERNEL_FORMAT = 1
 MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
 MAX_SUMMARY_ROWS = 100_000
+MAX_SUPPORT_FILE_BYTES = 64 * 1024 * 1024
 NATIVE_IPC_FILES = frozenset(
     {
         "conditions", "condition_nodes", "analysis_conditions", "analysis_condition_nodes",
@@ -443,6 +444,8 @@ def _read(
         and path.stat().st_size > MAX_CONDITION_FILE_BYTES
     ):
         raise GenerationError(f"{entry['file']}: condition file exceeds the load budget")
+    if name.startswith("support_") and path.stat().st_size > MAX_SUPPORT_FILE_BYTES:
+        raise GenerationError(f"{entry['file']}: support file exceeds the load budget")
     data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != entry["sha256"]:
         raise GenerationError(f"{entry['file']}: its sha256 differs from the manifest")
