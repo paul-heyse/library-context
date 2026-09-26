@@ -34,10 +34,10 @@ use arrow_ipc::writer::{FileWriter, IpcWriteOptions};
 use arrow_schema::{DataType, Field, FieldRef, SchemaRef};
 use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
-    AssertionKind, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
-    EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily, FindingKind, OperationFacet,
-    ReviewState, ScopeKind, SummaryFlowKind, SummaryFlowStepKind, SupportRole, TestValueLinkOrigin,
-    Verdict,
+    AnalyticMethod, ArcKind, AssertionKind, BehaviorKind, BoundaryReason, Codebook,
+    CoverageStatus, DeclarationKind, EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily,
+    FindingKind, InvocationPhase, MemberRole, Modality, OperationFacet, ReviewState, ScopeKind,
+    StopReason, SummaryFlowKind, SummaryFlowStepKind, SupportRole, TestValueLinkOrigin, Verdict,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -48,7 +48,8 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 7;
+pub const FORMAT: u64 = 8;
+const MAX_SUPPORT_ROWS: usize = 100_000;
 
 /// A built generation: its key, directory and manifest.
 #[derive(Debug, Clone)]
@@ -121,6 +122,63 @@ fn query(name: &str) -> Option<String> {
              ORDER BY s.assertion_id, role, s.ordinal",
             role = text_of::<SupportRole>("s.role"),
             kind = text_of::<FindingKind>("f.finding_kind"),
+        ),
+        "support_findings" => format!(
+            "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
+                JOIN brief_assertions ba ON ba.assertion_id = s.assertion_id \
+                WHERE s.finding_id IS NOT NULL) \
+             SELECT f.finding_id, {kind} AS finding_kind, {status} AS evidence_status, \
+                    f.subject_node_id, f.related_node_id, f.invocation_id, \
+                    i.model_id, {method} AS method, i.parameters, \
+                    {completion} AS completion, {stop} AS stop_reason, f.witnesses_omitted \
+             FROM cited c JOIN findings f ON f.finding_id = c.finding_id \
+             JOIN analysis_invocations i ON i.invocation_id = f.invocation_id \
+             ORDER BY f.finding_id LIMIT {limit}",
+            kind = text_of::<FindingKind>("f.finding_kind"),
+            status = text_of::<EvidenceStatus>("f.evidence_status"),
+            method = text_of::<AnalyticMethod>("i.method"),
+            completion = text_of::<CoverageStatus>("i.completion"),
+            stop = text_of::<StopReason>("i.stop_reason"),
+            limit = MAX_SUPPORT_ROWS + 1,
+        ),
+        "support_witnesses" => format!(
+            "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
+                JOIN brief_assertions ba ON ba.assertion_id = s.assertion_id \
+                WHERE s.finding_id IS NOT NULL), \
+             declarations_one AS (SELECT node_id, module_node_id, start_byte, end_byte, fact_id \
+                FROM (SELECT node_id, module_node_id, start_byte, end_byte, fact_id, \
+                    row_number() OVER (PARTITION BY node_id ORDER BY start_byte, end_byte, fact_id) AS rn \
+                    FROM declarations) WHERE rn = 1), \
+             source_paths AS (SELECT module_node_id, min(path) AS path FROM ({files}) \
+                GROUP BY module_node_id) \
+             SELECT w.finding_id, w.path, w.step, w.caller_node_id, w.call_site_node_id, \
+                    w.callee_node_id, {arc} AS arc_kind, {modality} AS modality, \
+                    {phase} AS phase, COALESCE(cs.fact_id, sn.fact_id, d.fact_id) AS source_fact_id, \
+                    sp.path AS source_path, COALESCE(cs.start_byte, sn.start_byte, d.start_byte) AS start_byte, \
+                    COALESCE(cs.end_byte, sn.end_byte, d.end_byte) AS end_byte \
+             FROM cited c JOIN witnesses w ON w.finding_id = c.finding_id \
+             LEFT JOIN call_syntax cs ON cs.node_id = w.call_site_node_id \
+             LEFT JOIN syntax_nodes sn ON sn.node_id = w.call_site_node_id \
+             LEFT JOIN declarations_one d ON d.node_id = w.call_site_node_id \
+             LEFT JOIN source_paths sp ON sp.module_node_id = COALESCE(cs.module_node_id, sn.module_node_id, d.module_node_id) \
+             ORDER BY w.finding_id, w.path, w.step LIMIT {limit}",
+            arc = text_of::<ArcKind>("w.arc_kind"),
+            modality = text_of::<Modality>("w.modality"),
+            phase = text_of::<InvocationPhase>("w.phase"),
+            files = cpg_schema::flows::display_files_sql(),
+            limit = MAX_SUPPORT_ROWS + 1,
+        ),
+        "support_members" => format!(
+            "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
+                JOIN brief_assertions ba ON ba.assertion_id = s.assertion_id \
+                WHERE s.finding_id IS NOT NULL) \
+             SELECT m.finding_id, {role} AS role, m.ordinal, m.node_id, m.cited_fact_id, \
+                    f.table_name AS fact_table, f.model_id AS fact_model_id, m.label \
+             FROM cited c JOIN finding_members m ON m.finding_id = c.finding_id \
+             LEFT JOIN facts f ON f.fact_id = m.cited_fact_id \
+             ORDER BY m.finding_id, role, m.ordinal LIMIT {limit}",
+            role = text_of::<MemberRole>("m.role"),
+            limit = MAX_SUPPORT_ROWS + 1,
         ),
         "evidence" => format!(
             "SELECT e.evidence_id, {kind} AS kind, e.node_id, COALESCE(sf.path, d.path) AS path, \
@@ -742,6 +800,9 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
             (None, "operation_text") => operation_text(ctx, &file.schema).await?,
             (None, _) => lexical(ctx, &file.schema).await?,
         };
+        if file.name.starts_with("support_") && batch.num_rows() > MAX_SUPPORT_ROWS {
+            return Err(bad(format!("{} exceeds the support projection row limit", file.name)));
+        }
         let digest = schema_digest(&file.schema).map_err(bad)?;
         built.push((file.name, ipc_bytes(&batch)?, batch.num_rows(), digest));
     }

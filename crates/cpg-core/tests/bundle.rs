@@ -103,8 +103,10 @@ async fn finalizer_proof_round_trips_through_the_native_generation_reader() {
     let script = r#"
 import sys
 from pathlib import Path
-from lctx_mcp.generation import load
-index = load(Path(sys.argv[1]), None).condition_graph
+from lctx_mcp.generation import GenerationError, _validate_support_closure, load
+from lctx_mcp.server import hydrate, markdown, serve
+generation = load(Path(sys.argv[1]), None)
+index = generation.condition_graph
 paths, boundaries, truncated, _ = index.value_paths(
     "pkg.controls.passthrough", "options", 20
 )
@@ -114,6 +116,30 @@ assert any(
     and any(step[0] == "finalizer_pass" for step in path[3])
     for path in paths
 ), paths
+served = serve(generation, None)
+brief_id = next(
+    brief_id for brief_id, brief in generation.briefs.items()
+    if brief["access_path"] == "pkg.configure"
+)
+capability = hydrate(served, generation.snapshot_id, brief_id.hex())
+coordinates = next(a for a in capability.assertions if a.kind == "coordinates")
+finding = next(s.finding for s in coordinates.supports if s.finding is not None)
+assert finding.model_id and finding.invocation_id and finding.witnesses, finding
+assert finding.source_resolution == "source_span", finding
+source = finding.witnesses[0]
+assert source.source_path.endswith("pkg/controls.py") and source.end_byte > source.start_byte
+rendered = markdown(capability)
+assert finding.finding_id in rendered
+assert finding.invocation_id in rendered and finding.model_id in rendered
+assert f"{source.source_path}:{source.start_byte}-{source.end_byte}" in rendered
+broken = dict(generation.tables)
+broken["support_findings"] = broken["support_findings"].slice(1)
+try:
+    _validate_support_closure(broken)
+except GenerationError:
+    pass
+else:
+    raise AssertionError("a missing finding closure was served")
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script])
@@ -250,6 +276,9 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "summary_boundaries",
             "summary_flow_steps",
             "summary_flows",
+            "support_findings",
+            "support_members",
+            "support_witnesses",
             "supports",
             "symbol_map",
             "vectors"

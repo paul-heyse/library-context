@@ -88,11 +88,54 @@ class Evidence(BaseModel):
     text: str | None
 
 
+class FindingWitness(BaseModel):
+    path: int
+    step: int
+    call_site_node_id: str
+    callee_node_id: str
+    arc_kind: str
+    modality: str
+    phase: str | None
+    source_fact_id: str | None
+    source_path: str
+    start_byte: int
+    end_byte: int
+
+
+class FindingMember(BaseModel):
+    role: str
+    ordinal: int
+    node_id: str | None
+    cited_fact_id: str | None
+    fact_table: str | None
+    fact_model_id: str | None
+    label: str | None
+
+
+class FindingSupport(BaseModel):
+    finding_id: str
+    kind: str
+    evidence_status: str
+    subject_node_id: str
+    related_node_id: str | None
+    invocation_id: str
+    model_id: str
+    method: str
+    parameters: str
+    completion: str
+    stop_reason: str | None
+    witnesses_omitted: bool
+    witnesses: list[FindingWitness]
+    members: list[FindingMember]
+    source_resolution: Literal["source_span", "fact_only", "unavailable"]
+
+
 class Support(BaseModel):
     role: str
     finding_id: str | None
     finding_kind: str | None
     evidence_id: str | None
+    finding: FindingSupport | None = None
 
 
 class Assertion(BaseModel):
@@ -136,12 +179,71 @@ class Served:
     assertions: dict[bytes, list[dict]]
     supports: dict[bytes, list[dict]]
     evidence: dict[bytes, dict]
+    findings: dict[bytes, dict]
+    witnesses: dict[bytes, list[dict]]
+    finding_members: dict[bytes, list[dict]]
     members: dict[bytes, list[str]]
     operations: ops.OperationIndex
 
 
 def _hex(b: bytes | None) -> str | None:
     return None if b is None else b.hex()
+
+
+def _finding(served: Served, finding_id: bytes) -> FindingSupport:
+    row = served.findings[finding_id]
+    witnesses = [
+        FindingWitness(
+            path=w["path"],
+            step=w["step"],
+            call_site_node_id=w["call_site_node_id"].hex(),
+            callee_node_id=w["callee_node_id"].hex(),
+            arc_kind=w["arc_kind"],
+            modality=w["modality"],
+            phase=w["phase"],
+            source_fact_id=_hex(w["source_fact_id"]),
+            source_path=w["source_path"],
+            start_byte=w["start_byte"],
+            end_byte=w["end_byte"],
+        )
+        for w in served.witnesses.get(finding_id, [])
+    ]
+    members = [
+        FindingMember(
+            role=m["role"],
+            ordinal=m["ordinal"],
+            node_id=_hex(m["node_id"]),
+            cited_fact_id=_hex(m["cited_fact_id"]),
+            fact_table=m["fact_table"],
+            fact_model_id=m["fact_model_id"],
+            label=m["label"],
+        )
+        for m in served.finding_members.get(finding_id, [])
+    ]
+    resolution = (
+        "source_span"
+        if witnesses
+        else "fact_only"
+        if any(m.cited_fact_id for m in members)
+        else "unavailable"
+    )
+    return FindingSupport(
+        finding_id=finding_id.hex(),
+        kind=row["finding_kind"],
+        evidence_status=row["evidence_status"],
+        subject_node_id=row["subject_node_id"].hex(),
+        related_node_id=_hex(row["related_node_id"]),
+        invocation_id=row["invocation_id"].hex(),
+        model_id=row["model_id"],
+        method=row["method"],
+        parameters=row["parameters"],
+        completion=row["completion"],
+        stop_reason=row["stop_reason"],
+        witnesses_omitted=row["witnesses_omitted"],
+        witnesses=witnesses,
+        members=members,
+        source_resolution=resolution,
+    )
 
 
 def serve(generation: Generation, embedder: Embedder | None) -> Served:
@@ -152,6 +254,13 @@ def serve(generation: Generation, embedder: Embedder | None) -> Served:
     supports: dict[bytes, list[dict]] = {}
     for r in generation.tables["supports"].to_pylist():
         supports.setdefault(r["assertion_id"], []).append(r)
+    findings = {r["finding_id"]: r for r in generation.tables["support_findings"].to_pylist()}
+    witnesses: dict[bytes, list[dict]] = {}
+    for r in generation.tables["support_witnesses"].to_pylist():
+        witnesses.setdefault(r["finding_id"], []).append(r)
+    finding_members: dict[bytes, list[dict]] = {}
+    for r in generation.tables["support_members"].to_pylist():
+        finding_members.setdefault(r["finding_id"], []).append(r)
     # A brief is shown by its own public paths; the inherited ones only promote (FORMAT 2).
     members: dict[bytes, list[str]] = {}
     for r in generation.tables["brief_members"].to_pylist():
@@ -164,6 +273,9 @@ def serve(generation: Generation, embedder: Embedder | None) -> Served:
         assertions=assertions,
         supports=supports,
         evidence={r["evidence_id"]: r for r in generation.tables["evidence"].to_pylist()},
+        findings=findings,
+        witnesses=witnesses,
+        finding_members=finding_members,
         members=members,
         operations=ops.OperationIndex(generation),
     )
@@ -252,6 +364,9 @@ def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Capability:
                         finding_id=_hex(s["finding_id"]),
                         finding_kind=s["finding_kind"],
                         evidence_id=_hex(s["evidence_id"]),
+                        finding=_finding(served, s["finding_id"])
+                        if s["finding_id"] is not None
+                        else None,
                     )
                     for s in rows
                 ],
@@ -304,6 +419,32 @@ def markdown(c: Capability) -> str:
             section = a.section
             lines += ["", f"## {section.replace('_', ' ').capitalize()}", ""]
         lines.append(f"- {a.text if a.text is not None else '(unresolved)'} [{a.status}]")
+        for support in a.supports:
+            if support.finding is not None:
+                f = support.finding
+                lines.append(
+                    f"  - Finding `{f.finding_id}` ({support.role}; {f.kind}, "
+                    f"{f.evidence_status}; invocation `{f.invocation_id}`, "
+                    f"model `{f.model_id}`, {f.method}, {f.completion}; "
+                    f"source {f.source_resolution})"
+                )
+                lines.append(f"    - Analysis parameters: `{f.parameters}`")
+                for witness in f.witnesses:
+                    lines.append(
+                        f"    - Witness {witness.path}.{witness.step}: "
+                        f"`{witness.source_path}:{witness.start_byte}-{witness.end_byte}` "
+                        f"({witness.arc_kind}, {witness.modality}; "
+                        f"fact `{witness.source_fact_id}`)"
+                    )
+                for member in f.members:
+                    lines.append(
+                        f"    - Member {member.role}.{member.ordinal}: "
+                        f"node `{member.node_id}`, fact `{member.cited_fact_id}` "
+                        f"({member.fact_table or 'source unavailable'}, "
+                        f"model `{member.fact_model_id}`)"
+                    )
+            elif support.evidence_id is not None:
+                lines.append(f"  - {support.role} evidence `{support.evidence_id}`")
     if c.sections_absent:
         absent = ", ".join(s.replace("_", " ") for s in c.sections_absent)
         lines += ["", f"No statement yet in: {absent}."]

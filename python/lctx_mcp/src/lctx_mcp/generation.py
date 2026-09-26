@@ -21,7 +21,7 @@ from lctx_semantics import SemanticExecutor, catalog_limits
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 7
+FORMAT = 8
 KERNEL_FORMAT = 1
 MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
 MAX_SUMMARY_ROWS = 100_000
@@ -91,6 +91,51 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _id("finding_id", True),
                 _utf8("finding_kind", True),
                 _id("evidence_id", True),
+            ]
+        ),
+        "support_findings": pa.schema(
+            [
+                _id("finding_id"),
+                _utf8("finding_kind"),
+                _utf8("evidence_status"),
+                _id("subject_node_id"),
+                _id("related_node_id", True),
+                _id("invocation_id"),
+                _utf8("model_id"),
+                _utf8("method"),
+                _utf8("parameters"),
+                _utf8("completion"),
+                _utf8("stop_reason", True),
+                pa.field("witnesses_omitted", pa.bool_(), nullable=False),
+            ]
+        ),
+        "support_witnesses": pa.schema(
+            [
+                _id("finding_id"),
+                _int("path"),
+                _int("step"),
+                _id("caller_node_id"),
+                _id("call_site_node_id"),
+                _id("callee_node_id"),
+                _utf8("arc_kind"),
+                _utf8("modality"),
+                _utf8("phase", True),
+                _id("source_fact_id", True),
+                _utf8("source_path", True),
+                _int("start_byte", True),
+                _int("end_byte", True),
+            ]
+        ),
+        "support_members": pa.schema(
+            [
+                _id("finding_id"),
+                _utf8("role"),
+                _int("ordinal"),
+                _id("node_id", True),
+                _id("cited_fact_id", True),
+                _utf8("fact_table", True),
+                _utf8("fact_model_id", True),
+                _utf8("label", True),
             ]
         ),
         "evidence": pa.schema(
@@ -416,6 +461,40 @@ def _read(
     return table
 
 
+def _validate_support_closure(tables: dict[str, pa.Table]) -> None:
+    """Refuse a generation whose served support edges cannot resolve in its own projection."""
+    for name in ("support_findings", "support_witnesses", "support_members"):
+        if tables[name].num_rows > 100_000:
+            raise GenerationError(f"{name} exceeds the support projection row limit")
+    findings = {row["finding_id"]: row for row in tables["support_findings"].to_pylist()}
+    if len(findings) != tables["support_findings"].num_rows:
+        raise GenerationError("duplicate support finding")
+    evidence = {row["evidence_id"] for row in tables["evidence"].to_pylist()}
+    cited: set[bytes] = set()
+    for support in tables["supports"].to_pylist():
+        finding_id = support["finding_id"]
+        if finding_id is not None:
+            cited.add(finding_id)
+            finding = findings.get(finding_id)
+            if finding is None or finding["finding_kind"] != support["finding_kind"]:
+                raise GenerationError("assertion support has no matching finding closure")
+        evidence_id = support["evidence_id"]
+        if evidence_id is not None and evidence_id not in evidence:
+            raise GenerationError("assertion support has no matching evidence")
+    if cited != findings.keys():
+        raise GenerationError("finding closure differs from served assertion supports")
+    for witness in tables["support_witnesses"].to_pylist():
+        if witness["finding_id"] not in findings:
+            raise GenerationError("witness has no served finding")
+        if any(witness[name] is None for name in ("source_path", "start_byte", "end_byte")):
+            raise GenerationError("witness source span is unavailable")
+    for member in tables["support_members"].to_pylist():
+        if member["finding_id"] not in findings:
+            raise GenerationError("member has no served finding")
+        if member["cited_fact_id"] is not None and member["fact_table"] is None:
+            raise GenerationError("member cited fact is unavailable")
+
+
 def load(root: Path, client_spec: Spec | None) -> Generation:
     """Load and check the generation at `root` for a server querying with `client_spec`."""
     manifest = json.loads((root / "MANIFEST.json").read_text(encoding="utf-8"))
@@ -452,6 +531,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         name: _read(root, manifest, name, schema, native_ipc)
         for name, schema in schemas.items()
     }
+    _validate_support_closure(tables)
     max_conditions, max_nodes, _max_retained_nodes = catalog_limits()
     if (
         tables["conditions"].num_rows + tables["analysis_conditions"].num_rows > max_conditions

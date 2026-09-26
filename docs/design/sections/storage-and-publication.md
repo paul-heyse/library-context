@@ -268,6 +268,10 @@ execution after the `function_implementations` schema migration is pending the i
   - `briefs`, with each brief's Outcome and its status;
   - `assertions`, one row per (brief, ordinal), with kind, section and status;
   - `supports`, each assertion's findings (by kind) and evidence, by role and ordinal;
+  - `support_findings`, `support_witnesses` and `support_members` (FORMAT 8): the bounded closure
+    of findings cited by served assertions, their invocation/model, ordered witness source spans
+    and member fact identities. The loader refuses a missing closure edge or witness source span;
+    fact-only members report the remaining resolution limit ([ADR-0049](../../adr/0049-served-support-closure.md));
   - `evidence`, with its resolved text and its file's or document's path;
   - `brief_members`, and `symbol_map` (exact public access path → brief): every public path of
     a brief's seed, own and inherited, with `own` (`semantic:brief-member-public`), so any public
@@ -327,10 +331,12 @@ execution after the `function_implementations` schema migration is pending the i
   - The bundle is smoke-queried by the serving code's own test entry point.
   - Then the `generations/active` symlink is switched by atomic rename.
   - A running server keeps the generation it loaded; restarting it picks up the new one.
+
 - **Derived search indexes** (an FTS table, any ANN index) are rebuilt from the generation's Arrow
   files, keyed by the generation key, outside the byte-identical manifest.
-- **Known gap:** the native loader admits proof kinds from the schema codebook, but still decodes
-  positional tuples; column/schema drift remains possible
-  ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), ARC-01).
+- **Native projection.** The Python loader forwards checked IPC bytes to the Rust executor, which
+  validates `cpg-schema`'s exact serving schemas and decodes named columns. The focused
+  finalizer-bearing generation and schema-drift controls passed; integrated qualification is
+  pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0047, ADR-0043
+> Decision: ADR-0047, ADR-0043, ADR-0049

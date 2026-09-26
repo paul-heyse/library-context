@@ -38,7 +38,7 @@ order and the grounding rules below are **Implemented** and **Tested** (2026-09-
 Briefs are one rendering of the analysis. Behavioral claims served through the operation tools
 (§11.3) come from the behavior relations directly, not from briefs.
 
-> Decision: ADR-0005, ADR-0047
+> Decision: ADR-0005, ADR-0047, ADR-0049
 
 
 ### §10.1 Findings
@@ -96,12 +96,11 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 - **Validator.** `semantic:assertion-policy` checks the kind policy.
   `semantic:assertion-status-derived` recomputes the derivation in SQL and requires equality: a
   floor and a ceiling.
-- **Support closure.** Every assertion is meant to be traceable from the served form to its
-  finding, witnesses, invocation/model and source spans. In canonical Delta that chain exists.
-  **Known gap:** an assertion supported only by a finding (e.g. `public_access`, `coordinates`)
-  keeps the finding id in the generation but not the finding's witness/invocation closure, so the
-  server cannot follow it to source, and the Markdown resource drops even the finding id
-  (§11.3; [plan W3](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+- **Support closure (FORMAT 8, [ADR-0049](../../adr/0049-served-support-closure.md)).** The
+  generation carries only cited findings, with invocation/model, ordered witness source spans and
+  member fact identities. Startup refuses absent support edges or witness spans. Structured and
+  Markdown renderings use the same hydrated support object. A member without a generic source
+  span is marked `fact_only` or `unavailable`, not silently treated as a resolved citation.
 
 **Assertion kinds**
 
@@ -282,7 +281,7 @@ Repository text is treated as untrusted data. It is never an instruction to the 
   usage description.
 - Executed fixtures (`fixture_checked`) are permitted by the policy but not produced yet.
 
-> Decision: ADR-0005, ADR-0047
+> Decision: ADR-0005, ADR-0047, ADR-0049
 
 ---
 
@@ -606,4 +605,4 @@ row storing its rule id and proof height. Under ADR-0025 the native executor may
 stored witness links at request time, retaining their row ids and reporting a boundary if the
 depth budget is reached.
 
-> Decision: ADR-0043, ADR-0025, ADR-0046
+> Decision: ADR-0043, ADR-0025, ADR-0046, ADR-0049
