@@ -1093,4 +1093,49 @@ mod tests {
         assert!(result.flows.is_empty());
         assert_eq!(result.boundaries[0].reason, BoundaryReason::BudgetReached);
     }
+
+    #[test]
+    fn actual_condition_atom_cap_is_a_typed_finite_refusal() {
+        use cpg_schema::condition::Atom;
+
+        let mut input = inputs();
+        input.direct_seeds.clear();
+        let mut source = Diagram::always();
+        for number in 0..128 {
+            let atom = Diagram::from_atom(&Atom::Truthy {
+                place: format!("source_{number:03}"),
+            }).unwrap();
+            source = source.and(&atom).unwrap();
+        }
+        let exit = Diagram::from_atom(&Atom::Truthy {
+            place: "exit_only".to_owned(),
+        }).unwrap();
+        let source_id = source.id();
+        let exit_id = exit.id();
+        input.diagrams.insert(source_id, source);
+        input.diagrams.insert(exit_id, exit);
+        input.boundary_candidates[0].condition_id = source_id;
+        input.boundary_candidates[0].through_call = true;
+        input.components.push(SummaryComponentsRow {
+            snapshot_id: id(1), component_id: id(2), function_node_id: id(2),
+            component_order: 0, member_ordinal: 0, member_count: 1, recursive: false,
+        });
+        input.local_seeds.push(LocalCallSummaryFlowSeed {
+            snapshot_id: id(1), function_node_id: id(2), parameter_node_id: id(3),
+            parameter_name: "value".to_owned(), source_flow_fact_id: id(4),
+            condition_id: source_id, call_site_node_id: id(10), call_fact_id: id(11),
+            pysa_fact_id: id(12), callee_node_id: id(13),
+            callee_parameter_node_id: id(14), callee_resolution_fact_id: id(15),
+            return_site_fact_id: id(5), return_region_fact_id: id(6),
+            return_condition_id: exit_id, approximated: false,
+        });
+
+        let result = finite_flows(input);
+        assert!(result.flows.is_empty());
+        assert!(result.steps.is_empty());
+        assert_eq!(result.refusals.len(), 1);
+        assert_eq!(result.refusals[0].reason, BoundaryReason::ConditionAtomLimit);
+        assert_eq!(result.boundaries.len(), 1);
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionAtomLimit);
+    }
 }
