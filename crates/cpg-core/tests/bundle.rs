@@ -162,6 +162,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "a bounded condition cannot publish a positive summary");
     for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
+        ("signed_literal_predecessor", 1), ("raising_unary_predecessor", 0),
         ("assigned_local_argument", 1),
         ("raising_predecessor", 0), ("possibly_unbound_argument", 0),
         ("possibly_unbound_local_argument", 0),
@@ -192,13 +193,25 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name IN ('raising_predecessor', 'possibly_unbound_argument', \
+        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'possibly_unbound_argument', \
           'possibly_unbound_local_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 5, "uncertain arguments and callees must stay unknown");
+    assert_eq!(counts.value(0), 6, "uncertain arguments and callees must stay unknown");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
+        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
+        JOIN declarations d ON d.node_id = c.owner_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+        WHERE d.name = 'signed_literal_predecessor' \
+          AND s.kind = {} AND s.detail = '-'",
+        cpg_schema::behavior::preceding_normal_call_arguments().sql,
+        cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the signed literal must cite its unary syntax fact");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
         JOIN call_syntax c ON c.fact_id = p.call_fact_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
@@ -233,6 +246,7 @@ for operation, expected in (
     ("capspkg.condition_atom_cap", "condition_atom_limit"),
     ("capspkg.unsupported", "unsupported_control_flow"),
     ("capspkg.raising_predecessor", "unsupported_control_flow"),
+    ("capspkg.raising_unary_predecessor", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_local_argument", "unsupported_control_flow"),
     ("capspkg.conditional_callee", "unsupported_control_flow"),
@@ -242,7 +256,7 @@ for operation, expected in (
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[2] == expected for boundary in boundaries), (operation, paths, boundaries)
-for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.assigned_local_argument"):
+for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.assigned_local_argument"):
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated and not boundaries, (operation, paths, boundaries)
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths

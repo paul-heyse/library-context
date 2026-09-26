@@ -67,6 +67,18 @@ def parameter_predecessor(value: object) -> object:
     return value
 
 
+def signed_literal_predecessor(value: object) -> object:
+    """A signed numeric literal completes before the pinned normal call."""
+    cast(object, -1)
+    return value
+
+
+def raising_unary_predecessor(value: object) -> object:
+    """A unary wrapper does not hide a raising operand."""
+    cast(object, -(1 / 0))
+    return value
+
+
 def possibly_unbound_argument(value: object, other: object, clear: bool) -> object:
     """A parameter read with a possible deletion is not a normal argument witness."""
     if clear:

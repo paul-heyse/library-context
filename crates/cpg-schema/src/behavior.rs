@@ -1631,8 +1631,8 @@ fn modeled_callee_candidates_sql() -> String {
     )
 }
 
-/// One evaluator for direct literal, unshadowed builtin-name and single-reaching local-name
-/// arguments. Both modeled return paths and preceding-call completion use it.
+/// One evaluator for direct literals, signed numeric literals, unshadowed builtin names and
+/// single-reaching local names. Both modeled return paths and preceding-call completion use it.
 fn simple_argument_evidence_sql() -> String {
     format!(
         "literal_candidates AS ( \
@@ -1644,6 +1644,18 @@ fn simple_argument_evidence_sql() -> String {
              AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
              AND s.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
                             {boolean_literal}, {none_literal}, {ellipsis_literal}) \
+           WHERE a.kind IN ({positional}, {keyword}) \
+         ), unary_literal_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, u.fact_id AS syntax_fact_id, \
+                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes u ON u.module_node_id = c.module_node_id \
+             AND u.parent_node_id = c.node_id AND u.field = {argument_field} \
+             AND u.start_byte = a.value_start_byte AND u.end_byte = a.value_end_byte \
+             AND u.kind = {unary_expr} AND u.detail IN ('+', '-') \
+           JOIN syntax_nodes operand ON operand.parent_node_id = u.node_id \
+             AND operand.module_node_id = u.module_node_id \
+             AND operand.field = {operand_field} AND operand.kind = {number_literal} \
            WHERE a.kind IN ({positional}, {keyword}) \
          ), builtin_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
@@ -1690,10 +1702,11 @@ fn simple_argument_evidence_sql() -> String {
            GROUP BY a.fact_id \
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
-                  COALESCE(l.syntax_fact_id, b.resolution_fact_id, \
+                  COALESCE(l.syntax_fact_id, ul.syntax_fact_id, b.resolution_fact_id, \
                            CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                                 THEN n.reaching_fact_id ELSE NULL END) AS evidence_id, \
-                  CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
+                  CAST(CASE WHEN l.syntax_fact_id IS NOT NULL \
+                              OR ul.syntax_fact_id IS NOT NULL THEN {literal_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
                             WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                               AND n.definition_kind = {parameter} \
@@ -1705,14 +1718,18 @@ fn simple_argument_evidence_sql() -> String {
            FROM arguments a \
            LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
              AND l.candidate_count = 1 \
+           LEFT JOIN unary_literal_candidates ul ON ul.argument_fact_id = a.fact_id \
+             AND ul.candidate_count = 1 \
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
            LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
          )",
         argument_field = crate::codebook::SyntaxField::Argument.code(),
+        operand_field = crate::codebook::SyntaxField::Operand.code(),
         positional = ArgumentKind::Positional.code(),
         keyword = ArgumentKind::Keyword.code(),
         name_expr = SyntaxKind::ExprName.code(),
+        unary_expr = SyntaxKind::ExprUnaryOp.code(),
         string_literal = SyntaxKind::ExprStringLiteral.code(),
         bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
         number_literal = SyntaxKind::ExprNumberLiteral.code(),

@@ -215,9 +215,11 @@ witness.
   crossed call or generator yield, citing the value fact, return syntax/region and recomposed
   condition. A compatible preceding call can be crossed only when one closed, definite pinned
   target asserts normal return, the callee has one earlier module-level `from` import whose ty
-  region is unconditionally reached, every argument is a direct literal, an exact unshadowed
-  builtin name or a uniquely reaching parameter/assignment name with ordered evidence, and the ty call
-  region is non-approximate. Its proof cites the import binding and region, callee resolution,
+  region is unconditionally reached, every argument is a direct literal, a `+`/`-` numeric
+  literal with one direct numeric operand, an exact unshadowed builtin name, or a uniquely reaching
+  parameter/assignment name with ordered evidence, and the ty call region is non-approximate. A
+  signed literal cites the outer unary syntax fact; a unary expression over a binary operation
+  remains unresolved. The proof cites the import binding and region, callee resolution,
   each argument, call site, Pysa target and
   model id before the raw return step.
   This `preceding_call_normal` step is a safety witness if the call runs, not an assertion that it

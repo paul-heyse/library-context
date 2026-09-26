@@ -126,13 +126,14 @@ it is independent of A1–A6.
 | 10 | **Integrated exit.** `just fmt`, `just test-all`, fresh-store `just pilot`, Q01/Q03/Q05/Q09 and the structured Stage 3 evaluation, the clean-wheel query and the increment-end design/target review | Each command `passed`/`failed`/`blocked`/`not_run`; `call_transfer` before/after, condition budget counts, compile time/RSS and serving bounds. A material fix repeats only the affected gate plus invalidated acceptance |
 
 **Order 1 checkpoint (2026-09-26; partial).** A direct `return value` may now cross an earlier
-`typing.cast(object, 1)` or `typing.cast(object, value)` call with a sole closed target, two
+`typing.cast(object, 1)`, `typing.cast(object, -1)` or `typing.cast(object, value)` call with a
+sole closed target, two
 source-ordered argument witnesses, an earlier unconditional module-level `from` import of the
 callee, a non-approximate
 ty call region and a pinned normal-return assertion. The proof contains the exact import
 binding/region, resolution, argument, site, Pysa target and model identities; the shared validator
-rejects removal of its `preceding_call_normal` step. An otherwise identical call with `1 / 0` as
-a sibling remains `unsupported_control_flow` in the published/native answer, as do a possibly
+rejects removal of its `preceding_call_normal` step. An otherwise identical call with `1 / 0` or
+`-(1 / 0)` as a sibling remains `unsupported_control_flow` in the published/native answer, as do a possibly
 deleted parameter or possibly unbound local argument, conditional local import and guarded module
 import. Parameter and assignment names require one exact ty reaching definition of the same
 lexical binding; the shared classifier also admits a parameter in an existing modeled-return

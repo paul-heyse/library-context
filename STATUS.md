@@ -14,7 +14,7 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   vLLM launch. W15 [ADR-0048](docs/adr/0048-schema-rebuild-policy.md) chooses a fresh current
   store rebuild instead of historical binary compatibility. These have focused evidence only.
 - **Stage 3 progress:** [ADR-0050](docs/adr/0050-finite-summary-outcomes.md) owns explicit finite
-  summary inputs/refusals. The order-1 narrow predecessor proof now admits literal, builtin,
+  summary inputs/refusals. The order-1 narrow predecessor proof now admits literal, signed numeric literal, builtin,
   parameter and unique-assignment arguments for a sole pinned normal-return call, and separates
   a terminating branch from an unconditional recursive predecessor. W5 atom-limit publication
   reaches Delta/FORMAT 8/native; actual work/node limits reach the pure producer. W6 decision,
