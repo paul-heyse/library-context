@@ -148,7 +148,7 @@ def test_native_open_boundaries_keep_sibling_origin_ids(generation: Path) -> Non
         conditions, nodes, [operation], [("pkg.siblings", operation)],
         [(operation, formal, "value")], [], [],
         [(operation, formal, fact, "04" * 16, condition, "call_transfer"),
-         (operation, formal, fact, "05" * 16, condition, "unsupported_control_flow")],
+         (operation, formal, fact, "05" * 16, condition, "summary_pair_work_limit")],
         [], [],
     )
     paths, open_rows, total, truncated, work = index.inspect_value_paths(
@@ -157,7 +157,7 @@ def test_native_open_boundaries_keep_sibling_origin_ids(generation: Path) -> Non
     assert paths == [] and total == work == 2 and not truncated
     assert {(row[1], row[3]) for row in open_rows} == {
         ("04" * 16, "call_transfer"),
-        ("05" * 16, "unsupported_control_flow"),
+        ("05" * 16, "summary_pair_work_limit"),
     }
 
 

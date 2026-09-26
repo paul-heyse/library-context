@@ -177,12 +177,13 @@ pub fn condition_limit(reason: KernelBoundary) -> BoundaryReason {
 fn refusal_priority(reason: BoundaryReason) -> u8 {
     match reason {
         BoundaryReason::SummaryDepthLimit => 0,
-        BoundaryReason::ConditionNodeLimit => 1,
-        BoundaryReason::ConditionWorkLimit => 2,
-        BoundaryReason::ConditionAtomLimit => 3,
-        BoundaryReason::BudgetReached => 4,
-        BoundaryReason::OutsideProviderModel => 5,
-        BoundaryReason::MissingEvidence => 6,
+        BoundaryReason::SummaryPairWorkLimit => 1,
+        BoundaryReason::ConditionNodeLimit => 2,
+        BoundaryReason::ConditionWorkLimit => 3,
+        BoundaryReason::ConditionAtomLimit => 4,
+        BoundaryReason::BudgetReached => 5,
+        BoundaryReason::OutsideProviderModel => 6,
+        BoundaryReason::MissingEvidence => 7,
         _ => 7,
     }
 }
@@ -1114,7 +1115,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
                 seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id);
             if capped {
-                refuse(&mut refusals, key, BoundaryReason::BudgetReached);
+                refuse(&mut refusals, key, BoundaryReason::SummaryPairWorkLimit);
             } else if path.depth_limited {
                 refuse(&mut refusals, key, BoundaryReason::SummaryDepthLimit);
             } else if !path.admitted {
@@ -1316,7 +1317,7 @@ mod tests {
         assert!(result.flows.iter().any(|row| row.source_origin_id == id(41)));
         assert_eq!(result.boundaries.len(), 1);
         assert_eq!(result.boundaries[0].source_origin_id, id(41));
-        assert_eq!(result.boundaries[0].reason, BoundaryReason::BudgetReached);
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::SummaryPairWorkLimit);
 
         let capped_parallel = |reverse: bool| {
             let mut input = inputs();
@@ -1335,7 +1336,8 @@ mod tests {
         assert_eq!(first.flows, reversed.flows);
         assert_eq!(first.boundaries, reversed.boundaries);
         assert_eq!(first.boundaries.len(), 2);
-        assert!(first.boundaries.iter().all(|row| row.reason == BoundaryReason::BudgetReached));
+        assert!(first.boundaries.iter().all(|row|
+            row.reason == BoundaryReason::SummaryPairWorkLimit));
     }
 
     fn direct_with_bounded_predecessor(return_condition: Diagram, call_condition: Diagram)

@@ -186,6 +186,8 @@ codebook!(
         ConditionNodeLimit = 23 => "condition_node_limit",
         /// A condition operation exceeded its named-atom cap.
         ConditionAtomLimit = 24 => "condition_atom_limit",
+        /// The recursive summary worklist exhausted its deterministic source/callee pair cap.
+        SummaryPairWorkLimit = 25 => "summary_pair_work_limit",
     }
 );
 

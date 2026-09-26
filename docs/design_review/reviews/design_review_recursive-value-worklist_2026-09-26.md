@@ -5,7 +5,7 @@ profile 1.1 and the library-context binding from `standard.toml` apply. The subj
 the ADR-0053 value producer in `lctx-analytics::summaries::finite`, its typed
 `summary_components` and local-call inputs, and the focused source-to-Delta control.
 This is an author self-review of the bounded change. [Plan W12](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)
-owns current completion status. Stage 3, conditional recursion and native cap serving
+owns current completion status. Stage 3, conditional recursion and a real native cap trace
 are outside this acceptance.
 
 ## Scope, responsibility and change scenario
@@ -27,6 +27,9 @@ persistent identity. It has no random seed. A path is a **may-path under the
 source/model abstraction**, not universal normal execution. Depth eight and a
 one-million-pair bound create explicit unknowns rather than a false/negative
 answer. A queue-size check bounds pending allocation as well as executed work.
+The pair cap has its own append-only `summary_pair_work_limit` reason (code 25);
+the native executor recognizes that reason, but a producer-to-Delta-to-native
+pair-cap trace remains open.
 
 The source fact is Pyrefly/Pysa and Ruff/ty extraction at their pinned revisions;
 the local seed is a derived relation; the summary and its ordered proof are
@@ -69,6 +72,13 @@ Ascent and datafrog at ADR-0053's multi-channel trigger.
 --quiet` passed 12 pure controls including self/mutual finite-base, base-free,
 parallel open origin, input shuffle and low pair cap;
 `cargo clippy -p lctx-analytics --lib --quiet -- -D warnings` passed;
+`INSTA_UPDATE=no cargo test -p cpg-schema --test codebooks --quiet` passed
+three cases after review and acceptance of the append-only snapshot;
+`INSTA_UPDATE=no cargo test -p cpg-schema --test contracts --quiet` passed
+ten cases after reviewing 37 generated boundary validators, each extended only
+with code 25;
+`uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py::test_native_open_boundaries_keep_sibling_origin_ids -q`
+passed the native reason admission and origin control;
 `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p cpg-core --test compile
 nested_returns_need_an_uncontrolled_exit_before_becoming_value_summaries
 --quiet` passed one real-source Delta compile with the conditional self-call

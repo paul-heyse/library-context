@@ -294,7 +294,8 @@ multi-parent proof, that is a new decision, not parents smuggled into text.
 uses an SCC-local, one-million-pair bounded worklist over the petgraph component schedule.
 Each admitted source/callee pair cites the exact callee summary and its own origin, condition,
 ordered predecessor and call proof. Newly derived paths feed only dependent local edges;
-depth eight and pair-work exhaustion leave typed origin-specific unknown boundaries. A
+depth eight and pair-work exhaustion leave typed origin-specific unknown boundaries;
+the latter uses append-only `summary_pair_work_limit` rather than the general budget reason. A
 base-free cycle remains unknown. Modeled bases in a recursive member are admitted only after
 their independent source, argument, predecessor and exit checks. The current transfer consumes
 only an unconditional callee path: a real conditional recursive base remains unknown until
