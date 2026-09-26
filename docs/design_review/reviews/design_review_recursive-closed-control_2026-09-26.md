@@ -12,21 +12,26 @@ and the typed closed-expression witness of
 
 `recursive_closed_true(value, not False)` calls a conditional recursive
 function with a control value that is not a direct literal syntax node.
-Python's `not` of a direct Boolean literal has a fixed Boolean result; the
-pinned Ruff unary/operand facts identify its exact source. The shared
-`simple_argument_evidence_sql` classifier now supplies that fixed result as a
-separate query field only for this safe unary shape. It does not infer the
-value from the general `closed_expression_normal` status. The local-call seed
+The same issue arises for `True or (1 / 0)` and `(1 / 0) if False else True`:
+their raising branches are skipped and their result is exactly true.
+Python 3.14's [Boolean](https://docs.python.org/3.14/reference/expressions.html#boolean-operations)
+and [conditional-expression](https://docs.python.org/3.14/reference/expressions.html#conditional-expressions)
+rules define these results. Pinned Ruff 0.0.11 supplies the whole unary,
+Boolean or conditional expression and its direct operands. The shared
+`simple_argument_evidence_sql` classifier supplies the exact Boolean result
+as a separate query field only for these bounded shapes. It does not infer
+the value from the general `closed_expression_normal` status. The local-call seed
 requires a definite mapping of that explicit argument to the distinct
 callee formal, its normal-evaluation fact and the callee's direct test link.
 The existing bounded BDD restriction and SCC worklist then compose the cited
-finite base. A `not True` control cannot select that base, while
-`not (1 / 0)` supplies neither a static Boolean value nor a local seed.
+finite base. `not True`, `False and (1 / 0)` and a conditional selecting
+`False` cannot select that base; `not (1 / 0)` and a conditional selecting
+`1 / 0` supply neither a static Boolean value nor a local seed.
 
 Ruff, the argument-flow mapping and the test-value link are separate
 authorities. DataFusion joins them once for both publication and shared
 validation; the pure producer does not parse Python or invent a guard value.
-The proof orders the unary `argument_evaluation` before the
+The proof orders the outer-expression `argument_evaluation` before the
 `callee_condition_link`, and native serving reads that same checked proof.
 Another closed expression may use this route only after the shared classifier
 proves both its normal completion and exact Boolean result. Multi-control
@@ -42,7 +47,7 @@ remain outside the slice.
 | CI-G3 | Unaffected: reference families remain outside compiler input. |
 
 Applicable DP-01/02/03/08/11/13/16/18/21/23 and
-CI-01/02/04/06/11 are satisfied for the one closed Boolean control. This
+CI-01/02/04/06/11 are satisfied for these bounded closed Boolean controls. This
 does not certify general recursive argument substitution or other summary
 channels.
 
@@ -52,9 +57,13 @@ finite_depth_and_unsupported_refusals_reach_the_native_response --quiet`
 passes the real-source positive and false/raising controls through Delta,
 shared validation and FORMAT 8/native. An isolated
 `uv run --no-project --offline --no-python-downloads python -c ...`
-probe passed the two `not` literal values and the raising operand. Targeted Clippy/docs results are in
+probe passed the two `not` literal values and the raising operand. The
+short-circuit and conditional CPython probes are recorded in
+[their](design_review_short-circuit-argument_2026-09-26.md)
+[reviews](design_review_selected-conditional-argument_2026-09-26.md).
+Targeted Clippy/docs results are in
 STATUS; `just fmt`, `just test-all` and `just pilot` remain **not_run** until
 functional completion.
 
-**Accept scoped at Tested strength; the final raising control passed.**
+**Accept scoped at Tested strength; the expanded native controls passed.**
 The enclosing Stage 3 recursive composition remains incomplete.

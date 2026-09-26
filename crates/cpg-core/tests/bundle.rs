@@ -519,6 +519,44 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "a raising unary operand cannot fix a recursive guard");
+    for (name, kind) in [
+        ("recursive_short_circuit_true", cpg_schema::codebook::SyntaxKind::ExprBoolOp),
+        ("recursive_selected_true", cpg_schema::codebook::SyntaxKind::ExprIf),
+    ] {
+        let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+            JOIN declarations d ON d.node_id = f.function_node_id \
+            JOIN summary_flow_steps evaluation ON evaluation.summary_id = f.summary_id \
+              AND evaluation.kind = {} \
+            JOIN syntax_nodes expression ON expression.fact_id = evaluation.evidence_id \
+              AND expression.kind = {} \
+            JOIN summary_flow_steps link ON link.summary_id = f.summary_id \
+              AND link.kind = {} AND evaluation.ordinal < link.ordinal \
+            WHERE d.name = '{name}' AND f.path_depth = 1",
+            SummaryFlowStepKind::ArgumentEvaluation.code(), kind.code(),
+            SummaryFlowStepKind::CalleeConditionLink.code()))
+            .await.unwrap().collect().await.unwrap();
+        let counts = rows[0].column(0)
+            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        assert_eq!(counts.value(0), 1, "{name} must cite its closed control before the callee link");
+    }
+    for name in ["recursive_short_circuit_false", "recursive_selected_false",
+        "recursive_selected_raising"] {
+        let rows = sql::query(&ctx, &format!("SELECT count(*) FROM summary_flows f \
+            JOIN declarations d ON d.node_id = f.function_node_id \
+            WHERE d.name = '{name}' AND f.path_depth > 0"))
+            .await.unwrap().collect().await.unwrap();
+        let counts = rows[0].column(0)
+            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        assert_eq!(counts.value(0), 0, "{name} cannot reach a recursive positive");
+    }
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) seed \
+        JOIN declarations d ON d.node_id = seed.function_node_id \
+        WHERE d.name = 'recursive_selected_raising'",
+        cpg_schema::behavior::local_call_summary_flow_seeds().sql))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "the selected raising branch supplies no local-call seed");
     let rows = sql::query(&ctx, &format!(
         "SELECT count(*) AS n FROM summary_flows f \
          JOIN declarations d ON d.node_id = f.function_node_id \
@@ -603,6 +641,15 @@ paths, boundaries, total, truncated, work = inspect("capspkg.recursive_raising_c
 assert not truncated and paths and boundaries, (paths, boundaries)
 assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+for operation in ("capspkg.recursive_short_circuit_true", "capspkg.recursive_selected_true"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not truncated and paths, (operation, paths, boundaries)
+    assert any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+for operation in ("capspkg.recursive_short_circuit_false", "capspkg.recursive_selected_false", "capspkg.recursive_selected_raising"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not truncated and paths and boundaries, (operation, paths, boundaries)
+    assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+    assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = inspect("capspkg.unpacked_local_wrapper", "value")
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries

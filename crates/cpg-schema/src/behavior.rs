@@ -1711,6 +1711,8 @@ fn simple_argument_evidence_sql() -> String {
            WHERE a.kind IN ({positional}, {keyword}) \
          ), short_circuit_candidates AS ( \
            SELECT argument_fact_id, syntax_fact_id, \
+                  CASE WHEN bool_operator = 'and' THEN false \
+                       ELSE true END AS static_boolean_value, \
                   count(*) OVER (PARTITION BY argument_fact_id) AS candidate_count \
            FROM boolean_operands \
            WHERE operand_ordinal = 1 AND operand_count = 2 \
@@ -1719,6 +1721,11 @@ fn simple_argument_evidence_sql() -> String {
                   (bool_operator = 'or' AND operand_detail = 'True')) \
          ), conditional_literal_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, expression.fact_id AS syntax_fact_id, \
+                  CASE WHEN selected.kind = {boolean_literal} \
+                              AND selected.detail = 'True' THEN true \
+                       WHEN selected.kind = {boolean_literal} \
+                              AND selected.detail = 'False' THEN false \
+                       ELSE NULL END AS static_boolean_value, \
                   count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
            FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
            JOIN syntax_nodes expression ON expression.module_node_id = c.module_node_id \
@@ -1828,8 +1835,12 @@ fn simple_argument_evidence_sql() -> String {
                             WHEN lp.candidate_count = 1 \
                               THEN {lexical_parameter_normal} \
                             ELSE {unknown} END AS SMALLINT) AS status, \
-                  CASE WHEN ul.candidate_count = 1 \
-                       THEN ul.static_boolean_value ELSE NULL END AS static_boolean_value \
+                  COALESCE(CASE WHEN ul.candidate_count = 1 \
+                                THEN ul.static_boolean_value END, \
+                           CASE WHEN sc.candidate_count = 1 \
+                                THEN sc.static_boolean_value END, \
+                           CASE WHEN cl.candidate_count = 1 \
+                                THEN cl.static_boolean_value END) AS static_boolean_value \
            FROM arguments a \
            LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
              AND l.candidate_count = 1 \
@@ -2713,8 +2724,8 @@ crate::relations! {
     /// One exact source-call result returned by a synchronous caller, with a positional or
     /// explicit keyword parameter operand and one definite closed local target. A second
     /// explicit positional or keyword operand is admitted only when it is an exact Boolean
-    /// literal, a closed `not` over one, or a directly read caller formal whose guard fixes its
-    /// truth value. The tracked
+    /// literal, a bounded closed expression with an independently derived Boolean result, or a
+    /// directly read caller formal whose guard fixes its truth value. The tracked
     /// value can occur before or after that control operand. The two arguments map definitely
     /// to distinct callee formals, with a cited entry-value test link.
     /// Callee summaries join in the SCC worklist, not

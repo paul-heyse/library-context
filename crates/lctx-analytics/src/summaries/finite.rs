@@ -330,7 +330,7 @@ struct FinitePath {
     proof: Vec<recipe::SummaryFlowProofStep>,
 }
 
-/// The second argument is a cited exact Boolean value (literal or closed unary expression),
+/// The second argument is a cited exact Boolean value (literal or closed expression),
 /// or a directly read caller formal fixed by the caller's path condition. A partial row is
 /// never the one-argument case; the producer does not derive a Boolean value from status alone.
 #[derive(Clone, Copy)]

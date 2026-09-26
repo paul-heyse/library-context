@@ -352,6 +352,41 @@ def recursive_raising_control(value: object, stop: bool) -> object:
     return recursive_raising_control(value, not (1 / 0))
 
 
+def recursive_short_circuit_true(value: object, stop: bool) -> object:
+    """The skipped raising operand leaves an exact true control."""
+    if stop:
+        return value
+    return recursive_short_circuit_true(value, True or (1 / 0))
+
+
+def recursive_short_circuit_false(value: object, stop: bool) -> object:
+    """The skipped raising operand leaves an exact false control."""
+    if stop:
+        return value
+    return recursive_short_circuit_false(value, False and (1 / 0))
+
+
+def recursive_selected_true(value: object, stop: bool) -> object:
+    """The selected else literal fixes the callee guard true."""
+    if stop:
+        return value
+    return recursive_selected_true(value, (1 / 0) if False else True)
+
+
+def recursive_selected_false(value: object, stop: bool) -> object:
+    """The selected else literal fixes the callee guard false."""
+    if stop:
+        return value
+    return recursive_selected_false(value, True if False else False)
+
+
+def recursive_selected_raising(value: object, stop: bool) -> object:
+    """A selected raising branch supplies no control value."""
+    if stop:
+        return value
+    return recursive_selected_raising(value, (1 / 0) if True else True)
+
+
 def recursive_keyword_true(value: object, stop: bool) -> object:
     """An explicit keyword literal can specialize the recursive guard."""
     if stop:
