@@ -294,6 +294,23 @@ fn evaluate_exact_input(
             Value::Str(actual) => Some(actual == expected),
             _ => None,
         },
+        Atom::Equals {
+            value: Value::Int(expected),
+            ..
+        } => match input {
+            // Python bool is an int subclass. Keep that cross-type case unknown here rather
+            // than importing Python's coercion rules into this narrow literal theory.
+            Value::Int(actual) => Some(actual == expected),
+            _ => None,
+        },
+        Atom::MemberOf { values, .. }
+            if values.iter().all(|value| matches!(value, Value::Str(_))) =>
+        {
+            match input {
+                Value::Str(actual) => Some(values.contains(&Value::Str(actual.clone()))),
+                _ => None,
+            }
+        }
         Atom::Truthy { .. } => Some(match input {
             Value::None => false,
             Value::Bool(value) => *value,
@@ -601,5 +618,47 @@ mod tests {
             .unwrap()
             .is_none()
         );
+    }
+
+    #[test]
+    fn string_membership_and_non_bool_integer_equality_refute_exact_inputs() {
+        let cases = [
+            (
+                Atom::member_of(
+                    "x".to_owned(),
+                    vec![Value::Str("sse".to_owned()), Value::Str("http".to_owned())],
+                ),
+                Value::Str("stdio".to_owned()),
+                true,
+            ),
+            (
+                Atom::Equals {
+                    place: "x".to_owned(),
+                    value: Value::Int(2),
+                },
+                Value::Int(3),
+                true,
+            ),
+            (
+                Atom::member_of("x".to_owned(), vec![Value::Int(1)]),
+                Value::Bool(true),
+                false,
+            ),
+        ];
+        for (atom, value, refuted) in cases {
+            let (diagram, link, leaf) =
+                fixture(atom, TestValueLinkOrigin::DirectParameterReachNoEffect);
+            assert_eq!(
+                refute_exact_input(
+                    &diagram,
+                    exact(&link, &value, BuiltinNamespace::Unknown),
+                    &[link.clone()],
+                    &[leaf],
+                )
+                .unwrap()
+                .is_some(),
+                refuted,
+            );
+        }
     }
 }
