@@ -958,6 +958,44 @@ budget = 1
         "unpacked keyword arguments do not supply an exact local-call mapping"
     );
     assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
+               AND s.kind = {} \
+             WHERE d.name = 'recursive_keyword_true' AND f.path_depth = 1",
+            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+        )).await,
+        1,
+        "the explicit keyword literal specializes the recursive callee guard"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id \
+            WHERE d.name = 'recursive_keyword_false' AND f.path_depth > 0").await,
+        0,
+        "a false keyword control does not reach the recursive base"
+    );
+    assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
+               AND s.kind = {} \
+             WHERE d.name = 'recursive_all_keyword_true' AND f.path_depth = 1",
+            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+        )).await,
+        1,
+        "two explicit keywords retain exact value and control mappings"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id \
+            WHERE d.name = 'recursive_all_keyword_false' AND f.path_depth > 0").await,
+        0,
+        "the opposing all-keyword call remains open"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
             WHERE d.name = 'conditional_self_recursive' AND f.path_depth > 0").await,

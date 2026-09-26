@@ -222,6 +222,32 @@ def recursive_literal_false(value: object, stop: bool) -> object:
     return recursive_literal_false(value, False)
 
 
+def recursive_keyword_true(value: object, stop: bool) -> object:
+    """An explicit keyword literal can specialize the recursive guard."""
+    if stop:
+        return value
+    return recursive_keyword_true(value, stop=True)
+
+
+def recursive_keyword_false(value: object, stop: bool) -> object:
+    """The opposite keyword literal leaves the recursive path open."""
+    if stop:
+        return value
+    return recursive_keyword_false(value, stop=False)
+
+
+def recursive_all_keyword_true(value: object, stop: bool) -> object:
+    if stop:
+        return value
+    return recursive_all_keyword_true(value=value, stop=True)
+
+
+def recursive_all_keyword_false(value: object, stop: bool) -> object:
+    if stop:
+        return value
+    return recursive_all_keyword_false(value=value, stop=False)
+
+
 def guarded_symbolic_recursive(value: object, stop: bool) -> object | None:
     """A caller guard fixes the directly forwarded control parameter."""
     if stop:

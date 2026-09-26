@@ -2471,10 +2471,11 @@ crate::relations! {
         );
 
     /// One exact source-call result returned by a synchronous caller, with a positional or
-    /// explicit keyword parameter operand and one definite closed local target. A second positional operand
-    /// is admitted only when it is an exact boolean literal, or a directly read caller formal
-    /// whose caller guard fixes its truth value. Both map definitely to a distinct callee
-    /// formal with a cited entry-value test link. Callee summaries join in the SCC worklist, not
+    /// explicit keyword parameter operand and one definite closed local target. A second
+    /// explicit positional or keyword operand is admitted only when it is an exact boolean
+    /// literal or a directly read caller formal whose guard fixes its truth value. The two
+    /// arguments map definitely to distinct callee formals, with a cited entry-value test link.
+    /// Callee summaries join in the SCC worklist, not
     /// here: a call edge by itself is never a transfer proof.
     local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls",
@@ -2530,7 +2531,8 @@ crate::relations! {
              JOIN call_syntax c ON c.node_id = l.call_node_id \
                AND c.owner_node_id = v.sink_function_node_id \
                AND ((c.positional_count IN (1, 2) AND c.keyword_count = 0) OR \
-                    (c.positional_count = 0 AND c.keyword_count = 1)) \
+                    (c.positional_count = 0 AND c.keyword_count IN (1, 2)) OR \
+                    (c.positional_count = 1 AND c.keyword_count = 1)) \
              JOIN arguments arg ON arg.node_id = l.argument_node_id \
                AND arg.fact_id = l.argument_fact_id \
                AND arg.call_node_id = c.node_id \
@@ -2551,7 +2553,8 @@ crate::relations! {
                AND a.mapping_count = 1 AND a.modality = {definite} \
                AND a.phase = {call_phase} \
              LEFT JOIN arguments control_arg ON control_arg.call_node_id = c.node_id \
-               AND control_arg.ordinal = 1 AND control_arg.kind = {positional} \
+               AND control_arg.ordinal = 1 \
+               AND control_arg.kind IN ({positional}, {keyword}) \
              LEFT JOIN mappings control_map ON control_map.call_site_node_id = c.node_id \
                AND control_map.target_node_id = t.target_node_id \
                AND control_map.argument_node_id = control_arg.node_id \
@@ -2613,7 +2616,8 @@ crate::relations! {
                AND v.function_node_id = v.sink_function_node_id \
                AND v.upstream_identity AND v.local_through_call \
                AND ((c.positional_count + c.keyword_count = 1) OR \
-                    (c.positional_count = 2 AND control_map.formal_node_id IS NOT NULL \
+                    (c.positional_count + c.keyword_count = 2 \
+                     AND control_map.formal_node_id IS NOT NULL \
                      AND control_map.formal_node_id <> a.formal_node_id \
                      AND test_leaf.atom IS NOT NULL AND \
                        ((control_map.value_class = {literal_class} \

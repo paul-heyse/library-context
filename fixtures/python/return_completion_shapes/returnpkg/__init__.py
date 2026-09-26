@@ -84,6 +84,30 @@ def recursive_false_control(value, stop):
     return recursive_false_control(value, False)
 
 
+def recursive_keyword_true(value, stop):
+    if stop:
+        return value
+    return recursive_keyword_true(value, stop=True)
+
+
+def recursive_keyword_false(value, stop):
+    if stop:
+        return value
+    return recursive_keyword_false(value, stop=False)
+
+
+def recursive_all_keyword_true(value, stop):
+    if stop:
+        return value
+    return recursive_all_keyword_true(value=value, stop=True)
+
+
+def recursive_all_keyword_false(value, stop):
+    if stop:
+        return value
+    return recursive_all_keyword_false(value=value, stop=False)
+
+
 def keyword_local_wrapper(value):
     return plain_identity(value=value)
 
@@ -123,4 +147,4 @@ def alternate_branch_identity(value, invoke):
     return None
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "multi_pass_finally_identity", "pass_then_effect_finally", "with_identity", "recursive_before_return", "recursive_base_identity", "recursive_false_control", "keyword_local_wrapper", "unpacked_local_wrapper", "guarded_symbolic_recursive", "guarded_symbolic_base", "conditional_self_recursive", "prior_call_identity", "alternate_branch_identity"]
+__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "multi_pass_finally_identity", "pass_then_effect_finally", "with_identity", "recursive_before_return", "recursive_base_identity", "recursive_false_control", "recursive_keyword_true", "recursive_keyword_false", "recursive_all_keyword_true", "recursive_all_keyword_false", "keyword_local_wrapper", "unpacked_local_wrapper", "guarded_symbolic_recursive", "guarded_symbolic_base", "conditional_self_recursive", "prior_call_identity", "alternate_branch_identity"]

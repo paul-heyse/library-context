@@ -361,6 +361,25 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "the false control must not derive a recursive path");
+    let rows = sql::query(&ctx, &format!(
+        "SELECT count(*) AS n FROM summary_flows f \
+         JOIN declarations d ON d.node_id = f.function_node_id \
+         JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
+           AND s.kind = {} \
+         JOIN flow_test_value_links l ON l.link_id = s.evidence_id \
+         WHERE d.name = 'recursive_keyword_true' AND f.path_depth = 1",
+        SummaryFlowStepKind::CalleeConditionLink.code(),
+    )).await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the keyword control must cite its callee guard link");
+    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'recursive_keyword_false' AND f.path_depth > 0")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "the false keyword control cannot derive a recursive path");
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
         .await.unwrap();
     let script = r#"
@@ -455,6 +474,24 @@ paths, boundaries, total, truncated, work = index.inspect_value_paths(
 assert not truncated and paths, (paths, boundaries)
 assert any(path[1] == "conditional" and any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
 paths, boundaries, total, truncated, work = inspect("capspkg.recursive_literal_false", "value")
+assert not truncated and paths and boundaries, (paths, boundaries)
+assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_keyword_true", "value")
+assert not truncated and paths, (paths, boundaries)
+assert any(path[1] == "conditional"
+           and any(step[0] == "callee_condition_link" for step in path[3])
+           for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_keyword_false", "value")
+assert not truncated and paths and boundaries, (paths, boundaries)
+assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_all_keyword_true", "value")
+assert not truncated and paths, (paths, boundaries)
+assert any(path[1] == "conditional"
+           and any(step[0] == "callee_condition_link" for step in path[3])
+           for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_all_keyword_false", "value")
 assert not truncated and paths and boundaries, (paths, boundaries)
 assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
