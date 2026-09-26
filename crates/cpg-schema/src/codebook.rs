@@ -1386,6 +1386,8 @@ codebook!(
         BuiltinNameNormal = 3 => "builtin_name_normal",
         /// One exact ty reaching definition matches the formal's lexical binding.
         ParameterNameNormal = 4 => "parameter_name_normal",
+        /// One exact ty reaching assignment matches the local lexical binding.
+        AssignmentNameNormal = 5 => "assignment_name_normal",
     }
 );
 

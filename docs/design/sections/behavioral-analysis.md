@@ -132,10 +132,12 @@ every row; the shared validator reconstructs each relation and rejects forged st
   model candidate in source order: the selected operand cites its raw value fact; a direct literal
   or an exact unshadowed builtin name has a local normal-evaluation witness. A direct parameter
   name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
-  definition matches that same lexical parameter binding and its condition is admitted. Its
-  evidence is the reaching fact, not the name spelling. Unpacking, a possibly unbound/deleted
-  parameter, nested calls and other unproved expressions retain `outside_provider_model`.
-  The literal/builtin/parameter classifier is shared with the predecessor-completion relation;
+  definition matches that same lexical parameter binding and its condition is admitted. The
+  same exact check admits a direct local assignment read as `assignment_name_normal`; its
+  definition must match the lexical assignment binding. Both cite the reaching fact, not the
+  name spelling. Unpacking, possibly unbound/deleted names, nested calls and other unproved
+  expressions retain `outside_provider_model`. The literal/builtin/local-name classifier is
+  shared with the predecessor-completion relation;
   neither treats a callee's `normal_return` assertion as proof that its arguments complete.
 
 ## L2 fates: exits, handlers and finalizers
@@ -214,7 +216,7 @@ witness.
   condition. A compatible preceding call can be crossed only when one closed, definite pinned
   target asserts normal return, the callee has one earlier module-level `from` import whose ty
   region is unconditionally reached, every argument is a direct literal, an exact unshadowed
-  builtin name or a uniquely reaching parameter name with ordered evidence, and the ty call
+  builtin name or a uniquely reaching parameter/assignment name with ordered evidence, and the ty call
   region is non-approximate. Its proof cites the import binding and region, callee resolution,
   each argument, call site, Pysa target and
   model id before the raw return step.
@@ -224,7 +226,9 @@ witness.
   BDD-proved disjoint call needs no completion witness. The bounded kernel gives `established`,
   `conditional` or a named `unknown`;
   a false condition yields nothing. **Tested in focused pure and Delta/native cases
-  (2026-09-26).** Nested calls as arguments and non-import callees are not yet admitted.
+  (2026-09-26).** A recursive call on the non-terminating branch does not erase a cited direct
+  return on the terminating branch; an unconditional self-call before return still withholds the
+  direct flow. Nested calls as arguments and non-import callees are not yet admitted.
 - **Modeled call:** an exact whole-expression call of `typing.cast` or `typing.assert_type` whose
   sole source target is closed, both modalities definite, the target asserts `normal_return`, the
   callee is one resolved simple name, and every explicit argument has ordered normal-evaluation

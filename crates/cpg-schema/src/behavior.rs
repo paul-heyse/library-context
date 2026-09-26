@@ -741,7 +741,7 @@ table!(
     key = [snapshot_id, candidate_flow_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, argument_fact_id],
     checks = [
         ("ordinal_nonnegative", "ordinal >= 0"),
-        ("evidence_iff_known", "(status IN (0, 1, 3, 4) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
+        ("evidence_iff_known", "(status IN (0, 1, 3, 4, 5) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
     ],
     {
         snapshot_id: Id,
@@ -1631,7 +1631,7 @@ fn modeled_callee_candidates_sql() -> String {
     )
 }
 
-/// One evaluator for direct literal, unshadowed builtin-name and single-reaching-parameter
+/// One evaluator for direct literal, unshadowed builtin-name and single-reaching local-name
 /// arguments. Both modeled return paths and preceding-call completion use it.
 fn simple_argument_evidence_sql() -> String {
     format!(
@@ -1658,12 +1658,13 @@ fn simple_argument_evidence_sql() -> String {
            JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
              AND rr.builtin_name = r.name AND rr.binding_id IS NULL AND rr.reason IS NULL \
            WHERE a.kind IN ({positional}, {keyword}) \
-         ), parameter_candidates AS ( \
+         ), local_name_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, min(fr.fact_id) AS reaching_fact_id, \
-                  count(*) AS candidate_count, \
+                  min(fd.kind) AS definition_kind, count(*) AS candidate_count, \
                   sum(CASE WHEN rr.binding_id IS NULL OR fr.definition_id IS NULL \
                              OR fr.approximated OR fr.loop_carried \
-                             OR fd.kind <> {parameter} OR b.node_id IS NULL \
+                             OR fd.kind NOT IN ({parameter}, {assignment}) \
+                             OR b.node_id IS NULL \
                              OR ac.root_id IS NULL \
                            THEN 1 ELSE 0 END) AS unsafe_count \
            FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
@@ -1683,26 +1684,30 @@ fn simple_argument_evidence_sql() -> String {
            LEFT JOIN bindings b ON b.node_id = rr.binding_id \
              AND b.module_node_id = fd.module_node_id \
              AND b.start_byte = fd.start_byte AND b.end_byte = fd.end_byte \
-             AND b.kind = {parameter} \
+             AND b.kind = fd.kind \
            LEFT JOIN analysis_conditions ac ON ac.condition_id = fr.condition_id \
            WHERE a.kind IN ({positional}, {keyword}) \
            GROUP BY a.fact_id \
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
                   COALESCE(l.syntax_fact_id, b.resolution_fact_id, \
-                           CASE WHEN p.candidate_count = 1 AND p.unsafe_count = 0 \
-                                THEN p.reaching_fact_id ELSE NULL END) AS evidence_id, \
+                           CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
+                                THEN n.reaching_fact_id ELSE NULL END) AS evidence_id, \
                   CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
-                            WHEN p.candidate_count = 1 AND p.unsafe_count = 0 \
+                            WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
+                              AND n.definition_kind = {parameter} \
                               THEN {parameter_normal} \
+                            WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
+                              AND n.definition_kind = {assignment} \
+                              THEN {assignment_normal} \
                             ELSE {unknown} END AS SMALLINT) AS status \
            FROM arguments a \
            LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
              AND l.candidate_count = 1 \
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
-           LEFT JOIN parameter_candidates p ON p.argument_fact_id = a.fact_id \
+           LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
          )",
         argument_field = crate::codebook::SyntaxField::Argument.code(),
         positional = ArgumentKind::Positional.code(),
@@ -1717,8 +1722,10 @@ fn simple_argument_evidence_sql() -> String {
         literal_normal = ModeledArgumentEvaluationStatus::LiteralNormal.code(),
         builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
         parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
+        assignment_normal = ModeledArgumentEvaluationStatus::AssignmentNameNormal.code(),
         unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
         parameter = crate::codebook::BindingKind::Parameter.code(),
+        assignment = crate::codebook::BindingKind::Assignment.code(),
     )
 }
 
@@ -2040,7 +2047,7 @@ crate::relations! {
 
     /// Preserve argument evaluation order for each exact modeled value candidate. The source
     /// operand has an observed raw value path; direct literal, exact builtin-name and uniquely
-    /// reaching parameter-name siblings complete normally. Other siblings are named unknowns.
+    /// reaching local-name siblings complete normally. Other siblings are named unknowns.
     modeled_argument_evaluations = "behavior:modeled_argument_evaluations",
         deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "analysis_conditions"],
         sql = format!(

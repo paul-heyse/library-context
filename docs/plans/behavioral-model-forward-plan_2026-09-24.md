@@ -132,13 +132,16 @@ ty call region and a pinned normal-return assertion. The proof contains the exac
 binding/region, resolution, argument, site, Pysa target and model identities; the shared validator
 rejects removal of its `preceding_call_normal` step. An otherwise identical call with `1 / 0` as
 a sibling remains `unsupported_control_flow` in the published/native answer, as do a possibly
-deleted parameter argument, conditional local import and guarded module import. A parameter-name
-argument now requires one exact ty reaching definition of the same lexical formal; the shared
-classifier also admits it in an existing modeled-return fixture without treating a shadowed
-builtin spelling as a builtin. The positive and withholding controls passed through the real
-provider and native generation. This is narrower than order 1's exit: nested-call arguments,
-callee forms other than an unconditional module-level import, branch termination/recursion ordering,
-path-specific predecessor status, possible raises and the full return-path evaluation sequence
+deleted parameter or possibly unbound local argument, conditional local import and guarded module
+import. Parameter and assignment names require one exact ty reaching definition of the same
+lexical binding; the shared classifier also admits a parameter in an existing modeled-return
+fixture without treating a shadowed builtin spelling as a builtin. A direct return on a
+terminating branch survives disjoint recursion on the other branch, while an unconditional
+self-call before a direct return withholds it. These positive and withholding controls passed
+through the real provider and native generation. This is narrower than order 1's exit:
+nested-call arguments, callee forms other than an unconditional module-level import,
+general predecessor sequencing, path-specific predecessor status, possible raises and the full
+return-path evaluation sequence
 remain to implement. A target's normal-return assertion alone never certifies its arguments.
 
 **Stage 3 exit:** `behavior_shapes` part 2 passes and Stage 3's pre-registered exit rule (Q01, Q03,

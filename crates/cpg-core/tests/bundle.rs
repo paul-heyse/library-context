@@ -154,7 +154,9 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary");
     }
     for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
+        ("assigned_local_argument", 1),
         ("raising_predecessor", 0), ("possibly_unbound_argument", 0),
+        ("possibly_unbound_local_argument", 0),
         ("conditional_callee", 0), ("guarded_module_callee", 0)] {
         let rows = sql::query(&ctx, &format!(
             "SELECT count(*) AS n FROM model_applications a \
@@ -182,12 +184,34 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name IN ('raising_predecessor', 'possibly_unbound_argument', 'conditional_callee', \
+        WHERE d.name IN ('raising_predecessor', 'possibly_unbound_argument', \
+          'possibly_unbound_local_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 4, "uncertain arguments and callees must stay unknown");
+    assert_eq!(counts.value(0), 5, "uncertain arguments and callees must stay unknown");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
+        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
+        JOIN declarations d ON d.node_id = c.owner_node_id \
+        WHERE d.name = 'assigned_local_argument' \
+          AND p.evaluation_evidence_id IN (SELECT fact_id FROM flow_reaching)",
+        cpg_schema::behavior::preceding_normal_call_arguments().sql))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the local argument must cite ty reaching evidence");
+    for (name, expected) in [("terminating_branch_before_recursion", 1),
+        ("unconditional_self_call", 0)] {
+        let rows = sql::query(&ctx, &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             WHERE d.name = '{name}' AND f.path_depth = 0 AND f.boundary_reason IS NULL",
+        )).await.unwrap().collect().await.unwrap();
+        let counts = rows[0].column(0)
+            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        assert_eq!(counts.value(0), expected, "{name} recursive predecessor admission");
+    }
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
         .await.unwrap();
     let script = r#"
@@ -201,16 +225,21 @@ for operation, expected in (
     ("capspkg.unsupported", "unsupported_control_flow"),
     ("capspkg.raising_predecessor", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
+    ("capspkg.possibly_unbound_local_argument", "unsupported_control_flow"),
     ("capspkg.conditional_callee", "unsupported_control_flow"),
     ("capspkg.guarded_module_callee", "unsupported_control_flow"),
+    ("capspkg.unconditional_self_call", "unsupported_control_flow"),
 ):
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[2] == expected for boundary in boundaries), (operation, paths, boundaries)
-for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor"):
+for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.assigned_local_argument"):
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated and not boundaries, (operation, paths, boundaries)
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
+paths, boundaries, truncated, _ = index.value_paths("capspkg.terminating_branch_before_recursion", "value", 20)
+assert not truncated and paths, (paths, boundaries)
+assert any(boundary[2] == "unsupported_control_flow" for boundary in boundaries), boundaries
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script,

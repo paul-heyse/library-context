@@ -97,3 +97,32 @@ def guarded_module_callee(value: object) -> object:
     """A conditional module import cannot establish callee availability."""
     guarded_cast(object, 1)
     return value
+
+
+def terminating_branch_before_recursion(value: object, stop: bool) -> object:
+    """The base return precedes recursion only on the terminating branch."""
+    if stop:
+        return value
+    terminating_branch_before_recursion(value, True)
+    return value
+
+
+def unconditional_self_call(value: object) -> object:
+    """A later direct return does not prove this recursive call completed."""
+    unconditional_self_call(value)
+    return value
+
+
+def assigned_local_argument(value: object) -> object:
+    """A uniquely reaching assignment makes this local-name read safe."""
+    local = 1
+    cast(object, local)
+    return value
+
+
+def possibly_unbound_local_argument(value: object, set_local: bool) -> object:
+    """An assignment on only one path cannot prove the local-name read."""
+    if set_local:
+        local = 1
+    cast(object, local)
+    return value
