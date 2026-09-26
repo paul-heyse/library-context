@@ -119,6 +119,16 @@ def nested_deleted_identity(value: object) -> object:
     return cast(object, cast(object, value))
 
 
+def framed_maybe_deleted_identity(value: object, clear: bool) -> object:
+    """A lexical fallback cannot ignore a possible source deletion in a try frame."""
+    try:
+        if clear:
+            del value
+        return cast(object, value)
+    finally:
+        pass
+
+
 def string_member_identity(transport: str) -> str | None:
     """A source-local membership guard constrains the returned formal."""
     if transport in ("http", "sse"):

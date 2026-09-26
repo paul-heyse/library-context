@@ -733,7 +733,8 @@ table!(
 
 table!(
     /// Every explicit argument of an exact one-call modeled value candidate, in source order.
-    /// The selected source operand cites its raw value fact; a sibling literal cites its Ruff
+    /// The selected source operand cites its raw value fact and a separate normal-read witness;
+    /// a sibling literal cites its Ruff
     /// expression fact; an exact unshadowed builtin name cites lexical resolution. Other
     /// evaluations remain explicit unknowns. This records local
     /// evaluation evidence, not a completed call, callee dispatch or enclosing return.
@@ -742,7 +743,8 @@ table!(
     key = [snapshot_id, candidate_flow_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, argument_fact_id],
     checks = [
         ("ordinal_nonnegative", "ordinal >= 0"),
-        ("evidence_iff_known", "(status IN (0, 1, 3, 4, 5) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
+        ("evidence_iff_known", "(status IN (0, 1, 3, 4, 5, 6) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
+        ("source_read_witness", "(status = 0 AND source_normal_evidence_id IS NOT NULL AND evidence_id = candidate_flow_fact_id) OR (status <> 0 AND source_normal_evidence_id IS NULL)"),
     ],
     {
         snapshot_id: Id,
@@ -757,6 +759,7 @@ table!(
         ordinal: i64,
         status: ModeledArgumentEvaluationStatus,
         evidence_id: Option<Id>,
+        source_normal_evidence_id: Option<Id>,
         reason: Option<BoundaryReason>,
         condition_id: Id,
     }
@@ -1711,11 +1714,36 @@ fn simple_argument_evidence_sql() -> String {
            LEFT JOIN analysis_conditions ac ON ac.condition_id = fr.condition_id \
            WHERE a.kind IN ({positional}, {keyword}) \
            GROUP BY a.fact_id \
+         ), lexical_parameter_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, min(rr.fact_id) AS resolution_fact_id, \
+                  count(*) AS candidate_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes n ON n.module_node_id = c.module_node_id \
+             AND n.parent_node_id = c.node_id AND n.field = {argument_field} \
+             AND n.start_byte = a.value_start_byte AND n.end_byte = a.value_end_byte \
+             AND n.kind = {name_expr} \
+           JOIN references r ON r.name_node_id = n.node_id \
+             AND r.module_node_id = n.module_node_id \
+           JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+             AND rr.reason IS NULL \
+           JOIN bindings binding ON binding.node_id = rr.binding_id \
+             AND binding.kind = {parameter} AND binding.name = r.name \
+           JOIN scopes lexical_scope ON lexical_scope.node_id = binding.scope_id \
+             AND lexical_scope.owner_node_id = c.owner_node_id \
+             AND lexical_scope.kind = {function_scope} \
+           WHERE a.kind IN ({positional}, {keyword}) \
+             AND NOT EXISTS (SELECT 1 FROM syntax_nodes hazard \
+               WHERE hazard.owner_node_id = c.owner_node_id \
+                 AND hazard.kind IN ({delete_stmt}, {except_handler})) \
+           GROUP BY a.fact_id \
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
                   COALESCE(l.syntax_fact_id, ul.syntax_fact_id, b.resolution_fact_id, \
                            CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
-                                THEN n.reaching_fact_id ELSE NULL END) AS evidence_id, \
+                                     AND n.definition_kind IN ({parameter}, {assignment}) \
+                                THEN n.reaching_fact_id ELSE NULL END, \
+                           CASE WHEN lp.candidate_count = 1 \
+                                THEN lp.resolution_fact_id ELSE NULL END) AS evidence_id, \
                   CAST(CASE WHEN l.syntax_fact_id IS NOT NULL \
                               OR ul.syntax_fact_id IS NOT NULL THEN {literal_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
@@ -1725,6 +1753,8 @@ fn simple_argument_evidence_sql() -> String {
                             WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                               AND n.definition_kind = {assignment} \
                               THEN {assignment_normal} \
+                            WHEN lp.candidate_count = 1 \
+                              THEN {lexical_parameter_normal} \
                             ELSE {unknown} END AS SMALLINT) AS status \
            FROM arguments a \
            LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
@@ -1734,6 +1764,7 @@ fn simple_argument_evidence_sql() -> String {
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
            LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
+           LEFT JOIN lexical_parameter_candidates lp ON lp.argument_fact_id = a.fact_id \
          )",
         argument_field = crate::codebook::SyntaxField::Argument.code(),
         operand_field = crate::codebook::SyntaxField::Operand.code(),
@@ -1751,9 +1782,13 @@ fn simple_argument_evidence_sql() -> String {
         builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
         parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
         assignment_normal = ModeledArgumentEvaluationStatus::AssignmentNameNormal.code(),
+        lexical_parameter_normal = ModeledArgumentEvaluationStatus::LexicalParameterNormal.code(),
         unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
         parameter = crate::codebook::BindingKind::Parameter.code(),
         assignment = crate::codebook::BindingKind::Assignment.code(),
+        function_scope = crate::codebook::LexicalScopeKind::Function.code(),
+        delete_stmt = SyntaxKind::StmtDelete.code(),
+        except_handler = SyntaxKind::ExceptHandlerExceptHandler.code(),
     )
 }
 
@@ -2075,21 +2110,34 @@ crate::relations! {
         );
 
     /// Preserve argument evaluation order for each exact modeled value candidate. The source
-    /// operand has an observed raw value path; direct literal, exact builtin-name and uniquely
+    /// operand has an observed raw value path and must also have an exact or bounded lexical
+    /// direct-formal read; direct literal, exact builtin-name and uniquely
     /// reaching local-name siblings complete normally. Other siblings are named unknowns.
     modeled_argument_evaluations = "behavior:modeled_argument_evaluations",
-        deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "analysis_conditions"],
+        deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "scopes", "analysis_conditions"],
         sql = format!(
             "WITH {simple_args} \
              SELECT m.snapshot_id, m.flow_value_fact_id AS candidate_flow_fact_id, \
                     m.parameter_node_id, m.pysa_fact_id, m.model_id, m.rule_id, \
                     m.call_site_node_id, a.node_id AS argument_node_id, \
                     a.fact_id AS argument_fact_id, a.ordinal, \
-                    CAST(CASE WHEN a.fact_id = m.argument_fact_id THEN {source_operand} \
+                    CAST(CASE WHEN a.fact_id = m.argument_fact_id \
+                                AND s.status IN ({parameter_normal}, {lexical_parameter_normal}) \
+                                AND s.evidence_id IS NOT NULL THEN {source_operand} \
+                              WHEN a.fact_id = m.argument_fact_id THEN {unknown} \
                               ELSE s.status END AS SMALLINT) AS status, \
-                    CASE WHEN a.fact_id = m.argument_fact_id THEN m.flow_value_fact_id \
+                    CASE WHEN a.fact_id = m.argument_fact_id \
+                                AND s.status IN ({parameter_normal}, {lexical_parameter_normal}) \
+                                AND s.evidence_id IS NOT NULL THEN m.flow_value_fact_id \
+                         WHEN a.fact_id = m.argument_fact_id THEN NULL \
                          ELSE s.evidence_id END AS evidence_id, \
-                    CAST(CASE WHEN a.fact_id = m.argument_fact_id OR s.evidence_id IS NOT NULL \
+                    CASE WHEN a.fact_id = m.argument_fact_id \
+                                AND s.status IN ({parameter_normal}, {lexical_parameter_normal}) \
+                           THEN s.evidence_id ELSE NULL END AS source_normal_evidence_id, \
+                    CAST(CASE WHEN (a.fact_id = m.argument_fact_id \
+                                      AND s.status IN ({parameter_normal}, {lexical_parameter_normal}) \
+                                      AND s.evidence_id IS NOT NULL) \
+                                OR (a.fact_id <> m.argument_fact_id AND s.evidence_id IS NOT NULL) \
                               THEN NULL ELSE {outside} END AS SMALLINT) AS reason, \
                     m.condition_id \
              FROM modeled_exact_value_transfers m \
@@ -2097,6 +2145,9 @@ crate::relations! {
              JOIN simple_arguments s ON s.argument_fact_id = a.fact_id",
             simple_args = simple_argument_evidence_sql(),
             source_operand = ModeledArgumentEvaluationStatus::SourceOperand.code(),
+            parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
+            lexical_parameter_normal = ModeledArgumentEvaluationStatus::LexicalParameterNormal.code(),
+            unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
         );
 
@@ -2393,7 +2444,7 @@ crate::relations! {
                 "flow_value_call_links", "call_syntax", "arguments", "modeled_transfer_sites",
                 "model_applications", "syntax_nodes", "references", "reference_resolutions",
                 "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses",
-                "flow_uses", "flow_reaching", "flow_definitions", "bindings",
+                "flow_uses", "flow_reaching", "flow_definitions", "bindings", "scopes",
                 "analysis_conditions"],
         sql = format!(
             "WITH {simple_args}, {callee_candidates}, raw_steps AS ( \
@@ -2585,7 +2636,7 @@ crate::relations! {
                 "syntax_nodes", "references", "reference_resolutions", "exit_sites",
                 "return_exit_statuses", "flow_test_value_links", "flow_test_leaves",
                 "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions",
-                "bindings"],
+                "bindings", "scopes"],
         sql = format!(
             "WITH {callee_candidates}, {simple_args}, step_counts AS ( \
                SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \

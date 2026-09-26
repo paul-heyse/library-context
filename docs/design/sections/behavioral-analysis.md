@@ -131,13 +131,19 @@ every row; the shared validator reconstructs each relation and rejects forged st
   bindings and open dispatch are explicit boundaries. Exception sites carry the pinned class node
   and fact.
 - **`modeled_argument_evaluations`** accounts for every explicit argument of an exact one-call
-  model candidate in source order: the selected operand cites its raw value fact; a direct literal
+  model candidate in source order: the selected operand cites its raw value fact and a separate
+  normal-read witness; a direct literal
   or an exact unshadowed builtin name has a local normal-evaluation witness. A direct parameter
   name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
-  definition matches that same lexical parameter binding and its condition is admitted. The
+  definition matches that same lexical parameter binding and has a stored condition root. In a
+  `try` body, ty may mark this reach approximate; a direct reference resolved to the current
+  function's parameter is instead `lexical_parameter_normal` when that function has no explicit
+  `del` or exception-handler frame. It cites the resolution fact and does not generalize to
+  arbitrary local reads. The
   same exact check admits a direct local assignment read as `assignment_name_normal`; its
   definition must match the lexical assignment binding. Both cite the reaching fact, not the
-  name spelling. Unpacking, possibly unbound/deleted names, nested calls outside the exact
+  name spelling. A one-call source operand keeps its raw fact in `evidence_id` and the normal
+  read in `source_normal_evidence_id`; without both it is unknown. Unpacking, possibly unbound/deleted names, nested calls outside the exact
   modeled-chain route and other unproved expressions retain `outside_provider_model`. The literal/builtin/local-name classifier is
   shared with the predecessor-completion relation;
   neither treats a callee's `normal_return` assertion as proof that its arguments complete.
@@ -250,8 +256,8 @@ witness.
   inserts the inner call proof at its outer source-argument position. The limit is eight call
   steps and 128 argument rows per source contribution; exceeding it records a boundary. A missing
   or unresolved step never supplies a normal result. The innermost source must be a direct formal
-  read with one exact ty reaching definition; its proof cites both the raw flow fact and that
-  reaching fact. Focused real-provider and native checks admit two- and three-call `typing.cast`
+  read with either that exact ty reaching witness or the narrow lexical parameter witness; its
+  proof cites both the raw flow fact and the read evidence. Focused real-provider and native checks admit two- and three-call `typing.cast`
   chains and withhold a raising inner sibling (2026-09-26). A deleted formal has no
   parameter-origin contribution and supplies no positive path.
   This covers exact total identity chains, not arbitrary nested expressions or transforms.
@@ -419,6 +425,6 @@ Serve-time semantic selection remains a proposed ADR-0025 target
   small (20–40 authored); ranked lookup waits until it outgrows one page. **`explain`** returns the
   stored witness chain.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053, ADR-0054
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053, ADR-0054, ADR-0055
 
 ---

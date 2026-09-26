@@ -1395,6 +1395,8 @@ codebook!(
         ParameterNameNormal = 4 => "parameter_name_normal",
         /// One exact ty reaching assignment matches the local lexical binding.
         AssignmentNameNormal = 5 => "assignment_name_normal",
+        /// A direct lexical parameter read in a function with no deletion or exception handler.
+        LexicalParameterNormal = 6 => "lexical_parameter_normal",
     }
 );
 

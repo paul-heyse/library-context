@@ -37,7 +37,8 @@ keeps each candidate's argument multiplicity. The producer requires a dense
 step sequence, the exact source-argument span of each next call, one source
 argument per call, every other argument's normal witness, a proven return
 condition and the preceding-call completion check. The innermost direct formal
-read needs one exact ty reaching definition, cited beside its raw flow fact.
+read needs an exact ty reaching definition or the bounded lexical parameter
+witness of [ADR-0055](../../adr/0055-modeled-source-read.md), cited beside its raw flow fact.
 It sorts rows before proof construction. The finite cap is eight call steps
 and 128 argument rows; the explicit depth/work boundaries preserve unknown rather than claiming a
 completed or absent path. The established DataFusion joins, window count and

@@ -795,3 +795,4 @@ modeled_argument_evaluation_status
   3 builtin_name_normal
   4 parameter_name_normal
   5 assignment_name_normal
+  6 lexical_parameter_normal

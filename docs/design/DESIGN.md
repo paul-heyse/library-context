@@ -316,6 +316,11 @@ and finite acyclic summaries; recursive and operation-wide composition is **Prop
   ([§9.9](sections/behavioral-analysis.md#section-9-9)). A call alone never propagates a
   capability. A model's exception classes and class relationships bind to pinned context facts;
   total normal completion is an explicit model assertion, separate from transfer.
+- **Modeled source reads complete before modeled returns.** A source operand keeps its raw
+  value-flow fact separate from its direct-parameter normal-read witness. Exact ty reaching
+  evidence is preferred; a direct lexical parameter resolution with no same-function deletion
+  or exception-handler frame supplies the bounded fallback for ty's approximate `try` regions
+  (ADR-0055). Missing evidence stays unknown.
 - **Proof identity.** A finite summary is identified by its callable, source contribution,
   input/output paths, transfer kind, condition, exit and ordered typed proof steps; each step cites checked source
   or model evidence. Nested call provenance for value transfers is a **Proposed** refinement
@@ -326,7 +331,7 @@ and finite acyclic summaries; recursive and operation-wide composition is **Prop
 - Known gaps (effectful finalizers, predecessor completion, recursive members, access
   normalization) stay explicit unknowns; the forward plan owns them.
 
-> Decision: ADR-0045, ADR-0028, ADR-0054
+> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055
 
 <a id="section-b6"></a>
 

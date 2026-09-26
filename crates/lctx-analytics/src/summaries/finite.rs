@@ -659,6 +659,12 @@ fn modeled_call_proof(
             || argument.status == ModeledArgumentEvaluationStatus::Unknown
             || argument.evidence_id.is_none()
             || argument.condition_id != seed.condition_id
+            || (argument.argument_fact_id == seed.source_argument_fact_id
+                && (argument.status != ModeledArgumentEvaluationStatus::SourceOperand
+                    || argument.evidence_id != Some(seed.flow_fact_id)
+                    || argument.source_normal_evidence_id.is_none()))
+            || (argument.argument_fact_id != seed.source_argument_fact_id
+                && argument.source_normal_evidence_id.is_some())
     }) || ordered
         .iter()
         .filter(|argument| {
@@ -670,16 +676,27 @@ fn modeled_call_proof(
     {
         return None;
     }
-    let mut proof = Vec::with_capacity(ordered.len() + 4);
+    let mut proof = Vec::with_capacity(ordered.len() + 5);
     proof.push(recipe::SummaryFlowProofStep {
         kind: SummaryFlowStepKind::CalleeResolution,
         evidence_id: seed.callee_resolution_fact_id,
         condition_id: seed.condition_id,
     });
     for argument in &ordered {
+        if argument.argument_fact_id == seed.source_argument_fact_id {
+            proof.push(recipe::SummaryFlowProofStep {
+                kind: SummaryFlowStepKind::RawIdentity,
+                evidence_id: seed.flow_fact_id,
+                condition_id: seed.condition_id,
+            });
+        }
         proof.push(recipe::SummaryFlowProofStep {
             kind: SummaryFlowStepKind::ArgumentEvaluation,
-            evidence_id: argument.evidence_id?,
+            evidence_id: if argument.argument_fact_id == seed.source_argument_fact_id {
+                argument.source_normal_evidence_id?
+            } else {
+                argument.evidence_id?
+            },
             condition_id: argument.condition_id,
         });
     }
@@ -796,8 +813,9 @@ fn modeled_chain_proof(rows: &[ModeledChainArgument])
                     visit(index + 1, steps, raw, proof)?;
                     steps[index + 1][0].call_fact_id
                 } else {
-                    if argument.evaluation_status
-                        != ModeledArgumentEvaluationStatus::ParameterNameNormal
+                    if !matches!(argument.evaluation_status,
+                        ModeledArgumentEvaluationStatus::ParameterNameNormal
+                            | ModeledArgumentEvaluationStatus::LexicalParameterNormal)
                     {
                         return Err(BoundaryReason::MissingEvidence);
                     }
@@ -1574,6 +1592,41 @@ mod tests {
                 reach_budget: false,
             }],
         }
+    }
+
+    #[test]
+    fn one_call_model_needs_a_separate_normal_source_read_witness() {
+        let condition = Diagram::always().id();
+        let seed = CallEvidence {
+            flow_fact_id: id(4), parameter_node_id: id(3),
+            source_argument_fact_id: id(12), call_fact_id: id(20),
+            pysa_fact_id: id(21), model_id: id(22), rule_id: id(23),
+            callee_resolution_fact_id: id(24), argument_count: 2, condition_id: condition,
+        };
+        let source = ModeledArgumentEvaluationsRow {
+            snapshot_id: id(1), candidate_flow_fact_id: id(4), parameter_node_id: id(3),
+            pysa_fact_id: id(21), model_id: id(22), rule_id: id(23),
+            call_site_node_id: id(19), argument_node_id: id(11),
+            argument_fact_id: id(12), ordinal: 1,
+            status: ModeledArgumentEvaluationStatus::SourceOperand,
+            evidence_id: Some(id(4)), source_normal_evidence_id: Some(id(30)),
+            reason: None, condition_id: condition,
+        };
+        let literal = ModeledArgumentEvaluationsRow {
+            argument_node_id: id(13), argument_fact_id: id(14), ordinal: 0,
+            status: ModeledArgumentEvaluationStatus::LiteralNormal,
+            evidence_id: Some(id(15)), source_normal_evidence_id: None,
+            ..source.clone()
+        };
+        let key = (id(4), id(3), id(21), id(22), id(23));
+        let mut candidates = HashMap::from([(key, vec![source.clone(), literal])]);
+        let proof = modeled_call_proof(&seed, &candidates).unwrap();
+        let source_eval = proof.iter().position(|step| step.kind == SummaryFlowStepKind::ArgumentEvaluation
+            && step.evidence_id == id(30)).unwrap();
+        assert_eq!(proof[source_eval - 1].kind, SummaryFlowStepKind::RawIdentity);
+        assert_eq!(proof[source_eval - 1].evidence_id, id(4));
+        candidates.get_mut(&key).unwrap()[0].source_normal_evidence_id = None;
+        assert!(modeled_call_proof(&seed, &candidates).is_none());
     }
 
     #[test]

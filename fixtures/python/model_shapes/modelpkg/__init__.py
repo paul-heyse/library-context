@@ -165,6 +165,15 @@ def framed_modeled_identity(value: object) -> object:
         pass
 
 
+def framed_maybe_deleted_identity(value: object, clear: bool) -> object:
+    try:
+        if clear:
+            del value
+        return cast(object, value)
+    finally:
+        pass
+
+
 def nested_framed_modeled_identity(value: object) -> object:
     try:
         try:

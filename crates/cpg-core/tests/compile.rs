@@ -2312,6 +2312,24 @@ budget = 1
         "a modeled return cites its finalizer before the completed exit"
     );
     assert_eq!(
+        count(&ctx, &format!("SELECT count(*) FROM modeled_argument_evaluations a \
+            JOIN modeled_exact_value_transfers m \
+              ON m.flow_value_fact_id = a.candidate_flow_fact_id \
+             AND m.parameter_node_id = a.parameter_node_id \
+             AND m.pysa_fact_id = a.pysa_fact_id \
+             AND m.model_id = a.model_id AND m.rule_id = a.rule_id \
+            JOIN declarations d ON d.node_id = m.function_node_id \
+            JOIN reference_resolutions rr ON rr.fact_id = a.source_normal_evidence_id \
+            JOIN summary_flows f ON f.source_flow_fact_id = m.flow_value_fact_id \
+              AND f.parameter_node_id = m.parameter_node_id \
+            JOIN summary_flow_steps read ON read.summary_id = f.summary_id \
+              AND read.kind = {} AND read.evidence_id = rr.fact_id \
+            WHERE d.name = 'framed_modeled_identity'",
+            cpg_schema::codebook::SummaryFlowStepKind::ArgumentEvaluation.code())).await,
+        1,
+        "the pass-only try frame cites its safe lexical parameter read separately from raw flow"
+    );
+    assert_eq!(
         count(
             &ctx,
             &format!(
@@ -2578,7 +2596,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        29,
+        30,
         "the typing, JSON, gzip and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -2738,6 +2756,32 @@ budget = 1
             WHERE d.name = 'nested_deleted_identity' AND v.parameter_node_id IS NOT NULL").await,
         0,
         "a deleted formal has no parameter-origin contribution to discharge or bound"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f \
+            JOIN declarations d ON d.node_id = f.function_node_id \
+            WHERE d.name = 'framed_maybe_deleted_identity'").await,
+        0,
+        "the lexical read fallback withholds a formal that can be deleted in the try body"
+    );
+    assert!(
+        count(&ctx, "SELECT count(*) FROM modeled_exact_value_transfers m \
+            JOIN declarations d ON d.node_id = m.function_node_id \
+            WHERE d.name = 'framed_maybe_deleted_identity'").await > 0,
+        "the deletion control must have a real raw model candidate to challenge"
+    );
+    assert_eq!(
+        count(&ctx, &format!("SELECT count(*) FROM modeled_argument_evaluations a \
+            JOIN modeled_exact_value_transfers m \
+              ON m.flow_value_fact_id = a.candidate_flow_fact_id \
+             AND m.parameter_node_id = a.parameter_node_id \
+             AND m.pysa_fact_id = a.pysa_fact_id \
+             AND m.model_id = a.model_id AND m.rule_id = a.rule_id \
+            JOIN declarations d ON d.node_id = m.function_node_id \
+            WHERE d.name = 'framed_maybe_deleted_identity' AND a.status = {}",
+            ModeledArgumentEvaluationStatus::SourceOperand.code())).await,
+        0,
+        "a possible deletion prevents the raw source from acquiring a normal-read witness"
     );
     assert_eq!(
         count(
@@ -3132,7 +3176,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        34,
+        35,
         "each pinned model applies only at its resolved source call"
     );
     assert!(
