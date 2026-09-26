@@ -1,6 +1,6 @@
 //! Pure finite source-to-return summary composition over explicit, typed inputs.
 //! DataFusion acquisition and Delta publication belong to `cpg-core`.
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use cpg_schema::behavior::{ModeledArgumentEvaluationsRow, SummaryBoundariesRow, SummaryComponentsRow, SummaryFlowStepsRow, SummaryFlowsRow};
 use cpg_schema::codebook::{BoundaryReason, ModeledArgumentEvaluationStatus, SummaryFlowKind, SummaryFlowStepKind, Verdict};
 use cpg_schema::condition_kernel::{Diagram, KernelBoundary};
@@ -669,17 +669,20 @@ fn push_finite_path(
 /// Reconstruct all admitted finite paths and their ordered proof steps from published inputs.
 /// The same producer is called at write time and by the shared publication validator.
 pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
+    finite_flows_with_pair_limit(inputs, 1_000_000)
+}
+
+// The override gives the pure cap control a small, deterministic state space. Production
+// always uses the same bounded producer and its one-million-pair limit.
+fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usize)
+    -> FiniteSummaryOutcome
+{
     let FiniteSummaryInputs {
         diagrams, boundaries, mut pass_steps, mut preceding_calls, normal_predecessors, components,
         direct_seeds, modeled_seeds, evaluations, assignment_seeds, local_seeds,
         boundary_candidates,
     } = inputs;
     let mut refusals = Vec::new();
-    let recursive_functions: HashSet<Id> = components
-        .iter()
-        .filter(|row| row.recursive)
-        .map(|row| row.function_node_id)
-        .collect();
     // The pure producer must own source order. A caller can supply rows in any order, and
     // `take_while` below must never skip an earlier call after seeing a later one.
     for calls in preceding_calls.values_mut() {
@@ -714,10 +717,6 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
     for seed in seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
             seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id);
-        if recursive_functions.contains(&seed.function_node_id) {
-            refuse(&mut refusals, key, BoundaryReason::CallTransfer);
-            continue;
-        }
         let Some(condition) = diagrams.get(&seed.condition_id) else {
             refuse(&mut refusals, key, boundaries.get(&seed.condition_id).copied()
                 .unwrap_or(BoundaryReason::MissingEvidence));
@@ -799,10 +798,6 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
     for seed in assignment_seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
             seed.source_flow_fact_id, seed.successor_condition_id, seed.source_origin_id);
-        if recursive_functions.contains(&seed.function_node_id) {
-            refuse(&mut refusals, key, BoundaryReason::CallTransfer);
-            continue;
-        }
         let Some(condition) = diagrams.get(&seed.predecessor_condition_id) else {
             refuse(&mut refusals, key, boundaries.get(&seed.predecessor_condition_id).copied()
                 .unwrap_or(BoundaryReason::MissingEvidence));
@@ -901,12 +896,11 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
             },
         );
     }
-    // The first interprocedural case needs no cross-scope atom substitution: the callee's
-    // admitted path is unconditional. Acyclic components run after their callees, while
-    // recursive components retain their existing unknown boundary until the bounded worklist.
-    let component_by_function: HashMap<Id, (i64, bool)> = components
+    // Component order is callee-first. A recursive component consumes each newly cited value
+    // path through its local call edges until a least finite fixed point or a typed cap.
+    let component_by_function: HashMap<Id, (i64, Id)> = components
         .into_iter()
-        .map(|row| (row.function_node_id, (row.component_order, row.recursive)))
+        .map(|row| (row.function_node_id, (row.component_order, row.component_id)))
         .collect();
     let mut local_seeds = local_seeds;
     local_seeds.sort_by_key(|seed| {
@@ -917,7 +911,12 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
             seed.function_node_id,
             seed.call_site_node_id,
             seed.source_flow_fact_id,
+            seed.source_origin_id,
             seed.pysa_fact_id,
+            seed.callee_node_id,
+            seed.callee_parameter_node_id,
+            seed.return_site_fact_id,
+            seed.condition_id,
         )
     });
     let mut by_formal: HashMap<(Id, Id), Vec<SummaryFlowsRow>> = HashMap::new();
@@ -927,11 +926,21 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
             .or_default()
             .push(flow.clone());
     }
-    const MAX_LOCAL_PATH_DEPTH: i64 = 8;
+    let mut by_id: HashMap<Id, SummaryFlowsRow> = flows.iter()
+        .cloned().map(|row| (row.summary_id, row)).collect();
+    let mut known_summary_ids: HashSet<Id> = by_id.keys().copied().collect();
+    struct PreparedLocalSeed {
+        seed: LocalCallSummaryFlowSeed,
+        condition_is_true: bool,
+        predecessor_proof: Vec<recipe::SummaryFlowProofStep>,
+        admitted: bool,
+        depth_limited: bool,
+    }
+    let mut groups: BTreeMap<(i64, Id), Vec<PreparedLocalSeed>> = BTreeMap::new();
     for seed in local_seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
             seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id);
-        let Some((_, false)) = component_by_function.get(&seed.function_node_id) else {
+        let Some(&component) = component_by_function.get(&seed.function_node_id) else {
             refuse(&mut refusals, key, BoundaryReason::CallTransfer);
             continue;
         };
@@ -968,32 +977,56 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                 continue;
             }
         };
-        let Some(callee_paths) = by_formal
-            .get(&(seed.callee_node_id, seed.callee_parameter_node_id))
-            .cloned()
-        else {
-            refuse(&mut refusals, key, BoundaryReason::CallTransfer);
-            continue;
-        };
-        let mut admitted = false;
-        let mut depth_limited = false;
-        for callee in callee_paths {
-            if callee.path_depth >= MAX_LOCAL_PATH_DEPTH {
-                depth_limited = true;
-                continue;
+        groups.entry(component).or_default().push(PreparedLocalSeed {
+            condition_is_true: condition.is_true(), seed, predecessor_proof,
+            admitted: false, depth_limited: false,
+        });
+    }
+    const MAX_LOCAL_PATH_DEPTH: i64 = 8;
+    for prepared in groups.values_mut() {
+        let mut dependent: HashMap<(Id, Id), Vec<usize>> = HashMap::new();
+        let mut pending: BTreeSet<(usize, Id)> = BTreeSet::new();
+        let mut capped = false;
+        for (index, path) in prepared.iter().enumerate() {
+            let formal = (path.seed.callee_node_id, path.seed.callee_parameter_node_id);
+            dependent.entry(formal).or_default().push(index);
+            if let Some(callees) = by_formal.get(&formal) {
+                for callee in callees {
+                    let pair = (index, callee.summary_id);
+                    if !pending.contains(&pair) && pending.len() >= max_pair_work {
+                        capped = true;
+                        break;
+                    }
+                    pending.insert(pair);
+                }
             }
+            if capped { break; }
+        }
+        let mut pair_work = 0;
+        while !capped {
+            let Some((index, callee_id)) = pending.pop_first() else { break };
+            if pair_work >= max_pair_work {
+                capped = true;
+                break;
+            }
+            pair_work += 1;
+            let callee = &by_id[&callee_id];
             if callee.verdict != Verdict::Established
                 || callee.boundary_reason.is_some()
                 || callee.kind != SummaryFlowKind::Value
                 || callee.output_path != OutputPath::ReturnValue.render()
-                || !diagrams
-                    .get(&callee.condition_id)
-                    .is_some_and(Diagram::is_true)
+                || !diagrams.get(&callee.condition_id).is_some_and(Diagram::is_true)
             {
                 continue;
             }
-            admitted = true;
-            let mut proof = predecessor_proof.clone();
+            let path = &mut prepared[index];
+            if callee.path_depth >= MAX_LOCAL_PATH_DEPTH {
+                path.depth_limited = true;
+                continue;
+            }
+            path.admitted = true;
+            let seed = &path.seed;
+            let mut proof = path.predecessor_proof.clone();
             proof.extend([
                 (
                     SummaryFlowStepKind::CalleeResolution,
@@ -1035,6 +1068,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                 },
             )
             );
+            let previous_steps_len = steps.len();
             push_finite_path(
                 &mut flows,
                 &mut steps,
@@ -1047,7 +1081,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                     source_flow_fact_id: seed.source_flow_fact_id,
                     source_origin_id: seed.source_origin_id,
                     condition_id: seed.condition_id,
-                    condition_is_true: condition.is_true(),
+                    condition_is_true: path.condition_is_true,
                     return_site_fact_id: seed.return_site_fact_id,
                     return_region_fact_id: seed.return_region_fact_id,
                     approximated: seed.approximated || callee.approximated,
@@ -1055,19 +1089,43 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                     proof,
                 },
             );
-            if let Some(flow) = flows.last() {
-                by_formal
-                    .entry((flow.function_node_id, flow.parameter_node_id))
-                    .or_default()
-                    .push(flow.clone());
+            let flow = flows.last().expect("pushed finite local path").clone();
+            if !known_summary_ids.insert(flow.summary_id) {
+                flows.pop();
+                steps.truncate(previous_steps_len);
+                continue;
+            }
+            let formal = (flow.function_node_id, flow.parameter_node_id);
+            by_id.insert(flow.summary_id, flow.clone());
+            by_formal.entry(formal).or_default().push(flow.clone());
+            if let Some(callers) = dependent.get(&formal) {
+                for &caller in callers {
+                    let pair = (caller, flow.summary_id);
+                    if !pending.contains(&pair) && pending.len() >= max_pair_work {
+                        capped = true;
+                        break;
+                    }
+                    pending.insert(pair);
+                }
             }
         }
-        if depth_limited {
-            refuse(&mut refusals, key, BoundaryReason::SummaryDepthLimit);
-        } else if !admitted {
-            refuse(&mut refusals, key, BoundaryReason::CallTransfer);
+        for path in prepared {
+            let seed = &path.seed;
+            let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
+                seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id);
+            if capped {
+                refuse(&mut refusals, key, BoundaryReason::BudgetReached);
+            } else if path.depth_limited {
+                refuse(&mut refusals, key, BoundaryReason::SummaryDepthLimit);
+            } else if !path.admitted {
+                refuse(&mut refusals, key, BoundaryReason::CallTransfer);
+            }
         }
     }
+    flows.sort_by_key(|row| row.summary_id);
+    steps.sort_by_key(|row| (row.summary_id, row.ordinal));
+    refusals.sort_by_key(|row| (row.key(), row.reason));
+    refusals.dedup();
     let boundaries = summarize_boundaries(&boundary_candidates, &flows, &refusals);
     FiniteSummaryOutcome { flows, steps, refusals, boundaries }
 }
@@ -1144,6 +1202,140 @@ mod tests {
         }
         let [left, right] = halves;
         (left, right)
+    }
+
+    fn recursive_member(function: u8, ordinal: i64) -> SummaryComponentsRow {
+        SummaryComponentsRow {
+            snapshot_id: id(1), component_id: id(80), function_node_id: id(function),
+            component_order: 0, member_ordinal: ordinal, member_count: 2,
+            recursive: true,
+        }
+    }
+
+    fn recursive_edge(caller: u8, formal: u8, callee: u8, callee_formal: u8,
+        raw: u8, origin: u8, call: u8) -> LocalCallSummaryFlowSeed
+    {
+        LocalCallSummaryFlowSeed {
+            snapshot_id: id(1), function_node_id: id(caller), parameter_node_id: id(formal),
+            parameter_name: "value".to_owned(), source_flow_fact_id: id(raw),
+            source_origin_id: id(origin), condition_id: Diagram::always().id(),
+            call_site_node_id: id(call), call_fact_id: id(call + 1),
+            pysa_fact_id: id(call + 2), callee_node_id: id(callee),
+            callee_parameter_node_id: id(callee_formal),
+            callee_resolution_fact_id: id(call + 3), return_site_fact_id: id(call + 4),
+            return_region_fact_id: id(call + 5),
+            return_condition_id: Diagram::always().id(), return_start_byte: 30,
+            approximated: false,
+        }
+    }
+
+    fn recursive_candidate(seed: &LocalCallSummaryFlowSeed) -> SummaryBoundaryCandidate {
+        SummaryBoundaryCandidate {
+            snapshot_id: seed.snapshot_id, function_node_id: seed.function_node_id,
+            parameter_node_id: seed.parameter_node_id,
+            source_flow_fact_id: seed.source_flow_fact_id,
+            source_origin_id: seed.source_origin_id, condition_id: seed.condition_id,
+            use_id: seed.call_site_node_id, source_key: "Parameter[value] via call".to_owned(),
+            through_call: true, local_through_call: true, upstream_through_call: false,
+            raw_through_call: true, raw_approximated: false, reach_budget: false,
+        }
+    }
+
+    #[test]
+    fn self_recursive_finite_base_proves_paths_but_keeps_depth_cut_open() {
+        let mut input = inputs();
+        input.components.push(recursive_member(2, 0));
+        let edge = recursive_edge(2, 3, 2, 3, 40, 41, 50);
+        input.boundary_candidates.push(recursive_candidate(&edge));
+        input.local_seeds.push(edge);
+        let result = finite_flows(input);
+        let mut depths = result.flows.iter().map(|row| row.path_depth).collect::<Vec<_>>();
+        depths.sort_unstable();
+        assert_eq!(depths, (0..=8).collect::<Vec<_>>());
+        assert!(result.flows.iter().all(|row| row.verdict == Verdict::Established));
+        assert_eq!(result.boundaries.len(), 1);
+        assert_eq!(result.boundaries[0].source_origin_id, id(41));
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::SummaryDepthLimit);
+        assert_eq!(result.steps.iter().filter(|step|
+            step.kind == SummaryFlowStepKind::CalleeSummary).count(), 8);
+    }
+
+    #[test]
+    fn mutual_recursion_parallel_origins_and_shuffle_have_stable_proofs() {
+        let mut forward = inputs();
+        forward.components = vec![recursive_member(2, 0), recursive_member(7, 1)];
+        let a = recursive_edge(7, 8, 2, 3, 40, 41, 50);
+        let parallel = recursive_edge(7, 8, 2, 3, 42, 43, 60);
+        let back = recursive_edge(2, 3, 7, 8, 44, 45, 70);
+        let open = recursive_edge(7, 8, 2, 3, 46, 47, 90);
+        for edge in [&a, &parallel, &back] {
+            forward.boundary_candidates.push(recursive_candidate(edge));
+        }
+        forward.boundary_candidates.push(recursive_candidate(&open));
+        forward.local_seeds = vec![a, parallel, back];
+        let mut reversed = inputs();
+        reversed.components = forward.components.iter().rev().cloned().collect();
+        reversed.boundary_candidates = forward.boundary_candidates.iter().rev().cloned().collect();
+        reversed.local_seeds = forward.local_seeds.iter().rev().cloned().collect();
+        let first = finite_flows(forward);
+        let second = finite_flows(reversed);
+        assert_eq!(first.flows, second.flows);
+        assert_eq!(first.steps, second.steps);
+        assert_eq!(first.refusals, second.refusals);
+        assert_eq!(first.boundaries, second.boundaries);
+        assert!(first.flows.iter().any(|row| row.source_origin_id == id(41)));
+        assert!(first.flows.iter().any(|row| row.source_origin_id == id(43)));
+        assert!(first.flows.iter().any(|row| row.source_origin_id == id(45)));
+        assert!(!first.flows.iter().any(|row| row.source_origin_id == id(47)));
+        assert!(first.boundaries.iter().any(|row| row.source_origin_id == id(47)
+            && row.reason == BoundaryReason::CallTransfer));
+        assert!(first.flows.iter().all(|row| row.path_depth <= 8));
+    }
+
+    #[test]
+    fn base_free_cycle_and_pair_cap_remain_origin_specific_unknowns() {
+        let mut no_base = inputs();
+        no_base.direct_seeds.clear();
+        no_base.boundary_candidates.clear();
+        no_base.components = vec![recursive_member(2, 0), recursive_member(7, 1)];
+        let a = recursive_edge(2, 3, 7, 8, 40, 41, 50);
+        let b = recursive_edge(7, 8, 2, 3, 42, 43, 60);
+        for edge in [&a, &b] { no_base.boundary_candidates.push(recursive_candidate(edge)); }
+        no_base.local_seeds = vec![a, b];
+        let result = finite_flows(no_base);
+        assert!(result.flows.is_empty());
+        assert_eq!(result.boundaries.len(), 2);
+        assert!(result.boundaries.iter().all(|row| row.reason == BoundaryReason::CallTransfer));
+
+        let mut capped = inputs();
+        capped.components.push(recursive_member(2, 0));
+        let edge = recursive_edge(2, 3, 2, 3, 40, 41, 50);
+        capped.boundary_candidates.push(recursive_candidate(&edge));
+        capped.local_seeds.push(edge);
+        let result = finite_flows_with_pair_limit(capped, 1);
+        assert!(result.flows.iter().any(|row| row.source_origin_id == id(41)));
+        assert_eq!(result.boundaries.len(), 1);
+        assert_eq!(result.boundaries[0].source_origin_id, id(41));
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::BudgetReached);
+
+        let capped_parallel = |reverse: bool| {
+            let mut input = inputs();
+            input.components.push(recursive_member(2, 0));
+            let mut edges = vec![
+                recursive_edge(2, 3, 2, 3, 40, 41, 50),
+                recursive_edge(2, 3, 2, 3, 42, 43, 60),
+            ];
+            if reverse { edges.reverse(); }
+            input.boundary_candidates.extend(edges.iter().map(recursive_candidate));
+            input.local_seeds = edges;
+            finite_flows_with_pair_limit(input, 1)
+        };
+        let first = capped_parallel(false);
+        let reversed = capped_parallel(true);
+        assert_eq!(first.flows, reversed.flows);
+        assert_eq!(first.boundaries, reversed.boundaries);
+        assert_eq!(first.boundaries.len(), 2);
+        assert!(first.boundaries.iter().all(|row| row.reason == BoundaryReason::BudgetReached));
     }
 
     fn direct_with_bounded_predecessor(return_condition: Diagram, call_condition: Diagram)

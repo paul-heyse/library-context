@@ -853,6 +853,28 @@ budget = 1
         1,
         "the source self-call belongs to a recursive SCC"
     );
+    assert!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM ({}) s JOIN declarations d \
+             ON d.node_id = s.function_node_id \
+             WHERE d.name = 'conditional_self_recursive'",
+            cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+        )).await > 0,
+        "the recursive return supplies a real local-call candidate"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id \
+            WHERE d.name = 'conditional_self_recursive' AND f.path_depth > 0").await,
+        0,
+        "the conditional base cannot be reused as an unconditional recursive callee path"
+    );
+    assert!(
+        count(&ctx, "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
+            ON d.node_id = b.function_node_id \
+            WHERE d.name = 'conditional_self_recursive' AND b.local_through_call").await > 0,
+        "the unproved recursive call remains an explicit origin-specific unknown"
+    );
     for name in ["recursive_before_return", "prior_call_identity"] {
         assert_eq!(
             count(

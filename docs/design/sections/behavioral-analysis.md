@@ -24,8 +24,9 @@ DataFusion derivations (`behavior.rs`), rules and codebooks. The shared validato
 **Evidence.** Models, their source application, the L2 relations and the finite summary producers
 below are **Implemented and Tested in focused cases** (2026-09-24/25; focused release Nextest,
 each with a positive and a withholding fixture and shared publication equality). Recursive
-composition, effect/exception/role summaries, `call_transfer` discharge, operation-wide serving
-and the registry are **Proposed** targets. Integrated Stage 3 acceptance and the pilot are
+value paths through an SCC-local worklist are **Tested in focused pure cases** (2026-09-26);
+conditional recursive composition, effect/exception/role summaries, `call_transfer` discharge,
+operation-wide serving and the registry remain **Proposed** targets. Integrated Stage 3 acceptance and the pilot are
 `not_run`; the plan owns the queue and the current disposition of the findings cited here
 ([plan §3, §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#3-stage-3-execution-queue)).
 The rationale is ADR-0045 and ADR-0050.
@@ -245,11 +246,12 @@ witness.
   whose condition implies the reaching, successor and return-region conditions. Every earlier
   compatible call before the returned use, including the assignment's source call, needs an
   independent ordered normal-completion witness.
-- **Local wrapper:** an acyclic synchronous wrapper inherits an **unconditional** value summary of
+- **Local wrapper:** a synchronous caller inherits an **unconditional** value summary of
   its sole definite local target when ty's one-call value path, Ruff's exact one-positional-argument
   syntax, lexical callee resolution, Pass B's single formal mapping, a closed target set and a
-  direct return exit agree, along a callee-first schedule capped at depth 8. Conditional callee
-  paths are withheld (cross-scope atom substitution is unproved). Compatible earlier calls in
+  direct return exit agree, along a callee-first SCC schedule capped at depth 8. Within a
+  recursive component a deterministic worklist reuses each newly cited value path. Conditional
+  callee paths are withheld (cross-scope atom substitution is unproved). Compatible earlier calls in
   the caller must independently complete normally; the returned wrapper call itself is proved
   by its cited callee summary.
 
@@ -288,13 +290,19 @@ A new step kind needs its checked source relation, deterministic encoding, publi
 reconstruction and native admission before it creates positives. If a rule ever needs a
 multi-parent proof, that is a new decision, not parents smuggled into text.
 
-**Recursive value engine** (Interface-checked, 2026-09-26; implementation open). The first
-recursive value relation will use an SCC-local bounded worklist over the accepted petgraph
-component schedule, with each transfer owning BDD limits, ordered source proof and typed
-per-origin refusal. Ascent and datafrog agree with that schedule on a finite-base reachability
-probe, but do not supply those product semantics by themselves. Recompare if multiple recursive
-effect, exception or role channels share rules ([ADR-0053](../../adr/0053-bounded-scc-summary-worklist.md));
-the blanket recursive-member refusal remains until the new producer passes its fixtures.
+**Recursive value engine** (Tested in focused pure cases, 2026-09-26). The first value relation
+uses an SCC-local, one-million-pair bounded worklist over the petgraph component schedule.
+Each admitted source/callee pair cites the exact callee summary and its own origin, condition,
+ordered predecessor and call proof. Newly derived paths feed only dependent local edges;
+depth eight and pair-work exhaustion leave typed origin-specific unknown boundaries. A
+base-free cycle remains unknown. Modeled bases in a recursive member are admitted only after
+their independent source, argument, predecessor and exit checks. The current transfer consumes
+only an unconditional callee path: a real conditional recursive base remains unknown until
+argument/atom substitution and bounded BDD conjunction are implemented. The source fixture
+checks that it reaches the local-call relation without a false positive. Ascent and datafrog
+agreed on a narrower finite-base reachability probe, not on these product semantics; recompare
+if several channels share recursive rules
+([ADR-0053](../../adr/0053-bounded-scc-summary-worklist.md)).
 
 **Predecessors.** A true return region does not prove that an earlier call returned. The direct
 producer ignores an earlier same-function call when its narrowest non-approximate ty statement
@@ -308,8 +316,9 @@ the target (plan order 1)
 distinguishes, for each argument and preceding statement on a proposed path, an evaluated direct
 value, a cited normal outcome, a possible raise and an unresolved expression, preserving
 evaluation order (a modeled target's normal return starts after its arguments). Recursive SCC
-members are withheld by the modeled and assignment producers; missing, approximate or capped
-evidence stays an explicit unknown. No generic `return x` positive after an unproved call.
+members can supply a modeled base only after the same proof checks as acyclic members; missing,
+approximate or capped evidence stays an explicit unknown. No generic `return x` positive after
+an unproved call.
 
 **Schedule and recursion.** `summary_components` records every release function's SCC, sorted
 members, canonical component id and a callee-first schedule over attributed local call targets;
@@ -330,9 +339,10 @@ singleton recursive. Candidate/open dispatch contributes topology only.
 - W7: the flow model's cyclic reach uses the bounded source fixed point (§3.9); its production-cap
   native trace and fresh pilot cost remain open. A real extracted-flow row shuffle now preserves
   canonical published contribution, value-flow and premise bytes in a focused fixture.
-- W12: ADR-0053 selects the SCC-local bounded worklist for the first recursive value channel
-  after the same-state reachability comparison. Full product condition/proof/refusal fixtures,
-  publication and pilot cost are open; Ascent/datafrog remain candidates when several recursive
+- W12: ADR-0053's SCC-local bounded value worklist now passes pure finite-base, base-free,
+  self/mutual cycle, parallel-origin, shuffle and cap controls. A real conditional recursive
+  source remains open; bounded cross-invocation condition substitution, other channels, native
+  cap trace and pilot cost are open. Ascent/datafrog remain candidates when several recursive
   relation families share rules. A wall-clock timeout is not a deterministic budget.
 - W13: iterative SCC routine and schedule ownership are decided by ADR-0052 and tested in a
   deep chain. The separate type-term recursive set closures now terminate on cyclic controls;
