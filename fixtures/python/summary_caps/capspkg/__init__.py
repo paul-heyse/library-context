@@ -205,6 +205,13 @@ def recursive_literal_return(value: object, stop: bool) -> object:
     return recursive_literal_return(value, True)
 
 
+def recursive_literal_false(value: object, stop: bool) -> object:
+    """An exact false control cannot reuse the finite base path."""
+    if stop:
+        return value
+    return recursive_literal_false(value, False)
+
+
 def unconditional_self_call(value: object) -> object:
     """A later direct return does not prove this recursive call completed."""
     unconditional_self_call(value)

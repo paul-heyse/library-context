@@ -351,8 +351,9 @@ singleton recursive. Candidate/open dispatch contributes topology only.
   canonical published contribution, value-flow and premise bytes in a focused fixture.
 - W12: ADR-0053's SCC-local bounded value worklist passes pure finite-base, base-free,
   self/mutual cycle, parallel-origin, shuffle and cap controls. A real two-argument literal
-  control passes the source and shared-publication proof check; broader bounded cross-invocation
-  substitution, other channels, native cap trace and pilot cost remain open. Ascent/datafrog
+  control passes the source and shared-publication proof check, while a real false-literal
+  opposing control withholds its recursive path through Delta/native. Broader bounded
+  cross-invocation substitution, other channels, native cap trace and pilot cost remain open. Ascent/datafrog
   remain candidates when several recursive
   relation families share rules. A wall-clock timeout is not a deterministic budget.
 - W13: iterative SCC routine and schedule ownership are decided by ADR-0052 and tested in a

@@ -887,6 +887,29 @@ budget = 1
         1,
         "the finite recursive return cites the exact literal-to-guard link"
     );
+    assert!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM ({}) s JOIN declarations d \
+             ON d.node_id = s.function_node_id \
+             WHERE d.name = 'recursive_false_control' \
+               AND NOT s.control_value AND s.control_link_id IS NOT NULL",
+            cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+        )).await > 0,
+        "the opposing literal also has a directly linked guard"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id \
+            WHERE d.name = 'recursive_false_control' AND f.path_depth > 0").await,
+        0,
+        "restricting the callee base guard to false cannot prove recursive return"
+    );
+    assert!(
+        count(&ctx, "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
+            ON d.node_id = b.function_node_id \
+            WHERE d.name = 'recursive_false_control' AND b.local_through_call").await > 0,
+        "the opposing recursive path remains an explicit unknown"
+    );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \

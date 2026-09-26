@@ -354,6 +354,13 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "the real recursive literal cites its exact test link");
+    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'recursive_literal_false' AND f.path_depth > 0")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "the false control must not derive a recursive path");
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
         .await.unwrap();
     let script = r#"
@@ -441,6 +448,10 @@ paths, boundaries, total, truncated, work = index.inspect_value_paths(
 )
 assert not truncated and paths, (paths, boundaries)
 assert any(path[1] == "conditional" and any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_literal_false", "value")
+assert not truncated and paths and boundaries, (paths, boundaries)
+assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = inspect("capspkg.mixed_origin", "value")
 assert not truncated and len(paths) == 1 and not boundaries, (paths, boundaries)
 positive = next(row for row in generation.tables["summary_flows"].to_pylist()
