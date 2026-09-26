@@ -1,9 +1,11 @@
 # library-context — agent instructions
 
-Stage 1 is a **capability compiler**. It turns a Python library's code facts plus its official
-docs, examples and tests into evidence-backed capability briefs. Coding agents reach those briefs
-through a FastMCP server with two tools, `search_capabilities` and `get_capability`
-(`docs/design/DESIGN.md` §1).
+library-context compiles a pinned Python library into an **evidence-carrying behavioral model of
+its whole public surface** (ADR-0021; DESIGN §1): which operations accept a value, pass it where,
+under which configuration, raising what. Answers are exhaustive where the analysis is complete,
+ranked where only discovery applies, and a named `unknown` where it stopped. Coding agents reach
+it through a FastMCP server (`get_operation`, `find_operations`, `search_operations`, and the
+brief tools `search_capabilities`/`get_capability`); briefs are one rendering.
 
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
@@ -12,8 +14,11 @@ The pieces:
   Pyrefly CLI is only a parity-test oracle.
 - **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
   Delta stores them.
+- **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
+  pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
-- **Briefs:** assertions are synthesized **programmatically**. There is no LLM in v1.
+- **Synthesis:** assertions are produced **programmatically**; no generative model runs in the
+  pipeline or the query path.
 
 The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, is a pinned uv
 project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0046); the project's own
@@ -26,11 +31,19 @@ real consumer.
 ## Start of session
 
 1. Read `STATUS.md`: where we are and what's next.
-2. For design questions, start at `docs/design/README.md`, then read the relevant owner in
-   `docs/design/DESIGN.md` or `docs/design/sections/` and adjacent consumers. Read
-   `docs/adr/README.md` for current rationale and open choices. Retired plans, reviews and the
-   original research input are recovered from Git (`docs/README.md`, Historical recovery), never
-   read by default.
+2. For product work, read the forward plan
+   (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
+   boundary, §3 execution queue, §6 open findings (W1–W16). It is the only active plan.
+3. For design questions, follow **owner → decision → open work**:
+   - start at the architecture map `docs/design/README.md` and read the owning section in
+     `docs/design/DESIGN.md` (scope, §B1–§B14) or `docs/design/sections/` plus adjacent consumers;
+     labels there distinguish implemented, accepted target and proposed;
+   - the section's `> Decision:` line names the ADR that holds the reason and rejected
+     alternatives (`docs/adr/README.md` lists accepted records and open proposals);
+   - known defects and deferred choices affecting the section are forward-plan §6 items, linked
+     from the owner. Executable declarations (`cpg-schema`) own column-level detail.
+4. Retired plans, reviews, evidence and ADRs are not reading context; recover one from Git only
+   when a current owner is insufficient (`docs/README.md`, Historical recovery).
 
 ## Where things are
 
@@ -38,16 +51,19 @@ real consumer.
 |---|---|
 | `docs/design/DESIGN.md`, `docs/design/sections/` | Architectural collection; stable § IDs. DESIGN §2 holds §B1–§B14 |
 | `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
-| `docs/adr/` | Decision records, a generated index, and `TEMPLATE.md` |
+| `docs/plans/` | The active product plan only; a finished or superseded plan is removed once its obligations move |
+| `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040) |
-| `docs/design_review/reviews/` | Review outputs: evidence, never authority |
+| `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
 | `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0047); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0047); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish, flow model), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
+| `python/` | `lctx_mcp` (the FastMCP server over one pinned generation) and `lctx_semantics` (the PyO3 native executor) |
+| `eval/` | `behavior/` pre-registered question sets, `gold/` evaluation-only gold extract and freeze, `heldout/` sealed until increment 5 |
 | `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
 | `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0046, `docs/pins.md`) |
-| `scripts/` | `adr.py`, `check_family.py`, `check_agents.py`, and the format hook |
+| `scripts/` | `adr.py`, `design_sections.py` and `docs.py` (documentation), `check_family.py`, `check_agents.py`, gold/eval scripts, and the format hook |
 | `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
 
 ## Commands
@@ -147,8 +163,9 @@ capability is absent.
   and tier/purpose selection (ADR-0040). Begin with responsibilities, contracts and expected
   changes; assess A1–A3 separately from correctness/fidelity gates. A bounded slice does not
   certify the enclosing architecture. Review depth follows impact and uncertainty.
-- **Findings** retain stable source-review IDs. The active plan owns current execution disposition
-  for scheduled work; unscheduled deferrals stay in the source review with a trigger (binding §4).
+- **Findings** retain stable source-review IDs. The active plan's findings table owns current
+  disposition for scheduled work (forward plan §6); unscheduled deferrals stay in the source review
+  with a trigger (binding §4).
   Record the responsible component and closure evidence; link from follow-up reviews and STATUS.
   A decision being accepted does not establish implementation or verified closure.
 

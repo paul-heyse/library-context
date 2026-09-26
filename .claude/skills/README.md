@@ -22,7 +22,7 @@ the API it remembers. Several are tens of GB with their evidence, so this repo i
 each carries its own `build/` to reproduce it and a `reference.md` saying what it does **not**
 claim — silence in an index is not evidence of absence.
 
-Check a skill's pinned profile against DESIGN §7 before transferring a claim: `deltalake` is
+Check a skill's pinned profile against `docs/pins.md` before transferring a claim: `deltalake` is
 pinned to exactly this repo's delta-rs git profile; `pyrefly-ruff` indexes ruff 0.16.7 (crates
 0.0.13) / pyrefly 1.3.1. We link pyrefly 1.3.1 plus a visibility patch, and ruff crates **0.0.11**;
 the known 0.0.11 vs 0.0.13 deltas are listed in `docs/pins.md`.

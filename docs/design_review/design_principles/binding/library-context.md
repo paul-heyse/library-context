@@ -99,7 +99,7 @@ concrete change-propagation or testability defect can require revision without a
 | 14 | Does a read, validation or inspection path mutate, fetch, build, or read ambient state, including analyzer config discovery? | G4 | DP-18, CI-10 |
 | 15 | Can anything under `.claude/skills/` (the gold reference) reach the compiler's inputs, or can analytics parameters be tuned on the gold? | CI-G3 | CI-12 |
 | 16 | Does an ordinary model, analytic or rendering reuse contracts, and where is semantic meaning independently re-expressed? Distinguish a new concept from an instance. | A1, A2, A3 | FP-01–06, DP-16, core §E |
-| 17 | Does each added layer or technique have a named consumer in the brief, and does its ablation change published output (DESIGN §9.8)? | — | DP-16 |
+| 17 | Does each added layer or technique have a named consumer in the served model (a tool's output or a brief), and does its ablation change published output (§9.8)? | — | DP-16 |
 
 ## 3. Vocabulary and scenario authorities
 
