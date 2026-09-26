@@ -134,6 +134,13 @@ class FieldRecord(BaseModel):
     never_read: str | None
 
 
+class FacetValue(BaseModel):
+    """A materialized facet value and its own verdict, independent of facet completeness."""
+
+    value: str
+    verdict: str
+
+
 class Operation(BaseModel):
     """One public operation, whole."""
 
@@ -152,7 +159,7 @@ class Operation(BaseModel):
     boundary_reason: str | None
     status_reason: str | None
     capability_id: str | None
-    facets: dict[str, list[str]]
+    facets: dict[str, list[FacetValue]]
     # The facets whose rows are not complete for this operation, with why.
     incomplete_facets: dict[str, str]
     parameters: list[ParameterRecord]
@@ -279,9 +286,9 @@ def get_operation(gen: Generation, snapshot_id: str, operation: str) -> Operatio
 def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
     """One operation's record; a class also carries its constructor's."""
     o = gen.operations[node]
-    facets: dict[str, list[str]] = {}
-    for facet, value, _ in gen.facets.get(node, []):
-        facets.setdefault(facet, []).append(value)
+    facets: dict[str, list[FacetValue]] = {}
+    for facet, value, verdict in gen.facets.get(node, []):
+        facets.setdefault(facet, []).append(FacetValue(value=value, verdict=verdict))
     incomplete = {
         facet: f"{verdict}: {reason}" if reason else verdict
         for facet, (verdict, reason) in sorted(gen.facet_status.get(node, {}).items())
@@ -290,9 +297,9 @@ def _record(gen: Generation, node: bytes, spelling: str) -> Operation:
     rows = gen.behaviors.get(node, [])
     # A class's parameters are its constructor's: its record carries them.
     per_parameter: dict[str, list[Fate]] = {
-        name: []
-        for name in (facets.get("parameter", []) if o["kind"] != "class" else [])
-        if not name.startswith("*")
+        entry.value: []
+        for entry in (facets.get("parameter", []) if o["kind"] != "class" else [])
+        if not entry.value.startswith("*")
     }
     fated = (
         "forwards",

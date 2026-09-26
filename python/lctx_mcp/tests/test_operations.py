@@ -22,7 +22,9 @@ def test_an_operation_reads_whole_with_fates_verdicts_and_lines(generation: Path
     assert op.access_path == "pkg.Catalog.remove"
     assert "pkg.Catalog.remove" in op.own_paths
     assert op.behavior_status == "established"
-    assert op.facets["raises"] == ["KeyError"]
+    assert [(f.value, f.verdict) for f in op.facets["raises"]] == [
+        ("KeyError", "established")
+    ]
     key = next(p for p in op.parameters if p.name == "key")
     raises = [f for f in key.fates if f.kind == "raises_when"]
     assert raises and raises[0].verdict == "conditional"
@@ -94,6 +96,26 @@ def test_a_behavioral_facet_lists_what_could_hide_a_match(generation: Path) -> N
         row = gen.by_facet.get(("forwards_to", forwarding[0]), {}).get(node)
         assert status != "established" or row == "unknown", u.access_path
     assert found.complete == (found.unknown_total == 0)
+
+
+def test_lookup_keeps_each_facet_value_verdict_separate_from_completeness(
+    generation: Path,
+) -> None:
+    gen = load(generation, None)
+    op = ops.get_operation(gen, gen.snapshot_id, "pkg.configure")
+    unknown = next(
+        f for f in op.facets["delegates_to"] if f.value == "pkg.controls.Registry.add"
+    )
+    assert unknown.verdict == "unknown"
+    assert any(f.verdict == "established" for f in op.facets["delegates_to"])
+    where = ops.Where(
+        facets=[ops.FacetTerm(facet="delegates_to", value=unknown.value)]
+    )
+    found = ops.find_operations(gen, where, limit=50, cursor=None)
+    assert op.access_path not in {m.access_path for m in found.matches}
+    assert op.access_path in {m.access_path for m in found.unknown}
+    schema = ops.Operation.model_json_schema()
+    assert "$defs" in schema and "FacetValue" in schema["$defs"]
 
 
 def test_pages_follow_a_bound_cursor(generation: Path) -> None:
