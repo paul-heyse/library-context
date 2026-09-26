@@ -3,7 +3,7 @@
 //!
 //! From each of the seed's parameters, the worklist follows flows whose value is that parameter
 //! (directly, or through one identity alias) into callees inside the subsystem, keyed by
-//! `(callable, formal, source parameter)`, up to the depth bound. It reports:
+//! `(callable, formal, source parameter, suppression)`, up to the depth bound. It reports:
 //! - `forwarding`: a seed parameter reaches a callee's formal, with the call chain as witness;
 //! - `transformed_argument`: the seed supplies a callee's formal with a literal;
 //! - `conditional_raise`: a reached callable raises in the branch of an `if` testing the formal
@@ -338,12 +338,13 @@ pub fn run(
         .iter()
         .map(|p| (p.node, p.name.as_str()))
         .collect();
-    // (callable, formal, source parameter) → the flow rows that reached it.
-    let mut visited: BTreeMap<(Id, Id, Id), Vec<usize>> = BTreeMap::new();
-    let mut queue: VecDeque<(Id, Id, Id)> = VecDeque::new();
+    // Suppressed and clean paths to the same formal are distinct states: only the latter may
+    // support a conditional-raise finding. A suppressed path arriving first must not hide it.
+    let mut visited: BTreeMap<(Id, Id, Id, bool), Vec<usize>> = BTreeMap::new();
+    let mut queue: VecDeque<(Id, Id, Id, bool)> = VecDeque::new();
     for p in parameters {
-        visited.insert((seed, p.node, p.node), Vec::new());
-        queue.push_back((seed, p.node, p.node));
+        visited.insert((seed, p.node, p.node, false), Vec::new());
+        queue.push_back((seed, p.node, p.node, false));
     }
     let steps_of = |path: &[usize]| -> Vec<Step> {
         path.iter()
@@ -361,7 +362,7 @@ pub fn run(
     let mut depth_limited = false;
     let mut flows_examined = 0i64;
     while let Some(state) = queue.pop_front() {
-        let (callable, formal, source) = state;
+        let (callable, formal, source, suppressed) = state;
         let path = visited[&state].clone();
         for &i in flows
             .by_caller
@@ -381,7 +382,12 @@ pub fn run(
                 depth_limited = true;
                 continue;
             }
-            let next = (f.target, f.formal, source);
+            let next = (
+                f.target,
+                f.formal,
+                source,
+                suppressed || f.may_catch || f.value_tested,
+            );
             if visited.contains_key(&next) {
                 continue;
             }
@@ -442,11 +448,8 @@ pub fn run(
         .map(|f| (f.formal, f.formal_name.as_str()))
         .collect();
     let mut guarded: BTreeSet<(Id, Id, Id)> = BTreeSet::new();
-    for (&(callable, formal, source), path) in &visited {
-        if path
-            .iter()
-            .any(|&i| flows.flows[i].may_catch || flows.flows[i].value_tested)
-        {
+    for (&(callable, formal, source, suppressed), path) in &visited {
+        if suppressed {
             continue;
         }
         for &g in flows
@@ -484,7 +487,7 @@ pub fn run(
     }
     // Reads of a reached formal the worklist does not follow (review F4), within the depth bound.
     let mut unfollowed: BTreeSet<(Id, Id, Id, UnfollowedReason)> = BTreeSet::new();
-    for (&(callable, formal, source), path) in &visited {
+    for (&(callable, formal, source, _suppressed), path) in &visited {
         if path.len() as u32 >= max_depth {
             continue;
         }
@@ -641,4 +644,77 @@ pub fn run(
         witnesses,
         flow_paths,
     })
+}
+
+#[cfg(test)]
+mod suppression_tests {
+    use super::{Flow, Flows, Guard, SeedParameter, run};
+    use cpg_schema::codebook::{FindingKind, InvocationPhase, Modality};
+    use cpg_schema::flows::value_class;
+    use cpg_schema::id::Id;
+
+    fn id(n: u8) -> Id {
+        Id([n; 16])
+    }
+
+    #[test]
+    fn clean_path_found_second_still_supports_guard() {
+        let seed = id(1);
+        let source = id(2);
+        let target = id(3);
+        let formal = id(4);
+        let make_flow = |site, may_catch| Flow {
+            caller: seed,
+            call_site: id(site),
+            target,
+            edge_id: id(site + 10),
+            modality: Modality::Definite,
+            phase: InvocationPhase::Call,
+            argument: id(site + 20),
+            formal,
+            formal_name: "x".to_owned(),
+            value_class: value_class::PARAMETER,
+            source_parameter: Some(source),
+            alias_name: None,
+            value_text: None,
+            may_catch,
+            conditional: false,
+            value_tested: false,
+        };
+        let mut flows = Flows::default();
+        flows.flows = vec![make_flow(5, true), make_flow(6, false)];
+        flows.by_caller.insert(seed, vec![0, 1]);
+        flows.guards.push(Guard {
+            function: target,
+            test: id(7),
+            raise: id(8),
+            parameter: formal,
+        });
+        flows.guards_of.insert((target, formal), vec![0]);
+        let out = run(
+            &flows,
+            seed,
+            &[SeedParameter {
+                node: source,
+                name: "x".to_owned(),
+            }],
+            |_| true,
+            3,
+            Id::ZERO,
+            id(9),
+        )
+        .unwrap();
+        let guards: Vec<_> = out
+            .findings
+            .iter()
+            .filter(|f| f.finding_kind == FindingKind::ConditionalRaise)
+            .collect();
+        assert_eq!(guards.len(), 1);
+        let witness = out
+            .witnesses
+            .iter()
+            .find(|w| w.finding_id == guards[0].finding_id)
+            .unwrap();
+        assert_eq!(witness.call_site_node_id, id(6));
+    }
 }
