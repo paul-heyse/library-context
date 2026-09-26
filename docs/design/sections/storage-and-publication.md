@@ -156,9 +156,9 @@ kernel sources (deltalake skill, 2026-09-22).
   is append-only and validators never repair, a violation's declared recovery is a migration to a
   new table keeping the earliest-version row per key (an accepted contingency, not implemented).
   If two concurrent merges could ever leave two rows, the accepted fallback is an exclusive lock
-  file in the store around an anti-join and append. **Known gap:** the two cache-fill entry points
-  apply different token admission, and one returns locally computed vectors instead of the
-  committed winner ([plan W9](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
+  file in the store around an anti-join and append. Both cache-fill entry points now share token
+  admission, batching, insert-only merge and versioned committed readback in focused tests
+  ([plan W9](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
   RFU/F06); the cache's embedding semantics are owned by
   [§11.1](synthesis-and-serving.md#section-11-1).
 - **`SaveMode::Ignore` is never used.** It appends to existing tables (`delta.write.3`).
@@ -329,8 +329,8 @@ execution after the `function_implementations` schema migration is pending the i
   - A running server keeps the generation it loaded; restarting it picks up the new one.
 - **Derived search indexes** (an FTS table, any ANN index) are rebuilt from the generation's Arrow
   files, keyed by the generation key, outside the byte-identical manifest.
-- **Known gap:** the native loader decodes positional tuples and re-whitelists proof kinds, so a
-  reader's admission can drift from the schema contract
+- **Known gap:** the native loader admits proof kinds from the schema codebook, but still decodes
+  positional tuples; column/schema drift remains possible
   ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), ARC-01).
 
 > Decision: ADR-0047, ADR-0043

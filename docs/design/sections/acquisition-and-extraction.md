@@ -136,18 +136,13 @@ covers `PATH`, `VIRTUAL_ENV`, `PYTHONPATH`, `CONDA_PREFIX`, the working director
 `pyproject.toml`. **Tested** (2026-09-22): no process was spawned, and output was byte-identical
 with each of them perturbed.
 
-**Known gap: corpus input identity** ([plan W8](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
-RFU/F07; **Interface-checked**, 2026-09-25). The corpus run puts the whole fetched tree ahead of
-site-packages on its search path, so Pyrefly can import any module under that root. But the
-corpus `release_id` hashes only the selected documents, examples and tests, the context hashes the
-environment's site-packages, not the tree root's membership or content, and an existing fetched
-tree is checked only by `rev-parse HEAD`. Editing, or adding, an unselected helper that a selected
-example imports can therefore change facts without changing any identity. The gap is confined to
-the corpus root: ordinary site-packages content and membership, unowned files included, are
-hashed. **Target** (the G4 property above; mechanism **Proposed**): identity covers every
-analyzer-readable root's content and membership, or acquisition enforces an immutable, verified
-tree and refuses extra members; either way relocation invariance holds. Choosing between them is
-an acquisition-policy decision with an ADR.
+**Corpus input identity** ([plan W8](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
+RFU/F07; **Tested** in a focused helper edit/add and relocation fixture, 2026-09-25). The corpus
+run puts the fetched tree ahead of site-packages, so Pyrefly can import an unselected helper.
+The corpus `release_id` now hashes content and membership of every analyzer-readable file under
+that root, whether selected or not, and refuses analyzer-readable symlinks. Ordinary
+site-packages content and membership were already hashed. A clean recomputation with the changed
+helper and a pilot run remain outstanding before claiming end-to-end hermeticity.
 
 **Run.** A run is one producer applied to one context for a declared set of families under one
 analysis configuration. `runs` records that. `producers` records the tool, the revision (for the
@@ -341,10 +336,9 @@ RF/F11).
   display string, scalar properties and class names, and `parameter_semantics` keeps all three
   (a row keeping only the string would be `display_only`). Native `pyrefly_types::Type`
   (`native_structural`) is read by the `types` surface.
-- **Known gap: function flags.** Pyrefly's resolved function flags (`FuncFlags.is_abstract_method`,
-  `body_kind`) are reachable in the pinned fork but not persisted; downstream abstract status is
-  read from decorator text, which misses aliases, `abstractproperty` and Protocol members.
-  Persisting them is an append-only schema migration
+- **Resolved function status.** Pyrefly's abstract-method flag and body kind are persisted in
+  `function_implementations` and drive downstream negative-premise admission. Focused aliased
+  abstract and Protocol fixtures passed; this is a reviewed schema migration
   ([plan W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
   RF/F10).
 

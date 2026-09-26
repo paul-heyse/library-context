@@ -87,8 +87,8 @@ is a parity oracle only.
   model says can raise; a `try` whose statements cannot raise has unreachable handlers. Ambient
   exceptions (`KeyboardInterrupt`, `MemoryError`) are outside it.
 - **Panics abort the extraction**; `no-catch-unwind-in-extractor` covers `cpg-flow`.
-- **Known gap.** ty runs with empty program settings; constructing them from the run context, with
-  a test on a provider operation that settings actually affect, is open
+- ty runs with the run context's Python version and platform and a virtual root containing the
+  supplied release modules. Focused import-resolution controls for Python 3.8/3.14 passed
   ([plan W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
 ## The runtime view
@@ -270,18 +270,19 @@ reasoning, and every step is cited.
   unknown. The generation does not enforce this assumption.
 - **Evaluation.** A query-supplied exact input (`None`, `bool`, `int`, `str`) assigns source atoms
   only through checked links (≤32 assignments, bounded work); it is not a synthetic query atom. It
-  evaluates `is_none`, `is_value` of `None`/Booleans, string `equals`, `truthy` and, under the
+  evaluates `is_none`, `is_value` of `None`/Booleans, string and non-bool integer `equals`,
+  all-string `member_of`, `truthy` and, under the
   namespace assumption, `type_is` for `str`/`int`/`bool`. The bounded BDD refutes only when the
   assigned condition becomes `false`; a satisfiable remainder is "compatible under the model",
   a may-model non-refutation, not a feasible execution. `==` is never treated as `is`, distinct
   numeric and Boolean literals are not assumed unequal (`1 == True`), and a parameter default is
   not an exact entry value when a caller may pass an argument. **Implemented and Tested in
   focused cases (2026-09-24).**
-- **Known gap** ([plan W11](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)):
-  `member_of` and integer `equals` return unknown, which blocks Q09; the intended contract adds
-  exact string membership and non-Boolean integer equality, keeping `True in {1}` unknown. This
-  alone does not make Q09 operation-wide. Refutation links follow map order and are valid but not
-  minimal; minimization is an optional improvement with a total work budget.
+- **Current limit** ([plan W11](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)):
+  `True in {1}` remains unknown; literal membership and integer equality alone do not make Q09
+  operation-wide. Exact-input assessment uses bounded BDD restriction; a bounded deletion pass
+  removes irrelevant refutation links when its work budget permits. Python-lowering controls,
+  served round trips and the operation-wide Q09 check remain.
 - **Proposed.** Source-to-source exclusions between atoms on one proved-stable value
   (`is_none` against a proved non-`None` singleton; unequal string `==` under an exact `str`
   origin and same-value witness); typed exclusion from Pyrefly terms; custom `__eq__`, subclasses
@@ -362,15 +363,12 @@ reason if not.
   `semantic:refuted-not-overridden` rejects a refutation on a method a release subclass redefines;
   `semantic:premise-no-attribute-load` rejects a holding field or setting premise whose name some
   attribute load spells. A constructor parameter's claims attach to the class's `__init__`.
-- **Known defects** ([plan W4, W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-  Qualified and aliased builtin access (`builtins.getattr(self, "f")`, `getattr as read`) produces
-  neither a read nor a dynamic boundary, so field and global premises hold falsely (Tested on the
-  real provider); the flow model also judges a name literal by a leading quote, so computed names
-  such as `"a" + x` pass as literals. The intended contract is one resolved access boundary that
-  gives bare, qualified and aliased spellings the same literal/dynamic status, receiver provenance
-  and unsupported outcome; a literal-node fix alone does not close it. Until W4 closes, field and
-  global no-read claims are not reliable. Abstract/stub status comes from decorator text rather
-  than Pyrefly's resolved flags (W14).
+- **Current verification boundary** ([plan W4, W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+  Focused real-provider tests now cover bare, qualified and aliased builtin `getattr`/`hasattr`,
+  computed names and shadowed builtins. Literal names contribute reads; computed names contribute
+  a dynamic boundary before no-read premises. Pyrefly's resolved function status, including
+  aliased abstract methods and Protocol placeholders, now drives abstract-body withholding.
+  One corrected premise still needs a publication-to-serving trace before W4 closes.
 
 ## Boundary reasons the behavior model adds
 

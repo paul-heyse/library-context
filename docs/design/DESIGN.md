@@ -470,8 +470,9 @@ implemented** under a **Proposed** decision (ADR-0025).
 - Vectors are cached by `spec_hash + input_hash` in the canonical `embedding_cache`; a snapshot
   records the cache version it read and the generation copies vectors from it. A view (signature
   and docstring, source body) is a column, not part of the cache key.
-- Known gaps: cache-fill admission and committed-value readback (plan W9) and deployment identity
-  (plan W16).
+- The two cache-fill routes now share admission and committed-value readback in focused tests
+  ([plan W9](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+  Deployment identity beyond the operator-controlled launch remains open (plan W16).
 
 > Decision: ADR-0043
 

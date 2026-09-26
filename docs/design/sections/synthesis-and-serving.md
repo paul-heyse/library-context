@@ -367,11 +367,13 @@ key admitted by one path is trusted by the other
   (`specs/embedding/fake_vectors.json`). Tests and `just check` use it; it qualifies cache and
   retrieval mechanics only, never vector meaning.
 - **Deployment identity.** The spec hash identifies a declaration, not the running deployment.
-  The launch recipe repeats the revision and dtype instead of deriving them from the spec, and
-  both clients accept an endpoint by model name plus vector shape, so spec-hash equality between
-  generation and server does not establish which deployment produced a vector. The claim is
-  limited to the operator-controlled `just embed-serve` launch until launch arguments are derived
-  from the spec and an endpoint contract is declared
+  The operator-controlled `just embed-serve` launch derives model, model revision, tokenizer
+  revision and dtype from that hashed spec (focused launch test, 2026-09-25). Both clients still
+  accept an arbitrary endpoint by model name plus vector shape; their spec-hash equality with a
+  generation does not attest to that endpoint's deployed revision. The supported deployment
+  identity claim is limited to the operator-controlled launch. An arbitrary endpoint is an
+  operator-supplied source of vectors whose deployment identity is **unverified**; do not claim
+  spec-hash equality proves it. Broader guarantees need endpoint attestation and a new contract
   ([plan W16](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
 **Cache.** Vectors are keyed by `spec_hash + input_hash` in the canonical `embedding_cache`
@@ -513,19 +515,16 @@ over the same immutable generation, returning cited row/node ids, budgets, unkno
 truncation; startup checks its ABI and kernel format against the manifest. Direct lookup and
 retrieval stay on the materialized route.
 
-**Served claim fidelity — known gaps.** The contract is that every served claim keeps its
-verdict and its support closure in every form:
-- `get_operation` drops each facet value's verdict: facets are returned as plain value lists, so
-  an `unknown` facet value reads like an established one, although `find_operations` filters the
-  same rows correctly. The intended response is typed `{value, verdict}` entries with separate
-  completeness ([plan W2](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+**Served claim fidelity.** The contract is that every served claim keeps its verdict and its
+support closure in every form:
+- `get_operation` now returns typed `{value, verdict}` facet entries with separate completeness;
+  focused mixed-verdict tests passed ([plan W2](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - Brief hydration resolves only direct evidence ids, so finding-backed claims cannot be followed
   to their model and source, and the Markdown resource omits per-assertion support
   (§10.2; [plan W3](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-- The native loader keeps its own whitelist of proof-step kinds and decodes positional string
-  tuples, so a proof kind the compiler emits (the finalizer step) is rejected and every new kind
-  or column needs matching edits on both sides. The intended contract derives native admission
-  from the schema codebook with one typed decoder
+- The native loader now admits proof-step kinds from the schema codebook, including the finalizer
+  step, but still decodes positional string tuples. A single typed decoder and a real
+  finalizer-bearing generation check remain
   ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
 **`find_operations` semantics.** **`where`** is a conjunction of terms, with **no negation**
