@@ -996,3 +996,27 @@ def handler_entry_cleanup(value):
         raise None
     except TypeError as caught:
         return value
+
+
+def optional_unused_base(value, unused=True):
+    return value
+
+
+def optional_unused_omitted(value):
+    return optional_unused_base(value)
+
+
+def optional_unused_explicit(value):
+    return optional_unused_base(value, unused=False)
+
+
+def optional_keyword_base(value, *, unused=True):
+    return value
+
+
+def optional_keyword_omitted(value):
+    return optional_keyword_base(value)
+
+
+def optional_keyword_explicit(value):
+    return optional_keyword_base(value, unused=False)

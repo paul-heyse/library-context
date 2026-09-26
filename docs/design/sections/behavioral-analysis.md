@@ -376,8 +376,13 @@ multi-parent proof, that is a new decision, not parents smuggled into text.
 **Recursive value engine** (Tested in focused pure and source cases, 2026-09-26). The first value relation
 uses an SCC-local, one-million-pair bounded worklist over the petgraph component schedule.
 Each admitted source/callee pair cites the exact callee summary and its own origin, condition,
-ordered predecessor and call proof. Newly derived paths feed only dependent local edges;
-depth eight and pair-work exhaustion leave typed origin-specific unknown boundaries;
+ordered predecessor and call proof. New semantic states and strictly shorter representatives feed
+only dependent local edges; a fresh proof ID alone does not restart recursion. Semantic identity
+retains source origin, return site/region, condition, paths, kind, verdict and approximation.
+Alternate local witnesses survive; omitted expansion propagates along cited callee dependencies.
+A shorter representative replaces only its semantic alternative's prior refusal; other blocked
+alternatives remain explicit. Depth eight and pair-work exhaustion still leave typed
+origin-specific unknown boundaries;
 the latter uses append-only `summary_pair_work_limit` rather than the general budget reason. A
 base-free cycle remains unknown. Modeled bases in a recursive member are admitted only after
 their independent source, argument, predecessor and exit checks. The exact literal-controlled
@@ -425,6 +430,14 @@ remains open until S4/S5 compose coverage. Raw or retained-summary approximation
 open. Complete direct-origin coverage is neither operation-wide completeness nor a negative
 claim about another channel. Core publishes and reconstructs the pure producer's full rows.
 See the [bounded review](../../design_review/reviews/design_review_stage3-origin-coverage_2026-09-26.md).
+
+**Default binding (Implemented and focused Tested, 2026-09-26).** The shared binder separates
+explicit source-ordered arguments from omitted definition-time default requirements. Every fixed
+source formal currently needs an explicit argument; syntax alone does not prove that a mutable
+function default remains available. This applies even to unused parameters. Pinned total models
+own their signature-default promise separately. Fresh-definition completion and source-default
+stability certificates remain S2 targets. The [semantic-frontier review](../../design_review/reviews/design_review_stage3-semantic-frontier_2026-09-26.md)
+covers this guard and the bounded value worklist change.
 
 **Schedule and recursion.** `summary_components` records every release function's SCC, sorted
 members, canonical component id and a callee-first schedule over attributed local call targets;

@@ -6,7 +6,7 @@
 use std::collections::{HashMap, BTreeSet};
 
 use cpg_schema::behavior::{ExpressionEvaluationsRow, ExpressionEvaluationStepsRow};
-use cpg_schema::summary_contract::{ExpressionRead, NormalCallTarget, SignatureParameter, BoundArgument, bind_explicit_arguments};
+use cpg_schema::summary_contract::{ExpressionRead, NormalCallTarget, SignatureParameter, BoundArgument, bind_arguments};
 use cpg_schema::codebook::{BoundaryReason, ModeledArgumentEvaluationStatus as Status, SyntaxField, SyntaxKind, Codebook, SummaryFlowStepKind as Step, SignatureForm, Modality, ModelTransferKind, ModelTransferEndpointStatus};
 use cpg_schema::id::Id;
 use cpg_schema::tables::{SyntaxNodesRow, ArgumentsRow, ContextParametersRow};
@@ -289,7 +289,10 @@ fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<
             }).collect();
             let Some(signature) = signature else { valid = false; break; };
             if signature.is_empty() { valid = false; break; }
-            let Ok(bound) = bind_explicit_arguments(&signature, &owned_arguments) else { valid = false; break; };
+            let Ok(bound) = bind_arguments(&signature, &owned_arguments) else { valid = false; break; };
+            // NormalCallTarget comes only from a pinned total model. Its signature defaults
+            // are part of that assertion; source-call defaults require separate certificates.
+            let bound = bound.explicit;
             if bindings.as_ref().is_some_and(|previous| previous.iter().zip(&bound).any(|(a,b)|
                 a.argument_fact_id != b.argument_fact_id || a.parameter_name != b.parameter_name)) {
                 valid = false; break;

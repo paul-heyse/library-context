@@ -158,11 +158,25 @@ pub struct BoundArgument {
     pub parameter_name: String,
 }
 
-/// Bind an explicit argument group without evaluating it. Omitted optional parameters refer
-/// to definition-time defaults; this function neither evaluates nor assigns a value to them.
+/// An omitted default is a definition-time obligation, never an invented call argument.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultRequirement {
+    pub parameter_fact_id: Id,
+    pub parameter_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallBinding {
+    pub explicit: Vec<BoundArgument>,
+    pub defaults: Vec<DefaultRequirement>,
+}
+
+/// Bind an argument group without evaluating it. Source callers must discharge every omitted
+/// default through definition-time availability/stability evidence; a pinned total model owns
+/// that promise separately. No default expression is evaluated at the call site.
 /// Unpacking and variadic collection remain unsupported rather than partially bound.
-pub fn bind_explicit_arguments(parameters: &[SignatureParameter], arguments: &[crate::tables::ArgumentsRow])
-    -> Result<Vec<BoundArgument>, BoundaryReason> {
+pub fn bind_arguments(parameters: &[SignatureParameter], arguments: &[crate::tables::ArgumentsRow])
+    -> Result<CallBinding, BoundaryReason> {
     use crate::codebook::{ArgumentKind as A, ParameterKind as P};
     let unsupported = BoundaryReason::UnsupportedControlFlow;
     if arguments.len() > 128 || parameters.len() > 128 { return Err(unsupported); }
@@ -205,7 +219,11 @@ pub fn bind_explicit_arguments(parameters: &[SignatureParameter], arguments: &[c
             parameter_fact_id: parameter.evidence_id, parameter_name: parameter.name.clone() });
     }
     if formals.iter().any(|p| p.required && !used.contains(&p.evidence_id)) { return Err(unsupported); }
-    Ok(out)
+    let defaults = formals.iter().filter(|p| !p.required && !used.contains(&p.evidence_id)
+        && !matches!(p.kind,P::VarPositional|P::VarKeyword))
+        .map(|p|DefaultRequirement {parameter_fact_id:p.evidence_id,parameter_name:p.name.clone()})
+        .collect();
+    Ok(CallBinding { explicit: out, defaults })
 }
 
 #[cfg(test)]
@@ -226,13 +244,17 @@ mod binding_tests {
             SignatureParameter { evidence_id: Id([4;16]), ordinal: 1,
                 name: "second".to_owned(), kind: P::KeywordOnly, required: false }];
         let args = vec![argument(10,0,Some("second")), argument(11,1,Some("first"))];
-        let bound = bind_explicit_arguments(&parameters, &args).unwrap();
-        assert_eq!(bound.iter().map(|b| b.parameter_name.as_str()).collect::<Vec<_>>(), vec!["second","first"]);
-        assert!(bind_explicit_arguments(&parameters, &args[..1]).is_err());
-        assert!(bind_explicit_arguments(&parameters, &[argument(10,0,None)]).is_ok());
-        assert!(bind_explicit_arguments(&parameters, &[argument(10,0,None), argument(11,1,Some("first"))]).is_err());
+        let bound = bind_arguments(&parameters, &args).unwrap();
+        assert_eq!(bound.explicit.iter().map(|b| b.parameter_name.as_str()).collect::<Vec<_>>(), vec!["second","first"]);
+        assert!(bind_arguments(&parameters, &args[..1]).is_err());
+        assert!(bound.defaults.is_empty());
+        let omitted=bind_arguments(&parameters, &[argument(10,0,None)]).unwrap();
+        assert_eq!(omitted.explicit.len(),1);
+        assert_eq!(omitted.defaults,vec![DefaultRequirement {parameter_fact_id:Id([4;16]),
+            parameter_name:"second".to_owned()}]);
+        assert!(bind_arguments(&parameters, &[argument(10,0,None), argument(11,1,Some("first"))]).is_err());
         let mut unpacked = argument(10,0,None); unpacked.kind = A::Starred;
-        assert!(bind_explicit_arguments(&parameters, &[unpacked]).is_err());
+        assert!(bind_arguments(&parameters, &[unpacked]).is_err());
     }
 }
 

@@ -103,7 +103,9 @@ pub struct Published {
 /// 77: shared source-admitted expression evaluation and ordered operand proofs.
 /// 78: condition-keyed ordered return-entry completion proofs.
 /// 79: typed handler/re-raise completion and native context-MRO completeness.
-pub const COMPILER_OUTPUT_VERSION: u32 = 80;
+/// 80: exact completion exceptions and origin/channel coverage.
+/// 81: default-availability admission and semantic/witness-separated value fixed point.
+pub const COMPILER_OUTPUT_VERSION: u32 = 81;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

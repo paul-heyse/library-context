@@ -2707,6 +2707,8 @@ crate::relations! {
     /// explicit keyword parameter operand and one definite closed local target. Ordered argument
     /// evaluation and formal binding are separate inputs, checked as a complete group by the
     /// pure producer. No argument count or Boolean-control policy lives in this source join.
+    /// Every fixed formal needs an explicit argument until definition-time default availability
+    /// and stability have a source certificate. An unused omitted default can still raise at binding.
     /// Callee summaries join in the SCC worklist, not
     /// here: a call edge by itself is never a transfer proof.
     local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
@@ -2723,16 +2725,16 @@ crate::relations! {
                SELECT a.*, count(*) OVER (PARTITION BY a.call_site_node_id, a.target_node_id, \
                  a.argument_node_id, a.source_parameter_node_id) AS mapping_count \
                FROM argument_flows a \
-             ), required_counts AS ( \
+             ), formal_counts AS ( \
                SELECT function_node_id, count(*) AS n FROM parameter_syntax \
                WHERE kind NOT IN ({var_positional}, {var_keyword}) \
-                 AND default_start_byte IS NULL GROUP BY function_node_id \
+                 GROUP BY function_node_id \
              ), bound_counts AS ( \
                SELECT m.call_site_node_id, m.target_node_id, count(DISTINCT m.formal_node_id) AS n \
                FROM mappings m JOIN parameter_syntax p ON p.node_id = m.formal_node_id \
                  AND p.function_node_id = m.target_node_id \
                WHERE p.kind NOT IN ({var_positional}, {var_keyword}) \
-                 AND p.default_start_byte IS NULL AND m.mapping_count = 1 \
+                 AND m.mapping_count = 1 \
                  AND m.modality = {definite} AND m.phase = {call_phase} \
                GROUP BY m.call_site_node_id, m.target_node_id \
              ) \
@@ -2751,7 +2753,7 @@ crate::relations! {
                     (f.approximated OR e.approximated) AS approximated, \
                     arg.ordinal AS source_argument_ordinal, \
                     c.positional_count + c.keyword_count AS argument_count, \
-                    COALESCE(required.n, 0) = COALESCE(bound.n, 0) AS binding_complete \
+                    COALESCE(formals.n, 0) = COALESCE(bound.n, 0) AS binding_complete \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
                AND f.sink = {return_sink} \
@@ -2775,7 +2777,7 @@ crate::relations! {
                AND NOT r.has_unresolved_remainder \
              JOIN call_targets t ON t.call_site_node_id = c.node_id \
                AND t.argument_node_id IS NULL AND t.target_node_id IS NOT NULL \
-             LEFT JOIN required_counts required ON required.function_node_id = t.target_node_id \
+             LEFT JOIN formal_counts formals ON formals.function_node_id = t.target_node_id \
              LEFT JOIN bound_counts bound ON bound.call_site_node_id = c.node_id \
                AND bound.target_node_id = t.target_node_id \
              JOIN mappings a ON a.call_site_node_id = c.node_id \

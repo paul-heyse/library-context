@@ -585,6 +585,13 @@ generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
 def inspect(operation, formal):
     return index.inspect_value_paths(operation, formal, "none", "", True, 0, 20)
+for operation in ("capspkg.optional_unused_explicit", "capspkg.optional_keyword_explicit"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert paths and not boundaries and not truncated, (operation, paths, boundaries)
+for operation in ("capspkg.optional_unused_omitted", "capspkg.optional_keyword_omitted"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not paths and boundaries and not truncated, (operation, paths, boundaries)
+    assert any(boundary[3] == "unsupported_control_flow" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = inspect("capspkg.handler_entry_identity", "value")
 assert paths and not boundaries and not truncated, (paths, boundaries)
 assert any(any(step[0] == "handler_class_evidence" for step in path[3]) for path in paths), paths
