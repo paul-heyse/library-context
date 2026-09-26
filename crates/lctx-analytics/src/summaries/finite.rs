@@ -330,8 +330,9 @@ struct FinitePath {
     proof: Vec<recipe::SummaryFlowProofStep>,
 }
 
-/// The second argument is a literal or a directly read caller formal with an exact tested
-/// value in the caller's path condition. A partial row is never the one-argument case.
+/// The second argument is a cited exact Boolean value (literal or closed unary expression),
+/// or a directly read caller formal fixed by the caller's path condition. A partial row is
+/// never the one-argument case; the producer does not derive a Boolean value from status alone.
 #[derive(Clone, Copy)]
 struct ControlEvidence<'a> {
     evaluation: Id,

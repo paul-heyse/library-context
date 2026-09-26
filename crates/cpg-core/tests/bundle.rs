@@ -488,6 +488,37 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "the false control must not derive a recursive path");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        JOIN summary_flow_steps evaluation ON evaluation.summary_id = f.summary_id \
+          AND evaluation.kind = {} \
+        JOIN syntax_nodes expression ON expression.fact_id = evaluation.evidence_id \
+          AND expression.kind = {} AND expression.detail = 'not' \
+        JOIN summary_flow_steps link ON link.summary_id = f.summary_id \
+          AND link.kind = {} AND evaluation.ordinal < link.ordinal \
+        WHERE d.name = 'recursive_closed_true' AND f.path_depth = 1",
+        SummaryFlowStepKind::ArgumentEvaluation.code(),
+        cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code(),
+        SummaryFlowStepKind::CalleeConditionLink.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the closed unary value and callee guard have ordered proof links");
+    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'recursive_closed_false' AND f.path_depth > 0")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "the closed false value cannot select the recursive base");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) seed \
+        JOIN declarations d ON d.node_id = seed.function_node_id \
+        WHERE d.name = 'recursive_raising_control'",
+        cpg_schema::behavior::local_call_summary_flow_seeds().sql))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "a raising unary operand cannot fix a recursive guard");
     let rows = sql::query(&ctx, &format!(
         "SELECT count(*) AS n FROM summary_flows f \
          JOIN declarations d ON d.node_id = f.function_node_id \
@@ -561,6 +592,17 @@ assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for 
 paths, boundaries, total, truncated, work = inspect("capspkg.keyword_local_wrapper", "value")
 assert not truncated and paths and not boundaries, (paths, boundaries)
 assert any(any(step[0] == "callee_summary" for step in path[3]) for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_closed_true", "value")
+assert not truncated and paths, (paths, boundaries)
+assert any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_closed_false", "value")
+assert not truncated and paths and boundaries, (paths, boundaries)
+assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.recursive_raising_control", "value")
+assert not truncated and paths and boundaries, (paths, boundaries)
+assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = inspect("capspkg.unpacked_local_wrapper", "value")
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries

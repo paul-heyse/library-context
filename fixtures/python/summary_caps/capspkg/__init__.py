@@ -331,6 +331,27 @@ def recursive_literal_false(value: object, stop: bool) -> object:
     return recursive_literal_false(value, False)
 
 
+def recursive_closed_true(value: object, stop: bool) -> object:
+    """A cited closed unary control selects the finite recursive base."""
+    if stop:
+        return value
+    return recursive_closed_true(value, not False)
+
+
+def recursive_closed_false(value: object, stop: bool) -> object:
+    """The opposite closed unary control does not select the base."""
+    if stop:
+        return value
+    return recursive_closed_false(value, not True)
+
+
+def recursive_raising_control(value: object, stop: bool) -> object:
+    """A unary expression with a raising operand cannot fix the callee guard."""
+    if stop:
+        return value
+    return recursive_raising_control(value, not (1 / 0))
+
+
 def recursive_keyword_true(value: object, stop: bool) -> object:
     """An explicit keyword literal can specialize the recursive guard."""
     if stop:

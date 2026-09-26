@@ -335,7 +335,11 @@ the latter uses append-only `summary_pair_work_limit` rather than the general bu
 base-free cycle remains unknown. Modeled bases in a recursive member are admitted only after
 their independent source, argument, predecessor and exit checks. The exact literal-controlled
 transfer cites the literal syntax and direct `flow_test_value_links` row (`callee_condition_link`,
-append-only code 14). Direct formal forwarding additionally cites the caller's fixed test link
+append-only code 14). The same bounded route admits `not` over a direct Boolean literal:
+the shared argument classifier derives its exact Boolean value separately from its
+`closed_expression_normal` status, and the recursive proof cites that outer unary syntax fact
+before the callee link. A raising unary operand supplies neither value nor control evidence.
+Direct formal forwarding additionally cites the caller's fixed test link
 (`caller_condition_link`, append-only code 15) before the callee link; native admission checks the
 direct source link and the caller's fixed guard, and the shared validator reconstructs the full
 producer. Real terminating literal and guarded symbolic mutual-recursion fixtures publish

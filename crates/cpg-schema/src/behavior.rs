@@ -1659,6 +1659,9 @@ fn simple_argument_evidence_sql() -> String {
            WHERE a.kind IN ({positional}, {keyword}) \
          ), unary_literal_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, u.fact_id AS syntax_fact_id, \
+                  CASE WHEN u.detail = 'not' AND operand.detail = 'False' THEN true \
+                       WHEN u.detail = 'not' AND operand.detail = 'True' THEN false \
+                       ELSE NULL END AS static_boolean_value, \
                   count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
            FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
            JOIN syntax_nodes u ON u.module_node_id = c.module_node_id \
@@ -1824,7 +1827,9 @@ fn simple_argument_evidence_sql() -> String {
                               THEN {assignment_normal} \
                             WHEN lp.candidate_count = 1 \
                               THEN {lexical_parameter_normal} \
-                            ELSE {unknown} END AS SMALLINT) AS status \
+                            ELSE {unknown} END AS SMALLINT) AS status, \
+                  CASE WHEN ul.candidate_count = 1 \
+                       THEN ul.static_boolean_value ELSE NULL END AS static_boolean_value \
            FROM arguments a \
            LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
              AND l.candidate_count = 1 \
@@ -2707,8 +2712,9 @@ crate::relations! {
 
     /// One exact source-call result returned by a synchronous caller, with a positional or
     /// explicit keyword parameter operand and one definite closed local target. A second
-    /// explicit positional or keyword operand is admitted only when it is an exact boolean
-    /// literal or a directly read caller formal whose guard fixes its truth value. The tracked
+    /// explicit positional or keyword operand is admitted only when it is an exact Boolean
+    /// literal, a closed `not` over one, or a directly read caller formal whose guard fixes its
+    /// truth value. The tracked
     /// value can occur before or after that control operand. The two arguments map definitely
     /// to distinct callee formals, with a cited entry-value test link.
     /// Callee summaries join in the SCC worklist, not
@@ -2753,7 +2759,7 @@ crate::relations! {
                     test_leaf.atom AS control_atom, \
                     CASE WHEN literal.detail = 'True' THEN true \
                          WHEN literal.detail = 'False' THEN false \
-                         ELSE NULL END AS control_value, \
+                         ELSE control_eval.static_boolean_value END AS control_value, \
                     caller_link.link_id AS control_source_link_id, \
                     caller_leaf.atom AS control_source_atom \
              FROM value_flow_contributions v \
@@ -2800,7 +2806,7 @@ crate::relations! {
                AND control_map.caller_node_id = v.sink_function_node_id \
                AND control_map.mapping_count = 1 AND control_map.modality = {definite} \
                AND control_map.phase = {call_phase} \
-               AND control_map.value_class IN ({literal_class}, {parameter_class}) \
+               AND control_map.value_class IN ({literal_class}, {parameter_class}, {other_class}) \
              LEFT JOIN simple_arguments control_eval \
                ON control_eval.argument_fact_id = control_arg.fact_id \
              LEFT JOIN syntax_nodes literal ON literal.module_node_id = c.module_node_id \
@@ -2861,6 +2867,9 @@ crate::relations! {
                      AND test_leaf.atom IS NOT NULL AND \
                        ((control_map.value_class = {literal_class} \
                          AND literal.detail IN ('True', 'False')) OR \
+                        (control_map.value_class = {other_class} \
+                         AND control_eval.status = {closed_expression_normal} \
+                         AND control_eval.static_boolean_value IS NOT NULL) OR \
                         (control_map.value_class = {parameter_class} \
                          AND control_binding.node_id IS NOT NULL \
                          AND control_eval.status = {parameter_normal} \
@@ -2878,7 +2887,9 @@ crate::relations! {
             call_phase = InvocationPhase::Call.code(),
             literal_class = crate::flows::value_class::LITERAL,
             parameter_class = crate::flows::value_class::PARAMETER,
+            other_class = crate::flows::value_class::OTHER,
             parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
+            closed_expression_normal = ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
             parameter_binding = crate::codebook::BindingKind::Parameter.code(),
             argument_field = crate::codebook::SyntaxField::Argument.code(),
             boolean_literal = SyntaxKind::ExprBooleanLiteral.code(),
