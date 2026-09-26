@@ -17,6 +17,8 @@ use petgraph::graph::{Graph, NodeIndex};
 
 use crate::AnalyticsError;
 
+pub mod finite;
+
 /// One component of an attributed caller→callee graph, scheduled after its callees.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallComponent {
