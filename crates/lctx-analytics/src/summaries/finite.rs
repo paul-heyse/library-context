@@ -330,25 +330,40 @@ fn preceding_call_steps(
     calls: &PrecedingCallIndex,
     normal: &NormalPredecessorIndex,
     diagrams: &HashMap<Id, Diagram>,
-) -> Option<Vec<recipe::SummaryFlowProofStep>> {
+    boundaries: &HashMap<Id, BoundaryReason>,
+) -> Result<Vec<recipe::SummaryFlowProofStep>, BoundaryReason> {
     let mut proof = Vec::new();
     for call in calls.get(&seed.function_node_id).into_iter().flatten()
         .take_while(|call| call.call_start_byte < seed.return_start_byte) {
         if call.approximated != Some(false) {
-            return None;
+            return Err(BoundaryReason::UnsupportedControlFlow);
         }
-        let Some(call_condition_id) = call.condition_id else { return None; };
-        let Some(call_condition) = diagrams.get(&call_condition_id) else { return None; };
-        let Some(return_condition) = diagrams.get(&seed.condition_id) else { return None; };
-        if matches!(return_condition.and(call_condition), Ok(both) if both.is_false()) {
-            continue;
+        let Some(call_condition_id) = call.condition_id else {
+            return Err(BoundaryReason::MissingEvidence);
+        };
+        let Some(call_condition) = diagrams.get(&call_condition_id) else {
+            return Err(boundaries.get(&call_condition_id).copied()
+                .unwrap_or(BoundaryReason::MissingEvidence));
+        };
+        let Some(return_condition) = diagrams.get(&seed.condition_id) else {
+            return Err(boundaries.get(&seed.condition_id).copied()
+                .unwrap_or(BoundaryReason::MissingEvidence));
+        };
+        match return_condition.and(call_condition) {
+            Ok(both) if both.is_false() => continue,
+            Ok(_) => {},
+            Err(reason) => return Err(condition_limit(reason)),
         }
-        let Some(arguments) = normal.get(&call.call_fact_id) else { return None; };
-        if arguments.is_empty() || arguments.len() != usize::try_from(arguments[0].argument_count).ok()? {
-            return None;
+        let Some(arguments) = normal.get(&call.call_fact_id) else {
+            return Err(BoundaryReason::UnsupportedControlFlow);
+        };
+        if arguments.is_empty() || usize::try_from(arguments[0].argument_count).ok()
+            != Some(arguments.len()) {
+            return Err(BoundaryReason::UnsupportedControlFlow);
         }
         if !diagrams.get(&arguments[0].import_condition_id).is_some_and(Diagram::is_true) {
-            return None;
+            return Err(boundaries.get(&arguments[0].import_condition_id).copied()
+                .unwrap_or(BoundaryReason::UnsupportedControlFlow));
         }
         if arguments.iter().enumerate().any(|(ordinal, argument)|
             argument.ordinal != ordinal as i64 || argument.argument_count != arguments[0].argument_count
@@ -358,7 +373,7 @@ fn preceding_call_steps(
             || argument.import_binding_fact_id != arguments[0].import_binding_fact_id
             || argument.import_region_fact_id != arguments[0].import_region_fact_id
             || argument.import_condition_id != arguments[0].import_condition_id) {
-            return None;
+            return Err(BoundaryReason::UnsupportedControlFlow);
         }
         for (kind, evidence_id) in [
             (SummaryFlowStepKind::ModuleImportBinding, arguments[0].import_binding_fact_id),
@@ -388,7 +403,7 @@ fn preceding_call_steps(
             proof.push(recipe::SummaryFlowProofStep { kind, evidence_id, condition_id: call_condition_id });
         }
     }
-    Some(proof)
+    Ok(proof)
 }
 
 /// The first finite summary case: a direct, synchronous body return of a local parameter.
@@ -405,26 +420,28 @@ fn direct_flows(
     let mut flows = Vec::new();
     let mut steps = Vec::new();
     for seed in seeds {
-        let Some(mut proof) = preceding_call_steps(&seed, preceding_calls,
-            normal_predecessors, diagrams) else {
+        let Some(return_diagram) = diagrams.get(&seed.condition_id) else {
             refuse(refusals, (seed.snapshot_id, seed.function_node_id,
                 seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id),
-                BoundaryReason::UnsupportedControlFlow);
+                boundaries.get(&seed.condition_id).copied()
+                    .unwrap_or(BoundaryReason::MissingEvidence));
             continue;
         };
-        let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
-            Some(diagram) if diagram.is_false() => continue,
-            Some(diagram) if diagram.is_true() => (Verdict::Established, None),
-            Some(_) => (Verdict::Conditional, None),
-            None => (
-                Verdict::Unknown,
-                Some(
-                    boundaries
-                        .get(&seed.condition_id)
-                        .copied()
-                        .unwrap_or(BoundaryReason::MissingEvidence),
-                ),
-            ),
+        let mut proof = match preceding_call_steps(&seed, preceding_calls,
+            normal_predecessors, diagrams, boundaries) {
+            Ok(proof) => proof,
+            Err(reason) => {
+                refuse(refusals, (seed.snapshot_id, seed.function_node_id,
+                    seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id), reason);
+                continue;
+            }
+        };
+        let (verdict, boundary_reason) = if return_diagram.is_false() {
+            continue;
+        } else if return_diagram.is_true() {
+            (Verdict::Established, None)
+        } else {
+            (Verdict::Conditional, None)
         };
         let input_path = InputPath::Parameter {
             name: seed.parameter_name,
@@ -1277,6 +1294,46 @@ mod tests {
         assert_eq!(result.refusals.len(), 1);
         assert_eq!(result.refusals[0].reason, BoundaryReason::ConditionAtomLimit);
         assert_eq!(result.boundaries.len(), 1);
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionAtomLimit);
+    }
+
+    #[test]
+    fn direct_return_preserves_stored_and_predecessor_atom_caps() {
+        use cpg_schema::condition::Atom;
+
+        let mut stored = inputs();
+        stored.direct_seeds[0].condition_id = id(200);
+        stored.boundary_candidates[0].condition_id = id(200);
+        stored.boundaries.insert(id(200), BoundaryReason::ConditionAtomLimit);
+        let result = finite_flows(stored);
+        assert!(result.flows.is_empty());
+        assert_eq!(result.refusals[0].reason, BoundaryReason::ConditionAtomLimit);
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionAtomLimit);
+
+        let mut composed = inputs();
+        let mut return_condition = Diagram::always();
+        for number in 0..128 {
+            let atom = Diagram::from_atom(&Atom::Truthy {
+                place: format!("return_{number:03}"),
+            }).unwrap();
+            return_condition = return_condition.and(&atom).unwrap();
+        }
+        let call_condition = Diagram::from_atom(&Atom::Truthy {
+            place: "call_only".to_owned(),
+        }).unwrap();
+        let return_id = return_condition.id();
+        let call_id = call_condition.id();
+        composed.diagrams.insert(return_id, return_condition);
+        composed.diagrams.insert(call_id, call_condition);
+        composed.direct_seeds[0].condition_id = return_id;
+        composed.boundary_candidates[0].condition_id = return_id;
+        composed.preceding_calls.insert(id(2), vec![PrecedingCallRegion {
+            function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
+            condition_id: Some(call_id), approximated: Some(false),
+        }]);
+        let result = finite_flows(composed);
+        assert!(result.flows.is_empty());
+        assert_eq!(result.refusals[0].reason, BoundaryReason::ConditionAtomLimit);
         assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionAtomLimit);
     }
 }

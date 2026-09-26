@@ -260,7 +260,9 @@ than borrowing a target's normal-return claim.
 `summary_boundaries` together, without acquiring a session. `cpg-core` acquires and publishes;
 the shared validator reconstructs the same outcome once. A crossed call without a narrower
 cause stays `call_transfer`, an unsupported control path stays `unsupported_control_flow`, and
-a depth or BDD cap carries its own append-only boundary reason. A single proved raw-fact key
+a depth or BDD cap carries its own append-only boundary reason. A stored bounded return
+condition is classified before predecessor checks, and a bounded predecessor conjunction keeps
+its kernel refusal instead of falling through to a generic control reason. A single proved raw-fact key
 without any refusal has no boundary; a second contribution or a specifically refused path
 keeps it open. Missing evidence alone does not replace the call-transfer fallback. These
 unknowns are coverage, not refutations. The persisted key still groups origins sharing a raw
@@ -278,10 +280,11 @@ reconstruction and native admission before it creates positives. If a rule ever 
 multi-parent proof, that is a new decision, not parents smuggled into text.
 
 **Predecessors.** A true return region does not prove that an earlier call returned. The direct
-producer ignores an earlier same-function call only when the call's narrowest ty statement region
-and the return-value condition are both present, the call region is not approximated, and their
-bounded conjunction is **false**; every other earlier call withholds the direct proof. This is path
-incompatibility, not completion, and it is an **interim screen**. The target (plan order 1)
+producer ignores an earlier same-function call when its narrowest non-approximate ty statement
+region and the return-value condition have a bounded conjunction of **false**. A compatible call
+requires the ordered pinned normal-completion proof above; a bounded or missing condition
+withholds the direct path with its specific reason. This path-incompatibility screen is interim;
+the target (plan order 1)
 distinguishes, for each argument and preceding statement on a proposed path, an evaluated direct
 value, a cited normal outcome, a possible raise and an unresolved expression, preserving
 evaluation order (a modeled target's normal return starts after its arguments). Recursive SCC
@@ -296,8 +299,8 @@ contributes topology only.
 
 **Known gaps** ([plan W5, W7, W12, W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - W5 (ARC-02/03) has focused production and native evidence for explicit finite inputs and
-  specific depth/control refusals. Persisted origin identity and independent challenge of every
-  BDD refusal variant remain open in the Stage 3 execution queue.
+  specific depth/control/atom-limit refusals. Persisted origin identity and independent challenge
+  of every BDD refusal variant remain open in the Stage 3 execution queue.
 - W7: the flow model's cyclic reach, a summary input, is not yet a fixed point (§3.9).
 - W12: the engine for bounded SCC composition (a native SCC worklist, Ascent or datafrog) is an
   open comparison on one semantic state and refusal contract, after W5; none is adopted. A

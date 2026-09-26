@@ -144,7 +144,8 @@ budget = 3
 async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let (dir, store) = compiled_summary_caps().await;
     let (_, ctx) = published(&store, SNAPSHOT).await.unwrap().unwrap();
-    for (name, reason) in [("f9", 21), ("unsupported", 4)] {
+    for (name, reason) in [("f9", 21), ("unsupported", 4),
+        ("condition_atom_cap", 24)] {
         let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_boundaries b \
             JOIN declarations d ON d.node_id = b.function_node_id \
             WHERE d.name = '{name}' AND b.reason = {reason}"))
@@ -153,6 +154,13 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
             .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
         assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary");
     }
+    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'condition_atom_cap' AND f.boundary_reason IS NULL")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "a bounded condition cannot publish a positive summary");
     for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
         ("assigned_local_argument", 1),
         ("raising_predecessor", 0), ("possibly_unbound_argument", 0),
@@ -222,6 +230,7 @@ generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
 for operation, expected in (
     ("capspkg.f9", "summary_depth_limit"),
+    ("capspkg.condition_atom_cap", "condition_atom_limit"),
     ("capspkg.unsupported", "unsupported_control_flow"),
     ("capspkg.raising_predecessor", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
