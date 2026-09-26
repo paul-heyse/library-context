@@ -4,13 +4,16 @@ expression: text
 ---
 table modeled_assignment_return_paths
 family findings
-key snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id
+key snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id
 check decision_or_boundary: (compatible_under_atoms IS NULL AND boundary_reason IS NOT NULL) OR (compatible_under_atoms IS NOT NULL AND boundary_reason IS NULL)
 @lctx.family=findings
 @lctx.table=modeled_assignment_return_paths
 snapshot_id: FixedSizeBinary(16) NOT NULL
 successor_fact_id: FixedSizeBinary(16) NOT NULL
 predecessor_fact_id: FixedSizeBinary(16) NOT NULL
+source_key: Utf8 NOT NULL
+successor_use_id: FixedSizeBinary(16) NOT NULL
+predecessor_source_origin_id: FixedSizeBinary(16) NOT NULL
 reaching_fact_id: FixedSizeBinary(16) NOT NULL
 function_node_id: FixedSizeBinary(16) NOT NULL
 parameter_node_id: FixedSizeBinary(16) NOT NULL

@@ -271,14 +271,14 @@ the shared validator reconstructs the same outcome once. A crossed call without 
 cause stays `call_transfer`, an unsupported control path stays `unsupported_control_flow`, and
 a depth or BDD cap carries its own append-only boundary reason. A stored bounded return
 condition is classified before predecessor checks, and a bounded predecessor conjunction keeps
-its kernel refusal instead of falling through to a generic control reason. A single proved raw-fact key
-without any refusal has no boundary; a second contribution or a specifically refused path
-keeps it open. Missing evidence alone does not replace the call-transfer fallback. These
-unknowns are coverage, not refutations. The persisted key still groups origins sharing a raw
-fact and condition; path-specific identity remains a separate Stage 3 migration.
+its kernel refusal instead of falling through to a generic control reason. Each unaggregated
+`value_flow_contributions` row has a stable `origin_id` derived from its semantic key and checked
+against the `lctx_id` UDF. A proof closes only its matching origin and condition; a sibling
+contribution or a specifically refused path stays open with its own reason. Missing evidence
+alone does not replace the call-transfer fallback. These unknowns are coverage, not refutations.
 
 **Proof identity.** `summary_flows` keys on a canonical `summary_id` hashing callable, formal,
-input/output paths, transfer kind, condition, return site/region and the ordered typed proof
+source origin, input/output paths, transfer kind, condition, return site/region and the ordered typed proof
 `(step kind, evidence id, step condition)`. `summary_flow_steps` stores the steps (codebook
 `summary_flow_step_kind`, append-only: raw identity, callee resolution, argument evaluation, call
 target, model rule, return exit, call site, reaching definition, return source, callee summary,
@@ -324,7 +324,9 @@ singleton recursive. Candidate/open dispatch contributes topology only.
 - W5 (ARC-02/03) has focused production and native evidence for explicit finite inputs and
   specific depth/control/atom-limit refusals. Actual predecessor conjunctions also preserve
   work- and node-limit reasons through the pure producer and boundary decision in focused tests
-  (2026-09-26). Their Delta/native publication controls and persisted origin identity remain open.
+  (2026-09-26). ADR-0054 carries stable contribution IDs through summary and native boundary
+  contracts, with separate pure and native sibling controls; a single real two-origin Delta/native
+  trace and work/node-limit publication controls remain open.
 - W7: the flow model's cyclic reach uses the bounded source fixed point (§3.9); its production-cap
   native trace and fresh pilot cost remain open. A real extracted-flow row shuffle now preserves
   canonical published contribution, value-flow and premise bytes in a focused fixture.
@@ -379,6 +381,6 @@ proposed ([§11.3](synthesis-and-serving.md#section-11-3)).
   small (20–40 authored); ranked lookup waits until it outgrows one page. **`explain`** returns the
   stored witness chain.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053, ADR-0054
 
 ---

@@ -14,6 +14,7 @@ cpg_schema::query_row! {
         parameter_node_id: Id,
         parameter_name: String,
         source_flow_fact_id: Id,
+        source_origin_id: Id,
         condition_id: Id,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
@@ -29,6 +30,7 @@ cpg_schema::query_row! {
         parameter_node_id: Id,
         parameter_name: String,
         source_flow_fact_id: Id,
+        source_origin_id: Id,
         condition_id: Id,
         call_fact_id: Id,
         source_argument_fact_id: Id,
@@ -52,6 +54,7 @@ cpg_schema::query_row! {
         parameter_node_id: Id,
         parameter_name: String,
         source_flow_fact_id: Id,
+        source_origin_id: Id,
         predecessor_flow_fact_id: Id,
         reaching_fact_id: Id,
         predecessor_condition_id: Id,
@@ -79,6 +82,7 @@ cpg_schema::query_row! {
         parameter_node_id: Id,
         parameter_name: String,
         source_flow_fact_id: Id,
+        source_origin_id: Id,
         condition_id: Id,
         call_site_node_id: Id,
         call_fact_id: Id,
@@ -102,6 +106,7 @@ cpg_schema::query_row! {
         function_node_id: Id,
         parameter_node_id: Id,
         source_flow_fact_id: Id,
+        source_origin_id: Id,
         condition_id: Id,
         use_id: Id,
         source_key: String,
@@ -114,7 +119,7 @@ cpg_schema::query_row! {
     }
 }
 
-type BoundaryKey = (Id, Id, Id, Id, Id);
+type BoundaryKey = (Id, Id, Id, Id, Id, Id);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SummaryRefusal {
@@ -122,6 +127,7 @@ pub struct SummaryRefusal {
     pub function_node_id: Id,
     pub parameter_node_id: Id,
     pub source_flow_fact_id: Id,
+    pub source_origin_id: Id,
     pub condition_id: Id,
     pub reason: BoundaryReason,
 }
@@ -129,7 +135,7 @@ pub struct SummaryRefusal {
 impl SummaryRefusal {
     fn key(&self) -> BoundaryKey {
         (self.snapshot_id, self.function_node_id, self.parameter_node_id,
-         self.source_flow_fact_id, self.condition_id)
+         self.source_flow_fact_id, self.condition_id, self.source_origin_id)
     }
 }
 
@@ -151,6 +157,7 @@ fn refuse(
         parameter_node_id: key.2,
         source_flow_fact_id: key.3,
         condition_id: key.4,
+        source_origin_id: key.5,
         reason,
     });
 }
@@ -181,8 +188,8 @@ fn refusal_priority(reason: BoundaryReason) -> u8 {
 }
 
 /// Complete the positive/refusal decision for every parameter-origin return contribution.
-/// A specific producer refusal replaces the generic control/call fallback only for a unique
-/// origin; a second origin with the same raw-fact key must stay open independently.
+/// A proof and refusal belong to one stable source contribution, even when multiple origins
+/// share a raw fact and condition.
 fn summarize_boundaries(
     candidates: &[SummaryBoundaryCandidate],
     flows: &[SummaryFlowsRow],
@@ -192,7 +199,7 @@ fn summarize_boundaries(
         .filter(|flow| flow.verdict != Verdict::Unknown)
         .map(|flow| (
         flow.snapshot_id, flow.function_node_id, flow.parameter_node_id,
-        flow.source_flow_fact_id, flow.condition_id,
+        flow.source_flow_fact_id, flow.condition_id, flow.source_origin_id,
     )).collect();
     let mut refused: HashMap<BoundaryKey, Vec<BoundaryReason>> = HashMap::new();
     for refusal in refusals {
@@ -202,12 +209,12 @@ fn summarize_boundaries(
     for candidate in candidates {
         let key = (candidate.snapshot_id, candidate.function_node_id,
             candidate.parameter_node_id, candidate.source_flow_fact_id,
-            candidate.condition_id);
+            candidate.condition_id, candidate.source_origin_id);
         grouped.entry(key).or_default().push(candidate);
     }
     let mut rows = Vec::new();
     for (key, origins) in grouped {
-        if origins.len() == 1 && proved.contains(&key) && !refused.contains_key(&key) {
+        if proved.contains(&key) && !refused.contains_key(&key) {
             continue;
         }
         let crossed_call = origins.iter().any(|o| o.through_call || o.local_through_call
@@ -218,14 +225,12 @@ fn summarize_boundaries(
             else { BoundaryReason::UnsupportedControlFlow };
         let reason = if origins.iter().any(|o| o.reach_budget) {
             BoundaryReason::BudgetReached
-        } else if origins.len() == 1 {
+        } else {
             refused.get(&key).and_then(|reasons| reasons.iter()
                 .filter(|reason| !matches!(reason,
                     BoundaryReason::MissingEvidence | BoundaryReason::CallTransfer))
                 .min_by_key(|reason| (refusal_priority(**reason), **reason))
                 .copied()).unwrap_or(fallback)
-        } else {
-            fallback
         };
         rows.push(SummaryBoundariesRow {
             snapshot_id: key.0,
@@ -233,6 +238,7 @@ fn summarize_boundaries(
             parameter_node_id: key.2,
             source_flow_fact_id: key.3,
             condition_id: key.4,
+            source_origin_id: key.5,
             reason,
             local_through_call: origins.iter().any(|o| o.local_through_call),
             upstream_through_call: origins.iter().any(|o| o.upstream_through_call),
@@ -263,6 +269,7 @@ struct FinitePath {
     parameter_node_id: Id,
     parameter_name: String,
     source_flow_fact_id: Id,
+    source_origin_id: Id,
     condition_id: Id,
     condition_is_true: bool,
     return_site_fact_id: Id,
@@ -427,7 +434,8 @@ fn direct_flows(
     for seed in seeds {
         let Some(return_diagram) = diagrams.get(&seed.condition_id) else {
             refuse(refusals, (seed.snapshot_id, seed.function_node_id,
-                seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id),
+                seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id,
+                seed.source_origin_id),
                 boundaries.get(&seed.condition_id).copied()
                     .unwrap_or(BoundaryReason::MissingEvidence));
             continue;
@@ -438,7 +446,8 @@ fn direct_flows(
             Ok(proof) => proof,
             Err(reason) => {
                 refuse(refusals, (seed.snapshot_id, seed.function_node_id,
-                    seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id), reason);
+                    seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id,
+                    seed.source_origin_id), reason);
                 continue;
             }
         };
@@ -472,6 +481,7 @@ fn direct_flows(
         let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
             function: seed.function_node_id,
             parameter: seed.parameter_node_id,
+            source_origin: seed.source_origin_id,
             input_path: &input_path,
             output_path: &output_path,
             transfer_kind: SummaryFlowKind::Value,
@@ -492,6 +502,7 @@ fn direct_flows(
             verdict,
             boundary_reason,
             source_flow_fact_id: seed.source_flow_fact_id,
+            source_origin_id: seed.source_origin_id,
             return_site_fact_id: seed.return_site_fact_id,
             return_region_fact_id: seed.return_region_fact_id,
             approximated: seed.approximated,
@@ -609,6 +620,7 @@ fn push_finite_path(
     let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
         function: path.function_node_id,
         parameter: path.parameter_node_id,
+        source_origin: path.source_origin_id,
         input_path: &input_path,
         output_path: &output_path,
         transfer_kind: SummaryFlowKind::Value,
@@ -633,6 +645,7 @@ fn push_finite_path(
         },
         boundary_reason: None,
         source_flow_fact_id: path.source_flow_fact_id,
+        source_origin_id: path.source_origin_id,
         return_site_fact_id: path.return_site_fact_id,
         return_region_fact_id: path.return_region_fact_id,
         approximated: path.approximated,
@@ -700,7 +713,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
     }
     for seed in seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
-            seed.source_flow_fact_id, seed.condition_id);
+            seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id);
         if recursive_functions.contains(&seed.function_node_id) {
             refuse(&mut refusals, key, BoundaryReason::CallTransfer);
             continue;
@@ -772,6 +785,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                 parameter_node_id: seed.parameter_node_id,
                 parameter_name: seed.parameter_name,
                 source_flow_fact_id: seed.source_flow_fact_id,
+                source_origin_id: seed.source_origin_id,
                 condition_id: seed.condition_id,
                 condition_is_true: condition.is_true(),
                 return_site_fact_id: seed.return_site_fact_id,
@@ -784,7 +798,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
     }
     for seed in assignment_seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
-            seed.source_flow_fact_id, seed.successor_condition_id);
+            seed.source_flow_fact_id, seed.successor_condition_id, seed.source_origin_id);
         if recursive_functions.contains(&seed.function_node_id) {
             refuse(&mut refusals, key, BoundaryReason::CallTransfer);
             continue;
@@ -876,6 +890,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                 parameter_node_id: seed.parameter_node_id,
                 parameter_name: seed.parameter_name,
                 source_flow_fact_id: seed.source_flow_fact_id,
+                source_origin_id: seed.source_origin_id,
                 condition_id: seed.predecessor_condition_id,
                 condition_is_true: condition.is_true(),
                 return_site_fact_id: seed.return_site_fact_id,
@@ -915,7 +930,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
     const MAX_LOCAL_PATH_DEPTH: i64 = 8;
     for seed in local_seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
-            seed.source_flow_fact_id, seed.condition_id);
+            seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id);
         let Some((_, false)) = component_by_function.get(&seed.function_node_id) else {
             refuse(&mut refusals, key, BoundaryReason::CallTransfer);
             continue;
@@ -1030,6 +1045,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                     parameter_node_id: seed.parameter_node_id,
                     parameter_name: seed.parameter_name.clone(),
                     source_flow_fact_id: seed.source_flow_fact_id,
+                    source_origin_id: seed.source_origin_id,
                     condition_id: seed.condition_id,
                     condition_is_true: condition.is_true(),
                     return_site_fact_id: seed.return_site_fact_id,
@@ -1071,6 +1087,7 @@ mod tests {
             parameter_node_id: id(3),
             parameter_name: "value".to_owned(),
             source_flow_fact_id: id(4),
+            source_origin_id: id(9),
             condition_id: Diagram::always().id(),
             return_site_fact_id: id(5),
             return_region_fact_id: id(6),
@@ -1098,6 +1115,7 @@ mod tests {
                 function_node_id: id(2),
                 parameter_node_id: id(3),
                 source_flow_fact_id: id(4),
+                source_origin_id: id(9),
                 condition_id: Diagram::always().id(),
                 use_id: id(8),
                 source_key: "Parameter[value]".to_owned(),
@@ -1185,6 +1203,24 @@ mod tests {
         assert!(outcome.steps.is_empty());
         assert_eq!(outcome.refusals[0].reason, BoundaryReason::UnsupportedControlFlow);
         assert_eq!(outcome.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
+    }
+
+    #[test]
+    fn proved_origin_does_not_erase_an_unproved_sibling_on_the_same_raw_fact() {
+        let mut input = inputs();
+        let mut sibling = input.boundary_candidates[0].clone();
+        sibling.source_origin_id = id(10);
+        sibling.source_key = "Parameter[value] via call".to_owned();
+        sibling.through_call = true;
+        sibling.local_through_call = true;
+        input.boundary_candidates.push(sibling);
+
+        let outcome = finite_flows(input);
+        assert_eq!(outcome.flows.len(), 1);
+        assert_eq!(outcome.flows[0].source_origin_id, id(9));
+        assert_eq!(outcome.boundaries.len(), 1);
+        assert_eq!(outcome.boundaries[0].source_origin_id, id(10));
+        assert_eq!(outcome.boundaries[0].reason, BoundaryReason::CallTransfer);
     }
 
     #[test]
@@ -1323,6 +1359,7 @@ mod tests {
                 parameter_node_id: id(n + 30),
                 parameter_name: "value".to_owned(),
                 source_flow_fact_id: id(n + 60),
+                source_origin_id: id(n + 61),
                 condition_id: always,
                 call_site_node_id: id(n + 90),
                 call_fact_id: id(n + 100),
@@ -1333,6 +1370,7 @@ mod tests {
                 return_site_fact_id: id(n + 130),
                 return_region_fact_id: id(n + 140),
                 return_condition_id: always,
+                return_start_byte: 30,
                 approximated: false,
             });
             input.boundary_candidates.push(SummaryBoundaryCandidate {
@@ -1340,6 +1378,7 @@ mod tests {
                 function_node_id: id(n),
                 parameter_node_id: id(n + 30),
                 source_flow_fact_id: id(n + 60),
+                source_origin_id: id(n + 61),
                 condition_id: always,
                 use_id: id(n + 160),
                 source_key: "Parameter[value]".to_owned(),
@@ -1365,11 +1404,12 @@ mod tests {
         bounded.local_seeds.push(LocalCallSummaryFlowSeed {
             snapshot_id: id(1), function_node_id: id(2), parameter_node_id: id(3),
             parameter_name: "value".to_owned(), source_flow_fact_id: id(4),
+            source_origin_id: id(9),
             condition_id: id(200), call_site_node_id: id(10), call_fact_id: id(11),
             pysa_fact_id: id(12), callee_node_id: id(13),
             callee_parameter_node_id: id(14), callee_resolution_fact_id: id(15),
             return_site_fact_id: id(5), return_region_fact_id: id(6),
-            return_condition_id: always, approximated: false,
+            return_condition_id: always, return_start_byte: 30, approximated: false,
         });
         bounded.boundary_candidates[0].condition_id = id(200);
         bounded.components.push(SummaryComponentsRow {
@@ -1417,11 +1457,12 @@ mod tests {
         input.local_seeds.push(LocalCallSummaryFlowSeed {
             snapshot_id: id(1), function_node_id: id(2), parameter_node_id: id(3),
             parameter_name: "value".to_owned(), source_flow_fact_id: id(4),
+            source_origin_id: id(9),
             condition_id: source_id, call_site_node_id: id(10), call_fact_id: id(11),
             pysa_fact_id: id(12), callee_node_id: id(13),
             callee_parameter_node_id: id(14), callee_resolution_fact_id: id(15),
             return_site_fact_id: id(5), return_region_fact_id: id(6),
-            return_condition_id: exit_id, approximated: false,
+            return_condition_id: exit_id, return_start_byte: 30, approximated: false,
         });
 
         let result = finite_flows(input);

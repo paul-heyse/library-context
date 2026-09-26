@@ -45,6 +45,7 @@ def test_native_page_reports_path_local_refutation_and_open_boundary(generation:
         None,
     )
     assert open_page.paths == [] and open_page.boundaries[0].reason == "call_transfer"
+    assert len(open_page.boundaries[0].source_origin_id) == 32
     assert open_page.theory_work.bdd_preflight_pairs == 0
     with pytest.raises(OperationError, match="cursor"):
         inspect(

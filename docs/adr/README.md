@@ -28,6 +28,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0051](0051-value-reach-worklist.md) | Compute source reach as a bounded fixed point over uses | 2026-09-26 | [§3.9](../design/sections/behavior-model.md#section-3-9) | Tested |  |
 | [ADR-0052](0052-iterative-scc-schedule.md) | Use iterative petgraph SCC discovery for the finite call schedule | 2026-09-26 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Tested |  |
 | [ADR-0053](0053-bounded-scc-summary-worklist.md) | Use an SCC-local bounded worklist for recursive value summaries | 2026-09-26 | [§B4](../design/DESIGN.md#section-b4), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Interface-checked |  |
+| [ADR-0054](0054-origin-specific-summary-identity.md) | Persist source contribution identity across finite summaries and boundaries | 2026-09-26 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Tested |  |
 
 ## Proposed: open choices, not accepted decisions
 

@@ -37,7 +37,7 @@ pub(super) struct Inputs {
     pub parameters: Vec<(String, String, String)>,
     pub flows: Vec<FlowInput>,
     pub steps: Vec<(String, i64, String, String, String)>,
-    pub boundaries: Vec<(String, String, String, String, String)>,
+    pub boundaries: Vec<(String, String, String, String, String, String)>,
     pub leaves: Vec<LeafInput>,
     pub links: Vec<LinkInput>,
 }
@@ -199,7 +199,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
     let table = batch(&batches, "summary_flow_steps");
     let steps = (0..table.len()).map(|row| Ok((table.id("summary_id", row)?, table.integer("ordinal", row)?, table.text("kind", row)?, table.id("evidence_id", row)?, table.id("condition_id", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_boundaries");
-    let boundaries = (0..table.len()).map(|row| Ok((table.id("function_node_id", row)?, table.id("parameter_node_id", row)?, table.id("source_flow_fact_id", row)?, table.id("condition_id", row)?, table.text("reason", row)?))).collect::<PyResult<_>>()?;
+    let boundaries = (0..table.len()).map(|row| Ok((table.id("function_node_id", row)?, table.id("parameter_node_id", row)?, table.id("source_flow_fact_id", row)?, table.id("source_origin_id", row)?, table.id("condition_id", row)?, table.text("reason", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "flow_test_leaves");
     let leaves = (0..table.len()).map(|row| Ok((table.id("fact_id", row)?, table.id("module_node_id", row)?, table.id("condition_id", row)?, table.id("atom_id", row)?, table.text("atom", row)?, table.optional_text("path", row)?, table.integer("leaf_start_byte", row)?, table.integer("leaf_end_byte", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "flow_test_value_links");

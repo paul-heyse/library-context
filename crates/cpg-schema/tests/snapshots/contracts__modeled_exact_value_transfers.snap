@@ -10,6 +10,7 @@ check sink_span_order: sink_start_byte >= 0 AND sink_end_byte > sink_start_byte
 @lctx.table=modeled_exact_value_transfers
 snapshot_id: FixedSizeBinary(16) NOT NULL
 flow_value_fact_id: FixedSizeBinary(16) NOT NULL
+source_origin_id: FixedSizeBinary(16) NOT NULL
 flow_value_call_fact_id: FixedSizeBinary(16) NOT NULL
 call_site_node_id: FixedSizeBinary(16) NOT NULL
 call_fact_id: FixedSizeBinary(16) NOT NULL

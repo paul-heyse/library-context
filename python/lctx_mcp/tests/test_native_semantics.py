@@ -117,16 +117,48 @@ def test_generation_condition_graph_is_hydrated_and_rejects_bad_nodes(generation
 def test_native_index_resolves_one_public_formal_and_its_proof(generation: Path) -> None:
     index = load(generation, None).condition_graph
     assert index is not None
-    paths, reasons, truncated, work = index.value_paths("pkg.controls.passthrough", "options", 10)
-    assert len(paths) == 1 and paths[0][1] == "established"
-    assert len(paths[0][3]) > 0 and reasons == []
-    assert not truncated and work == 1
+    paths, boundaries, total, truncated, work = index.inspect_value_paths(
+        "pkg.controls.passthrough", "options", "none", "", True, 0, 10
+    )
+    assert len(paths) == total == work == 1 and paths[0][1] == "established"
+    assert len(paths[0][3]) > 0 and boundaries == [] and not truncated
     with pytest.raises(ValueError, match="unknown operation formal"):
-        index.value_paths("pkg.controls.passthrough", "absent", 10)
+        index.inspect_value_paths("pkg.controls.passthrough", "absent", "none", "", True, 0, 10)
     with pytest.raises(ValueError, match="unknown public operation"):
-        index.value_paths("pkg.absent", "options", 10)
+        index.inspect_value_paths("pkg.absent", "options", "none", "", True, 0, 10)
     with pytest.raises(ValueError, match="limit"):
-        index.value_paths("pkg.controls.passthrough", "options", 0)
+        index.inspect_value_paths("pkg.controls.passthrough", "options", "none", "", True, 0, 0)
+
+
+def test_native_open_boundaries_keep_sibling_origin_ids(generation: Path) -> None:
+    loaded = load(generation, None)
+    conditions = [
+        (r["condition_id"].hex(), None if r["root_id"] is None else r["root_id"].hex(),
+         r["boundary_reason"])
+        for r in loaded.tables["conditions"].to_pylist()
+    ]
+    nodes = [
+        (r["node_id"].hex(), r["atom"], r["low_id"].hex(), r["high_id"].hex())
+        for r in loaded.tables["condition_nodes"].to_pylist()
+    ]
+    condition = next(r[0] for r in conditions if r[1] is not None)
+    operation, formal, fact = ("01" * 16, "02" * 16, "03" * 16)
+    index = SemanticExecutor(
+        kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
+        conditions, nodes, [operation], [("pkg.siblings", operation)],
+        [(operation, formal, "value")], [], [],
+        [(operation, formal, fact, "04" * 16, condition, "call_transfer"),
+         (operation, formal, fact, "05" * 16, condition, "unsupported_control_flow")],
+        [], [],
+    )
+    paths, open_rows, total, truncated, work = index.inspect_value_paths(
+        "pkg.siblings", "value", "none", "", True, 0, 2
+    )
+    assert paths == [] and total == work == 2 and not truncated
+    assert {(row[1], row[3]) for row in open_rows} == {
+        ("04" * 16, "call_transfer"),
+        ("05" * 16, "unsupported_control_flow"),
+    }
 
 
 def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
@@ -184,7 +216,9 @@ def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(
     )
     finalizer = (summary, 0, "finalizer_pass", "04" * 16, condition)
     index = SemanticExecutor(*prefix, [finalizer], [], [], [])
-    paths, _, _, _ = index.value_paths("pkg.finalizer", "value", 1)
+    paths, _, _, _, _ = index.inspect_value_paths(
+        "pkg.finalizer", "value", "none", "", True, 0, 1
+    )
     assert paths[0][3][0][0] == "finalizer_pass"
     with pytest.raises(ValueError, match="invalid summary proof step"):
         SemanticExecutor(*prefix, [(summary, 0, "invented_step", "04" * 16, condition)], [], [], [])
@@ -222,7 +256,9 @@ def _hex(value: bytes | None) -> str | None:
 def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None:
     index = load(generation, None).condition_graph
     assert index is not None
-    paths, _, _, _ = index.value_paths("pkg.controls.strict", "value", 10)
+    paths, _, _, _, _ = index.inspect_value_paths(
+        "pkg.controls.strict", "value", "none", "", True, 0, 10
+    )
     assert len(paths) == 1
     summary = paths[0][0]
 
@@ -268,7 +304,8 @@ def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None
         "pkg.controls.build", "label", "str", "x", True, 0, 1
     )
     assert paths == [] and len(boundaries) == total == work == 1
-    assert boundaries[0][2] == "call_transfer" and not truncated
+    assert len(boundaries[0][1]) == 32
+    assert boundaries[0][3] == "call_transfer" and not truncated
 
 
 def test_native_string_membership_and_integer_equality_stay_path_local() -> None:
@@ -351,8 +388,8 @@ def test_native_value_path_page_has_stable_bounded_boundary_order(generation: Pa
         [],
         [],
         [
-            (operation, formal, "04" * 16, condition, "call_transfer"),
-            (operation, formal, "03" * 16, condition, "unsupported_control_flow"),
+            (operation, formal, "04" * 16, "14" * 16, condition, "call_transfer"),
+            (operation, formal, "03" * 16, "13" * 16, condition, "unsupported_control_flow"),
         ],
         [],
         [],
@@ -362,3 +399,4 @@ def test_native_value_path_page_has_stable_bounded_boundary_order(generation: Pa
     assert first[2:] == (2, True, 1)
     assert second[2:] == (2, False, 1)
     assert first[1][0][0] == "03" * 16 and second[1][0][0] == "04" * 16
+    assert first[1][0][1] == "13" * 16 and second[1][0][1] == "14" * 16

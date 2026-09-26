@@ -28,6 +28,7 @@ fn summary_identity_retains_the_ordered_evidence_path() {
         recipe::summary_flow(&recipe::SummaryFlowIdentity {
             function: Id([1; 16]),
             parameter: Id([2; 16]),
+            source_origin: Id([8; 16]),
             input_path: "Parameter[x]",
             output_path,
             transfer_kind: SummaryFlowKind::Value,
@@ -53,6 +54,25 @@ fn summary_identity_retains_the_ordered_evidence_path() {
     assert_eq!(id, summary("ReturnValue", &steps));
     assert_ne!(id, summary("ReturnValue", &[steps[1], steps[0]]));
     assert_ne!(id, summary("Field[y]", &steps));
+}
+
+#[test]
+fn value_flow_origin_distinguishes_siblings_on_one_raw_fact() {
+    let fact = Id([1; 16]);
+    let use_id = Id([2; 16]);
+    let key = recipe::ValueFlowOriginKey {
+        fact, use_id, source_key: "Parameter[value]", identity: true,
+        through_call: false, local_through_call: false,
+        upstream_identity: true, upstream_through_call: false,
+    };
+    let direct = recipe::value_flow_origin(&key);
+    assert_eq!(direct, recipe::value_flow_origin(&key));
+    assert_ne!(direct, recipe::value_flow_origin(&recipe::ValueFlowOriginKey {
+        source_key: "Parameter[value]:sibling", ..key
+    }));
+    assert_ne!(direct, recipe::value_flow_origin(&recipe::ValueFlowOriginKey {
+        identity: false, through_call: true, local_through_call: true, ..key
+    }));
 }
 
 proptest! {

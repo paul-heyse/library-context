@@ -76,6 +76,7 @@ class ValuePath(BaseModel):
 
 class OpenBoundary(BaseModel):
     source_flow_fact_id: str
+    source_origin_id: str
     condition_id: str
     reason: str
 
@@ -201,7 +202,8 @@ def inspect(
             for row in rows
         ],
         boundaries=[
-            OpenBoundary(source_flow_fact_id=r[0], condition_id=r[1], reason=r[2])
+            OpenBoundary(source_flow_fact_id=r[0], source_origin_id=r[1],
+                         condition_id=r[2], reason=r[3])
             for r in open_rows
         ],
         total_rows=total,

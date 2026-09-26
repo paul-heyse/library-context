@@ -4,13 +4,14 @@ expression: text
 ---
 table summary_boundaries
 family findings
-key snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id
+key snapshot_id, source_origin_id, condition_id
 @lctx.family=findings
 @lctx.table=summary_boundaries
 snapshot_id: FixedSizeBinary(16) NOT NULL
 function_node_id: FixedSizeBinary(16) NOT NULL
 parameter_node_id: FixedSizeBinary(16) NOT NULL
 source_flow_fact_id: FixedSizeBinary(16) NOT NULL
+source_origin_id: FixedSizeBinary(16) NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 reason: Int16 NOT NULL [lctx.codebook=boundary_reason]
 local_through_call: Boolean NOT NULL

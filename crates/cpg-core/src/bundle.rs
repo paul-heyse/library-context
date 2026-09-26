@@ -275,7 +275,7 @@ fn query(name: &str) -> Option<String> {
         "summary_flows" => format!(
             "SELECT summary_id, function_node_id, parameter_node_id, input_path, output_path, \
                     {kind} AS kind, condition_id, {verdict} AS verdict, \
-                    {reason} AS boundary_reason, source_flow_fact_id, return_site_fact_id, \
+                    {reason} AS boundary_reason, source_flow_fact_id, source_origin_id, return_site_fact_id, \
                     return_region_fact_id, approximated, path_depth \
              FROM summary_flows ORDER BY summary_id",
             kind = text_of::<SummaryFlowKind>("kind"),
@@ -288,10 +288,10 @@ fn query(name: &str) -> Option<String> {
             kind = text_of::<SummaryFlowStepKind>("kind"),
         ),
         "summary_boundaries" => format!(
-            "SELECT function_node_id, parameter_node_id, source_flow_fact_id, condition_id, \
+            "SELECT function_node_id, parameter_node_id, source_flow_fact_id, source_origin_id, condition_id, \
                     {reason} AS reason, local_through_call, upstream_through_call, \
                     raw_approximated FROM summary_boundaries \
-             ORDER BY function_node_id, parameter_node_id, source_flow_fact_id, condition_id",
+             ORDER BY function_node_id, parameter_node_id, source_origin_id, condition_id",
             reason = text_of::<BoundaryReason>("reason"),
         ),
         "flow_test_leaves" => format!(

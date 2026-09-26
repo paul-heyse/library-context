@@ -20,6 +20,7 @@ condition_id: FixedSizeBinary(16) NOT NULL
 verdict: Int16 NOT NULL [lctx.codebook=verdict]
 boundary_reason: Int16 NULL [lctx.codebook=boundary_reason]
 source_flow_fact_id: FixedSizeBinary(16) NOT NULL
+source_origin_id: FixedSizeBinary(16) NOT NULL
 return_site_fact_id: FixedSizeBinary(16) NOT NULL
 return_region_fact_id: FixedSizeBinary(16) NOT NULL
 approximated: Boolean NOT NULL

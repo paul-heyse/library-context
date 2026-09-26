@@ -22,10 +22,8 @@ const MAX_SUMMARY_ROWS: usize = 100_000;
 const MAX_SURFACE_ROWS: usize = 200_000;
 type FlowInput = (String, String, String, String, String, Option<String>, i64);
 type ProofStep = (String, String, String);
-type ValuePath = (String, String, String, Vec<ProofStep>);
-type Boundary = (String, String, String);
-type ValuePathsAnswer = (Vec<ValuePath>, Vec<Boundary>, bool, usize);
-type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, String)>>;
+type OpenPathBoundary = (String, String, String, String);
+type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, Id, String)>>;
 type LeafInput = (
     String,
     String,
@@ -66,7 +64,7 @@ type InspectedPath = (
     Option<String>,
     WorkAnswer,
 );
-type ValuePathPage = (Vec<InspectedPath>, Vec<Boundary>, usize, bool, usize);
+type ValuePathPage = (Vec<InspectedPath>, Vec<OpenPathBoundary>, usize, bool, usize);
 
 fn work_answer(work: TheoryWork) -> WorkAnswer {
     (
@@ -259,7 +257,7 @@ impl SemanticExecutor {
         parameters: Vec<(String, String, String)>,
         flows: Vec<FlowInput>,
         steps: Vec<(String, i64, String, String, String)>,
-        boundaries: Vec<(String, String, String, String, String)>,
+        boundaries: Vec<(String, String, String, String, String, String)>,
         leaves: Vec<LeafInput>,
         links: Vec<LinkInput>,
     ) -> PyResult<Self> {
@@ -411,7 +409,7 @@ impl SemanticExecutor {
             ids.sort();
         }
         let mut boundary_index: BoundaryIndex = HashMap::new();
-        for (function, formal, source, condition, reason) in boundaries {
+        for (function, formal, source, origin, condition, reason) in boundaries {
             let condition = id(&condition)?;
             if !graph.has_condition(condition) {
                 return Err(PyValueError::new_err(
@@ -427,7 +425,7 @@ impl SemanticExecutor {
             boundary_index
                 .entry((id(&function)?, id(&formal)?))
                 .or_default()
-                .push((id(&source)?, condition, reason));
+                .push((id(&source)?, id(&origin)?, condition, reason));
         }
         for reasons in boundary_index.values_mut() {
             reasons.sort();
@@ -568,61 +566,6 @@ impl SemanticExecutor {
 
     fn implies(&self, left: &str, right: &str) -> PyResult<(Option<bool>, Option<String>)> {
         self.graph.implies(left, right)
-    }
-
-    /// A positive path is offered only if its own proof and condition are present. Unknown
-    /// boundaries remain visible; an empty result is never a negative transfer conclusion.
-    fn value_paths(
-        &self,
-        operation_path: &str,
-        formal_name: &str,
-        limit: usize,
-    ) -> PyResult<ValuePathsAnswer> {
-        if limit == 0 || limit > 100 {
-            return Err(PyValueError::new_err("limit must be between 1 and 100"));
-        }
-        let operation = *self
-            .paths
-            .get(operation_path)
-            .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
-        let formal = *self
-            .formals
-            .get(&(operation, formal_name.to_owned()))
-            .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
-        let ids = self.by_formal.get(&(operation, formal));
-        let total = ids.map_or(0, Vec::len);
-        let mut result = Vec::new();
-        let mut reasons: Vec<Boundary> = self
-            .boundaries
-            .get(&(operation, formal))
-            .into_iter()
-            .flatten()
-            .map(|(source, condition, reason)| (source.hex(), condition.hex(), reason.clone()))
-            .collect();
-        for summary_id in ids.into_iter().flatten().take(limit) {
-            let summary = &self.summaries[summary_id];
-            if summary.verdict == "unknown" {
-                if let Some(reason) = &summary.boundary {
-                    reasons.push((summary_id.hex(), summary.condition_id.hex(), reason.clone()));
-                }
-                continue;
-            }
-            result.push((
-                summary_id.hex(),
-                summary.verdict.clone(),
-                summary.condition_id.hex(),
-                summary
-                    .steps
-                    .iter()
-                    .map(|(kind, evidence, condition)| {
-                        (kind.clone(), evidence.hex(), condition.hex())
-                    })
-                    .collect(),
-            ));
-        }
-        reasons.sort();
-        reasons.dedup();
-        Ok((result, reasons, total > limit, total.min(limit)))
     }
 
     /// An exact primitive input may refute one cited summary path. A satisfiable remainder or
@@ -809,8 +752,8 @@ impl SemanticExecutor {
                     theory_work,
                 ));
             } else {
-                let (source, condition, reason) = &open[index - ids.len()];
-                boundaries.push((source.hex(), condition.hex(), reason.clone()));
+                let (source, origin, condition, reason) = &open[index - ids.len()];
+                boundaries.push((source.hex(), origin.hex(), condition.hex(), reason.clone()));
             }
         }
         Ok((paths, boundaries, total, end < total, end - offset))

@@ -1481,11 +1481,28 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     }
                 };
             let (condition_id, condition) = condition_text(&contribution.source.condition);
+            let identity = contribution.source.transfer == Transfer::Identity;
+            let through_call = contribution.source.transfer == Transfer::Call;
+            let upstream_identity = contribution.upstream_transfer == Transfer::Identity;
+            let upstream_through_call = contribution.upstream_transfer == Transfer::Call;
+            let origin_id = cpg_schema::id::recipe::value_flow_origin(
+                &cpg_schema::id::recipe::ValueFlowOriginKey {
+                    fact: contribution.flow_value_fact_id,
+                    use_id: contribution.use_id,
+                    source_key: &source_key,
+                    identity,
+                    through_call,
+                    local_through_call: contribution.local_through_call,
+                    upstream_identity,
+                    upstream_through_call,
+                },
+            );
             out.value_flow_contributions
                 .push(ValueFlowContributionsRow {
                     snapshot_id,
                     flow_value_fact_id: contribution.flow_value_fact_id,
                     use_id: contribution.use_id,
+                    origin_id,
                     function_node_id,
                     sink_function_node_id: model
                         .uses
@@ -1494,11 +1511,11 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     source_key,
                     parameter_node_id,
                     class_node_id,
-                    identity: contribution.source.transfer == Transfer::Identity,
-                    through_call: contribution.source.transfer == Transfer::Call,
+                    identity,
+                    through_call,
                     local_through_call: contribution.local_through_call,
-                    upstream_identity: contribution.upstream_transfer == Transfer::Identity,
-                    upstream_through_call: contribution.upstream_transfer == Transfer::Call,
+                    upstream_identity,
+                    upstream_through_call,
                     captured: contribution.source.captured,
                     condition_id,
                     condition,

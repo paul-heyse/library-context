@@ -503,6 +503,7 @@ async fn validate_summary_boundaries(
             r.parameter_node_id,
             r.source_flow_fact_id,
             r.condition_id,
+            r.source_origin_id,
         )
     };
     actual.sort_by_key(key);

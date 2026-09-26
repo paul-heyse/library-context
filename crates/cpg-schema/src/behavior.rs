@@ -700,6 +700,7 @@ table!(
     {
         snapshot_id: Id,
         flow_value_fact_id: Id,
+        source_origin_id: Id,
         flow_value_call_fact_id: Id,
         call_site_node_id: Id,
         call_fact_id: Id,
@@ -1067,6 +1068,8 @@ table!(
         snapshot_id: Id,
         flow_value_fact_id: Id,
         use_id: Id,
+        /// Stable identity of this unaggregated source contribution.
+        origin_id: Id,
         /// Function owning the source parameter (or reading a source field).
         function_node_id: Id,
         /// Function containing this raw sink use; a captured parameter may belong to a
@@ -1224,12 +1227,15 @@ table!(
     /// completion, target closure and any enclosing exit actions remain unresolved here.
     ModeledAssignmentReturnPaths, ModeledAssignmentReturnPathsRow = "modeled_assignment_return_paths",
     family = Findings,
-    key = [snapshot_id, successor_fact_id, predecessor_fact_id, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id],
+    key = [snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id],
     checks = [("decision_or_boundary", "(compatible_under_atoms IS NULL AND boundary_reason IS NOT NULL) OR (compatible_under_atoms IS NOT NULL AND boundary_reason IS NULL)")],
     {
         snapshot_id: Id,
         successor_fact_id: Id,
         predecessor_fact_id: Id,
+        source_key: String,
+        successor_use_id: Id,
+        predecessor_source_origin_id: Id,
         reaching_fact_id: Id,
         function_node_id: Id,
         parameter_node_id: Id,
@@ -1302,6 +1308,8 @@ table!(
         verdict: Verdict,
         boundary_reason: Option<BoundaryReason>,
         source_flow_fact_id: Id,
+        /// The precise contributing raw origin proven by this path.
+        source_origin_id: Id,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         approximated: bool,
@@ -1333,13 +1341,14 @@ table!(
     /// proof. Absence of a `summary_flows` row is never a negative transfer conclusion.
     SummaryBoundaries, SummaryBoundariesRow = "summary_boundaries",
     family = Findings,
-    key = [snapshot_id, function_node_id, parameter_node_id, source_flow_fact_id, condition_id],
+    key = [snapshot_id, source_origin_id, condition_id],
     checks = [],
     {
         snapshot_id: Id,
         function_node_id: Id,
         parameter_node_id: Id,
         source_flow_fact_id: Id,
+        source_origin_id: Id,
         condition_id: Id,
         reason: BoundaryReason,
         local_through_call: bool,
@@ -2028,7 +2037,8 @@ crate::relations! {
             "WITH step_counts AS ( \
                SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \
                GROUP BY flow_value_fact_id) \
-             SELECT v.snapshot_id, v.flow_value_fact_id, fc.fact_id AS flow_value_call_fact_id, \
+             SELECT v.snapshot_id, v.flow_value_fact_id, v.origin_id AS source_origin_id, \
+                    fc.fact_id AS flow_value_call_fact_id, \
                     l.call_node_id AS call_site_node_id, l.call_fact_id, \
                     l.argument_node_id, l.argument_fact_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, v.use_id, f.sink, f.sink_start_byte, f.sink_end_byte, \
@@ -2132,9 +2142,11 @@ crate::relations! {
     /// model step. Compatibility is only a may-path check, not normal completion.
     modeled_assignment_return_paths = "behavior:modeled_assignment_return_paths",
         deps = ["value_flow_predecessor_candidates", "value_flow_predecessor_compatibility",
-                "modeled_exact_value_transfers", "flow_values"],
+                "modeled_exact_value_transfers", "value_flow_contributions", "flow_values"],
         sql = format!(
             "SELECT p.snapshot_id, p.successor_fact_id, p.predecessor_fact_id, \
+                    p.source_key, p.successor_use_id, \
+                    m.source_origin_id AS predecessor_source_origin_id, \
                     p.reaching_fact_id, p.function_node_id, p.parameter_node_id, \
                     m.call_site_node_id, m.call_fact_id, m.pysa_fact_id, m.model_id, m.rule_id, \
                     m.target_definition_fact_id, p.predecessor_condition_id, \
@@ -2159,6 +2171,10 @@ crate::relations! {
               AND m.use_id = p.predecessor_use_id \
               AND m.condition_id = p.predecessor_condition_id \
               AND m.sink = {definition_sink} \
+             JOIN value_flow_contributions pv ON pv.snapshot_id = m.snapshot_id \
+               AND pv.origin_id = m.source_origin_id \
+               AND pv.source_key = p.source_key \
+               AND pv.use_id = p.predecessor_use_id \
              JOIN flow_values s ON s.fact_id = p.successor_fact_id \
                AND s.sink = {return_sink} AND s.identity AND NOT s.through_call \
                AND s.use_id = p.successor_use_id",
@@ -2175,7 +2191,8 @@ crate::relations! {
         sql = format!(
             "SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, p.name AS parameter_name, \
-                    v.flow_value_fact_id AS source_flow_fact_id, v.condition_id, \
+                    v.flow_value_fact_id AS source_flow_fact_id, v.origin_id AS source_origin_id, \
+                    v.condition_id, \
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     r.start_byte AS return_start_byte, \
@@ -2315,6 +2332,7 @@ crate::relations! {
             "WITH {callee_candidates} \
              SELECT DISTINCT m.snapshot_id, m.function_node_id, m.parameter_node_id, \
                     p.name AS parameter_name, m.flow_value_fact_id AS source_flow_fact_id, \
+                    m.source_origin_id, \
                     m.condition_id, m.call_fact_id, \
                     m.argument_fact_id AS source_argument_fact_id, m.pysa_fact_id, \
                     m.model_id, m.rule_id, cc.resolution_fact_id AS callee_resolution_fact_id, \
@@ -2370,6 +2388,7 @@ crate::relations! {
     /// must admit it. The kernel still verifies all four condition implications at admission.
     modeled_assignment_summary_flow_seeds = "behavior:modeled_assignment_summary_flow_seeds",
         deps = ["modeled_assignment_return_paths", "modeled_exact_value_transfers",
+                "value_flow_contributions",
                 "model_applications", "model_transfers", "call_syntax", "references",
                 "reference_resolutions", "parameter_syntax", "declarations",
                 "syntax_nodes", "exit_sites", "return_exit_statuses", "flow_values", "flow_reaching"],
@@ -2379,6 +2398,7 @@ crate::relations! {
              ) \
              SELECT DISTINCT q.snapshot_id, q.function_node_id, q.parameter_node_id, \
                     p.name AS parameter_name, q.successor_fact_id AS source_flow_fact_id, \
+                    v.origin_id AS source_origin_id, \
                     q.predecessor_fact_id AS predecessor_flow_fact_id, \
                     q.reaching_fact_id, q.predecessor_condition_id, \
                     q.reaching_condition_id, q.successor_condition_id, \
@@ -2393,7 +2413,14 @@ crate::relations! {
                     (q.predecessor_raw_approximated OR q.reaching_approximated \
                      OR q.successor_raw_approximated OR e.approximated) AS approximated \
              FROM modeled_assignment_return_paths q \
+             JOIN value_flow_contributions v ON v.snapshot_id = q.snapshot_id \
+               AND v.flow_value_fact_id = q.successor_fact_id \
+               AND v.use_id = q.successor_use_id \
+               AND v.parameter_node_id = q.parameter_node_id \
+               AND v.source_key = q.source_key \
+               AND v.condition_id = q.successor_condition_id \
              JOIN modeled_exact_value_transfers m ON m.flow_value_fact_id = q.predecessor_fact_id \
+               AND m.source_origin_id = q.predecessor_source_origin_id \
                AND m.parameter_node_id = q.parameter_node_id \
                AND m.pysa_fact_id = q.pysa_fact_id AND m.model_id = q.model_id \
                AND m.rule_id = q.rule_id AND m.sink = {definition_sink} \
@@ -2463,7 +2490,8 @@ crate::relations! {
              ) \
              SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, p.name AS parameter_name, \
-                    v.flow_value_fact_id AS source_flow_fact_id, v.condition_id, \
+                    v.flow_value_fact_id AS source_flow_fact_id, v.origin_id AS source_origin_id, \
+                    v.condition_id, \
                     c.node_id AS call_site_node_id, c.fact_id AS call_fact_id, \
                     t.pysa_fact_id, t.target_node_id AS callee_node_id, \
                     a.formal_node_id AS callee_parameter_node_id, \
@@ -2542,6 +2570,7 @@ crate::relations! {
         sql = format!(
             "SELECT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, v.flow_value_fact_id AS source_flow_fact_id, \
+                    v.origin_id AS source_origin_id, \
                     v.condition_id, v.use_id, v.source_key, v.through_call, \
                     v.local_through_call, v.upstream_through_call, \
                     f.through_call AS raw_through_call, \
@@ -2553,58 +2582,6 @@ crate::relations! {
                AND b.use_id = v.use_id \
              WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
                AND v.function_node_id = v.sink_function_node_id",
-            return_sink = FlowSink::Return.code(),
-        );
-
-    /// Unknown-is-not-absent for every same-callable parameter-origin return fact not admitted
-    /// by the finite producer. Multiple distinct contributions may share the same raw fact and
-    /// condition: one positive proof cannot erase an unproved sibling. A crossed call takes the
-    /// more specific transfer reason; other shapes await their control/execution proof.
-    summary_boundaries = "behavior:summary_boundaries",
-        deps = ["value_flow_contributions", "flow_values", "summary_flows"],
-        sql = format!(
-            "WITH origin_counts AS ( \
-               SELECT snapshot_id, sink_function_node_id AS function_node_id, parameter_node_id, \
-                      flow_value_fact_id AS source_flow_fact_id, condition_id, \
-                      COUNT(*) AS origin_count \
-               FROM value_flow_contributions \
-               WHERE parameter_node_id IS NOT NULL \
-                 AND function_node_id = sink_function_node_id \
-               GROUP BY snapshot_id, sink_function_node_id, parameter_node_id, \
-                        flow_value_fact_id, condition_id \
-             ), remaining AS ( \
-               SELECT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
-                      v.parameter_node_id, v.flow_value_fact_id AS source_flow_fact_id, \
-                      v.condition_id, v.through_call, v.local_through_call, \
-                      v.upstream_through_call, f.through_call AS raw_through_call, \
-                      f.approximated AS raw_approximated \
-               FROM value_flow_contributions v \
-               JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
-               JOIN origin_counts n ON n.snapshot_id = v.snapshot_id \
-                 AND n.function_node_id = v.sink_function_node_id \
-                 AND n.parameter_node_id = v.parameter_node_id \
-                 AND n.source_flow_fact_id = v.flow_value_fact_id \
-                 AND n.condition_id = v.condition_id \
-               WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
-                 AND v.function_node_id = v.sink_function_node_id \
-                 AND NOT EXISTS (SELECT 1 FROM summary_flows s \
-                     WHERE s.function_node_id = v.sink_function_node_id \
-                       AND s.parameter_node_id = v.parameter_node_id \
-                       AND s.source_flow_fact_id = v.flow_value_fact_id \
-                       AND s.condition_id = v.condition_id \
-                       AND n.origin_count = 1) \
-             ) SELECT snapshot_id, function_node_id, parameter_node_id, \
-                      source_flow_fact_id, condition_id, \
-                    CAST(CASE WHEN MAX(CASE WHEN through_call OR local_through_call \
-                             OR upstream_through_call OR raw_through_call THEN 1 ELSE 0 END) > 0 \
-                              THEN {call_transfer} ELSE {control} END AS SMALLINT) AS reason, \
-                    MAX(CASE WHEN local_through_call THEN 1 ELSE 0 END) > 0 AS local_through_call, \
-                    MAX(CASE WHEN upstream_through_call THEN 1 ELSE 0 END) > 0 AS upstream_through_call, \
-                    MAX(CASE WHEN raw_approximated THEN 1 ELSE 0 END) > 0 AS raw_approximated \
-               FROM remaining GROUP BY snapshot_id, function_node_id, parameter_node_id, \
-                    source_flow_fact_id, condition_id",
-            call_transfer = BoundaryReason::CallTransfer.code(),
-            control = BoundaryReason::UnsupportedControlFlow.code(),
             return_sink = FlowSink::Return.code(),
         );
 

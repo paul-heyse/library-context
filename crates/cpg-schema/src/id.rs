@@ -96,6 +96,7 @@ pub mod kind {
     pub const BRIEF: &str = "brief";
     pub const SUMMARY_FLOW: &str = "summary-flow";
     pub const SUMMARY_COMPONENT: &str = "summary-component";
+    pub const VALUE_FLOW_ORIGIN: &str = "value-flow-origin";
 }
 
 /// The id recipes computed in Rust whose inputs are also columns, so the `lctx_id` UDF recomputes
@@ -103,6 +104,30 @@ pub mod kind {
 /// the `opt_*` encoding, as the UDF does.
 pub mod recipe {
     use super::{Digest, Id, IdHasher, kind};
+
+    /// Identity of one unaggregated source contribution. These are precisely the semantic
+    /// columns of the `value_flow_contributions` key; a presentation fact may have many origins.
+    #[derive(Clone, Copy)]
+    pub struct ValueFlowOriginKey<'a> {
+        pub fact: Id,
+        pub use_id: Id,
+        pub source_key: &'a str,
+        pub identity: bool,
+        pub through_call: bool,
+        pub local_through_call: bool,
+        pub upstream_identity: bool,
+        pub upstream_through_call: bool,
+    }
+
+    pub fn value_flow_origin(spec: &ValueFlowOriginKey<'_>) -> Id {
+        IdHasher::new(kind::VALUE_FLOW_ORIGIN)
+            .opt_id(Some(spec.fact)).opt_id(Some(spec.use_id))
+            .opt_str(Some(spec.source_key))
+            .opt_bool(Some(spec.identity)).opt_bool(Some(spec.through_call))
+            .opt_bool(Some(spec.local_through_call))
+            .opt_bool(Some(spec.upstream_identity))
+            .opt_bool(Some(spec.upstream_through_call)).finish_id()
+    }
     use crate::codebook::{Codebook, SummaryFlowKind, SummaryFlowStepKind};
 
     /// A call's argument at an ordinal: a role, never the expression's own id.
@@ -221,6 +246,7 @@ pub mod recipe {
     pub struct SummaryFlowIdentity<'a> {
         pub function: Id,
         pub parameter: Id,
+        pub source_origin: Id,
         pub input_path: &'a str,
         pub output_path: &'a str,
         pub transfer_kind: SummaryFlowKind,
@@ -235,6 +261,7 @@ pub mod recipe {
         hasher
             .id(spec.function)
             .id(spec.parameter)
+            .id(spec.source_origin)
             .str(spec.input_path)
             .str(spec.output_path)
             .i64(i64::from(spec.transfer_kind.code()))

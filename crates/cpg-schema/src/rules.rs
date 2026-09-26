@@ -152,6 +152,7 @@ pub const REFERENCES: &[Reference] = &[
         "flow_value_fact_id",
         &[("flow_values", "fact_id")],
     ),
+    r("modeled_exact_value_transfers", "source_origin_id", &[("value_flow_contributions", "origin_id")]),
     r(
         "modeled_exact_value_transfers",
         "flow_value_call_fact_id",
@@ -357,6 +358,8 @@ pub const REFERENCES: &[Reference] = &[
         "predecessor_fact_id",
         &[("flow_values", "fact_id")],
     ),
+    r("modeled_assignment_return_paths", "successor_use_id", &[("flow_uses", "use_id")]),
+    r("modeled_assignment_return_paths", "predecessor_source_origin_id", &[("value_flow_contributions", "origin_id")]),
     r("modeled_assignment_return_paths", "reaching_fact_id", FACT),
     r(
         "modeled_assignment_return_paths",
@@ -430,6 +433,7 @@ pub const REFERENCES: &[Reference] = &[
         "source_flow_fact_id",
         &[("flow_values", "fact_id")],
     ),
+    r("summary_flows", "source_origin_id", &[("value_flow_contributions", "origin_id")]),
     r("summary_flows", "return_site_fact_id", FACT),
     r("summary_flows", "return_region_fact_id", FACT),
     r(
@@ -474,6 +478,7 @@ pub const REFERENCES: &[Reference] = &[
         "source_flow_fact_id",
         &[("flow_values", "fact_id")],
     ),
+    r("summary_boundaries", "source_origin_id", &[("value_flow_contributions", "origin_id")]),
     r(
         "summary_boundaries",
         "condition_id",
@@ -1354,6 +1359,14 @@ fn semantic() -> Vec<Rule> {
         ),
     ];
     flow_rules.into_iter().chain([
+        (
+            "semantic:value-flow-origin-identity",
+            "SELECT origin_id FROM value_flow_contributions \
+             WHERE CAST(origin_id AS BYTEA) <> \
+               CAST(lctx_id('value-flow-origin', flow_value_fact_id, use_id, source_key, \
+                 identity, through_call, local_through_call, upstream_identity, \
+                 upstream_through_call) AS BYTEA)".to_owned(),
+        ),
         (
             // A missing argument would make "all evaluated" vacuously true. The Ruff call
             // counts and the placed role rows must agree, with dense source ordinals.
