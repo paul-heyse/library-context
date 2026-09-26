@@ -1067,6 +1067,55 @@ mod tests {
         }
     }
 
+    fn split_equalities(bits_per_half: usize) -> (Diagram, Diagram) {
+        use cpg_schema::condition::Atom;
+
+        let mut halves = [Diagram::always(), Diagram::always()];
+        for bit in 0..bits_per_half * 2 {
+            let a = Diagram::from_atom(&Atom::Truthy { place: format!("a{bit:02}") }).unwrap();
+            let b = Diagram::from_atom(&Atom::Truthy { place: format!("b{bit:02}") }).unwrap();
+            let both = a.and(&b).unwrap();
+            let neither = a.not().unwrap().and(&b.not().unwrap()).unwrap();
+            let equal = both.or(&neither).unwrap();
+            let half = usize::from(bit >= bits_per_half);
+            halves[half] = halves[half].and(&equal).unwrap();
+        }
+        let [left, right] = halves;
+        (left, right)
+    }
+
+    fn direct_with_bounded_predecessor(return_condition: Diagram, call_condition: Diagram)
+        -> FiniteSummaryOutcome
+    {
+        let mut input = inputs();
+        let return_id = return_condition.id();
+        let call_id = call_condition.id();
+        input.diagrams.insert(return_id, return_condition);
+        input.diagrams.insert(call_id, call_condition);
+        input.direct_seeds[0].condition_id = return_id;
+        input.boundary_candidates[0].condition_id = return_id;
+        input.preceding_calls.insert(id(2), vec![PrecedingCallRegion {
+            function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
+            condition_id: Some(call_id), approximated: Some(false),
+        }]);
+        finite_flows(input)
+    }
+
+    #[test]
+    fn actual_predecessor_work_and_node_caps_keep_specific_unknown_causes() {
+        for (bits, expected) in [
+            (8, BoundaryReason::ConditionNodeLimit),
+            (10, BoundaryReason::ConditionWorkLimit),
+        ] {
+            let (return_condition, call_condition) = split_equalities(bits);
+            let outcome = direct_with_bounded_predecessor(return_condition, call_condition);
+            assert!(outcome.flows.is_empty());
+            assert_eq!(outcome.boundaries.len(), 1);
+            assert_eq!(outcome.boundaries[0].reason, expected);
+            assert_eq!(outcome.refusals[0].reason, expected);
+        }
+    }
+
     #[test]
     fn direct_admission_and_independent_preceding_call_control_use_pure_inputs() {
         let outcome = finite_flows(inputs());

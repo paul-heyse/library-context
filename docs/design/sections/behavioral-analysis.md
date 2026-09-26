@@ -302,9 +302,11 @@ singleton recursive. Candidate/open dispatch contributes topology only.
 
 **Known gaps** ([plan W5, W7, W12, W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - W5 (ARC-02/03) has focused production and native evidence for explicit finite inputs and
-  specific depth/control/atom-limit refusals. Persisted origin identity and independent challenge
-  of every BDD refusal variant remain open in the Stage 3 execution queue.
-- W7: the flow model's cyclic reach, a summary input, is not yet a fixed point (§3.9).
+  specific depth/control/atom-limit refusals. Actual predecessor conjunctions also preserve
+  work- and node-limit reasons through the pure producer and boundary decision in focused tests
+  (2026-09-26). Their Delta/native publication controls and persisted origin identity remain open.
+- W7: the flow model's cyclic reach uses the bounded source fixed point (§3.9); its production-cap
+  native trace, shuffled real extraction bytes and fresh pilot cost remain open.
 - W12: the engine for bounded SCC composition (a native SCC worklist, Ascent or datafrog) is an
   open comparison on one semantic state and refusal contract, after W5; none is adopted. A
   wall-clock timeout is not a deterministic budget.
