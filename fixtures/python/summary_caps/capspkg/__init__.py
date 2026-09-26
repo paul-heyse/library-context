@@ -86,6 +86,18 @@ def signed_literal_predecessor(value: object) -> object:
     return value
 
 
+def boolean_not_predecessor(value: object) -> object:
+    """Boolean negation of a literal completes before the pinned normal call."""
+    cast(object, not False)
+    return value
+
+
+def raising_not_predecessor(value: object) -> object:
+    """A raising operand cannot borrow the direct-literal normal witness."""
+    cast(object, not (1 / 0))
+    return value
+
+
 def string_member_identity(transport: str) -> str | None:
     """A source-local membership guard constrains the returned formal."""
     if transport in ("http", "sse"):

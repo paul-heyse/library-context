@@ -1661,10 +1661,12 @@ fn simple_argument_evidence_sql() -> String {
            JOIN syntax_nodes u ON u.module_node_id = c.module_node_id \
              AND u.parent_node_id = c.node_id AND u.field = {argument_field} \
              AND u.start_byte = a.value_start_byte AND u.end_byte = a.value_end_byte \
-             AND u.kind = {unary_expr} AND u.detail IN ('+', '-') \
+             AND u.kind = {unary_expr} AND u.detail IN ('+', '-', 'not') \
            JOIN syntax_nodes operand ON operand.parent_node_id = u.node_id \
              AND operand.module_node_id = u.module_node_id \
-             AND operand.field = {operand_field} AND operand.kind = {number_literal} \
+             AND operand.field = {operand_field} \
+             AND ((u.detail IN ('+', '-') AND operand.kind = {number_literal}) OR \
+                  (u.detail = 'not' AND operand.kind = {boolean_literal})) \
            WHERE a.kind IN ({positional}, {keyword}) \
          ), builtin_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \

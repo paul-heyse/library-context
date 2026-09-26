@@ -180,8 +180,10 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "a bounded condition cannot publish a positive summary");
     for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
-        ("signed_literal_predecessor", 1), ("two_completed_predecessors", 2),
-        ("raising_unary_predecessor", 0), ("completed_then_raising", 0),
+        ("signed_literal_predecessor", 1), ("boolean_not_predecessor", 1),
+        ("two_completed_predecessors", 2),
+        ("raising_unary_predecessor", 0), ("raising_not_predecessor", 0),
+        ("completed_then_raising", 0),
         ("assigned_local_argument", 1),
         ("raising_predecessor", 0), ("possibly_unbound_argument", 0),
         ("possibly_unbound_local_argument", 0),
@@ -215,13 +217,13 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'completed_then_raising', 'possibly_unbound_argument', \
+        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'raising_not_predecessor', 'completed_then_raising', 'possibly_unbound_argument', \
           'possibly_unbound_local_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 7, "uncertain arguments and callees must stay unknown");
+    assert_eq!(counts.value(0), 8, "uncertain arguments and callees must stay unknown");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
@@ -324,6 +326,18 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
         JOIN call_syntax c ON c.fact_id = p.call_fact_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+        WHERE d.name = 'boolean_not_predecessor' \
+          AND s.kind = {} AND s.detail = 'not'",
+        cpg_schema::behavior::preceding_normal_call_arguments().sql,
+        cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the Boolean negation must cite its unary syntax fact");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
+        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
+        JOIN declarations d ON d.node_id = c.owner_node_id \
         WHERE d.name = 'assigned_local_argument' \
           AND p.evaluation_evidence_id IN (SELECT fact_id FROM flow_reaching)",
         cpg_schema::behavior::preceding_normal_call_arguments().sql))
@@ -399,6 +413,7 @@ for operation, expected in (
     ("capspkg.unsupported", "unsupported_control_flow"),
     ("capspkg.raising_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_unary_predecessor", "unsupported_control_flow"),
+    ("capspkg.raising_not_predecessor", "unsupported_control_flow"),
     ("capspkg.completed_then_raising", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_local_argument", "unsupported_control_flow"),
@@ -412,7 +427,7 @@ for operation, expected in (
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[3] == expected for boundary in boundaries), (operation, paths, boundaries)
-for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
+for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.boolean_not_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated and not boundaries, (operation, paths, boundaries)
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
