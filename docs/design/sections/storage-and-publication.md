@@ -226,7 +226,8 @@ compares two snapshots read separately.
 ### §6.3 Schema evolution
 
 **Implemented** and **Tested** for strict verification (`cpg_core::delta::verify`;
-`cpg-core/tests/delta.rs`). The migration mechanism is an **open choice**.
+`cpg-core/tests/delta.rs`). The fresh-store rebuild policy is **Interface-checked**; its first
+execution after the `function_implementations` schema migration is pending the integrated gate.
 
 - **What is implemented: strict verification, no evolution.** When an attempt opens a table,
   `verify` compares the stored Delta schema with the table's declared `cpg-schema` contract and
@@ -236,18 +237,20 @@ compares two snapshots read separately.
   ([plan W15](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), RF/F16).
 - **A schema change is a reviewed migration.** It shows as a changed contract snapshot, is
   accepted by reading the `.snap.new` and is named as a migration in its commit. In practice it
-  needs a fresh store: move the old store aside and copy its `embedding_cache` and
-  `embedding_specs` into the new one (the forward plan's §9 convention). Snapshots in the old store
-  stay readable only there, with the old binary.
+  needs a fresh store. The old store can be moved aside temporarily for rollback; the new compile
+  produces its own `embedding_specs` and current snapshot. Historical snapshot reads and keeping
+  the old binary are not supported requirements.
 - **A change to a table's CHECK set is a migration** in the same way, because the open-time verify
   refuses a table whose constraints differ from the declared set.
 - **Schema digests** are `cpg-schema`'s digest of the declared contract, never of Arrow read back,
   because read-back changes `Utf8` → `Utf8View` and renames list children to `element`.
-- **Open choice** (W15). A supported migration or rebuild policy that keeps older snapshots
-  readable in one store (for example additive columns through Delta schema evolution, a
-  versioned replacement table recorded in `snapshots`, or a rebuild from pinned inputs) is not
-  decided. The trigger is the first schema change that must keep older snapshots readable; the
-  choice then gets an ADR.
+- **Rebuild policy** ([ADR-0048](../../adr/0048-schema-rebuild-policy.md), W15). Build a fresh
+  store from pinned inputs under new producer/compiler identity and publish the current library's
+  new snapshot. Do not copy old analysis tables or snapshots. The global embedding cache may be
+  reused only through its independently verified contract. The old store can be removed after
+  acceptance. A real historical-read consumer reopens this policy; no in-place merge is implied.
+
+> Decision: ADR-0048
 
 
 ### §6.4 Serving generations
