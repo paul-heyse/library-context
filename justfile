@@ -89,7 +89,7 @@ pilot-live:
 # The embedding service (DESIGN §11.1, ADR-0043): vLLM 0.30.0 from the locked services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
 embed-serve port="8000":
-    uv run --project services/vllm --frozen vllm serve Qwen/Qwen3-Embedding-8B --revision 1d8ad4ca9b3dd8059ad90a75d4983776a23d44af --runner pooling --max-model-len 8192 --dtype bfloat16 --gpu-memory-utilization 0.80 --port {{port}}
+    uv run python scripts/embed_serve.py --port {{port}}
 
 # The live leg of the client conformance check (§11.1, E2): needs `just embed-serve` running
 embed-conformance url="http://127.0.0.1:8000":
