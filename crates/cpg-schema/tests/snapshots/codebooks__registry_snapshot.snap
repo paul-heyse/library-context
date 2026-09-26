@@ -454,6 +454,12 @@ type_role
   2 call_result
   3 argument
   4 raised
+function_body_kind
+  0 raise_not_implemented_error
+  1 return_not_implemented
+  2 ellipsis
+  3 trivial
+  4 other
 test_type_origin
   0 pyrefly_trace
 test_value_link_origin

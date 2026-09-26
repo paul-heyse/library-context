@@ -776,6 +776,17 @@ codebook!(
 );
 
 codebook!(
+    /// Pyrefly's resolved function-body classification, not a source-text guess.
+    FunctionBodyKind = "function_body_kind" {
+        RaiseNotImplementedError = 0 => "raise_not_implemented_error",
+        ReturnNotImplemented = 1 => "return_not_implemented",
+        Ellipsis = 2 => "ellipsis",
+        Trivial = 3 => "trivial",
+        Other = 4 => "other",
+    }
+);
+
+codebook!(
     /// Which record model a class's fields come from (C4, `record_fields`).
     RecordKind = "record_kind" {
         Dataclass = 0 => "dataclass",
@@ -1627,6 +1638,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<TypeTermKind>(),
         CodebookEntry::of::<TypeArgRole>(),
         CodebookEntry::of::<TypeRole>(),
+        CodebookEntry::of::<FunctionBodyKind>(),
         CodebookEntry::of::<TestTypeOrigin>(),
         CodebookEntry::of::<TestValueLinkOrigin>(),
         CodebookEntry::of::<ExactValueOrigin>(),

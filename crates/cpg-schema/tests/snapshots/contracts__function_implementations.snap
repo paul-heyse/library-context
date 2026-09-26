@@ -1,0 +1,18 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table function_implementations
+family types
+key snapshot_id, function_node_id
+@lctx.family=types
+@lctx.table=function_implementations
+snapshot_id: FixedSizeBinary(16) NOT NULL
+fact_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+body_kind: Int16 NOT NULL [lctx.codebook=function_body_kind]
+is_abstract_method: Boolean NOT NULL
+is_in_protocol_class: Boolean NOT NULL
+is_in_type_checking_block: Boolean NOT NULL
+is_overload: Boolean NOT NULL

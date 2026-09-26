@@ -62,6 +62,8 @@ key:type_term_args
   SELECT snapshot_id, parent_node_id, role, ordinal, fact_id, count(*) AS n FROM type_term_args GROUP BY snapshot_id, parent_node_id, role, ordinal, fact_id HAVING count(*) > 1
 key:type_observations
   SELECT snapshot_id, subject_node_id, role, fact_id, count(*) AS n FROM type_observations GROUP BY snapshot_id, subject_node_id, role, fact_id HAVING count(*) > 1
+key:function_implementations
+  SELECT snapshot_id, function_node_id, count(*) AS n FROM function_implementations GROUP BY snapshot_id, function_node_id HAVING count(*) > 1
 key:record_fields
   SELECT snapshot_id, class_node_id, ordinal, fact_id, count(*) AS n FROM record_fields GROUP BY snapshot_id, class_node_id, ordinal, fact_id HAVING count(*) > 1
 key:documents
@@ -1030,6 +1032,10 @@ fact:type_observations
   SELECT t.fact_id FROM type_observations t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'type_observations'
 fact-payload:type_observations
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN type_observations t ON t.fact_id = f.fact_id WHERE f.table_name = 'type_observations'
+fact:function_implementations
+  SELECT t.fact_id FROM function_implementations t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'function_implementations'
+fact-payload:function_implementations
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN function_implementations t ON t.fact_id = f.fact_id WHERE f.table_name = 'function_implementations'
 fact:record_fields
   SELECT t.fact_id FROM record_fields t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'record_fields'
 fact-payload:record_fields
@@ -1123,7 +1129,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'context_class_mro', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_value_calls', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'context_class_mro', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'function_implementations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_value_calls', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -1180,6 +1186,8 @@ codebook:type_term_args.parameter_kind
   SELECT parameter_kind FROM type_term_args WHERE parameter_kind IS NOT NULL AND parameter_kind NOT IN (0, 1, 2, 3, 4)
 codebook:type_observations.role
   SELECT role FROM type_observations WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4)
+codebook:function_implementations.body_kind
+  SELECT body_kind FROM function_implementations WHERE body_kind IS NOT NULL AND body_kind NOT IN (0, 1, 2, 3, 4)
 codebook:record_fields.record_kind
   SELECT record_kind FROM record_fields WHERE record_kind IS NOT NULL AND record_kind NOT IN (0, 1, 2, 3, 4)
 codebook:mentions.class

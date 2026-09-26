@@ -38,7 +38,7 @@ use cpg_schema::tables::{
     ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
     Distributions, DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
     ExportSyntax, Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
-    FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues, Mentions,
+    FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues, FunctionImplementations, Mentions,
     ParameterDocs, ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow,
     PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions,
     References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow,
@@ -1035,6 +1035,7 @@ fn run_release(
     dedup_by_fact(&mut types_out.terms, |r| r.fact_id);
     dedup_by_fact(&mut types_out.args, |r| r.fact_id);
     dedup_by_fact(&mut types_out.observations, |r| r.fact_id);
+    dedup_by_fact(&mut types_out.implementations, |r| r.fact_id);
     dedup_by_fact(&mut types_out.fields, |r| r.fact_id);
     dedup_by_fact(&mut pysa.functions, |r| r.fact_id);
     dedup_by_fact(&mut pysa.parameters, |r| r.fact_id);
@@ -1161,6 +1162,10 @@ fn run_release(
         (
             TypeObservations::NAME,
             TypeObservations::to_sorted_batch(&types_out.observations)?,
+        ),
+        (
+            FunctionImplementations::NAME,
+            FunctionImplementations::to_sorted_batch(&types_out.implementations)?,
         ),
         (
             RecordFields::NAME,

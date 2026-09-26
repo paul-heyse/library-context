@@ -6,7 +6,7 @@
 use crate::codebook::{
     AncestryRelation, ArgumentKind, AttributeValueKind, BindingKind, BoundaryReason, ComponentForm,
     ConditionAtom, CoverageStatus, DeclarationKind, DefinitionKind, ExportSyntaxKind,
-    ExtractionMode, FactFamily, Fidelity, FlowCallOperandRole, FlowSink, ImplicitReceiver,
+    ExtractionMode, FactFamily, Fidelity, FlowCallOperandRole, FlowSink, FunctionBodyKind, ImplicitReceiver,
     InvocationPhase, LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin,
     ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind,
     ScopeKind, SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind,
@@ -1220,6 +1220,26 @@ table!(
 );
 
 table!(
+    /// Pyrefly's resolved function flags and body classification. This is the typed authority
+    /// for abstract and placeholder-body admission in the behavior model.
+    FunctionImplementations, FunctionImplementationsRow = "function_implementations",
+    family = Types,
+    key = [snapshot_id, function_node_id],
+    checks = [],
+    {
+        snapshot_id: Id,
+        fact_id: Id,
+        function_node_id: Id,
+        module_node_id: Id,
+        body_kind: FunctionBodyKind,
+        is_abstract_method: bool,
+        is_in_protocol_class: bool,
+        is_in_type_checking_block: bool,
+        is_overload: bool,
+    }
+);
+
+table!(
     /// The fields a class declares under a record model (C4): dataclass, attrs, pydantic,
     /// `TypedDict`, `NamedTuple`. One row per field the class itself declares (an inherited field
     /// is its base's row), with the flags as the field states them. The constructor they imply is
@@ -1528,6 +1548,7 @@ macro_rules! for_each_table {
             $crate::tables::TypeTerms,
             $crate::tables::TypeTermArgs,
             $crate::tables::TypeObservations,
+            $crate::tables::FunctionImplementations,
             $crate::tables::RecordFields,
             $crate::tables::Documents,
             $crate::tables::Passages,

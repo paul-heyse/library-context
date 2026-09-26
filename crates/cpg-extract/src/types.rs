@@ -20,12 +20,12 @@
 use std::collections::{HashMap, HashSet};
 
 use cpg_schema::codebook::{
-    BoundaryReason, DeclarationKind, ExtractionMode, Fidelity, Modality, Origin, ParameterKind,
+    BoundaryReason, DeclarationKind, ExtractionMode, Fidelity, FunctionBodyKind, Modality, Origin, ParameterKind,
     RecordKind, SyntaxField, SyntaxKind, TypeArgRole, TypeRole, TypeTermKind,
 };
 use cpg_schema::id::{Id, IdHasher, kind, recipe};
 use cpg_schema::tables::{
-    RecordFields, RecordFieldsRow, TypeObservations, TypeObservationsRow, TypeTermArgs,
+    FunctionImplementations, FunctionImplementationsRow, RecordFields, RecordFieldsRow, TypeObservations, TypeObservationsRow, TypeTermArgs,
     TypeTermArgsRow, TypeTerms, TypeTermsRow,
 };
 use pyrefly::alt::answers::Solutions;
@@ -39,6 +39,7 @@ use pyrefly::report::pysa::context::ModuleContext;
 use pyrefly::report::pysa::function::get_all_decorated_functions;
 use pyrefly_types::callable::{Callable, Param, ParamList, Params, PrefixParam, Required};
 use pyrefly_types::class::Class;
+use pyrefly_types::function::BodyKind;
 use pyrefly_types::literal::Lit;
 use pyrefly_types::quantified::{Quantified, QuantifiedKind, QuantifiedOrigin};
 use pyrefly_types::tuple::Tuple;
@@ -62,6 +63,7 @@ pub(crate) struct TypesOut {
     pub terms: Vec<TypeTermsRow>,
     pub args: Vec<TypeTermArgsRow>,
     pub observations: Vec<TypeObservationsRow>,
+    pub implementations: Vec<FunctionImplementationsRow>,
     pub fields: Vec<RecordFieldsRow>,
     /// Terms already emitted in this run, with their display.
     emitted: HashMap<Id, String>,
@@ -856,6 +858,31 @@ pub(crate) fn module_types(
             });
             continue;
         };
+        let flags = &f.undecorated.metadata.flags;
+        let body_kind = match flags.body_kind {
+            BodyKind::RaiseNotImplementedError => FunctionBodyKind::RaiseNotImplementedError,
+            BodyKind::ReturnNotImplemented => FunctionBodyKind::ReturnNotImplemented,
+            BodyKind::Ellipsis => FunctionBodyKind::Ellipsis,
+            BodyKind::Trivial => FunctionBodyKind::Trivial,
+            BodyKind::Other => FunctionBodyKind::Other,
+        };
+        let row = fact_row!(
+            b.sink,
+            FunctionImplementations,
+            pyrefly_types(Fidelity::NativeStructural),
+            FunctionImplementationsRow {
+                snapshot_id: Id::ZERO,
+                fact_id: Id::ZERO,
+                function_node_id: function,
+                module_node_id: m.module_node_id,
+                body_kind,
+                is_abstract_method: flags.is_abstract_method,
+                is_in_protocol_class: flags.is_in_protocol_class,
+                is_in_type_checking_block: flags.is_in_type_checking_block,
+                is_overload: flags.is_overload,
+            }
+        );
+        b.out.implementations.push(row);
         for p in &f.undecorated.params {
             let Some(pname) = p.name() else { continue };
             match params.get(&(function, pname.as_str())) {

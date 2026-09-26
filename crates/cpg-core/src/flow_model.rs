@@ -26,7 +26,7 @@ use cpg_schema::behavior::{
     ValueFlowsRow,
 };
 use cpg_schema::codebook::{
-    BindingKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EdgeKind, FlowSink,
+    BindingKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind, EdgeKind, FlowSink, FunctionBodyKind,
     LexicalScopeKind, PremiseKind, ReadPhase, SourceRole, SyntaxField, SyntaxKind,
 };
 use cpg_schema::condition::Condition;
@@ -187,6 +187,17 @@ cpg_schema::query_row! {
         field: SyntaxField,
         start_byte: i64,
         end_byte: i64,
+    }
+}
+
+cpg_schema::query_row! {
+    struct FunctionImplementationRow {
+        function_node_id: Id,
+        body_kind: FunctionBodyKind,
+        is_abstract_method: bool,
+        is_in_protocol_class: bool,
+        is_in_type_checking_block: bool,
+        is_overload: bool,
     }
 }
 
@@ -412,6 +423,15 @@ cpg_schema::relations! {
             try_ = SyntaxKind::StmtTry.code(),
             with = SyntaxKind::StmtWith.code(),
             handler = SyntaxKind::ExceptHandlerExceptHandler.code(),
+        );
+    implementations = "flow_model_implementations",
+        deps = ["function_implementations", "source_files"],
+        sql = format!(
+            "SELECT f.function_node_id, f.body_kind, f.is_abstract_method, \
+                    f.is_in_protocol_class, f.is_in_type_checking_block, f.is_overload \
+             FROM function_implementations f JOIN ({release}) m \
+               ON m.module_node_id = f.module_node_id ORDER BY f.function_node_id",
+            release = release_modules(),
         );
     /// Each release function's body statements and decorators.
     bodies = "flow_model_bodies",
@@ -994,6 +1014,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         .map(|r| r.name)
         .collect();
     let clause_rows: Vec<ClauseRow> = sql::fetch(ctx, &clauses(), p()).await?;
+    let implementation_rows: Vec<FunctionImplementationRow> =
+        sql::fetch(ctx, &implementations(), p()).await?;
     let body_rows: Vec<BodyRow> = sql::fetch(ctx, &bodies(), p()).await?;
     let complete: BTreeSet<Id> = sql::fetch::<CoveredRow>(ctx, &flow_complete(), p())
         .await?
@@ -1230,31 +1252,41 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         })
     };
 
-    // A body the operation's callers may not run (the Stage 2 end review's R1): abstract, a stub
-    // (only `pass`, `...` or a docstring), or one that only raises.
+    // Pyrefly's resolved flags own abstract, Protocol, overload and placeholder classification.
+    // Syntax remains useful for a non-NotImplementedError body that only raises.
+    let implementations: HashMap<Id, &FunctionImplementationRow> = implementation_rows
+        .iter()
+        .map(|row| (row.function_node_id, row))
+        .collect();
     let mut body_of: HashMap<Id, Vec<&BodyRow>> = HashMap::new();
     for b in &body_rows {
         body_of.entry(b.function_node_id).or_default().push(b);
     }
-    let not_behavior = |f: Id| -> Option<&'static str> {
+    let not_behavior = |f: Id| -> Option<(BoundaryReason, &'static str)> {
+        let Some(implementation) = implementations.get(&f) else {
+            return Some((BoundaryReason::MissingEvidence, "Pyrefly supplied no function status"));
+        };
+        if implementation.is_in_type_checking_block {
+            return Some((BoundaryReason::RuntimeUnreachable, "a type-checking-only body"));
+        }
+        if implementation.is_abstract_method {
+            return Some((BoundaryReason::AbstractBody, "an abstract method"));
+        }
+        if implementation.is_overload {
+            return Some((BoundaryReason::AbstractBody, "an overload signature"));
+        }
+        if matches!(implementation.body_kind, FunctionBodyKind::Ellipsis | FunctionBodyKind::Trivial) {
+            return Some((BoundaryReason::AbstractBody, if implementation.is_in_protocol_class {
+                "a Protocol placeholder"
+            } else {
+                "a stub body"
+            }));
+        }
+        if implementation.body_kind == FunctionBodyKind::RaiseNotImplementedError {
+            return Some((BoundaryReason::AbstractBody, "a body that only raises"));
+        }
         let rows = body_of.get(&f)?;
         let text = |r: &BodyRow| text_of(&texts, r.module_node_id, r.start_byte, r.end_byte);
-        if rows
-            .iter()
-            .filter(|r| r.field == SyntaxField::Decorator)
-            .any(|r| {
-                text(r).is_some_and(|t| {
-                    t.trim()
-                        .trim_start_matches('@')
-                        .rsplit('.')
-                        .next()
-                        .map(str::trim)
-                        == Some("abstractmethod")
-                })
-            })
-        {
-            return Some("an abstract method");
-        }
         let body: Vec<&BodyRow> = rows
             .iter()
             .filter(|r| r.field == SyntaxField::Body)
@@ -1268,16 +1300,12 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                         t == "..." || t.starts_with('"') || t.starts_with('\'')
                     }))
         };
-        if body.is_empty() {
-            None
-        } else if body.iter().all(|r| inert(r)) {
-            Some("a stub body")
-        } else if body.iter().any(|r| r.kind == SyntaxKind::StmtRaise)
+        if body.iter().any(|r| r.kind == SyntaxKind::StmtRaise)
             && body
                 .iter()
                 .all(|r| r.kind == SyntaxKind::StmtRaise || inert(r))
         {
-            Some("a body that only raises")
+            Some((BoundaryReason::AbstractBody, "a body that only raises"))
         } else {
             None
         }
@@ -2201,10 +2229,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 Some(BoundaryReason::RuntimeUnreachable),
                 Some("its declaration is unreachable at runtime".to_owned()),
             )
-        } else if let Some(why) = not_behavior(u.function_node_id) {
+        } else if let Some((boundary, why)) = not_behavior(u.function_node_id) {
             (
                 false,
-                Some(BoundaryReason::AbstractBody),
+                Some(boundary),
                 Some(format!(
                     "{why}: an override or caller supplies the behavior"
                 )),

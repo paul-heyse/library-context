@@ -98,7 +98,7 @@ pub struct Published {
 /// 73: incompatible earlier call regions no longer block a finite direct return path.
 /// 74: raw value-flow contribution keys retain local and upstream transfer provenance;
 /// multi-release validation accepts one snapshot with multiple releases.
-pub const COMPILER_OUTPUT_VERSION: u32 = 74;
+pub const COMPILER_OUTPUT_VERSION: u32 = 75;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
