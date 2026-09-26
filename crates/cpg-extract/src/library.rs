@@ -668,6 +668,25 @@ pub fn corpus(
         fs_err::remove_dir_all(&blocks)?;
     }
     let walked = walk_tree(tree)?;
+    // The whole root is on the corpus import path. A selected example can import a helper that
+    // was not itself selected, so the helper's membership and bytes belong to release identity.
+    // Refuse links that could supply Python modules rather than hashing the link's text while
+    // the analyzer reads mutable content behind it.
+    if let Some((path, _)) = walked.symlinks.iter().find(|(path, is_dir)| {
+        *is_dir || analyzer_readable(path)
+    }) {
+        return Err(fail(format!(
+            "the corpus import root contains an analyzer-readable symlink {path} in {}; \
+             materialize it as regular files",
+            tree.display()
+        )));
+    }
+    let analyzer_files: Vec<(String, PathBuf)> = walked
+        .files
+        .iter()
+        .filter(|(path, _)| analyzer_readable(path))
+        .cloned()
+        .collect();
     let documents = pick(
         tree,
         &walked,
@@ -720,6 +739,7 @@ pub fn corpus(
         &label,
         &documents,
         usage,
+        &analyzer_files,
         environment,
         library.release.release_id,
     )?;
@@ -826,5 +846,59 @@ mod definition_tests {
         let err = parsed("[tool.lctx]\nrelease = []\n").err().unwrap();
         assert!(err.contains("release"), "{err}");
         assert!(parsed(&format!("{src}documents = [\"docs/**\"]\n")).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod corpus_identity_tests {
+    use super::{Source, corpus};
+    use crate::config::{ExtractInput, Release, TestHooks};
+    use cpg_schema::id::Id;
+    use std::path::Path;
+
+    fn source() -> Source {
+        Source {
+            repository: "https://example.test/pkg".to_owned(),
+            tag: "v1".to_owned(),
+            commit: "fixed".to_owned(),
+            documents: vec![],
+            documents_exclude: vec![],
+            examples: vec!["examples/main.py".to_owned()],
+            examples_exclude: vec![],
+            tests: vec![],
+            tests_exclude: vec![],
+        }
+    }
+
+    fn identity(root: &Path) -> Id {
+        let library = ExtractInput {
+            release: Release::from_tree(root.to_path_buf(), "library").unwrap(),
+            venv_root: root.to_path_buf(),
+            site_packages: vec![],
+            python_version: (3, 14, 7),
+            python_platform: "linux".to_owned(),
+            snapshot_id: Id::ZERO,
+            corpus: None,
+            keep_pysa_json: false,
+            test_hooks: TestHooks::default(),
+        };
+        corpus(root, &source(), &library).unwrap().release.release_id
+    }
+
+    #[test]
+    fn unselected_imported_helper_content_and_membership_change_identity() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        for root in [a.path(), b.path()] {
+            fs_err::create_dir_all(root.join("examples")).unwrap();
+            fs_err::write(root.join("examples/main.py"), "import helper\n").unwrap();
+            fs_err::write(root.join("helper.py"), "VALUE = 1\n").unwrap();
+        }
+        let baseline = identity(a.path());
+        assert_eq!(baseline, identity(b.path()), "relocation changes identity");
+        fs_err::write(a.path().join("helper.py"), "VALUE = 2\n").unwrap();
+        assert_ne!(baseline, identity(a.path()), "helper edit was invisible");
+        fs_err::write(b.path().join("other_helper.pyi"), "VALUE: int\n").unwrap();
+        assert_ne!(baseline, identity(b.path()), "helper addition was invisible");
     }
 }

@@ -107,13 +107,14 @@ impl Release {
     }
 
     /// A corpus release (C5): the modules are the usage files (examples, tests, doc blocks), and
-    /// the id hashes the label and every selected file's release-relative path, content and role,
-    /// so the release is the tree's content, not where it was fetched.
+    /// the id hashes the label, selected documents and usage, and every analyzer-readable file
+    /// in the import root. An unselected helper can change an imported module's facts.
     pub fn corpus(
         root: PathBuf,
         label: &str,
         documents: &[PathBuf],
         usage: Vec<(PathBuf, SourceRole)>,
+        analyzer_files: &[(String, PathBuf)],
         library: Option<crate::library::AcquiredLibrary>,
         library_release: Id,
     ) -> std::io::Result<Release> {
@@ -146,6 +147,11 @@ impl Release {
             .i64(selected.len() as i64);
         for (path, digest, role) in &selected {
             h.str(path).digest_field(*digest).opt_i64(*role);
+        }
+        h.str("analyzer-readable-root")
+            .i64(analyzer_files.len() as i64);
+        for (path, file) in analyzer_files {
+            h.str(path).digest_field(content_digest(&fs_err::read(file)?));
         }
         let mut files: Vec<PathBuf> = usage.into_iter().map(|(f, _)| f).collect();
         files.sort();
