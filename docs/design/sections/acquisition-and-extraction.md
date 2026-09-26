@@ -137,12 +137,15 @@ covers `PATH`, `VIRTUAL_ENV`, `PYTHONPATH`, `CONDA_PREFIX`, the working director
 with each of them perturbed.
 
 **Corpus input identity** ([plan W8](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
-RFU/F07; **Tested** in a focused helper edit/add and relocation fixture, 2026-09-25). The corpus
+RFU/F07; **Tested** in focused helper edit/add, relocation and clean-recomputation fixtures,
+2026-09-26). The corpus
 run puts the fetched tree ahead of site-packages, so Pyrefly can import an unselected helper.
 The corpus `release_id` now hashes content and membership of every analyzer-readable file under
 that root, whether selected or not, and refuses analyzer-readable symlinks. Ordinary
-site-packages content and membership were already hashed. A clean recomputation with the changed
-helper and a pilot run remain outstanding before claiming end-to-end hermeticity.
+site-packages content and membership were already hashed. Editing an unselected imported helper
+between extractions now yields the same fact tables as extracting the edited tree in a fresh
+location; its corpus release identity changes and is relocation invariant. A fresh pilot run
+remains outstanding before claiming end-to-end hermeticity.
 
 **Run.** A run is one producer applied to one context for a declared set of families under one
 analysis configuration. `runs` records that. `producers` records the tool, the revision (for the

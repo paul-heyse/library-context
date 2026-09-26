@@ -853,6 +853,7 @@ mod definition_tests {
 mod corpus_identity_tests {
     use super::{Source, corpus};
     use crate::config::{ExtractInput, Release, TestHooks};
+    use crate::extract;
     use cpg_schema::id::Id;
     use std::path::Path;
 
@@ -900,5 +901,56 @@ mod corpus_identity_tests {
         assert_ne!(baseline, identity(a.path()), "helper edit was invisible");
         fs_err::write(b.path().join("other_helper.pyi"), "VALUE: int\n").unwrap();
         assert_ne!(baseline, identity(b.path()), "helper addition was invisible");
+    }
+
+    #[test]
+    fn edited_unselected_helper_facts_equal_a_clean_recomputation() {
+        fn input(root: &Path, helper: &str) -> ExtractInput {
+            let release = root.join("release");
+            let tree = root.join("corpus");
+            let site = root.join("venv/site-packages");
+            fs_err::create_dir_all(release.join("pkg")).unwrap();
+            fs_err::create_dir_all(tree.join("examples")).unwrap();
+            fs_err::create_dir_all(&site).unwrap();
+            fs_err::write(release.join("pkg/__init__.py"),
+                "def api(value: object) -> object:\n    return value\n").unwrap();
+            fs_err::write(tree.join("examples/main.py"),
+                "from helper import transform\nresult = transform(1)\n").unwrap();
+            fs_err::write(tree.join("helper.py"), helper).unwrap();
+            let mut library = ExtractInput {
+                release: Release::from_tree(release.canonicalize().unwrap(), "pkg").unwrap(),
+                venv_root: root.join("venv").canonicalize().unwrap(),
+                site_packages: vec![site.canonicalize().unwrap()],
+                python_version: (3, 14, 7),
+                python_platform: "linux".to_owned(),
+                snapshot_id: Id::ZERO,
+                corpus: None,
+                keep_pysa_json: false,
+                test_hooks: TestHooks::default(),
+            };
+            library.corpus = Some(corpus(&tree.canonicalize().unwrap(), &source(), &library)
+                .unwrap());
+            library
+        }
+
+        let reused = tempfile::tempdir().unwrap();
+        let clean = tempfile::tempdir().unwrap();
+        let before = "def transform(value: int) -> int:\n    return value\n";
+        let after = "def transform(value: int) -> str:\n    return str(value)\n";
+        let before_input = input(reused.path(), before);
+        let first = extract(&before_input).unwrap();
+        let changed_input = input(reused.path(), after);
+        let changed = extract(&changed_input).unwrap();
+        let fresh_input = input(clean.path(), after);
+        let fresh = extract(&fresh_input).unwrap();
+        assert_ne!(before_input.corpus.as_ref().unwrap().release.release_id,
+            changed_input.corpus.as_ref().unwrap().release.release_id,
+            "the helper edit kept the old corpus input identity");
+        assert_eq!(changed_input.corpus.as_ref().unwrap().release.release_id,
+            fresh_input.corpus.as_ref().unwrap().release.release_id,
+            "relocation changed the edited corpus input identity");
+        assert_eq!(changed.tables, fresh.tables, "warm extraction differs from clean facts");
+        assert_ne!(first.table("type_observations"), changed.table("type_observations"),
+            "the helper signature edit did not change the selected example's type facts");
     }
 }
