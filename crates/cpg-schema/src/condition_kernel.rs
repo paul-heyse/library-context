@@ -1,7 +1,7 @@
 //! Bounded Boolean condition questions over evaluation atoms (ADR-0024).
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use crate::condition::{Atom, Condition};
+use crate::condition::{Atom, Condition, Literal, MAX_CONJUNCTIONS, MAX_LITERALS};
 use crate::id::{Id, IdHasher};
 use biodivine_lib_bdd::{Bdd, BddNode, BddPointer, BddVariableSet, op_function};
 
@@ -10,6 +10,8 @@ pub const KERNEL_FORMAT: u32 = 1;
 /// Admission limits for one generation's catalog before native hydration.
 pub const MAX_CATALOG_CONDITIONS: usize = 100_000;
 pub const MAX_CATALOG_NODES: usize = 100_000;
+/// Sum of owned nonterminal nodes across every hydrated condition, including shared closures.
+pub const MAX_CATALOG_RETAINED_NODES: usize = 1_000_000;
 
 // Stage 2 can retain 16 conjunctions of 8 distinct literals each.
 const MAX_ATOMS: usize = 128;
@@ -77,6 +79,14 @@ pub fn hydrate_catalog(
     conditions: &[ConditionRoot],
     nodes: &[DiagramNode],
 ) -> Result<HashMap<Id, Diagram>, String> {
+    hydrate_catalog_with_retained_limit(conditions, nodes, MAX_CATALOG_RETAINED_NODES)
+}
+
+fn hydrate_catalog_with_retained_limit(
+    conditions: &[ConditionRoot],
+    nodes: &[DiagramNode],
+    retained_limit: usize,
+) -> Result<HashMap<Id, Diagram>, String> {
     if conditions.len() > MAX_CATALOG_CONDITIONS || nodes.len() > MAX_CATALOG_NODES {
         return Err(format!(
             "condition catalog exceeds limits: {} conditions, {} nodes",
@@ -93,6 +103,29 @@ pub fn hydrate_catalog(
         }
         if catalog.insert(node.node_id, node.clone()).is_some() {
             return Err(format!("duplicate node {}", node.node_id.hex()));
+        }
+    }
+    // A shared on-disk node can be copied once per root. Refuse before making those copies.
+    let mut retained = 0usize;
+    for root in conditions.iter().filter_map(|row| row.root_id) {
+        let mut seen = HashSet::new();
+        let mut pending = vec![root];
+        while let Some(id) = pending.pop() {
+            if id == false_terminal() || id == true_terminal() || !seen.insert(id) {
+                continue;
+            }
+            let node = catalog
+                .get(&id)
+                .ok_or_else(|| format!("condition catalog misses node {}", id.hex()))?;
+            retained += 1;
+            if retained > retained_limit {
+                return Err(format!(
+                    "condition catalog retained-node limit: {} stored, over {} expanded",
+                    nodes.len(), retained_limit
+                ));
+            }
+            pending.push(node.low);
+            pending.push(node.high);
         }
     }
     let mut diagrams = HashMap::new();
@@ -271,6 +304,38 @@ pub struct FactorResult {
 }
 
 impl Diagram {
+    /// Drop variables the Boolean function no longer depends on. Keeping them would make a
+    /// later atom-limit decision depend on how this value was constructed rather than its root.
+    fn effective(
+        support: Vec<String>,
+        ctx: BddVariableSet,
+        bdd: Bdd,
+    ) -> Result<Self, KernelBoundary> {
+        let live = bdd.support_set();
+        if live.len() == support.len() {
+            return Ok(Self { support, ctx, bdd });
+        }
+        let support: Vec<String> = support
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, atom)| {
+                live.contains(&biodivine_lib_bdd::BddVariable::from_index(index))
+                    .then_some(atom)
+            })
+            .collect();
+        let names: Vec<String> = support.iter().map(|atom| atom_name(atom)).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let reduced = BddVariableSet::new(&refs);
+        let bdd = reduced
+            .transfer_from(&bdd, &ctx)
+            .ok_or(KernelBoundary::TransferUnsupported)?;
+        Ok(Self {
+            support,
+            ctx: reduced,
+            bdd,
+        })
+    }
+
     /// Select and validate one root's closure from a shared node catalog.
     pub fn from_catalog(
         root: Id,
@@ -461,7 +526,7 @@ impl Diagram {
                 .ok_or(KernelBoundary::WorkPreflight)?;
             bdd = apply(&bdd, &conjunction, op_function::or)?;
         }
-        Ok(Self { support, ctx, bdd })
+        Self::effective(support, ctx, bdd)
     }
 
     pub fn node_count(&self) -> usize {
@@ -572,24 +637,20 @@ impl Diagram {
     pub fn and(&self, other: &Self) -> Result<Self, KernelBoundary> {
         let (support, ctx, left, right) = self.union(other)?;
         let bdd = apply(&left, &right, op_function::and)?;
-        Ok(Self { support, ctx, bdd })
+        Self::effective(support, ctx, bdd)
     }
 
     pub fn or(&self, other: &Self) -> Result<Self, KernelBoundary> {
         let (support, ctx, left, right) = self.union(other)?;
         let bdd = apply(&left, &right, op_function::or)?;
-        Ok(Self { support, ctx, bdd })
+        Self::effective(support, ctx, bdd)
     }
 
     pub fn not(&self) -> Result<Self, KernelBoundary> {
         if self.node_count() > MAX_NODES {
             return Err(KernelBoundary::NodeLimit);
         }
-        Ok(Self {
-            support: self.support.clone(),
-            ctx: self.ctx.clone(),
-            bdd: self.bdd.not(),
-        })
+        Self::effective(self.support.clone(), self.ctx.clone(), self.bdd.not())
     }
 
     /// A proposed quotient is accepted only when a capped equality check verifies it.
@@ -606,6 +667,27 @@ impl Diagram {
             },
             factored,
         }
+    }
+
+    /// Restrict by a factor with one satisfying cube to nominate a quotient. Restriction is
+    /// only a candidate: the caller must still prove `factor ∧ quotient == original`.
+    fn cube_quotient(&self, factor: &Self) -> Option<Self> {
+        let (support, ctx, original, divisor) = self.union(factor).ok()?;
+        let mut cubes = divisor.sat_clauses();
+        let cube = cubes.next()?;
+        if cubes.next().is_some() {
+            return None;
+        }
+        let values = cube.to_values();
+        if original.size().checked_mul(values.len())? > MAX_PAIR_WORK {
+            return None;
+        }
+        let candidate = Self::effective(support, ctx, original.restrict(&values)).ok()?;
+        factor
+            .and(&candidate)
+            .ok()
+            .filter(|product| product.id() == self.id())
+            .map(|_| candidate)
     }
 
     /// Enumerate only a bounded number of satisfying paths for display.
@@ -646,7 +728,9 @@ impl Diagram {
             .collect();
         let left = self.in_union(&union)?;
         let right = other.in_union(&union)?;
-        Ok(!apply(&left, &right, op_function::and)?.is_false())
+        Bdd::check_binary_op(MAX_PAIR_WORK, &left, &right, op_function::and)
+            .map(|(nonempty, _tasks)| nonempty)
+            .ok_or(KernelBoundary::WorkPreflight)
     }
 
     pub fn implies(&self, other: &Self) -> Result<bool, KernelBoundary> {
@@ -660,7 +744,9 @@ impl Diagram {
             .collect();
         let left = self.in_union(&union)?;
         let right = other.in_union(&union)?;
-        Ok(apply(&left, &right, op_function::and_not)?.is_false())
+        Bdd::check_binary_op(MAX_PAIR_WORK, &left, &right, op_function::and_not)
+            .map(|(nonempty, _tasks)| !nonempty)
+            .ok_or(KernelBoundary::WorkPreflight)
     }
 }
 
@@ -767,13 +853,40 @@ impl BoundedCondition {
     }
 
     pub fn given(&self, factor: &Self) -> Self {
-        let proposed_legacy = self.legacy.given(&factor.legacy);
         let Ok(original) = &self.diagram else {
             return self.clone();
         };
         let Ok(divisor) = &factor.diagram else {
             return self.clone();
         };
+        if let Some(candidate) = original.cube_quotient(divisor)
+            && let Ok(rendered) = candidate.render_terms(MAX_CONJUNCTIONS)
+            && !rendered.truncated
+            && rendered.terms.iter().all(|term| term.len() <= MAX_LITERALS)
+        {
+            let literals: Option<Vec<Vec<Literal>>> = rendered
+                .terms
+                .into_iter()
+                .map(|term| {
+                    term.into_iter()
+                        .map(|(encoded, value)| {
+                            Some(Literal::new(Atom::parse_encoded(&encoded).ok()?, value))
+                        })
+                        .collect()
+                })
+                .collect();
+            if let Some(literals) = literals {
+                let legacy = Condition::from_dnf(literals);
+                if legacy != Condition::OverBudget {
+                    return Self {
+                        legacy,
+                        diagram: Ok(candidate),
+                        approximated: self.approximated || factor.approximated,
+                    };
+                }
+            }
+        }
+        let proposed_legacy = self.legacy.given(&factor.legacy);
         let Ok(proposed) = Diagram::from_condition(&proposed_legacy) else {
             return self.clone();
         };
@@ -908,7 +1021,7 @@ mod tests {
             Diagram::from_condition(&Condition::Dnf(vec![z.remove(0), az.remove(0)])).unwrap();
         let second = Diagram::from_condition(&Condition::parse("truthy(z)").unwrap()).unwrap();
         assert_eq!(first.id(), second.id());
-        assert!(first.support.len() > second.support.len());
+        assert_eq!(first.support(), second.support());
     }
 
     #[test]
@@ -987,6 +1100,56 @@ mod tests {
     }
 
     #[test]
+    fn retained_limit_counts_shared_closures_before_hydration() {
+        let first = d("truthy(a) & truthy(z)");
+        let second = d("truthy(b) & truthy(z)");
+        let mut catalog = std::collections::BTreeMap::new();
+        let rows: Vec<_> = [&first, &second]
+            .into_iter()
+            .map(|diagram| {
+                let (root, nodes) = diagram.root_and_nodes();
+                for node in nodes {
+                    catalog.insert(node.node_id, node);
+                }
+                ConditionRoot {
+                    condition_id: diagram.id(),
+                    root_id: Some(root),
+                    boundary_reason: None,
+                }
+            })
+            .collect();
+        let nodes: Vec<_> = catalog.into_values().collect();
+        assert_eq!(nodes.len(), 3);
+        let refusal = hydrate_catalog_with_retained_limit(&rows, &nodes, 3)
+            .err()
+            .unwrap();
+        assert!(refusal.contains("3 stored, over 3 expanded"), "{refusal}");
+        assert_eq!(
+            hydrate_catalog_with_retained_limit(&rows, &nodes, 4)
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let disjoint = [d("truthy(a)"), d("truthy(b)")];
+        let nodes: Vec<_> = disjoint.iter().flat_map(|d| d.root_and_nodes().1).collect();
+        let rows: Vec<_> = disjoint
+            .iter()
+            .map(|d| ConditionRoot {
+                condition_id: d.id(),
+                root_id: Some(d.root_and_nodes().0),
+                boundary_reason: None,
+            })
+            .collect();
+        assert_eq!(
+            hydrate_catalog_with_retained_limit(&rows, &nodes, 2)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
     fn bounded_operations_and_rendering_keep_unknown_explicit() {
         let a = d("truthy(a)");
         let b = d("truthy(b)");
@@ -1010,6 +1173,30 @@ mod tests {
         let rejected = product.given(&factor, &a);
         assert!(!rejected.factored);
         assert_eq!(rejected.diagram.id(), product.id());
+    }
+
+    #[test]
+    fn cube_restriction_factors_when_legacy_dnf_is_over_budget() {
+        let factor = BoundedCondition::atom(Atom::Truthy {
+            place: "gate".to_owned(),
+        });
+        let body = BoundedCondition::atom(Atom::Truthy {
+            place: "result".to_owned(),
+        });
+        let product = factor.and(&body);
+        let over_budget = BoundedCondition::from_parts(
+            Condition::OverBudget,
+            Ok(product.diagram().unwrap().clone()),
+        );
+        let quotient = over_budget.given(&factor);
+        assert_eq!(quotient.id(), body.id());
+        assert_eq!(quotient.encode(), body.encode());
+        assert_eq!(factor.and(&quotient).id(), over_budget.id());
+
+        let incompatible = BoundedCondition::atom(Atom::Truthy {
+            place: "other".to_owned(),
+        });
+        assert_eq!(over_budget.given(&incompatible).id(), over_budget.id());
     }
 
     #[test]
