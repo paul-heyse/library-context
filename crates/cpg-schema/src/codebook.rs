@@ -1389,6 +1389,8 @@ codebook!(
         ParameterBinding = 17 => "parameter_binding",
         CompletionStatement = 18 => "completion_statement",
         LocalAssignmentBinding = 19 => "local_assignment_binding",
+        /// A provider predicate fixed by the source return-path condition, not an exact value.
+        StatementCondition = 20 => "statement_condition",
     }
 );
 

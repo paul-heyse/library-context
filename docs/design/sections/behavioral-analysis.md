@@ -212,7 +212,7 @@ witness.
   Full operand/call/binding evidence is retained in inner-to-outer frame order. Completion depth
   128 and work 4096 have separate typed refusals. The shared summary-proof cap is 64 local steps;
   the producer emits `summary_proof_limit` before native admission could reject a generation.
-  This proves pending-frame completion, not function entry or preceding-statement completion.
+  Pending-frame completion is separate from the path-specific entry certificates below.
   [Independent CPython/Hypothesis controls](../../design_review/evidence/2026-09-26_expression-completion/README.md)
   challenge normal/overriding/exceptional finalizers and implicit execution (**Tested**, 2026-09-26).
 - **Target** (Proposed; plan order 2): nested `try`/`finally` and `with` frame order, normal and
@@ -383,21 +383,26 @@ agreed on a narrower finite-base reachability probe, not on these product semant
 if several channels share recursive rules
 ([ADR-0053](../../adr/0053-bounded-scc-summary-worklist.md)).
 
-**Predecessors.** A true return region does not prove that an earlier call returned. The direct
-producer ignores an earlier same-function call when its narrowest non-approximate ty statement
-region and the return-value condition have a bounded conjunction of **false**. A compatible call
-requires the ordered pinned normal-completion proof above; a bounded or missing condition
-withholds the direct path with its specific reason. The pure summary producer sorts the
-source-cited predecessor calls before its stop-at-return scan, so an input-row shuffle cannot
-hide an earlier unproved call; it also orders finalizer-pass candidates before proof hashing.
-This path-incompatibility screen is interim;
-the target (plan order 1)
-distinguishes, for each argument and preceding statement on a proposed path, an evaluated direct
-value, a cited normal outcome, a possible raise and an unresolved expression, preserving
-evaluation order (a modeled target's normal return starts after its arguments). Recursive SCC
-members can supply a modeled base only after the same proof checks as acyclic members; missing,
-approximate or capped evidence stays an explicit unknown. No generic `return x` positive after
-an unproved call.
+**Predecessors (Implemented and focused Tested, 2026-09-26).** Pure completion owns
+`return_entry_statuses` and `return_entry_steps`, keyed by return site and candidate condition.
+Core requests only conditions from that return's source contributions and its assignment
+predecessors. The walker evaluates outer-to-inner enclosing suites and preceding statements in
+source order; non-call expressions, first local initialization and selected branches must
+complete normally. Function docstrings are definition-time metadata. Loops and unsupported
+handler/context entry remain explicit unknowns. A second executed assignment to the same local
+is refused because releasing the old value can execute user finalization. Mutually exclusive
+syntactic assignments are admissible only on a fully walked path with no prior initialization.
+
+A same-site predicate outcome can select a conditional path after independently normal operand
+evaluation. A single comparison supports this conditional use; chains remain unknown. Tuple
+operands preserve element order and refuse unpacking/unsupported elements. These assumptions
+neither make an arbitrary comparison/truthiness expression unconditionally normal nor establish
+primitive identity or cross-site stability. Missing predicates and existing or newly reached BDD
+limits retain their typed causes. Standalone statements and pending finalizers have no such
+assumptions. Finite summaries consume scoped dense entry proofs with condition implication and
+the shared proof cap; core reconstructs exactly the same rows for publication. The old call-only
+predecessor queries and classifier are deleted. See the
+[bounded review](../../design_review/reviews/design_review_stage3-predecessor-completion_2026-09-26.md).
 
 **Schedule and recursion.** `summary_components` records every release function's SCC, sorted
 members, canonical component id and a callee-first schedule over attributed local call targets;

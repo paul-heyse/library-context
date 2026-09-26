@@ -18,8 +18,7 @@ use crate::{CoreError, sql};
 use lctx_analytics::summaries::finite::{
     FiniteSummaryInputs, FiniteSummaryOutcome, LocalCallSummaryFlowSeed, LocalCallArgument,
     LocalCallValueLink, ModeledChainArgument,
-    ModeledAssignmentSummaryFlowSeed, ModeledSummaryFlowSeed, PrecedingCallRegion,
-    PrecedingNormalCallArgument, ReturnPassStep,
+    ModeledAssignmentSummaryFlowSeed, ModeledSummaryFlowSeed, ReturnPassStep,
     SummaryBoundaryCandidate, SummaryFlowSeed,
 };
 
@@ -41,6 +40,23 @@ cpg_schema::relations! {
     completion_bindings = "summary_completion_bindings", deps = ["bindings"], sql = "SELECT * FROM bindings".to_owned();
     completion_scopes = "summary_completion_scopes", deps = ["scopes"], sql = "SELECT * FROM scopes".to_owned();
     completion_exits = "summary_completion_exits", deps = ["exit_sites"], sql = "SELECT * FROM exit_sites".to_owned();
+    return_entries = "summary_return_entries", deps = ["return_entry_statuses"], sql = "SELECT * FROM return_entry_statuses".to_owned();
+    return_entry_steps = "summary_return_entry_steps", deps = ["return_entry_steps"], sql = "SELECT * FROM return_entry_steps".to_owned();
+    completion_entry_conditions = "summary_completion_entry_conditions",
+        deps = ["value_flow_contributions", "flow_values", "syntax_nodes", "exit_sites", "value_flow_predecessor_candidates"],
+        sql = format!("WITH returned AS ( \
+            SELECT DISTINCT c.snapshot_id, c.flow_value_fact_id, c.condition_id, e.source_fact_id AS return_site_fact_id \
+            FROM value_flow_contributions c JOIN flow_values v ON v.snapshot_id = c.snapshot_id AND v.fact_id = c.flow_value_fact_id \
+            JOIN syntax_nodes r ON r.snapshot_id = c.snapshot_id AND r.owner_node_id = c.sink_function_node_id \
+              AND r.module_node_id = v.module_node_id AND r.kind = {} \
+              AND r.start_byte <= v.sink_start_byte AND r.end_byte >= v.sink_end_byte \
+            JOIN exit_sites e ON e.snapshot_id = r.snapshot_id AND e.site_node_id = r.node_id AND e.kind = {} \
+            WHERE v.sink = {} ) \
+            SELECT snapshot_id, return_site_fact_id, condition_id FROM returned \
+            UNION SELECT r.snapshot_id, r.return_site_fact_id, p.predecessor_condition_id AS condition_id \
+            FROM returned r JOIN value_flow_predecessor_candidates p ON p.snapshot_id = r.snapshot_id AND p.successor_fact_id = r.flow_value_fact_id",
+            cpg_schema::codebook::SyntaxKind::StmtReturn.code(),cpg_schema::codebook::ExitSiteKind::Return.code(),cpg_schema::codebook::FlowSink::Return.code());
+    completion_tests = "summary_completion_tests", deps = ["flow_tests"], sql = "SELECT * FROM flow_tests".to_owned();
     provider_conditions = "summary_provider_conditions", deps = ["conditions"],
         sql = "SELECT DISTINCT condition_id, root_id, boundary_reason FROM conditions".to_owned();
     provider_nodes = "summary_provider_nodes", deps = ["condition_nodes"],
@@ -73,6 +89,14 @@ cpg_schema::relations! {
 }
 
 cpg_schema::query_row! {
+    struct EntryCondition {
+        snapshot_id: Id,
+        return_site_fact_id: Id,
+        condition_id: Id,
+    }
+}
+
+cpg_schema::query_row! {
     struct CallFunction {
         snapshot_id: Id,
         function_node_id: Id,
@@ -101,28 +125,6 @@ cpg_schema::query_row! {
         low_id: Id,
         high_id: Id,
     }
-}
-
-type PrecedingCallIndex = HashMap<Id, Vec<PrecedingCallRegion>>;
-
-async fn preceding_call_regions(ctx: &SessionContext) -> Result<PrecedingCallIndex, CoreError> {
-    let rows: Vec<PrecedingCallRegion> = sql::fetch(
-        ctx,
-        &cpg_schema::behavior::preceding_call_regions(),
-        sql::Params::new(),
-    )
-    .await?;
-    let mut by_function: PrecedingCallIndex = HashMap::new();
-    for row in rows {
-        by_function
-            .entry(row.function_node_id)
-            .or_default()
-            .push(row);
-    }
-    for calls in by_function.values_mut() {
-        calls.sort_by_key(|call| (call.call_start_byte, call.call_fact_id));
-    }
-    Ok(by_function)
 }
 
 type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
@@ -218,10 +220,8 @@ pub async fn finite_flows(
 ) -> Result<FiniteSummaryOutcome, CoreError> {
     let (diagrams, boundaries) = load_conditions(ctx).await?;
     let pass_steps = return_pass_steps(ctx).await?;
-    let preceding_calls = preceding_call_regions(ctx).await?;
-    let normal_predecessors: Vec<PrecedingNormalCallArgument> = sql::fetch(
-        ctx, &cpg_schema::behavior::preceding_normal_call_arguments(), sql::Params::new(),
-    ).await?;
+    let entries = sql::fetch(ctx, &return_entries(), sql::Params::new()).await?;
+    let entry_steps = sql::fetch(ctx, &return_entry_steps(), sql::Params::new()).await?;
     let components: Vec<SummaryComponentsRow> = sql::fetch(ctx, &published_components(), sql::Params::new()).await?;
     let direct_seeds: Vec<SummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::summary_flow_seeds(), sql::Params::new()).await?;
     let modeled_seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::modeled_summary_flow_seeds(), sql::Params::new()).await?;
@@ -233,7 +233,7 @@ pub async fn finite_flows(
     let local_value_links: Vec<LocalCallValueLink> = sql::fetch(ctx, &cpg_schema::behavior::local_call_value_links(), sql::Params::new()).await?;
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
     Ok(lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
-        diagrams, boundaries, pass_steps, preceding_calls, normal_predecessors, components,
+        diagrams, boundaries, pass_steps, entries, entry_steps, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, boundary_candidates,
     }))
@@ -329,7 +329,12 @@ pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::complet
     let bindings = sql::fetch(ctx, &completion_bindings(), sql::Params::new()).await?;
     let scopes = sql::fetch(ctx, &completion_scopes(), sql::Params::new()).await?;
     let exits = sql::fetch(ctx, &completion_exits(), sql::Params::new()).await?;
+    let tests = sql::fetch(ctx, &completion_tests(), sql::Params::new()).await?;
+    let (diagrams,boundaries) = load_conditions(ctx).await?;
+    let requests:Vec<EntryCondition> = sql::fetch(ctx,&completion_entry_conditions(),sql::Params::new()).await?;
+    let entry_conditions:Vec<_>=requests.iter().map(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id)).collect();
     Ok(lctx_analytics::completion::complete(lctx_analytics::completion::Inputs {
         syntax: &syntax, expressions: &expressions, expression_steps: &expression_steps, bindings: &bindings, scopes: &scopes, exits: &exits,
+        tests: &tests, diagrams: &diagrams, boundaries:&boundaries,entry_conditions:&entry_conditions,
     }))
 }

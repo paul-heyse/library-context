@@ -136,6 +136,8 @@ cpg_schema::relations! {
     stored_exit_sites = "validate_stored_exit_sites", deps = ["exit_sites"],
         sql = "SELECT * FROM exit_sites".to_owned();
     stored_return_exit_steps = "validate_stored_return_exit_steps", deps = ["return_exit_steps"], sql = "SELECT * FROM return_exit_steps".to_owned();
+    stored_return_entry_statuses = "validate_stored_return_entry_statuses", deps = ["return_entry_statuses"], sql = "SELECT * FROM return_entry_statuses".to_owned();
+    stored_return_entry_steps = "validate_stored_return_entry_steps", deps = ["return_entry_steps"], sql = "SELECT * FROM return_entry_steps".to_owned();
     stored_statement_completions = "validate_stored_statement_completions", deps = ["statement_completions"], sql = "SELECT * FROM statement_completions".to_owned();
     stored_statement_completion_steps = "validate_stored_statement_completion_steps", deps = ["statement_completion_steps"], sql = "SELECT * FROM statement_completion_steps".to_owned();
     stored_return_exit_statuses = "validate_stored_return_exit_statuses", deps = ["return_exit_statuses"],
@@ -677,15 +679,24 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
     }
     let mut actual_statuses: Vec<ReturnExitStatusesRow> =
         sql::fetch(ctx, &stored_return_exit_statuses(), sql::Params::new()).await?;
-    let expected = crate::summaries::completions(ctx).await?;
+    let expected = match crate::summaries::completions(ctx).await {
+        Ok(expected)=>expected,
+        Err(error)=>{ violations.push(Violation {rule:"completion-source-equality".to_owned(),rows:1,
+            sample:format!("completion reconstruction refused invalid inputs: {error}")});return Ok(violations); },
+    };
     let mut expected_statuses = expected.returns;
     let mut statements: Vec<cpg_schema::behavior::StatementCompletionsRow> = sql::fetch(ctx, &stored_statement_completions(), sql::Params::new()).await?;
     let mut statement_steps: Vec<cpg_schema::behavior::StatementCompletionStepsRow> = sql::fetch(ctx, &stored_statement_completion_steps(), sql::Params::new()).await?;
     let mut return_steps: Vec<cpg_schema::behavior::ReturnExitStepsRow> = sql::fetch(ctx, &stored_return_exit_steps(), sql::Params::new()).await?;
+    let mut entry_statuses: Vec<cpg_schema::behavior::ReturnEntryStatusesRow> = sql::fetch(ctx, &stored_return_entry_statuses(), sql::Params::new()).await?;
+    let mut entry_steps: Vec<cpg_schema::behavior::ReturnEntryStepsRow> = sql::fetch(ctx, &stored_return_entry_steps(), sql::Params::new()).await?;
     statements.sort_by_key(|r| (r.snapshot_id,r.source_fact_id));
     statement_steps.sort_by_key(|r| (r.snapshot_id,r.source_fact_id,r.ordinal));
     return_steps.sort_by_key(|r| (r.snapshot_id,r.return_site_fact_id,r.ordinal));
-    if statements != expected.statements || statement_steps != expected.statement_steps || return_steps != expected.return_steps {
+    entry_statuses.sort_by_key(|r| (r.snapshot_id,r.return_site_fact_id,r.condition_id));
+    entry_steps.sort_by_key(|r| (r.snapshot_id,r.return_site_fact_id,r.condition_id,r.ordinal));
+    if statements != expected.statements || statement_steps != expected.statement_steps || return_steps != expected.return_steps
+        || entry_statuses!=expected.entries || entry_steps!=expected.entry_steps {
         violations.push(Violation { rule: "completion-source-equality".to_owned(), rows: 1,
             sample: "statement or ordered frame completion differs from source reconstruction".to_owned() });
     }

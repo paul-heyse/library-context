@@ -797,6 +797,7 @@ summary_flow_step_kind
   17 parameter_binding
   18 completion_statement
   19 local_assignment_binding
+  20 statement_condition
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal

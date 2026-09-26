@@ -21,6 +21,7 @@ enum Value {
     Int(i64),
     Float(f64),
     None,
+    Tuple { nonempty: bool },
     /// Literal evaluation is normal even when the bounded evaluator cannot represent its value.
     Literal,
 }
@@ -30,6 +31,7 @@ impl Value {
         match self {
             Self::Bool(b) => Some(b), Self::Int(i) => Some(i != 0),
             Self::Float(f) => Some(f != 0.0), Self::None => Some(false), Self::Literal => None,
+            Self::Tuple { nonempty } => Some(nonempty),
         }
     }
     fn number(self) -> Option<Self> {
@@ -170,6 +172,13 @@ impl Evaluator<'_> {
                         Ok(Value::Float(if detail == "+" { a + b } else { a - b }))
                     }
                 }
+            },
+            SyntaxKind::ExprTuple => {
+                for (ordinal,child) in children.iter().enumerate() {
+                    if child.field!=SyntaxField::Element || child.ordinal!=ordinal as i64 {return Err(UNSUPPORTED);}
+                    self.eval(child,depth+1)?;
+                }
+                Ok(Value::Tuple {nonempty:!children.is_empty()})
             },
             SyntaxKind::ExprBoolOp if children.len() >= 2 && matches!(detail, "and" | "or") => {
                 for (ordinal, child) in children.iter().enumerate() {
@@ -434,6 +443,20 @@ mod tests {
         let result = closed_arguments(&nodes);
         assert!(result[0].normal);
         assert_eq!(result[0].boolean_value, None, "normal numeric result is not an exact Boolean");
+    }
+
+    #[test]
+    fn tuple_creation_preserves_order_and_withholds_unsupported_elements() {
+        let mut nodes=vec![node(1,0,SyntaxKind::ExprTuple,SyntaxField::Argument,0,""),
+            node(2,1,SyntaxKind::ExprNumberLiteral,SyntaxField::Element,0,"1"),
+            node(3,1,SyntaxKind::ExprStringLiteral,SyntaxField::Element,1,"'two'")];
+        let out=arguments(&nodes,&[]);
+        assert!(out.evaluations[0].normal);
+        assert_eq!(out.steps.iter().map(|s|s.operand_fact_id).collect::<Vec<_>>(),nodes[1..].iter().chain(&nodes[..1]).map(|n|n.fact_id).collect::<Vec<_>>());
+        nodes[2].kind=SyntaxKind::ExprName;nodes[2].detail=Some("missing".to_owned());
+        assert!(!arguments(&nodes,&[]).evaluations[0].normal);
+        nodes[2].kind=SyntaxKind::ExprStarred;
+        assert!(!arguments(&nodes,&[]).evaluations[0].normal);
     }
 
     #[test]

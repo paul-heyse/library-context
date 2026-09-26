@@ -126,3 +126,30 @@ def repeated_initialization(value, iterable):
     for item in iterable:
         marker = item
     return value
+
+
+def arithmetic_predecessor(value):
+    1 / 0
+    return value
+
+
+def literal_predecessor(value):
+    1 + 2
+    return value
+
+
+def initialized_predecessor(value):
+    marker = 1
+    return value
+
+
+def skipped_predecessor(value):
+    if False:
+        missing()
+    return value
+
+
+def raising_selected_predecessor(value):
+    if True:
+        1 / 0
+    return value

@@ -101,7 +101,7 @@ pub struct Published {
 /// 76: normalized local-call arguments, multi-control Boolean specialization and bounded
 /// closed-expression completion with separately represented exact Boolean values.
 /// 77: shared source-admitted expression evaluation and ordered operand proofs.
-pub const COMPILER_OUTPUT_VERSION: u32 = 77;
+pub const COMPILER_OUTPUT_VERSION: u32 = 78;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -797,6 +797,8 @@ async fn finish(
         write_analysis::<StatementCompletionSteps>(&ctx, root, snapshot_id, &completions.statement_steps, w).await?;
         write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &completions.returns, w).await?;
         write_analysis::<ReturnExitSteps>(&ctx, root, snapshot_id, &completions.return_steps, w).await?;
+        write_analysis::<cpg_schema::behavior::ReturnEntryStatuses>(&ctx, root, snapshot_id, &completions.entries, w).await?;
+        write_analysis::<cpg_schema::behavior::ReturnEntrySteps>(&ctx, root, snapshot_id, &completions.entry_steps, w).await?;
         write_analysis_query::<HandlerClauses>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::handler_clauses(), w).await?;
         write_analysis_query::<HandlerTypes>(&ctx, root, snapshot_id,

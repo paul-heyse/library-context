@@ -315,60 +315,55 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "opaque local predecessor retains control boundary");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
-        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
-        JOIN declarations d ON d.node_id = c.owner_node_id \
-        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
+        JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
+        JOIN declarations d ON d.node_id = entry.function_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evidence_id \
         WHERE d.name = 'signed_literal_predecessor' \
           AND s.kind = {} AND s.detail = '-'",
-        cpg_schema::behavior::preceding_normal_call_arguments().sql,
         cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code()))
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "the signed literal must cite its unary syntax fact");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
-        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
-        JOIN declarations d ON d.node_id = c.owner_node_id \
-        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
+        JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
+        JOIN declarations d ON d.node_id = entry.function_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evidence_id \
         WHERE d.name = 'boolean_not_predecessor' \
           AND s.kind = {} AND s.detail = 'not'",
-        cpg_schema::behavior::preceding_normal_call_arguments().sql,
         cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code()))
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "the Boolean negation must cite its unary syntax fact");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
-        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
-        JOIN declarations d ON d.node_id = c.owner_node_id \
-        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
+        JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
+        JOIN declarations d ON d.node_id = entry.function_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evidence_id \
         WHERE d.name = 'binary_numeric_predecessor' \
           AND s.kind = {} AND s.detail = '+'",
-        cpg_schema::behavior::preceding_normal_call_arguments().sql,
         cpg_schema::codebook::SyntaxKind::ExprBinOp.code()))
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "the binary literal proof cites the outer addition syntax fact");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
-        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
-        JOIN declarations d ON d.node_id = c.owner_node_id \
-        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
+        JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
+        JOIN declarations d ON d.node_id = entry.function_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evidence_id \
         WHERE d.name = 'short_circuit_and_predecessor' \
           AND s.kind = {} AND s.detail = 'and'",
-        cpg_schema::behavior::preceding_normal_call_arguments().sql,
         cpg_schema::codebook::SyntaxKind::ExprBoolOp.code()))
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "the safe short circuit cites the outer Boolean syntax fact");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
-        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
-        JOIN declarations d ON d.node_id = c.owner_node_id \
-        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
+        JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
+        JOIN declarations d ON d.node_id = entry.function_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evidence_id \
         WHERE d.name = 'selected_true_predecessor' AND s.kind = {}",
-        cpg_schema::behavior::preceding_normal_call_arguments().sql,
         cpg_schema::codebook::SyntaxKind::ExprIf.code()))
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
@@ -448,12 +443,11 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "the selected raising branch cannot complete the modeled return");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
-        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
-        JOIN declarations d ON d.node_id = c.owner_node_id \
+    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM return_entry_steps p \
+        JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
+        JOIN declarations d ON d.node_id = entry.function_node_id \
         WHERE d.name = 'assigned_local_argument' \
-          AND p.evaluation_evidence_id IN (SELECT fact_id FROM flow_reaching)",
-        cpg_schema::behavior::preceding_normal_call_arguments().sql))
+          AND p.evidence_id IN (SELECT fact_id FROM flow_reaching)")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
@@ -795,7 +789,8 @@ assert any(len(evaluations) == 2 and evaluations[-1] != path[8]
                    for index, step in enumerate(path[3][:-1]))
            for path in paths
            if any(step[0] == "callee_condition_link" for step in path[3])
-           for evaluations in [[step[1] for step in path[3]
+           for resolution in [max(i for i, step in enumerate(path[3]) if step[0] == "callee_resolution")]
+           for evaluations in [[step[1] for step in path[3][resolution + 1:]
                                 if step[0] == "argument_evaluation"]]), paths
 paths, boundaries, total, truncated, work = inspect("capspkg.recursive_reversed_keyword_false", "value")
 assert not truncated and paths and boundaries, (paths, boundaries)

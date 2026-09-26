@@ -5116,12 +5116,12 @@ budget = 1
         &raw_version("expression_completion_shapes", snapshot, (3, 14, 7)), Some(&analysis))
         .await.unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
-    for name in ["selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer"] {
+    for name in ["selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer", "literal_predecessor", "initialized_predecessor", "skipped_predecessor"] {
         assert!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \
             WHERE d.name = '{name}' AND s.verdict IN (0,1)")).await > 0, "{name}");
     }
-    for name in ["selected_missing", "unknown_truthiness", "deleted_read", "nested_call_raising", "missing_required_predecessor", "extra_argument_predecessor", "extra_keyword_result", "raising_call_finalizer", "overriding_finalizer", "unknown_finalizer"] {
+    for name in ["selected_missing", "unknown_truthiness", "deleted_read", "nested_call_raising", "missing_required_predecessor", "extra_argument_predecessor", "extra_keyword_result", "raising_call_finalizer", "overriding_finalizer", "unknown_finalizer", "arithmetic_predecessor", "raising_selected_predecessor", "repeated_initialization"] {
         assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \
             WHERE d.name = '{name}'")).await, 0, "{name}");
@@ -5151,7 +5151,7 @@ budget = 1
     assert!(violations.iter().any(|v| v.rule == "expression-source-equality"), "{violations:?}");
     ctx.deregister_table("expression_evaluation_steps").unwrap();
     ctx.register_table("expression_evaluation_steps", original).unwrap();
-    for table in ["statement_completion_steps", "return_exit_steps"] {
+    for table in ["statement_completion_steps", "return_exit_steps", "return_entry_statuses", "return_entry_steps"] {
         let original = sql::query(&ctx, &format!("SELECT * FROM {table}")).await.unwrap().into_view();
         let missing = sql::query(&ctx, &format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
         ctx.deregister_table(table).unwrap();

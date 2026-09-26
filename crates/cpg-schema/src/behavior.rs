@@ -569,6 +569,38 @@ table!(
 );
 
 table!(
+    /// Required statement sequence before evaluating one return under its source condition.
+    /// Frame unwinding after the return expression is a separate return_exit_statuses contract.
+    ReturnEntryStatuses, ReturnEntryStatusesRow = "return_entry_statuses",
+    family = Findings,
+    key = [snapshot_id, return_site_fact_id, condition_id],
+    checks = [("positive_work", "work > 0")],
+    {
+        snapshot_id: Id,
+        return_site_fact_id: Id,
+        function_node_id: Id,
+        condition_id: Id,
+        reason: Option<BoundaryReason>,
+        work: i64,
+    }
+);
+
+table!(
+    ReturnEntrySteps, ReturnEntryStepsRow = "return_entry_steps",
+    family = Findings,
+    key = [snapshot_id, return_site_fact_id, condition_id, ordinal],
+    checks = [("ordinal_nonnegative", "ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        return_site_fact_id: Id,
+        ordinal: i64,
+        evidence_id: Id,
+        kind: SummaryFlowStepKind,
+        condition_id: Id,
+    }
+);
+
+table!(
     /// The actions actually crossed while preserving a pending return, from inner frame out.
     ReturnExitSteps, ReturnExitStepsRow = "return_exit_steps",
     family = Findings,
@@ -2382,78 +2414,6 @@ crate::relations! {
             return_sink = FlowSink::Return.code(),
             yield_kind = SyntaxKind::ExprYield.code(),
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
-        );
-
-    /// The narrowest ty statement region enclosing each attributed source call. A preceding
-    /// call may be ignored by a direct return only when its region is definitely disjoint
-    /// from that return's value condition under the bounded BDD kernel. This relation says
-    /// nothing about the call's own normal completion.
-    preceding_call_regions = "behavior:preceding_call_regions",
-        deps = ["call_syntax", "declarations", "flow_regions"],
-        sql = format!(
-            "WITH candidates AS ( \
-               SELECT d.node_id AS function_node_id, c.fact_id AS call_fact_id, \
-                      c.start_byte AS call_start_byte, r.condition_id, r.approximated, \
-                      ROW_NUMBER() OVER (PARTITION BY c.fact_id \
-                        ORDER BY r.end_byte - r.start_byte, r.start_byte, r.fact_id) AS pick \
-               FROM call_syntax c JOIN declarations d ON d.node_id = c.owner_node_id \
-                 AND d.kind = {function_kind} \
-               LEFT JOIN flow_regions r ON r.module_node_id = c.module_node_id \
-                 AND r.scope_kind = {function_scope} \
-                 AND r.scope_start_byte = d.name_start_byte \
-                 AND r.scope_end_byte = d.name_end_byte \
-                 AND r.start_byte <= c.start_byte AND r.end_byte >= c.end_byte \
-               WHERE NOT c.in_annotation \
-             ) \
-             SELECT function_node_id, call_fact_id, call_start_byte, condition_id, \
-                    approximated FROM candidates WHERE pick = 1",
-            function_kind = DeclarationKind::Function.code(),
-            function_scope = crate::codebook::LexicalScopeKind::Function.code(),
-        );
-
-    /// A preceding call is safe to cross only under one closed, definite, pinned normal-return
-    /// target, an earlier module-level callee import and direct simple arguments. The producer
-    /// requires this import's condition to be true; this query preserves its condition and fact.
-    /// There is one row per evaluated argument; opaque operands and unpacking emit no rows.
-    preceding_normal_call_arguments = "behavior:preceding_normal_call_arguments",
-        deps = ["expression_evaluations", "model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
-        sql = format!(
-            "WITH {simple_args}, {normal_candidates}, evaluated AS ( \
-               SELECT a.call_fact_id, a.pysa_fact_id, a.model_id, \
-                      cc.resolution_fact_id AS callee_resolution_fact_id, \
-                      mi.import_binding_fact_id, mi.import_region_fact_id, \
-                      mi.import_condition_id, \
-                      arg.fact_id AS argument_fact_id, s.evidence_id AS evaluation_evidence_id, \
-                      arg.ordinal, c.positional_count + c.keyword_count AS declared_count, \
-                      count(*) OVER (PARTITION BY c.node_id) AS argument_count, \
-                      sum(CASE WHEN s.evidence_id IS NULL THEN 1 ELSE 0 END) \
-                        OVER (PARTITION BY c.node_id) AS unknown_count \
-               FROM counted a JOIN call_syntax c ON c.node_id = a.call_site_node_id \
-               JOIN syntax_nodes completed_node ON completed_node.node_id = c.node_id \
-               AND completed_node.module_node_id = c.module_node_id \
-             JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
-               AND completed.normal \
-             JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
-                 AND cc.candidate_count = 1 \
-               JOIN module_imports mi ON mi.call_node_id = c.node_id \
-                 AND mi.resolution_fact_id = cc.resolution_fact_id \
-                 AND mi.pick = 1 AND NOT mi.import_approximated \
-               JOIN arguments arg ON arg.call_node_id = c.node_id \
-               JOIN simple_arguments s ON s.argument_fact_id = arg.fact_id \
-               WHERE a.application_count = 1 AND a.target_normal_return \
-                 AND a.target_modality = {definite} AND a.phase = {call_phase} \
-                 AND a.target_count = 1 AND a.candidate_set_complete_under_model \
-                 AND NOT a.has_unresolved_remainder \
-             ) \
-             SELECT call_fact_id, pysa_fact_id, model_id, callee_resolution_fact_id, \
-                    import_binding_fact_id, import_region_fact_id, import_condition_id, \
-                    argument_fact_id, evaluation_evidence_id, ordinal, argument_count \
-             FROM evaluated WHERE argument_count = declared_count \
-               AND argument_count > 0 AND unknown_count = 0",
-            simple_args = simple_argument_evidence_sql(),
-            normal_candidates = normal_call_candidates_sql(),
-            definite = Modality::Definite.code(),
-            call_phase = InvocationPhase::Call.code(),
         );
 
     /// A direct return whose entire expression is one exact pinned identity-model call.

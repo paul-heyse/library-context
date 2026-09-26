@@ -522,6 +522,8 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ExitSites,
             $crate::behavior::ReturnExitStatuses,
             $crate::behavior::ReturnExitSteps,
+            $crate::behavior::ReturnEntryStatuses,
+            $crate::behavior::ReturnEntrySteps,
             $crate::behavior::StatementCompletions,
             $crate::behavior::StatementCompletionSteps,
             $crate::behavior::HandlerClauses,
