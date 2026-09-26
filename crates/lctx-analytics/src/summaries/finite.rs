@@ -651,7 +651,7 @@ fn push_finite_path(
 /// The same producer is called at write time and by the shared publication validator.
 pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
     let FiniteSummaryInputs {
-        diagrams, boundaries, pass_steps, preceding_calls, normal_predecessors, components,
+        diagrams, boundaries, mut pass_steps, mut preceding_calls, normal_predecessors, components,
         direct_seeds, modeled_seeds, evaluations, assignment_seeds, local_seeds,
         boundary_candidates,
     } = inputs;
@@ -661,6 +661,14 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
         .filter(|row| row.recursive)
         .map(|row| row.function_node_id)
         .collect();
+    // The pure producer must own source order. A caller can supply rows in any order, and
+    // `take_while` below must never skip an earlier call after seeing a later one.
+    for calls in preceding_calls.values_mut() {
+        calls.sort_by_key(|call| (call.call_start_byte, call.call_fact_id));
+    }
+    for passes in pass_steps.values_mut() {
+        passes.sort_by_key(|pass| (pass.ordinal, pass.pass_fact_id));
+    }
     let mut normal_by_call: NormalPredecessorIndex = HashMap::new();
     for row in normal_predecessors {
         normal_by_call.entry(row.call_fact_id).or_default().push(row);
@@ -1141,6 +1149,49 @@ mod tests {
         assert!(outcome.steps.is_empty());
         assert_eq!(outcome.refusals[0].reason, BoundaryReason::UnsupportedControlFlow);
         assert_eq!(outcome.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
+    }
+
+    #[test]
+    fn shuffled_predecessors_cannot_hide_an_earlier_unproved_call() {
+        let later = PrecedingCallRegion {
+            function_node_id: id(2), call_fact_id: id(40), call_start_byte: 40,
+            condition_id: None, approximated: None,
+        };
+        let earlier = PrecedingCallRegion {
+            function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
+            condition_id: None, approximated: None,
+        };
+        let mut forward = inputs();
+        forward.preceding_calls.insert(id(2), vec![earlier.clone(), later.clone()]);
+        let mut reverse = inputs();
+        reverse.preceding_calls.insert(id(2), vec![later, earlier]);
+        let first = finite_flows(forward);
+        let second = finite_flows(reverse);
+        assert!(first.flows.is_empty() && second.flows.is_empty());
+        assert_eq!(first.boundaries, second.boundaries);
+        assert_eq!(first.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
+    }
+
+    #[test]
+    fn shuffled_finalizer_steps_keep_canonical_proof_identity() {
+        let first_pass = ReturnPassStep {
+            return_site_fact_id: id(5), pass_fact_id: id(50),
+            condition_id: Diagram::always().id(), ordinal: 0,
+        };
+        let second_pass = ReturnPassStep {
+            return_site_fact_id: id(5), pass_fact_id: id(51),
+            condition_id: Diagram::always().id(), ordinal: 1,
+        };
+        let mut forward = inputs();
+        forward.pass_steps.insert(id(5), vec![first_pass.clone(), second_pass.clone()]);
+        let mut reverse = inputs();
+        reverse.pass_steps.insert(id(5), vec![second_pass, first_pass]);
+        let first = finite_flows(forward);
+        let second = finite_flows(reverse);
+        assert_eq!(first.flows, second.flows);
+        assert_eq!(first.steps, second.steps);
+        assert_eq!(first.steps.iter().map(|step| step.evidence_id).collect::<Vec<_>>(),
+            [id(4), id(50), id(51)]);
     }
 
     #[test]

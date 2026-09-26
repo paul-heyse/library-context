@@ -13,15 +13,9 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   W14 Pyrefly function status, ty run context and suppression visited state; W16 controlled
   vLLM launch. W15 [ADR-0048](docs/adr/0048-schema-rebuild-policy.md) chooses a fresh current
   store rebuild instead of historical binary compatibility. These have focused evidence only.
-- **Stage 3 progress:** [ADR-0050](docs/adr/0050-finite-summary-outcomes.md) owns explicit finite
-  summary inputs/refusals. The order-1 predecessor proof admits literal, signed numeric literal, builtin, parameter and unique-assignment arguments for a sole pinned normal-return call, and separates
-  a terminating branch from an unconditional recursive predecessor. W5 atom-limit publication
-  reaches Delta/FORMAT 8/native; actual work/node limits reach the pure producer. W6 decision,
-  effective-support and aggregate native admission controls pass. W7's bounded source fixed point
-  ([ADR-0051](docs/adr/0051-value-reach-worklist.md)) passes cyclic, shuffle and production-cap
-  pure controls. W11 passes a CPython literal matrix and native path-local string/int controls.
-  W13 uses iterative petgraph SCCs ([ADR-0052](docs/adr/0052-iterative-scc-schedule.md)) and
-  DataFusion distinct recursive type-term set closures. L2 admits ordered pass-only finalizer suites; order 1 signed literals landed at `451a623`.
+- **Stage 3 progress:** [ADR-0050](docs/adr/0050-finite-summary-outcomes.md) owns finite inputs and refusals. The order-1 predecessor proof admits simple literal, builtin, parameter and unique-assignment arguments for one pinned normal-return target, and source-orders two calls without losing a raising sibling or shuffled earlier unknown.
+  A terminating branch differs from an unconditional recursive predecessor. W5 atom-limit publication reaches Delta/native; work/node limits reach the pure producer. W6 decision, effective-support and aggregate native admission controls pass.
+  W7's bounded worklist ([ADR-0051](docs/adr/0051-value-reach-worklist.md)) passes cyclic, shuffle and production-cap pure controls. W11 passes CPython literal and native string/int controls. W13 uses iterative petgraph SCCs ([ADR-0052](docs/adr/0052-iterative-scc-schedule.md)) and DataFusion distinct recursive type-term closures. L2 admits ordered pass-only finalizer suites.
 
 ## Last verified (2026-09-26)
 
@@ -35,6 +29,7 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `cargo test -p cpg-core --lib production_work_cap_keeps_cycle_dependents_open --quiet`; `cargo test -p cpg-extract --lib edited_or_added_unselected_helper_facts_equal_a_clean_recomputation --quiet` | `passed`: production work cap and warm/clean corpus edit/addition. |
 | `uv run --no-sync python docs/design_review/evidence/2026-09-26_primitive-python-lowering/probe.py`; `cargo test -p cpg-schema --lib finite_primitive_lowering_matches_recorded_cpython_314_predicates --quiet`; `uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py::test_native_string_membership_and_integer_equality_stay_path_local -q` | `passed`: CPython 3.14.7 finite lowering and native two-path control. |
 | Focused `cpg-core --test compile nested_returns_need_an_uncontrolled_exit_before_becoming_value_summaries` and `--test bundle finalizer_proof_round_trips_through_the_native_generation_reader` (`RUST_MIN_STACK=16777216 INSTA_UPDATE=no`, `--quiet`) | `passed`: two ordered pass steps through Delta, shared validation and native reader. |
+| `RUST_MIN_STACK=16777216 INSTA_UPDATE=no cargo test -p lctx-analytics --lib shuffled_ --quiet`; same environment with `cargo test -p cpg-core --test bundle finite_depth_and_unsupported_refusals_reach_the_native_response --quiet` | `passed`: shuffled pure inputs remain sound; two completed calls and later raising sibling reach Delta/native. |
 | `just adr lint`; `git diff --check` | `passed` on the 2026-09-26 focused work. |
 | `just fmt`; `just test-all`; fresh `just pilot`; all-techniques digest; Q01/Q03/Q05/Q09; structured evaluation; clean-wheel query | `not_run`: defer until all planned functional scope is implemented. |
 

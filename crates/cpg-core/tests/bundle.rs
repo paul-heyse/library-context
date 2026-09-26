@@ -162,7 +162,8 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "a bounded condition cannot publish a positive summary");
     for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
-        ("signed_literal_predecessor", 1), ("raising_unary_predecessor", 0),
+        ("signed_literal_predecessor", 1), ("two_completed_predecessors", 2),
+        ("raising_unary_predecessor", 0), ("completed_then_raising", 0),
         ("assigned_local_argument", 1),
         ("raising_predecessor", 0), ("possibly_unbound_argument", 0),
         ("possibly_unbound_local_argument", 0),
@@ -177,7 +178,10 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         let counts = rows[0].column(0)
             .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
         if name != "conditional_callee" && name != "guarded_module_callee" {
-            assert_eq!(counts.value(0), 1, "{name} must have a closed normal-return target");
+            let expected_applications = if name == "two_completed_predecessors"
+                || name == "completed_then_raising" { 2 } else { 1 };
+            assert_eq!(counts.value(0), expected_applications,
+                "{name} must have closed normal-return targets");
         }
         let rows = sql::query(&ctx, &format!(
             "SELECT count(*) AS n FROM summary_flows f \
@@ -193,13 +197,27 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'possibly_unbound_argument', \
+        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'completed_then_raising', 'possibly_unbound_argument', \
           'possibly_unbound_local_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 6, "uncertain arguments and callees must stay unknown");
+    assert_eq!(counts.value(0), 7, "uncertain arguments and callees must stay unknown");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
+        JOIN summary_flow_steps second ON second.summary_id = f.summary_id \
+        JOIN call_syntax c1 ON c1.fact_id = first.evidence_id \
+        JOIN call_syntax c2 ON c2.fact_id = second.evidence_id \
+        WHERE d.name = 'two_completed_predecessors' AND f.path_depth = 0 \
+          AND first.kind = {call} AND second.kind = {call} \
+          AND first.ordinal < second.ordinal AND c1.start_byte < c2.start_byte",
+        call = SummaryFlowStepKind::CallSite.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "both completed predecessor calls must retain source order");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
         JOIN call_syntax c ON c.fact_id = p.call_fact_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
@@ -247,6 +265,7 @@ for operation, expected in (
     ("capspkg.unsupported", "unsupported_control_flow"),
     ("capspkg.raising_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_unary_predecessor", "unsupported_control_flow"),
+    ("capspkg.completed_then_raising", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_local_argument", "unsupported_control_flow"),
     ("capspkg.conditional_callee", "unsupported_control_flow"),
@@ -256,10 +275,12 @@ for operation, expected in (
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[2] == expected for boundary in boundaries), (operation, paths, boundaries)
-for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.assigned_local_argument"):
+for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated and not boundaries, (operation, paths, boundaries)
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
+paths, boundaries, truncated, _ = index.value_paths("capspkg.two_completed_predecessors", "value", 20)
+assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for path in paths), paths
 paths, boundaries, truncated, _ = index.value_paths("capspkg.terminating_branch_before_recursion", "value", 20)
 assert not truncated and paths, (paths, boundaries)
 assert any(boundary[2] == "unsupported_control_flow" for boundary in boundaries), boundaries

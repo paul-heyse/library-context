@@ -286,7 +286,10 @@ multi-parent proof, that is a new decision, not parents smuggled into text.
 producer ignores an earlier same-function call when its narrowest non-approximate ty statement
 region and the return-value condition have a bounded conjunction of **false**. A compatible call
 requires the ordered pinned normal-completion proof above; a bounded or missing condition
-withholds the direct path with its specific reason. This path-incompatibility screen is interim;
+withholds the direct path with its specific reason. The pure summary producer sorts the
+source-cited predecessor calls before its stop-at-return scan, so an input-row shuffle cannot
+hide an earlier unproved call; it also orders finalizer-pass candidates before proof hashing.
+This path-incompatibility screen is interim;
 the target (plan order 1)
 distinguishes, for each argument and preceding statement on a proposed path, an evaluated direct
 value, a cited normal outcome, a possible raise and an unresolved expression, preserving

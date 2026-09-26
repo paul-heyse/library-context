@@ -73,6 +73,20 @@ def signed_literal_predecessor(value: object) -> object:
     return value
 
 
+def two_completed_predecessors(value: object) -> object:
+    """Two independently evaluated calls precede the direct return in source order."""
+    cast(object, 1)
+    cast(object, value)
+    return value
+
+
+def completed_then_raising(value: object) -> object:
+    """An earlier completed call cannot certify a later raising sibling."""
+    cast(object, 1)
+    cast(object, 1 / 0)
+    return value
+
+
 def raising_unary_predecessor(value: object) -> object:
     """A unary wrapper does not hide a raising operand."""
     cast(object, -(1 / 0))
