@@ -1198,6 +1198,56 @@ mod tests {
     }
 
     #[test]
+    fn ten_atom_truth_table_matches_bounded_decisions_and_restriction() {
+        let atoms: Vec<Diagram> = (0..10)
+            .map(|index| {
+                Diagram::from_atom(&Atom::Truthy {
+                    place: format!("p{index}"),
+                })
+                .unwrap()
+            })
+            .collect();
+        let mut left = Diagram::always();
+        for pair in 0..5 {
+            left = left.and(&atoms[2 * pair].or(&atoms[2 * pair + 1]).unwrap()).unwrap();
+        }
+        let right = atoms[0].and(&atoms[2]).unwrap();
+        let both = left.and(&right).unwrap();
+        let either = left.or(&right).unwrap();
+        let complement = left.not().unwrap();
+        let names: Vec<&str> = atoms.iter().map(|atom| atom.support()[0].as_str()).collect();
+        let mut any_both = false;
+        let mut counterexample = false;
+        for mask in 0..(1 << 10) {
+            let values: Vec<bool> = (0..10).map(|index| mask & (1 << index) != 0).collect();
+            let assignments: Vec<(&str, bool)> = names
+                .iter()
+                .zip(&values)
+                .map(|(name, value)| (*name, *value))
+                .collect();
+            let expected_left = (0..5).all(|pair| values[2 * pair] || values[2 * pair + 1]);
+            let expected_right = values[0] && values[2];
+            let value_of = |diagram: &Diagram| {
+                let relevant: Vec<(&str, bool)> = assignments
+                    .iter()
+                    .copied()
+                    .filter(|(name, _)| diagram.support().binary_search(&name.to_string()).is_ok())
+                    .collect();
+                diagram.restrict_atoms(&relevant).unwrap().is_true()
+            };
+            assert_eq!(value_of(&left), expected_left, "left at {mask}");
+            assert_eq!(value_of(&right), expected_right, "right at {mask}");
+            assert_eq!(value_of(&both), expected_left && expected_right, "and at {mask}");
+            assert_eq!(value_of(&either), expected_left || expected_right, "or at {mask}");
+            assert_eq!(value_of(&complement), !expected_left, "not at {mask}");
+            any_both |= expected_left && expected_right;
+            counterexample |= expected_left && !expected_right;
+        }
+        assert_eq!(left.compatible(&right), Ok(any_both));
+        assert_eq!(left.implies(&right), Ok(!counterexample));
+    }
+
+    #[test]
     fn cube_restriction_factors_when_legacy_dnf_is_over_budget() {
         let factor = BoundedCondition::atom(Atom::Truthy {
             place: "gate".to_owned(),
