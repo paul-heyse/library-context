@@ -192,6 +192,18 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
         SemanticExecutor(*args, [], [], [], [])
     with pytest.raises(ValueError, match="missing cited callee summary"):
         SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)], [], [], [])
+    caller = "05" * 16
+    conditional = (
+        (summary, operation, formal, condition, "conditional", None, 0),
+        (caller, operation, formal, condition, "conditional", None, 1),
+    )
+    with pytest.raises(ValueError, match="conditional callee lacks a test link"):
+        SemanticExecutor(
+            *args[:-1], conditional,
+            [(summary, 0, "raw_identity", "04" * 16, condition),
+             (caller, 0, "callee_summary", summary, condition)],
+            [], [], [],
+        )
 
 
 def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(

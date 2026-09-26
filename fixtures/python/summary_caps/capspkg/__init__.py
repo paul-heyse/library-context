@@ -185,6 +185,13 @@ def terminating_branch_before_recursion(value: object, stop: bool) -> object:
     return value
 
 
+def recursive_literal_return(value: object, stop: bool) -> object:
+    """A literal control argument lets the callee take its cited finite base."""
+    if stop:
+        return value
+    return recursive_literal_return(value, True)
+
+
 def unconditional_self_call(value: object) -> object:
     """A later direct return does not prove this recursive call completed."""
     unconditional_self_call(value)

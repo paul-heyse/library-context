@@ -189,6 +189,7 @@ impl ConditionGraph {
 }
 
 struct NativeSummary {
+    function_node_id: Id,
     condition_id: Id,
     verdict: String,
     boundary: Option<String>,
@@ -333,6 +334,7 @@ impl SemanticExecutor {
                 .insert(
                     summary,
                     NativeSummary {
+                        function_node_id: function,
                         condition_id: condition,
                         verdict,
                         boundary,
@@ -389,21 +391,6 @@ impl SemanticExecutor {
                 .into_iter()
                 .map(|(_, kind, evidence, condition)| (kind, evidence, condition))
                 .collect();
-        }
-        for summary in summaries.values() {
-            for (kind, evidence, _) in &summary.steps {
-                if kind == "callee_summary" {
-                    let Some(callee) = summaries.get(evidence) else {
-                        return Err(PyValueError::new_err("missing cited callee summary"));
-                    };
-                    if callee.path_depth >= summary.path_depth {
-                        return Err(PyValueError::new_err("cyclic or unordered callee proof"));
-                    }
-                    if callee.verdict != "established" {
-                        return Err(PyValueError::new_err("callee proof is not unconditional"));
-                    }
-                }
-            }
         }
         for ids in by_formal.values_mut() {
             ids.sort();
@@ -530,6 +517,37 @@ impl SemanticExecutor {
                 *key,
                 ids.iter().map(|id| leaves_by_id[id].clone()).collect(),
             );
+        }
+        for summary in summaries.values() {
+            for (index, (kind, evidence, _)) in summary.steps.iter().enumerate() {
+                if kind != "callee_summary" { continue; }
+                let Some(callee) = summaries.get(evidence) else {
+                    return Err(PyValueError::new_err("missing cited callee summary"));
+                };
+                if callee.path_depth >= summary.path_depth {
+                    return Err(PyValueError::new_err("cyclic or unordered callee proof"));
+                }
+                if callee.verdict == "established" { continue; }
+                let Some((link_kind, link_id, condition)) = index.checked_sub(1)
+                    .and_then(|prior| summary.steps.get(prior)) else {
+                    return Err(PyValueError::new_err("conditional callee lacks a test link"));
+                };
+                let supported = callee.verdict == "conditional"
+                    && link_kind == "callee_condition_link"
+                    && *condition == callee.condition_id
+                    && links_by_formal.values().flatten().any(|link| {
+                        link.link_id == *link_id
+                            && link.operation_node_id == callee.function_node_id
+                            && link.origin == TestValueLinkOrigin::DirectParameterReachNoEffect
+                            && leaves_by_id.get(&link.leaf_fact_id).is_some_and(|leaf| {
+                                graph.diagrams.get(&callee.condition_id).is_some_and(|root|
+                                    root.support().contains(&leaf.atom))
+                            })
+                    });
+                if !supported {
+                    return Err(PyValueError::new_err("conditional callee lacks a cited exact test link"));
+                }
+            }
         }
         Ok(Self {
             graph,

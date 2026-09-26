@@ -1375,6 +1375,9 @@ codebook!(
         ModuleImportBinding = 12 => "module_import_binding",
         /// The import statement's ty region was unconditionally reached at module entry.
         ModuleImportRegion = 13 => "module_import_region",
+        /// An exact entry-formal test link specializes the cited callee condition under a
+        /// source-cited literal argument; the condition itself remains the caller's root.
+        CalleeConditionLink = 14 => "callee_condition_link",
     }
 );
 

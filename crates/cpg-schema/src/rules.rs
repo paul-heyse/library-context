@@ -455,6 +455,7 @@ pub const REFERENCES: &[Reference] = &[
             ("bindings", "fact_id"),
             ("flow_regions", "fact_id"),
             ("flow_reaching", "fact_id"),
+            ("flow_test_value_links", "link_id"),
             ("summary_flows", "summary_id"),
         ],
     ),

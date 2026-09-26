@@ -862,6 +862,31 @@ budget = 1
         )).await > 0,
         "the recursive return supplies a real local-call candidate"
     );
+    assert!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM ({}) s JOIN declarations d \
+             ON d.node_id = s.function_node_id \
+             WHERE d.name = 'recursive_base_identity' \
+               AND s.control_value AND s.control_link_id IS NOT NULL",
+            cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+        )).await > 0,
+        "the second literal formal has an exact entry-value test link"
+    );
+    assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
+               AND s.kind = {} \
+             JOIN flow_test_value_links l ON l.link_id = s.evidence_id \
+             WHERE d.name = 'recursive_base_identity' AND f.path_depth = 1 \
+               AND f.verdict = {}",
+            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+            Verdict::Conditional.code(),
+        )).await,
+        1,
+        "the finite recursive return cites the exact literal-to-guard link"
+    );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \

@@ -324,6 +324,18 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
             .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
         assert_eq!(counts.value(0), expected, "{name} recursive predecessor admission");
     }
+    let rows = sql::query(&ctx, &format!(
+        "SELECT count(*) AS n FROM summary_flows f \
+         JOIN declarations d ON d.node_id = f.function_node_id \
+         JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
+           AND s.kind = {} \
+         JOIN flow_test_value_links l ON l.link_id = s.evidence_id \
+         WHERE d.name = 'recursive_literal_return' AND f.path_depth = 1",
+        SummaryFlowStepKind::CalleeConditionLink.code(),
+    )).await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the real recursive literal cites its exact test link");
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
         .await.unwrap();
     let script = r#"
@@ -335,6 +347,8 @@ from lctx_mcp.generation import load
 from lctx_mcp.server import build_server
 generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
+def inspect(operation, formal):
+    return index.inspect_value_paths(operation, formal, "none", "", True, 0, 20)
 for operation, expected in (
     ("capspkg.f9", "summary_depth_limit"),
     ("capspkg.condition_atom_cap", "condition_atom_limit"),
@@ -351,22 +365,22 @@ for operation, expected in (
     ("capspkg.assigned_modeled_after_opaque", "unsupported_control_flow"),
     ("capspkg.local_after_opaque", "unsupported_control_flow"),
 ):
-    paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated, (operation, paths, boundaries)
-    assert any(boundary[2] == expected for boundary in boundaries), (operation, paths, boundaries)
+    assert any(boundary[3] == expected for boundary in boundaries), (operation, paths, boundaries)
 for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
-    paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated and not boundaries, (operation, paths, boundaries)
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
-paths, boundaries, truncated, _ = index.value_paths("capspkg.two_completed_predecessors", "value", 20)
+paths, boundaries, total, truncated, work = inspect("capspkg.two_completed_predecessors", "value")
 assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for path in paths), paths
-paths, boundaries, truncated, _ = index.value_paths("capspkg.local_after_completed", "value", 20)
+paths, boundaries, total, truncated, work = inspect("capspkg.local_after_completed", "value")
 assert not truncated and not boundaries, (paths, boundaries)
 assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
-paths, boundaries, truncated, _ = index.value_paths("capspkg.modeled_after_completed", "value", 20)
+paths, boundaries, total, truncated, work = inspect("capspkg.modeled_after_completed", "value")
 assert not truncated and not boundaries, (paths, boundaries)
 assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
-paths, boundaries, truncated, _ = index.value_paths("capspkg.assigned_modeled_after_completed", "value", 20)
+paths, boundaries, total, truncated, work = inspect("capspkg.assigned_modeled_after_completed", "value")
 assert not truncated and not boundaries, (paths, boundaries)
 assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for path in paths), paths
 for operation, formal, kind, value, expected in (
@@ -401,9 +415,14 @@ async def check_mcp():
             assert page and page["paths"] and not page["boundaries"], (operation, page)
             assert any(path["exact_input_result"] == expected for path in page["paths"]), (operation, expected, page)
 asyncio.run(check_mcp())
-paths, boundaries, truncated, _ = index.value_paths("capspkg.terminating_branch_before_recursion", "value", 20)
+paths, boundaries, total, truncated, work = inspect("capspkg.terminating_branch_before_recursion", "value")
 assert not truncated and paths, (paths, boundaries)
-assert any(boundary[2] == "unsupported_control_flow" for boundary in boundaries), boundaries
+assert any(boundary[3] == "unsupported_control_flow" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = index.inspect_value_paths(
+    "capspkg.recursive_literal_return", "value", "none", "", True, 0, 20
+)
+assert not truncated and paths, (paths, boundaries)
+assert any(path[1] == "conditional" and any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script,
@@ -423,6 +442,17 @@ assert any(boundary[2] == "unsupported_control_flow" for boundary in boundaries)
     assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
         "missing normal-completion witness passed validation: {violations:?}");
     ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", original_steps.clone()).unwrap();
+    let missing_link = sql::query(&ctx, &format!(
+        "SELECT * FROM summary_flow_steps WHERE kind <> {}",
+        SummaryFlowStepKind::CalleeConditionLink.code(),
+    )).await.unwrap().into_view();
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", missing_link).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
+        "missing recursive condition link passed validation: {violations:?}");
+    ctx.deregister_table("summary_flow_steps").unwrap();
     ctx.register_table("summary_flow_steps", original_steps).unwrap();
 }
 
@@ -441,8 +471,8 @@ from lctx_mcp.generation import GenerationError, _validate_support_closure, load
 from lctx_mcp.server import hydrate, markdown, serve
 generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
-paths, boundaries, truncated, _ = index.value_paths(
-    "pkg.controls.passthrough", "options", 20
+paths, boundaries, total, truncated, work = index.inspect_value_paths(
+    "pkg.controls.passthrough", "options", "none", "", True, 0, 20
 )
 assert not truncated and not boundaries, (paths, boundaries)
 assert any(

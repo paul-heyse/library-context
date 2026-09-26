@@ -2470,15 +2470,17 @@ crate::relations! {
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
 
-    /// One exact source-call result returned by a synchronous caller, with one positional
-    /// parameter operand and one definite closed local target. Callee summaries are joined in
-    /// the bounded SCC worklist, not here: a call edge by itself is never a transfer proof.
+    /// One exact source-call result returned by a synchronous caller, with a positional
+    /// parameter operand and one definite closed local target. A second positional operand
+    /// is admitted only when it is an exact boolean literal mapped to a formal with a cited
+    /// entry-value test link. Callee summaries are joined in the bounded SCC worklist, not
+    /// here: a call edge by itself is never a transfer proof.
     local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls",
                 "flow_value_call_links", "call_syntax", "call_targets", "resolutions",
                 "argument_flows", "arguments", "parameter_syntax", "declarations",
                 "syntax_nodes", "references", "reference_resolutions", "exit_sites",
-                "return_exit_statuses"],
+                "return_exit_statuses", "flow_test_value_links", "flow_test_leaves"],
         sql = format!(
             "WITH {callee_candidates}, step_counts AS ( \
                SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \
@@ -2500,7 +2502,15 @@ crate::relations! {
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
                     ret.start_byte AS return_start_byte, \
-                    (f.approximated OR e.approximated) AS approximated \
+                    (f.approximated OR e.approximated) AS approximated, \
+                    control_arg.fact_id AS control_argument_fact_id, \
+                    literal.fact_id AS control_literal_fact_id, \
+                    control_map.formal_node_id AS control_formal_node_id, \
+                    test_link.link_id AS control_link_id, \
+                    test_leaf.atom AS control_atom, \
+                    CASE WHEN literal.detail = 'True' THEN true \
+                         WHEN literal.detail = 'False' THEN false \
+                         ELSE NULL END AS control_value \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
                AND f.sink = {return_sink} \
@@ -2513,10 +2523,11 @@ crate::relations! {
                AND l.status = {bound_argument} \
              JOIN call_syntax c ON c.node_id = l.call_node_id \
                AND c.owner_node_id = v.sink_function_node_id \
-               AND c.positional_count = 1 AND c.keyword_count = 0 \
+               AND c.positional_count IN (1, 2) AND c.keyword_count = 0 \
              JOIN arguments arg ON arg.node_id = l.argument_node_id \
                AND arg.fact_id = l.argument_fact_id \
                AND arg.call_node_id = c.node_id AND arg.kind = {positional} \
+               AND arg.ordinal = 0 \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN resolutions r ON r.call_site_node_id = c.node_id \
@@ -2531,6 +2542,27 @@ crate::relations! {
                AND a.caller_node_id = v.sink_function_node_id \
                AND a.mapping_count = 1 AND a.modality = {definite} \
                AND a.phase = {call_phase} \
+             LEFT JOIN arguments control_arg ON control_arg.call_node_id = c.node_id \
+               AND control_arg.ordinal = 1 AND control_arg.kind = {positional} \
+             LEFT JOIN mappings control_map ON control_map.call_site_node_id = c.node_id \
+               AND control_map.target_node_id = t.target_node_id \
+               AND control_map.argument_node_id = control_arg.node_id \
+               AND control_map.caller_node_id = v.sink_function_node_id \
+               AND control_map.mapping_count = 1 AND control_map.modality = {definite} \
+               AND control_map.phase = {call_phase} \
+               AND control_map.value_class = {literal_class} \
+             LEFT JOIN syntax_nodes literal ON literal.module_node_id = c.module_node_id \
+               AND literal.parent_node_id = c.node_id AND literal.field = {argument_field} \
+               AND literal.start_byte = control_arg.value_start_byte \
+               AND literal.end_byte = control_arg.value_end_byte \
+               AND literal.kind = {boolean_literal} \
+             LEFT JOIN flow_test_value_links test_link \
+               ON test_link.operation_node_id = t.target_node_id \
+               AND test_link.formal_node_id = control_map.formal_node_id \
+               AND test_link.origin = {direct_link} \
+             LEFT JOIN flow_test_leaves test_leaf \
+               ON test_leaf.fact_id = test_link.leaf_fact_id \
+               AND test_leaf.atom_id = test_link.atom_id \
              JOIN parameter_syntax p ON p.node_id = v.parameter_node_id \
                AND p.function_node_id = v.sink_function_node_id \
              JOIN declarations d ON d.node_id = v.sink_function_node_id \
@@ -2547,6 +2579,11 @@ crate::relations! {
              WHERE v.parameter_node_id IS NOT NULL \
                AND v.function_node_id = v.sink_function_node_id \
                AND v.upstream_identity AND v.local_through_call \
+               AND (c.positional_count = 1 OR \
+                    (c.positional_count = 2 AND control_map.formal_node_id IS NOT NULL \
+                     AND control_map.formal_node_id <> a.formal_node_id \
+                     AND test_leaf.atom IS NOT NULL \
+                     AND literal.detail IN ('True', 'False'))) \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
@@ -2556,6 +2593,10 @@ crate::relations! {
             positional = ArgumentKind::Positional.code(),
             definite = Modality::Definite.code(),
             call_phase = InvocationPhase::Call.code(),
+            literal_class = crate::flows::value_class::LITERAL,
+            argument_field = crate::codebook::SyntaxField::Argument.code(),
+            boolean_literal = SyntaxKind::ExprBooleanLiteral.code(),
+            direct_link = TestValueLinkOrigin::DirectParameterReachNoEffect.code(),
             function_kind = DeclarationKind::Function.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             exit_return = ExitSiteKind::Return.code(),
