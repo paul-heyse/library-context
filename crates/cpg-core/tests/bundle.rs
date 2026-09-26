@@ -164,7 +164,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     assert_eq!(counts.value(0), 1,
         "one raw returned use keeps a proved value and an unproved call origin");
     for (name, reason) in [("f9", 21), ("unsupported", 4),
-        ("condition_atom_cap", 24)] {
+        ("condition_atom_cap", 24), ("summary_proof_cap", 30)] {
         let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_boundaries b \
             JOIN declarations d ON d.node_id = b.function_node_id \
             WHERE d.name = '{name}' AND b.reason = {reason}"))
@@ -415,7 +415,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         JOIN syntax_nodes expression ON expression.fact_id = e.evidence_id \
         WHERE d.name IN ('short_circuit_or_sibling', 'binary_sibling_identity') \
           AND e.status = {} AND expression.kind IN ({}, {})",
-        ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
+        ModeledArgumentEvaluationStatus::ComposedExpressionNormal.code(),
         cpg_schema::codebook::SyntaxKind::ExprBoolOp.code(),
         cpg_schema::codebook::SyntaxKind::ExprBinOp.code()))
         .await.unwrap().collect().await.unwrap();
@@ -435,7 +435,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         JOIN syntax_nodes expression ON expression.fact_id = e.evidence_id \
         WHERE d.name = 'selected_false_sibling' AND e.status = {} \
           AND expression.kind = {}",
-        ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
+        ModeledArgumentEvaluationStatus::ComposedExpressionNormal.code(),
         cpg_schema::codebook::SyntaxKind::ExprIf.code()))
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
@@ -671,10 +671,14 @@ paths, boundaries, total, truncated, work = inspect("capspkg.nested_raising_iden
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 for operation, reason in (("capspkg.expression_depth_cap", "expression_depth_limit"),
-                          ("capspkg.expression_work_cap", "expression_work_limit")):
+                          ("capspkg.expression_work_cap", "expression_work_limit"),
+                          ("capspkg.summary_proof_cap", "summary_proof_limit")):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated and not paths and boundaries, (operation, paths, boundaries)
     assert any(boundary[3] == reason for boundary in boundaries), (operation, boundaries)
+paths, boundaries, total, truncated, work = inspect("capspkg.summary_proof_boundary", "value")
+assert not truncated and paths and not boundaries, (paths, boundaries)
+assert any(len(path[3]) == 64 for path in paths), paths
 for operation in ("capspkg.composed_boolean_control", "capspkg.composed_expression_predecessor", "capspkg.composed_expression_sibling"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated and paths and not boundaries, (operation, paths, boundaries)

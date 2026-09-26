@@ -125,3 +125,132 @@ mod tests {
             &condition, &duplicate, &links).is_err());
     }
 }
+
+crate::query_row! {
+    /// A source-admitted normal name read. It does not provide an exact value or establish
+    /// evaluation of the enclosing expression. Duplicate certificates are refused by the kernel.
+    pub struct ExpressionRead {
+        snapshot_id: Id,
+        syntax_fact_id: Id,
+        evidence_id: Id,
+        status: crate::codebook::ModeledArgumentEvaluationStatus,
+    }
+}
+
+/// A complete source or pinned signature, independent of evaluation order.
+#[derive(Clone, Debug)]
+pub struct SignatureParameter {
+    pub evidence_id: Id,
+    pub ordinal: i64,
+    pub name: String,
+    pub kind: crate::codebook::ParameterKind,
+    pub required: bool,
+}
+
+/// One local proof budget, shared by the producer and native generation admission.
+/// Recursive callee support is bounded independently by the summary path-depth limit.
+pub const MAX_SUMMARY_PROOF_STEPS: usize = 64;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BoundArgument {
+    pub argument_fact_id: Id,
+    pub parameter_fact_id: Id,
+    pub parameter_name: String,
+}
+
+/// Bind an explicit argument group without evaluating it. Omitted optional parameters refer
+/// to definition-time defaults; this function neither evaluates nor assigns a value to them.
+/// Unpacking and variadic collection remain unsupported rather than partially bound.
+pub fn bind_explicit_arguments(parameters: &[SignatureParameter], arguments: &[crate::tables::ArgumentsRow])
+    -> Result<Vec<BoundArgument>, BoundaryReason> {
+    use crate::codebook::{ArgumentKind as A, ParameterKind as P};
+    let unsupported = BoundaryReason::UnsupportedControlFlow;
+    if arguments.len() > 128 || parameters.len() > 128 { return Err(unsupported); }
+    let mut formals: Vec<_> = parameters.iter().collect();
+    formals.sort_by_key(|p| p.ordinal);
+    if formals.iter().enumerate().any(|(index, p)| p.ordinal != index as i64)
+        || formals.iter().map(|p| &p.name).collect::<BTreeSet<_>>().len() != formals.len()
+        || formals.iter().map(|p| p.evidence_id).collect::<BTreeSet<_>>().len() != formals.len() {
+        return Err(BoundaryReason::MissingEvidence);
+    }
+    let mut args: Vec<_> = arguments.iter().collect();
+    args.sort_by_key(|a| a.ordinal);
+    if args.iter().enumerate().any(|(index, a)| a.ordinal != index as i64)
+        || args.iter().map(|a| a.fact_id).collect::<BTreeSet<_>>().len() != args.len()
+        || args.windows(2).any(|pair| pair[0].snapshot_id != pair[1].snapshot_id
+            || pair[0].call_node_id != pair[1].call_node_id) {
+        return Err(BoundaryReason::MissingEvidence);
+    }
+    let positional: Vec<_> = formals.iter().copied().filter(|p|
+        matches!(p.kind, P::PositionalOnly | P::PositionalOrKeyword)).collect();
+    let mut next_positional = 0;
+    let mut used = BTreeSet::new();
+    let mut out = Vec::new();
+    for argument in args {
+        let parameter = match argument.kind {
+            A::Positional if argument.keyword.is_none() => {
+                let parameter = positional.get(next_positional).copied().ok_or(unsupported)?;
+                next_positional += 1;
+                parameter
+            },
+            A::Keyword => {
+                let name = argument.keyword.as_deref().ok_or(unsupported)?;
+                formals.iter().copied().find(|p| p.name == name && matches!(p.kind,
+                    P::PositionalOrKeyword | P::KeywordOnly)).ok_or(unsupported)?
+            },
+            _ => return Err(unsupported),
+        };
+        if !used.insert(parameter.evidence_id) { return Err(unsupported); }
+        out.push(BoundArgument { argument_fact_id: argument.fact_id,
+            parameter_fact_id: parameter.evidence_id, parameter_name: parameter.name.clone() });
+    }
+    if formals.iter().any(|p| p.required && !used.contains(&p.evidence_id)) { return Err(unsupported); }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    use crate::codebook::{ArgumentKind as A, ParameterKind as P};
+    fn argument(id: u8, ordinal: i64, keyword: Option<&str>) -> crate::tables::ArgumentsRow {
+        crate::tables::ArgumentsRow { snapshot_id: Id([1;16]), fact_id: Id([id;16]),
+            node_id: Id([id;16]), call_node_id: Id([2;16]), ordinal,
+            kind: if keyword.is_some() { A::Keyword } else { A::Positional },
+            keyword: keyword.map(str::to_owned), start_byte: 0, end_byte: 10,
+            value_start_byte: 0, value_end_byte: 10 }
+    }
+    #[test]
+    fn binding_is_independent_of_source_order_and_rejects_missing_or_duplicate_formals() {
+        let parameters = vec![SignatureParameter { evidence_id: Id([3;16]), ordinal: 0,
+            name: "first".to_owned(), kind: P::PositionalOrKeyword, required: true },
+            SignatureParameter { evidence_id: Id([4;16]), ordinal: 1,
+                name: "second".to_owned(), kind: P::KeywordOnly, required: false }];
+        let args = vec![argument(10,0,Some("second")), argument(11,1,Some("first"))];
+        let bound = bind_explicit_arguments(&parameters, &args).unwrap();
+        assert_eq!(bound.iter().map(|b| b.parameter_name.as_str()).collect::<Vec<_>>(), vec!["second","first"]);
+        assert!(bind_explicit_arguments(&parameters, &args[..1]).is_err());
+        assert!(bind_explicit_arguments(&parameters, &[argument(10,0,None)]).is_ok());
+        assert!(bind_explicit_arguments(&parameters, &[argument(10,0,None), argument(11,1,Some("first"))]).is_err());
+        let mut unpacked = argument(10,0,None); unpacked.kind = A::Starred;
+        assert!(bind_explicit_arguments(&parameters, &[unpacked]).is_err());
+    }
+}
+
+crate::query_row! {
+    /// A sole pinned total target with an independently resolved module-import callee.
+    /// The expression kernel still checks the signature and every evaluated argument.
+    pub struct NormalCallTarget {
+        snapshot_id: Id,
+        call_node_id: Id,
+        call_fact_id: Id,
+        target_node_id: Id,
+        signature_count: i64,
+        pysa_fact_id: Id,
+        model_id: Id,
+        resolution_fact_id: Id,
+        import_binding_fact_id: Id,
+        import_region_fact_id: Id,
+        import_condition_id: Id,
+        argument_count: i64,
+    }
+}

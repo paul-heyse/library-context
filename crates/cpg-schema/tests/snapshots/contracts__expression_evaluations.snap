@@ -2,16 +2,19 @@
 source: crates/cpg-schema/tests/contracts.rs
 expression: text
 ---
-table closed_expression_evaluations
+table expression_evaluations
 family findings
 key snapshot_id, syntax_fact_id
 check normal_iff_supported: (normal AND reason IS NULL) OR (NOT normal AND reason IS NOT NULL AND boolean_value IS NULL)
 check positive_work: work > 0
+check normal_evidence: (normal AND evidence_id IS NOT NULL AND status <> 2) OR (NOT normal AND evidence_id IS NULL AND status = 2)
 @lctx.family=findings
-@lctx.table=closed_expression_evaluations
+@lctx.table=expression_evaluations
 snapshot_id: FixedSizeBinary(16) NOT NULL
 syntax_fact_id: FixedSizeBinary(16) NOT NULL
 normal: Boolean NOT NULL
 boolean_value: Boolean NULL
+status: Int16 NOT NULL [lctx.codebook=modeled_argument_evaluation_status]
+evidence_id: FixedSizeBinary(16) NULL
 reason: Int16 NULL [lctx.codebook=boundary_reason]
 work: Int64 NOT NULL

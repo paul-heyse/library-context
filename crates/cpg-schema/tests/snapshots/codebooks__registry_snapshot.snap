@@ -81,6 +81,9 @@ boundary_reason
   25 summary_pair_work_limit
   26 expression_depth_limit
   27 expression_work_limit
+  28 completion_depth_limit
+  29 completion_work_limit
+  30 summary_proof_limit
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
@@ -790,6 +793,10 @@ summary_flow_step_kind
   13 module_import_region
   14 callee_condition_link
   15 caller_condition_link
+  16 expression_syntax
+  17 parameter_binding
+  18 completion_statement
+  19 local_assignment_binding
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal
@@ -799,3 +806,12 @@ modeled_argument_evaluation_status
   5 assignment_name_normal
   6 lexical_parameter_normal
   7 closed_expression_normal
+  8 composed_expression_normal
+  9 pinned_call_normal
+completion_kind
+  0 normal
+  1 return
+  2 raise
+  3 break
+  4 continue
+  5 unknown

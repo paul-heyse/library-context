@@ -123,7 +123,7 @@ pub async fn validate_costed(
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
     violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
     violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
-    violations.extend(validate_closed_expressions(&cache).await?);
+    violations.extend(validate_expression_evaluations(&cache).await?);
     violations.extend(validate_modeled_argument_evaluations(&cache).await?);
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
@@ -135,6 +135,9 @@ cpg_schema::relations! {
     inventory exit_relations;
     stored_exit_sites = "validate_stored_exit_sites", deps = ["exit_sites"],
         sql = "SELECT * FROM exit_sites".to_owned();
+    stored_return_exit_steps = "validate_stored_return_exit_steps", deps = ["return_exit_steps"], sql = "SELECT * FROM return_exit_steps".to_owned();
+    stored_statement_completions = "validate_stored_statement_completions", deps = ["statement_completions"], sql = "SELECT * FROM statement_completions".to_owned();
+    stored_statement_completion_steps = "validate_stored_statement_completion_steps", deps = ["statement_completion_steps"], sql = "SELECT * FROM statement_completion_steps".to_owned();
     stored_return_exit_statuses = "validate_stored_return_exit_statuses", deps = ["return_exit_statuses"],
         sql = "SELECT * FROM return_exit_statuses".to_owned();
     stored_handler_clauses = "validate_stored_handler_clauses", deps = ["handler_clauses"],
@@ -176,9 +179,11 @@ cpg_schema::relations! {
     stored_modeled_exact_value_transfers = "validate_stored_modeled_exact_value_transfers",
         deps = ["modeled_exact_value_transfers"],
         sql = "SELECT * FROM modeled_exact_value_transfers".to_owned();
-    stored_closed_expressions = "validate_stored_closed_expressions",
-        deps = ["closed_expression_evaluations"],
-        sql = "SELECT * FROM closed_expression_evaluations".to_owned();
+    stored_expression_evaluations = "validate_stored_expression_evaluations",
+        deps = ["expression_evaluations"],
+        sql = "SELECT * FROM expression_evaluations".to_owned();
+    stored_expression_steps = "validate_stored_expression_steps", deps = ["expression_evaluation_steps"],
+        sql = "SELECT * FROM expression_evaluation_steps".to_owned();
     stored_modeled_argument_evaluations = "validate_stored_modeled_argument_evaluations",
         deps = ["modeled_argument_evaluations"],
         sql = "SELECT * FROM modeled_argument_evaluations".to_owned();
@@ -672,12 +677,18 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
     }
     let mut actual_statuses: Vec<ReturnExitStatusesRow> =
         sql::fetch(ctx, &stored_return_exit_statuses(), sql::Params::new()).await?;
-    let mut expected_statuses: Vec<ReturnExitStatusesRow> = sql::fetch(
-        ctx,
-        &cpg_schema::behavior::return_exit_statuses(),
-        sql::Params::new(),
-    )
-    .await?;
+    let expected = crate::summaries::completions(ctx).await?;
+    let mut expected_statuses = expected.returns;
+    let mut statements: Vec<cpg_schema::behavior::StatementCompletionsRow> = sql::fetch(ctx, &stored_statement_completions(), sql::Params::new()).await?;
+    let mut statement_steps: Vec<cpg_schema::behavior::StatementCompletionStepsRow> = sql::fetch(ctx, &stored_statement_completion_steps(), sql::Params::new()).await?;
+    let mut return_steps: Vec<cpg_schema::behavior::ReturnExitStepsRow> = sql::fetch(ctx, &stored_return_exit_steps(), sql::Params::new()).await?;
+    statements.sort_by_key(|r| (r.snapshot_id,r.source_fact_id));
+    statement_steps.sort_by_key(|r| (r.snapshot_id,r.source_fact_id,r.ordinal));
+    return_steps.sort_by_key(|r| (r.snapshot_id,r.return_site_fact_id,r.ordinal));
+    if statements != expected.statements || statement_steps != expected.statement_steps || return_steps != expected.return_steps {
+        violations.push(Violation { rule: "completion-source-equality".to_owned(), rows: 1,
+            sample: "statement or ordered frame completion differs from source reconstruction".to_owned() });
+    }
     actual_statuses.sort_by_key(|row| row.site_node_id);
     expected_statuses.sort_by_key(|row| row.site_node_id);
     if actual_statuses != expected_statuses {
@@ -1810,16 +1821,27 @@ fn visit(plan: &Arc<dyn ExecutionPlan>, f: &mut impl FnMut(&dyn ExecutionPlan)) 
 }
 
 /// Reject both extra and missing completion rows, including forged exact values and budgets.
-async fn validate_closed_expressions(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
-    let mut actual: Vec<cpg_schema::behavior::ClosedExpressionEvaluationsRow> =
-        sql::fetch(ctx, &stored_closed_expressions(), sql::Params::new()).await?;
-    let mut expected = crate::summaries::closed_expression_evaluations(ctx).await?;
+async fn validate_expression_evaluations(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<cpg_schema::behavior::ExpressionEvaluationsRow> =
+        sql::fetch(ctx, &stored_expression_evaluations(), sql::Params::new()).await?;
+    let outcome = match crate::summaries::expression_evaluations(ctx).await {
+        Ok(outcome) => outcome,
+        Err(error) => return Ok(vec![Violation {
+            rule: "expression-source-equality".to_owned(),
+            rows: 1,
+            sample: format!("expression reconstruction refused invalid inputs: {error}"),
+        }]),
+    };
+    let mut expected = outcome.evaluations;
+    let mut actual_steps: Vec<cpg_schema::behavior::ExpressionEvaluationStepsRow> =
+        sql::fetch(ctx, &stored_expression_steps(), sql::Params::new()).await?;
+    actual_steps.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id, row.ordinal));
     actual.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
     expected.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
-    if actual == expected { return Ok(Vec::new()); }
+    if actual == expected && actual_steps == outcome.steps { return Ok(Vec::new()); }
     Ok(vec![Violation {
-        rule: "closed-expression-source-equality".to_owned(),
+        rule: "expression-source-equality".to_owned(),
         rows: actual.len().abs_diff(expected.len()).max(1),
-        sample: format!("stored {} closed expressions; derived {}", actual.len(), expected.len()),
+        sample: format!("stored {} expressions; derived {}", actual.len(), expected.len()),
     }])
 }

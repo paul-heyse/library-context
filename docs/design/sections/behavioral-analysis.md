@@ -133,16 +133,22 @@ every row; the shared validator reconstructs each relation and rejects forged st
 - **`modeled_argument_evaluations`** accounts for every explicit argument of an exact one-call
   model candidate in source order: the selected operand cites its raw value fact and a separate
   normal-read witness; a direct literal has `literal_normal`, while the pure bounded
-  `lctx_analytics::evaluation` owner reconstructs nested closed expressions from placed Ruff
-  syntax. `closed_expression_evaluations` separates normal completion from an exact Boolean
+  `lctx_analytics::evaluation` owner reconstructs nested expressions from placed Ruff
+  syntax. `expression_evaluations` separates normal completion from an exact Boolean
   value and retains an explicit refusal and work count. Supported unary, numeric `+`/`-`,
   multi-operand Boolean and conditional forms evaluate only the operands Python selects.
   Integer arithmetic is representable only within a checked i64 domain; arbitrary integers are
-  normal literals but cannot silently enter floating-point arithmetic. Unknown calls, names,
-  operators and selected raising operands supply no closed-expression witness. Depth 64 and
+  normal literals but cannot silently enter floating-point arithmetic. Unsupported calls, reads,
+  operators and selected raising operands supply no evaluation witness. Depth 64 and
   work 1024 have append-only `expression_depth_limit` / `expression_work_limit` boundaries.
-  `closed_expression_normal` still cites the whole Ruff expression; the shared validator
-  reconstructs its decision, exact value and work count. The shared SQL argument adapter joins
+  **Implemented, 2026-09-26:** `expression_evaluation_steps` records every selected operand,
+  read, call resolution, agreeing signature binding and pinned normal-return/model witness in
+  evaluation order. Normal name reads compose without inventing exact values or normal arbitrary
+  truthiness. Nested sole closed total calls require an earlier unconditional module-level import
+  and agreement across all pinned signatures. Optional omissions refer to definition-time defaults;
+  they do not invent a default value. `composed_expression_normal` and `pinned_call_normal` extend
+  the append-only evaluation codebook. The shared validator reconstructs decisions, values,
+  ordered proofs and work. The shared SQL argument adapter joins
   these rows instead of independently recognizing fixed expression shapes. An exact
   unshadowed builtin name also has a local normal-evaluation witness. A direct parameter
   name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
@@ -154,8 +160,8 @@ every row; the shared validator reconstructs each relation and rejects forged st
   same exact check admits a direct local assignment read as `assignment_name_normal`; its
   definition must match the lexical assignment binding. Both cite the reaching fact, not the
   name spelling. A one-call source operand keeps its raw fact in `evidence_id` and the normal
-  read in `source_normal_evidence_id`; without both it is unknown. Unpacking, possibly unbound/deleted names, nested calls outside the exact
-  modeled-chain route and other unproved expressions retain `outside_provider_model`. The closed-expression/builtin/local-name classifier is
+  read in `source_normal_evidence_id`; without both it is unknown. Unpacking, possibly unbound/deleted names,
+  unproved dispatch and other unsupported expressions remain unknown. The expression classifier is
   shared with the predecessor-completion relation;
   neither treats a callee's `normal_return` assertion as proof that its arguments complete.
 
@@ -194,17 +200,21 @@ witness.
   `finally`. It is a candidate path conditional on the raise, not a catch or normal-return verdict;
   nested frames, uncertain precedence, computed actions and finalizers stay unknown.
 - **Return frames and finalizers.** `return_exit_statuses` walks each return's same-function
-  ancestry to a declared cap and cites the nearest controlling `with` or pending `finally`. A
-  return is admitted through pending frames only when **every** pending frame is a `try` whose
-  entire nonempty direct `finalbody` consists of literal `pass` statements; the pass facts are reconstructed in
-  inner-to-outer execution order and each admitted summary cites all of them as ordered
-  `finalizer_pass` proof steps (the single-pass status fields are populated only for one
-  controlling frame with one pass). This is a
-  local normal-exit proof, not proof that the return expression or an earlier call completes.
-  A nontrivial finalizer, `with` and capped ancestry keep their control boundary: expanding them
-  needs an ordered exit witness per frame, not a wider allowlist. A targeted CPython 3.14.7
-  `sys.monitoring` check agrees for a pending return through `finally: pass` and an overriding
-  `finally` return (**Tested**, 2026-09-25).
+  ancestry to a declared cap and cites the nearest controlling `with` or pending `finally`.
+  **Implemented, 2026-09-26:** pure `lctx_analytics::completion` reconstructs
+  `statement_completions`, `statement_completion_steps` and `return_exit_steps`. Normal finalizers
+  preserve a pending outcome; an abrupt or unknown finalizer withholds that original return.
+  Supported actions include pass, normal expressions, unique local initialization outside loops,
+  exact selected branches and nested try/finally. An opaque exception operand cannot establish
+  a raise: exception classes can execute user constructors. Exact invalid primitive exception
+  operands establish a raise; a first bare handler can catch it. Typed handlers, bare re-raise,
+  arbitrary rebinding/finalization, loops and context exits remain unknown.
+  Full operand/call/binding evidence is retained in inner-to-outer frame order. Completion depth
+  128 and work 4096 have separate typed refusals. The shared summary-proof cap is 64 local steps;
+  the producer emits `summary_proof_limit` before native admission could reject a generation.
+  This proves pending-frame completion, not function entry or preceding-statement completion.
+  [Independent CPython/Hypothesis controls](../../design_review/evidence/2026-09-26_expression-completion/README.md)
+  challenge normal/overriding/exceptional finalizers and implicit execution (**Tested**, 2026-09-26).
 - **Target** (Proposed; plan order 2): nested `try`/`finally` and `with` frame order, normal and
   exceptional completion, suppression and handler propagation; callbacks stored, invoked,
   forwarded or registered, and resource acquire/release, each only with an execution and exit

@@ -1,14 +1,16 @@
-//! Source-expression completion, independent of calls, name resolution and storage.
+//! Bounded source-expression completion over independently admitted name reads.
 //!
-//! Only closed primitive expressions are evaluated here. A normal outcome does not assert a
+//! Pure operators compose with source read certificates. A normal outcome does not assert a
 //! normal callee return. Unsupported/effectful operands stop evaluation unless Python skips
 //! them. The root syntax fact is a reproducible witness, not a synthetic execution observation.
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeSet};
 
-use cpg_schema::behavior::ClosedExpressionEvaluationsRow;
-use cpg_schema::codebook::{BoundaryReason, SyntaxField, SyntaxKind};
+use cpg_schema::behavior::{ExpressionEvaluationsRow, ExpressionEvaluationStepsRow};
+use cpg_schema::summary_contract::{ExpressionRead, NormalCallTarget, SignatureParameter, BoundArgument, bind_explicit_arguments};
+use cpg_schema::codebook::{BoundaryReason, ModeledArgumentEvaluationStatus as Status, SyntaxField, SyntaxKind, Codebook, SummaryFlowStepKind as Step, SignatureForm, Modality, ModelTransferKind, ModelTransferEndpointStatus};
 use cpg_schema::id::Id;
-use cpg_schema::tables::SyntaxNodesRow;
+use cpg_schema::tables::{SyntaxNodesRow, ArgumentsRow, ContextParametersRow};
+use cpg_schema::behavior::ModeledTransferSitesRow;
 
 const MAX_DEPTH: usize = 64;
 const MAX_WORK: usize = 1024;
@@ -45,10 +47,32 @@ struct Evaluator<'a> {
     children: HashMap<(Id, Id, Id), Vec<&'a SyntaxNodesRow>>,
     remaining: usize,
     depth_limit: usize,
+    reads: HashMap<(Id, Id), Option<&'a ExpressionRead>>,
+    proof: Vec<(Id, Id, Status, Step)>,
+    calls: HashMap<(Id, Id), Option<PreparedCall<'a>>>,
 }
 
 impl Evaluator<'_> {
     fn eval(&mut self, node: &SyntaxNodesRow, depth: usize) -> Result<Value, Refusal> {
+        let value = self.eval_inner(node, depth)?;
+        let (evidence, status) = if node.kind == SyntaxKind::ExprName {
+            let read = self.reads.get(&(node.snapshot_id, node.fact_id)).and_then(|r| *r).ok_or(UNSUPPORTED)?;
+            (read.evidence_id, read.status)
+        } else {
+            let status = match node.kind {
+                SyntaxKind::ExprBooleanLiteral | SyntaxKind::ExprNumberLiteral | SyntaxKind::ExprNoneLiteral
+                    | SyntaxKind::ExprStringLiteral | SyntaxKind::ExprBytesLiteral | SyntaxKind::ExprEllipsisLiteral => Status::LiteralNormal,
+                SyntaxKind::ExprCall => Status::PinnedCallNormal,
+                _ => Status::ComposedExpressionNormal,
+            };
+            (node.fact_id, status)
+        };
+        self.proof.push((node.fact_id, evidence, status, if node.kind == SyntaxKind::ExprName {
+            Step::ArgumentEvaluation } else { Step::ExpressionSyntax }));
+        Ok(value)
+    }
+
+    fn eval_inner(&mut self, node: &SyntaxNodesRow, depth: usize) -> Result<Value, Refusal> {
         self.remaining = self.remaining.checked_sub(1).ok_or(Refusal::ExpressionWorkLimit)?;
         if depth > self.depth_limit { return Err(Refusal::ExpressionDepthLimit); }
         // Only selected children are recursively evaluated, but every child of a supported
@@ -70,6 +94,50 @@ impl Evaluator<'_> {
         };
         let detail = node.detail.as_deref().unwrap_or("");
         match node.kind {
+            SyntaxKind::ExprCall => {
+                let call = self.calls.get(&(node.snapshot_id, node.node_id))
+                    .and_then(|call| call.clone()).ok_or(UNSUPPORTED)?;
+                if children.len() != call.arguments.len() + 1 || one(SyntaxField::Callee)?.kind != SyntaxKind::ExprName {
+                    return Err(UNSUPPORTED);
+                }
+                for (kind, evidence) in [(Step::ModuleImportBinding, call.target.import_binding_fact_id),
+                    (Step::ModuleImportRegion, call.target.import_region_fact_id),
+                    (Step::CalleeResolution, call.target.resolution_fact_id)] {
+                    self.proof.push((node.fact_id, evidence, Status::PinnedCallNormal, kind));
+                }
+                let mut returned = Value::Literal;
+                for (index, (argument, _binding)) in call.arguments.iter().zip(&call.bindings).enumerate() {
+                    let mut operands = children.iter().filter(|child| child.field == SyntaxField::Argument
+                        && child.ordinal == argument.ordinal && child.start_byte == argument.value_start_byte
+                        && child.end_byte == argument.value_end_byte);
+                    let operand = operands.next().ok_or(UNSUPPORTED)?;
+                    if operands.next().is_some() { return Err(UNSUPPORTED); }
+                    let value = self.eval(operand, depth + 1)?;
+                    self.remaining = self.remaining.checked_sub(call.parameter_evidence[index].len())
+                        .ok_or(Refusal::ExpressionWorkLimit)?;
+                    for &evidence in &call.parameter_evidence[index] {
+                        self.proof.push((operand.fact_id, evidence, Status::PinnedCallNormal, Step::ParameterBinding));
+                    }
+                    if call.identity.is_some_and(|(source, _)| source == argument.fact_id) { returned = value; }
+                }
+                for (kind, evidence) in [(Step::CallSite, call.target.call_fact_id),
+                    (Step::CallTarget, call.target.pysa_fact_id),
+                    (Step::PrecedingCallNormal, call.target.model_id)] {
+                    self.proof.push((node.fact_id, evidence, Status::PinnedCallNormal, kind));
+                }
+                if let Some((_, rule)) = call.identity {
+                    self.proof.push((node.fact_id, rule, Status::PinnedCallNormal, Step::ModelRule));
+                }
+                Ok(returned)
+            },
+            SyntaxKind::ExprName if children.is_empty() => {
+                let read = self.reads.get(&(node.snapshot_id, node.fact_id)).and_then(|r| *r).ok_or(UNSUPPORTED)?;
+                match read.status {
+                    Status::BuiltinNameNormal | Status::ParameterNameNormal | Status::AssignmentNameNormal
+                        | Status::LexicalParameterNormal => Ok(Value::Literal),
+                    _ => Err(UNSUPPORTED),
+                }
+            },
             SyntaxKind::ExprBooleanLiteral if children.is_empty() => match detail {
                 "True" => Ok(Value::Bool(true)), "False" => Ok(Value::Bool(false)), _ => Err(UNSUPPORTED),
             },
@@ -147,14 +215,109 @@ fn number(text: &str) -> Value {
     lower.parse::<i64>().map(Value::Int).unwrap_or(Value::Literal)
 }
 
-/// Evaluate every explicit argument expression once, in stable root order. The source graph
-/// index is shared; each root has its own bounded work/depth accounting and explicit refusal.
-pub fn closed_arguments(nodes: &[SyntaxNodesRow]) -> Vec<ClosedExpressionEvaluationsRow> {
-    closed_arguments_with_limits(nodes, MAX_DEPTH, MAX_WORK)
+/// A normal expression and the exact operands evaluated to produce it. A refusal has no
+/// admitted proof, even if some operands completed before the unsupported operation.
+#[derive(Default)]
+pub struct EvaluationOutcome {
+    pub evaluations: Vec<ExpressionEvaluationsRow>,
+    pub steps: Vec<ExpressionEvaluationStepsRow>,
 }
 
-fn closed_arguments_with_limits(nodes: &[SyntaxNodesRow], depth: usize, work: usize)
-    -> Vec<ClosedExpressionEvaluationsRow> {
+#[derive(Clone)]
+struct PreparedCall<'a> {
+    target: &'a NormalCallTarget,
+    arguments: Vec<&'a ArgumentsRow>,
+    bindings: Vec<BoundArgument>,
+    parameter_evidence: Vec<Vec<Id>>,
+    identity: Option<(Id, Id)>,
+}
+
+#[derive(Default)]
+pub struct EvaluationInputs<'a> {
+    pub syntax: &'a [SyntaxNodesRow],
+    pub reads: &'a [ExpressionRead],
+    pub targets: &'a [NormalCallTarget],
+    pub call_arguments: &'a [ArgumentsRow],
+    pub parameters: &'a [ContextParametersRow],
+    pub transfers: &'a [ModeledTransferSitesRow],
+    pub unconditional_conditions: &'a [Id],
+}
+
+fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<PreparedCall<'a>>> {
+    let normal: BTreeSet<_> = inputs.unconditional_conditions.iter().copied().collect();
+    let mut by_call: HashMap<_, Vec<_>> = HashMap::new();
+    for argument in inputs.call_arguments {
+        by_call.entry((argument.snapshot_id, argument.call_node_id)).or_default().push(argument);
+    }
+    let mut by_target: HashMap<_, Vec<_>> = HashMap::new();
+    for parameter in inputs.parameters {
+        by_target.entry((parameter.snapshot_id, parameter.symbol_node_id)).or_default().push(parameter);
+    }
+    let mut transfers: HashMap<_, Vec<_>> = HashMap::new();
+    for transfer in inputs.transfers {
+        transfers.entry((transfer.snapshot_id, transfer.call_site_node_id)).or_default().push(transfer);
+    }
+    let mut out = HashMap::new();
+    for target in inputs.targets {
+        let key = (target.snapshot_id, target.call_node_id);
+        if out.contains_key(&key) { out.insert(key, None); continue; }
+        out.insert(key, None);
+        if !normal.contains(&target.import_condition_id) || !(1..=128).contains(&target.signature_count) { continue; }
+        let mut arguments = by_call.get(&key).cloned().unwrap_or_default();
+        if usize::try_from(target.argument_count).ok() != Some(arguments.len()) { continue; }
+        arguments.sort_by_key(|argument| argument.ordinal);
+        let Some(parameters) = by_target.get(&(target.snapshot_id, target.target_node_id)) else { continue; };
+        if parameters.len() > MAX_WORK { continue; }
+        let owned_arguments: Vec<_> = arguments.iter().map(|a| (*a).clone()).collect();
+        let mut bindings: Option<Vec<BoundArgument>> = None;
+        let mut parameter_evidence = vec![Vec::new(); arguments.len()];
+        let mut valid = parameters.iter().all(|p| (0..target.signature_count).contains(&p.signature_index));
+        for index in 0..target.signature_count {
+            let signature: Option<Vec<_>> = parameters.iter().filter(|p| p.signature_index == index).map(|parameter| {
+                if parameter.form != SignatureForm::List { return None; }
+                Some(SignatureParameter { evidence_id: parameter.fact_id, ordinal: parameter.ordinal?,
+                    name: parameter.name.clone()?, kind: parameter.kind?, required: parameter.required? })
+            }).collect();
+            let Some(signature) = signature else { valid = false; break; };
+            if signature.is_empty() { valid = false; break; }
+            let Ok(bound) = bind_explicit_arguments(&signature, &owned_arguments) else { valid = false; break; };
+            if bindings.as_ref().is_some_and(|previous| previous.iter().zip(&bound).any(|(a,b)|
+                a.argument_fact_id != b.argument_fact_id || a.parameter_name != b.parameter_name)) {
+                valid = false; break;
+            }
+            for (i, binding) in bound.iter().enumerate() { parameter_evidence[i].push(binding.parameter_fact_id); }
+            bindings = Some(bound);
+        }
+        if !valid { continue; }
+        let Some(bindings) = bindings else { continue; };
+        let mut identity = None;
+        for transfer in transfers.get(&key).into_iter().flatten() {
+            if transfer.model_id == target.model_id && transfer.pysa_fact_id == target.pysa_fact_id
+                && transfer.transfer == ModelTransferKind::Identity
+                && transfer.target_modality == Modality::Definite && transfer.model_modality == Modality::Definite
+                && transfer.candidate_set_complete_under_model && !transfer.has_unresolved_remainder
+                && transfer.input_status == ModelTransferEndpointStatus::BoundArgument
+                && transfer.output_status == ModelTransferEndpointStatus::CallResult {
+                let Some(source) = transfer.input_expression_fact_id else { continue; };
+                if arguments.iter().any(|argument| argument.fact_id == source) {
+                    if identity.is_some_and(|(previous, _)| previous != source) { identity = None; break; }
+                    identity = Some((source, identity.map_or(transfer.rule_id, |(_, rule): (Id, Id)| rule.min(transfer.rule_id))));
+                }
+            }
+        }
+        out.insert(key, Some(PreparedCall { target, arguments, bindings, parameter_evidence, identity }));
+    }
+    out
+}
+
+pub fn evaluate(inputs: EvaluationInputs<'_>) -> EvaluationOutcome {
+    evaluate_with_limits(inputs, MAX_DEPTH, MAX_WORK)
+}
+
+fn evaluate_with_limits(inputs: EvaluationInputs<'_>, depth: usize, work: usize) -> EvaluationOutcome {
+    let nodes = inputs.syntax;
+    let reads = inputs.reads;
+    let calls = prepare_calls(&inputs);
     let mut children: HashMap<_, Vec<_>> = HashMap::new();
     for node in nodes {
         children.entry((node.snapshot_id, node.module_node_id, node.parent_node_id)).or_default().push(node);
@@ -162,24 +325,55 @@ fn closed_arguments_with_limits(nodes: &[SyntaxNodesRow], depth: usize, work: us
     for group in children.values_mut() {
         group.sort_by_key(|node| (node.ordinal, node.start_byte, node.fact_id));
     }
-    let mut evaluator = Evaluator { children, remaining: work, depth_limit: depth };
-    let mut out = Vec::new();
-    for node in nodes.iter().filter(|node| node.field == SyntaxField::Argument) {
+    let mut read_index = HashMap::new();
+    for read in reads {
+        read_index.entry((read.snapshot_id, read.syntax_fact_id))
+            .and_modify(|r| *r = None).or_insert(Some(read));
+    }
+    let mut evaluator = Evaluator { children, remaining: work, depth_limit: depth,
+        reads: read_index, proof: Vec::new(), calls };
+    let mut out = EvaluationOutcome::default();
+    for node in nodes.iter().filter(|node| node.kind.text().starts_with("expr_") && node.field != SyntaxField::Target) {
         evaluator.remaining = work;
+        evaluator.proof.clear();
         let result = evaluator.eval(node, 0);
-        out.push(ClosedExpressionEvaluationsRow {
+        let (status, evidence_id) = if result.is_ok() {
+            let (_, evidence, status, _) = *evaluator.proof.last().expect("normal expression has a root witness");
+            out.steps.extend(evaluator.proof.iter().enumerate().map(|(ordinal, &(operand, evidence, status, kind))|
+                ExpressionEvaluationStepsRow { snapshot_id: node.snapshot_id, syntax_fact_id: node.fact_id,
+                    ordinal: ordinal as i64, operand_fact_id: operand, evidence_id: evidence, status, kind }));
+            (status, Some(evidence))
+        } else { (Status::Unknown, None) };
+        out.evaluations.push(ExpressionEvaluationsRow {
             snapshot_id: node.snapshot_id, syntax_fact_id: node.fact_id,
             normal: result.is_ok(), boolean_value: match result { Ok(Value::Bool(b)) => Some(b), _ => None },
+            status, evidence_id,
             reason: result.err(), work: work.saturating_sub(evaluator.remaining).max(1) as i64,
         });
     }
-    out.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
+    out.evaluations.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
+    out.steps.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id, row.ordinal));
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn arguments(nodes: &[SyntaxNodesRow], reads: &[ExpressionRead]) -> EvaluationOutcome {
+        let mut out = evaluate(EvaluationInputs { syntax: nodes, reads, ..Default::default() });
+        let roots: BTreeSet<_> = nodes.iter().filter(|n| n.field == SyntaxField::Argument).map(|n| n.fact_id).collect();
+        out.evaluations.retain(|r| roots.contains(&r.syntax_fact_id));
+        out.steps.retain(|r| roots.contains(&r.syntax_fact_id));
+        out
+    }
+    fn closed_arguments(nodes: &[SyntaxNodesRow]) -> Vec<ExpressionEvaluationsRow> {
+        arguments(nodes, &[]).evaluations
+    }
+    fn closed_arguments_with_limits(nodes: &[SyntaxNodesRow], depth: usize, work: usize) -> Vec<ExpressionEvaluationsRow> {
+        evaluate_with_limits(EvaluationInputs { syntax: nodes, ..Default::default() }, depth, work)
+            .evaluations.into_iter().filter(|r| nodes.iter().any(|n| n.fact_id == r.syntax_fact_id && n.field == SyntaxField::Argument)).collect()
+    }
 
     fn node(id: u8, parent: u8, kind: SyntaxKind, field: SyntaxField,
         ordinal: i64, detail: &str) -> SyntaxNodesRow {
@@ -271,4 +465,32 @@ mod tests {
         malformed[4].owner_node_id = None;
         assert_eq!(closed_arguments(&malformed)[0].reason, Some(UNSUPPORTED));
     }
+    #[test]
+    fn nested_reads_require_source_certificates_and_preserve_selected_operand_order() {
+        use SyntaxField as F;
+        use SyntaxKind as K;
+        let nodes = vec![node(10, 0, K::ExprIf, F::Argument, 0, ""),
+            node(11, 10, K::ExprBooleanLiteral, F::Test, 0, "True"),
+            node(12, 10, K::ExprName, F::Value, 0, "value"),
+            node(13, 10, K::ExprName, F::Orelse, 0, "unbound")];
+        let read = ExpressionRead { snapshot_id: Id([1; 16]), syntax_fact_id: Id([12; 16]),
+            evidence_id: Id([90; 16]), status: Status::ParameterNameNormal };
+        assert!(!arguments(&nodes, &[]).evaluations[0].normal);
+        let outcome = arguments(&nodes, std::slice::from_ref(&read));
+        assert!(outcome.evaluations[0].normal);
+        assert_eq!(outcome.evaluations[0].boolean_value, None);
+        assert_eq!(outcome.steps.iter().map(|s| s.operand_fact_id).collect::<Vec<_>>(),
+            vec![Id([11; 16]), Id([12; 16]), Id([10; 16])]);
+        assert_eq!(outcome.steps[1].evidence_id, Id([90; 16]));
+        let duplicate = vec![read.clone(), read.clone()];
+        assert!(!arguments(&nodes, &duplicate).evaluations[0].normal);
+        let mut wrong_snapshot = read.clone(); wrong_snapshot.snapshot_id = Id([99; 16]);
+        assert!(!arguments(&nodes, &[wrong_snapshot]).evaluations[0].normal);
+        let opaque_truth = vec![node(10, 0, K::ExprUnaryOp, F::Argument, 0, "not"),
+            node(12, 10, K::ExprName, F::Operand, 0, "value")];
+        let refused = arguments(&opaque_truth, &[read]);
+        assert!(!refused.evaluations[0].normal, "normal read does not prove arbitrary __bool__ completion");
+        assert!(refused.steps.is_empty());
+    }
+
 }

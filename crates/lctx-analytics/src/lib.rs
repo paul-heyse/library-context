@@ -43,3 +43,6 @@ pub fn libraries() -> Vec<String> {
 
 /// Bounded evaluation of closed source expressions.
 pub mod evaluation;
+
+/// Bounded statement completion and ordered pending-return frames.
+pub mod completion;

@@ -190,6 +190,9 @@ codebook!(
         SummaryPairWorkLimit = 25 => "summary_pair_work_limit",
         ExpressionDepthLimit = 26 => "expression_depth_limit",
         ExpressionWorkLimit = 27 => "expression_work_limit",
+        CompletionDepthLimit = 28 => "completion_depth_limit",
+        CompletionWorkLimit = 29 => "completion_work_limit",
+        SummaryProofLimit = 30 => "summary_proof_limit",
     }
 );
 
@@ -1382,6 +1385,10 @@ codebook!(
         CalleeConditionLink = 14 => "callee_condition_link",
         /// A directly tested caller formal whose path condition fixes the forwarded value.
         CallerConditionLink = 15 => "caller_condition_link",
+        ExpressionSyntax = 16 => "expression_syntax",
+        ParameterBinding = 17 => "parameter_binding",
+        CompletionStatement = 18 => "completion_statement",
+        LocalAssignmentBinding = 19 => "local_assignment_binding",
     }
 );
 
@@ -1401,6 +1408,9 @@ codebook!(
         LexicalParameterNormal = 6 => "lexical_parameter_normal",
         /// A closed syntax expression whose admitted operands and control guarantee completion.
         ClosedExpressionNormal = 7 => "closed_expression_normal",
+        /// Ordered composition of source-admitted operands, including normal name reads.
+        ComposedExpressionNormal = 8 => "composed_expression_normal",
+        PinnedCallNormal = 9 => "pinned_call_normal",
     }
 );
 
@@ -1725,6 +1735,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<SummaryFlowKind>(),
         CodebookEntry::of::<SummaryFlowStepKind>(),
         CodebookEntry::of::<ModeledArgumentEvaluationStatus>(),
+        CodebookEntry::of::<CompletionKind>(),
     ]
 }
 
@@ -1738,3 +1749,15 @@ pub fn code_range(name: &str) -> Option<(i16, i16)> {
         )
     })
 }
+
+codebook!(
+    /// Completion if the cited statement is entered. It does not establish that it executes.
+    CompletionKind = "completion_kind" {
+        Normal = 0 => "normal",
+        Return = 1 => "return",
+        Raise = 2 => "raise",
+        Break = 3 => "break",
+        Continue = 4 => "continue",
+        Unknown = 5 => "unknown",
+    }
+);

@@ -27,6 +27,20 @@ cpg_schema::relations! {
     inventory relations;
     expression_syntax = "summary_expression_syntax", deps = ["syntax_nodes"],
         sql = "SELECT * FROM syntax_nodes".to_owned();
+    expression_reads = "summary_expression_reads", deps = ["syntax_nodes", "references", "reference_resolutions",
+        "bindings", "scopes", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
+        sql = cpg_schema::behavior::expression_reads_sql();
+    normal_call_targets = "summary_normal_call_targets", deps = ["model_applications", "call_syntax", "context_definitions",
+        "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions"],
+        sql = cpg_schema::behavior::normal_call_targets_sql();
+    expression_call_arguments = "summary_expression_arguments", deps = ["arguments"], sql = "SELECT * FROM arguments".to_owned();
+    expression_parameters = "summary_expression_parameters", deps = ["context_parameters"], sql = "SELECT * FROM context_parameters".to_owned();
+    expression_transfers = "summary_expression_transfers", deps = ["modeled_transfer_sites"], sql = "SELECT * FROM modeled_transfer_sites".to_owned();
+    completion_expressions = "summary_completion_expressions", deps = ["expression_evaluations"], sql = "SELECT * FROM expression_evaluations".to_owned();
+    completion_expression_steps = "summary_completion_expression_steps", deps = ["expression_evaluation_steps"], sql = "SELECT * FROM expression_evaluation_steps".to_owned();
+    completion_bindings = "summary_completion_bindings", deps = ["bindings"], sql = "SELECT * FROM bindings".to_owned();
+    completion_scopes = "summary_completion_scopes", deps = ["scopes"], sql = "SELECT * FROM scopes".to_owned();
+    completion_exits = "summary_completion_exits", deps = ["exit_sites"], sql = "SELECT * FROM exit_sites".to_owned();
     provider_conditions = "summary_provider_conditions", deps = ["conditions"],
         sql = "SELECT DISTINCT condition_id, root_id, boundary_reason FROM conditions".to_owned();
     provider_nodes = "summary_provider_nodes", deps = ["condition_nodes"],
@@ -291,8 +305,31 @@ async fn load_conditions(
 }
 
 /// Mechanical source acquisition; the bounded evaluator owns completion semantics.
-pub async fn closed_expression_evaluations(ctx: &SessionContext)
-    -> Result<Vec<cpg_schema::behavior::ClosedExpressionEvaluationsRow>, CoreError> {
+pub async fn expression_evaluations(ctx: &SessionContext)
+    -> Result<lctx_analytics::evaluation::EvaluationOutcome, CoreError> {
     let nodes = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
-    Ok(lctx_analytics::evaluation::closed_arguments(&nodes))
+    let reads = sql::fetch(ctx, &expression_reads(), sql::Params::new()).await?;
+    let targets = sql::fetch(ctx, &normal_call_targets(), sql::Params::new()).await?;
+    let call_arguments = sql::fetch(ctx, &expression_call_arguments(), sql::Params::new()).await?;
+    let parameters = sql::fetch(ctx, &expression_parameters(), sql::Params::new()).await?;
+    let transfers = sql::fetch(ctx, &expression_transfers(), sql::Params::new()).await?;
+    let (diagrams, _) = load_conditions(ctx).await?;
+    let unconditional_conditions: Vec<_> = diagrams.iter().filter(|(_, diagram)| diagram.is_true()).map(|(id, _)| *id).collect();
+    Ok(lctx_analytics::evaluation::evaluate(lctx_analytics::evaluation::EvaluationInputs {
+        syntax: &nodes, reads: &reads, targets: &targets, call_arguments: &call_arguments,
+        parameters: &parameters, transfers: &transfers, unconditional_conditions: &unconditional_conditions,
+    }))
+}
+
+/// Mechanical acquisition for statement and frame completion.
+pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::completion::Outcome, CoreError> {
+    let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
+    let expressions = sql::fetch(ctx, &completion_expressions(), sql::Params::new()).await?;
+    let expression_steps = sql::fetch(ctx, &completion_expression_steps(), sql::Params::new()).await?;
+    let bindings = sql::fetch(ctx, &completion_bindings(), sql::Params::new()).await?;
+    let scopes = sql::fetch(ctx, &completion_scopes(), sql::Params::new()).await?;
+    let exits = sql::fetch(ctx, &completion_exits(), sql::Params::new()).await?;
+    Ok(lctx_analytics::completion::complete(lctx_analytics::completion::Inputs {
+        syntax: &syntax, expressions: &expressions, expression_steps: &expression_steps, bindings: &bindings, scopes: &scopes, exits: &exits,
+    }))
 }

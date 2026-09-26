@@ -436,6 +436,7 @@ cpg_schema::query_row! {
     pub struct ReturnPassStep {
         return_site_fact_id: Id,
         pass_fact_id: Id,
+        kind: SummaryFlowStepKind,
         condition_id: Id,
         ordinal: i64,
     }
@@ -630,10 +631,15 @@ fn direct_flows(
             .map_or(&[][..], Vec::as_slice);
         for finalizer in finalizers {
             proof.push(recipe::SummaryFlowProofStep {
-                kind: SummaryFlowStepKind::FinalizerPass,
+                kind: finalizer.kind,
                 evidence_id: finalizer.pass_fact_id,
                 condition_id: finalizer.condition_id,
             });
+        }
+        if proof.len() > cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS {
+            refuse(refusals, (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
+                seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id), BoundaryReason::SummaryProofLimit);
+            continue;
         }
         let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
             function: seed.function_node_id,
@@ -906,8 +912,9 @@ fn push_finite_path(
     flows: &mut Vec<SummaryFlowsRow>,
     steps: &mut Vec<SummaryFlowStepsRow>,
     pass_steps: &ReturnPassIndex,
+    refusals: &mut Vec<SummaryRefusal>,
     path: FinitePath,
-) {
+) -> bool {
     let input_path = InputPath::Parameter {
         name: path.parameter_name,
     }
@@ -917,6 +924,11 @@ fn push_finite_path(
     let finalizers = pass_steps
         .get(&path.return_site_fact_id)
         .map_or(&[][..], Vec::as_slice);
+    if proof.len().saturating_add(finalizers.len()) > cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS {
+        refuse(refusals, (path.snapshot_id, path.function_node_id, path.parameter_node_id,
+            path.source_flow_fact_id, path.condition_id, path.source_origin_id), BoundaryReason::SummaryProofLimit);
+        return false;
+    }
     if !finalizers.is_empty() {
         let index = proof
             .iter()
@@ -926,7 +938,7 @@ fn push_finite_path(
             proof.insert(
                 index + offset,
                 recipe::SummaryFlowProofStep {
-                    kind: SummaryFlowStepKind::FinalizerPass,
+                    kind: finalizer.kind,
                     evidence_id: finalizer.pass_fact_id,
                     condition_id: finalizer.condition_id,
                 },
@@ -980,6 +992,7 @@ fn push_finite_path(
                 condition_id: step.condition_id,
             }),
     );
+    true
 }
 
 /// Reconstruct all admitted finite paths and their ordered proof steps from published inputs.
@@ -1094,6 +1107,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             &mut flows,
             &mut steps,
             &pass_steps,
+            &mut refusals,
             FinitePath {
                 snapshot_id: seed.snapshot_id,
                 function_node_id: seed.function_node_id,
@@ -1162,7 +1176,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             evidence_id: seed.return_site_fact_id,
             condition_id: seed.return_condition_id,
         });
-        push_finite_path(&mut flows, &mut steps, &pass_steps, FinitePath {
+        push_finite_path(&mut flows, &mut steps, &pass_steps, &mut refusals, FinitePath {
             snapshot_id: seed.snapshot_id,
             function_node_id: seed.function_node_id,
             parameter_node_id: seed.parameter_node_id,
@@ -1262,6 +1276,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             &mut flows,
             &mut steps,
             &pass_steps,
+            &mut refusals,
             FinitePath {
                 snapshot_id: seed.snapshot_id,
                 function_node_id: seed.function_node_id,
@@ -1439,7 +1454,6 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 path.depth_limited = true;
                 continue;
             }
-            path.admitted = true;
             let mut proof = path.predecessor_proof.clone();
             proof.push(recipe::SummaryFlowProofStep {
                 kind: SummaryFlowStepKind::CalleeResolution,
@@ -1491,10 +1505,11 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             )
             );
             let previous_steps_len = steps.len();
-            push_finite_path(
+            if !push_finite_path(
                 &mut flows,
                 &mut steps,
                 &pass_steps,
+                &mut refusals,
                 FinitePath {
                     snapshot_id: seed.snapshot_id,
                     function_node_id: seed.function_node_id,
@@ -1510,7 +1525,8 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                     path_depth: callee.path_depth + 1,
                     proof,
                 },
-            );
+            ) { path.condition_refusal = Some(BoundaryReason::SummaryProofLimit); continue; }
+            path.admitted = true;
             let flow = flows.last().expect("pushed finite local path").clone();
             if !known_summary_ids.insert(flow.summary_id) {
                 flows.pop();
@@ -2186,10 +2202,12 @@ mod tests {
     fn shuffled_finalizer_steps_keep_canonical_proof_identity() {
         let first_pass = ReturnPassStep {
             return_site_fact_id: id(5), pass_fact_id: id(50),
+            kind: SummaryFlowStepKind::FinalizerPass,
             condition_id: Diagram::always().id(), ordinal: 0,
         };
         let second_pass = ReturnPassStep {
             return_site_fact_id: id(5), pass_fact_id: id(51),
+            kind: SummaryFlowStepKind::FinalizerPass,
             condition_id: Diagram::always().id(), ordinal: 1,
         };
         let mut forward = inputs();
@@ -2202,6 +2220,23 @@ mod tests {
         assert_eq!(first.steps, second.steps);
         assert_eq!(first.steps.iter().map(|step| step.evidence_id).collect::<Vec<_>>(),
             [id(4), id(50), id(51)]);
+    }
+
+    #[test]
+    fn producer_and_native_share_the_proof_limit() {
+        let mut input=inputs();
+        let limit=cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS;
+        let steps:Vec<_>=(0..limit).map(|i| ReturnPassStep {
+            return_site_fact_id:id(5),pass_fact_id:id(50),kind:SummaryFlowStepKind::FinalizerPass,
+            condition_id:Diagram::always().id(),ordinal:i as i64 }).collect();
+        input.pass_steps.insert(id(5),steps[..limit-1].to_vec());
+        let admitted=finite_flows(input.clone());
+        assert_eq!(admitted.steps.len(),limit);
+        assert_eq!(admitted.flows.len(),1);
+        input.pass_steps.insert(id(5),steps);
+        let refused=finite_flows(input);
+        assert!(refused.flows.is_empty());
+        assert!(refused.boundaries.iter().any(|r|r.reason==BoundaryReason::SummaryProofLimit));
     }
 
     #[test]

@@ -27,7 +27,7 @@
 //! (`semantic:behavior-covers-public`).
 
 use crate::codebook::{
-    ArgumentKind, BehaviorKind, BoundaryReason, Codebook, DeclarationKind, DynamicKind,
+    ArgumentKind, BehaviorKind, BoundaryReason, Codebook, CompletionKind, DeclarationKind, DynamicKind,
     EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus,
     ImplicitReceiver, InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction,
     ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
@@ -532,10 +532,63 @@ table!(
 );
 
 table!(
+    /// A bounded completion certificate under entry to one source statement. Normal reads and
+    /// selected branches are cited separately; unsupported control remains unknown.
+    StatementCompletions, StatementCompletionsRow = "statement_completions",
+    family = Findings,
+    key = [snapshot_id, source_fact_id],
+    checks = [
+        ("unknown_reason", "(kind = 5 AND reason IS NOT NULL) OR (kind <> 5 AND reason IS NULL)"),
+        ("terminal_shape", "(kind IN (1, 2, 3, 4) AND terminal_fact_id IS NOT NULL) OR (kind IN (0, 5) AND terminal_fact_id IS NULL)"),
+        ("positive_work", "work > 0"),
+    ],
+    {
+        snapshot_id: Id,
+        source_fact_id: Id,
+        statement_node_id: Id,
+        function_node_id: Id,
+        kind: CompletionKind,
+        terminal_fact_id: Option<Id>,
+        reason: Option<BoundaryReason>,
+        work: i64,
+    }
+);
+
+table!(
+    StatementCompletionSteps, StatementCompletionStepsRow = "statement_completion_steps",
+    family = Findings,
+    key = [snapshot_id, source_fact_id, ordinal],
+    checks = [("ordinal_nonnegative", "ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        source_fact_id: Id,
+        ordinal: i64,
+        evidence_id: Id,
+        kind: SummaryFlowStepKind,
+    }
+);
+
+table!(
+    /// The actions actually crossed while preserving a pending return, from inner frame out.
+    ReturnExitSteps, ReturnExitStepsRow = "return_exit_steps",
+    family = Findings,
+    key = [snapshot_id, return_site_fact_id, ordinal],
+    checks = [("ordinal_nonnegative", "ordinal >= 0")],
+    {
+        snapshot_id: Id,
+        return_site_fact_id: Id,
+        ordinal: i64,
+        evidence_id: Id,
+        kind: SummaryFlowStepKind,
+        condition_id: Id,
+    }
+);
+
+table!(
     /// A return's bounded syntax ancestry and nearest `with` or `try/finally` frame. All
-    /// pending frames must be nonempty pass-only `finally` suites to discharge them; the nullable
-    /// pass fields retain the one-frame, one-pass case, while ordered multi-step evidence is queried
-    /// from source syntax. Null reason is still only a local normal-return candidate and does not
+    /// pending finalizers require ordered normal completion certificates; the nullable pass
+    /// fields retain the one-frame, one-pass case. Ordered evidence lives in return_exit_steps.
+    /// Null reason is still only a local normal-return candidate and does not
     /// establish that evaluating the return expression succeeds.
     ReturnExitStatuses, ReturnExitStatusesRow = "return_exit_statuses",
     family = Findings,
@@ -732,23 +785,44 @@ table!(
 );
 
 table!(
-    /// Bounded closed-expression evaluation from placed Ruff syntax. Normal completion is
+    /// Bounded expression evaluation from placed Ruff syntax and independent normal-read evidence. Normal completion is
     /// separate from an exact Boolean result; an unsupported expression or limit is unknown,
     /// never a proven exceptional outcome. Reconstructed before publication.
-    ClosedExpressionEvaluations, ClosedExpressionEvaluationsRow = "closed_expression_evaluations",
+    ExpressionEvaluations, ExpressionEvaluationsRow = "expression_evaluations",
     family = Findings,
     key = [snapshot_id, syntax_fact_id],
     checks = [
         ("normal_iff_supported", "(normal AND reason IS NULL) OR (NOT normal AND reason IS NOT NULL AND boolean_value IS NULL)"),
         ("positive_work", "work > 0"),
+        ("normal_evidence", "(normal AND evidence_id IS NOT NULL AND status <> 2) OR (NOT normal AND evidence_id IS NULL AND status = 2)"),
     ],
     {
         snapshot_id: Id,
         syntax_fact_id: Id,
         normal: bool,
         boolean_value: Option<bool>,
+        status: ModeledArgumentEvaluationStatus,
+        evidence_id: Option<Id>,
         reason: Option<BoundaryReason>,
         work: i64,
+    }
+);
+
+table!(
+    /// Operands actually evaluated by a bounded expression proof, in execution order.
+    /// Skipped branches have no steps. Reconstructed from source together with the root row.
+    ExpressionEvaluationSteps, ExpressionEvaluationStepsRow = "expression_evaluation_steps",
+    family = Findings,
+    key = [snapshot_id, syntax_fact_id, ordinal],
+    checks = [("ordinal_nonnegative", "ordinal >= 0"), ("known", "status <> 2")],
+    {
+        snapshot_id: Id,
+        syntax_fact_id: Id,
+        ordinal: i64,
+        operand_fact_id: Id,
+        evidence_id: Id,
+        status: ModeledArgumentEvaluationStatus,
+        kind: SummaryFlowStepKind,
     }
 );
 
@@ -764,7 +838,7 @@ table!(
     key = [snapshot_id, candidate_flow_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, argument_fact_id],
     checks = [
         ("ordinal_nonnegative", "ordinal >= 0"),
-        ("evidence_iff_known", "(status IN (0, 1, 3, 4, 5, 6, 7) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
+        ("evidence_iff_known", "(status IN (0, 1, 3, 4, 5, 6, 7, 8, 9) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
         ("source_read_witness", "(status = 0 AND source_normal_evidence_id IS NOT NULL AND evidence_id = candidate_flow_fact_id) OR (status <> 0 AND source_normal_evidence_id IS NULL)"),
     ],
     {
@@ -1666,44 +1740,21 @@ fn modeled_callee_candidates_sql() -> String {
 
 /// One evaluator for direct literals, signed numeric literals, unshadowed builtin names and
 /// single-reaching local names. Both modeled return paths and preceding-call completion use it.
-fn simple_argument_evidence_sql() -> String {
+/// Source-only normal read certificates for every placed name expression. This relation never
+/// inspects composed expression outputs, so publication reconstruction has no circular premise.
+pub fn expression_reads_sql() -> String {
     format!(
-        "literal_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, s.fact_id AS syntax_fact_id, \
-                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
-             AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
-             AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
-             AND s.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
-                            {boolean_literal}, {none_literal}, {ellipsis_literal}) \
-           WHERE a.kind IN ({positional}, {keyword}) \
-         ), closed_expression_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, \
-                  CASE WHEN ev.normal THEN s.fact_id ELSE NULL END AS syntax_fact_id, \
-                  ev.boolean_value AS static_boolean_value, ev.reason AS evaluation_reason, \
-                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
-             AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
-             AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
-           JOIN closed_expression_evaluations ev ON ev.syntax_fact_id = s.fact_id \
-           WHERE a.kind IN ({positional}, {keyword}) \
-         ), builtin_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
-                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
-             AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
-             AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
-             AND s.kind = {name_expr} \
+        "WITH builtin_candidates AS ( \
+           SELECT s.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
+                  count(*) OVER (PARTITION BY s.fact_id) AS candidate_count \
+           FROM syntax_nodes s \
            JOIN references r ON r.name_node_id = s.node_id \
              AND r.module_node_id = s.module_node_id \
            JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
              AND rr.builtin_name = r.name AND rr.binding_id IS NULL AND rr.reason IS NULL \
-           WHERE a.kind IN ({positional}, {keyword}) \
+           WHERE s.kind = {name_expr} \
          ), local_name_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, min(fr.fact_id) AS reaching_fact_id, \
+           SELECT n.fact_id AS argument_fact_id, min(fr.fact_id) AS reaching_fact_id, \
                   min(fd.kind) AS definition_kind, count(*) AS candidate_count, \
                   sum(CASE WHEN rr.binding_id IS NULL OR fr.definition_id IS NULL \
                              OR fr.approximated OR fr.loop_carried \
@@ -1711,11 +1762,7 @@ fn simple_argument_evidence_sql() -> String {
                              OR b.node_id IS NULL \
                              OR ac.root_id IS NULL \
                            THEN 1 ELSE 0 END) AS unsafe_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes n ON n.module_node_id = c.module_node_id \
-             AND n.parent_node_id = c.node_id AND n.field = {argument_field} \
-             AND n.start_byte = a.value_start_byte AND n.end_byte = a.value_end_byte \
-             AND n.kind = {name_expr} \
+           FROM syntax_nodes n \
            JOIN references r ON r.name_node_id = n.node_id \
              AND r.module_node_id = n.module_node_id \
            JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
@@ -1730,16 +1777,12 @@ fn simple_argument_evidence_sql() -> String {
              AND b.start_byte = fd.start_byte AND b.end_byte = fd.end_byte \
              AND b.kind = fd.kind \
            LEFT JOIN analysis_conditions ac ON ac.condition_id = fr.condition_id \
-           WHERE a.kind IN ({positional}, {keyword}) \
-           GROUP BY a.fact_id \
+           WHERE n.kind = {name_expr} \
+           GROUP BY n.fact_id \
          ), lexical_parameter_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, min(rr.fact_id) AS resolution_fact_id, \
+           SELECT n.fact_id AS argument_fact_id, min(rr.fact_id) AS resolution_fact_id, \
                   count(*) AS candidate_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes n ON n.module_node_id = c.module_node_id \
-             AND n.parent_node_id = c.node_id AND n.field = {argument_field} \
-             AND n.start_byte = a.value_start_byte AND n.end_byte = a.value_end_byte \
-             AND n.kind = {name_expr} \
+           FROM syntax_nodes n \
            JOIN references r ON r.name_node_id = n.node_id \
              AND r.module_node_id = n.module_node_id \
            JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
@@ -1747,57 +1790,29 @@ fn simple_argument_evidence_sql() -> String {
            JOIN bindings binding ON binding.node_id = rr.binding_id \
              AND binding.kind = {parameter} AND binding.name = r.name \
            JOIN scopes lexical_scope ON lexical_scope.node_id = binding.scope_id \
-             AND lexical_scope.owner_node_id = c.owner_node_id \
+             AND lexical_scope.owner_node_id = n.owner_node_id \
              AND lexical_scope.kind = {function_scope} \
-           WHERE a.kind IN ({positional}, {keyword}) \
+           WHERE n.kind = {name_expr} \
              AND NOT EXISTS (SELECT 1 FROM syntax_nodes hazard \
-               WHERE hazard.owner_node_id = c.owner_node_id \
+               WHERE hazard.owner_node_id = n.owner_node_id \
                  AND hazard.kind IN ({delete_stmt}, {except_handler})) \
-           GROUP BY a.fact_id \
-         ), simple_arguments AS ( \
-           SELECT a.fact_id AS argument_fact_id, \
-                  COALESCE(l.syntax_fact_id, ce.syntax_fact_id, \
-                           b.resolution_fact_id, \
-                           CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
-                                     AND n.definition_kind IN ({parameter}, {assignment}) \
-                                THEN n.reaching_fact_id ELSE NULL END, \
-                           CASE WHEN lp.candidate_count = 1 \
-                                THEN lp.resolution_fact_id ELSE NULL END) AS evidence_id, \
-                  CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
-                            WHEN ce.syntax_fact_id IS NOT NULL THEN {closed_expression_normal} \
-                            WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
-                            WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
-                              AND n.definition_kind = {parameter} \
-                              THEN {parameter_normal} \
-                            WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
-                              AND n.definition_kind = {assignment} \
-                              THEN {assignment_normal} \
-                            WHEN lp.candidate_count = 1 \
-                              THEN {lexical_parameter_normal} \
-                            ELSE {unknown} END AS SMALLINT) AS status, \
-                  ce.static_boolean_value, ce.evaluation_reason \
-           FROM arguments a \
-           LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
-             AND l.candidate_count = 1 \
-           LEFT JOIN closed_expression_candidates ce ON ce.argument_fact_id = a.fact_id \
-             AND ce.candidate_count = 1 \
-           LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
-             AND b.candidate_count = 1 \
-           LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
-           LEFT JOIN lexical_parameter_candidates lp ON lp.argument_fact_id = a.fact_id \
-         )",
-        argument_field = crate::codebook::SyntaxField::Argument.code(),
-        positional = ArgumentKind::Positional.code(),
-        keyword = ArgumentKind::Keyword.code(),
+           GROUP BY n.fact_id \
+         ), reads AS ( \
+          SELECT n.snapshot_id, n.fact_id AS syntax_fact_id, \
+            COALESCE(b.resolution_fact_id, \
+              CASE WHEN r.candidate_count = 1 AND r.unsafe_count = 0 THEN r.reaching_fact_id END, \
+              CASE WHEN lp.candidate_count = 1 THEN lp.resolution_fact_id END) AS evidence_id, \
+            CAST(CASE WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
+              WHEN r.candidate_count = 1 AND r.unsafe_count = 0 AND r.definition_kind = {parameter} THEN {parameter_normal} \
+              WHEN r.candidate_count = 1 AND r.unsafe_count = 0 AND r.definition_kind = {assignment} THEN {assignment_normal} \
+              WHEN lp.candidate_count = 1 THEN {lexical_parameter_normal} ELSE {unknown} END AS SMALLINT) AS status \
+          FROM syntax_nodes n \
+          LEFT JOIN builtin_candidates b ON b.argument_fact_id = n.fact_id AND b.candidate_count = 1 \
+          LEFT JOIN local_name_candidates r ON r.argument_fact_id = n.fact_id \
+          LEFT JOIN lexical_parameter_candidates lp ON lp.argument_fact_id = n.fact_id \
+          WHERE n.kind = {name_expr} \
+        ) SELECT snapshot_id, syntax_fact_id, evidence_id, status FROM reads WHERE evidence_id IS NOT NULL",
         name_expr = SyntaxKind::ExprName.code(),
-        string_literal = SyntaxKind::ExprStringLiteral.code(),
-        bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
-        number_literal = SyntaxKind::ExprNumberLiteral.code(),
-        boolean_literal = SyntaxKind::ExprBooleanLiteral.code(),
-        none_literal = SyntaxKind::ExprNoneLiteral.code(),
-        ellipsis_literal = SyntaxKind::ExprEllipsisLiteral.code(),
-        literal_normal = ModeledArgumentEvaluationStatus::LiteralNormal.code(),
-        closed_expression_normal = ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
         builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
         parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
         assignment_normal = ModeledArgumentEvaluationStatus::AssignmentNameNormal.code(),
@@ -1809,6 +1824,76 @@ fn simple_argument_evidence_sql() -> String {
         delete_stmt = SyntaxKind::StmtDelete.code(),
         except_handler = SyntaxKind::ExceptHandlerExceptHandler.code(),
     )
+}
+
+/// Mechanical adapter from independently reconstructed expression outcomes to explicit arguments.
+fn simple_argument_evidence_sql() -> String {
+    format!(
+        "simple_arguments AS ( \
+          SELECT a.fact_id AS argument_fact_id, ev.evidence_id, \
+            COALESCE(ev.status, {unknown}) AS status, ev.boolean_value AS static_boolean_value, \
+            ev.reason AS evaluation_reason \
+          FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+          LEFT JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
+            AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
+            AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
+          LEFT JOIN expression_evaluations ev ON ev.syntax_fact_id = s.fact_id \
+          WHERE a.kind IN ({positional}, {keyword}) \
+        )",
+        unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
+        argument_field = crate::codebook::SyntaxField::Argument.code(),
+        positional = ArgumentKind::Positional.code(), keyword = ArgumentKind::Keyword.code(),
+    )
+}
+
+/// Source and pinned-target observations, before any argument evaluation.
+fn normal_call_candidates_sql() -> String {
+    format!("{callee_candidates}, module_imports AS ( \
+               SELECT cc.call_node_id, cc.resolution_fact_id, \
+                      b.fact_id AS import_binding_fact_id, \
+                      r.fact_id AS import_region_fact_id, \
+                      r.condition_id AS import_condition_id, r.approximated AS import_approximated, \
+                      row_number() OVER (PARTITION BY cc.call_node_id \
+                        ORDER BY r.end_byte - r.start_byte, r.start_byte, r.fact_id) AS pick \
+               FROM callee_candidates cc \
+               JOIN call_syntax c ON c.node_id = cc.call_node_id \
+               JOIN declarations d ON d.node_id = c.owner_node_id \
+                 AND d.module_node_id = c.module_node_id \
+               JOIN bindings b ON b.node_id = cc.binding_id \
+                 AND b.module_node_id = c.module_node_id \
+                 AND b.kind = {from_import} AND b.start_byte < d.start_byte \
+               JOIN scopes s ON s.node_id = b.scope_id AND s.kind = {module_scope} \
+               JOIN flow_regions r ON r.module_node_id = b.module_node_id \
+                 AND r.scope_kind = {module_scope} \
+                 AND r.start_byte <= b.start_byte AND r.end_byte >= b.end_byte \
+               WHERE cc.candidate_count = 1 \
+             ), \
+             counted AS ( \
+               SELECT a.*, count(*) OVER (PARTITION BY a.call_site_node_id) AS application_count \
+               FROM model_applications a \
+             )",
+        callee_candidates = modeled_callee_candidates_sql(),
+        from_import = crate::codebook::BindingKind::FromImport.code(),
+        module_scope = crate::codebook::LexicalScopeKind::Module.code())
+}
+
+pub fn normal_call_targets_sql() -> String {
+    format!("WITH {candidates} \
+      SELECT a.snapshot_id, c.node_id AS call_node_id, a.call_fact_id, a.target_node_id, \
+        d.signature_count, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
+        mi.import_binding_fact_id, mi.import_region_fact_id, mi.import_condition_id, \
+        c.positional_count + c.keyword_count AS argument_count \
+      FROM counted a JOIN call_syntax c ON c.node_id = a.call_site_node_id \
+      JOIN context_definitions d ON d.fact_id = a.target_definition_fact_id \
+      JOIN callee_candidates cc ON cc.call_node_id = c.node_id AND cc.candidate_count = 1 \
+      JOIN module_imports mi ON mi.call_node_id = c.node_id AND mi.resolution_fact_id = cc.resolution_fact_id \
+        AND mi.pick = 1 AND NOT mi.import_approximated \
+      WHERE a.application_count = 1 AND a.target_normal_return \
+        AND a.target_modality = {definite} AND a.phase = {call_phase} \
+        AND a.target_count = 1 AND a.candidate_set_complete_under_model \
+        AND NOT a.has_unresolved_remainder AND d.signature_count BETWEEN 1 AND 128",
+        candidates = normal_call_candidates_sql(), definite = Modality::Definite.code(),
+        call_phase = InvocationPhase::Call.code())
 }
 
 fn modeled_handler_climb_sql() -> String {
@@ -2133,7 +2218,7 @@ crate::relations! {
     /// direct-formal read; direct literal, exact builtin-name and uniquely
     /// reaching local-name siblings complete normally. Other siblings are named unknowns.
     modeled_argument_evaluations = "behavior:modeled_argument_evaluations",
-        deps = ["closed_expression_evaluations", "modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "scopes", "analysis_conditions"],
+        deps = ["expression_evaluations", "modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "scopes", "analysis_conditions"],
         sql = format!(
             "WITH {simple_args} \
              SELECT m.snapshot_id, m.flow_value_fact_id AS candidate_flow_fact_id, \
@@ -2331,33 +2416,9 @@ crate::relations! {
     /// requires this import's condition to be true; this query preserves its condition and fact.
     /// There is one row per evaluated argument; opaque operands and unpacking emit no rows.
     preceding_normal_call_arguments = "behavior:preceding_normal_call_arguments",
-        deps = ["closed_expression_evaluations", "model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
+        deps = ["expression_evaluations", "model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
         sql = format!(
-            "WITH {simple_args}, {callee_candidates}, \
-             module_imports AS ( \
-               SELECT cc.call_node_id, cc.resolution_fact_id, \
-                      b.fact_id AS import_binding_fact_id, \
-                      r.fact_id AS import_region_fact_id, \
-                      r.condition_id AS import_condition_id, r.approximated AS import_approximated, \
-                      row_number() OVER (PARTITION BY cc.call_node_id \
-                        ORDER BY r.end_byte - r.start_byte, r.start_byte, r.fact_id) AS pick \
-               FROM callee_candidates cc \
-               JOIN call_syntax c ON c.node_id = cc.call_node_id \
-               JOIN declarations d ON d.node_id = c.owner_node_id \
-                 AND d.module_node_id = c.module_node_id \
-               JOIN bindings b ON b.node_id = cc.binding_id \
-                 AND b.module_node_id = c.module_node_id \
-                 AND b.kind = {from_import} AND b.start_byte < d.start_byte \
-               JOIN scopes s ON s.node_id = b.scope_id AND s.kind = {module_scope} \
-               JOIN flow_regions r ON r.module_node_id = b.module_node_id \
-                 AND r.scope_kind = {module_scope} \
-                 AND r.start_byte <= b.start_byte AND r.end_byte >= b.end_byte \
-               WHERE cc.candidate_count = 1 \
-             ), \
-             counted AS ( \
-               SELECT a.*, count(*) OVER (PARTITION BY a.call_site_node_id) AS application_count \
-               FROM model_applications a \
-             ), evaluated AS ( \
+            "WITH {simple_args}, {normal_candidates}, evaluated AS ( \
                SELECT a.call_fact_id, a.pysa_fact_id, a.model_id, \
                       cc.resolution_fact_id AS callee_resolution_fact_id, \
                       mi.import_binding_fact_id, mi.import_region_fact_id, \
@@ -2368,7 +2429,11 @@ crate::relations! {
                       sum(CASE WHEN s.evidence_id IS NULL THEN 1 ELSE 0 END) \
                         OVER (PARTITION BY c.node_id) AS unknown_count \
                FROM counted a JOIN call_syntax c ON c.node_id = a.call_site_node_id \
-               JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
+               JOIN syntax_nodes completed_node ON completed_node.node_id = c.node_id \
+               AND completed_node.module_node_id = c.module_node_id \
+             JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
+               AND completed.normal \
+             JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                  AND cc.candidate_count = 1 \
                JOIN module_imports mi ON mi.call_node_id = c.node_id \
                  AND mi.resolution_fact_id = cc.resolution_fact_id \
@@ -2386,18 +2451,16 @@ crate::relations! {
              FROM evaluated WHERE argument_count = declared_count \
                AND argument_count > 0 AND unknown_count = 0",
             simple_args = simple_argument_evidence_sql(),
-            callee_candidates = modeled_callee_candidates_sql(),
+            normal_candidates = normal_call_candidates_sql(),
             definite = Modality::Definite.code(),
             call_phase = InvocationPhase::Call.code(),
-            from_import = crate::codebook::BindingKind::FromImport.code(),
-            module_scope = crate::codebook::LexicalScopeKind::Module.code(),
         );
 
     /// A direct return whose entire expression is one exact pinned identity-model call.
     /// This relation selects attributed source/model facts; the bounded kernel and ordered
     /// argument-evaluation proof still decide admission in `cpg-core::summaries`.
     modeled_summary_flow_seeds = "behavior:modeled_summary_flow_seeds",
-        deps = ["modeled_exact_value_transfers", "model_applications", "model_transfers",
+        deps = ["expression_evaluations", "modeled_exact_value_transfers", "model_applications", "model_transfers",
                 "call_syntax", "syntax_nodes", "references", "reference_resolutions",
                 "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses", "flow_values"],
         sql = format!(
@@ -2421,6 +2484,10 @@ crate::relations! {
              JOIN model_transfers t ON t.rule_id = m.rule_id AND t.model_id = m.model_id \
                AND t.target_node_id = m.target_node_id \
              JOIN call_syntax c ON c.node_id = m.call_site_node_id \
+             JOIN syntax_nodes completed_node ON completed_node.node_id = c.node_id \
+               AND completed_node.module_node_id = c.module_node_id \
+             JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
+               AND completed.normal \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN parameter_syntax p ON p.node_id = m.parameter_node_id \
@@ -2459,7 +2526,7 @@ crate::relations! {
     /// Every raw step must qualify independently; the pure finite producer checks dense
     /// nesting and argument order before it composes a path. A missing row is never normal.
     modeled_chain_arguments = "behavior:modeled_chain_arguments",
-        deps = ["closed_expression_evaluations", "value_flow_contributions", "flow_values", "flow_value_calls",
+        deps = ["expression_evaluations", "value_flow_contributions", "flow_values", "flow_value_calls",
                 "flow_value_call_links", "call_syntax", "arguments", "modeled_transfer_sites",
                 "model_applications", "syntax_nodes", "references", "reference_resolutions",
                 "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses",
@@ -2510,6 +2577,10 @@ crate::relations! {
              JOIN model_applications app ON app.call_site_node_id = c.node_id \
                AND app.pysa_fact_id = m.pysa_fact_id AND app.model_id = m.model_id \
                AND app.target_node_id = m.target_node_id \
+             JOIN syntax_nodes completed_node ON completed_node.node_id = c.node_id \
+               AND completed_node.module_node_id = c.module_node_id \
+             JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
+               AND completed.normal \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN arguments arg ON arg.call_node_id = c.node_id \
@@ -2557,7 +2628,7 @@ crate::relations! {
     /// exactly one provider reaching row, and the independent predecessor compatibility check
     /// must admit it. The kernel still verifies all four condition implications at admission.
     modeled_assignment_summary_flow_seeds = "behavior:modeled_assignment_summary_flow_seeds",
-        deps = ["modeled_assignment_return_paths", "modeled_exact_value_transfers",
+        deps = ["expression_evaluations", "modeled_assignment_return_paths", "modeled_exact_value_transfers",
                 "value_flow_contributions",
                 "model_applications", "model_transfers", "call_syntax", "references",
                 "reference_resolutions", "parameter_syntax", "declarations",
@@ -2600,6 +2671,10 @@ crate::relations! {
              JOIN model_transfers t ON t.rule_id = m.rule_id AND t.model_id = m.model_id \
                AND t.target_node_id = m.target_node_id \
              JOIN call_syntax c ON c.node_id = m.call_site_node_id \
+             JOIN syntax_nodes completed_node ON completed_node.node_id = c.node_id \
+               AND completed_node.module_node_id = c.module_node_id \
+             JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
+               AND completed.normal \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN parameter_syntax p ON p.node_id = q.parameter_node_id \
@@ -2760,7 +2835,7 @@ crate::relations! {
     /// One explicit argument per local target, preserving evaluation order independently of
     /// formal binding. Failed mappings and reads survive as nullable evidence for pure admission.
     local_call_arguments = "behavior:local_call_arguments",
-        deps = ["closed_expression_evaluations", "call_syntax", "arguments", "argument_flows", "syntax_nodes", "references",
+        deps = ["expression_evaluations", "call_syntax", "arguments", "argument_flows", "syntax_nodes", "references",
                 "reference_resolutions", "bindings", "scopes", "flow_uses", "flow_reaching",
                 "flow_definitions", "analysis_conditions", "parameter_syntax"],
         sql = format!(
@@ -3229,113 +3304,10 @@ crate::relations! {
             try_ = crate::codebook::SyntaxKind::StmtTry.code(),
         );
 
-    /// An ordered chain of nonempty, pass-only `finally` suites cannot replace or raise over a
-    /// pending return. Every other context/finally frame stays unresolved.
-    return_exit_statuses = "behavior:return_exit_statuses",
-        deps = ["exit_sites", "syntax_nodes"],
-        sql = format!(
-            "WITH RECURSIVE climb AS ( \
-               SELECT e.site_node_id, e.function_node_id, s.node_id, s.parent_node_id, \
-                      s.field, CAST(0 AS BIGINT) AS depth \
-               FROM exit_sites e JOIN syntax_nodes s ON s.node_id = e.site_node_id \
-               WHERE e.kind = {return_kind} \
-               UNION ALL \
-               SELECT c.site_node_id, c.function_node_id, p.node_id, p.parent_node_id, \
-                      p.field, c.depth + 1 \
-               FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
-               WHERE c.depth < {max_depth} AND p.owner_node_id = c.function_node_id \
-             ), pass_frames AS ( \
-               SELECT p.node_id, COUNT(*) AS pass_count \
-               FROM syntax_nodes p JOIN syntax_nodes f \
-                 ON f.parent_node_id = p.node_id AND f.field = {finalbody} \
-               WHERE p.kind = {try_kind} GROUP BY p.node_id \
-               HAVING MIN(f.kind) = {pass_kind} AND MAX(f.kind) = {pass_kind} \
-             ), safe_finalizers AS ( \
-               SELECT pf.node_id AS frame_node_id, \
-                      CASE WHEN pf.pass_count = 1 THEN MIN(f.node_id) END AS pass_node_id, \
-                      CASE WHEN pf.pass_count = 1 THEN MIN(f.fact_id) END AS pass_fact_id \
-               FROM pass_frames pf JOIN syntax_nodes f \
-                 ON f.parent_node_id = pf.node_id AND f.field = {finalbody} \
-               GROUP BY pf.node_id, pf.pass_count \
-             ), frames AS ( \
-               SELECT c.site_node_id, p.node_id AS frame_node_id, p.fact_id AS frame_fact_id, \
-                      sf.pass_node_id, sf.pass_fact_id, \
-                      COUNT(*) OVER (PARTITION BY c.site_node_id) AS frame_count, \
-                      COUNT(*) FILTER (WHERE sf.frame_node_id IS NULL) \
-                        OVER (PARTITION BY c.site_node_id) AS unsafe_count, \
-                      ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
-                        ORDER BY c.depth, p.node_id) AS pick \
-               FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
-                 AND p.owner_node_id = c.function_node_id \
-               LEFT JOIN safe_finalizers sf ON sf.frame_node_id = p.node_id \
-               WHERE p.kind = {with_kind} \
-                  OR (p.kind = {try_kind} AND c.field <> {finalbody} \
-                    AND EXISTS (SELECT 1 FROM syntax_nodes f \
-                      WHERE f.parent_node_id = p.node_id AND f.field = {finalbody})) \
-             ), walks AS ( \
-               SELECT c.site_node_id, MAX(c.depth) AS walk_depth, \
-                      MAX(CASE WHEN c.depth = {max_depth} AND p.node_id IS NOT NULL \
-                               THEN 1 ELSE 0 END) AS capped \
-               FROM climb c LEFT JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
-                 AND p.owner_node_id = c.function_node_id \
-               GROUP BY c.site_node_id \
-             ) \
-             SELECT e.snapshot_id, e.function_node_id, e.site_node_id, e.source_fact_id, \
-                    e.condition_id, w.walk_depth, b.frame_node_id, b.frame_fact_id, \
-                    CASE WHEN w.capped = 0 AND b.frame_count = 1 \
-                         THEN b.pass_node_id END AS pass_node_id, \
-                    CASE WHEN w.capped = 0 AND b.frame_count = 1 \
-                         THEN b.pass_fact_id END AS pass_fact_id, \
-                    CAST(CASE WHEN w.capped > 0 THEN {budget} \
-                              WHEN b.unsafe_count > 0 \
-                                THEN {control} \
-                              ELSE NULL END AS SMALLINT) AS reason \
-             FROM exit_sites e JOIN walks w ON w.site_node_id = e.site_node_id \
-             LEFT JOIN frames b ON b.site_node_id = e.site_node_id AND b.pick = 1 \
-             WHERE e.kind = {return_kind}",
-            return_kind = ExitSiteKind::Return.code(),
-            max_depth = MODELED_HANDLER_MAX_ANCESTOR_DEPTH,
-            with_kind = SyntaxKind::StmtWith.code(),
-            try_kind = SyntaxKind::StmtTry.code(),
-            finalbody = crate::codebook::SyntaxField::Finalbody.code(),
-            pass_kind = SyntaxKind::StmtPass.code(),
-            budget = BoundaryReason::BudgetReached.code(),
-            control = BoundaryReason::UnsupportedControlFlow.code(),
-        );
-
-    /// Source-cited finalizer passes in the order a pending return executes them. The
-    /// return status first proves that the ancestry walk is complete and every frame is safe.
-    /// This query is reconstructed by the finite-summary publisher and validator; its rows
-    /// are persisted as ordered `finalizer_pass` proof steps, not a second output table.
+    /// Stored ordered exit proof; semantic reconstruction is owned by analytics completion.
     return_exit_pass_steps = "behavior:return_exit_pass_steps",
-        deps = ["return_exit_statuses", "syntax_nodes"],
-        sql = format!(
-            "WITH RECURSIVE climb AS ( \
-               SELECT x.site_node_id, x.source_fact_id AS return_site_fact_id, \
-                      x.condition_id, s.parent_node_id, s.field, \
-                      CAST(0 AS BIGINT) AS depth, x.function_node_id \
-               FROM return_exit_statuses x JOIN syntax_nodes s \
-                 ON s.node_id = x.site_node_id \
-               WHERE x.reason IS NULL \
-               UNION ALL \
-               SELECT c.site_node_id, c.return_site_fact_id, c.condition_id, \
-                      p.parent_node_id, p.field, c.depth + 1, c.function_node_id \
-               FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
-               WHERE c.depth < {max_depth} AND p.owner_node_id = c.function_node_id \
-             ) \
-             SELECT c.return_site_fact_id, f.fact_id AS pass_fact_id, c.condition_id, \
-                    ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
-                      ORDER BY c.depth, f.start_byte, f.node_id) - 1 AS ordinal \
-             FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
-               AND p.owner_node_id = c.function_node_id \
-             JOIN syntax_nodes f ON f.parent_node_id = p.node_id \
-               AND f.field = {finalbody} AND f.kind = {pass_kind} \
-             WHERE p.kind = {try_kind} AND c.field <> {finalbody}",
-            max_depth = MODELED_HANDLER_MAX_ANCESTOR_DEPTH,
-            try_kind = SyntaxKind::StmtTry.code(),
-            finalbody = crate::codebook::SyntaxField::Finalbody.code(),
-            pass_kind = SyntaxKind::StmtPass.code(),
-        );
+        deps = ["return_exit_steps"],
+        sql = "SELECT return_site_fact_id, evidence_id AS pass_fact_id, kind, condition_id, ordinal FROM return_exit_steps".to_owned();
 
     /// `argument_flows`: `flows::argument_flows_sql`, with the snapshot id.
     argument_flows = "behavior:argument_flows",

@@ -393,7 +393,7 @@ impl SemanticExecutor {
             if proof.iter().enumerate().any(|(i, step)| step.0 != i as i64) {
                 return Err(PyValueError::new_err("summary proof ordinals have a gap"));
             }
-            if proof.len() > 64 {
+            if proof.len() > cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS {
                 return Err(PyValueError::new_err("summary proof exceeds depth limit"));
             }
             summary.steps = proof

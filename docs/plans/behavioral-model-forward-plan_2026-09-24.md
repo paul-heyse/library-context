@@ -106,18 +106,21 @@ records the additional architecture findings F01–F04; this table owns their di
 
 | Step | Functional work and deletion obligation | Focused acceptance | State |
 |---|---|---|---|
-| S1 | Schema-owned evaluation/completion/binding/proof/coverage contracts; pure analytics owners and mechanical core adapters. Replace the flattened one-control local-call shape and native adjacency assumptions as consumers migrate | Existing semantics retained; malformed groups, missing witnesses and mixed origins rejected | Partial: normalized arguments and shared fixed-control proof checks implemented; completion/channel contracts remain |
-| S2 | Compose expression, predecessor and frame evaluation, including nested supported expressions/calls, exact bindings/defaults, ordered finalizers, handlers and synchronous context exits. Separate normal evaluation, exact value, normal return and exceptional/control outcomes | Raising/skipped operands, unbound reads, terminating/base-free recursion, overriding finalizers, suppression, callback-not-run and unreleased resources | Partial: bounded nested closed expressions implemented; general reads/calls/defaults/predecessors/frames remain |
+| S1 | Schema-owned evaluation/completion/binding/proof/coverage contracts; pure analytics owners and mechanical core adapters. Replace the flattened one-control local-call shape and native adjacency assumptions as consumers migrate | Existing semantics retained; malformed groups, missing witnesses and mixed origins rejected | Partial: normalized arguments, expression/statement/frame certificates and shared proof capacity implemented; channel/coverage contracts remain |
+| S2 | Compose expression, predecessor and frame evaluation, including nested supported expressions/calls, exact bindings/defaults, ordered finalizers, handlers and synchronous context exits. Separate normal evaluation, exact value, normal return and exceptional/control outcomes | Raising/skipped operands, unbound reads, terminating/base-free recursion, overriding finalizers, suppression, callback-not-run and unreleased resources | Partial: normal reads, nested pinned calls, exact signature binding and bounded statement/finalizer completion implemented; general predecessors/default values/typed handlers/context exits remain |
 | S3 | Activate §3.3 model families for supported source consumers with independent channel coverage, phase and exact pins. Add typed dynamic-schema identity before validation effects; retain unsupported/deferred consumers as named candidates | Source-backed positive/withholding pair per activated family; catalog equality and isolated pure-model challenge | Pending S1/S2 |
 | S4 | Bounded simultaneous condition substitution and multi-control bindings; extend the SCC producer to completion/value/transform/effect/exception/role channels. Separate semantic progress from bounded witnesses; retain origins/parallel calls. Recompare Ascent/datafrog on the actual multi-channel state/refusal contract | Capture/swapped-formal controls, exact primitive links, finite/no-base SCCs, shuffled bytes and typed cap outcomes | Partial: bounded simultaneous kernel substitution and multi-control pure contract; source stability, residual conditions and multi-channel engine remain |
 | S5 | Explicit channel/origin coverage and shared reconstruction discharge only matching proofs. Prepare handlers before summaries. Activate W14/F15 for affected SQL-only table construction, preserving semantic rederivation | behavior_shapes part 2; sibling unknown retained; tampered coverage/proofs refused | Partial prerequisites: handlers now precede summaries; twenty SQL-only derivations use Arrow transport. Coverage/discharge remains |
 | S6 | FORMAT 9 replaces FORMAT 8 for expanded structural proof/summary/coverage support; native effect/role/operation-compatibility terms, exact primitive bindings, shared proof admission and complete cited spans. Delete superseded adapter interpretation; rebuild current stores under ADR-0048 | Native/MCP unknown/empty/cap/cursor/closure cases; path inspection remains path-local | Pending S5 |
-| S7 | Close W5 work/node, W7 reach-work and W12 pair-work production-cap traces through actual producer outcomes, Delta and native. Broaden independent CPython/Hypothesis, CrossHair and real-rule Pysa TITO controls throughout S1–S6 | Default-limit traces distinguished from injected-budget tests; oracle inconclusive is not equivalence | Partial: nine independent CPython controls; new expression-cap propagation added. Original W5/W7/W12 default-cap obligations remain |
+| S7 | Close W5 work/node, W7 reach-work and W12 pair-work production-cap traces through actual producer outcomes, Delta and native. Broaden independent CPython/Hypothesis, CrossHair and real-rule Pysa TITO controls throughout S1–S6 | Default-limit traces distinguished from injected-budget tests; oracle inconclusive is not equivalence | Partial: 120 generated CPython/Hypothesis completion controls and implicit-execution counter-controls; expression and summary-proof cap traces added. Original W5/W7/W12 default-cap obligations remain |
 | S8 | Only after all functional work: format, test-all, fresh pilot, all-techniques digest, Stage 3 structured evaluation, clean-wheel query, W9 live replay/conformance, cost measurements and assembled target review | Existing Stage 3 exit rule; named command outcomes, baseline deltas and restart-safe STATUS | not_run |
 
-**Current implementation boundary (2026-09-26).** Compiler output 76 adds the
-`closed_expression_evaluations` current-store schema and append-only refusal codes 26/27;
-reviewed snapshots apply under ADR-0048. Local-call arguments now retain failed mappings and
+**Current implementation boundary (2026-09-26; Implemented, partial S1/S2).** Compiler output 77
+replaces `closed_expression_evaluations` with `expression_evaluations` and ordered operand proofs,
+and adds statement completion and pending-return frame proof tables. Reviewed snapshots apply
+under ADR-0048; stores must be rebuilt. New boundary codes 28–30 distinguish completion depth/work
+and the shared 64-step summary-proof limit. Normal reads and nested pinned total calls compose
+through all agreeing signatures. Local-call arguments retain failed mappings and
 normal-evaluation gaps instead of filtering away candidates. Missing required formals are
 checked with grouped relational counts (nested projected `EXISTS` is unsupported by this
 DataFusion plan). The raw source flow and normal-read witness are separate proof steps.
@@ -221,16 +224,24 @@ the same pure relation is bounded to eight steps and 128 argument rows. The real
 shared validator and native generation were checked with two- and three-call positives and a
 raising inner sibling; [the scoped review](../design_review/reviews/design_review_modeled-call-chain_2026-09-26.md)
 records the boundary. This is narrower than order 1's exit:
-arbitrary nested-call arguments, callee forms other than an unconditional module-level import,
+callee forms other than an unconditional module-level import,
 general predecessor sequencing, path-specific predecessor status, possible raises and the full
 return-path evaluation sequence
 remain to implement. A target's normal-return assertion alone never certifies its arguments.
 
-**Order 2 checkpoint (2026-09-26; partial).** The bounded normal-exit witness now admits an
-ordered nonempty pass-only suite in each pending `finally`, including two passes in one frame.
-The real published proof and FORMAT 8 native reader retain both steps in source order; a
-pass followed by an assignment stays unresolved. Effectful finalizers, `with` exits,
-exceptional suppression, handler propagation, callback and resource fates remain open.
+**Order 2 checkpoint (2026-09-26; Implemented, partial).** Pure statement completion now
+distinguishes normal, return, raise, break, continue and unknown. Pending finalizers preserve or
+replace outcomes in frame order, retaining full operand and model evidence. Normal expressions,
+unique local initialization outside loops, exact selected branches and nested try/finally are
+supported; opaque exception construction and rebinding/finalization stay unknown. A first bare
+handler can handle an exact invalid primitive raise. The
+[bounded review](../design_review/reviews/design_review_stage3-expression-completion_2026-09-26.md)
+identified producer/native proof-budget mismatch and implicit execution (F01/F02); corrections
+share the 64-step cap and restrict completion admission. The
+[independent controls](../design_review/evidence/2026-09-26_expression-completion/README.md)
+passed 120 generated cases and recorded two started implicit actions with no completion before
+timeout. General path-specific predecessor sequencing, typed handlers/re-raise, synchronous
+context exits/suppression, callback execution and resource fates remain open.
 
 **Order 3 checkpoint (2026-09-26; partial).** Schema-owned normalized local arguments separate
 syntax order, formal binding, normal completion and exact value. Up to 128 explicit arguments
@@ -246,7 +257,7 @@ and parallel-path identity remain open.
 **Order 4 checkpoint (2026-09-26; partial).** Closed, sole, definite pinned total identity
 models now support exact nested whole-return chains with every explicit sibling evaluated and
 the original source origin retained. A raising inner sibling and a nonidentity inner call keep
-an explicit unknown. Assignment predecessors, arbitrary effectful or name-bearing nested expressions, other model
+an explicit unknown. Effectful expressions outside the admitted total-call models, other model
 families and complete path-specific predecessor evaluation remain open.
 
 **Stage 3 exit:** `behavior_shapes` part 2 passes and Stage 3's pre-registered exit rule (Q01, Q03,
@@ -255,8 +266,8 @@ Q05, Q09) passes; then increment 4's assembled design/target review.
 **Carry-forward constraints.**
 - Keep exact source argument/target counts and the shared reconstruction validator for proofs.
   No generic `return x` positive after an unproved call.
-- The ordered nested pass-finalizer proof does not generalize: effectful finalizers and `with`
-  stay unknown until frame actions and suppression are cited.
+- Finalizer proofs require completed ordered actions; unsupported implicit protocols and `with`
+  stay unknown until execution and suppression are cited.
 - A Pydantic `TypeAdapter` selects its schema at runtime. Do not populate the named-schema
   `validate(schema)` action with the adapter class name; a typed dynamic-schema case, with a source
   witness where one can be proved, precedes any validation-effect or negative-coverage claim.

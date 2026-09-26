@@ -100,7 +100,8 @@ pub struct Published {
 /// multi-release validation accepts one snapshot with multiple releases.
 /// 76: normalized local-call arguments, multi-control Boolean specialization and bounded
 /// closed-expression completion with separately represented exact Boolean values.
-pub const COMPILER_OUTPUT_VERSION: u32 = 76;
+/// 77: shared source-admitted expression evaluation and ordered operand proofs.
+pub const COMPILER_OUTPUT_VERSION: u32 = 77;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -724,12 +725,12 @@ async fn finish(
             Behaviors, Delegations, DynamicAccesses, ExitSites, FieldAccesses,
             FlowReachBoundaries, FlowTestExactOrigins, FlowTestValueLinks, Guards, HandlerActions, HandlerClauses,
             HandlerReturnNoneSites, HandlerTypes, Handoffs, ModeledArgumentEvaluations,
-            ClosedExpressionEvaluations,
+            ExpressionEvaluations, ExpressionEvaluationSteps,
             ModeledAssignmentReturnPaths, ModeledExactValueTransfers,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, NegativePremises, OperationDocuments,
             OperationFacetStatus, OperationFacets, Operations, ParameterReads, RaiseSites,
-            ReturnExitStatuses, Singletons, SummaryBoundaries, SummaryComponents, SummaryFlowSteps,
+            ReturnExitStatuses, ReturnExitSteps, StatementCompletions, StatementCompletionSteps, Singletons, SummaryBoundaries, SummaryComponents, SummaryFlowSteps,
             SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates,
             ValueFlowPredecessorCompatibility, ValueFlows,
         };
@@ -770,8 +771,10 @@ async fn finish(
         .await?;
         write_analysis_query::<ModeledExactValueTransfers>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::modeled_exact_value_transfers(), w).await?;
-        let closed_expressions = crate::summaries::closed_expression_evaluations(&ctx).await?;
-        write_analysis::<ClosedExpressionEvaluations>(&ctx, root, snapshot_id, &closed_expressions, w)
+        let expressions = crate::summaries::expression_evaluations(&ctx).await?;
+        write_analysis::<ExpressionEvaluations>(&ctx, root, snapshot_id, &expressions.evaluations, w)
+            .await?;
+        write_analysis::<ExpressionEvaluationSteps>(&ctx, root, snapshot_id, &expressions.steps, w)
             .await?;
         write_analysis_query::<ModeledArgumentEvaluations>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::modeled_argument_evaluations(), w).await?;
@@ -789,8 +792,11 @@ async fn finish(
             .await?;
         write_analysis_query::<ExitSites>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::exit_sites(), w).await?;
-        write_analysis_query::<ReturnExitStatuses>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::return_exit_statuses(), w).await?;
+        let completions = crate::summaries::completions(&ctx).await?;
+        write_analysis::<StatementCompletions>(&ctx, root, snapshot_id, &completions.statements, w).await?;
+        write_analysis::<StatementCompletionSteps>(&ctx, root, snapshot_id, &completions.statement_steps, w).await?;
+        write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &completions.returns, w).await?;
+        write_analysis::<ReturnExitSteps>(&ctx, root, snapshot_id, &completions.return_steps, w).await?;
         write_analysis_query::<HandlerClauses>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::handler_clauses(), w).await?;
         write_analysis_query::<HandlerTypes>(&ctx, root, snapshot_id,

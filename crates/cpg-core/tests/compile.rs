@@ -611,7 +611,7 @@ async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
         2,
         "an ordinary nested branch does not add an exit controller"
     );
-    for name in ["finally_identity", "with_identity"] {
+    for name in ["with_identity"] {
         assert_eq!(
             count(
                 &ctx,
@@ -1101,12 +1101,16 @@ budget = 1
             "{name} retains an explicit unknown boundary"
         );
     }
-    for name in [
-        "finally_identity",
-        "pass_then_effect_finally",
-        "nested_effectful_finalizer",
-        "with_identity",
-    ] {
+    for name in ["finally_identity", "pass_then_effect_finally", "nested_effectful_finalizer"] {
+        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id WHERE d.name = '{name}'")).await, 1,
+            "a proven local assignment completes normally without replacing the pending return");
+        assert!(count(&ctx, &format!("SELECT count(*) FROM return_exit_steps s \
+            JOIN return_exit_statuses x ON x.source_fact_id = s.return_site_fact_id \
+            JOIN declarations d ON d.node_id = x.function_node_id WHERE d.name = '{name}' AND s.kind = {}",
+            cpg_schema::codebook::SummaryFlowStepKind::LocalAssignmentBinding.code())).await > 0);
+    }
+    for name in ["with_identity"] {
         assert_eq!(
             count(
                 &ctx,
@@ -3586,17 +3590,17 @@ budget = 1
     ctx.register_table("modeled_exact_value_transfers", original_exact_transfers)
         .unwrap();
 
-    let original_expressions = sql::query(&ctx, "SELECT * FROM closed_expression_evaluations")
+    let original_expressions = sql::query(&ctx, "SELECT * FROM expression_evaluations")
         .await.unwrap().into_view();
     let forged_expressions = sql::query(&ctx,
-        "SELECT * EXCLUDE (boolean_value), CASE WHEN normal THEN COALESCE(NOT boolean_value, true) ELSE NULL END AS boolean_value FROM closed_expression_evaluations")
+        "SELECT * EXCLUDE (boolean_value), CASE WHEN normal THEN COALESCE(NOT boolean_value, true) ELSE NULL END AS boolean_value FROM expression_evaluations")
         .await.unwrap().into_view();
-    ctx.deregister_table("closed_expression_evaluations").unwrap();
-    ctx.register_table("closed_expression_evaluations", forged_expressions).unwrap();
+    ctx.deregister_table("expression_evaluations").unwrap();
+    ctx.register_table("expression_evaluations", forged_expressions).unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "closed-expression-source-equality"), "{violations:?}");
-    ctx.deregister_table("closed_expression_evaluations").unwrap();
-    ctx.register_table("closed_expression_evaluations", original_expressions).unwrap();
+    assert!(violations.iter().any(|v| v.rule == "expression-source-equality"), "{violations:?}");
+    ctx.deregister_table("expression_evaluations").unwrap();
+    ctx.register_table("expression_evaluations", original_expressions).unwrap();
 
     let original_argument_evaluations =
         sql::query(&ctx, "SELECT * FROM modeled_argument_evaluations")
@@ -5082,4 +5086,79 @@ async fn a_failed_snapshots_append_is_classified_by_rereading() {
     assert!(resolve(root.path(), Id([6; 16])).await.unwrap().is_none());
     assert!(resolve(root.path(), s).await.unwrap().is_some());
     assert_eq!(Declarations::NAME, "declarations");
+}
+
+#[tokio::test]
+async fn composed_argument_reads_keep_ordered_source_evidence() {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([78; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(r#"
+version = 1
+[subsystem]
+module_prefixes = ["exprpkg"]
+public_roots = ["exprpkg"]
+[seeds]
+primary = ["exprpkg.selected_parameter"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#).unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(root.path(), snapshot,
+        &raw_version("expression_completion_shapes", snapshot, (3, 14, 7)), Some(&analysis))
+        .await.unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    for name in ["selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer"] {
+        assert!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
+            JOIN declarations d ON d.node_id = s.function_node_id \
+            WHERE d.name = '{name}' AND s.verdict IN (0,1)")).await > 0, "{name}");
+    }
+    for name in ["selected_missing", "unknown_truthiness", "deleted_read", "nested_call_raising", "missing_required_predecessor", "extra_argument_predecessor", "extra_keyword_result", "raising_call_finalizer", "overriding_finalizer", "unknown_finalizer"] {
+        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
+            JOIN declarations d ON d.node_id = s.function_node_id \
+            WHERE d.name = '{name}'")).await, 0, "{name}");
+    }
+    for name in ["opaque_exception_finalizer", "rebinding_finalizer"] {
+        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM return_exit_statuses x \
+            JOIN declarations d ON d.node_id = x.function_node_id WHERE d.name = '{name}' AND x.reason IS NULL")).await, 0,
+            "implicit exception construction and object finalization require independent completion evidence");
+    }
+    assert_eq!(count(&ctx, "SELECT count(*) FROM return_exit_statuses x \
+        JOIN declarations d ON d.node_id = x.function_node_id WHERE d.name = 'caught_primitive_finalizer' AND x.reason IS NULL").await, 1);
+    assert_eq!(count(&ctx, &format!("SELECT count(*) FROM statement_completions s \
+        JOIN syntax_nodes n ON n.fact_id=s.source_fact_id JOIN declarations d ON d.node_id=s.function_node_id \
+        WHERE d.name='repeated_initialization' AND n.kind={} AND s.kind={}",
+        cpg_schema::codebook::SyntaxKind::StmtAssign.code(), cpg_schema::codebook::CompletionKind::Normal.code())).await,0,
+        "one syntactic assignment under a loop is not a first dynamic initialization");
+    assert!(count(&ctx, "SELECT count(*) FROM expression_evaluation_steps e \
+        JOIN syntax_nodes n ON n.fact_id = e.operand_fact_id \
+        WHERE n.detail = 'typ' AND e.status IN (4,6)").await > 0);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM expression_evaluation_steps e \
+        JOIN syntax_nodes n ON n.fact_id = e.operand_fact_id WHERE n.detail = 'missing'").await, 0);
+    let original = sql::query(&ctx, "SELECT * FROM expression_evaluation_steps").await.unwrap().into_view();
+    let missing = sql::query(&ctx, "SELECT * FROM expression_evaluation_steps WHERE false").await.unwrap().into_view();
+    ctx.deregister_table("expression_evaluation_steps").unwrap();
+    ctx.register_table("expression_evaluation_steps", missing).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "expression-source-equality"), "{violations:?}");
+    ctx.deregister_table("expression_evaluation_steps").unwrap();
+    ctx.register_table("expression_evaluation_steps", original).unwrap();
+    for table in ["statement_completion_steps", "return_exit_steps"] {
+        let original = sql::query(&ctx, &format!("SELECT * FROM {table}")).await.unwrap().into_view();
+        let missing = sql::query(&ctx, &format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, missing).unwrap();
+        let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+        assert!(violations.iter().any(|v| v.rule == "completion-source-equality"), "{table}: {violations:?}");
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, original).unwrap();
+    }
 }
