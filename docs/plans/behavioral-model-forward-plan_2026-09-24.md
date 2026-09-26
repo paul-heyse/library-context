@@ -19,7 +19,7 @@ integrated qualification is outstanding.**
 |---|---|---|
 | L1/L1.5 conditions | **Partially implemented; focused tests passed.** Bounded BDD catalogs, exact entry-value links, literal string membership and non-bool integer equality, non-allocating decisions, effective support, cube factoring, restricted exact-input assessments with bounded link minimization, a ten-atom truth-table control and focused CPython literal lowering | Operation-wide compatibility; real-pilot W6 cost; W11's served round trips and Q09 |
 | L4 pinned models | **Implemented; focused tests passed.** Typed transfer/effect/callback/resource/exception assertions and exact source applications. `typing.cast`/`typing.assert_type` assert total normal return. A Pydantic `TypeAdapter.validate_python` potential transform is dormant | Pure/helper, I/O, async/context, pydantic and HTTP/server families; a dynamic-schema representation before any validation effect |
-| L2 fates | **Implemented and Tested in focused cases.** Handler clauses, pinned class/MRO candidates, direct handler `return None`, modeled-exception paths, ordered literal `finally: pass` chains | Effectful finalizers, context-manager exits, handler propagation, callback fate and resource pairing remain unknown |
+| L2 fates | **Implemented and Tested in focused cases.** Handler clauses, pinned class/MRO candidates, direct handler `return None`, modeled-exception paths, ordered nonempty pass-only `finally` chains and suites | Effectful finalizers, context-manager exits, handler propagation, callback fate and resource pairing remain unknown |
 | L3 summaries | **Partially implemented; focused tests passed.** Direct, exact modeled, unique-assignment and unconditional acyclic wrapper value paths with canonical ordered proofs; petgraph SCC schedule; finite rules consume explicit inputs and publish typed refusals (ADR-0050). Nine-call depth, unsupported predecessor and real 129-atom condition refusals survive native serving. A narrow, source-ordered pinned normal-completion predecessor is cited before a direct return | General argument/predecessor completion, recursive composition, effect/exception/role summaries, path-specific boundary identity, remaining BDD work/node-cap controls, `call_transfer` discharge |
 | L7 serving | **Partially implemented.** FORMAT 8 has checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
@@ -145,6 +145,12 @@ nested-call arguments, callee forms other than an unconditional module-level imp
 general predecessor sequencing, path-specific predecessor status, possible raises and the full
 return-path evaluation sequence
 remain to implement. A target's normal-return assertion alone never certifies its arguments.
+
+**Order 2 checkpoint (2026-09-26; partial).** The bounded normal-exit witness now admits an
+ordered nonempty pass-only suite in each pending `finally`, including two passes in one frame.
+The real published proof and FORMAT 8 native reader retain both steps in source order; a
+pass followed by an assignment stays unresolved. Effectful finalizers, `with` exits,
+exceptional suppression, handler propagation, callback and resource fates remain open.
 
 **Stage 3 exit:** `behavior_shapes` part 2 passes and Stage 3's pre-registered exit rule (Q01, Q03,
 Q05, Q09) passes; then increment 4's assembled design/target review.

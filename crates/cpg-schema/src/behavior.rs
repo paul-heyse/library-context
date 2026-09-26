@@ -2998,7 +2998,7 @@ crate::relations! {
             try_ = crate::codebook::SyntaxKind::StmtTry.code(),
         );
 
-    /// An ordered chain of literal `finally: pass` suites cannot replace or raise over a
+    /// An ordered chain of nonempty, pass-only `finally` suites cannot replace or raise over a
     /// pending return. Every other context/finally frame stays unresolved.
     return_exit_statuses = "behavior:return_exit_statuses",
         deps = ["exit_sites", "syntax_nodes"],
@@ -3014,20 +3014,23 @@ crate::relations! {
                FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
                WHERE c.depth < {max_depth} AND p.owner_node_id = c.function_node_id \
              ), pass_frames AS ( \
-               SELECT p.node_id FROM syntax_nodes p JOIN syntax_nodes f \
+               SELECT p.node_id, COUNT(*) AS pass_count \
+               FROM syntax_nodes p JOIN syntax_nodes f \
                  ON f.parent_node_id = p.node_id AND f.field = {finalbody} \
                WHERE p.kind = {try_kind} GROUP BY p.node_id \
-               HAVING COUNT(*) = 1 AND MIN(f.kind) = {pass_kind} \
+               HAVING MIN(f.kind) = {pass_kind} AND MAX(f.kind) = {pass_kind} \
              ), safe_finalizers AS ( \
-               SELECT pf.node_id AS frame_node_id, f.node_id AS pass_node_id, \
-                      f.fact_id AS pass_fact_id \
+               SELECT pf.node_id AS frame_node_id, \
+                      CASE WHEN pf.pass_count = 1 THEN MIN(f.node_id) END AS pass_node_id, \
+                      CASE WHEN pf.pass_count = 1 THEN MIN(f.fact_id) END AS pass_fact_id \
                FROM pass_frames pf JOIN syntax_nodes f \
                  ON f.parent_node_id = pf.node_id AND f.field = {finalbody} \
+               GROUP BY pf.node_id, pf.pass_count \
              ), frames AS ( \
                SELECT c.site_node_id, p.node_id AS frame_node_id, p.fact_id AS frame_fact_id, \
                       sf.pass_node_id, sf.pass_fact_id, \
                       COUNT(*) OVER (PARTITION BY c.site_node_id) AS frame_count, \
-                      COUNT(*) FILTER (WHERE sf.pass_node_id IS NULL) \
+                      COUNT(*) FILTER (WHERE sf.frame_node_id IS NULL) \
                         OVER (PARTITION BY c.site_node_id) AS unsafe_count, \
                       ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
                         ORDER BY c.depth, p.node_id) AS pick \
@@ -3091,7 +3094,7 @@ crate::relations! {
              ) \
              SELECT c.return_site_fact_id, f.fact_id AS pass_fact_id, c.condition_id, \
                     ROW_NUMBER() OVER (PARTITION BY c.site_node_id \
-                      ORDER BY c.depth, p.node_id) - 1 AS ordinal \
+                      ORDER BY c.depth, f.start_byte, f.node_id) - 1 AS ordinal \
              FROM climb c JOIN syntax_nodes p ON p.node_id = c.parent_node_id \
                AND p.owner_node_id = c.function_node_id \
              JOIN syntax_nodes f ON f.parent_node_id = p.node_id \

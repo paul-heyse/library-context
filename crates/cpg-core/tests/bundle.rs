@@ -58,7 +58,7 @@ async fn compiled(sub: &str, reverse: bool, finalizer: bool) -> (tempfile::TempD
         let path = base.join("release/pkg/controls.py");
         let source = std::fs::read_to_string(&path).unwrap();
         let before = "def passthrough(**options):\n    return options";
-        let after = "def passthrough(**options):\n    try:\n        return options\n    finally:\n        pass";
+        let after = "def passthrough(**options):\n    try:\n        return options\n    finally:\n        pass\n        pass";
         assert!(source.contains(before));
         std::fs::write(path, source.replace(before, after)).unwrap();
     }
@@ -306,7 +306,7 @@ paths, boundaries, truncated, _ = index.value_paths(
 assert not truncated and not boundaries, (paths, boundaries)
 assert any(
     path[1] in ("established", "conditional")
-    and any(step[0] == "finalizer_pass" for step in path[3])
+    and sum(step[0] == "finalizer_pass" for step in path[3]) == 2
     for path in paths
 ), paths
 served = serve(generation, None)

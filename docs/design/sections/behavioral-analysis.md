@@ -177,9 +177,10 @@ witness.
 - **Return frames and finalizers.** `return_exit_statuses` walks each return's same-function
   ancestry to a declared cap and cites the nearest controlling `with` or pending `finally`. A
   return is admitted through pending frames only when **every** pending frame is a `try` whose
-  entire direct `finalbody` is one literal `pass`; the pass facts are reconstructed in
+  entire nonempty direct `finalbody` consists of literal `pass` statements; the pass facts are reconstructed in
   inner-to-outer execution order and each admitted summary cites all of them as ordered
-  `finalizer_pass` proof steps (the single-frame status fields mean exactly one frame). This is a
+  `finalizer_pass` proof steps (the single-pass status fields are populated only for one
+  controlling frame with one pass). This is a
   local normal-exit proof, not proof that the return expression or an earlier call completes.
   A nontrivial finalizer, `with` and capped ancestry keep their control boundary: expanding them
   needs an ordered exit witness per frame, not a wider allowlist. A targeted CPython 3.14.7

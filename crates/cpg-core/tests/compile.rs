@@ -728,6 +728,7 @@ budget = 1
         "nested_identity",
         "finally_pass_identity",
         "nested_finally_pass_identity",
+        "multi_pass_finally_identity",
         "recursive_base_identity",
         "alternate_branch_identity",
     ] {
@@ -822,6 +823,29 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
+                 JOIN declarations d ON d.node_id = f.function_node_id \
+                 JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
+                 JOIN summary_flow_steps second ON second.summary_id = f.summary_id \
+                 JOIN syntax_nodes first_source ON first_source.fact_id = first.evidence_id \
+                 JOIN syntax_nodes second_source ON second_source.fact_id = second.evidence_id \
+                 JOIN return_exit_statuses x ON x.source_fact_id = f.return_site_fact_id \
+                 WHERE d.name = 'multi_pass_finally_identity' AND x.reason IS NULL \
+                   AND x.pass_fact_id IS NULL \
+                   AND first.kind = {pass} AND second.kind = {pass} \
+                   AND first.ordinal = 1 AND second.ordinal = 2 \
+                   AND first_source.start_byte < second_source.start_byte",
+                pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+            ),
+        )
+        .await,
+        1,
+        "both pass statements in one finalizer are cited in execution order"
+    );
+    assert_eq!(
+        count(
+            &ctx,
             "SELECT count(*) FROM summary_components c JOIN declarations d \
              ON d.node_id = c.function_node_id \
              WHERE d.name = 'recursive_before_return' AND c.recursive"
@@ -858,6 +882,7 @@ budget = 1
     }
     for name in [
         "finally_identity",
+        "pass_then_effect_finally",
         "nested_effectful_finalizer",
         "with_identity",
     ] {
@@ -942,6 +967,36 @@ budget = 1
         violations
             .iter()
             .any(|v| v.rule == "summary-flow-step-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", original_steps)
+        .unwrap();
+    let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
+        .await
+        .unwrap()
+        .into_view();
+    let reversed_suite_passes = sql::query(
+        &ctx,
+        &format!(
+            "SELECT s.* EXCLUDE (ordinal), \
+             CASE WHEN d.name = 'multi_pass_finally_identity' \
+               AND s.kind = {pass} AND s.ordinal IN (1, 2) \
+               THEN 3 - s.ordinal ELSE s.ordinal END AS ordinal \
+             FROM summary_flow_steps s JOIN summary_flows f ON f.summary_id = s.summary_id \
+             JOIN declarations d ON d.node_id = f.function_node_id",
+            pass = cpg_schema::codebook::SummaryFlowStepKind::FinalizerPass.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", reversed_suite_passes)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("summary_flow_steps").unwrap();

@@ -36,6 +36,22 @@ def nested_finally_pass_identity(value):
         pass
 
 
+def multi_pass_finally_identity(value):
+    try:
+        return value
+    finally:
+        pass
+        pass
+
+
+def pass_then_effect_finally(value):
+    try:
+        return value
+    finally:
+        pass
+        marker = 1
+
+
 def nested_effectful_finalizer(value):
     try:
         try:
@@ -75,4 +91,4 @@ def alternate_branch_identity(value, invoke):
     return None
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "nested_effectful_finalizer", "with_identity", "recursive_before_return", "recursive_base_identity", "prior_call_identity", "alternate_branch_identity"]
+__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "multi_pass_finally_identity", "pass_then_effect_finally", "nested_effectful_finalizer", "with_identity", "recursive_before_return", "recursive_base_identity", "prior_call_identity", "alternate_branch_identity"]
