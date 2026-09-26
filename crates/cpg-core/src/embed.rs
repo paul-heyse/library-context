@@ -211,32 +211,7 @@ pub async fn embed_documents(
     }
     requests.sort();
     requests.dedup_by(|a, b| a.0 == b.0);
-
-    let have = cached_keys(root, spec_hash, requests.iter().map(|r| r.0)).await?;
-    let missing: Vec<&(Digest, String)> =
-        requests.iter().filter(|r| !have.contains(&r.0)).collect();
-    // The token cap, for the keys the cache lacks only (the holistic assessment's D3): a cached
-    // key's request text passed it when it was embedded, under this spec's tokenizer, so a fully
-    // cached compile needs no service.
-    for (_, request) in &missing {
-        let tokens = embedder.count_tokens(request).await?;
-        if tokens > spec.max_document_tokens as usize {
-            return Err(CoreError::Embed(format!(
-                "a brief document chunk is {tokens} tokens, over the {}-token cap (the byte proxy \
-                 that split it undercounted)",
-                spec.max_document_tokens
-            )));
-        }
-    }
-    let texts: Vec<(Digest, &String)> = missing.iter().map(|(k, r)| (*k, r)).collect();
-    let (rows, failed) = embed_batches(embedder, &texts).await;
-    // Completed batches are kept even when a later one fails (the insert-only MERGE is
-    // idempotent), so a rerun embeds only what is still missing.
-    let batch = EmbeddingCache::to_sorted_batch(&rows)?;
-    let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
-    if let Some(e) = failed {
-        return Err(e);
-    }
+    let (_, version) = fill_cache(root, snapshot_id, embedder, &requests).await?;
     // The snapshot's keys: its documents' and the analytics' (E0, slice 3.1), sorted and distinct.
     let mut keys: Vec<Digest> = requests
         .iter()
@@ -269,7 +244,6 @@ pub async fn embed_texts(
     texts: &[String],
 ) -> Result<(Vec<Vec<f32>>, Vec<Digest>, u64), CoreError> {
     let spec = embedder.spec();
-    let spec_hash = spec.hash();
     let requests: Vec<(Digest, String)> = texts
         .iter()
         .map(|t| {
@@ -277,33 +251,58 @@ pub async fn embed_texts(
             (input_hash(&request), request)
         })
         .collect();
-    let mut unique: std::collections::BTreeMap<Digest, &String> = std::collections::BTreeMap::new();
-    for (key, request) in &requests {
-        unique.entry(*key).or_insert(request);
-    }
-    let mut vectors = cached_vectors(root, spec_hash).await?;
-    vectors.retain(|k, _| unique.contains_key(k));
-    let missing: Vec<(Digest, &String)> = unique
-        .iter()
-        .filter(|(k, _)| !vectors.contains_key(*k))
-        .map(|(k, r)| (*k, *r))
-        .collect();
-    let (rows, failed) = embed_batches(embedder, &missing).await;
-    for row in &rows {
-        vectors.insert(row.input_hash, row.vector.clone());
-    }
-    // Completed batches are kept even when a later one fails (the holistic assessment's D3).
-    let batch = EmbeddingCache::to_sorted_batch(&rows)?;
-    let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
-    if let Some(e) = failed {
-        return Err(e);
-    }
+    let (vectors, version) = fill_cache(root, snapshot_id, embedder, &requests).await?;
     let out = requests
         .iter()
         .map(|(k, _)| vectors.get(k).cloned())
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| CoreError::Embed("a text without a vector".to_owned()))?;
-    Ok((out, unique.into_keys().collect(), version))
+    Ok((out, vectors.into_keys().collect(), version))
+}
+
+/// The single cache-fill contract: admit missing requests with the real tokenizer, merge only
+/// validated vectors, and return the winning rows at precisely the committed Delta version.
+async fn fill_cache(
+    root: &std::path::Path,
+    snapshot_id: Id,
+    embedder: &dyn Embedder,
+    requests: &[(Digest, String)],
+) -> Result<(std::collections::BTreeMap<Digest, Vec<f32>>, u64), CoreError> {
+    let spec = embedder.spec();
+    let spec_hash = spec.hash();
+    let unique: std::collections::BTreeMap<Digest, &String> =
+        requests.iter().map(|(key, text)| (*key, text)).collect();
+    let have = cached_keys(root, spec_hash, unique.keys().copied()).await?;
+    let missing: Vec<(Digest, &String)> = unique
+        .iter()
+        .filter(|(key, _)| !have.contains(*key))
+        .map(|(key, text)| (*key, *text))
+        .collect();
+    // A cached key already passed this same spec's tokenizer at insertion. No service is needed
+    // for a fully cached compile; every new path through the cache shares this check.
+    for (_, request) in &missing {
+        let tokens = embedder.count_tokens(request).await?;
+        if tokens > spec.max_document_tokens as usize {
+            return Err(CoreError::Embed(format!(
+                "a document request is {tokens} tokens, over the {}-token cap",
+                spec.max_document_tokens
+            )));
+        }
+    }
+    let (rows, failed) = embed_batches(embedder, &missing).await;
+    // Completed batches survive a later failure; the insert-only merge makes retry idempotent.
+    let batch = EmbeddingCache::to_sorted_batch(&rows)?;
+    let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
+    if let Some(error) = failed {
+        return Err(error);
+    }
+    let vectors = cached_vectors(root, spec_hash, version, unique.keys().copied()).await?;
+    if vectors.len() != unique.len() {
+        return Err(CoreError::Embed(
+            "committed embedding cache omitted a requested key".to_owned(),
+        ));
+    }
+    Ok((vectors, version))
 }
 
 /// Embed `(key, request text)` pairs in batches of [`BATCH`], checking each vector: the cache rows
@@ -349,7 +348,8 @@ cpg_schema::relations! {
     /// Every cached vector of one spec (`$spec`).
     cache_relation = "embedding_cache_vectors",
         deps = ["embedding_cache"],
-        sql = "SELECT input_hash, vector FROM embedding_cache WHERE spec_hash = $spec".to_owned();
+        sql = "SELECT input_hash, vector FROM embedding_cache \
+               WHERE spec_hash = $spec AND array_has($keys, input_hash)".to_owned();
     /// The keys of one spec (`$spec`) the cache holds among `$keys`.
     keys_relation = "embedding_cache_keys",
         deps = ["embedding_cache"],
@@ -371,23 +371,29 @@ cpg_schema::query_row! {
     }
 }
 
-/// Every cached vector of `spec_hash`, by key (the global read mode).
+/// Requested vectors of `spec_hash` at exactly the version returned by the merge.
 async fn cached_vectors(
     root: &std::path::Path,
     spec_hash: Digest,
+    version: u64,
+    wanted: impl Iterator<Item = Digest>,
 ) -> Result<std::collections::BTreeMap<Digest, Vec<f32>>, CoreError> {
     let mut out = std::collections::BTreeMap::new();
-    if !root.join(EmbeddingCache::NAME).join("_delta_log").exists() {
+    let wanted: Vec<Digest> = wanted.collect();
+    if wanted.is_empty() {
         return Ok(out);
     }
-    let table = crate::delta::open_verified::<EmbeddingCache>(root).await?;
+    let table = crate::snapshot::load_at(root, EmbeddingCache::NAME, version).await?;
+    crate::delta::verify::<EmbeddingCache>(&table)?;
     let ctx = crate::snapshot::empty_session();
     table.update_datafusion_session(&ctx.state())?;
     ctx.register_table(EmbeddingCache::NAME, table.table_provider().await?)?;
     for r in crate::sql::fetch::<CachedRow>(
         &ctx,
         &cache_relation(),
-        crate::sql::Params::new().digest("spec", spec_hash),
+        crate::sql::Params::new()
+            .digest("spec", spec_hash)
+            .digests("keys", wanted),
     )
     .await?
     {
@@ -563,5 +569,99 @@ mod tests {
             .unwrap();
         assert_eq!(Probe::get(&rerun.embedded), 8);
         assert_eq!((vectors.len(), keys.len()), (BATCH + 8, BATCH + 8));
+    }
+
+    struct OverCap {
+        fake: FakeEmbedder,
+    }
+
+    impl Embedder for OverCap {
+        fn spec(&self) -> &Spec {
+            self.fake.spec()
+        }
+        fn count_tokens<'a>(&'a self, _: &'a str) -> EmbedFuture<'a, usize> {
+            Box::pin(async { Ok(2049) })
+        }
+        fn embed<'a>(&'a self, _: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
+            Box::pin(async { panic!("over-cap input reached the embedder") })
+        }
+    }
+
+    #[tokio::test]
+    async fn every_cache_fill_entry_admits_with_the_tokenizer() {
+        let dir = tempfile::tempdir().unwrap();
+        let embedder = OverCap {
+            fake: FakeEmbedder::new(),
+        };
+        let mut docs = vec![document("one")];
+        assert!(embed_documents(dir.path(), Id([1; 16]), &embedder, &mut docs, &[])
+            .await
+            .is_err());
+        assert!(embed_texts(dir.path(), Id([2; 16]), &embedder, &["one".to_owned()])
+            .await
+            .is_err());
+        assert!(!dir.path().join(EmbeddingCache::NAME).exists());
+    }
+
+    struct Racing {
+        fake: FakeEmbedder,
+        gate: std::sync::Arc<tokio::sync::Barrier>,
+        negative: bool,
+    }
+
+    impl Embedder for Racing {
+        fn spec(&self) -> &Spec {
+            self.fake.spec()
+        }
+        fn count_tokens<'a>(&'a self, request: &'a str) -> EmbedFuture<'a, usize> {
+            self.fake.count_tokens(request)
+        }
+        fn embed<'a>(&'a self, requests: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
+            Box::pin(async move {
+                self.gate.wait().await;
+                Ok(requests
+                    .iter()
+                    .map(|request| {
+                        let mut vector = self.fake.vector(request);
+                        if self.negative {
+                            vector.iter_mut().for_each(|value| *value = -*value);
+                        }
+                        vector
+                    })
+                    .collect())
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn racing_fillers_return_the_committed_winner_at_their_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let gate = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let a = Racing {
+            fake: FakeEmbedder::new(),
+            gate: gate.clone(),
+            negative: false,
+        };
+        let b = Racing {
+            fake: FakeEmbedder::new(),
+            gate,
+            negative: true,
+        };
+        let text = vec!["shared".to_owned()];
+        let (left, right) = tokio::join!(
+            embed_texts(dir.path(), Id([1; 16]), &a, &text),
+            embed_texts(dir.path(), Id([2; 16]), &b, &text)
+        );
+        let (left_vectors, left_keys, left_version) = left.unwrap();
+        let (right_vectors, right_keys, right_version) = right.unwrap();
+        assert_eq!(left_keys, right_keys);
+        assert_eq!(left_vectors, right_vectors);
+        let spec_hash = a.spec().hash();
+        for (vectors, version) in [(&left_vectors, left_version), (&right_vectors, right_version)] {
+            let stored = cached_vectors(dir.path(), spec_hash, version, left_keys.iter().copied())
+                .await
+                .unwrap();
+            assert_eq!(vectors[0], stored[&left_keys[0]]);
+        }
     }
 }
