@@ -11,9 +11,9 @@ value flows and condition catalogs, plus Pysa call targets and pinned context de
 ([§3.2](facts-and-identity.md#section-3-2), [§4.0](acquisition-and-extraction.md#section-4-0)).
 Its outputs are model, application, fate and summary relations in one snapshot, consumed by
 serving ([§11](synthesis-and-serving.md#section-11)) and later by registry membership.
-Dependencies point from orchestration (`cpg-core/src/attempt.rs`) to the summary producer
-(`cpg-core/src/summaries.rs`, which prepares relations in DataFusion and calls the SCC and
-bounded-compatibility kernels in `lctx-analytics/src/summaries.rs`) and to `cpg-schema`, which declares
+Dependencies point from orchestration (`cpg-core/src/attempt.rs`) to relation acquisition
+(`cpg-core/src/summaries.rs`) and the pure finite summary producer
+(`lctx-analytics/src/summaries/finite.rs`, over typed inputs and outcomes), and to `cpg-schema`, which declares
 the catalog (`models.rs`, `crates/cpg-schema/models/external.toml`), the relation schemas and
 DataFusion derivations (`behavior.rs`), rules and codebooks. The shared validator is
 `cpg-core/src/validate.rs`; focused fixtures are under `fixtures/python/` (`model_shapes`,
@@ -27,7 +27,7 @@ composition, effect/exception/role summaries, `call_transfer` discharge, operati
 and the registry are **Proposed** targets. Integrated Stage 3 acceptance and the pilot are
 `not_run`; the plan owns the queue and the current disposition of the findings cited here
 ([plan §3, §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#3-stage-3-execution-queue)).
-The rationale is ADR-0045.
+The rationale is ADR-0045 and ADR-0050.
 
 **The organizing rule.** Meaning comes from models, propagation from summaries: a call alone never
 propagates an effect or capability. Every step from a source call to a summary is a separate,
@@ -229,11 +229,16 @@ cited reaching definition and earlier raw fact) and `value_flow_predecessor_comp
 loop-carried, missing or capped roots are unknown, a cap staying `budget_reached`). None of them
 chooses a reaching definition or proves completion.
 
-**Coverage.** `summary_boundaries` records every same-callable parameter-origin raw return path
-without an admitted proof: `call_transfer` when a call is crossed, `unsupported_control_flow`
-otherwise. A boundary for a raw fact and condition is suppressed only when that key has exactly
-one contribution and it was proved; a positive may-path never covers a distinct unproved sibling.
-Boundaries are coverage, not refutations.
+**Coverage.** The finite producer takes raw parameter-origin return contributions as typed
+`summary_boundary_candidates` and returns admitted flows, ordered steps, typed refusals and
+`summary_boundaries` together, without acquiring a session. `cpg-core` acquires and publishes;
+the shared validator reconstructs the same outcome once. A crossed call without a narrower
+cause stays `call_transfer`, an unsupported control path stays `unsupported_control_flow`, and
+a depth or BDD cap carries its own append-only boundary reason. A single proved raw-fact key
+without any refusal has no boundary; a second contribution or a specifically refused path
+keeps it open. Missing evidence alone does not replace the call-transfer fallback. These
+unknowns are coverage, not refutations. The persisted key still groups origins sharing a raw
+fact and condition; path-specific identity remains a separate Stage 3 migration.
 
 **Proof identity.** `summary_flows` keys on a canonical `summary_id` hashing callable, formal,
 input/output paths, transfer kind, condition, return site/region and the ordered typed proof
@@ -264,12 +269,9 @@ independent of row order. A self-call marks a singleton recursive. Candidate/ope
 contributes topology only.
 
 **Known gaps** ([plan W5, W7, W12, W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-- W5 (ARC-02): summary policy acquires its own session, so the finite composition cannot run or
-  be tested without extraction/Delta setup. The intended contract: `cpg-core` prepares relations
-  and the analytics owner exposes composition over explicit inputs and outcomes.
-- W5 (ARC-03): refusal causes are discarded and later inferred generically from an absent flow (a
-  depth refusal currently shows as `call_transfer`). The producer should own typed
-  admitted/refused outcomes that publication preserves; any codebook change is append-only.
+- W5 (ARC-02/03) has focused production and native evidence for explicit finite inputs and
+  specific depth/control refusals. Persisted origin identity and independent challenge of every
+  BDD refusal variant remain open in the Stage 3 execution queue.
 - W7: the flow model's cyclic reach, a summary input, is not yet a fixed point (§3.9).
 - W12: the engine for bounded SCC composition (a native SCC worklist, Ascent or datafrog) is an
   open comparison on one semantic state and refusal contract, after W5; none is adopted. A
@@ -319,6 +321,6 @@ proposed ([§11.3](synthesis-and-serving.md#section-11-3)).
   small (20–40 authored); ranked lookup waits until it outgrows one page. **`explain`** returns the
   stored witness chain.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050
 
 ---

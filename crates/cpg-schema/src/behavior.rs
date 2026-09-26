@@ -2377,6 +2377,24 @@ crate::relations! {
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
 
+    /// Raw, path-specific origins supplied to the finite summary decision. This query does
+    /// not infer a refusal from missing summary rows; the analytics producer does that.
+    summary_boundary_candidates = "behavior:summary_boundary_candidates",
+        deps = ["value_flow_contributions", "flow_values"],
+        sql = format!(
+            "SELECT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
+                    v.parameter_node_id, v.flow_value_fact_id AS source_flow_fact_id, \
+                    v.condition_id, v.use_id, v.source_key, v.through_call, \
+                    v.local_through_call, v.upstream_through_call, \
+                    f.through_call AS raw_through_call, \
+                    f.approximated AS raw_approximated \
+             FROM value_flow_contributions v \
+             JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
+             WHERE f.sink = {return_sink} AND v.parameter_node_id IS NOT NULL \
+               AND v.function_node_id = v.sink_function_node_id",
+            return_sink = FlowSink::Return.code(),
+        );
+
     /// Unknown-is-not-absent for every same-callable parameter-origin return fact not admitted
     /// by the finite producer. Multiple distinct contributions may share the same raw fact and
     /// condition: one positive proof cannot erase an unproved sibling. A crossed call takes the

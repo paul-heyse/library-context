@@ -178,6 +178,14 @@ codebook!(
         /// and "never read" cannot be refuted there (ADR-0022 §Verdicts; the Stage 2 end
         /// review's R1).
         AbstractBody = 20 => "abstract_body",
+        /// Finite summary composition reached its maximum cited call-path depth.
+        SummaryDepthLimit = 21 => "summary_depth_limit",
+        /// A condition operation exceeded its deterministic BDD pair-work preflight.
+        ConditionWorkLimit = 22 => "condition_work_limit",
+        /// A condition operation exceeded its BDD result-node cap.
+        ConditionNodeLimit = 23 => "condition_node_limit",
+        /// A condition operation exceeded its named-atom cap.
+        ConditionAtomLimit = 24 => "condition_atom_limit",
     }
 );
 

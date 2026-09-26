@@ -908,16 +908,10 @@ async fn finish(
         let summary_components = crate::summaries::call_components(&ctx).await?;
         write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w)
             .await?;
-        let (summary_flows, summary_steps) = crate::summaries::finite_flows(&ctx).await?;
-        write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summary_flows, w).await?;
-        write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summary_steps, w).await?;
-        let summary_boundaries = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::summary_boundaries(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summary_boundaries, w)
+        let summaries = crate::summaries::finite_flows(&ctx).await?;
+        write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summaries.flows, w).await?;
+        write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summaries.steps, w).await?;
+        write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summaries.boundaries, w)
             .await?;
         let handler_clauses = crate::sql::fetch(
             &ctx,

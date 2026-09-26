@@ -92,6 +92,90 @@ async fn compiled(sub: &str, reverse: bool, finalizer: bool) -> (tempfile::TempD
     (dir, store)
 }
 
+/// A real local-call chain reaches the finite composition depth cap.
+async fn compiled_summary_caps() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("caps");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/python/summary_caps");
+    copy(&fixture, &base.join("release"));
+    std::fs::create_dir_all(base.join("venv/site-packages")).unwrap();
+    let out = extract(&ExtractInput {
+        release: cpg_extract::Release::from_tree(
+            std::fs::canonicalize(base.join("release")).unwrap(), "summary_caps",
+        ).unwrap(),
+        venv_root: std::fs::canonicalize(base.join("venv")).unwrap(),
+        site_packages: vec![std::fs::canonicalize(base.join("venv/site-packages")).unwrap()],
+        python_version: (3, 14, 0),
+        python_platform: "linux".to_owned(),
+        snapshot_id: SNAPSHOT,
+        corpus: None,
+        keep_pysa_json: false,
+        test_hooks: TestHooks::default(),
+    }).unwrap();
+    let config = AnalyticsConfig::parse(r#"
+version = 1
+[subsystem]
+module_prefixes = ["capspkg"]
+public_roots = ["capspkg"]
+[seeds]
+primary = ["capspkg.f9"]
+distractors = ["capspkg.f0", "capspkg.unsupported"]
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 3
+"#).unwrap();
+    let analysis = cpg_core::analyze::Analysis {
+        config,
+        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Default::default(),
+    };
+    let store = dir.path().join("store");
+    compile_analyzed(&store, SNAPSHOT, &out.tables, Some(&analysis)).await.unwrap();
+    (dir, store)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
+    let (dir, store) = compiled_summary_caps().await;
+    let (_, ctx) = published(&store, SNAPSHOT).await.unwrap().unwrap();
+    for (name, reason) in [("f9", 21), ("unsupported", 4)] {
+        let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_boundaries b \
+            JOIN declarations d ON d.node_id = b.function_node_id \
+            WHERE d.name = '{name}' AND b.reason = {reason}"))
+            .await.unwrap().collect().await.unwrap();
+        let counts = rows[0].column(0)
+            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary");
+    }
+    let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
+        .await.unwrap();
+    let script = r#"
+import sys
+from pathlib import Path
+from lctx_mcp.generation import load
+generation = load(Path(sys.argv[1]), None)
+index = generation.condition_graph
+for operation, expected in (
+    ("capspkg.f9", "summary_depth_limit"),
+    ("capspkg.unsupported", "unsupported_control_flow"),
+):
+    paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
+    assert not truncated, (operation, paths, boundaries)
+    assert any(boundary[2] == expected for boundary in boundaries), (operation, paths, boundaries)
+"#;
+    let output = std::process::Command::new("uv")
+        .args(["run", "--no-sync", "python", "-c", script,
+            generation.dir.to_str().unwrap()])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 /// W1: a real finalizer proof survives extraction, Delta publication, IPC generation and the
 /// native reader. The Python process only loads the generation and issues the semantic query.
 #[tokio::test(flavor = "multi_thread")]

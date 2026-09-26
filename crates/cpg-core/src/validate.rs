@@ -127,7 +127,6 @@ pub async fn validate_costed(
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
     violations.extend(validate_summary_components(&cache).await?);
-    violations.extend(validate_summary_boundaries(&cache).await?);
     Ok((violations, costs))
 }
 
@@ -442,7 +441,7 @@ async fn validate_summary_components(ctx: &SessionContext) -> Result<Vec<Violati
 async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<SummaryFlowsRow> =
         sql::fetch(ctx, &stored_summary_flows(), sql::Params::new()).await?;
-    let (mut expected, mut expected_steps) = match crate::summaries::finite_flows(ctx).await {
+    let summary = match crate::summaries::finite_flows(ctx).await {
         Ok(rows) => rows,
         Err(error) => {
             return Ok(vec![Violation {
@@ -452,6 +451,8 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
             }]);
         }
     };
+    let mut expected = summary.flows;
+    let mut expected_steps = summary.steps;
     actual.sort_by_key(|r| r.summary_id);
     expected.sort_by_key(|r| r.summary_id);
     let mut violations = Vec::new();
@@ -482,19 +483,17 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
             ),
         });
     }
+    violations.extend(validate_summary_boundaries(ctx, summary.boundaries).await?);
     Ok(violations)
 }
 
 /// Reconstruct the explicit complement of the finite source-to-return summary proof.
-async fn validate_summary_boundaries(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+async fn validate_summary_boundaries(
+    ctx: &SessionContext,
+    mut expected: Vec<SummaryBoundariesRow>,
+) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<SummaryBoundariesRow> =
         sql::fetch(ctx, &stored_summary_boundaries(), sql::Params::new()).await?;
-    let mut expected: Vec<SummaryBoundariesRow> = sql::fetch(
-        ctx,
-        &cpg_schema::behavior::summary_boundaries(),
-        sql::Params::new(),
-    )
-    .await?;
     let key = |r: &SummaryBoundariesRow| {
         (
             r.function_node_id,

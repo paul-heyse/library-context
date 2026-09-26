@@ -16,8 +16,9 @@ use datafusion::prelude::SessionContext;
 
 use crate::{CoreError, sql};
 use lctx_analytics::summaries::finite::{
-    FiniteSummaryInputs, LocalCallSummaryFlowSeed, ModeledAssignmentSummaryFlowSeed,
-    ModeledSummaryFlowSeed, PrecedingCallRegion, ReturnPassStep, SummaryFlowSeed,
+    FiniteSummaryInputs, FiniteSummaryOutcome, LocalCallSummaryFlowSeed,
+    ModeledAssignmentSummaryFlowSeed, ModeledSummaryFlowSeed, PrecedingCallRegion,
+    ReturnPassStep, SummaryBoundaryCandidate, SummaryFlowSeed,
 };
 
 cpg_schema::relations! {
@@ -196,7 +197,7 @@ pub async fn call_components(ctx: &SessionContext) -> Result<Vec<SummaryComponen
 /// Acquire typed relations; finite composition itself owns no session or store.
 pub async fn finite_flows(
     ctx: &SessionContext,
-) -> Result<(Vec<cpg_schema::behavior::SummaryFlowsRow>, Vec<cpg_schema::behavior::SummaryFlowStepsRow>), CoreError> {
+) -> Result<FiniteSummaryOutcome, CoreError> {
     let (diagrams, boundaries) = load_conditions(ctx).await?;
     let pass_steps = return_pass_steps(ctx).await?;
     let preceding_calls = preceding_call_regions(ctx).await?;
@@ -206,9 +207,11 @@ pub async fn finite_flows(
     let evaluations: Vec<cpg_schema::behavior::ModeledArgumentEvaluationsRow> = sql::fetch(ctx, &cpg_schema::behavior::modeled_argument_evaluations(), sql::Params::new()).await?;
     let assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::modeled_assignment_summary_flow_seeds(), sql::Params::new()).await?;
     let local_seeds: Vec<LocalCallSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::local_call_summary_flow_seeds(), sql::Params::new()).await?;
+    let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
     Ok(lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
         diagrams, boundaries, pass_steps, preceding_calls, components,
         direct_seeds, modeled_seeds, evaluations, assignment_seeds, local_seeds,
+        boundary_candidates,
     }))
 }
 
@@ -241,16 +244,9 @@ async fn load_conditions(
         })
         .collect();
     let mut boundaries = HashMap::new();
-    let classify = |code: &str| match KernelBoundary::from_code(code) {
-        Some(
-            KernelBoundary::SourceOverBudget
-            | KernelBoundary::AtomLimit
-            | KernelBoundary::WorkPreflight
-            | KernelBoundary::NodeLimit,
-        ) => BoundaryReason::BudgetReached,
-        Some(KernelBoundary::TransferUnsupported) => BoundaryReason::OutsideProviderModel,
-        Some(KernelBoundary::AtomNameCollision) | None => BoundaryReason::MissingEvidence,
-    };
+    let classify = |code: &str| KernelBoundary::from_code(code)
+        .map(lctx_analytics::summaries::finite::condition_limit)
+        .unwrap_or(BoundaryReason::MissingEvidence);
     for root in &roots {
         if let Some(code) = root.boundary_reason.as_deref() {
             boundaries.insert(root.condition_id, classify(code));
