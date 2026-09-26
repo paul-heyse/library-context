@@ -92,6 +92,28 @@ def boolean_not_predecessor(value: object) -> object:
     return value
 
 
+def binary_numeric_predecessor(value: object) -> object:
+    """Two direct numeric literals can be added before the pinned call."""
+    cast(object, 1 + 2)
+    return value
+
+
+def raising_binary_predecessor(value: object) -> object:
+    """Division by zero does not acquire the safe binary-literal witness."""
+    cast(object, 1 / 0)
+    return value
+
+
+def binary_sibling_identity(value: object) -> object:
+    """A direct numeric addition completes before the modeled identity call."""
+    return cast(1 + 2, value)
+
+
+def raising_binary_sibling(value: object) -> object:
+    """A raising binary type argument prevents the modeled return."""
+    return cast(1 / 0, value)
+
+
 def raising_not_predecessor(value: object) -> object:
     """A raising operand cannot borrow the direct-literal normal witness."""
     cast(object, not (1 / 0))

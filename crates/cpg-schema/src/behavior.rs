@@ -1671,6 +1671,23 @@ fn simple_argument_evidence_sql() -> String {
              AND ((u.detail IN ('+', '-') AND operand.kind = {number_literal}) OR \
                   (u.detail = 'not' AND operand.kind = {boolean_literal})) \
            WHERE a.kind IN ({positional}, {keyword}) \
+         ), binary_numeric_literal_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, expression.fact_id AS syntax_fact_id, \
+                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes expression ON expression.module_node_id = c.module_node_id \
+             AND expression.parent_node_id = c.node_id \
+             AND expression.field = {argument_field} \
+             AND expression.start_byte = a.value_start_byte \
+             AND expression.end_byte = a.value_end_byte \
+             AND expression.kind = {binary_expr} AND expression.detail IN ('+', '-') \
+           JOIN syntax_nodes lhs ON lhs.parent_node_id = expression.node_id \
+             AND lhs.module_node_id = expression.module_node_id \
+             AND lhs.field = {left_field} AND lhs.kind = {number_literal} \
+           JOIN syntax_nodes rhs ON rhs.parent_node_id = expression.node_id \
+             AND rhs.module_node_id = expression.module_node_id \
+             AND rhs.field = {right_field} AND rhs.kind = {number_literal} \
+           WHERE a.kind IN ({positional}, {keyword}) \
          ), builtin_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
                   count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
@@ -1738,14 +1755,16 @@ fn simple_argument_evidence_sql() -> String {
            GROUP BY a.fact_id \
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
-                  COALESCE(l.syntax_fact_id, ul.syntax_fact_id, b.resolution_fact_id, \
+                  COALESCE(l.syntax_fact_id, ul.syntax_fact_id, bn.syntax_fact_id, \
+                           b.resolution_fact_id, \
                            CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                                      AND n.definition_kind IN ({parameter}, {assignment}) \
                                 THEN n.reaching_fact_id ELSE NULL END, \
                            CASE WHEN lp.candidate_count = 1 \
                                 THEN lp.resolution_fact_id ELSE NULL END) AS evidence_id, \
                   CAST(CASE WHEN l.syntax_fact_id IS NOT NULL \
-                              OR ul.syntax_fact_id IS NOT NULL THEN {literal_normal} \
+                              OR ul.syntax_fact_id IS NOT NULL \
+                              OR bn.syntax_fact_id IS NOT NULL THEN {literal_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
                             WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                               AND n.definition_kind = {parameter} \
@@ -1761,6 +1780,8 @@ fn simple_argument_evidence_sql() -> String {
              AND l.candidate_count = 1 \
            LEFT JOIN unary_literal_candidates ul ON ul.argument_fact_id = a.fact_id \
              AND ul.candidate_count = 1 \
+           LEFT JOIN binary_numeric_literal_candidates bn ON bn.argument_fact_id = a.fact_id \
+             AND bn.candidate_count = 1 \
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
            LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
@@ -1768,10 +1789,13 @@ fn simple_argument_evidence_sql() -> String {
          )",
         argument_field = crate::codebook::SyntaxField::Argument.code(),
         operand_field = crate::codebook::SyntaxField::Operand.code(),
+        left_field = crate::codebook::SyntaxField::Left.code(),
+        right_field = crate::codebook::SyntaxField::Right.code(),
         positional = ArgumentKind::Positional.code(),
         keyword = ArgumentKind::Keyword.code(),
         name_expr = SyntaxKind::ExprName.code(),
         unary_expr = SyntaxKind::ExprUnaryOp.code(),
+        binary_expr = SyntaxKind::ExprBinOp.code(),
         string_literal = SyntaxKind::ExprStringLiteral.code(),
         bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
         number_literal = SyntaxKind::ExprNumberLiteral.code(),

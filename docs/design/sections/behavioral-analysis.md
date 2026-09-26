@@ -132,8 +132,10 @@ every row; the shared validator reconstructs each relation and rejects forged st
   and fact.
 - **`modeled_argument_evaluations`** accounts for every explicit argument of an exact one-call
   model candidate in source order: the selected operand cites its raw value fact and a separate
-  normal-read witness; a direct literal
-  or an exact unshadowed builtin name has a local normal-evaluation witness. A direct parameter
+  normal-read witness; a direct literal, `+`/`-` on two direct numeric literals,
+  or an exact unshadowed builtin name has a local normal-evaluation witness. The binary witness
+  cites the outer Ruff expression; division, computed operands and other operators remain
+  unresolved. A direct parameter
   name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
   definition matches that same lexical parameter binding and has a stored condition root. In a
   `try` body, ty may mark this reach approximate; a direct reference resolved to the current

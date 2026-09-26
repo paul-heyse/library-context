@@ -160,6 +160,9 @@ keyword mapping now passes the same proof, while `**` unpacking remains `call_tr
 The shared simple-argument evaluator admits `not` only over a direct Boolean literal;
 [the scoped review](../design_review/reviews/design_review_boolean-unary-argument_2026-09-26.md)
 records the real positive/raising contrast and the remaining expression boundary.
+It now also admits `+`/`-` over two direct numeric literals, citing the outer Ruff expression
+for a preceding call or modeled-return sibling; division by zero still withholds both paths
+([scoped review](../design_review/reviews/design_review_binary-numeric-argument_2026-09-26.md)).
 An exact whole-return chain of two or three closed total `typing.cast` identity models now
 composes from the ordered raw call path, one bound source argument per step and normal-evaluation
 witnesses for every sibling. The innermost direct formal read must have either an exact ty reaching
