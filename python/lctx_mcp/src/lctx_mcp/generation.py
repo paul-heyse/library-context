@@ -432,7 +432,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         dimensions = spec.dimensions
     schemas = expected_schemas(dimensions)
     tables = {name: _read(root, manifest, name, schema) for name, schema in schemas.items()}
-    max_conditions, max_nodes = catalog_limits()
+    max_conditions, max_nodes, _max_retained_nodes = catalog_limits()
     if (
         tables["conditions"].num_rows + tables["analysis_conditions"].num_rows > max_conditions
         or tables["condition_nodes"].num_rows + tables["analysis_condition_nodes"].num_rows

@@ -1,11 +1,11 @@
 //! Generation-pinned condition kernel and developer smoke probes.
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use cpg_schema::codebook::{Codebook, TestValueLinkOrigin};
+use cpg_schema::codebook::{BoundaryReason, Codebook, SummaryFlowStepKind, TestValueLinkOrigin};
 use cpg_schema::condition::{Atom, Condition, Value};
 use cpg_schema::condition_kernel::{
     ConditionRoot, Diagram, DiagramNode, KERNEL_FORMAT, KernelBoundary, MAX_CATALOG_CONDITIONS,
-    MAX_CATALOG_NODES, hydrate_catalog,
+    MAX_CATALOG_NODES, MAX_CATALOG_RETAINED_NODES, hydrate_catalog,
 };
 use cpg_schema::id::{Digest, Id, IdHasher};
 use cpg_schema::primitive_theory::{
@@ -81,8 +81,12 @@ fn kernel_format() -> u32 {
 }
 
 #[pyfunction]
-fn catalog_limits() -> (usize, usize) {
-    (MAX_CATALOG_CONDITIONS, MAX_CATALOG_NODES)
+fn catalog_limits() -> (usize, usize, usize) {
+    (
+        MAX_CATALOG_CONDITIONS,
+        MAX_CATALOG_NODES,
+        MAX_CATALOG_RETAINED_NODES,
+    )
 }
 
 fn id(value: &str) -> PyResult<Id> {
@@ -100,6 +104,7 @@ struct ConditionGraph {
     diagrams: HashMap<Id, Diagram>,
     boundaries: HashMap<Id, KernelBoundary>,
     node_count: usize,
+    retained_node_count: usize,
 }
 
 #[pymethods]
@@ -137,6 +142,10 @@ impl ConditionGraph {
             })
             .collect::<PyResult<Vec<_>>>()?;
         let diagrams = hydrate_catalog(&conditions, &nodes).map_err(PyValueError::new_err)?;
+        let retained_node_count = diagrams
+            .values()
+            .map(|diagram| diagram.node_count().saturating_sub(2))
+            .sum();
         let boundaries = conditions
             .iter()
             .filter_map(|row| {
@@ -150,6 +159,7 @@ impl ConditionGraph {
             diagrams,
             boundaries,
             node_count: nodes.len(),
+            retained_node_count,
         })
     }
 
@@ -161,6 +171,11 @@ impl ConditionGraph {
     #[getter]
     fn node_count(&self) -> usize {
         self.node_count
+    }
+
+    #[getter]
+    fn retained_node_count(&self) -> usize {
+        self.retained_node_count
     }
 
     /// `None` carries a named boundary; a missing id is an invalid query.
@@ -315,19 +330,9 @@ impl SemanticExecutor {
             if ordinal < 0
                 || !summaries.contains_key(&summary)
                 || !graph.has_condition(condition)
-                || !matches!(
-                    kind.as_str(),
-                    "raw_identity"
-                        | "callee_resolution"
-                        | "argument_evaluation"
-                        | "call_target"
-                        | "model_rule"
-                        | "return_exit"
-                        | "call_site"
-                        | "definition_reaching"
-                        | "return_source"
-                        | "callee_summary"
-                )
+                || !SummaryFlowStepKind::all()
+                    .iter()
+                    .any(|candidate| candidate.text() == kind)
             {
                 return Err(PyValueError::new_err("invalid summary proof step"));
             }
@@ -383,6 +388,12 @@ impl SemanticExecutor {
                 return Err(PyValueError::new_err(
                     "boundary references absent condition",
                 ));
+            }
+            if !BoundaryReason::all()
+                .iter()
+                .any(|candidate| candidate.text() == reason)
+            {
+                return Err(PyValueError::new_err("invalid summary boundary reason"));
             }
             boundary_index
                 .entry((id(&function)?, id(&formal)?))

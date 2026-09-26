@@ -17,7 +17,7 @@ from lctx_mcp.generation import load
 
 def test_native_condition_boundary_uses_the_rust_kernel() -> None:
     assert kernel_format() == 1
-    assert catalog_limits() == (100_000, 100_000)
+    assert catalog_limits() == (100_000, 100_000, 1_000_000)
     assert probe_compatible("truthy(a)", "!truthy(a)") is False
     assert probe_compatible("truthy(a)", "!truthy(b)") is True
     assert probe_implies("truthy(a) & truthy(b)", "truthy(a)") is True
@@ -32,6 +32,7 @@ def test_generation_condition_graph_is_hydrated_and_rejects_bad_nodes(generation
     loaded = load(generation, None)
     graph = loaded.condition_graph
     assert graph is not None and graph.condition_count > 0 and graph.node_count > 0
+    assert graph.retained_node_count > 0
     rows = loaded.tables["conditions"].to_pylist()
     condition = next(r["condition_id"].hex() for r in rows if r["root_id"] is not None)
     assert graph.compatible(condition, condition) == (True, None)
@@ -103,6 +104,38 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
         SemanticExecutor(*args, [], [], [], [])
     with pytest.raises(ValueError, match="missing cited callee summary"):
         SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)], [], [], [])
+
+
+def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(
+    generation: Path,
+) -> None:
+    loaded = load(generation, None)
+    conditions = [
+        (r["condition_id"].hex(), _hex(r["root_id"]), r["boundary_reason"])
+        for r in loaded.tables["conditions"].to_pylist()
+    ]
+    nodes = [
+        (r["node_id"].hex(), r["atom"], r["low_id"].hex(), r["high_id"].hex())
+        for r in loaded.tables["condition_nodes"].to_pylist()
+    ]
+    condition = next(r[0] for r in conditions if r[1] is not None)
+    operation, formal, summary = ("01" * 16, "02" * 16, "03" * 16)
+    prefix = (
+        kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
+        conditions, nodes, [operation], [("pkg.finalizer", operation)],
+        [(operation, formal, "value")],
+        [(summary, operation, formal, condition, "established", None, 0)],
+    )
+    finalizer = (summary, 0, "finalizer_pass", "04" * 16, condition)
+    index = SemanticExecutor(*prefix, [finalizer], [], [], [])
+    paths, _, _, _ = index.value_paths("pkg.finalizer", "value", 1)
+    assert paths[0][3][0][0] == "finalizer_pass"
+    with pytest.raises(ValueError, match="invalid summary proof step"):
+        SemanticExecutor(*prefix, [(summary, 0, "invented_step", "04" * 16, condition)], [], [], [])
+
+
+def _hex(value: bytes | None) -> str | None:
+    return None if value is None else value.hex()
 
 
 def test_exact_input_refutes_only_a_cited_summary_path(generation: Path) -> None:
