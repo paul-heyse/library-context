@@ -79,6 +79,8 @@ boundary_reason
   23 condition_node_limit
   24 condition_atom_limit
   25 summary_pair_work_limit
+  26 expression_depth_limit
+  27 expression_work_limit
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget

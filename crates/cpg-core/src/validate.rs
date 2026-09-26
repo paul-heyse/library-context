@@ -123,6 +123,7 @@ pub async fn validate_costed(
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
     violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
     violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
+    violations.extend(validate_closed_expressions(&cache).await?);
     violations.extend(validate_modeled_argument_evaluations(&cache).await?);
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
@@ -175,6 +176,9 @@ cpg_schema::relations! {
     stored_modeled_exact_value_transfers = "validate_stored_modeled_exact_value_transfers",
         deps = ["modeled_exact_value_transfers"],
         sql = "SELECT * FROM modeled_exact_value_transfers".to_owned();
+    stored_closed_expressions = "validate_stored_closed_expressions",
+        deps = ["closed_expression_evaluations"],
+        sql = "SELECT * FROM closed_expression_evaluations".to_owned();
     stored_modeled_argument_evaluations = "validate_stored_modeled_argument_evaluations",
         deps = ["modeled_argument_evaluations"],
         sql = "SELECT * FROM modeled_argument_evaluations".to_owned();
@@ -1803,4 +1807,19 @@ fn visit(plan: &Arc<dyn ExecutionPlan>, f: &mut impl FnMut(&dyn ExecutionPlan)) 
     for child in plan.children() {
         visit(child, f);
     }
+}
+
+/// Reject both extra and missing completion rows, including forged exact values and budgets.
+async fn validate_closed_expressions(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<cpg_schema::behavior::ClosedExpressionEvaluationsRow> =
+        sql::fetch(ctx, &stored_closed_expressions(), sql::Params::new()).await?;
+    let mut expected = crate::summaries::closed_expression_evaluations(ctx).await?;
+    actual.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
+    expected.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
+    if actual == expected { return Ok(Vec::new()); }
+    Ok(vec![Violation {
+        rule: "closed-expression-source-equality".to_owned(),
+        rows: actual.len().abs_diff(expected.len()).max(1),
+        sample: format!("stored {} closed expressions; derived {}", actual.len(), expected.len()),
+    }])
 }

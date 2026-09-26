@@ -867,9 +867,13 @@ budget = 1
         count(&ctx, &format!(
             "SELECT count(*) FROM ({}) s JOIN declarations d \
              ON d.node_id = s.function_node_id \
+             JOIN ({}) a ON a.call_fact_id = s.call_fact_id AND a.callee_node_id = s.callee_node_id \
+             JOIN flow_test_value_links link ON link.operation_node_id = s.callee_node_id \
+               AND link.formal_node_id = a.formal_node_id \
              WHERE d.name = 'recursive_base_identity' \
-               AND s.control_value AND s.control_link_id IS NOT NULL",
+               AND a.boolean_value",
             cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+            cpg_schema::behavior::local_call_arguments().sql,
         )).await > 0,
         "the second literal formal has an exact entry-value test link"
     );
@@ -892,9 +896,13 @@ budget = 1
         count(&ctx, &format!(
             "SELECT count(*) FROM ({}) s JOIN declarations d \
              ON d.node_id = s.function_node_id \
+             JOIN ({}) a ON a.call_fact_id = s.call_fact_id AND a.callee_node_id = s.callee_node_id \
+             JOIN flow_test_value_links link ON link.operation_node_id = s.callee_node_id \
+               AND link.formal_node_id = a.formal_node_id \
              WHERE d.name = 'recursive_false_control' \
-               AND NOT s.control_value AND s.control_link_id IS NOT NULL",
+               AND NOT a.boolean_value",
             cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+            cpg_schema::behavior::local_call_arguments().sql,
         )).await > 0,
         "the opposing literal also has a directly linked guard"
     );
@@ -915,10 +923,15 @@ budget = 1
         count(&ctx, &format!(
             "SELECT count(*) FROM ({}) s JOIN declarations d \
              ON d.node_id = s.function_node_id \
+             JOIN ({}) a ON a.call_fact_id = s.call_fact_id AND a.callee_node_id = s.callee_node_id \
+             JOIN flow_test_value_links link ON link.operation_node_id = s.callee_node_id \
+               AND link.formal_node_id = a.formal_node_id \
+             JOIN flow_test_value_links caller ON caller.operation_node_id = s.function_node_id \
+               AND caller.formal_node_id = a.source_formal_node_id \
              WHERE d.name = 'guarded_symbolic_recursive' \
-               AND s.control_value IS NULL AND s.control_source_link_id IS NOT NULL \
-               AND s.control_link_id IS NOT NULL",
+               AND a.boolean_value IS NULL AND a.source_formal_node_id IS NOT NULL",
             cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+            cpg_schema::behavior::local_call_arguments().sql,
         )).await > 0,
         "both sides of the symbolic formal forwarding have direct guard links"
     );
@@ -1017,14 +1030,31 @@ budget = 1
              JOIN syntax_nodes literal ON literal.fact_id = first.evidence_id \
                AND literal.detail = 'True' \
              JOIN summary_flow_steps second ON second.summary_id = f.summary_id \
-               AND second.kind = {evaluation} AND second.ordinal = first.ordinal + 1 \
-               AND second.evidence_id = f.source_flow_fact_id \
+               AND second.kind = {evaluation} AND second.ordinal = first.ordinal + 2 \
+             JOIN flow_reaching read ON read.fact_id = second.evidence_id \
+             JOIN summary_flow_steps source ON source.summary_id = f.summary_id \
+               AND source.kind = {source_kind} AND source.ordinal = first.ordinal + 1 \
+               AND source.evidence_id = f.source_flow_fact_id \
              WHERE d.name = 'recursive_reversed_keyword_true' AND f.path_depth = 1",
             evaluation = cpg_schema::codebook::SummaryFlowStepKind::ArgumentEvaluation.code(),
+            source_kind = cpg_schema::codebook::SummaryFlowStepKind::ReturnSource.code(),
         )).await,
         1,
         "the published proof evaluates the first literal before the tracked value"
     );
+    for (name, expected) in [("multiple_argument_true", 1), ("multiple_argument_false", 0),
+        ("multiple_argument_raising", 0), ("multiple_argument_missing", 0), ("multiple_control_true", 0),
+        ("multiple_control_false", 0), ("multiple_control_raising", 0)] {
+        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows f \
+            JOIN declarations d ON d.node_id = f.function_node_id \
+            WHERE d.name = '{name}' AND f.path_depth = 1")).await, expected,
+            "every argument needs normal evaluation and every callee predicate needs a stable entry link");
+    }
+    assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flow_steps step \
+        JOIN summary_flows f ON f.summary_id = step.summary_id \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'multiple_argument_true' AND f.path_depth = 1 AND step.kind = {}",
+        cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code())).await, 1);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
@@ -3555,6 +3585,18 @@ budget = 1
         .unwrap();
     ctx.register_table("modeled_exact_value_transfers", original_exact_transfers)
         .unwrap();
+
+    let original_expressions = sql::query(&ctx, "SELECT * FROM closed_expression_evaluations")
+        .await.unwrap().into_view();
+    let forged_expressions = sql::query(&ctx,
+        "SELECT * EXCLUDE (boolean_value), CASE WHEN normal THEN COALESCE(NOT boolean_value, true) ELSE NULL END AS boolean_value FROM closed_expression_evaluations")
+        .await.unwrap().into_view();
+    ctx.deregister_table("closed_expression_evaluations").unwrap();
+    ctx.register_table("closed_expression_evaluations", forged_expressions).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "closed-expression-source-equality"), "{violations:?}");
+    ctx.deregister_table("closed_expression_evaluations").unwrap();
+    ctx.register_table("closed_expression_evaluations", original_expressions).unwrap();
 
     let original_argument_evaluations =
         sql::query(&ctx, "SELECT * FROM modeled_argument_evaluations")

@@ -146,6 +146,47 @@ def conditional_self_recursive(value):
     return conditional_self_recursive(value)
 
 
+def multiple_argument_base(value, enabled, unused):
+    if enabled:
+        return value
+    return None
+
+
+def multiple_argument_true(value):
+    return multiple_argument_base(unused=1, value=value, enabled=True)
+
+
+def multiple_argument_missing(value):
+    return multiple_argument_base(value=value, enabled=True)
+
+
+def multiple_argument_false(value):
+    return multiple_argument_base(unused=1, value=value, enabled=False)
+
+
+def multiple_argument_raising(value):
+    return multiple_argument_base(unused=1 / 0, value=value, enabled=True)
+
+
+def multiple_control_base(value, first, second):
+    if first:
+        if second:
+            return value
+    return None
+
+
+def multiple_control_true(value):
+    return multiple_control_base(second=True, value=value, first=True)
+
+
+def multiple_control_false(value):
+    return multiple_control_base(second=False, value=value, first=True)
+
+
+def multiple_control_raising(value):
+    return multiple_control_base(second=True, value=value, first=1 / 0)
+
+
 def prior_call_identity(value):
     plain_identity(value)
     return value
@@ -159,4 +200,4 @@ def alternate_branch_identity(value, invoke):
     return None
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "multi_pass_finally_identity", "pass_then_effect_finally", "with_identity", "recursive_before_return", "recursive_base_identity", "recursive_false_control", "recursive_keyword_true", "recursive_keyword_false", "recursive_all_keyword_true", "recursive_all_keyword_false", "recursive_reversed_keyword_true", "recursive_reversed_keyword_false", "keyword_local_wrapper", "unpacked_local_wrapper", "guarded_symbolic_recursive", "guarded_symbolic_base", "conditional_self_recursive", "prior_call_identity", "alternate_branch_identity"]
+__all__ = ["multiple_argument_missing", "multiple_argument_base", "multiple_argument_true", "multiple_argument_false", "multiple_argument_raising", "multiple_control_base", "multiple_control_true", "multiple_control_false", "multiple_control_raising", "plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "multi_pass_finally_identity", "pass_then_effect_finally", "with_identity", "recursive_before_return", "recursive_base_identity", "recursive_false_control", "recursive_keyword_true", "recursive_keyword_false", "recursive_all_keyword_true", "recursive_all_keyword_false", "recursive_reversed_keyword_true", "recursive_reversed_keyword_false", "keyword_local_wrapper", "unpacked_local_wrapper", "guarded_symbolic_recursive", "guarded_symbolic_base", "conditional_self_recursive", "prior_call_identity", "alternate_branch_identity"]

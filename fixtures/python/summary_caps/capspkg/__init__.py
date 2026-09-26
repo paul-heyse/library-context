@@ -8,6 +8,47 @@ def f0(value: object) -> object:
     return value
 
 
+def multiple_argument_base(value, enabled, unused):
+    if enabled:
+        return value
+    return None
+
+
+def multiple_argument_true(value):
+    return multiple_argument_base(unused=1, value=value, enabled=True)
+
+
+def multiple_argument_missing(value):
+    return multiple_argument_base(value=value, enabled=True)
+
+
+def multiple_argument_false(value):
+    return multiple_argument_base(unused=1, value=value, enabled=False)
+
+
+def multiple_argument_raising(value):
+    return multiple_argument_base(unused=1 / 0, value=value, enabled=True)
+
+
+def multiple_control_base(value, first, second):
+    if first:
+        if second:
+            return value
+    return None
+
+
+def multiple_control_true(value):
+    return multiple_control_base(second=True, value=value, first=True)
+
+
+def multiple_control_false(value):
+    return multiple_control_base(second=False, value=value, first=True)
+
+
+def multiple_control_raising(value):
+    return multiple_control_base(second=True, value=value, first=1 / 0)
+
+
 def f1(value: object) -> object:
     return f0(value)
 
@@ -725,3 +766,38 @@ def condition_atom_cap(
     ):
         return value
     return None
+
+
+def composed_boolean_control(value):
+    return multiple_argument_base(
+        unused=(-0x10 + (2.5 - -3)),
+        value=value,
+        enabled=(not False and (True if not False else 1 / 0) and True),
+    )
+
+
+def composed_raising_control(value):
+    return multiple_argument_base(
+        unused=1, value=value, enabled=(not False and (1 / 0) and True)
+    )
+
+
+def composed_expression_predecessor(value):
+    cast(object, (-0x10 + (2.5 - -3)) if not False else 1 / 0)
+    return value
+
+
+def composed_expression_sibling(value):
+    return cast((not False and True and (1 + 2)), value)
+
+
+def composed_expression_raising_sibling(value):
+    return cast((not False and True and (1 / 0)), value)
+
+
+def expression_depth_cap(value):
+    return multiple_argument_base(value, not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not not False, 1)
+
+
+def expression_work_cap(value):
+    return multiple_argument_base(value, (True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True and True), 1)

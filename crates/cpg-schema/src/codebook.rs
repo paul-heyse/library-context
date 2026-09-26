@@ -188,6 +188,8 @@ codebook!(
         ConditionAtomLimit = 24 => "condition_atom_limit",
         /// The recursive summary worklist exhausted its deterministic source/callee pair cap.
         SummaryPairWorkLimit = 25 => "summary_pair_work_limit",
+        ExpressionDepthLimit = 26 => "expression_depth_limit",
+        ExpressionWorkLimit = 27 => "expression_work_limit",
     }
 );
 

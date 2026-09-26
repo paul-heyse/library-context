@@ -211,6 +211,7 @@ pub const REFERENCES: &[Reference] = &[
         "target_definition_fact_id",
         FACT,
     ),
+    r("closed_expression_evaluations", "syntax_fact_id", &[("syntax_nodes", "fact_id")]),
     r(
         "modeled_argument_evaluations",
         "candidate_flow_fact_id",

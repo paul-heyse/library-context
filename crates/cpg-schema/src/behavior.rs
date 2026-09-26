@@ -732,6 +732,27 @@ table!(
 );
 
 table!(
+    /// Bounded closed-expression evaluation from placed Ruff syntax. Normal completion is
+    /// separate from an exact Boolean result; an unsupported expression or limit is unknown,
+    /// never a proven exceptional outcome. Reconstructed before publication.
+    ClosedExpressionEvaluations, ClosedExpressionEvaluationsRow = "closed_expression_evaluations",
+    family = Findings,
+    key = [snapshot_id, syntax_fact_id],
+    checks = [
+        ("normal_iff_supported", "(normal AND reason IS NULL) OR (NOT normal AND reason IS NOT NULL AND boolean_value IS NULL)"),
+        ("positive_work", "work > 0"),
+    ],
+    {
+        snapshot_id: Id,
+        syntax_fact_id: Id,
+        normal: bool,
+        boolean_value: Option<bool>,
+        reason: Option<BoundaryReason>,
+        work: i64,
+    }
+);
+
+table!(
     /// Every explicit argument of an exact one-call modeled value candidate, in source order.
     /// The selected source operand cites its raw value fact and a separate normal-read witness;
     /// a sibling direct literal or closed expression cites its Ruff
@@ -1657,93 +1678,16 @@ fn simple_argument_evidence_sql() -> String {
              AND s.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
                             {boolean_literal}, {none_literal}, {ellipsis_literal}) \
            WHERE a.kind IN ({positional}, {keyword}) \
-         ), unary_literal_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, u.fact_id AS syntax_fact_id, \
-                  CASE WHEN u.detail = 'not' AND operand.detail = 'False' THEN true \
-                       WHEN u.detail = 'not' AND operand.detail = 'True' THEN false \
-                       ELSE NULL END AS static_boolean_value, \
+         ), closed_expression_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, \
+                  CASE WHEN ev.normal THEN s.fact_id ELSE NULL END AS syntax_fact_id, \
+                  ev.boolean_value AS static_boolean_value, ev.reason AS evaluation_reason, \
                   count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
            FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes u ON u.module_node_id = c.module_node_id \
-             AND u.parent_node_id = c.node_id AND u.field = {argument_field} \
-             AND u.start_byte = a.value_start_byte AND u.end_byte = a.value_end_byte \
-             AND u.kind = {unary_expr} AND u.detail IN ('+', '-', 'not') \
-           JOIN syntax_nodes operand ON operand.parent_node_id = u.node_id \
-             AND operand.module_node_id = u.module_node_id \
-             AND operand.field = {operand_field} \
-             AND ((u.detail IN ('+', '-') AND operand.kind = {number_literal}) OR \
-                  (u.detail = 'not' AND operand.kind = {boolean_literal})) \
-           WHERE a.kind IN ({positional}, {keyword}) \
-         ), binary_numeric_literal_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, expression.fact_id AS syntax_fact_id, \
-                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes expression ON expression.module_node_id = c.module_node_id \
-             AND expression.parent_node_id = c.node_id \
-             AND expression.field = {argument_field} \
-             AND expression.start_byte = a.value_start_byte \
-             AND expression.end_byte = a.value_end_byte \
-             AND expression.kind = {binary_expr} AND expression.detail IN ('+', '-') \
-           JOIN syntax_nodes lhs ON lhs.parent_node_id = expression.node_id \
-             AND lhs.module_node_id = expression.module_node_id \
-             AND lhs.field = {left_field} AND lhs.kind = {number_literal} \
-           JOIN syntax_nodes rhs ON rhs.parent_node_id = expression.node_id \
-             AND rhs.module_node_id = expression.module_node_id \
-             AND rhs.field = {right_field} AND rhs.kind = {number_literal} \
-           WHERE a.kind IN ({positional}, {keyword}) \
-         ), boolean_operands AS ( \
-           SELECT a.fact_id AS argument_fact_id, expression.fact_id AS syntax_fact_id, \
-                  expression.detail AS bool_operator, operand.kind AS operand_kind, \
-                  operand.detail AS operand_detail, \
-                  row_number() OVER (PARTITION BY a.fact_id \
-                    ORDER BY operand.start_byte, operand.fact_id) AS operand_ordinal, \
-                  count(*) OVER (PARTITION BY a.fact_id) AS operand_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes expression ON expression.module_node_id = c.module_node_id \
-             AND expression.parent_node_id = c.node_id \
-             AND expression.field = {argument_field} \
-             AND expression.start_byte = a.value_start_byte \
-             AND expression.end_byte = a.value_end_byte \
-             AND expression.kind = {boolean_expr} AND expression.detail IN ('and', 'or') \
-           JOIN syntax_nodes operand ON operand.parent_node_id = expression.node_id \
-             AND operand.module_node_id = expression.module_node_id \
-             AND operand.field = {operand_field} \
-           WHERE a.kind IN ({positional}, {keyword}) \
-         ), short_circuit_candidates AS ( \
-           SELECT argument_fact_id, syntax_fact_id, \
-                  CASE WHEN bool_operator = 'and' THEN false \
-                       ELSE true END AS static_boolean_value, \
-                  count(*) OVER (PARTITION BY argument_fact_id) AS candidate_count \
-           FROM boolean_operands \
-           WHERE operand_ordinal = 1 AND operand_count = 2 \
-             AND operand_kind = {boolean_literal} \
-             AND ((bool_operator = 'and' AND operand_detail = 'False') OR \
-                  (bool_operator = 'or' AND operand_detail = 'True')) \
-         ), conditional_literal_candidates AS ( \
-           SELECT a.fact_id AS argument_fact_id, expression.fact_id AS syntax_fact_id, \
-                  CASE WHEN selected.kind = {boolean_literal} \
-                              AND selected.detail = 'True' THEN true \
-                       WHEN selected.kind = {boolean_literal} \
-                              AND selected.detail = 'False' THEN false \
-                       ELSE NULL END AS static_boolean_value, \
-                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
-           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
-           JOIN syntax_nodes expression ON expression.module_node_id = c.module_node_id \
-             AND expression.parent_node_id = c.node_id \
-             AND expression.field = {argument_field} \
-             AND expression.start_byte = a.value_start_byte \
-             AND expression.end_byte = a.value_end_byte \
-             AND expression.kind = {conditional_expr} \
-           JOIN syntax_nodes test ON test.parent_node_id = expression.node_id \
-             AND test.module_node_id = expression.module_node_id \
-             AND test.field = {test_field} AND test.kind = {boolean_literal} \
-             AND test.detail IN ('True', 'False') \
-           JOIN syntax_nodes selected ON selected.parent_node_id = expression.node_id \
-             AND selected.module_node_id = expression.module_node_id \
-             AND ((test.detail = 'True' AND selected.field = {value_field}) OR \
-                  (test.detail = 'False' AND selected.field = {orelse_field})) \
-             AND selected.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
-                                   {boolean_literal}, {none_literal}, {ellipsis_literal}) \
+           JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
+             AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
+             AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
+           JOIN closed_expression_evaluations ev ON ev.syntax_fact_id = s.fact_id \
            WHERE a.kind IN ({positional}, {keyword}) \
          ), builtin_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
@@ -1812,8 +1756,7 @@ fn simple_argument_evidence_sql() -> String {
            GROUP BY a.fact_id \
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
-                  COALESCE(l.syntax_fact_id, ul.syntax_fact_id, bn.syntax_fact_id, \
-                           sc.syntax_fact_id, cl.syntax_fact_id, \
+                  COALESCE(l.syntax_fact_id, ce.syntax_fact_id, \
                            b.resolution_fact_id, \
                            CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                                      AND n.definition_kind IN ({parameter}, {assignment}) \
@@ -1821,10 +1764,7 @@ fn simple_argument_evidence_sql() -> String {
                            CASE WHEN lp.candidate_count = 1 \
                                 THEN lp.resolution_fact_id ELSE NULL END) AS evidence_id, \
                   CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
-                            WHEN ul.syntax_fact_id IS NOT NULL \
-                              OR bn.syntax_fact_id IS NOT NULL \
-                              OR sc.syntax_fact_id IS NOT NULL \
-                              OR cl.syntax_fact_id IS NOT NULL THEN {closed_expression_normal} \
+                            WHEN ce.syntax_fact_id IS NOT NULL THEN {closed_expression_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
                             WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                               AND n.definition_kind = {parameter} \
@@ -1835,42 +1775,21 @@ fn simple_argument_evidence_sql() -> String {
                             WHEN lp.candidate_count = 1 \
                               THEN {lexical_parameter_normal} \
                             ELSE {unknown} END AS SMALLINT) AS status, \
-                  COALESCE(CASE WHEN ul.candidate_count = 1 \
-                                THEN ul.static_boolean_value END, \
-                           CASE WHEN sc.candidate_count = 1 \
-                                THEN sc.static_boolean_value END, \
-                           CASE WHEN cl.candidate_count = 1 \
-                                THEN cl.static_boolean_value END) AS static_boolean_value \
+                  ce.static_boolean_value, ce.evaluation_reason \
            FROM arguments a \
            LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
              AND l.candidate_count = 1 \
-           LEFT JOIN unary_literal_candidates ul ON ul.argument_fact_id = a.fact_id \
-             AND ul.candidate_count = 1 \
-           LEFT JOIN binary_numeric_literal_candidates bn ON bn.argument_fact_id = a.fact_id \
-             AND bn.candidate_count = 1 \
-           LEFT JOIN short_circuit_candidates sc ON sc.argument_fact_id = a.fact_id \
-             AND sc.candidate_count = 1 \
-           LEFT JOIN conditional_literal_candidates cl ON cl.argument_fact_id = a.fact_id \
-             AND cl.candidate_count = 1 \
+           LEFT JOIN closed_expression_candidates ce ON ce.argument_fact_id = a.fact_id \
+             AND ce.candidate_count = 1 \
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
            LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
            LEFT JOIN lexical_parameter_candidates lp ON lp.argument_fact_id = a.fact_id \
          )",
         argument_field = crate::codebook::SyntaxField::Argument.code(),
-        operand_field = crate::codebook::SyntaxField::Operand.code(),
-        left_field = crate::codebook::SyntaxField::Left.code(),
-        right_field = crate::codebook::SyntaxField::Right.code(),
-        test_field = crate::codebook::SyntaxField::Test.code(),
-        value_field = crate::codebook::SyntaxField::Value.code(),
-        orelse_field = crate::codebook::SyntaxField::Orelse.code(),
         positional = ArgumentKind::Positional.code(),
         keyword = ArgumentKind::Keyword.code(),
         name_expr = SyntaxKind::ExprName.code(),
-        unary_expr = SyntaxKind::ExprUnaryOp.code(),
-        binary_expr = SyntaxKind::ExprBinOp.code(),
-        boolean_expr = SyntaxKind::ExprBoolOp.code(),
-        conditional_expr = SyntaxKind::ExprIf.code(),
         string_literal = SyntaxKind::ExprStringLiteral.code(),
         bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
         number_literal = SyntaxKind::ExprNumberLiteral.code(),
@@ -2214,7 +2133,7 @@ crate::relations! {
     /// direct-formal read; direct literal, exact builtin-name and uniquely
     /// reaching local-name siblings complete normally. Other siblings are named unknowns.
     modeled_argument_evaluations = "behavior:modeled_argument_evaluations",
-        deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "scopes", "analysis_conditions"],
+        deps = ["closed_expression_evaluations", "modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "scopes", "analysis_conditions"],
         sql = format!(
             "WITH {simple_args} \
              SELECT m.snapshot_id, m.flow_value_fact_id AS candidate_flow_fact_id, \
@@ -2412,7 +2331,7 @@ crate::relations! {
     /// requires this import's condition to be true; this query preserves its condition and fact.
     /// There is one row per evaluated argument; opaque operands and unpacking emit no rows.
     preceding_normal_call_arguments = "behavior:preceding_normal_call_arguments",
-        deps = ["model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
+        deps = ["closed_expression_evaluations", "model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
         sql = format!(
             "WITH {simple_args}, {callee_candidates}, \
              module_imports AS ( \
@@ -2540,7 +2459,7 @@ crate::relations! {
     /// Every raw step must qualify independently; the pure finite producer checks dense
     /// nesting and argument order before it composes a path. A missing row is never normal.
     modeled_chain_arguments = "behavior:modeled_chain_arguments",
-        deps = ["value_flow_contributions", "flow_values", "flow_value_calls",
+        deps = ["closed_expression_evaluations", "value_flow_contributions", "flow_values", "flow_value_calls",
                 "flow_value_call_links", "call_syntax", "arguments", "modeled_transfer_sites",
                 "model_applications", "syntax_nodes", "references", "reference_resolutions",
                 "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses",
@@ -2722,12 +2641,9 @@ crate::relations! {
         );
 
     /// One exact source-call result returned by a synchronous caller, with a positional or
-    /// explicit keyword parameter operand and one definite closed local target. A second
-    /// explicit positional or keyword operand is admitted only when it is an exact Boolean
-    /// literal, a bounded closed expression with an independently derived Boolean result, or a
-    /// directly read caller formal whose guard fixes its truth value. The tracked
-    /// value can occur before or after that control operand. The two arguments map definitely
-    /// to distinct callee formals, with a cited entry-value test link.
+    /// explicit keyword parameter operand and one definite closed local target. Ordered argument
+    /// evaluation and formal binding are separate inputs, checked as a complete group by the
+    /// pure producer. No argument count or Boolean-control policy lives in this source join.
     /// Callee summaries join in the SCC worklist, not
     /// here: a call edge by itself is never a transfer proof.
     local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
@@ -2735,17 +2651,27 @@ crate::relations! {
                 "flow_value_call_links", "call_syntax", "call_targets", "resolutions",
                 "argument_flows", "arguments", "parameter_syntax", "declarations",
                 "syntax_nodes", "references", "reference_resolutions", "exit_sites",
-                "return_exit_statuses", "flow_test_value_links", "flow_test_leaves",
-                "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions",
-                "bindings", "scopes"],
+                "return_exit_statuses", "bindings", "scopes"],
         sql = format!(
-            "WITH {callee_candidates}, {simple_args}, step_counts AS ( \
+            "WITH {callee_candidates}, step_counts AS ( \
                SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \
                GROUP BY flow_value_fact_id \
              ), mappings AS ( \
                SELECT a.*, count(*) OVER (PARTITION BY a.call_site_node_id, a.target_node_id, \
                  a.argument_node_id, a.source_parameter_node_id) AS mapping_count \
                FROM argument_flows a \
+             ), required_counts AS ( \
+               SELECT function_node_id, count(*) AS n FROM parameter_syntax \
+               WHERE kind NOT IN ({var_positional}, {var_keyword}) \
+                 AND default_start_byte IS NULL GROUP BY function_node_id \
+             ), bound_counts AS ( \
+               SELECT m.call_site_node_id, m.target_node_id, count(DISTINCT m.formal_node_id) AS n \
+               FROM mappings m JOIN parameter_syntax p ON p.node_id = m.formal_node_id \
+                 AND p.function_node_id = m.target_node_id \
+               WHERE p.kind NOT IN ({var_positional}, {var_keyword}) \
+                 AND p.default_start_byte IS NULL AND m.mapping_count = 1 \
+                 AND m.modality = {definite} AND m.phase = {call_phase} \
+               GROUP BY m.call_site_node_id, m.target_node_id \
              ) \
              SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, p.name AS parameter_name, \
@@ -2761,18 +2687,8 @@ crate::relations! {
                     ret.start_byte AS return_start_byte, \
                     (f.approximated OR e.approximated) AS approximated, \
                     arg.ordinal AS source_argument_ordinal, \
-                    control_arg.fact_id AS control_argument_fact_id, \
-                    control_arg.ordinal AS control_argument_ordinal, \
-                    CASE WHEN literal.fact_id IS NOT NULL THEN literal.fact_id \
-                         ELSE control_eval.evidence_id END AS control_evaluation_fact_id, \
-                    control_map.formal_node_id AS control_formal_node_id, \
-                    test_link.link_id AS control_link_id, \
-                    test_leaf.atom AS control_atom, \
-                    CASE WHEN literal.detail = 'True' THEN true \
-                         WHEN literal.detail = 'False' THEN false \
-                         ELSE control_eval.static_boolean_value END AS control_value, \
-                    caller_link.link_id AS control_source_link_id, \
-                    caller_leaf.atom AS control_source_atom \
+                    c.positional_count + c.keyword_count AS argument_count, \
+                    COALESCE(required.n, 0) = COALESCE(bound.n, 0) AS binding_complete \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
                AND f.sink = {return_sink} \
@@ -2785,15 +2701,10 @@ crate::relations! {
                AND l.status = {bound_argument} \
              JOIN call_syntax c ON c.node_id = l.call_node_id \
                AND c.owner_node_id = v.sink_function_node_id \
-               AND ((c.positional_count IN (1, 2) AND c.keyword_count = 0) OR \
-                    (c.positional_count = 0 AND c.keyword_count IN (1, 2)) OR \
-                    (c.positional_count = 1 AND c.keyword_count = 1)) \
              JOIN arguments arg ON arg.node_id = l.argument_node_id \
                AND arg.fact_id = l.argument_fact_id \
                AND arg.call_node_id = c.node_id \
                AND arg.kind IN ({positional}, {keyword}) \
-               AND (arg.ordinal = 0 OR \
-                    (c.positional_count + c.keyword_count = 2 AND arg.ordinal = 1)) \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN resolutions r ON r.call_site_node_id = c.node_id \
@@ -2801,6 +2712,9 @@ crate::relations! {
                AND NOT r.has_unresolved_remainder \
              JOIN call_targets t ON t.call_site_node_id = c.node_id \
                AND t.argument_node_id IS NULL AND t.target_node_id IS NOT NULL \
+             LEFT JOIN required_counts required ON required.function_node_id = t.target_node_id \
+             LEFT JOIN bound_counts bound ON bound.call_site_node_id = c.node_id \
+               AND bound.target_node_id = t.target_node_id \
              JOIN mappings a ON a.call_site_node_id = c.node_id \
                AND a.target_node_id = t.target_node_id \
                AND a.argument_node_id = arg.node_id \
@@ -2808,53 +2722,6 @@ crate::relations! {
                AND a.caller_node_id = v.sink_function_node_id \
                AND a.mapping_count = 1 AND a.modality = {definite} \
                AND a.phase = {call_phase} \
-             LEFT JOIN arguments control_arg ON control_arg.call_node_id = c.node_id \
-               AND control_arg.ordinal <> arg.ordinal \
-               AND control_arg.kind IN ({positional}, {keyword}) \
-             LEFT JOIN mappings control_map ON control_map.call_site_node_id = c.node_id \
-               AND control_map.target_node_id = t.target_node_id \
-               AND control_map.argument_node_id = control_arg.node_id \
-               AND control_map.caller_node_id = v.sink_function_node_id \
-               AND control_map.mapping_count = 1 AND control_map.modality = {definite} \
-               AND control_map.phase = {call_phase} \
-               AND control_map.value_class IN ({literal_class}, {parameter_class}, {other_class}) \
-             LEFT JOIN simple_arguments control_eval \
-               ON control_eval.argument_fact_id = control_arg.fact_id \
-             LEFT JOIN syntax_nodes literal ON literal.module_node_id = c.module_node_id \
-               AND literal.parent_node_id = c.node_id AND literal.field = {argument_field} \
-               AND literal.start_byte = control_arg.value_start_byte \
-               AND literal.end_byte = control_arg.value_end_byte \
-               AND literal.kind = {boolean_literal} \
-             LEFT JOIN syntax_nodes control_name \
-               ON control_name.module_node_id = c.module_node_id \
-               AND control_name.parent_node_id = c.node_id \
-               AND control_name.field = {argument_field} \
-               AND control_name.start_byte = control_arg.value_start_byte \
-               AND control_name.end_byte = control_arg.value_end_byte \
-               AND control_name.kind = {name_expr} \
-             LEFT JOIN references control_ref \
-               ON control_ref.name_node_id = control_name.node_id \
-             LEFT JOIN reference_resolutions control_rr \
-               ON control_rr.reference_id = control_ref.node_id \
-               AND control_rr.reason IS NULL \
-             LEFT JOIN bindings control_binding \
-               ON control_binding.node_id = control_rr.binding_id \
-               AND control_binding.kind = {parameter_binding} \
-               AND control_binding.site_node_id = control_map.source_parameter_node_id \
-             LEFT JOIN flow_test_value_links test_link \
-               ON test_link.operation_node_id = t.target_node_id \
-               AND test_link.formal_node_id = control_map.formal_node_id \
-               AND test_link.origin = {direct_link} \
-             LEFT JOIN flow_test_leaves test_leaf \
-               ON test_leaf.fact_id = test_link.leaf_fact_id \
-               AND test_leaf.atom_id = test_link.atom_id \
-             LEFT JOIN flow_test_value_links caller_link \
-               ON caller_link.operation_node_id = v.sink_function_node_id \
-               AND caller_link.formal_node_id = control_map.source_parameter_node_id \
-               AND caller_link.origin = {direct_link} \
-             LEFT JOIN flow_test_leaves caller_leaf \
-               ON caller_leaf.fact_id = caller_link.leaf_fact_id \
-               AND caller_leaf.atom_id = caller_link.atom_id \
              JOIN parameter_syntax p ON p.node_id = v.parameter_node_id \
                AND p.function_node_id = v.sink_function_node_id \
              JOIN declarations d ON d.node_id = v.sink_function_node_id \
@@ -2871,47 +2738,81 @@ crate::relations! {
              WHERE v.parameter_node_id IS NOT NULL \
                AND v.function_node_id = v.sink_function_node_id \
                AND v.upstream_identity AND v.local_through_call \
-               AND ((c.positional_count + c.keyword_count = 1) OR \
-                    (c.positional_count + c.keyword_count = 2 \
-                     AND control_map.formal_node_id IS NOT NULL \
-                     AND control_map.formal_node_id <> a.formal_node_id \
-                     AND test_leaf.atom IS NOT NULL AND \
-                       ((control_map.value_class = {literal_class} \
-                         AND literal.detail IN ('True', 'False')) OR \
-                        (control_map.value_class = {other_class} \
-                         AND control_eval.status = {closed_expression_normal} \
-                         AND control_eval.static_boolean_value IS NOT NULL) OR \
-                        (control_map.value_class = {parameter_class} \
-                         AND control_binding.node_id IS NOT NULL \
-                         AND control_eval.status = {parameter_normal} \
-                         AND caller_leaf.atom IS NOT NULL)))) \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
+            var_positional = ParameterKind::VarPositional.code(),
+            var_keyword = ParameterKind::VarKeyword.code(),
             callee_candidates = modeled_callee_candidates_sql(),
-            simple_args = simple_argument_evidence_sql(),
             return_sink = FlowSink::Return.code(),
             bound_argument = FlowCallLinkStatus::BoundArgument.code(),
             positional = ArgumentKind::Positional.code(),
             keyword = ArgumentKind::Keyword.code(),
             definite = Modality::Definite.code(),
             call_phase = InvocationPhase::Call.code(),
-            literal_class = crate::flows::value_class::LITERAL,
-            parameter_class = crate::flows::value_class::PARAMETER,
-            other_class = crate::flows::value_class::OTHER,
-            parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
-            closed_expression_normal = ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
-            parameter_binding = crate::codebook::BindingKind::Parameter.code(),
-            argument_field = crate::codebook::SyntaxField::Argument.code(),
-            boolean_literal = SyntaxKind::ExprBooleanLiteral.code(),
-            name_expr = SyntaxKind::ExprName.code(),
-            direct_link = TestValueLinkOrigin::DirectParameterReachNoEffect.code(),
             function_kind = DeclarationKind::Function.code(),
             return_kind = SyntaxKind::StmtReturn.code(),
             exit_return = ExitSiteKind::Return.code(),
             yield_kind = SyntaxKind::ExprYield.code(),
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
+
+    /// One explicit argument per local target, preserving evaluation order independently of
+    /// formal binding. Failed mappings and reads survive as nullable evidence for pure admission.
+    local_call_arguments = "behavior:local_call_arguments",
+        deps = ["closed_expression_evaluations", "call_syntax", "arguments", "argument_flows", "syntax_nodes", "references",
+                "reference_resolutions", "bindings", "scopes", "flow_uses", "flow_reaching",
+                "flow_definitions", "analysis_conditions", "parameter_syntax"],
+        sql = format!(
+            "WITH {simple_args}, distinct_mappings AS ( \
+               SELECT DISTINCT call_site_node_id, target_node_id, argument_node_id, formal_node_id, \
+                 source_parameter_node_id, value_class, modality, phase FROM argument_flows \
+             ), mappings AS ( \
+               SELECT m.*, count(*) OVER (PARTITION BY call_site_node_id, target_node_id, \
+                 argument_node_id) AS mapping_count FROM distinct_mappings m \
+             ), targets AS ( \
+               SELECT DISTINCT call_site_node_id, target_node_id FROM argument_flows \
+             ) \
+             SELECT DISTINCT c.fact_id AS call_fact_id, t.target_node_id AS callee_node_id, \
+                    arg.fact_id AS argument_fact_id, arg.ordinal, \
+                    m.formal_node_id, ev.evidence_id AS evaluation_fact_id, \
+                    CASE WHEN ev.evidence_id IS NULL THEN ev.evaluation_reason ELSE NULL END AS evaluation_reason, \
+                    ev.static_boolean_value AS boolean_value, \
+                    CASE WHEN m.value_class = {parameter_class} AND ev.status = {parameter_normal} \
+                         AND binding.node_id IS NOT NULL THEN m.source_parameter_node_id \
+                         ELSE NULL END AS source_formal_node_id \
+             FROM call_syntax c JOIN targets t ON t.call_site_node_id = c.node_id \
+             JOIN arguments arg ON arg.call_node_id = c.node_id \
+             LEFT JOIN mappings m ON m.call_site_node_id = c.node_id \
+               AND m.target_node_id = t.target_node_id AND m.argument_node_id = arg.node_id \
+               AND m.mapping_count = 1 AND m.modality = {definite} AND m.phase = {call_phase} \
+               AND arg.kind IN ({positional}, {keyword}) \
+             LEFT JOIN simple_arguments ev ON ev.argument_fact_id = arg.fact_id \
+             LEFT JOIN syntax_nodes name ON name.module_node_id = c.module_node_id \
+               AND name.parent_node_id = c.node_id AND name.field = {argument_field} \
+               AND name.start_byte = arg.value_start_byte AND name.end_byte = arg.value_end_byte \
+               AND name.kind = {name_expr} \
+             LEFT JOIN references ref ON ref.name_node_id = name.node_id \
+             LEFT JOIN reference_resolutions rr ON rr.reference_id = ref.node_id AND rr.reason IS NULL \
+             LEFT JOIN bindings binding ON binding.node_id = rr.binding_id \
+               AND binding.kind = {parameter_binding} AND binding.site_node_id = m.source_parameter_node_id",
+            simple_args = simple_argument_evidence_sql(),
+            parameter_class = crate::flows::value_class::PARAMETER,
+            parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
+            definite = Modality::Definite.code(), call_phase = InvocationPhase::Call.code(),
+            positional = ArgumentKind::Positional.code(), keyword = ArgumentKind::Keyword.code(),
+            argument_field = crate::codebook::SyntaxField::Argument.code(),
+            name_expr = SyntaxKind::ExprName.code(),
+            parameter_binding = crate::codebook::BindingKind::Parameter.code(),
+        );
+
+    local_call_value_links = "behavior:local_call_value_links",
+        deps = ["flow_test_value_links", "flow_test_leaves"],
+        sql = format!(
+            "SELECT l.operation_node_id, l.formal_node_id, l.link_id, leaf.atom \
+             FROM flow_test_value_links l JOIN flow_test_leaves leaf \
+               ON leaf.fact_id = l.leaf_fact_id AND leaf.atom_id = l.atom_id \
+             WHERE l.origin = {}", TestValueLinkOrigin::DirectParameterReachNoEffect.code());
 
     /// Raw, path-specific origins supplied to the finite summary decision. This query does
     /// not infer a refusal from missing summary rows; the analytics producer does that.

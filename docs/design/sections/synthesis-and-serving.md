@@ -575,6 +575,16 @@ matched, proven-excluded, source-open and unexamined; unvisited or undecided ope
 generation/query-bound cursor. Row, depth and pair-work budgets have the same unknown/truncated
 behavior.
 
+**Accepted consolidation target (Proposed implementation, 2026-09-26).** The expanded contract
+will be FORMAT 9, replacing FORMAT 8 through a current-store/generation rebuild (ADR-0048).
+Typed effect/role terms and conjunctions of exact entry-formal primitive bindings are interpreted
+and canonicalized by Rust. Python remains a protocol/rendering adapter. Shared typed proof
+admission replaces shape-specific native rules, with full bounded source support. Coverage,
+truncation and omitted evidence remain separate. The existing path-inspection API remains
+path-local; FORMAT 8 is still the implemented format pending this migration.
+
+> Decision: ADR-0057
+
 **Implemented so far toward that target** (**Implemented** and **Tested**, 2026-09-25, focused
 and internal):
 - The direct `flow_test_value_links` origin and its publication validator exist. FORMAT 7

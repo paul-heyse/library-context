@@ -136,17 +136,15 @@ cpg_schema::query_row! {
         return_start_byte: i64,
         approximated: bool,
         source_argument_ordinal: i64,
-        control_argument_fact_id: Option<Id>,
-        control_argument_ordinal: Option<i64>,
-        control_evaluation_fact_id: Option<Id>,
-        control_formal_node_id: Option<Id>,
-        control_link_id: Option<Id>,
-        control_atom: Option<String>,
-        control_value: Option<bool>,
-        control_source_link_id: Option<Id>,
-        control_source_atom: Option<String>,
+        argument_count: i64,
+        binding_complete: bool,
     }
 }
+
+pub use cpg_schema::summary_contract::LocalCallArgument;
+
+pub use cpg_schema::summary_contract::DirectValueLink as LocalCallValueLink;
+use cpg_schema::summary_contract::{fixed_truth, validate_fixed_control_proof};
 
 cpg_schema::query_row! {
     /// One source origin requiring a summary decision. The origin count protects an unproved
@@ -226,8 +224,8 @@ pub fn condition_limit(reason: KernelBoundary) -> BoundaryReason {
 
 fn refusal_priority(reason: BoundaryReason) -> u8 {
     match reason {
-        BoundaryReason::SummaryDepthLimit => 0,
-        BoundaryReason::SummaryPairWorkLimit => 1,
+        BoundaryReason::SummaryDepthLimit | BoundaryReason::ExpressionDepthLimit => 0,
+        BoundaryReason::SummaryPairWorkLimit | BoundaryReason::ExpressionWorkLimit => 1,
         BoundaryReason::ConditionNodeLimit => 2,
         BoundaryReason::ConditionWorkLimit => 3,
         BoundaryReason::ConditionAtomLimit => 4,
@@ -330,63 +328,108 @@ struct FinitePath {
     proof: Vec<recipe::SummaryFlowProofStep>,
 }
 
-/// The second argument is a cited exact Boolean value (literal or closed expression),
-/// or a directly read caller formal fixed by the caller's path condition. A partial row is
-/// never the one-argument case; the producer does not derive a Boolean value from status alone.
-#[derive(Clone, Copy)]
-struct ControlEvidence<'a> {
-    evaluation: Id,
-    callee_link: Id,
-    callee_atom: &'a str,
-    literal: Option<bool>,
-    caller_link: Option<Id>,
-    caller_atom: Option<&'a str>,
-}
-
-fn control_evidence(seed: &LocalCallSummaryFlowSeed)
-    -> Result<Option<ControlEvidence<'_>>, BoundaryReason> {
-    if !matches!(seed.source_argument_ordinal, 0 | 1)
-        || (seed.control_argument_fact_id.is_none() && seed.source_argument_ordinal != 0)
-        || seed.control_argument_fact_id.is_some() != seed.control_argument_ordinal.is_some()
-        || seed.control_argument_ordinal.is_some_and(|ordinal|
-            !matches!(ordinal, 0 | 1) || ordinal == seed.source_argument_ordinal)
-    {
+/// Validate a complete ordered argument group before any summary uses its values.
+fn ordered_arguments<'a>(seed: &LocalCallSummaryFlowSeed, rows: &'a [LocalCallArgument])
+    -> Result<Vec<&'a LocalCallArgument>, BoundaryReason> {
+    if !seed.binding_complete || !(1..=128).contains(&seed.argument_count) {
+        return Err(BoundaryReason::UnsupportedControlFlow);
+    }
+    if let Some(reason) = rows.iter().filter(|row| row.evaluation_fact_id.is_none())
+        .filter_map(|row| row.evaluation_reason)
+        .filter(|reason| matches!(reason, BoundaryReason::ExpressionDepthLimit | BoundaryReason::ExpressionWorkLimit))
+        .min() { return Err(reason); }
+    let mut arguments: Vec<_> = rows.iter().collect();
+    arguments.sort_by_key(|row| (row.ordinal, row.argument_fact_id));
+    if arguments.len() != seed.argument_count as usize
+        || arguments.iter().enumerate().any(|(ordinal, row)|
+            row.ordinal != ordinal as i64 || row.formal_node_id.is_none()
+                || row.evaluation_fact_id.is_none())
+        || arguments.iter().filter_map(|row| row.formal_node_id).collect::<BTreeSet<_>>().len()
+            != arguments.len()
+        || arguments.iter().map(|row| row.argument_fact_id).collect::<BTreeSet<_>>().len()
+            != arguments.len()
+        || !arguments.iter().any(|row| row.ordinal == seed.source_argument_ordinal
+            && row.formal_node_id == Some(seed.callee_parameter_node_id)) {
         return Err(BoundaryReason::MissingEvidence);
     }
-    match (
-        seed.control_argument_fact_id, seed.control_evaluation_fact_id,
-        seed.control_formal_node_id, seed.control_link_id,
-        seed.control_atom.as_deref(), seed.control_value,
-        seed.control_source_link_id, seed.control_source_atom.as_deref(),
-    ) {
-        (None, None, None, None, None, None, None, None) => Ok(None),
-        (Some(_), Some(evaluation), Some(_), Some(link), Some(atom), Some(value), None, None)
-            if matches!(Atom::parse_encoded(atom), Ok(Atom::Evaluated { atom, .. })
-                if matches!(*atom, Atom::Truthy { .. })) => Ok(Some(ControlEvidence {
-                    evaluation, callee_link: link, callee_atom: atom,
-                    literal: Some(value), caller_link: None, caller_atom: None,
-                })),
-        (Some(_), Some(evaluation), Some(_), Some(link), Some(atom), None,
-         Some(source_link), Some(source_atom))
-            if matches!(Atom::parse_encoded(atom), Ok(Atom::Evaluated { atom, .. })
-                if matches!(*atom, Atom::Truthy { .. }))
-            && matches!(Atom::parse_encoded(source_atom), Ok(Atom::Evaluated { atom, .. })
-                if matches!(*atom, Atom::Truthy { .. })) => Ok(Some(ControlEvidence {
-                    evaluation, callee_link: link, callee_atom: atom,
-                    literal: None, caller_link: Some(source_link),
-                    caller_atom: Some(source_atom),
-                })),
-        _ => Err(BoundaryReason::MissingEvidence),
+    Ok(arguments)
+}
+
+struct LocalControlLinks {
+    by_id: HashMap<Id, LocalCallValueLink>,
+    by_atom: HashMap<(Id, String), Vec<Id>>,
+    by_formal: HashMap<(Id, Id), Vec<Id>>,
+    valid: bool,
+}
+
+impl LocalControlLinks {
+    fn new(rows: Vec<LocalCallValueLink>) -> Self {
+        let mut result = Self { by_id: HashMap::new(), by_atom: HashMap::new(),
+            by_formal: HashMap::new(), valid: true };
+        for row in rows {
+            result.by_atom.entry((row.operation_node_id, row.atom.clone())).or_default().push(row.link_id);
+            result.by_formal.entry((row.operation_node_id, row.formal_node_id)).or_default().push(row.link_id);
+            if result.by_id.insert(row.link_id, row).is_some() { result.valid = false; }
+        }
+        for ids in result.by_atom.values_mut().chain(result.by_formal.values_mut()) { ids.sort(); }
+        result
     }
 }
 
-fn fixed_caller_truth(diagram: &Diagram, encoded_atom: &str)
-    -> Result<Option<bool>, KernelBoundary> {
-    let atom = Atom::parse_encoded(encoded_atom).expect("validated caller control atom");
-    let predicate = Diagram::from_atom(&atom)?;
-    if diagram.implies(&predicate)? { return Ok(Some(true)); }
-    if diagram.implies(&predicate.not()?)? { return Ok(Some(false)); }
-    Ok(None)
+/// A linked callee Boolean predicate is replaced only by an exact argument value or a
+/// caller-linked direct formal fixed by the caller condition. All mappings apply simultaneously.
+fn specialize_local_condition(seed: &LocalCallSummaryFlowSeed,
+    arguments: &[&LocalCallArgument], links: &LocalControlLinks,
+    caller: &Diagram, callee: &Diagram,
+) -> Result<Option<Vec<recipe::SummaryFlowProofStep>>, BoundaryReason> {
+    if !links.valid { return Err(BoundaryReason::MissingEvidence); }
+    let mut replacements = Vec::new();
+    let mut proof = Vec::new();
+    for atom in callee.support() {
+        if !matches!(Atom::parse_encoded(atom), Ok(Atom::Evaluated { atom, .. })
+            if matches!(*atom, Atom::Truthy { .. })) { return Ok(None); }
+        let Some(candidates) = links.by_atom.get(&(seed.callee_node_id, atom.clone()))
+            else { return Ok(None) };
+        let link = &links.by_id[&candidates[0]];
+        if candidates.iter().any(|id| links.by_id[id].formal_node_id != link.formal_node_id) {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+        let Some(argument) = arguments.iter().find(|row|
+            row.formal_node_id == Some(link.formal_node_id)) else { return Ok(None) };
+        let value = if let Some(value) = argument.boolean_value {
+            value
+        } else {
+            let Some(formal) = argument.source_formal_node_id else { return Ok(None) };
+            let sources = links.by_formal.get(&(seed.function_node_id, formal));
+            let mut fixed = None;
+            for source_id in sources.into_iter().flatten() {
+                let source = &links.by_id[source_id];
+                if !matches!(Atom::parse_encoded(&source.atom), Ok(Atom::Evaluated { atom, .. })
+                    if matches!(*atom, Atom::Truthy { .. })) { continue; }
+                if let Some(value) = fixed_truth(caller, &source.atom).map_err(condition_limit)? {
+                    fixed = Some((source, value));
+                    break;
+                }
+            }
+            let Some((source, value)) = fixed else { return Ok(None) };
+            proof.push(recipe::SummaryFlowProofStep {
+                kind: SummaryFlowStepKind::CallerConditionLink, evidence_id: source.link_id,
+                condition_id: seed.condition_id,
+            });
+            value
+        };
+        replacements.push((atom.as_str(), if value { Diagram::always() } else { Diagram::never() }));
+        proof.push(recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::CalleeConditionLink, evidence_id: link.link_id,
+            condition_id: callee.id(),
+        });
+    }
+    let refs: Vec<_> = replacements.iter().map(|(atom, value)| (*atom, value)).collect();
+    let result = callee.substitute_atoms(&refs).map_err(condition_limit)?;
+    if !result.is_true() { return Ok(None); }
+    validate_fixed_control_proof(seed.function_node_id, caller, seed.callee_node_id, callee,
+        &proof, &links.by_id).map_err(|_| BoundaryReason::MissingEvidence)?;
+    Ok(Some(proof))
 }
 
 cpg_schema::query_row! {
@@ -444,6 +487,8 @@ pub struct FiniteSummaryInputs {
     pub evaluations: Vec<ModeledArgumentEvaluationsRow>,
     pub assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed>,
     pub local_seeds: Vec<LocalCallSummaryFlowSeed>,
+    pub local_arguments: Vec<LocalCallArgument>,
+    pub local_value_links: Vec<LocalCallValueLink>,
     pub boundary_candidates: Vec<SummaryBoundaryCandidate>,
 }
 
@@ -951,7 +996,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     let FiniteSummaryInputs {
         diagrams, boundaries, mut pass_steps, mut preceding_calls, normal_predecessors, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
-        boundary_candidates,
+        local_arguments, local_value_links, boundary_candidates,
     } = inputs;
     let mut refusals = Vec::new();
     // The pure producer must own source order. A caller can supply rows in any order, and
@@ -1240,6 +1285,11 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         .into_iter()
         .map(|row| (row.function_node_id, (row.component_order, row.component_id)))
         .collect();
+    let local_value_links = LocalControlLinks::new(local_value_links);
+    let mut arguments_by_call: HashMap<(Id, Id), Vec<LocalCallArgument>> = HashMap::new();
+    for row in local_arguments {
+        arguments_by_call.entry((row.call_fact_id, row.callee_node_id)).or_default().push(row);
+    }
     let mut local_seeds = local_seeds;
     local_seeds.sort_by_key(|seed| {
         (
@@ -1267,7 +1317,8 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     let mut by_id: HashMap<Id, SummaryFlowsRow> = flows.iter()
         .cloned().map(|row| (row.summary_id, row)).collect();
     let mut known_summary_ids: HashSet<Id> = by_id.keys().copied().collect();
-    struct PreparedLocalSeed {
+    struct PreparedLocalSeed<'a> {
+        arguments: Vec<&'a LocalCallArgument>,
         seed: LocalCallSummaryFlowSeed,
         condition_is_true: bool,
         predecessor_proof: Vec<recipe::SummaryFlowProofStep>,
@@ -1275,7 +1326,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         depth_limited: bool,
         condition_refusal: Option<BoundaryReason>,
     }
-    let mut groups: BTreeMap<(i64, Id), Vec<PreparedLocalSeed>> = BTreeMap::new();
+    let mut groups: BTreeMap<(i64, Id), Vec<PreparedLocalSeed<'_>>> = BTreeMap::new();
     for seed in local_seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
             seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id);
@@ -1283,10 +1334,11 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             refuse(&mut refusals, key, BoundaryReason::CallTransfer);
             continue;
         };
-        if let Err(reason) = control_evidence(&seed) {
-            refuse(&mut refusals, key, reason);
-            continue;
-        }
+        let arguments = match ordered_arguments(&seed, arguments_by_call
+            .get(&(seed.call_fact_id, seed.callee_node_id)).map_or(&[], Vec::as_slice)) {
+            Ok(arguments) => arguments,
+            Err(reason) => { refuse(&mut refusals, key, reason); continue; },
+        };
         let Some(condition) = diagrams.get(&seed.condition_id) else {
             refuse(&mut refusals, key, boundaries.get(&seed.condition_id).copied()
                 .unwrap_or(BoundaryReason::MissingEvidence));
@@ -1321,7 +1373,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             }
         };
         groups.entry(component).or_default().push(PreparedLocalSeed {
-            condition_is_true: condition.is_true(), seed, predecessor_proof,
+            arguments, condition_is_true: condition.is_true(), seed, predecessor_proof,
             admitted: false, depth_limited: false, condition_refusal: None,
         });
     }
@@ -1372,37 +1424,15 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             {
                 continue;
             }
-            let control = control_evidence(seed).expect("validated local control");
+            let arguments = &path.arguments;
             let specialized = if callee_condition.is_true() {
-                None
+                Vec::new()
             } else {
-                let Some(control) = control else { continue };
-                if !callee_condition.support().iter().any(|candidate|
-                    candidate == control.callee_atom) {
-                    continue;
-                }
-                let value = if let Some(value) = control.literal {
-                    value
-                } else {
-                    let caller = diagrams.get(&seed.condition_id)
-                        .expect("validated caller condition");
-                    let source_atom = control.caller_atom.expect("validated caller atom");
-                    match fixed_caller_truth(caller, source_atom) {
-                        Ok(Some(value)) => value,
-                        Ok(None) => continue,
-                        Err(limit) => {
-                            path.condition_refusal = Some(condition_limit(limit));
-                            continue;
-                        }
-                    }
-                };
-                match callee_condition.restrict_atoms(&[(control.callee_atom, value)]) {
-                    Ok(restricted) if restricted.is_true() => Some(control.callee_link),
-                    Ok(_) => continue,
-                    Err(limit) => {
-                        path.condition_refusal = Some(condition_limit(limit));
-                        continue;
-                    }
+                match specialize_local_condition(seed, arguments, &local_value_links,
+                    &diagrams[&seed.condition_id], callee_condition) {
+                    Ok(Some(proof)) => proof,
+                    Ok(None) => continue,
+                    Err(reason) => { path.condition_refusal = Some(reason); continue; },
                 }
             };
             if callee.path_depth >= MAX_LOCAL_PATH_DEPTH {
@@ -1416,19 +1446,19 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 evidence_id: seed.callee_resolution_fact_id,
                 condition_id: seed.condition_id,
             });
-            let mut evaluations = vec![(seed.source_argument_ordinal, seed.source_flow_fact_id)];
-            if let Some(control) = control {
-                evaluations.push((seed.control_argument_ordinal
-                    .expect("validated control ordinal"), control.evaluation));
-            }
-            evaluations.sort_by_key(|(ordinal, _)| *ordinal);
-            proof.extend(evaluations.into_iter().map(|(_, evidence_id)| {
-                recipe::SummaryFlowProofStep {
-                    kind: SummaryFlowStepKind::ArgumentEvaluation,
-                    evidence_id,
-                    condition_id: seed.condition_id,
+            for argument in arguments {
+                if argument.ordinal == seed.source_argument_ordinal {
+                    proof.push(recipe::SummaryFlowProofStep {
+                        kind: SummaryFlowStepKind::ReturnSource,
+                        evidence_id: seed.source_flow_fact_id, condition_id: seed.condition_id,
+                    });
                 }
-            }));
+                proof.push(recipe::SummaryFlowProofStep {
+                    kind: SummaryFlowStepKind::ArgumentEvaluation,
+                    evidence_id: argument.evaluation_fact_id.expect("validated normal evaluation"),
+                    condition_id: seed.condition_id,
+                });
+            }
             proof.extend([
                 (
                     SummaryFlowStepKind::CallSite,
@@ -1442,20 +1472,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 ),
             ].into_iter().map(|(kind, evidence_id, condition_id)|
                 recipe::SummaryFlowProofStep { kind, evidence_id, condition_id }));
-            if let Some(link) = specialized {
-                if let Some(source_link) = control.and_then(|c| c.caller_link) {
-                    proof.push(recipe::SummaryFlowProofStep {
-                        kind: SummaryFlowStepKind::CallerConditionLink,
-                        evidence_id: source_link,
-                        condition_id: seed.condition_id,
-                    });
-                }
-                proof.push(recipe::SummaryFlowProofStep {
-                    kind: SummaryFlowStepKind::CalleeConditionLink,
-                    evidence_id: link,
-                    condition_id: callee.condition_id,
-                });
-            }
+            proof.extend(specialized);
             proof.extend([
                 (SummaryFlowStepKind::CalleeSummary, callee.summary_id, callee.condition_id),
                 (
@@ -1576,6 +1593,8 @@ mod tests {
             evaluations: Vec::new(),
             assignment_seeds: Vec::new(),
             local_seeds: Vec::new(),
+            local_arguments: Vec::new(),
+            local_value_links: Vec::new(),
             boundary_candidates: vec![SummaryBoundaryCandidate {
                 snapshot_id: id(1),
                 function_node_id: id(2),
@@ -1731,12 +1750,27 @@ mod tests {
             return_condition_id: Diagram::always().id(), return_start_byte: 30,
             approximated: false,
             source_argument_ordinal: 0,
-            control_argument_fact_id: None, control_argument_ordinal: None,
-            control_evaluation_fact_id: None,
-            control_formal_node_id: None, control_link_id: None,
-            control_atom: None, control_value: None,
-            control_source_link_id: None, control_source_atom: None,
+            binding_complete: true,
+            argument_count: 1,
         }
+    }
+
+    fn with_local_arguments(mut input: FiniteSummaryInputs) -> FiniteSummaryInputs {
+        for seed in &input.local_seeds {
+            if !input.local_arguments.iter().any(|row| row.call_fact_id == seed.call_fact_id
+                && row.callee_node_id == seed.callee_node_id
+                && row.ordinal == seed.source_argument_ordinal) {
+                input.local_arguments.push(LocalCallArgument {
+                    evaluation_reason: None,
+                    call_fact_id: seed.call_fact_id, callee_node_id: seed.callee_node_id,
+                    argument_fact_id: seed.source_flow_fact_id, ordinal: seed.source_argument_ordinal,
+                    formal_node_id: Some(seed.callee_parameter_node_id),
+                    evaluation_fact_id: Some(seed.source_flow_fact_id), boolean_value: None,
+                    source_formal_node_id: Some(seed.parameter_node_id),
+                });
+            }
+        }
+        input
     }
 
     fn recursive_candidate(seed: &LocalCallSummaryFlowSeed) -> SummaryBoundaryCandidate {
@@ -1758,7 +1792,7 @@ mod tests {
         let edge = recursive_edge(2, 3, 2, 3, 40, 41, 50);
         input.boundary_candidates.push(recursive_candidate(&edge));
         input.local_seeds.push(edge);
-        let result = finite_flows(input);
+        let result = finite_flows(with_local_arguments(input));
         let mut depths = result.flows.iter().map(|row| row.path_depth).collect::<Vec<_>>();
         depths.sort_unstable();
         assert_eq!(depths, (0..=8).collect::<Vec<_>>());
@@ -1789,20 +1823,23 @@ mod tests {
             input.components.push(recursive_member(2, 0));
             let mut edge = recursive_edge(2, 3, 2, 3, 40, 41, 50);
             edge.condition_id = else_path.id();
-            edge.control_argument_fact_id = Some(id(70));
-            edge.control_argument_ordinal = Some(1);
-            edge.control_evaluation_fact_id = Some(id(71));
-            edge.control_formal_node_id = Some(id(72));
-            edge.control_link_id = Some(id(73));
-            edge.control_atom = Some(atom.encode());
-            edge.control_value = Some(literal);
-            edge.control_source_link_id = None;
-            edge.control_source_atom = None;
+            edge.argument_count = 2;
+            input.local_arguments.push(LocalCallArgument {
+                    evaluation_reason: None,
+                call_fact_id: edge.call_fact_id, callee_node_id: edge.callee_node_id,
+                argument_fact_id: id(70), ordinal: 1, formal_node_id: Some(id(72)),
+                evaluation_fact_id: Some(id(71)), boolean_value: Some(literal),
+                source_formal_node_id: None,
+            });
+            input.local_value_links.push(LocalCallValueLink {
+                operation_node_id: edge.callee_node_id, formal_node_id: id(72),
+                link_id: id(73), atom: atom.encode(),
+            });
             input.boundary_candidates.push(recursive_candidate(&edge));
             input.local_seeds.push(edge);
             input
         };
-        let positive = finite_flows(make_input(true));
+        let positive = finite_flows(with_local_arguments(make_input(true)));
         let local = positive.flows.iter().find(|row| row.source_origin_id == id(41)).unwrap();
         assert_eq!(local.path_depth, 1);
         assert_eq!(local.condition_id, else_path.id());
@@ -1816,8 +1853,8 @@ mod tests {
 
         let mut reversed = make_input(true);
         reversed.local_seeds[0].source_argument_ordinal = 1;
-        reversed.local_seeds[0].control_argument_ordinal = Some(0);
-        let reversed = finite_flows(reversed);
+        reversed.local_arguments[0].ordinal = 0;
+        let reversed = finite_flows(with_local_arguments(reversed));
         let reversed_path = reversed.flows.iter()
             .find(|row| row.source_origin_id == id(41)).unwrap();
         let evaluations: Vec<_> = reversed.steps.iter()
@@ -1828,7 +1865,7 @@ mod tests {
         assert_eq!(evaluations, vec![id(71), id(40)],
             "proof evaluations follow syntax order, not the tracked source argument");
 
-        let withheld = finite_flows(make_input(false));
+        let withheld = finite_flows(with_local_arguments(make_input(false)));
         assert!(!withheld.flows.iter().any(|row| row.source_origin_id == id(41)));
         assert!(withheld.boundaries.iter().any(|row| row.source_origin_id == id(41)
             && row.reason == BoundaryReason::CallTransfer));
@@ -1857,17 +1894,23 @@ mod tests {
         input.components.extend([recursive_member(2, 0), recursive_member(4, 1)]);
         let mut edge = recursive_edge(4, 5, 2, 3, 40, 41, 50);
         edge.condition_id = caller_guard.id();
-        edge.control_argument_fact_id = Some(id(70));
-        edge.control_argument_ordinal = Some(1);
-        edge.control_evaluation_fact_id = Some(id(71));
-        edge.control_formal_node_id = Some(id(72));
-        edge.control_link_id = Some(id(73));
-        edge.control_atom = Some(callee_atom.encode());
-        edge.control_source_link_id = Some(id(74));
-        edge.control_source_atom = Some(caller_atom.encode());
+        edge.argument_count = 2;
+        input.local_arguments.push(LocalCallArgument {
+                    evaluation_reason: None,
+            call_fact_id: edge.call_fact_id, callee_node_id: edge.callee_node_id,
+            argument_fact_id: id(70), ordinal: 1, formal_node_id: Some(id(72)),
+            evaluation_fact_id: Some(id(71)), boolean_value: None,
+            source_formal_node_id: Some(id(75)),
+        });
+        input.local_value_links.extend([
+            LocalCallValueLink { operation_node_id: edge.callee_node_id,
+                formal_node_id: id(72), link_id: id(73), atom: callee_atom.encode() },
+            LocalCallValueLink { operation_node_id: edge.function_node_id,
+                formal_node_id: id(75), link_id: id(74), atom: caller_atom.encode() },
+        ]);
         input.boundary_candidates.push(recursive_candidate(&edge));
         input.local_seeds.push(edge);
-        let positive = finite_flows(input.clone());
+        let positive = finite_flows(with_local_arguments(input.clone()));
         let local = positive.flows.iter().find(|row| row.source_origin_id == id(41)).unwrap();
         assert_eq!(local.condition_id, caller_guard.id());
         assert_eq!(local.verdict, Verdict::Conditional);
@@ -1882,7 +1925,7 @@ mod tests {
         input.diagrams.insert(opposite.id(), opposite.clone());
         input.local_seeds[0].condition_id = opposite.id();
         input.boundary_candidates[1].condition_id = opposite.id();
-        let withheld = finite_flows(input);
+        let withheld = finite_flows(with_local_arguments(input));
         assert!(!withheld.flows.iter().any(|row| row.source_origin_id == id(41)));
         assert!(withheld.boundaries.iter().any(|row| row.source_origin_id == id(41)
             && row.reason == BoundaryReason::CallTransfer));
@@ -1905,8 +1948,8 @@ mod tests {
         reversed.components = forward.components.iter().rev().cloned().collect();
         reversed.boundary_candidates = forward.boundary_candidates.iter().rev().cloned().collect();
         reversed.local_seeds = forward.local_seeds.iter().rev().cloned().collect();
-        let first = finite_flows(forward);
-        let second = finite_flows(reversed);
+        let first = finite_flows(with_local_arguments(forward));
+        let second = finite_flows(with_local_arguments(reversed));
         assert_eq!(first.flows, second.flows);
         assert_eq!(first.steps, second.steps);
         assert_eq!(first.refusals, second.refusals);
@@ -1920,6 +1963,80 @@ mod tests {
         assert!(first.flows.iter().all(|row| row.path_depth <= 8));
     }
 
+    fn multi_control_inputs(second: bool) -> FiniteSummaryInputs {
+        use cpg_schema::condition::EvaluationIdentity;
+        let mut input = inputs();
+        let atoms: Vec<_> = ["first", "second"].into_iter().enumerate().map(|(index, name)|
+            Atom::Truthy { place: name.to_owned() }.evaluated(EvaluationIdentity::Synthetic {
+                module: "00".repeat(16), predicate: format!("{:02x}", index + 1).repeat(16),
+            })).collect();
+        let guard = Diagram::from_atom(&atoms[0]).unwrap()
+            .and(&Diagram::from_atom(&atoms[1]).unwrap()).unwrap();
+        input.diagrams.insert(guard.id(), guard.clone());
+        input.direct_seeds[0].condition_id = guard.id();
+        input.boundary_candidates[0].condition_id = guard.id();
+        input.components.extend([recursive_member(2, 0), recursive_member(4, 1)]);
+        let mut edge = recursive_edge(4, 5, 2, 3, 40, 41, 50);
+        edge.argument_count = 3;
+        edge.source_argument_ordinal = 1;
+        for (index, value) in [true, second].into_iter().enumerate() {
+            let formal = id(70 + index as u8);
+            input.local_arguments.push(LocalCallArgument {
+                    evaluation_reason: None,
+                call_fact_id: edge.call_fact_id, callee_node_id: edge.callee_node_id,
+                argument_fact_id: id(80 + index as u8), ordinal: (index * 2) as i64,
+                formal_node_id: Some(formal), evaluation_fact_id: Some(id(90 + index as u8)),
+                boolean_value: Some(value), source_formal_node_id: None,
+            });
+            input.local_value_links.push(LocalCallValueLink {
+                operation_node_id: edge.callee_node_id, formal_node_id: formal,
+                link_id: id(100 + index as u8), atom: atoms[index].encode(),
+            });
+        }
+        input.boundary_candidates.push(recursive_candidate(&edge));
+        input.local_seeds.push(edge);
+        with_local_arguments(input)
+    }
+
+    #[test]
+    fn multiple_controls_preserve_order_and_require_all_normal_evaluations() {
+        let input = multi_control_inputs(true);
+        let result = finite_flows(input.clone());
+        let local = result.flows.iter().find(|row| row.source_origin_id == id(41)).unwrap();
+        let evaluations: Vec<_> = result.steps.iter().filter(|step|
+            step.summary_id == local.summary_id && step.kind == SummaryFlowStepKind::ArgumentEvaluation)
+            .map(|step| step.evidence_id).collect();
+        assert_eq!(evaluations, vec![id(90), id(40), id(91)]);
+        assert_eq!(result.steps.iter().filter(|step| step.summary_id == local.summary_id
+            && step.kind == SummaryFlowStepKind::CalleeConditionLink).count(), 2);
+        let mut shuffled = input.clone();
+        shuffled.local_arguments.reverse();
+        shuffled.local_value_links.reverse();
+        assert_eq!(finite_flows(shuffled).flows, result.flows);
+        for variant in 0..5 {
+            let mut broken = input.clone();
+            match variant {
+                0 => { broken.local_arguments.pop(); },
+                1 => broken.local_arguments[0].evaluation_fact_id = None,
+                2 => broken.local_arguments[0].formal_node_id = Some(id(3)),
+                3 => broken.local_arguments[0].ordinal = 1,
+                _ => broken.local_seeds[0].binding_complete = false,
+            }
+            let refused = finite_flows(broken);
+            assert!(!refused.flows.iter().any(|row| row.source_origin_id == id(41)));
+            assert!(refused.boundaries.iter().any(|row| row.source_origin_id == id(41)));
+        }
+        for reason in [BoundaryReason::ExpressionDepthLimit, BoundaryReason::ExpressionWorkLimit] {
+            let mut capped = input.clone();
+            capped.local_arguments[0].evaluation_fact_id = None;
+            capped.local_arguments[0].evaluation_reason = Some(reason);
+            let result = finite_flows(capped);
+            assert!(result.boundaries.iter().any(|row| row.source_origin_id == id(41) && row.reason == reason));
+        }
+        assert!(!finite_flows(multi_control_inputs(false)).flows.iter()
+            .any(|row| row.source_origin_id == id(41)));
+    }
+
     #[test]
     fn base_free_cycle_and_pair_cap_remain_origin_specific_unknowns() {
         let mut no_base = inputs();
@@ -1930,7 +2047,7 @@ mod tests {
         let b = recursive_edge(7, 8, 2, 3, 42, 43, 60);
         for edge in [&a, &b] { no_base.boundary_candidates.push(recursive_candidate(edge)); }
         no_base.local_seeds = vec![a, b];
-        let result = finite_flows(no_base);
+        let result = finite_flows(with_local_arguments(no_base));
         assert!(result.flows.is_empty());
         assert_eq!(result.boundaries.len(), 2);
         assert!(result.boundaries.iter().all(|row| row.reason == BoundaryReason::CallTransfer));
@@ -1940,7 +2057,7 @@ mod tests {
         let edge = recursive_edge(2, 3, 2, 3, 40, 41, 50);
         capped.boundary_candidates.push(recursive_candidate(&edge));
         capped.local_seeds.push(edge);
-        let result = finite_flows_with_pair_limit(capped, 1);
+        let result = finite_flows_with_pair_limit(with_local_arguments(capped), 1);
         assert!(result.flows.iter().any(|row| row.source_origin_id == id(41)));
         assert_eq!(result.boundaries.len(), 1);
         assert_eq!(result.boundaries[0].source_origin_id, id(41));
@@ -1956,7 +2073,7 @@ mod tests {
             if reverse { edges.reverse(); }
             input.boundary_candidates.extend(edges.iter().map(recursive_candidate));
             input.local_seeds = edges;
-            finite_flows_with_pair_limit(input, 1)
+            finite_flows_with_pair_limit(with_local_arguments(input), 1)
         };
         let first = capped_parallel(false);
         let reversed = capped_parallel(true);
@@ -1981,7 +2098,7 @@ mod tests {
             function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
             condition_id: Some(call_id), approximated: Some(false),
         }]);
-        finite_flows(input)
+        finite_flows(with_local_arguments(input))
     }
 
     #[test]
@@ -2001,7 +2118,7 @@ mod tests {
 
     #[test]
     fn direct_admission_and_independent_preceding_call_control_use_pure_inputs() {
-        let outcome = finite_flows(inputs());
+        let outcome = finite_flows(with_local_arguments(inputs()));
         assert_eq!(outcome.flows.len(), 1);
         assert_eq!(outcome.flows[0].verdict, Verdict::Established);
         assert_eq!(outcome.steps.len(), 1);
@@ -2019,7 +2136,7 @@ mod tests {
                 approximated: None,
             }],
         );
-        let outcome = finite_flows(withheld);
+        let outcome = finite_flows(with_local_arguments(withheld));
         assert!(outcome.flows.is_empty());
         assert!(outcome.steps.is_empty());
         assert_eq!(outcome.refusals[0].reason, BoundaryReason::UnsupportedControlFlow);
@@ -2036,7 +2153,7 @@ mod tests {
         sibling.local_through_call = true;
         input.boundary_candidates.push(sibling);
 
-        let outcome = finite_flows(input);
+        let outcome = finite_flows(with_local_arguments(input));
         assert_eq!(outcome.flows.len(), 1);
         assert_eq!(outcome.flows[0].source_origin_id, id(9));
         assert_eq!(outcome.boundaries.len(), 1);
@@ -2058,8 +2175,8 @@ mod tests {
         forward.preceding_calls.insert(id(2), vec![earlier.clone(), later.clone()]);
         let mut reverse = inputs();
         reverse.preceding_calls.insert(id(2), vec![later, earlier]);
-        let first = finite_flows(forward);
-        let second = finite_flows(reverse);
+        let first = finite_flows(with_local_arguments(forward));
+        let second = finite_flows(with_local_arguments(reverse));
         assert!(first.flows.is_empty() && second.flows.is_empty());
         assert_eq!(first.boundaries, second.boundaries);
         assert_eq!(first.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
@@ -2079,8 +2196,8 @@ mod tests {
         forward.pass_steps.insert(id(5), vec![first_pass.clone(), second_pass.clone()]);
         let mut reverse = inputs();
         reverse.pass_steps.insert(id(5), vec![second_pass, first_pass]);
-        let first = finite_flows(forward);
-        let second = finite_flows(reverse);
+        let first = finite_flows(with_local_arguments(forward));
+        let second = finite_flows(with_local_arguments(reverse));
         assert_eq!(first.flows, second.flows);
         assert_eq!(first.steps, second.steps);
         assert_eq!(first.steps.iter().map(|step| step.evidence_id).collect::<Vec<_>>(),
@@ -2104,7 +2221,7 @@ mod tests {
                 argument_count: 2,
             });
         }
-        let result = finite_flows(input);
+        let result = finite_flows(with_local_arguments(input));
         assert_eq!(result.flows.len(), 1);
         assert!(result.boundaries.is_empty());
         assert_eq!(result.steps.iter().map(|step| step.kind).collect::<Vec<_>>(), [
@@ -2132,7 +2249,7 @@ mod tests {
             import_condition_id: Diagram::always().id(),
             evaluation_evidence_id: id(20), ordinal: 0, argument_count: 2,
         });
-        let result = finite_flows(incomplete);
+        let result = finite_flows(with_local_arguments(incomplete));
         assert!(result.flows.is_empty());
         assert_eq!(result.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
 
@@ -2155,7 +2272,7 @@ mod tests {
                 ordinal: i64::from(ordinal), argument_count: 2,
             });
         }
-        let result = finite_flows(guarded);
+        let result = finite_flows(with_local_arguments(guarded));
         assert!(result.flows.is_empty());
         assert_eq!(result.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
     }
@@ -2194,11 +2311,8 @@ mod tests {
                 return_start_byte: 30,
                 approximated: false,
                 source_argument_ordinal: 0,
-                control_argument_fact_id: None, control_argument_ordinal: None,
-                control_evaluation_fact_id: None,
-                control_formal_node_id: None, control_link_id: None,
-                control_atom: None, control_value: None,
-                control_source_link_id: None, control_source_atom: None,
+            binding_complete: true,
+                argument_count: 1,
             });
             input.boundary_candidates.push(SummaryBoundaryCandidate {
                 snapshot_id: id(1),
@@ -2217,7 +2331,7 @@ mod tests {
                 reach_budget: false,
             });
         }
-        let result = finite_flows(input);
+        let result = finite_flows(with_local_arguments(input));
         assert!(result.flows.iter().any(|row| row.function_node_id == id(10)
             && row.path_depth == 8));
         assert!(!result.flows.iter().any(|row| row.function_node_id == id(11)));
@@ -2238,25 +2352,22 @@ mod tests {
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: always, return_start_byte: 30, approximated: false,
             source_argument_ordinal: 0,
-            control_argument_fact_id: None, control_argument_ordinal: None,
-            control_evaluation_fact_id: None,
-            control_formal_node_id: None, control_link_id: None,
-            control_atom: None, control_value: None,
-            control_source_link_id: None, control_source_atom: None,
+            binding_complete: true,
+            argument_count: 1,
         });
         bounded.boundary_candidates[0].condition_id = id(200);
         bounded.components.push(SummaryComponentsRow {
             snapshot_id: id(1), component_id: id(2), function_node_id: id(2),
             component_order: 0, member_ordinal: 0, member_count: 1, recursive: false,
         });
-        let result = finite_flows(bounded);
+        let result = finite_flows(with_local_arguments(bounded));
         assert!(result.flows.is_empty());
         assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionWorkLimit);
 
         let mut capped_reach = inputs();
         capped_reach.direct_seeds.clear();
         capped_reach.boundary_candidates[0].reach_budget = true;
-        let result = finite_flows(capped_reach);
+        let result = finite_flows(with_local_arguments(capped_reach));
         assert!(result.flows.is_empty());
         assert_eq!(result.boundaries[0].reason, BoundaryReason::BudgetReached);
     }
@@ -2297,14 +2408,11 @@ mod tests {
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: exit_id, return_start_byte: 30, approximated: false,
             source_argument_ordinal: 0,
-            control_argument_fact_id: None, control_argument_ordinal: None,
-            control_evaluation_fact_id: None,
-            control_formal_node_id: None, control_link_id: None,
-            control_atom: None, control_value: None,
-            control_source_link_id: None, control_source_atom: None,
+            binding_complete: true,
+            argument_count: 1,
         });
 
-        let result = finite_flows(input);
+        let result = finite_flows(with_local_arguments(input));
         assert!(result.flows.is_empty());
         assert!(result.steps.is_empty());
         assert_eq!(result.refusals.len(), 1);
@@ -2321,7 +2429,7 @@ mod tests {
         stored.direct_seeds[0].condition_id = id(200);
         stored.boundary_candidates[0].condition_id = id(200);
         stored.boundaries.insert(id(200), BoundaryReason::ConditionAtomLimit);
-        let result = finite_flows(stored);
+        let result = finite_flows(with_local_arguments(stored));
         assert!(result.flows.is_empty());
         assert_eq!(result.refusals[0].reason, BoundaryReason::ConditionAtomLimit);
         assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionAtomLimit);
@@ -2347,7 +2455,7 @@ mod tests {
             function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
             condition_id: Some(call_id), approximated: Some(false),
         }]);
-        let result = finite_flows(composed);
+        let result = finite_flows(with_local_arguments(composed));
         assert!(result.flows.is_empty());
         assert_eq!(result.refusals[0].reason, BoundaryReason::ConditionAtomLimit);
         assert_eq!(result.boundaries[0].reason, BoundaryReason::ConditionAtomLimit);

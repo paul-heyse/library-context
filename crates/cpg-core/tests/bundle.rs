@@ -511,14 +511,13 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "the closed false value cannot select the recursive base");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) seed \
-        JOIN declarations d ON d.node_id = seed.function_node_id \
-        WHERE d.name = 'recursive_raising_control'",
-        cpg_schema::behavior::local_call_summary_flow_seeds().sql))
+    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'recursive_raising_control' AND f.path_depth > 0")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "a raising unary operand cannot fix a recursive guard");
+    assert_eq!(counts.value(0), 0, "a retained unknown argument cannot fix a recursive guard");
     for (name, kind) in [
         ("recursive_short_circuit_true", cpg_schema::codebook::SyntaxKind::ExprBoolOp),
         ("recursive_selected_true", cpg_schema::codebook::SyntaxKind::ExprIf),
@@ -551,12 +550,15 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) seed \
         JOIN declarations d ON d.node_id = seed.function_node_id \
+        JOIN ({}) arg ON arg.call_fact_id = seed.call_fact_id \
+          AND arg.callee_node_id = seed.callee_node_id AND arg.evaluation_fact_id IS NULL \
         WHERE d.name = 'recursive_selected_raising'",
-        cpg_schema::behavior::local_call_summary_flow_seeds().sql))
+        cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+        cpg_schema::behavior::local_call_arguments().sql))
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "the selected raising branch supplies no local-call seed");
+    assert_eq!(counts.value(0), 1, "the selected raising branch retains a candidate with an unknown evaluation");
     let rows = sql::query(&ctx, &format!(
         "SELECT count(*) AS n FROM summary_flows f \
          JOIN declarations d ON d.node_id = f.function_node_id \
@@ -668,6 +670,26 @@ assert any(
 paths, boundaries, total, truncated, work = inspect("capspkg.nested_raising_identity", "value")
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+for operation, reason in (("capspkg.expression_depth_cap", "expression_depth_limit"),
+                          ("capspkg.expression_work_cap", "expression_work_limit")):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not truncated and not paths and boundaries, (operation, paths, boundaries)
+    assert any(boundary[3] == reason for boundary in boundaries), (operation, boundaries)
+for operation in ("capspkg.composed_boolean_control", "capspkg.composed_expression_predecessor", "capspkg.composed_expression_sibling"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not truncated and paths and not boundaries, (operation, paths, boundaries)
+for operation in ("capspkg.composed_raising_control", "capspkg.composed_expression_raising_sibling"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not truncated and not paths and boundaries, (operation, paths, boundaries)
+paths, boundaries, total, truncated, work = inspect("capspkg.multiple_argument_true", "value")
+assert not truncated and paths and not boundaries, (paths, boundaries)
+assert any(sum(step[0] == "callee_condition_link" for step in path[3]) == 1 for path in paths), paths
+for operation in ("capspkg.multiple_argument_false", "capspkg.multiple_argument_raising",
+                  "capspkg.multiple_argument_missing",
+                  "capspkg.multiple_control_true", "capspkg.multiple_control_false",
+                  "capspkg.multiple_control_raising"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not truncated and not paths and boundaries, (operation, paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.nested_deleted_identity", "value")
 assert not truncated and not paths and not boundaries, (paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.binary_sibling_identity", "value")
@@ -762,7 +784,11 @@ assert not truncated and paths, (paths, boundaries)
 assert any(path[1] == "conditional"
            and any(step[0] == "callee_condition_link" for step in path[3])
            for path in paths), paths
-assert any(len(evaluations) == 2 and evaluations[-1] == path[8]
+assert any(len(evaluations) == 2 and evaluations[-1] != path[8]
+           and any(step[0] == "return_source" and step[1] == path[8]
+                   and path[3][index + 1][0] == "argument_evaluation"
+                   and path[3][index + 1][1] == evaluations[-1]
+                   for index, step in enumerate(path[3][:-1]))
            for path in paths
            if any(step[0] == "callee_condition_link" for step in path[3])
            for evaluations in [[step[1] for step in path[3]

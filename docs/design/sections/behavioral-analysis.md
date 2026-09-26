@@ -132,15 +132,18 @@ every row; the shared validator reconstructs each relation and rejects forged st
   and fact.
 - **`modeled_argument_evaluations`** accounts for every explicit argument of an exact one-call
   model candidate in source order: the selected operand cites its raw value fact and a separate
-  normal-read witness; a direct literal has `literal_normal`, while bounded unary
-  `+`/`-` on a numeric literal, `not` on a Boolean literal, `+`/`-` on two direct numeric
-  literals, a decisive two-operand `False and ...` or `True or ...`, and a conditional
-  expression with a direct Boolean test and direct literal selected branch have
-  `closed_expression_normal` (ADR-0056). The Boolean form skips the right operand entirely; its
-  opposite `True and ...` or `False or ...` requires a separate right-operand proof. These
-  witnesses cite the whole Ruff expression, not a computed value. The conditional form skips
-  the other branch entirely. Division, other evaluated operands, chained Boolean operations,
-  nonliteral conditional tests or selected branches and other operators remain unresolved. An exact
+  normal-read witness; a direct literal has `literal_normal`, while the pure bounded
+  `lctx_analytics::evaluation` owner reconstructs nested closed expressions from placed Ruff
+  syntax. `closed_expression_evaluations` separates normal completion from an exact Boolean
+  value and retains an explicit refusal and work count. Supported unary, numeric `+`/`-`,
+  multi-operand Boolean and conditional forms evaluate only the operands Python selects.
+  Integer arithmetic is representable only within a checked i64 domain; arbitrary integers are
+  normal literals but cannot silently enter floating-point arithmetic. Unknown calls, names,
+  operators and selected raising operands supply no closed-expression witness. Depth 64 and
+  work 1024 have append-only `expression_depth_limit` / `expression_work_limit` boundaries.
+  `closed_expression_normal` still cites the whole Ruff expression; the shared validator
+  reconstructs its decision, exact value and work count. The shared SQL argument adapter joins
+  these rows instead of independently recognizing fixed expression shapes. An exact
   unshadowed builtin name also has a local normal-evaluation witness. A direct parameter
   name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
   definition matches that same lexical parameter binding and has a stored condition root. In a
@@ -209,6 +212,19 @@ witness.
 
 ## Transfer summaries
 
+**Accepted consolidation target (Proposed implementation, 2026-09-26).** Ordered argument
+bindings and evaluation/completion certificates replace source-shape-specific admission.
+Normal evaluation, exact primitive value, transfer, effect and channel completeness are separate
+concepts. The pure producer consumes them with handler/frame inputs; core owns acquisition and
+publication order. Simultaneous condition substitution uses checked stable-value links and
+bounded Boolean composition with cumulative work/retention limits. Semantic fixed-point keys
+are separate from bounded proof alternatives, which preserve origins and parallel call sites.
+Shared proof admission serves publication and native decoding. Existing narrow implementations
+below remain the current behavior until each migration is tested; the active plan §3.0 owns
+the dependency order and deletions.
+
+> Decision: ADR-0057
+
 **The contract** (accepted target; finite parts implemented as stated below).
 - **Tables:** `summary_flows` (callable, input path, output path, kind `value`/`transform`/
   `constant`, condition, verdict), `summary_effects` (callable, effect, role bindings, condition),
@@ -274,22 +290,23 @@ witness.
   whose condition implies the reaching, successor and return-region conditions. Every earlier
   compatible call before the returned use, including the assignment's source call, needs an
   independent ordered normal-completion witness.
-- **Local wrapper:** a synchronous caller inherits an unconditional value summary of
-  its sole definite local target when ty's one-call value path, Ruff's exact single explicit
-  positional-or-keyword argument syntax, lexical callee resolution, Pass B's single formal mapping, a closed target set and a
-  direct return exit agree, along a callee-first SCC schedule capped at depth 8. Within a
-  recursive component a deterministic worklist reuses each newly cited value path. One narrow
-  two-argument case can also specialize a **conditional** callee path: the first positional
-  argument is the tracked parameter; the second maps definitely to a distinct tested formal.
-  It is either an exact boolean literal or a directly read caller formal whose lexical
-  parameter binding agrees with Pass B, with a cited ty reaching definition and direct
-  entry-value test link. In the latter case, the caller's
-  existing BDD path must imply that formal's tested atom or its negation. Bounded restriction
-  of the callee's linked truthy atom by the proved value must make its condition true; false
-  or residual conditions stay unknown. The caller's own condition remains authoritative.
-  General argument expressions and cross-scope BDD conjunction are unproved. Compatible earlier calls in
-  the caller must independently complete normally; the returned wrapper call itself is proved
-  by its cited callee summary.
+- **Local wrapper:** a synchronous caller inherits a value summary of its sole definite local
+  target when ty's one-call value path, lexical callee resolution, closed target set, required
+  formal coverage and direct return exit agree. `summary_contract::LocalCallArgument` represents
+  every explicit argument independently of source position; the producer requires dense source
+  order, unique mappings and a separate normal witness for every argument, including the tracked
+  source. The raw flow is cited as `return_source`, followed by its normal-read evaluation.
+  Missing required arguments, unpacking and missing witnesses remain unknown. The current cap
+  is 128 explicit arguments and depth eight over the callee-first SCC schedule.
+  Each effective conditional callee atom needs a checked direct entry-value link. Exact Boolean
+  values or directly read caller formals fixed by a linked caller condition supply simultaneous
+  BDD replacements; the restricted callee must become true. `summary_contract` admits the entire
+  ordered control-link group in both producer and native reader. The caller's condition remains
+  authoritative; residual symbolic conditions are not admitted. The pure contract handles
+  multiple controls, but extraction withholds a later test link after arbitrary earlier
+  truthiness: source multi-control calls remain unknown until call-specific stability is proved.
+  Defaults used as control values and general cross-scope conjunction remain unimplemented.
+  Compatible earlier calls still require independent normal-completion witnesses.
 
 Supporting candidate relations: `modeled_exact_value_transfers` (a raw return or definition value
 joined to one exact model step), `value_flow_predecessor_candidates` (a successor use joined to a
@@ -301,6 +318,13 @@ query-only, all-arguments witness for the narrow direct or modeled-return case; 
 argument or the callee's earlier module import is unproved, and the producer checks that import's
 condition is `true` before admitting. Otherwise it records `unsupported_control_flow` rather
 than borrowing a target's normal-return claim.
+
+**Preparation and transport (Implemented, 2026-09-26).** Core prepares handler clauses, types,
+actions, walks and return-None candidates before summary composition. Twenty SQL-only
+behavior derivations retain Arrow batches through strict declared-schema conversion and
+canonical sort into Delta. Typed rows remain at pure semantic transformation boundaries, and
+publication still reconstructs semantics; the transport change is not a new validation policy
+or a measured memory claim.
 
 **Coverage.** The finite producer takes raw parameter-origin return contributions as typed
 `summary_boundary_candidates` and returns admitted flows, ordered steps, typed refusals and
@@ -335,11 +359,10 @@ the latter uses append-only `summary_pair_work_limit` rather than the general bu
 base-free cycle remains unknown. Modeled bases in a recursive member are admitted only after
 their independent source, argument, predecessor and exit checks. The exact literal-controlled
 transfer cites the literal syntax and direct `flow_test_value_links` row (`callee_condition_link`,
-append-only code 14). The same bounded route admits `not` over a direct Boolean literal, a
-decisive two-operand `and`/`or`, and a conditional expression selecting a direct Boolean
-literal. The shared argument classifier derives each exact Boolean value separately from its
-`closed_expression_normal` status, and the recursive proof cites the outer expression fact
-before the callee link. An evaluated raising operand supplies neither value nor control evidence.
+append-only code 14). The same route consumes separately derived exact Boolean values from
+bounded nested closed expressions, preserving their outer syntax witness before the callee
+links. Normal numeric/string values are never relabelled Boolean. Default expression depth/work
+refusals propagate through local-call origin boundaries; they never establish a false guard.
 Direct formal forwarding additionally cites the caller's fixed test link
 (`caller_condition_link`, append-only code 15) before the callee link; native admission checks the
 direct source link and the caller's fixed guard, and the shared validator reconstructs the full

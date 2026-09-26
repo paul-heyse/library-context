@@ -336,7 +336,11 @@ and finite acyclic summaries; recursive and operation-wide composition is **Prop
 - Known gaps (effectful finalizers, predecessor completion, recursive members, access
   normalization) stay explicit unknowns; the forward plan owns them.
 
-> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056
+The accepted Stage 3 consolidation target uses shared typed evaluation, completion, argument
+binding and coverage contracts across summary channels (ADR-0057; implementation remains
+partial in §9.9). Providers observe; the pure semantic layer owns these conclusions.
+
+> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056, ADR-0057
 
 <a id="section-b6"></a>
 

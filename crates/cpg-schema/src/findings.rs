@@ -510,6 +510,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ModeledTransferSites,
             $crate::behavior::ModeledExactValueTransfers,
             $crate::behavior::ModeledArgumentEvaluations,
+            $crate::behavior::ClosedExpressionEvaluations,
             $crate::behavior::ModeledEffectSites,
             $crate::behavior::ModelTransfers,
             $crate::behavior::ModelEffects,

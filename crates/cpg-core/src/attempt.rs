@@ -98,7 +98,9 @@ pub struct Published {
 /// 73: incompatible earlier call regions no longer block a finite direct return path.
 /// 74: raw value-flow contribution keys retain local and upstream transfer provenance;
 /// multi-release validation accepts one snapshot with multiple releases.
-pub const COMPILER_OUTPUT_VERSION: u32 = 75;
+/// 76: normalized local-call arguments, multi-control Boolean specialization and bounded
+/// closed-expression completion with separately represented exact Boolean values.
+pub const COMPILER_OUTPUT_VERSION: u32 = 76;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -391,6 +393,28 @@ async fn write_analysis<T: Table>(
     w: &mut Written,
 ) -> Result<(), CoreError> {
     let batch = T::to_sorted_batch(rows_of)?;
+    write_analysis_batch::<T>(ctx, root, snapshot_id, batch, w).await
+}
+
+/// SQL-only derivations remain columnar. Strict conversion and canonical ordering are the
+/// existing Delta/table contracts; this path removes decoding and re-encoding every row.
+async fn write_analysis_query<T: Table>(
+    ctx: &datafusion::prelude::SessionContext, root: &Path, snapshot_id: Id,
+    relation: &cpg_schema::query::Relation, w: &mut Written,
+) -> Result<(), CoreError> {
+    let mut declared = Vec::new();
+    for batch in crate::sql::query(ctx, &relation.sql).await?.collect().await? {
+        declared.push(crate::delta::to_declared::<T>(&batch)?);
+    }
+    let batch = arrow_select::concat::concat_batches(&T::schema(), &declared)?;
+    let batch = cpg_schema::table::canonical_sort(&batch, T::key())?;
+    write_analysis_batch::<T>(ctx, root, snapshot_id, batch, w).await
+}
+
+async fn write_analysis_batch<T: Table>(
+    ctx: &datafusion::prelude::SessionContext, root: &Path, snapshot_id: Id,
+    batch: RecordBatch, w: &mut Written,
+) -> Result<(), CoreError> {
     let version = write::<T>(root, &batch, snapshot_id).await?;
     register(ctx, root, T::NAME, version, snapshot_id).await?;
     w.versions.insert(T::NAME.to_owned(), version);
@@ -648,104 +672,20 @@ async fn finish(
         &mut written,
     )
     .await?;
-    let model_applications = crate::sql::fetch(
-        &ctx,
-        &cpg_schema::behavior::model_applications(),
-        crate::sql::Params::new(),
-    )
-    .await?;
-    write_analysis::<cpg_schema::behavior::ModelApplications>(
-        &ctx,
-        root,
-        snapshot_id,
-        &model_applications,
-        &mut written,
-    )
-    .await?;
-    let model_argument_bindings = crate::sql::fetch(
-        &ctx,
-        &cpg_schema::behavior::model_argument_bindings(),
-        crate::sql::Params::new(),
-    )
-    .await?;
-    write_analysis::<cpg_schema::behavior::ModelArgumentBindings>(
-        &ctx,
-        root,
-        snapshot_id,
-        &model_argument_bindings,
-        &mut written,
-    )
-    .await?;
-    let modeled_callback_sites = crate::sql::fetch(
-        &ctx,
-        &cpg_schema::behavior::modeled_callback_sites(),
-        crate::sql::Params::new(),
-    )
-    .await?;
-    write_analysis::<cpg_schema::behavior::ModeledCallbackSites>(
-        &ctx,
-        root,
-        snapshot_id,
-        &modeled_callback_sites,
-        &mut written,
-    )
-    .await?;
-    let modeled_resource_sites = crate::sql::fetch(
-        &ctx,
-        &cpg_schema::behavior::modeled_resource_sites(),
-        crate::sql::Params::new(),
-    )
-    .await?;
-    write_analysis::<cpg_schema::behavior::ModeledResourceSites>(
-        &ctx,
-        root,
-        snapshot_id,
-        &modeled_resource_sites,
-        &mut written,
-    )
-    .await?;
-    let modeled_transfer_sites = crate::sql::fetch(
-        &ctx,
-        &cpg_schema::behavior::modeled_transfer_sites(),
-        crate::sql::Params::new(),
-    )
-    .await?;
-    write_analysis::<cpg_schema::behavior::ModeledTransferSites>(
-        &ctx,
-        root,
-        snapshot_id,
-        &modeled_transfer_sites,
-        &mut written,
-    )
-    .await?;
-    let modeled_effect_sites = crate::sql::fetch(
-        &ctx,
-        &cpg_schema::behavior::modeled_effect_sites(),
-        crate::sql::Params::new(),
-    )
-    .await?;
-    write_analysis::<cpg_schema::behavior::ModeledEffectSites>(
-        &ctx,
-        root,
-        snapshot_id,
-        &modeled_effect_sites,
-        &mut written,
-    )
-    .await?;
-    let modeled_exception_sites = crate::sql::fetch(
-        &ctx,
-        &cpg_schema::behavior::modeled_exception_sites(),
-        crate::sql::Params::new(),
-    )
-    .await?;
-    write_analysis::<cpg_schema::behavior::ModeledExceptionSites>(
-        &ctx,
-        root,
-        snapshot_id,
-        &modeled_exception_sites,
-        &mut written,
-    )
-    .await?;
+    write_analysis_query::<cpg_schema::behavior::ModelApplications>(&ctx, root, snapshot_id,
+        &cpg_schema::behavior::model_applications(), &mut written).await?;
+    write_analysis_query::<cpg_schema::behavior::ModelArgumentBindings>(&ctx, root, snapshot_id,
+        &cpg_schema::behavior::model_argument_bindings(), &mut written).await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledCallbackSites>(&ctx, root, snapshot_id,
+        &cpg_schema::behavior::modeled_callback_sites(), &mut written).await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledResourceSites>(&ctx, root, snapshot_id,
+        &cpg_schema::behavior::modeled_resource_sites(), &mut written).await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledTransferSites>(&ctx, root, snapshot_id,
+        &cpg_schema::behavior::modeled_transfer_sites(), &mut written).await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledEffectSites>(&ctx, root, snapshot_id,
+        &cpg_schema::behavior::modeled_effect_sites(), &mut written).await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledExceptionSites>(&ctx, root, snapshot_id,
+        &cpg_schema::behavior::modeled_exception_sites(), &mut written).await?;
 
     // Stage 2.6 (ADR-0022): what the flow IR says about the release, before the behavior scan
     // reads it.
@@ -784,6 +724,7 @@ async fn finish(
             Behaviors, Delegations, DynamicAccesses, ExitSites, FieldAccesses,
             FlowReachBoundaries, FlowTestExactOrigins, FlowTestValueLinks, Guards, HandlerActions, HandlerClauses,
             HandlerReturnNoneSites, HandlerTypes, Handoffs, ModeledArgumentEvaluations,
+            ClosedExpressionEvaluations,
             ModeledAssignmentReturnPaths, ModeledExactValueTransfers,
             ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
             ModeledExceptionReturnNonePaths, NegativePremises, OperationDocuments,
@@ -816,20 +757,8 @@ async fn finish(
             w,
         )
         .await?;
-        let value_flow_predecessor_candidates = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::value_flow_predecessor_candidates(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ValueFlowPredecessorCandidates>(
-            &ctx,
-            root,
-            snapshot_id,
-            &value_flow_predecessor_candidates,
-            w,
-        )
-        .await?;
+        write_analysis_query::<ValueFlowPredecessorCandidates>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::value_flow_predecessor_candidates(), w).await?;
         let predecessor_compatibility = crate::summaries::predecessor_compatibility(&ctx).await?;
         write_analysis::<ValueFlowPredecessorCompatibility>(
             &ctx,
@@ -839,48 +768,15 @@ async fn finish(
             w,
         )
         .await?;
-        let modeled_exact_value_transfers = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::modeled_exact_value_transfers(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ModeledExactValueTransfers>(
-            &ctx,
-            root,
-            snapshot_id,
-            &modeled_exact_value_transfers,
-            w,
-        )
-        .await?;
-        let modeled_argument_evaluations = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::modeled_argument_evaluations(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ModeledArgumentEvaluations>(
-            &ctx,
-            root,
-            snapshot_id,
-            &modeled_argument_evaluations,
-            w,
-        )
-        .await?;
-        let modeled_assignment_return_paths = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::modeled_assignment_return_paths(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ModeledAssignmentReturnPaths>(
-            &ctx,
-            root,
-            snapshot_id,
-            &modeled_assignment_return_paths,
-            w,
-        )
-        .await?;
+        write_analysis_query::<ModeledExactValueTransfers>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::modeled_exact_value_transfers(), w).await?;
+        let closed_expressions = crate::summaries::closed_expression_evaluations(&ctx).await?;
+        write_analysis::<ClosedExpressionEvaluations>(&ctx, root, snapshot_id, &closed_expressions, w)
+            .await?;
+        write_analysis_query::<ModeledArgumentEvaluations>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::modeled_argument_evaluations(), w).await?;
+        write_analysis_query::<ModeledAssignmentReturnPaths>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::modeled_assignment_return_paths(), w).await?;
         write_analysis::<FlowTestValueLinks>(&ctx, root, snapshot_id, &entry_links, w).await?;
         write_analysis::<FlowTestExactOrigins>(&ctx, root, snapshot_id, &exact_origins, w).await?;
         write_analysis::<FieldAccesses>(&ctx, root, snapshot_id, &m.field_accesses, w).await?;
@@ -891,21 +787,25 @@ async fn finish(
         write_analysis::<NegativePremises>(&ctx, root, snapshot_id, &m.premises, w).await?;
         write_analysis::<ArgumentFlows>(&ctx, root, snapshot_id, &behavior.argument_flows, w)
             .await?;
-        let exit_sites = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::exit_sites(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ExitSites>(&ctx, root, snapshot_id, &exit_sites, w).await?;
-        let return_exit_statuses = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::return_exit_statuses(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &return_exit_statuses, w)
-            .await?;
+        write_analysis_query::<ExitSites>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::exit_sites(), w).await?;
+        write_analysis_query::<ReturnExitStatuses>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::return_exit_statuses(), w).await?;
+        write_analysis_query::<HandlerClauses>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::handler_clauses(), w).await?;
+        write_analysis_query::<HandlerTypes>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::handler_types(), w).await?;
+        write_analysis_query::<ModeledExceptionHandlerCandidates>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::modeled_exception_handler_candidates(), w).await?;
+        write_analysis_query::<ModeledExceptionHandlerWalks>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::modeled_exception_handler_walks(), w).await?;
+        write_analysis_query::<HandlerActions>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::handler_actions(), w).await?;
+        write_analysis_query::<HandlerReturnNoneSites>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::handler_return_none_sites(), w).await?;
+        write_analysis_query::<ModeledExceptionReturnNonePaths>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::modeled_exception_return_none_paths(), w).await?;
+
         let summary_components = crate::summaries::call_components(&ctx).await?;
         write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w)
             .await?;
@@ -914,83 +814,6 @@ async fn finish(
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summaries.steps, w).await?;
         write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summaries.boundaries, w)
             .await?;
-        let handler_clauses = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::handler_clauses(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<HandlerClauses>(&ctx, root, snapshot_id, &handler_clauses, w).await?;
-        let handler_types = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::handler_types(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<HandlerTypes>(&ctx, root, snapshot_id, &handler_types, w).await?;
-        let exception_handler_candidates = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::modeled_exception_handler_candidates(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ModeledExceptionHandlerCandidates>(
-            &ctx,
-            root,
-            snapshot_id,
-            &exception_handler_candidates,
-            w,
-        )
-        .await?;
-        let exception_handler_walks = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::modeled_exception_handler_walks(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ModeledExceptionHandlerWalks>(
-            &ctx,
-            root,
-            snapshot_id,
-            &exception_handler_walks,
-            w,
-        )
-        .await?;
-        let handler_actions = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::handler_actions(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<HandlerActions>(&ctx, root, snapshot_id, &handler_actions, w).await?;
-        let handler_return_none_sites = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::handler_return_none_sites(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<HandlerReturnNoneSites>(
-            &ctx,
-            root,
-            snapshot_id,
-            &handler_return_none_sites,
-            w,
-        )
-        .await?;
-        let modeled_return_none_paths = crate::sql::fetch(
-            &ctx,
-            &cpg_schema::behavior::modeled_exception_return_none_paths(),
-            crate::sql::Params::new(),
-        )
-        .await?;
-        write_analysis::<ModeledExceptionReturnNonePaths>(
-            &ctx,
-            root,
-            snapshot_id,
-            &modeled_return_none_paths,
-            w,
-        )
-        .await?;
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
         write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
             .await?;

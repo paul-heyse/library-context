@@ -527,35 +527,22 @@ impl SemanticExecutor {
                 ids.iter().map(|id| leaves_by_id[id].clone()).collect(),
             );
         }
+        let control_links: HashMap<Id, cpg_schema::summary_contract::DirectValueLink> =
+            links_by_formal.values().flatten()
+                .filter(|link| link.origin == TestValueLinkOrigin::DirectParameterReachNoEffect)
+                .filter_map(|link| leaves_by_id.get(&link.leaf_fact_id).map(|leaf|
+                    (link.link_id, cpg_schema::summary_contract::DirectValueLink {
+                        operation_node_id: link.operation_node_id,
+                        formal_node_id: link.formal_node_id, link_id: link.link_id,
+                        atom: leaf.atom.clone(),
+                    }))).collect();
         for summary in summaries.values() {
             for (index, (kind, evidence, _)) in summary.steps.iter().enumerate() {
-                if kind == "caller_condition_link" {
-                    let next_is_callee_link = summary.steps.get(index + 1)
-                        .is_some_and(|next| next.0 == "callee_condition_link");
-                    let supported = next_is_callee_link
-                        && links_by_formal.values().flatten().any(|link| {
-                            link.link_id == *evidence
-                                && link.operation_node_id == summary.function_node_id
-                                && link.origin == TestValueLinkOrigin::DirectParameterReachNoEffect
-                                && leaves_by_id.get(&link.leaf_fact_id).is_some_and(|leaf| {
-                                    graph.diagrams.get(&summary.condition_id).is_some_and(|root| {
-                                        if !root.support().contains(&leaf.atom) { return false; }
-                                        let Ok(atom) = Atom::parse_encoded(&leaf.atom) else {
-                                            return false;
-                                        };
-                                        let Ok(predicate) = Diagram::from_atom(&atom) else {
-                                            return false;
-                                        };
-                                        root.implies(&predicate) == Ok(true)
-                                            || predicate.not().is_ok_and(|negated|
-                                                root.implies(&negated) == Ok(true))
-                                    })
-                                })
-                        });
-                    if !supported {
-                        return Err(PyValueError::new_err(
-                            "caller condition link does not fix its direct formal",
-                        ));
+                if kind == "caller_condition_link" || kind == "callee_condition_link" {
+                    // Every link belongs to a contiguous group ending in a callee reference.
+                    if !summary.steps.get(index + 1).is_some_and(|step|
+                        matches!(step.0.as_str(), "caller_condition_link" | "callee_condition_link" | "callee_summary")) {
+                        return Err(PyValueError::new_err("orphan condition proof link"));
                     }
                 }
                 if kind != "callee_summary" { continue; }
@@ -565,26 +552,29 @@ impl SemanticExecutor {
                 if callee.path_depth >= summary.path_depth {
                     return Err(PyValueError::new_err("cyclic or unordered callee proof"));
                 }
-                if callee.verdict == "established" { continue; }
-                let Some((link_kind, link_id, condition)) = index.checked_sub(1)
-                    .and_then(|prior| summary.steps.get(prior)) else {
-                    return Err(PyValueError::new_err("conditional callee lacks a test link"));
-                };
-                let supported = callee.verdict == "conditional"
-                    && link_kind == "callee_condition_link"
-                    && *condition == callee.condition_id
-                    && links_by_formal.values().flatten().any(|link| {
-                        link.link_id == *link_id
-                            && link.operation_node_id == callee.function_node_id
-                            && link.origin == TestValueLinkOrigin::DirectParameterReachNoEffect
-                            && leaves_by_id.get(&link.leaf_fact_id).is_some_and(|leaf| {
-                                graph.diagrams.get(&callee.condition_id).is_some_and(|root|
-                                    root.support().contains(&leaf.atom))
-                            })
-                    });
-                if !supported {
-                    return Err(PyValueError::new_err("conditional callee lacks a cited exact test link"));
+                let mut start = index;
+                while start > 0 && matches!(summary.steps[start - 1].0.as_str(),
+                    "caller_condition_link" | "callee_condition_link") { start -= 1; }
+                if callee.verdict == "established" {
+                    if start != index { return Err(PyValueError::new_err("unexpected unconditional callee controls")); }
+                    continue;
                 }
+                if callee.verdict != "conditional" {
+                    return Err(PyValueError::new_err("callee proof has no admitted verdict"));
+                }
+                let controls: Vec<_> = summary.steps[start..index].iter().map(|step|
+                    cpg_schema::id::recipe::SummaryFlowProofStep {
+                        kind: if step.0 == "caller_condition_link" { SummaryFlowStepKind::CallerConditionLink }
+                            else { SummaryFlowStepKind::CalleeConditionLink },
+                        evidence_id: step.1, condition_id: step.2,
+                    }).collect();
+                let caller_root = graph.diagrams.get(&summary.condition_id)
+                    .ok_or_else(|| PyValueError::new_err("caller condition unavailable"))?;
+                let callee_root = graph.diagrams.get(&callee.condition_id)
+                    .ok_or_else(|| PyValueError::new_err("callee condition unavailable"))?;
+                cpg_schema::summary_contract::validate_fixed_control_proof(
+                    summary.function_node_id, caller_root, callee.function_node_id, callee_root,
+                    &controls, &control_links).map_err(PyValueError::new_err)?;
             }
         }
         Ok(Self {

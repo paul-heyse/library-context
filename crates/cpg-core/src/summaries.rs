@@ -16,7 +16,8 @@ use datafusion::prelude::SessionContext;
 
 use crate::{CoreError, sql};
 use lctx_analytics::summaries::finite::{
-    FiniteSummaryInputs, FiniteSummaryOutcome, LocalCallSummaryFlowSeed, ModeledChainArgument,
+    FiniteSummaryInputs, FiniteSummaryOutcome, LocalCallSummaryFlowSeed, LocalCallArgument,
+    LocalCallValueLink, ModeledChainArgument,
     ModeledAssignmentSummaryFlowSeed, ModeledSummaryFlowSeed, PrecedingCallRegion,
     PrecedingNormalCallArgument, ReturnPassStep,
     SummaryBoundaryCandidate, SummaryFlowSeed,
@@ -24,6 +25,8 @@ use lctx_analytics::summaries::finite::{
 
 cpg_schema::relations! {
     inventory relations;
+    expression_syntax = "summary_expression_syntax", deps = ["syntax_nodes"],
+        sql = "SELECT * FROM syntax_nodes".to_owned();
     provider_conditions = "summary_provider_conditions", deps = ["conditions"],
         sql = "SELECT DISTINCT condition_id, root_id, boundary_reason FROM conditions".to_owned();
     provider_nodes = "summary_provider_nodes", deps = ["condition_nodes"],
@@ -212,11 +215,13 @@ pub async fn finite_flows(
     let evaluations: Vec<cpg_schema::behavior::ModeledArgumentEvaluationsRow> = sql::fetch(ctx, &cpg_schema::behavior::modeled_argument_evaluations(), sql::Params::new()).await?;
     let assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::modeled_assignment_summary_flow_seeds(), sql::Params::new()).await?;
     let local_seeds: Vec<LocalCallSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::local_call_summary_flow_seeds(), sql::Params::new()).await?;
+    let local_arguments: Vec<LocalCallArgument> = sql::fetch(ctx, &cpg_schema::behavior::local_call_arguments(), sql::Params::new()).await?;
+    let local_value_links: Vec<LocalCallValueLink> = sql::fetch(ctx, &cpg_schema::behavior::local_call_value_links(), sql::Params::new()).await?;
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
     Ok(lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
         diagrams, boundaries, pass_steps, preceding_calls, normal_predecessors, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
-        boundary_candidates,
+        local_arguments, local_value_links, boundary_candidates,
     }))
 }
 
@@ -283,4 +288,11 @@ async fn load_conditions(
     diagrams
         .extend(hydrate_catalog(&provider_roots, &provider_nodes).map_err(CoreError::Analysis)?);
     Ok((diagrams, boundaries))
+}
+
+/// Mechanical source acquisition; the bounded evaluator owns completion semantics.
+pub async fn closed_expression_evaluations(ctx: &SessionContext)
+    -> Result<Vec<cpg_schema::behavior::ClosedExpressionEvaluationsRow>, CoreError> {
+    let nodes = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
+    Ok(lctx_analytics::evaluation::closed_arguments(&nodes))
 }

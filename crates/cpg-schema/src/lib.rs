@@ -27,6 +27,7 @@ pub mod projection;
 pub mod public;
 pub mod query;
 pub mod rules;
+pub mod summary_contract;
 pub mod table;
 pub mod tables;
 

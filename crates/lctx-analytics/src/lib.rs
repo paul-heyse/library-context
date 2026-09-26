@@ -40,3 +40,6 @@ pub const LIBRARIES: &str = env!("LCTX_ANALYTICS_LIBRARIES");
 pub fn libraries() -> Vec<String> {
     LIBRARIES.split("; ").map(str::to_owned).collect()
 }
+
+/// Bounded evaluation of closed source expressions.
+pub mod evaluation;

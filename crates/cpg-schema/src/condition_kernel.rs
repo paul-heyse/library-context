@@ -5,6 +5,8 @@ use crate::condition::{Atom, Condition, Literal, MAX_CONJUNCTIONS, MAX_LITERALS}
 use crate::id::{Id, IdHasher};
 use biodivine_lib_bdd::{Bdd, BddNode, BddPointer, BddVariable, BddVariableSet, op_function};
 
+mod substitution;
+
 /// Version of the structural node encoding persisted in a serving generation.
 pub const KERNEL_FORMAT: u32 = 1;
 /// Admission limits for one generation's catalog before native hydration.
@@ -673,6 +675,15 @@ impl Diagram {
             values.push((BddVariable::from_index(index), value));
         }
         Self::effective(self.support.clone(), self.ctx.clone(), self.bdd.restrict(&values))
+    }
+
+    /// Simultaneously replace source atoms by Boolean functions. Replacements are evaluated
+    /// against the original diagram: a replacement mentioning another source atom is not
+    /// substituted again. This is Boolean composition, not evidence of Python value identity.
+    /// Unknown or duplicate source atoms refuse the request. Work, each result and all retained
+    /// intermediate diagrams are bounded; refusal is never a false condition.
+    pub fn substitute_atoms(&self, replacements: &[(&str, &Self)]) -> Result<Self, KernelBoundary> {
+        substitution::compose(self, replacements)
     }
 
     /// A proposed quotient is accepted only when a capped equality check verifies it.
