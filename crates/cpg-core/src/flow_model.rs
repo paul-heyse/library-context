@@ -35,6 +35,7 @@ use cpg_schema::condition_kernel::{
 };
 use cpg_schema::id::{Id, IdHasher};
 use datafusion::prelude::SessionContext;
+use ruff_python_ast::Expr;
 
 use crate::CoreError;
 use crate::sql;
@@ -1473,10 +1474,74 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             .then_some(f.parent_node_id)
             .flatten()
     };
-    // Every attribute load by name, on any receiver (the Stage 2 end review's R7), then the
-    // place loads below.
+    // Builtin resolution is the authority for the getattr family. A syntax-only observation
+    // would mistake a shadowed name for the builtin and miss qualified or imported aliases.
+    let builtin_at: HashMap<Id, String> = call_rows
+        .iter()
+        .filter_map(|c| {
+            let callee = text_of(
+                &texts,
+                c.module_node_id,
+                c.callee_start_byte,
+                c.callee_end_byte,
+            )?;
+            let resolved = root_rows.iter().find_map(|r| {
+                if r.module_node_id != c.module_node_id
+                    || r.start_byte < c.callee_start_byte
+                    || r.end_byte > c.callee_end_byte
+                {
+                    return None;
+                }
+                if r.start_byte == c.callee_start_byte && r.end_byte == c.callee_end_byte {
+                    return r.builtin_name.as_deref().or_else(|| {
+                        (r.imported_module.as_deref() == Some("builtins"))
+                            .then(|| r.imported_name.as_deref())
+                            .flatten()
+                    });
+                }
+                if r.imported_module.as_deref() == Some("builtins")
+                    && r.imported_name.is_none()
+                    && let Some(name) = callee.strip_prefix(&format!("{}.", r.binding_name))
+                    && !name.contains('.')
+                {
+                    return Some(name);
+                }
+                None
+            })?;
+            Some((c.node_id, resolved.to_owned()))
+        })
+        .collect();
+    let mut arguments_of: HashMap<Id, Vec<&ArgumentRow>> = HashMap::new();
+    for a in &argument_rows {
+        arguments_of.entry(a.call_node_id).or_default().push(a);
+    }
+    for v in arguments_of.values_mut() {
+        v.sort_by_key(|a| a.start_byte);
+    }
+    let literal_name = |a: &ArgumentRow| -> Option<String> {
+        let source = text_of(&texts, a.module_node_id, a.start_byte, a.end_byte)?;
+        let parsed = ruff_python_parser::parse_expression(source).ok()?;
+        let Expr::StringLiteral(name) = parsed.expr() else {
+            return None;
+        };
+        Some(name.value.to_str().to_owned())
+    };
+    // Every resolved literal builtin read and direct attribute load by name, on any receiver,
+    // then the place loads below. The global name screen is conservative about receiver identity.
     let mut field_reads: HashMap<String, usize> =
         attribute_names.iter().map(|n| (n.clone(), 1)).collect();
+    for c in &call_rows {
+        if matches!(
+            builtin_at.get(&c.node_id).map(String::as_str),
+            Some("getattr" | "hasattr")
+        ) && let Some(name) = arguments_of
+            .get(&c.node_id)
+            .and_then(|args| args.get(1))
+            .and_then(|a| literal_name(a))
+        {
+            *field_reads.entry(name).or_default() += 1;
+        }
+    }
     for (write, module, place, start, end, func) in uses
         .iter()
         .map(|u| {
@@ -1939,33 +2004,12 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
 
     // Dynamic accesses: calls of a builtin in the getattr family, `vars`, `exec`/`eval`,
     // `__import__`, `importlib.import_module`; and `__dict__` loads.
-    let builtin_at: HashMap<(Id, i64, i64), &str> = root_rows
-        .iter()
-        .filter_map(|r| {
-            r.builtin_name
-                .as_deref()
-                .map(|b| ((r.module_node_id, r.start_byte, r.end_byte), b))
-        })
-        .collect();
-    let mut arguments_of: HashMap<Id, Vec<&ArgumentRow>> = HashMap::new();
-    for a in &argument_rows {
-        arguments_of.entry(a.call_node_id).or_default().push(a);
-    }
-    for v in arguments_of.values_mut() {
-        v.sort_by_key(|a| a.start_byte);
-    }
     let ancestors: HashMap<Id, Vec<Id>> = ancestry_rows.iter().fold(HashMap::new(), |mut m, r| {
         m.entry(r.class_node_id)
             .or_default()
             .push(r.ancestor_node_id);
         m
     });
-    let is_literal = |a: &ArgumentRow| -> bool {
-        text_of(&texts, a.module_node_id, a.start_byte, a.end_byte).is_some_and(|t| {
-            let t = t.trim();
-            (t.starts_with('"') || t.starts_with('\'')) && !t.starts_with("f")
-        })
-    };
     for c in &call_rows {
         let callee = text_of(
             &texts,
@@ -1974,9 +2018,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             c.callee_end_byte,
         )
         .unwrap_or_default();
-        let builtin = builtin_at
-            .get(&(c.module_node_id, c.callee_start_byte, c.callee_end_byte))
-            .copied();
+        let builtin = builtin_at.get(&c.node_id).map(String::as_str);
         let kind = match (builtin, callee) {
             (Some("getattr"), _) => DynamicKind::Getattr,
             (Some("setattr"), _) => DynamicKind::Setattr,
@@ -1998,7 +2040,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             DynamicKind::ImportModule | DynamicKind::DunderImport => args.first(),
             _ => None,
         };
-        if name_arg.is_some_and(|a| is_literal(a)) {
+        if name_arg.is_some_and(|a| literal_name(a).is_some()) {
             continue;
         }
         // The receiver's class under the model: `self` (through local copies) in a method of a

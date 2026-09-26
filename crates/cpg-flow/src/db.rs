@@ -1,5 +1,5 @@
 //! The salsa database ty's semantic index runs in: an in-memory file system holding only the
-//! modules we hand it, ty's vendored typeshed, and empty program settings. Nothing is discovered
+//! modules we hand it, ty's vendored typeshed, and explicit virtual-root program settings. Nothing is discovered
 //! from the environment (ADR-0022 §The flow provider).
 
 use ruff_db::Db as SourceDb;

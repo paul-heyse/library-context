@@ -34,7 +34,8 @@ pub use cpg_schema::condition_kernel::BoundedCondition as Condition;
 use cpg_schema::id::IdHasher;
 use ruff_db::files::system_path_to_file;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
-use ruff_db::system::DbWithWritableSystem;
+use ruff_db::system::{DbWithWritableSystem, SystemPathBuf};
+use ruff_db::Db as _;
 use ruff_python_ast_ty::token::TokenKind;
 use ruff_python_ast_ty::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
 use ruff_python_ast_ty::{self as ast, AnyNodeRef, Expr, ExprContext, PySourceType, Stmt};
@@ -44,7 +45,9 @@ use ty_python_core::ast_ids::HasScopedUseId;
 use ty_python_core::definition::{Definition, DefinitionKind, DefinitionState};
 use ty_python_core::place::PlaceExpr;
 use ty_python_core::predicate::PredicateNode;
-use ty_python_core::program::{Program, ProgramSettings};
+use ty_python_core::program::{FallibleStrategy, Program, ProgramSettings};
+use ty_python_core::platform::PythonPlatform;
+use ty_module_resolver::SearchPathSettings;
 use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
 use ty_python_core::scope::{NodeWithScopeKind, NodeWithScopeRef};
 use ty_python_core::{FileScopeId, ProgramFile, UseDefMap, semantic_index};
@@ -315,17 +318,17 @@ pub fn rename(text: &str) -> Result<(String, u32), String> {
 pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
     let mut db = FlowDb::new();
     let mut prepared = Vec::with_capacity(inputs.len());
-    for (i, input) in inputs.iter().enumerate() {
-        // A directory per module keeps paths distinct whatever the release's layout.
-        let path = format!("/flow/{i}/{}", input.path);
+    for input in inputs {
+        // Preserve the release layout under one virtual import root. ty can then resolve
+        // intra-release imports while never reading the host environment.
+        let path = format!("/flow/{}", input.path);
         prepared.push(rename(&input.text).and_then(|(text, n)| {
             db.write_file(&path, &text)
                 .map(|()| (path, n))
                 .map_err(|e| e.to_string())
         }));
     }
-    let vendored = ty_vendored::file_system().clone();
-    let settings = ProgramSettings::empty(&vendored);
+    let settings = program_settings(&db, context);
     let program = Program::from_settings(&db, &settings);
     // A panic aborts the extraction, as every analyzer's does (ADR-0012 §Panics).
     inputs
@@ -363,6 +366,51 @@ pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
             }
         })
         .collect()
+}
+
+fn program_settings(db: &FlowDb, context: &RuntimeContext) -> ProgramSettings {
+    let vendored = ty_vendored::file_system().clone();
+    let mut settings = ProgramSettings::empty(&vendored);
+    settings.python_version.version = ruff_python_ast_ty::PythonVersion::from((
+        u8::try_from(context.python_version.0).expect("configured Python major version"),
+        u8::try_from(context.python_version.1).expect("configured Python minor version"),
+    ));
+    settings.python_platform = PythonPlatform::from(context.platform.clone());
+    settings.search_paths = SearchPathSettings::new(vec![SystemPathBuf::from("/flow")])
+        .to_search_paths(db.system(), db.vendored(), &FallibleStrategy)
+        .expect("the virtual flow root is valid");
+    settings
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::{FlowDb, Program, RuntimeContext, program_settings};
+    use ruff_db::system::DbWithWritableSystem;
+    use ty_module_resolver::{ModuleName, resolve_module_confident};
+
+    #[test]
+    fn virtual_import_root_and_python_version_affect_resolution() {
+        let mut db = FlowDb::new();
+        db.write_file("/flow/consumer.py", "import helper\n").unwrap();
+        db.write_file("/flow/helper.py", "VALUE = 1\n").unwrap();
+        let context = |minor| RuntimeContext {
+            python_version: (3, minor, 0),
+            platform: "linux".to_owned(),
+        };
+        let old = Program::from_settings(&db, &program_settings(&db, &context(8)));
+        let current = Program::from_settings(&db, &program_settings(&db, &context(14)));
+        let resolved = |program: Program<'_>, name| {
+            resolve_module_confident(
+                &db,
+                program.resolver_environment(&db),
+                &ModuleName::new(name).unwrap(),
+            )
+            .is_some()
+        };
+        assert!(resolved(current, "helper"));
+        assert!(!resolved(old, "tomllib"));
+        assert!(resolved(current, "tomllib"));
+    }
 }
 
 fn module(
@@ -1216,18 +1264,6 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                         span: Span::from(e.range()),
                         name: a.attr.id.to_string(),
                     });
-                }
-                // `getattr(x, "f")` and `hasattr(x, "f")` load `f` by a literal name.
-                Expr::Call(call) => {
-                    if let Expr::Name(f) = &*call.func
-                        && matches!(f.id.as_str(), "getattr" | "hasattr")
-                        && let Some(Expr::StringLiteral(name)) = call.arguments.args.get(1)
-                    {
-                        self.w.flow.attribute_loads.push(AttributeLoad {
-                            span: Span::from(e.range()),
-                            name: name.value.to_str().to_owned(),
-                        });
-                    }
                 }
                 _ => {}
             }
