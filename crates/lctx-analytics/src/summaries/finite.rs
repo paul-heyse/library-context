@@ -49,6 +49,45 @@ cpg_schema::query_row! {
 }
 
 cpg_schema::query_row! {
+    pub struct ModeledChainArgument {
+        snapshot_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        parameter_name: String,
+        source_flow_fact_id: Id,
+        source_origin_id: Id,
+        condition_id: Id,
+        step: i64,
+        raw_step_count: i64,
+        call_start_byte: i64,
+        call_end_byte: i64,
+        operand_start_byte: i64,
+        operand_end_byte: i64,
+        sink_start_byte: i64,
+        sink_end_byte: i64,
+        call_site_node_id: Id,
+        call_fact_id: Id,
+        source_argument_fact_id: Id,
+        source_value_start_byte: i64,
+        source_value_end_byte: i64,
+        pysa_fact_id: Id,
+        model_id: Id,
+        rule_id: Id,
+        callee_resolution_fact_id: Id,
+        argument_count: i64,
+        argument_ordinal: i64,
+        argument_fact_id: Id,
+        evaluation_status: ModeledArgumentEvaluationStatus,
+        evaluation_evidence_id: Option<Id>,
+        return_site_fact_id: Id,
+        return_region_fact_id: Id,
+        return_condition_id: Id,
+        return_start_byte: i64,
+        approximated: bool,
+    }
+}
+
+cpg_schema::query_row! {
     pub struct ModeledAssignmentSummaryFlowSeed {
         snapshot_id: Id,
         function_node_id: Id,
@@ -400,6 +439,7 @@ pub struct FiniteSummaryInputs {
     pub components: Vec<SummaryComponentsRow>,
     pub direct_seeds: Vec<SummaryFlowSeed>,
     pub modeled_seeds: Vec<ModeledSummaryFlowSeed>,
+    pub chain_arguments: Vec<ModeledChainArgument>,
     pub evaluations: Vec<ModeledArgumentEvaluationsRow>,
     pub assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed>,
     pub local_seeds: Vec<LocalCallSummaryFlowSeed>,
@@ -657,6 +697,137 @@ fn modeled_call_proof(
     Some(proof)
 }
 
+const MAX_MODELED_CHAIN_STEPS: usize = 8;
+const MAX_MODELED_CHAIN_ARGUMENTS: usize = 128;
+
+/// Compose an exact chain from the returned outer call into its source argument call, ending
+/// at the raw formal use. A row missing at any step means no normal-completion proof.
+fn modeled_chain_proof(rows: &[ModeledChainArgument])
+    -> Result<Vec<recipe::SummaryFlowProofStep>, BoundaryReason>
+{
+    let first = rows.first().ok_or(BoundaryReason::MissingEvidence)?;
+    let depth = usize::try_from(first.raw_step_count)
+        .map_err(|_| BoundaryReason::MissingEvidence)?;
+    if depth < 2 { return Err(BoundaryReason::MissingEvidence); }
+    if depth > MAX_MODELED_CHAIN_STEPS {
+        return Err(BoundaryReason::SummaryDepthLimit);
+    }
+    if rows.len() > MAX_MODELED_CHAIN_ARGUMENTS {
+        return Err(BoundaryReason::BudgetReached);
+    }
+    let mut steps: Vec<Vec<&ModeledChainArgument>> = vec![Vec::new(); depth];
+    for row in rows {
+        let step = usize::try_from(row.step).map_err(|_| BoundaryReason::MissingEvidence)?;
+        if step >= depth || row.raw_step_count != first.raw_step_count
+            || row.snapshot_id != first.snapshot_id
+            || row.function_node_id != first.function_node_id
+            || row.parameter_node_id != first.parameter_node_id
+            || row.parameter_name != first.parameter_name
+            || row.source_flow_fact_id != first.source_flow_fact_id
+            || row.source_origin_id != first.source_origin_id
+            || row.condition_id != first.condition_id
+            || row.return_site_fact_id != first.return_site_fact_id
+            || row.return_region_fact_id != first.return_region_fact_id
+            || row.return_condition_id != first.return_condition_id
+            || row.return_start_byte != first.return_start_byte
+            || row.approximated != first.approximated
+        {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+        steps[step].push(row);
+    }
+    for arguments in &mut steps {
+        arguments.sort_by_key(|row| (row.argument_ordinal, row.argument_fact_id));
+        let Some(&call) = arguments.first() else {
+            return Err(BoundaryReason::CallTransfer);
+        };
+        if usize::try_from(call.argument_count).ok() != Some(arguments.len())
+            || arguments.iter().enumerate().any(|(ordinal, row)| {
+                row.argument_ordinal != ordinal as i64
+                    || row.call_site_node_id != call.call_site_node_id
+                    || row.call_fact_id != call.call_fact_id
+                    || row.source_argument_fact_id != call.source_argument_fact_id
+                    || row.pysa_fact_id != call.pysa_fact_id
+                    || row.model_id != call.model_id || row.rule_id != call.rule_id
+                    || row.callee_resolution_fact_id != call.callee_resolution_fact_id
+                    || row.call_start_byte != call.call_start_byte
+                    || row.call_end_byte != call.call_end_byte
+                    || row.source_value_start_byte != call.source_value_start_byte
+                    || row.source_value_end_byte != call.source_value_end_byte
+            })
+            || arguments.iter().filter(|row|
+                row.argument_fact_id == call.source_argument_fact_id).count() != 1
+            || call.operand_start_byte != call.source_value_start_byte
+            || call.operand_end_byte != call.source_value_end_byte
+        {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+    }
+    let outer = steps[0][0];
+    if outer.call_start_byte != outer.sink_start_byte
+        || outer.call_end_byte != outer.sink_end_byte
+    {
+        return Err(BoundaryReason::MissingEvidence);
+    }
+    for pair in steps.windows(2) {
+        let outer = pair[0][0];
+        let inner = pair[1][0];
+        if outer.source_value_start_byte != inner.call_start_byte
+            || outer.source_value_end_byte != inner.call_end_byte
+        {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+    }
+    fn visit(
+        index: usize,
+        steps: &[Vec<&ModeledChainArgument>],
+        raw: Id,
+        proof: &mut Vec<recipe::SummaryFlowProofStep>,
+    ) -> Result<(), BoundaryReason> {
+        let call = steps[index][0];
+        proof.push(recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::CalleeResolution,
+            evidence_id: call.callee_resolution_fact_id,
+            condition_id: call.condition_id,
+        });
+        for argument in &steps[index] {
+            let evidence = if argument.argument_fact_id == call.source_argument_fact_id {
+                if index + 1 < steps.len() {
+                    visit(index + 1, steps, raw, proof)?;
+                    steps[index + 1][0].call_fact_id
+                } else {
+                    raw
+                }
+            } else {
+                if argument.evaluation_status == ModeledArgumentEvaluationStatus::Unknown
+                    || argument.evaluation_status == ModeledArgumentEvaluationStatus::SourceOperand
+                {
+                    return Err(BoundaryReason::MissingEvidence);
+                }
+                argument.evaluation_evidence_id.ok_or(BoundaryReason::MissingEvidence)?
+            };
+            proof.push(recipe::SummaryFlowProofStep {
+                kind: SummaryFlowStepKind::ArgumentEvaluation,
+                evidence_id: evidence,
+                condition_id: call.condition_id,
+            });
+        }
+        for (kind, evidence_id) in [
+            (SummaryFlowStepKind::CallSite, call.call_fact_id),
+            (SummaryFlowStepKind::CallTarget, call.pysa_fact_id),
+            (SummaryFlowStepKind::ModelRule, call.rule_id),
+        ] {
+            proof.push(recipe::SummaryFlowProofStep {
+                kind, evidence_id, condition_id: call.condition_id,
+            });
+        }
+        Ok(())
+    }
+    let mut proof = Vec::new();
+    visit(0, &steps, first.source_flow_fact_id, &mut proof)?;
+    Ok(proof)
+}
+
 fn push_finite_path(
     flows: &mut Vec<SummaryFlowsRow>,
     steps: &mut Vec<SummaryFlowStepsRow>,
@@ -750,7 +921,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
 {
     let FiniteSummaryInputs {
         diagrams, boundaries, mut pass_steps, mut preceding_calls, normal_predecessors, components,
-        direct_seeds, modeled_seeds, evaluations, assignment_seeds, local_seeds,
+        direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         boundary_candidates,
     } = inputs;
     let mut refusals = Vec::new();
@@ -865,6 +1036,73 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 proof,
             },
         );
+    }
+    let mut chains: BTreeMap<BoundaryKey, Vec<ModeledChainArgument>> = BTreeMap::new();
+    for row in chain_arguments {
+        let key = (row.snapshot_id, row.function_node_id, row.parameter_node_id,
+            row.source_flow_fact_id, row.condition_id, row.source_origin_id);
+        chains.entry(key).or_default().push(row);
+    }
+    for (key, rows) in chains {
+        let seed = &rows[0];
+        let Some(condition) = diagrams.get(&seed.condition_id) else {
+            refuse(&mut refusals, key, boundaries.get(&seed.condition_id).copied()
+                .unwrap_or(BoundaryReason::MissingEvidence));
+            continue;
+        };
+        let Some(return_condition) = diagrams.get(&seed.return_condition_id) else {
+            refuse(&mut refusals, key, boundaries.get(&seed.return_condition_id).copied()
+                .unwrap_or(BoundaryReason::MissingEvidence));
+            continue;
+        };
+        if condition.is_false() { continue; }
+        match condition.implies(return_condition) {
+            Ok(true) => {},
+            Ok(false) => {
+                refuse(&mut refusals, key, BoundaryReason::UnsupportedControlFlow);
+                continue;
+            },
+            Err(limit) => {
+                refuse(&mut refusals, key, condition_limit(limit));
+                continue;
+            },
+        }
+        let mut proof = match preceding_call_steps(seed.function_node_id,
+            seed.return_start_byte, seed.condition_id, &preceding_calls,
+            &normal_by_call, &diagrams, &boundaries) {
+            Ok(proof) => proof,
+            Err(reason) => {
+                refuse(&mut refusals, key, reason);
+                continue;
+            },
+        };
+        match modeled_chain_proof(&rows) {
+            Ok(chain) => proof.extend(chain),
+            Err(reason) => {
+                refuse(&mut refusals, key, reason);
+                continue;
+            },
+        }
+        proof.push(recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::ReturnExit,
+            evidence_id: seed.return_site_fact_id,
+            condition_id: seed.return_condition_id,
+        });
+        push_finite_path(&mut flows, &mut steps, &pass_steps, FinitePath {
+            snapshot_id: seed.snapshot_id,
+            function_node_id: seed.function_node_id,
+            parameter_node_id: seed.parameter_node_id,
+            parameter_name: seed.parameter_name.clone(),
+            source_flow_fact_id: seed.source_flow_fact_id,
+            source_origin_id: seed.source_origin_id,
+            condition_id: seed.condition_id,
+            condition_is_true: condition.is_true(),
+            return_site_fact_id: seed.return_site_fact_id,
+            return_region_fact_id: seed.return_region_fact_id,
+            approximated: seed.approximated,
+            path_depth: seed.raw_step_count,
+            proof,
+        });
     }
     for seed in assignment_seeds {
         let key = (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
@@ -1305,6 +1543,7 @@ mod tests {
             components: Vec::new(),
             direct_seeds: vec![direct_seed()],
             modeled_seeds: Vec::new(),
+            chain_arguments: Vec::new(),
             evaluations: Vec::new(),
             assignment_seeds: Vec::new(),
             local_seeds: Vec::new(),
@@ -1325,6 +1564,58 @@ mod tests {
                 reach_budget: false,
             }],
         }
+    }
+
+    #[test]
+    fn modeled_chain_proof_is_depth_generic_source_ordered_and_conservative() {
+        fn row(step: u8, ordinal: i64) -> ModeledChainArgument {
+            let spans = [(10, 40, 20, 39), (20, 39, 30, 38), (30, 38, 35, 36)];
+            let (call_start, call_end, source_start, source_end) = spans[usize::from(step)];
+            ModeledChainArgument {
+                snapshot_id: id(1), function_node_id: id(2), parameter_node_id: id(3),
+                parameter_name: "value".to_owned(), source_flow_fact_id: id(4),
+                source_origin_id: id(9), condition_id: Diagram::always().id(),
+                step: i64::from(step), raw_step_count: 3,
+                call_start_byte: call_start, call_end_byte: call_end,
+                operand_start_byte: source_start, operand_end_byte: source_end,
+                sink_start_byte: 10, sink_end_byte: 40,
+                call_site_node_id: id(10 + step), call_fact_id: id(20 + step),
+                source_argument_fact_id: id(30 + step),
+                source_value_start_byte: source_start, source_value_end_byte: source_end,
+                pysa_fact_id: id(60 + step), model_id: id(70 + step),
+                rule_id: id(80 + step), callee_resolution_fact_id: id(90 + step),
+                argument_count: 2, argument_ordinal: ordinal,
+                argument_fact_id: if ordinal == 0 { id(40 + step) } else { id(30 + step) },
+                evaluation_status: if ordinal == 0 {
+                    ModeledArgumentEvaluationStatus::LiteralNormal
+                } else {
+                    ModeledArgumentEvaluationStatus::SourceOperand
+                },
+                evaluation_evidence_id: (ordinal == 0).then(|| id(50 + step)),
+                return_site_fact_id: id(5), return_region_fact_id: id(6),
+                return_condition_id: Diagram::always().id(), return_start_byte: 8,
+                approximated: false,
+            }
+        }
+        let rows: Vec<_> = (0..3).flat_map(|step| [row(step, 0), row(step, 1)]).collect();
+        let proof = modeled_chain_proof(&rows).unwrap();
+        assert_eq!(proof.iter().filter(|step| step.kind == SummaryFlowStepKind::ModelRule).count(), 3);
+        let mut shuffled = rows.clone();
+        shuffled.reverse();
+        let identity = |steps: Vec<recipe::SummaryFlowProofStep>| {
+            steps.into_iter().map(|step| (step.kind, step.evidence_id, step.condition_id))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(identity(modeled_chain_proof(&shuffled).unwrap()), identity(proof.clone()));
+        assert_eq!(proof[0].kind, SummaryFlowStepKind::CalleeResolution);
+        assert_eq!(proof[1].evidence_id, id(50));
+        assert_eq!(proof[2].kind, SummaryFlowStepKind::CalleeResolution);
+        let mut missing = rows.clone();
+        missing.retain(|row| !(row.step == 1 && row.argument_ordinal == 0));
+        assert_eq!(modeled_chain_proof(&missing).err(), Some(BoundaryReason::MissingEvidence));
+        let mut raising = rows;
+        raising[0].evaluation_status = ModeledArgumentEvaluationStatus::Unknown;
+        assert_eq!(modeled_chain_proof(&raising).err(), Some(BoundaryReason::MissingEvidence));
     }
 
     fn split_equalities(bits_per_half: usize) -> (Diagram, Diagram) {

@@ -73,6 +73,18 @@ def nested_identity(value: object) -> object:
     return cast(object, str(value))
 
 
+def nested_total_identity(value: object) -> object:
+    return cast(object, cast(object, value))
+
+
+def nested_three_total_identity(value: object) -> object:
+    return cast(object, cast(object, cast(object, value)))
+
+
+def nested_raising_identity(value: object) -> object:
+    return cast(object, cast(1 / 0, value))
+
+
 def computed_identity(value: object) -> object:
     return cast(object, value) or "fallback"
 

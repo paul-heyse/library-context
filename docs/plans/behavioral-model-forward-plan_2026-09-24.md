@@ -154,8 +154,14 @@ keyword mapping now passes the same proof, while `**` unpacking remains `call_tr
 The shared simple-argument evaluator admits `not` only over a direct Boolean literal;
 [the scoped review](../design_review/reviews/design_review_boolean-unary-argument_2026-09-26.md)
 records the real positive/raising contrast and the remaining expression boundary.
-This is narrower than order 1's exit:
-nested-call arguments, callee forms other than an unconditional module-level import,
+An exact whole-return chain of two or three closed total `typing.cast` identity models now
+composes from the ordered raw call path, one bound source argument per step and normal-evaluation
+witnesses for every sibling. Its inner call proof is inserted where its outer argument evaluates;
+the same pure relation is bounded to eight steps and 128 argument rows. The real provider,
+shared validator and native generation were checked with two- and three-call positives and a
+raising inner sibling; [the scoped review](../design_review/reviews/design_review_modeled-call-chain_2026-09-26.md)
+records the boundary. This is narrower than order 1's exit:
+arbitrary nested-call arguments, callee forms other than an unconditional module-level import,
 general predecessor sequencing, path-specific predecessor status, possible raises and the full
 return-path evaluation sequence
 remain to implement. A target's normal-return assertion alone never certifies its arguments.
@@ -171,8 +177,16 @@ recursive proof now carries Ruff's argument ordinals into the pure finite
 producer, which emits both argument-evaluation steps in source order even
 when the tracked value is the second keyword. A pure order control and real
 source/Delta/native checks cover the reversed case; the shared validator
-reconstructs its proof. General composed call/model/flow/exit step ordering
+reconstructs its proof. The bounded modeled-chain producer now interleaves each inner call at
+the outer argument's ordinal, with two- and three-call real proofs and a shuffled pure input
+control. General composed call/model/flow/exit step ordering across other channels
 and parallel-path identity remain open.
+
+**Order 4 checkpoint (2026-09-26; partial).** Closed, sole, definite pinned total identity
+models now support exact nested whole-return chains with every explicit sibling evaluated and
+the original source origin retained. A raising inner sibling and a nonidentity inner call keep
+an explicit unknown. Assignment predecessors, arbitrary nested expressions, other model
+families and complete path-specific predecessor evaluation remain open.
 
 **Stage 3 exit:** `behavior_shapes` part 2 passes and Stage 3's pre-registered exit rule (Q01, Q03,
 Q05, Q09) passes; then increment 4's assembled design/target review.

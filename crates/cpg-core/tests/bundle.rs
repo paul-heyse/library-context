@@ -448,6 +448,29 @@ assert any(any(step[0] == "callee_summary" for step in path[3]) for path in path
 paths, boundaries, total, truncated, work = inspect("capspkg.unpacked_local_wrapper", "value")
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.nested_total_identity", "value")
+assert not truncated and paths and not boundaries, (paths, boundaries)
+assert any(
+    next(row for row in generation.tables["summary_flows"].to_pylist()
+         if row["summary_id"].hex() == path[0])["path_depth"] == 2
+    and [step[0] for step in path[3]].count("model_rule") == 2
+    and [step[0] for step in path[3]][:2]
+        == ["callee_resolution", "argument_evaluation"]
+    and [step[0] for step in path[3]].index("model_rule")
+        < max(i for i, step in enumerate(path[3]) if step[0] == "argument_evaluation")
+    for path in paths
+), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.nested_raising_identity", "value")
+assert not truncated and not paths and boundaries, (paths, boundaries)
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.nested_three_total_identity", "value")
+assert not truncated and paths and not boundaries, (paths, boundaries)
+assert any(
+    next(row for row in generation.tables["summary_flows"].to_pylist()
+         if row["summary_id"].hex() == path[0])["path_depth"] == 3
+    and [step[0] for step in path[3]].count("model_rule") == 3
+    for path in paths
+), paths
 for operation, formal, kind, value, expected in (
     ("capspkg.string_member_identity", "transport", "str", "stdio", "refuted_under_model"),
     ("capspkg.string_member_identity", "transport", "str", "http", "compatible_under_model"),

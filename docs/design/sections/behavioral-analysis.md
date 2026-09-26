@@ -137,8 +137,8 @@ every row; the shared validator reconstructs each relation and rejects forged st
   definition matches that same lexical parameter binding and its condition is admitted. The
   same exact check admits a direct local assignment read as `assignment_name_normal`; its
   definition must match the lexical assignment binding. Both cite the reaching fact, not the
-  name spelling. Unpacking, possibly unbound/deleted names, nested calls and other unproved
-  expressions retain `outside_provider_model`. The literal/builtin/local-name classifier is
+  name spelling. Unpacking, possibly unbound/deleted names, nested calls outside the exact
+  modeled-chain route and other unproved expressions retain `outside_provider_model`. The literal/builtin/local-name classifier is
   shared with the predecessor-completion relation;
   neither treats a callee's `normal_return` assertion as proof that its arguments complete.
 
@@ -233,7 +233,7 @@ witness.
   a false condition yields nothing. **Tested in focused pure and Delta/native cases
   (2026-09-26).** A recursive call on the non-terminating branch does not erase a cited direct
   return on the terminating branch; an unconditional self-call before return still withholds the
-  direct flow. Nested calls as arguments and non-import callees are not yet admitted.
+  direct flow. Nested calls as arguments of an earlier call and non-import callees are not yet admitted.
 - **Modeled call:** an exact whole-expression call of `typing.cast` or `typing.assert_type` whose
   sole source target is closed, both modalities definite, the target asserts `normal_return`, the
   callee is one resolved simple name, and every explicit argument has ordered normal-evaluation
@@ -242,6 +242,16 @@ witness.
   region. An earlier same-function call before that return also needs the ordered
   normal-completion witness used by direct parameter returns; an opaque compatible earlier call
   withholds the modeled positive.
+- **Nested modeled identity chain:** an ordered raw `flow_value_calls` path through two or more
+  source arguments may compose when every step uniquely binds to a Ruff call and explicit
+  argument, a sole closed definite pinned identity target asserts normal return, and each sibling
+  argument has a normal-evaluation witness. `modeled_chain_arguments` gives the pure producer one
+  row per step and argument; it checks dense steps, exact spans, source and return identity, and
+  inserts the inner call proof at its outer source-argument position. The limit is eight call
+  steps and 128 argument rows per source contribution; exceeding it records a boundary. A missing
+  or unresolved step never supplies a normal result. Focused real-provider and native checks admit
+  two- and three-call `typing.cast` chains and withhold a raising inner sibling (2026-09-26).
+  This covers exact total identity chains, not arbitrary nested expressions or transforms.
 - **Assignment then return:** the same model-call proof on a whole assignment value, then a
   returned use with exactly one reaching definition whose bounded compatibility is proved and
   whose condition implies the reaching, successor and return-region conditions. Every earlier

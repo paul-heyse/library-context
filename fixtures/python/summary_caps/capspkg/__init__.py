@@ -98,6 +98,21 @@ def raising_not_predecessor(value: object) -> object:
     return value
 
 
+def nested_total_identity(value: object) -> object:
+    """Two exact total identity calls compose in argument evaluation order."""
+    return cast(object, cast(object, value))
+
+
+def nested_three_total_identity(value: object) -> object:
+    """A third exact call uses the same composed proof relation."""
+    return cast(object, cast(object, cast(object, value)))
+
+
+def nested_raising_identity(value: object) -> object:
+    """An inner raising sibling prevents the outer identity from completing."""
+    return cast(object, cast(1 / 0, value))
+
+
 def string_member_identity(transport: str) -> str | None:
     """A source-local membership guard constrains the returned formal."""
     if transport in ("http", "sse"):

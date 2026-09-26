@@ -23,7 +23,8 @@ use cpg_schema::codebook::{
     ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
     ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
     ModelResourceAction, ModelResourceSourceStatus, ModelTransferEndpointStatus, ModelTransferKind,
-    ModeledArgumentEvaluationStatus, ModeledHandlerClassMatch, Origin, Verdict,
+    ModeledArgumentEvaluationStatus, ModeledHandlerClassMatch, Origin, SummaryFlowStepKind,
+    Verdict,
 };
 use cpg_schema::condition::Value;
 use cpg_schema::condition_kernel::{ConditionRoot, DiagramNode, hydrate_catalog};
@@ -2577,7 +2578,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        20,
+        27,
         "the typing, JSON, gzip and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -2677,6 +2678,59 @@ budget = 1
         0,
         "a nested call or computed outer return has no exact two-step model path"
     );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f \
+            JOIN declarations d ON d.node_id = f.function_node_id \
+            WHERE d.name = 'nested_total_identity' AND f.path_depth = 2 \
+              AND f.boundary_reason IS NULL").await,
+        1,
+        "two exact total identity calls compose into one cited finite path"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f \
+            JOIN declarations d ON d.node_id = f.function_node_id \
+            WHERE d.name = 'nested_three_total_identity' AND f.path_depth = 3 \
+              AND f.boundary_reason IS NULL").await,
+        1,
+        "the same finite producer composes a third exact total identity call"
+    );
+    assert_eq!(
+        count(&ctx, &format!("WITH first_eval AS ( \
+              SELECT summary_id, min(ordinal) AS ordinal FROM summary_flow_steps \
+              WHERE kind = {evaluation} GROUP BY summary_id) \
+            SELECT count(*) FROM summary_flows f \
+            JOIN declarations d ON d.node_id = f.function_node_id \
+            JOIN first_eval ON first_eval.summary_id = f.summary_id \
+            JOIN summary_flow_steps outer_literal ON outer_literal.summary_id = f.summary_id \
+              AND outer_literal.kind = {evaluation} AND outer_literal.ordinal = first_eval.ordinal \
+            JOIN summary_flow_steps inner_site ON inner_site.summary_id = f.summary_id \
+              AND inner_site.kind = {site} \
+            JOIN summary_flow_steps outer_source ON outer_source.summary_id = f.summary_id \
+              AND outer_source.kind = {evaluation} \
+              AND outer_source.evidence_id = inner_site.evidence_id \
+            WHERE d.name = 'nested_total_identity' AND f.path_depth = 2 \
+              AND outer_literal.ordinal < inner_site.ordinal \
+              AND inner_site.ordinal < outer_source.ordinal",
+            evaluation = SummaryFlowStepKind::ArgumentEvaluation.code(),
+            site = SummaryFlowStepKind::CallSite.code())).await,
+        1,
+        "the outer literal precedes the inner call, whose result precedes the outer call"
+    );
+    for name in ["nested_identity", "nested_raising_identity"] {
+        assert_eq!(
+            count(&ctx, &format!("SELECT count(*) FROM summary_flows f \
+                JOIN declarations d ON d.node_id = f.function_node_id \
+                WHERE d.name = '{name}' AND f.path_depth = 2")).await,
+            0,
+            "{name} has no exact normally completed inner identity"
+        );
+        assert!(
+            count(&ctx, &format!("SELECT count(*) FROM summary_boundaries b \
+                JOIN declarations d ON d.node_id = b.function_node_id \
+                WHERE d.name = '{name}' AND b.local_through_call")).await > 0,
+            "{name} keeps an explicit open source origin"
+        );
+    }
     assert_eq!(
         count(
             &ctx,
@@ -3070,7 +3124,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        25,
+        32,
         "each pinned model applies only at its resolved source call"
     );
     assert!(

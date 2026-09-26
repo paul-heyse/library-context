@@ -2385,6 +2385,104 @@ crate::relations! {
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
 
+    /// One explicit argument of a closed identity-model call in a raw returned call chain.
+    /// Every raw step must qualify independently; the pure finite producer checks dense
+    /// nesting and argument order before it composes a path. A missing row is never normal.
+    modeled_chain_arguments = "behavior:modeled_chain_arguments",
+        deps = ["value_flow_contributions", "flow_values", "flow_value_calls",
+                "flow_value_call_links", "call_syntax", "arguments", "modeled_transfer_sites",
+                "model_applications", "syntax_nodes", "references", "reference_resolutions",
+                "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses",
+                "flow_uses", "flow_reaching", "flow_definitions", "bindings",
+                "analysis_conditions"],
+        sql = format!(
+            "WITH {simple_args}, {callee_candidates}, raw_steps AS ( \
+               SELECT fc.*, count(*) OVER (PARTITION BY fc.flow_value_fact_id) AS raw_step_count \
+               FROM flow_value_calls fc \
+             ) \
+             SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
+                    v.parameter_node_id, p.name AS parameter_name, \
+                    v.flow_value_fact_id AS source_flow_fact_id, v.origin_id AS source_origin_id, \
+                    v.condition_id, rs.step, rs.raw_step_count, \
+                    rs.call_start_byte, rs.call_end_byte, \
+                    rs.operand_start_byte, rs.operand_end_byte, \
+                    f.sink_start_byte, f.sink_end_byte, \
+                    c.node_id AS call_site_node_id, c.fact_id AS call_fact_id, \
+                    source_arg.fact_id AS source_argument_fact_id, \
+                    source_arg.value_start_byte AS source_value_start_byte, \
+                    source_arg.value_end_byte AS source_value_end_byte, \
+                    m.pysa_fact_id, m.model_id, m.rule_id, \
+                    cc.resolution_fact_id AS callee_resolution_fact_id, \
+                    c.positional_count + c.keyword_count AS argument_count, \
+                    arg.ordinal AS argument_ordinal, arg.fact_id AS argument_fact_id, \
+                    s.status AS evaluation_status, s.evidence_id AS evaluation_evidence_id, \
+                    e.source_fact_id AS return_site_fact_id, \
+                    e.region_fact_id AS return_region_fact_id, \
+                    e.condition_id AS return_condition_id, ret.start_byte AS return_start_byte, \
+                    (f.approximated OR e.approximated) AS approximated \
+             FROM value_flow_contributions v \
+             JOIN flow_values f ON f.fact_id = v.flow_value_fact_id AND f.sink = {return_sink} \
+             JOIN raw_steps rs ON rs.flow_value_fact_id = f.fact_id \
+               AND rs.use_id = v.use_id AND rs.raw_step_count >= 2 \
+             JOIN flow_value_call_links l ON l.flow_value_call_fact_id = rs.fact_id \
+               AND l.status = {bound_argument} \
+             JOIN call_syntax c ON c.node_id = l.call_node_id \
+               AND c.owner_node_id = v.sink_function_node_id \
+               AND c.start_byte = rs.call_start_byte AND c.end_byte = rs.call_end_byte \
+             JOIN arguments source_arg ON source_arg.node_id = l.argument_node_id \
+               AND source_arg.fact_id = l.argument_fact_id \
+               AND source_arg.call_node_id = c.node_id \
+               AND source_arg.kind IN ({positional}, {keyword}) \
+             JOIN modeled_transfer_sites m ON m.call_site_node_id = c.node_id \
+               AND m.input_expression_node_id = source_arg.node_id \
+               AND m.output_expression_node_id = c.node_id \
+               AND m.function_node_id = v.sink_function_node_id \
+             JOIN model_applications app ON app.call_site_node_id = c.node_id \
+               AND app.pysa_fact_id = m.pysa_fact_id AND app.model_id = m.model_id \
+               AND app.target_node_id = m.target_node_id \
+             JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
+               AND cc.candidate_count = 1 \
+             JOIN arguments arg ON arg.call_node_id = c.node_id \
+             JOIN simple_arguments s ON s.argument_fact_id = arg.fact_id \
+             JOIN parameter_syntax p ON p.node_id = v.parameter_node_id \
+               AND p.function_node_id = v.sink_function_node_id \
+             JOIN declarations d ON d.node_id = v.sink_function_node_id \
+               AND d.kind = {function_kind} \
+             JOIN syntax_nodes ret ON ret.owner_node_id = d.node_id \
+               AND ret.kind = {return_kind} AND ret.module_node_id = f.module_node_id \
+               AND ret.start_byte <= f.sink_start_byte AND ret.end_byte >= f.sink_end_byte \
+             JOIN exit_sites e ON e.site_node_id = ret.node_id \
+               AND e.function_node_id = d.node_id AND e.kind = {exit_return} \
+             JOIN return_exit_statuses x ON x.site_node_id = e.site_node_id AND x.reason IS NULL \
+             WHERE v.parameter_node_id IS NOT NULL \
+               AND v.function_node_id = v.sink_function_node_id \
+               AND v.upstream_identity AND v.local_through_call \
+               AND m.input_status = {bound_input} AND m.output_status = {call_result} \
+               AND m.transfer = {identity} AND m.target_modality = {definite} \
+               AND m.model_modality = {definite} \
+               AND app.target_count = 1 AND app.candidate_set_complete_under_model \
+               AND NOT app.has_unresolved_remainder AND app.target_normal_return \
+               AND app.phase = {call_phase} \
+               AND NOT EXISTS (SELECT 1 FROM syntax_nodes y WHERE y.owner_node_id = d.node_id \
+                 AND y.kind IN ({yield_kind}, {yield_from_kind}))",
+            simple_args = simple_argument_evidence_sql(),
+            callee_candidates = modeled_callee_candidates_sql(),
+            return_sink = FlowSink::Return.code(),
+            bound_argument = FlowCallLinkStatus::BoundArgument.code(),
+            positional = ArgumentKind::Positional.code(),
+            keyword = ArgumentKind::Keyword.code(),
+            function_kind = DeclarationKind::Function.code(),
+            return_kind = SyntaxKind::StmtReturn.code(),
+            exit_return = ExitSiteKind::Return.code(),
+            bound_input = ModelTransferEndpointStatus::BoundArgument.code(),
+            call_result = ModelTransferEndpointStatus::CallResult.code(),
+            identity = ModelTransferKind::Identity.code(),
+            definite = Modality::Definite.code(),
+            call_phase = InvocationPhase::Call.code(),
+            yield_kind = SyntaxKind::ExprYield.code(),
+            yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
+        );
+
     /// The two-hop assignment form of the same pinned identity call. The successor must have
     /// exactly one provider reaching row, and the independent predecessor compatibility check
     /// must admit it. The kernel still verifies all four condition implications at admission.
