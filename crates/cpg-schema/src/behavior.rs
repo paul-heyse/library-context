@@ -2470,8 +2470,8 @@ crate::relations! {
             yield_from_kind = SyntaxKind::ExprYieldFrom.code(),
         );
 
-    /// One exact source-call result returned by a synchronous caller, with a positional
-    /// parameter operand and one definite closed local target. A second positional operand
+    /// One exact source-call result returned by a synchronous caller, with a positional or
+    /// explicit keyword parameter operand and one definite closed local target. A second positional operand
     /// is admitted only when it is an exact boolean literal, or a directly read caller formal
     /// whose caller guard fixes its truth value. Both map definitely to a distinct callee
     /// formal with a cited entry-value test link. Callee summaries join in the SCC worklist, not
@@ -2529,10 +2529,12 @@ crate::relations! {
                AND l.status = {bound_argument} \
              JOIN call_syntax c ON c.node_id = l.call_node_id \
                AND c.owner_node_id = v.sink_function_node_id \
-               AND c.positional_count IN (1, 2) AND c.keyword_count = 0 \
+               AND ((c.positional_count IN (1, 2) AND c.keyword_count = 0) OR \
+                    (c.positional_count = 0 AND c.keyword_count = 1)) \
              JOIN arguments arg ON arg.node_id = l.argument_node_id \
                AND arg.fact_id = l.argument_fact_id \
-               AND arg.call_node_id = c.node_id AND arg.kind = {positional} \
+               AND arg.call_node_id = c.node_id \
+               AND arg.kind IN ({positional}, {keyword}) \
                AND arg.ordinal = 0 \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
@@ -2610,7 +2612,7 @@ crate::relations! {
              WHERE v.parameter_node_id IS NOT NULL \
                AND v.function_node_id = v.sink_function_node_id \
                AND v.upstream_identity AND v.local_through_call \
-               AND (c.positional_count = 1 OR \
+               AND ((c.positional_count + c.keyword_count = 1) OR \
                     (c.positional_count = 2 AND control_map.formal_node_id IS NOT NULL \
                      AND control_map.formal_node_id <> a.formal_node_id \
                      AND test_leaf.atom IS NOT NULL AND \
@@ -2628,6 +2630,7 @@ crate::relations! {
             return_sink = FlowSink::Return.code(),
             bound_argument = FlowCallLinkStatus::BoundArgument.code(),
             positional = ArgumentKind::Positional.code(),
+            keyword = ArgumentKind::Keyword.code(),
             definite = Modality::Definite.code(),
             call_phase = InvocationPhase::Call.code(),
             literal_class = crate::flows::value_class::LITERAL,

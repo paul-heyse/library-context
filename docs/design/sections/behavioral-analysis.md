@@ -248,8 +248,8 @@ witness.
   compatible call before the returned use, including the assignment's source call, needs an
   independent ordered normal-completion witness.
 - **Local wrapper:** a synchronous caller inherits an unconditional value summary of
-  its sole definite local target when ty's one-call value path, Ruff's exact one-positional-argument
-  syntax, lexical callee resolution, Pass B's single formal mapping, a closed target set and a
+  its sole definite local target when ty's one-call value path, Ruff's exact single explicit
+  positional-or-keyword argument syntax, lexical callee resolution, Pass B's single formal mapping, a closed target set and a
   direct return exit agree, along a callee-first SCC schedule capped at depth 8. Within a
   recursive component a deterministic worklist reuses each newly cited value path. One narrow
   two-argument case can also specialize a **conditional** callee path: the first positional

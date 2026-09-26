@@ -84,6 +84,14 @@ def recursive_false_control(value, stop):
     return recursive_false_control(value, False)
 
 
+def keyword_local_wrapper(value):
+    return plain_identity(value=value)
+
+
+def unpacked_local_wrapper(value):
+    return plain_identity(**{"value": value})
+
+
 def guarded_symbolic_recursive(value, stop):
     if stop:
         return guarded_symbolic_base(value, stop)
@@ -115,4 +123,4 @@ def alternate_branch_identity(value, invoke):
     return None
 
 
-__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "multi_pass_finally_identity", "pass_then_effect_finally", "nested_effectful_finalizer", "with_identity", "recursive_before_return", "recursive_base_identity", "recursive_false_control", "guarded_symbolic_recursive", "guarded_symbolic_base", "conditional_self_recursive", "prior_call_identity", "alternate_branch_identity"]
+__all__ = ["plain_identity", "nested_identity", "finally_identity", "finally_pass_identity", "nested_finally_pass_identity", "multi_pass_finally_identity", "pass_then_effect_finally", "with_identity", "recursive_before_return", "recursive_base_identity", "recursive_false_control", "keyword_local_wrapper", "unpacked_local_wrapper", "guarded_symbolic_recursive", "guarded_symbolic_base", "conditional_self_recursive", "prior_call_identity", "alternate_branch_identity"]

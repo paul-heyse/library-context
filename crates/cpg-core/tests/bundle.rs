@@ -408,6 +408,12 @@ assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path 
 paths, boundaries, total, truncated, work = inspect("capspkg.assigned_modeled_after_completed", "value")
 assert not truncated and not boundaries, (paths, boundaries)
 assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.keyword_local_wrapper", "value")
+assert not truncated and paths and not boundaries, (paths, boundaries)
+assert any(any(step[0] == "callee_summary" for step in path[3]) for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.unpacked_local_wrapper", "value")
+assert not truncated and not paths and boundaries, (paths, boundaries)
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 for operation, formal, kind, value, expected in (
     ("capspkg.string_member_identity", "transport", "str", "stdio", "refuted_under_model"),
     ("capspkg.string_member_identity", "transport", "str", "http", "compatible_under_model"),

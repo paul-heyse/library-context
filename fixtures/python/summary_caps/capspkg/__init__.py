@@ -145,6 +145,16 @@ def local_after_opaque(value: object) -> object:
     return f0(value)
 
 
+def keyword_local_wrapper(value: object) -> object:
+    """One explicit keyword binds the tracked value to the callee formal."""
+    return f0(value=value)
+
+
+def unpacked_local_wrapper(value: object) -> object:
+    """An unpacked mapping is outside the exact local-call relation."""
+    return f0(**{"value": value})
+
+
 def completed_then_raising(value: object) -> object:
     """An earlier completed call cannot certify a later raising sibling."""
     cast(object, 1)

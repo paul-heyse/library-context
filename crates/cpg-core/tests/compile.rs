@@ -946,6 +946,20 @@ budget = 1
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
+            WHERE d.name = 'keyword_local_wrapper' AND f.path_depth = 1").await,
+        1,
+        "a single explicit keyword with a definite formal mapping transfers a local value"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id \
+            WHERE d.name = 'unpacked_local_wrapper'").await,
+        0,
+        "unpacked keyword arguments do not supply an exact local-call mapping"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id \
             WHERE d.name = 'conditional_self_recursive' AND f.path_depth > 0").await,
         0,
         "the conditional base cannot be reused as an unconditional recursive callee path"
