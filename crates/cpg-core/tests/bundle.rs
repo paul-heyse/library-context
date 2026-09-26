@@ -452,6 +452,16 @@ paths, boundaries, total, truncated, work = inspect("capspkg.recursive_literal_f
 assert not truncated and paths and boundaries, (paths, boundaries)
 assert not any(any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.guarded_symbolic_recursive", "value")
+assert not truncated and paths, (paths, boundaries)
+assert any(path[1] == "conditional"
+           and any(step[0] == "caller_condition_link" for step in path[3])
+           and any(step[0] == "callee_condition_link" for step in path[3])
+           for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.guarded_symbolic_base", "value")
+assert not truncated and paths and boundaries, (paths, boundaries)
+assert not any(any(step[0] == "caller_condition_link" for step in path[3]) for path in paths), paths
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = inspect("capspkg.mixed_origin", "value")
 assert not truncated and len(paths) == 1 and not boundaries, (paths, boundaries)
 positive = next(row for row in generation.tables["summary_flows"].to_pylist()

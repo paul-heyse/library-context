@@ -1378,6 +1378,8 @@ codebook!(
         /// An exact entry-formal test link specializes the cited callee condition under a
         /// source-cited literal argument; the condition itself remains the caller's root.
         CalleeConditionLink = 14 => "callee_condition_link",
+        /// A directly tested caller formal whose path condition fixes the forwarded value.
+        CallerConditionLink = 15 => "caller_condition_link",
     }
 );
 

@@ -212,6 +212,19 @@ def recursive_literal_false(value: object, stop: bool) -> object:
     return recursive_literal_false(value, False)
 
 
+def guarded_symbolic_recursive(value: object, stop: bool) -> object | None:
+    """A caller guard fixes the directly forwarded control parameter."""
+    if stop:
+        return guarded_symbolic_base(value, stop)
+    return None
+
+
+def guarded_symbolic_base(value: object, stop: bool) -> object | None:
+    if stop:
+        return value
+    return guarded_symbolic_recursive(value, stop)
+
+
 def unconditional_self_call(value: object) -> object:
     """A later direct return does not prove this recursive call completed."""
     unconditional_self_call(value)

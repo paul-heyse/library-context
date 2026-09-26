@@ -97,11 +97,13 @@ cpg_schema::query_row! {
         return_start_byte: i64,
         approximated: bool,
         control_argument_fact_id: Option<Id>,
-        control_literal_fact_id: Option<Id>,
+        control_evaluation_fact_id: Option<Id>,
         control_formal_node_id: Option<Id>,
         control_link_id: Option<Id>,
         control_atom: Option<String>,
         control_value: Option<bool>,
+        control_source_link_id: Option<Id>,
+        control_source_atom: Option<String>,
     }
 }
 
@@ -287,22 +289,54 @@ struct FinitePath {
     proof: Vec<recipe::SummaryFlowProofStep>,
 }
 
-/// The query ties a second literal argument to its distinct callee formal and to an exact
-/// entry-value test link. A partial row is never silently treated as the one-argument case.
-fn literal_control(seed: &LocalCallSummaryFlowSeed)
-    -> Result<Option<(Id, Id, &str, bool)>, BoundaryReason>
-{
+/// The second argument is a literal or a directly read caller formal with an exact tested
+/// value in the caller's path condition. A partial row is never the one-argument case.
+#[derive(Clone, Copy)]
+struct ControlEvidence<'a> {
+    evaluation: Id,
+    callee_link: Id,
+    callee_atom: &'a str,
+    literal: Option<bool>,
+    caller_link: Option<Id>,
+    caller_atom: Option<&'a str>,
+}
+
+fn control_evidence(seed: &LocalCallSummaryFlowSeed)
+    -> Result<Option<ControlEvidence<'_>>, BoundaryReason> {
     match (
-        seed.control_argument_fact_id, seed.control_literal_fact_id,
+        seed.control_argument_fact_id, seed.control_evaluation_fact_id,
         seed.control_formal_node_id, seed.control_link_id,
         seed.control_atom.as_deref(), seed.control_value,
+        seed.control_source_link_id, seed.control_source_atom.as_deref(),
     ) {
-        (None, None, None, None, None, None) => Ok(None),
-        (Some(_), Some(literal), Some(_), Some(link), Some(atom), Some(value))
+        (None, None, None, None, None, None, None, None) => Ok(None),
+        (Some(_), Some(evaluation), Some(_), Some(link), Some(atom), Some(value), None, None)
             if matches!(Atom::parse_encoded(atom), Ok(Atom::Evaluated { atom, .. })
-                if matches!(*atom, Atom::Truthy { .. })) => Ok(Some((literal, link, atom, value))),
+                if matches!(*atom, Atom::Truthy { .. })) => Ok(Some(ControlEvidence {
+                    evaluation, callee_link: link, callee_atom: atom,
+                    literal: Some(value), caller_link: None, caller_atom: None,
+                })),
+        (Some(_), Some(evaluation), Some(_), Some(link), Some(atom), None,
+         Some(source_link), Some(source_atom))
+            if matches!(Atom::parse_encoded(atom), Ok(Atom::Evaluated { atom, .. })
+                if matches!(*atom, Atom::Truthy { .. }))
+            && matches!(Atom::parse_encoded(source_atom), Ok(Atom::Evaluated { atom, .. })
+                if matches!(*atom, Atom::Truthy { .. })) => Ok(Some(ControlEvidence {
+                    evaluation, callee_link: link, callee_atom: atom,
+                    literal: None, caller_link: Some(source_link),
+                    caller_atom: Some(source_atom),
+                })),
         _ => Err(BoundaryReason::MissingEvidence),
     }
+}
+
+fn fixed_caller_truth(diagram: &Diagram, encoded_atom: &str)
+    -> Result<Option<bool>, KernelBoundary> {
+    let atom = Atom::parse_encoded(encoded_atom).expect("validated caller control atom");
+    let predicate = Diagram::from_atom(&atom)?;
+    if diagram.implies(&predicate)? { return Ok(Some(true)); }
+    if diagram.implies(&predicate.not()?)? { return Ok(Some(false)); }
+    Ok(None)
 }
 
 cpg_schema::query_row! {
@@ -346,6 +380,7 @@ type PrecedingCallIndex = HashMap<Id, Vec<PrecedingCallRegion>>;
 type NormalPredecessorIndex = HashMap<Id, Vec<PrecedingNormalCallArgument>>;
 type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
+#[derive(Clone)]
 pub struct FiniteSummaryInputs {
     pub diagrams: HashMap<Id, Diagram>,
     pub boundaries: HashMap<Id, BoundaryReason>,
@@ -971,7 +1006,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             refuse(&mut refusals, key, BoundaryReason::CallTransfer);
             continue;
         };
-        if let Err(reason) = literal_control(&seed) {
+        if let Err(reason) = control_evidence(&seed) {
             refuse(&mut refusals, key, reason);
             continue;
         }
@@ -1060,16 +1095,32 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             {
                 continue;
             }
-            let control = literal_control(seed).expect("validated local control");
+            let control = control_evidence(seed).expect("validated local control");
             let specialized = if callee_condition.is_true() {
                 None
             } else {
-                let Some((_, link, atom, value)) = control else { continue };
-                if !callee_condition.support().iter().any(|candidate| candidate == atom) {
+                let Some(control) = control else { continue };
+                if !callee_condition.support().iter().any(|candidate|
+                    candidate == control.callee_atom) {
                     continue;
                 }
-                match callee_condition.restrict_atoms(&[(atom, value)]) {
-                    Ok(restricted) if restricted.is_true() => Some(link),
+                let value = if let Some(value) = control.literal {
+                    value
+                } else {
+                    let caller = diagrams.get(&seed.condition_id)
+                        .expect("validated caller condition");
+                    let source_atom = control.caller_atom.expect("validated caller atom");
+                    match fixed_caller_truth(caller, source_atom) {
+                        Ok(Some(value)) => value,
+                        Ok(None) => continue,
+                        Err(limit) => {
+                            path.condition_refusal = Some(condition_limit(limit));
+                            continue;
+                        }
+                    }
+                };
+                match callee_condition.restrict_atoms(&[(control.callee_atom, value)]) {
+                    Ok(restricted) if restricted.is_true() => Some(control.callee_link),
                     Ok(_) => continue,
                     Err(limit) => {
                         path.condition_refusal = Some(condition_limit(limit));
@@ -1096,10 +1147,10 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 ),
             ].into_iter().map(|(kind, evidence_id, condition_id)|
                 recipe::SummaryFlowProofStep { kind, evidence_id, condition_id }));
-            if let Some((literal, _, _, _)) = control {
+            if let Some(control) = control {
                 proof.push(recipe::SummaryFlowProofStep {
                     kind: SummaryFlowStepKind::ArgumentEvaluation,
-                    evidence_id: literal,
+                    evidence_id: control.evaluation,
                     condition_id: seed.condition_id,
                 });
             }
@@ -1117,6 +1168,13 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             ].into_iter().map(|(kind, evidence_id, condition_id)|
                 recipe::SummaryFlowProofStep { kind, evidence_id, condition_id }));
             if let Some(link) = specialized {
+                if let Some(source_link) = control.and_then(|c| c.caller_link) {
+                    proof.push(recipe::SummaryFlowProofStep {
+                        kind: SummaryFlowStepKind::CallerConditionLink,
+                        evidence_id: source_link,
+                        condition_id: seed.condition_id,
+                    });
+                }
                 proof.push(recipe::SummaryFlowProofStep {
                     kind: SummaryFlowStepKind::CalleeConditionLink,
                     evidence_id: link,
@@ -1300,9 +1358,10 @@ mod tests {
             return_region_fact_id: id(call + 5),
             return_condition_id: Diagram::always().id(), return_start_byte: 30,
             approximated: false,
-            control_argument_fact_id: None, control_literal_fact_id: None,
+            control_argument_fact_id: None, control_evaluation_fact_id: None,
             control_formal_node_id: None, control_link_id: None,
             control_atom: None, control_value: None,
+            control_source_link_id: None, control_source_atom: None,
         }
     }
 
@@ -1357,11 +1416,13 @@ mod tests {
             let mut edge = recursive_edge(2, 3, 2, 3, 40, 41, 50);
             edge.condition_id = else_path.id();
             edge.control_argument_fact_id = Some(id(70));
-            edge.control_literal_fact_id = Some(id(71));
+            edge.control_evaluation_fact_id = Some(id(71));
             edge.control_formal_node_id = Some(id(72));
             edge.control_link_id = Some(id(73));
             edge.control_atom = Some(atom.encode());
             edge.control_value = Some(literal);
+            edge.control_source_link_id = None;
+            edge.control_source_atom = None;
             input.boundary_candidates.push(recursive_candidate(&edge));
             input.local_seeds.push(edge);
             input
@@ -1379,6 +1440,59 @@ mod tests {
             && step.evidence_id == id(73)));
 
         let withheld = finite_flows(make_input(false));
+        assert!(!withheld.flows.iter().any(|row| row.source_origin_id == id(41)));
+        assert!(withheld.boundaries.iter().any(|row| row.source_origin_id == id(41)
+            && row.reason == BoundaryReason::CallTransfer));
+    }
+
+    #[test]
+    fn exact_forwarded_control_requires_the_caller_guard() {
+        use cpg_schema::condition::EvaluationIdentity;
+
+        let callee_atom = Atom::Truthy { place: "stop".to_owned() }.evaluated(
+            EvaluationIdentity::Synthetic {
+                module: "00".repeat(16), predicate: "11".repeat(16),
+            });
+        let caller_atom = Atom::Truthy { place: "stop".to_owned() }.evaluated(
+            EvaluationIdentity::Synthetic {
+                module: "00".repeat(16), predicate: "22".repeat(16),
+            });
+        let callee_guard = Diagram::from_atom(&callee_atom).unwrap();
+        let caller_guard = Diagram::from_atom(&caller_atom).unwrap();
+        let mut input = inputs();
+        for root in [&callee_guard, &caller_guard] {
+            input.diagrams.insert(root.id(), root.clone());
+        }
+        input.direct_seeds[0].condition_id = callee_guard.id();
+        input.boundary_candidates[0].condition_id = callee_guard.id();
+        input.components.extend([recursive_member(2, 0), recursive_member(4, 1)]);
+        let mut edge = recursive_edge(4, 5, 2, 3, 40, 41, 50);
+        edge.condition_id = caller_guard.id();
+        edge.control_argument_fact_id = Some(id(70));
+        edge.control_evaluation_fact_id = Some(id(71));
+        edge.control_formal_node_id = Some(id(72));
+        edge.control_link_id = Some(id(73));
+        edge.control_atom = Some(callee_atom.encode());
+        edge.control_source_link_id = Some(id(74));
+        edge.control_source_atom = Some(caller_atom.encode());
+        input.boundary_candidates.push(recursive_candidate(&edge));
+        input.local_seeds.push(edge);
+        let positive = finite_flows(input.clone());
+        let local = positive.flows.iter().find(|row| row.source_origin_id == id(41)).unwrap();
+        assert_eq!(local.condition_id, caller_guard.id());
+        assert_eq!(local.verdict, Verdict::Conditional);
+        assert!(positive.steps.iter().any(|step| step.summary_id == local.summary_id
+            && step.kind == SummaryFlowStepKind::CallerConditionLink
+            && step.evidence_id == id(74)));
+        assert!(positive.steps.iter().any(|step| step.summary_id == local.summary_id
+            && step.kind == SummaryFlowStepKind::CalleeConditionLink
+            && step.evidence_id == id(73)));
+
+        let opposite = caller_guard.not().unwrap();
+        input.diagrams.insert(opposite.id(), opposite.clone());
+        input.local_seeds[0].condition_id = opposite.id();
+        input.boundary_candidates[1].condition_id = opposite.id();
+        let withheld = finite_flows(input);
         assert!(!withheld.flows.iter().any(|row| row.source_origin_id == id(41)));
         assert!(withheld.boundaries.iter().any(|row| row.source_origin_id == id(41)
             && row.reason == BoundaryReason::CallTransfer));
@@ -1689,9 +1803,10 @@ mod tests {
                 return_condition_id: always,
                 return_start_byte: 30,
                 approximated: false,
-                control_argument_fact_id: None, control_literal_fact_id: None,
+                control_argument_fact_id: None, control_evaluation_fact_id: None,
                 control_formal_node_id: None, control_link_id: None,
                 control_atom: None, control_value: None,
+                control_source_link_id: None, control_source_atom: None,
             });
             input.boundary_candidates.push(SummaryBoundaryCandidate {
                 snapshot_id: id(1),
@@ -1730,9 +1845,10 @@ mod tests {
             callee_parameter_node_id: id(14), callee_resolution_fact_id: id(15),
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: always, return_start_byte: 30, approximated: false,
-            control_argument_fact_id: None, control_literal_fact_id: None,
+            control_argument_fact_id: None, control_evaluation_fact_id: None,
             control_formal_node_id: None, control_link_id: None,
             control_atom: None, control_value: None,
+            control_source_link_id: None, control_source_atom: None,
         });
         bounded.boundary_candidates[0].condition_id = id(200);
         bounded.components.push(SummaryComponentsRow {
@@ -1786,9 +1902,10 @@ mod tests {
             callee_parameter_node_id: id(14), callee_resolution_fact_id: id(15),
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: exit_id, return_start_byte: 30, approximated: false,
-            control_argument_fact_id: None, control_literal_fact_id: None,
+            control_argument_fact_id: None, control_evaluation_fact_id: None,
             control_formal_node_id: None, control_link_id: None,
             control_atom: None, control_value: None,
+            control_source_link_id: None, control_source_atom: None,
         });
 
         let result = finite_flows(input);

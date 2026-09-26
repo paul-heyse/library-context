@@ -253,11 +253,14 @@ witness.
   direct return exit agree, along a callee-first SCC schedule capped at depth 8. Within a
   recursive component a deterministic worklist reuses each newly cited value path. One narrow
   two-argument case can also specialize a **conditional** callee path: the first positional
-  argument is the tracked parameter, the second an exact boolean literal mapped to a distinct
-  formal with a cited direct entry-value test link. The bounded BDD restriction of that linked
-  truthy atom must make the callee condition true; false or residual conditions stay unknown.
-  The caller's own condition remains authoritative. Other cross-scope atom substitution is
-  unproved. Compatible earlier calls in
+  argument is the tracked parameter; the second maps definitely to a distinct tested formal.
+  It is either an exact boolean literal or a directly read caller formal whose lexical
+  parameter binding agrees with Pass B, with a cited ty reaching definition and direct
+  entry-value test link. In the latter case, the caller's
+  existing BDD path must imply that formal's tested atom or its negation. Bounded restriction
+  of the callee's linked truthy atom by the proved value must make its condition true; false
+  or residual conditions stay unknown. The caller's own condition remains authoritative.
+  General argument expressions and cross-scope BDD conjunction are unproved. Compatible earlier calls in
   the caller must independently complete normally; the returned wrapper call itself is proved
   by its cited callee summary.
 
@@ -304,11 +307,13 @@ depth eight and pair-work exhaustion leave typed origin-specific unknown boundar
 the latter uses append-only `summary_pair_work_limit` rather than the general budget reason. A
 base-free cycle remains unknown. Modeled bases in a recursive member are admitted only after
 their independent source, argument, predecessor and exit checks. The exact literal-controlled
-transfer above cites both the literal syntax and the `flow_test_value_links` row in its ordered
-proof (`callee_condition_link`, append-only code 14); the shared validator reconstructs it.
-The real terminating recursive fixture now publishes a conditional depth-one path, while a
-same-value conditional self-call without a changed control argument remains unknown. General
-argument substitution and bounded cross-scope BDD conjunction are still targets. Ascent and datafrog
+transfer cites the literal syntax and direct `flow_test_value_links` row (`callee_condition_link`,
+append-only code 14). Direct formal forwarding additionally cites the caller's fixed test link
+(`caller_condition_link`, append-only code 15) before the callee link; native admission checks the
+direct source link and the caller's fixed guard, and the shared validator reconstructs the full
+producer. Real terminating literal and guarded symbolic mutual-recursion fixtures publish
+conditional depth-one paths; their opposing guards and an unaltered conditional self-call remain
+unknown. General argument substitution and bounded cross-scope BDD conjunction remain targets. Ascent and datafrog
 agreed on a narrower finite-base reachability probe, not on these product semantics; recompare
 if several channels share recursive rules
 ([ADR-0053](../../adr/0053-bounded-scc-summary-worklist.md)).
@@ -350,10 +355,10 @@ singleton recursive. Candidate/open dispatch contributes topology only.
   native trace and fresh pilot cost remain open. A real extracted-flow row shuffle now preserves
   canonical published contribution, value-flow and premise bytes in a focused fixture.
 - W12: ADR-0053's SCC-local bounded value worklist passes pure finite-base, base-free,
-  self/mutual cycle, parallel-origin, shuffle and cap controls. A real two-argument literal
-  control passes the source and shared-publication proof check, while a real false-literal
-  opposing control withholds its recursive path through Delta/native. Broader bounded
-  cross-invocation substitution, other channels, native cap trace and pilot cost remain open. Ascent/datafrog
+  self/mutual cycle, parallel-origin, shuffle and cap controls. Real exact literal and guarded
+  direct-formal controls pass source, shared-publication and native proof checks; opposing
+  literal/formal guards withhold the recursive path. Broader bounded cross-invocation
+  substitution, other channels, native cap trace and pilot cost remain open. Ascent/datafrog
   remain candidates when several recursive
   relation families share rules. A wall-clock timeout is not a deterministic budget.
 - W13: iterative SCC routine and schedule ownership are decided by ADR-0052 and tested in a

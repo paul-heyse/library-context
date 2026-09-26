@@ -2472,17 +2472,20 @@ crate::relations! {
 
     /// One exact source-call result returned by a synchronous caller, with a positional
     /// parameter operand and one definite closed local target. A second positional operand
-    /// is admitted only when it is an exact boolean literal mapped to a formal with a cited
-    /// entry-value test link. Callee summaries are joined in the bounded SCC worklist, not
+    /// is admitted only when it is an exact boolean literal, or a directly read caller formal
+    /// whose caller guard fixes its truth value. Both map definitely to a distinct callee
+    /// formal with a cited entry-value test link. Callee summaries join in the SCC worklist, not
     /// here: a call edge by itself is never a transfer proof.
     local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
         deps = ["value_flow_contributions", "flow_values", "flow_value_calls",
                 "flow_value_call_links", "call_syntax", "call_targets", "resolutions",
                 "argument_flows", "arguments", "parameter_syntax", "declarations",
                 "syntax_nodes", "references", "reference_resolutions", "exit_sites",
-                "return_exit_statuses", "flow_test_value_links", "flow_test_leaves"],
+                "return_exit_statuses", "flow_test_value_links", "flow_test_leaves",
+                "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions",
+                "bindings"],
         sql = format!(
-            "WITH {callee_candidates}, step_counts AS ( \
+            "WITH {callee_candidates}, {simple_args}, step_counts AS ( \
                SELECT flow_value_fact_id, count(*) AS n FROM flow_value_calls \
                GROUP BY flow_value_fact_id \
              ), mappings AS ( \
@@ -2504,13 +2507,16 @@ crate::relations! {
                     ret.start_byte AS return_start_byte, \
                     (f.approximated OR e.approximated) AS approximated, \
                     control_arg.fact_id AS control_argument_fact_id, \
-                    literal.fact_id AS control_literal_fact_id, \
+                    CASE WHEN literal.fact_id IS NOT NULL THEN literal.fact_id \
+                         ELSE control_eval.evidence_id END AS control_evaluation_fact_id, \
                     control_map.formal_node_id AS control_formal_node_id, \
                     test_link.link_id AS control_link_id, \
                     test_leaf.atom AS control_atom, \
                     CASE WHEN literal.detail = 'True' THEN true \
                          WHEN literal.detail = 'False' THEN false \
-                         ELSE NULL END AS control_value \
+                         ELSE NULL END AS control_value, \
+                    caller_link.link_id AS control_source_link_id, \
+                    caller_leaf.atom AS control_source_atom \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
                AND f.sink = {return_sink} \
@@ -2550,12 +2556,30 @@ crate::relations! {
                AND control_map.caller_node_id = v.sink_function_node_id \
                AND control_map.mapping_count = 1 AND control_map.modality = {definite} \
                AND control_map.phase = {call_phase} \
-               AND control_map.value_class = {literal_class} \
+               AND control_map.value_class IN ({literal_class}, {parameter_class}) \
+             LEFT JOIN simple_arguments control_eval \
+               ON control_eval.argument_fact_id = control_arg.fact_id \
              LEFT JOIN syntax_nodes literal ON literal.module_node_id = c.module_node_id \
                AND literal.parent_node_id = c.node_id AND literal.field = {argument_field} \
                AND literal.start_byte = control_arg.value_start_byte \
                AND literal.end_byte = control_arg.value_end_byte \
                AND literal.kind = {boolean_literal} \
+             LEFT JOIN syntax_nodes control_name \
+               ON control_name.module_node_id = c.module_node_id \
+               AND control_name.parent_node_id = c.node_id \
+               AND control_name.field = {argument_field} \
+               AND control_name.start_byte = control_arg.value_start_byte \
+               AND control_name.end_byte = control_arg.value_end_byte \
+               AND control_name.kind = {name_expr} \
+             LEFT JOIN references control_ref \
+               ON control_ref.name_node_id = control_name.node_id \
+             LEFT JOIN reference_resolutions control_rr \
+               ON control_rr.reference_id = control_ref.node_id \
+               AND control_rr.reason IS NULL \
+             LEFT JOIN bindings control_binding \
+               ON control_binding.node_id = control_rr.binding_id \
+               AND control_binding.kind = {parameter_binding} \
+               AND control_binding.site_node_id = control_map.source_parameter_node_id \
              LEFT JOIN flow_test_value_links test_link \
                ON test_link.operation_node_id = t.target_node_id \
                AND test_link.formal_node_id = control_map.formal_node_id \
@@ -2563,6 +2587,13 @@ crate::relations! {
              LEFT JOIN flow_test_leaves test_leaf \
                ON test_leaf.fact_id = test_link.leaf_fact_id \
                AND test_leaf.atom_id = test_link.atom_id \
+             LEFT JOIN flow_test_value_links caller_link \
+               ON caller_link.operation_node_id = v.sink_function_node_id \
+               AND caller_link.formal_node_id = control_map.source_parameter_node_id \
+               AND caller_link.origin = {direct_link} \
+             LEFT JOIN flow_test_leaves caller_leaf \
+               ON caller_leaf.fact_id = caller_link.leaf_fact_id \
+               AND caller_leaf.atom_id = caller_link.atom_id \
              JOIN parameter_syntax p ON p.node_id = v.parameter_node_id \
                AND p.function_node_id = v.sink_function_node_id \
              JOIN declarations d ON d.node_id = v.sink_function_node_id \
@@ -2582,20 +2613,30 @@ crate::relations! {
                AND (c.positional_count = 1 OR \
                     (c.positional_count = 2 AND control_map.formal_node_id IS NOT NULL \
                      AND control_map.formal_node_id <> a.formal_node_id \
-                     AND test_leaf.atom IS NOT NULL \
-                     AND literal.detail IN ('True', 'False'))) \
+                     AND test_leaf.atom IS NOT NULL AND \
+                       ((control_map.value_class = {literal_class} \
+                         AND literal.detail IN ('True', 'False')) OR \
+                        (control_map.value_class = {parameter_class} \
+                         AND control_binding.node_id IS NOT NULL \
+                         AND control_eval.status = {parameter_normal} \
+                         AND caller_leaf.atom IS NOT NULL)))) \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
             callee_candidates = modeled_callee_candidates_sql(),
+            simple_args = simple_argument_evidence_sql(),
             return_sink = FlowSink::Return.code(),
             bound_argument = FlowCallLinkStatus::BoundArgument.code(),
             positional = ArgumentKind::Positional.code(),
             definite = Modality::Definite.code(),
             call_phase = InvocationPhase::Call.code(),
             literal_class = crate::flows::value_class::LITERAL,
+            parameter_class = crate::flows::value_class::PARAMETER,
+            parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
+            parameter_binding = crate::codebook::BindingKind::Parameter.code(),
             argument_field = crate::codebook::SyntaxField::Argument.code(),
             boolean_literal = SyntaxKind::ExprBooleanLiteral.code(),
+            name_expr = SyntaxKind::ExprName.code(),
             direct_link = TestValueLinkOrigin::DirectParameterReachNoEffect.code(),
             function_kind = DeclarationKind::Function.code(),
             return_kind = SyntaxKind::StmtReturn.code(),

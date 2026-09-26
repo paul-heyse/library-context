@@ -529,6 +529,35 @@ impl SemanticExecutor {
         }
         for summary in summaries.values() {
             for (index, (kind, evidence, _)) in summary.steps.iter().enumerate() {
+                if kind == "caller_condition_link" {
+                    let next_is_callee_link = summary.steps.get(index + 1)
+                        .is_some_and(|next| next.0 == "callee_condition_link");
+                    let supported = next_is_callee_link
+                        && links_by_formal.values().flatten().any(|link| {
+                            link.link_id == *evidence
+                                && link.operation_node_id == summary.function_node_id
+                                && link.origin == TestValueLinkOrigin::DirectParameterReachNoEffect
+                                && leaves_by_id.get(&link.leaf_fact_id).is_some_and(|leaf| {
+                                    graph.diagrams.get(&summary.condition_id).is_some_and(|root| {
+                                        if !root.support().contains(&leaf.atom) { return false; }
+                                        let Ok(atom) = Atom::parse_encoded(&leaf.atom) else {
+                                            return false;
+                                        };
+                                        let Ok(predicate) = Diagram::from_atom(&atom) else {
+                                            return false;
+                                        };
+                                        root.implies(&predicate) == Ok(true)
+                                            || predicate.not().is_ok_and(|negated|
+                                                root.implies(&negated) == Ok(true))
+                                    })
+                                })
+                        });
+                    if !supported {
+                        return Err(PyValueError::new_err(
+                            "caller condition link does not fix its direct formal",
+                        ));
+                    }
+                }
                 if kind != "callee_summary" { continue; }
                 let Some(callee) = summaries.get(evidence) else {
                     return Err(PyValueError::new_err("missing cited callee summary"));

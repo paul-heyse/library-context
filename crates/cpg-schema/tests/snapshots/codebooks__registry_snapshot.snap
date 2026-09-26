@@ -787,6 +787,7 @@ summary_flow_step_kind
   12 module_import_binding
   13 module_import_region
   14 callee_condition_link
+  15 caller_condition_link
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal

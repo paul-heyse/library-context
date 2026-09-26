@@ -207,6 +207,15 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
              (caller, 0, "callee_summary", summary, condition)],
             [], [], [],
         )
+    with pytest.raises(ValueError, match="caller condition link does not fix"):
+        SemanticExecutor(
+            *args[:-1], conditional,
+            [(summary, 0, "raw_identity", "04" * 16, condition),
+             (caller, 0, "caller_condition_link", "0a" * 16, condition),
+             (caller, 1, "callee_condition_link", "0b" * 16, condition),
+             (caller, 2, "callee_summary", summary, condition)],
+            [], [], [],
+        )
 
 
 def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(
