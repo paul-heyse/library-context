@@ -1366,6 +1366,13 @@ codebook!(
         ReturnSource = 8 => "return_source",
         CalleeSummary = 9 => "callee_summary",
         FinalizerPass = 10 => "finalizer_pass",
+        /// The selected pinned call target asserts normal return after every cited argument.
+        /// This is a predecessor safety witness, not proof the call was executed.
+        PrecedingCallNormal = 11 => "preceding_call_normal",
+        /// The exact earlier module-level import bound the modeled callee name.
+        ModuleImportBinding = 12 => "module_import_binding",
+        /// The import statement's ty region was unconditionally reached at module entry.
+        ModuleImportRegion = 13 => "module_import_region",
     }
 );
 

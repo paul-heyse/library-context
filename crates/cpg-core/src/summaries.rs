@@ -18,7 +18,7 @@ use crate::{CoreError, sql};
 use lctx_analytics::summaries::finite::{
     FiniteSummaryInputs, FiniteSummaryOutcome, LocalCallSummaryFlowSeed,
     ModeledAssignmentSummaryFlowSeed, ModeledSummaryFlowSeed, PrecedingCallRegion,
-    ReturnPassStep, SummaryBoundaryCandidate, SummaryFlowSeed,
+    PrecedingNormalCallArgument, ReturnPassStep, SummaryBoundaryCandidate, SummaryFlowSeed,
 };
 
 cpg_schema::relations! {
@@ -201,6 +201,9 @@ pub async fn finite_flows(
     let (diagrams, boundaries) = load_conditions(ctx).await?;
     let pass_steps = return_pass_steps(ctx).await?;
     let preceding_calls = preceding_call_regions(ctx).await?;
+    let normal_predecessors: Vec<PrecedingNormalCallArgument> = sql::fetch(
+        ctx, &cpg_schema::behavior::preceding_normal_call_arguments(), sql::Params::new(),
+    ).await?;
     let components: Vec<SummaryComponentsRow> = sql::fetch(ctx, &published_components(), sql::Params::new()).await?;
     let direct_seeds: Vec<SummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::summary_flow_seeds(), sql::Params::new()).await?;
     let modeled_seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::modeled_summary_flow_seeds(), sql::Params::new()).await?;
@@ -209,7 +212,7 @@ pub async fn finite_flows(
     let local_seeds: Vec<LocalCallSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::local_call_summary_flow_seeds(), sql::Params::new()).await?;
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
     Ok(lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
-        diagrams, boundaries, pass_steps, preceding_calls, components,
+        diagrams, boundaries, pass_steps, preceding_calls, normal_predecessors, components,
         direct_seeds, modeled_seeds, evaluations, assignment_seeds, local_seeds,
         boundary_candidates,
     }))

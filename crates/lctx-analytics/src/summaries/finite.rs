@@ -288,7 +288,26 @@ cpg_schema::query_row! {
     }
 }
 
+cpg_schema::query_row! {
+    /// A simple argument of a sole pinned normal-return call. The SQL relation requires an
+    /// argument witness; the producer checks dense order and the import's true condition.
+    pub struct PrecedingNormalCallArgument {
+        call_fact_id: Id,
+        pysa_fact_id: Id,
+        model_id: Id,
+        callee_resolution_fact_id: Id,
+        import_binding_fact_id: Id,
+        import_region_fact_id: Id,
+        import_condition_id: Id,
+        argument_fact_id: Id,
+        evaluation_evidence_id: Id,
+        ordinal: i64,
+        argument_count: i64,
+    }
+}
+
 type PrecedingCallIndex = HashMap<Id, Vec<PrecedingCallRegion>>;
+type NormalPredecessorIndex = HashMap<Id, Vec<PrecedingNormalCallArgument>>;
 type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 pub struct FiniteSummaryInputs {
@@ -296,6 +315,7 @@ pub struct FiniteSummaryInputs {
     pub boundaries: HashMap<Id, BoundaryReason>,
     pub pass_steps: HashMap<Id, Vec<ReturnPassStep>>,
     pub preceding_calls: HashMap<Id, Vec<PrecedingCallRegion>>,
+    pub normal_predecessors: Vec<PrecedingNormalCallArgument>,
     pub components: Vec<SummaryComponentsRow>,
     pub direct_seeds: Vec<SummaryFlowSeed>,
     pub modeled_seeds: Vec<ModeledSummaryFlowSeed>,
@@ -305,31 +325,70 @@ pub struct FiniteSummaryInputs {
     pub boundary_candidates: Vec<SummaryBoundaryCandidate>,
 }
 
-fn has_unproved_preceding_call(
+fn preceding_call_steps(
     seed: &SummaryFlowSeed,
     calls: &PrecedingCallIndex,
+    normal: &NormalPredecessorIndex,
     diagrams: &HashMap<Id, Diagram>,
-) -> bool {
-    let Some(return_condition) = diagrams.get(&seed.condition_id) else {
-        return calls.get(&seed.function_node_id).is_some_and(|rows| {
-            rows.iter()
-                .any(|call| call.call_start_byte < seed.return_start_byte)
+) -> Option<Vec<recipe::SummaryFlowProofStep>> {
+    let mut proof = Vec::new();
+    for call in calls.get(&seed.function_node_id).into_iter().flatten()
+        .take_while(|call| call.call_start_byte < seed.return_start_byte) {
+        if call.approximated != Some(false) {
+            return None;
+        }
+        let Some(call_condition_id) = call.condition_id else { return None; };
+        let Some(call_condition) = diagrams.get(&call_condition_id) else { return None; };
+        let Some(return_condition) = diagrams.get(&seed.condition_id) else { return None; };
+        if matches!(return_condition.and(call_condition), Ok(both) if both.is_false()) {
+            continue;
+        }
+        let Some(arguments) = normal.get(&call.call_fact_id) else { return None; };
+        if arguments.is_empty() || arguments.len() != usize::try_from(arguments[0].argument_count).ok()? {
+            return None;
+        }
+        if !diagrams.get(&arguments[0].import_condition_id).is_some_and(Diagram::is_true) {
+            return None;
+        }
+        if arguments.iter().enumerate().any(|(ordinal, argument)|
+            argument.ordinal != ordinal as i64 || argument.argument_count != arguments[0].argument_count
+            || argument.pysa_fact_id != arguments[0].pysa_fact_id
+            || argument.model_id != arguments[0].model_id
+            || argument.callee_resolution_fact_id != arguments[0].callee_resolution_fact_id
+            || argument.import_binding_fact_id != arguments[0].import_binding_fact_id
+            || argument.import_region_fact_id != arguments[0].import_region_fact_id
+            || argument.import_condition_id != arguments[0].import_condition_id) {
+            return None;
+        }
+        for (kind, evidence_id) in [
+            (SummaryFlowStepKind::ModuleImportBinding, arguments[0].import_binding_fact_id),
+            (SummaryFlowStepKind::ModuleImportRegion, arguments[0].import_region_fact_id),
+        ] {
+            proof.push(recipe::SummaryFlowProofStep {
+                kind, evidence_id, condition_id: arguments[0].import_condition_id,
+            });
+        }
+        proof.push(recipe::SummaryFlowProofStep {
+            kind: SummaryFlowStepKind::CalleeResolution,
+            evidence_id: arguments[0].callee_resolution_fact_id,
+            condition_id: call_condition_id,
         });
-    };
-    calls.get(&seed.function_node_id).is_some_and(|rows| {
-        rows.iter()
-            .take_while(|call| call.call_start_byte < seed.return_start_byte)
-            .any(|call| {
-                if call.approximated != Some(false) {
-                    return true;
-                }
-                let Some(call_condition) = call.condition_id.and_then(|id| diagrams.get(&id))
-                else {
-                    return true;
-                };
-                !matches!(return_condition.and(call_condition), Ok(both) if both.is_false())
-            })
-    })
+        for argument in arguments {
+            proof.push(recipe::SummaryFlowProofStep {
+                kind: SummaryFlowStepKind::ArgumentEvaluation,
+                evidence_id: argument.evaluation_evidence_id,
+                condition_id: call_condition_id,
+            });
+        }
+        for (kind, evidence_id) in [
+            (SummaryFlowStepKind::CallSite, call.call_fact_id),
+            (SummaryFlowStepKind::CallTarget, arguments[0].pysa_fact_id),
+            (SummaryFlowStepKind::PrecedingCallNormal, arguments[0].model_id),
+        ] {
+            proof.push(recipe::SummaryFlowProofStep { kind, evidence_id, condition_id: call_condition_id });
+        }
+    }
+    Some(proof)
 }
 
 /// The first finite summary case: a direct, synchronous body return of a local parameter.
@@ -340,17 +399,19 @@ fn direct_flows(
     boundaries: &HashMap<Id, BoundaryReason>,
     pass_steps: &ReturnPassIndex,
     preceding_calls: &PrecedingCallIndex,
+    normal_predecessors: &NormalPredecessorIndex,
     refusals: &mut Vec<SummaryRefusal>,
 ) -> (Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>) {
     let mut flows = Vec::new();
     let mut steps = Vec::new();
     for seed in seeds {
-        if has_unproved_preceding_call(&seed, preceding_calls, diagrams) {
+        let Some(mut proof) = preceding_call_steps(&seed, preceding_calls,
+            normal_predecessors, diagrams) else {
             refuse(refusals, (seed.snapshot_id, seed.function_node_id,
                 seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id),
                 BoundaryReason::UnsupportedControlFlow);
             continue;
-        }
+        };
         let (verdict, boundary_reason) = match diagrams.get(&seed.condition_id) {
             Some(diagram) if diagram.is_false() => continue,
             Some(diagram) if diagram.is_true() => (Verdict::Established, None),
@@ -370,11 +431,11 @@ fn direct_flows(
         }
         .render();
         let output_path = OutputPath::ReturnValue.render();
-        let mut proof = vec![recipe::SummaryFlowProofStep {
+        proof.push(recipe::SummaryFlowProofStep {
             kind: SummaryFlowStepKind::RawIdentity,
             evidence_id: seed.source_flow_fact_id,
             condition_id: seed.condition_id,
-        }];
+        });
         let finalizers = pass_steps
             .get(&seed.return_site_fact_id)
             .map_or(&[][..], Vec::as_slice);
@@ -573,7 +634,7 @@ fn push_finite_path(
 /// The same producer is called at write time and by the shared publication validator.
 pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
     let FiniteSummaryInputs {
-        diagrams, boundaries, pass_steps, preceding_calls, components,
+        diagrams, boundaries, pass_steps, preceding_calls, normal_predecessors, components,
         direct_seeds, modeled_seeds, evaluations, assignment_seeds, local_seeds,
         boundary_candidates,
     } = inputs;
@@ -583,8 +644,14 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
         .filter(|row| row.recursive)
         .map(|row| row.function_node_id)
         .collect();
+    let mut normal_by_call: NormalPredecessorIndex = HashMap::new();
+    for row in normal_predecessors {
+        normal_by_call.entry(row.call_fact_id).or_default().push(row);
+    }
+    for rows in normal_by_call.values_mut() { rows.sort_by_key(|row| row.ordinal); }
     let (mut flows, mut steps) =
         direct_flows(direct_seeds, &diagrams, &boundaries, &pass_steps, &preceding_calls,
+            &normal_by_call,
             &mut refusals);
     let seeds = modeled_seeds;
     let mut by_candidate: ArgumentIndex = HashMap::new();
@@ -958,6 +1025,7 @@ mod tests {
             boundaries: HashMap::new(),
             pass_steps: HashMap::new(),
             preceding_calls: HashMap::new(),
+            normal_predecessors: Vec::new(),
             components: Vec::new(),
             direct_seeds: vec![direct_seed()],
             modeled_seeds: Vec::new(),
@@ -1007,6 +1075,79 @@ mod tests {
         assert!(outcome.steps.is_empty());
         assert_eq!(outcome.refusals[0].reason, BoundaryReason::UnsupportedControlFlow);
         assert_eq!(outcome.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
+    }
+
+    #[test]
+    fn cited_normal_predecessor_precedes_the_direct_return_proof() {
+        let mut input = inputs();
+        input.preceding_calls.insert(id(2), vec![PrecedingCallRegion {
+            function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
+            condition_id: Some(Diagram::always().id()), approximated: Some(false),
+        }]);
+        for (ordinal, evidence) in [(0, id(20)), (1, id(21))] {
+            input.normal_predecessors.push(PrecedingNormalCallArgument {
+                call_fact_id: id(7), pysa_fact_id: id(22), model_id: id(23),
+                callee_resolution_fact_id: id(24), argument_fact_id: id(25 + ordinal),
+                import_binding_fact_id: id(30), import_region_fact_id: id(31),
+                import_condition_id: Diagram::always().id(),
+                evaluation_evidence_id: evidence, ordinal: i64::from(ordinal),
+                argument_count: 2,
+            });
+        }
+        let result = finite_flows(input);
+        assert_eq!(result.flows.len(), 1);
+        assert!(result.boundaries.is_empty());
+        assert_eq!(result.steps.iter().map(|step| step.kind).collect::<Vec<_>>(), [
+            SummaryFlowStepKind::ModuleImportBinding,
+            SummaryFlowStepKind::ModuleImportRegion,
+            SummaryFlowStepKind::CalleeResolution,
+            SummaryFlowStepKind::ArgumentEvaluation,
+            SummaryFlowStepKind::ArgumentEvaluation,
+            SummaryFlowStepKind::CallSite,
+            SummaryFlowStepKind::CallTarget,
+            SummaryFlowStepKind::PrecedingCallNormal,
+            SummaryFlowStepKind::RawIdentity,
+        ]);
+        assert_eq!(result.steps[7].evidence_id, id(23));
+
+        let mut incomplete = inputs();
+        incomplete.preceding_calls.insert(id(2), vec![PrecedingCallRegion {
+            function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
+            condition_id: Some(Diagram::always().id()), approximated: Some(false),
+        }]);
+        incomplete.normal_predecessors.push(PrecedingNormalCallArgument {
+            call_fact_id: id(7), pysa_fact_id: id(22), model_id: id(23),
+            callee_resolution_fact_id: id(24), argument_fact_id: id(25),
+            import_binding_fact_id: id(30), import_region_fact_id: id(31),
+            import_condition_id: Diagram::always().id(),
+            evaluation_evidence_id: id(20), ordinal: 0, argument_count: 2,
+        });
+        let result = finite_flows(incomplete);
+        assert!(result.flows.is_empty());
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
+
+        let mut guarded = inputs();
+        guarded.preceding_calls.insert(id(2), vec![PrecedingCallRegion {
+            function_node_id: id(2), call_fact_id: id(7), call_start_byte: 10,
+            condition_id: Some(Diagram::always().id()), approximated: Some(false),
+        }]);
+        let guard = Diagram::from_atom(&cpg_schema::condition::Atom::Truthy {
+            place: "module_import_guard".to_owned(),
+        }).unwrap();
+        let guard_id = guard.id();
+        guarded.diagrams.insert(guard_id, guard);
+        for (ordinal, evidence) in [(0, id(20)), (1, id(21))] {
+            guarded.normal_predecessors.push(PrecedingNormalCallArgument {
+                call_fact_id: id(7), pysa_fact_id: id(22), model_id: id(23),
+                callee_resolution_fact_id: id(24), argument_fact_id: id(25 + ordinal),
+                import_binding_fact_id: id(30), import_region_fact_id: id(31),
+                import_condition_id: guard_id, evaluation_evidence_id: evidence,
+                ordinal: i64::from(ordinal), argument_count: 2,
+            });
+        }
+        let result = finite_flows(guarded);
+        assert!(result.flows.is_empty());
+        assert_eq!(result.boundaries[0].reason, BoundaryReason::UnsupportedControlFlow);
     }
 
     #[test]

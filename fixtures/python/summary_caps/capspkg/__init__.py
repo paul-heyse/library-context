@@ -1,5 +1,7 @@
 """Finite summary cap and independent normal-completion control."""
 
+from typing import cast
+
 
 def f0(value: object) -> object:
     """Return the supplied value unchanged."""
@@ -50,4 +52,34 @@ def opaque() -> None:
 def unsupported(value: object) -> object:
     """Return the value after an opaque preceding call."""
     opaque()
+    return value
+
+
+def completed_predecessor(value: object) -> object:
+    """A pinned total call with two simple arguments precedes the direct return."""
+    cast(object, 1)
+    return value
+
+
+def raising_predecessor(value: object) -> object:
+    """An unevaluated sibling must not borrow the callee's normal-return claim."""
+    cast(1 / 0, 1)
+    return value
+
+
+def conditional_callee(value: object, enabled: bool) -> object:
+    """A flow-insensitive callee binding cannot prove an evaluated call."""
+    if enabled:
+        from typing import cast as local_cast
+    local_cast(object, 1)
+    return value
+
+
+if __name__ == "only_in_one_runtime":
+    from typing import cast as guarded_cast
+
+
+def guarded_module_callee(value: object) -> object:
+    """A conditional module import cannot establish callee availability."""
+    guarded_cast(object, 1)
     return value

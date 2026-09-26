@@ -18,7 +18,8 @@ the catalog (`models.rs`, `crates/cpg-schema/models/external.toml`), the relatio
 DataFusion derivations (`behavior.rs`), rules and codebooks. The shared validator is
 `cpg-core/src/validate.rs`; focused fixtures are under `fixtures/python/` (`model_shapes`,
 `model_handler_shapes`, `handler_shapes`, `return_completion_shapes`, `behavior_shapes`,
-`pysa_tito_shapes`), exercised by `crates/cpg-core/tests/`. See the [architecture map](../README.md).
+`pysa_tito_shapes`, `summary_caps`), exercised by `crates/cpg-core/tests/`. See the
+[architecture map](../README.md).
 
 **Evidence.** Models, their source application, the L2 relations and the finite summary producers
 below are **Implemented and Tested in focused cases** (2026-09-24/25; focused release Nextest,
@@ -131,6 +132,8 @@ every row; the shared validator reconstructs each relation and rejects forged st
   model candidate in source order: the selected operand cites its raw value fact; a direct literal
   or an exact unshadowed builtin name has a local normal-evaluation witness; anything unpacked,
   dynamic, shadowed or unproved has an `outside_provider_model` boundary and no witness.
+  The simple literal/builtin classifier is shared with the predecessor-completion relation;
+  neither treats a callee's `normal_return` assertion as proof that its arguments complete.
 
 ## L2 fates: exits, handlers and finalizers
 
@@ -205,8 +208,20 @@ witness.
 **Positive paths** (implemented producers). A finite `summary_flows` path is admitted only when:
 - **Direct base:** a synchronous function body returns its own parameter by raw identity, with no
   crossed call or generator yield, citing the value fact, return syntax/region and recomposed
-  condition. The bounded kernel gives `established`, `conditional` or a named `unknown`; a false
-  condition yields nothing.
+  condition. A compatible preceding call can be crossed only when one closed, definite pinned
+  target asserts normal return, the callee has one earlier module-level `from` import whose ty
+  region is unconditionally reached, every argument is a direct literal or an exact unshadowed
+  builtin name with ordered evidence, and the ty call region is non-approximate. Its proof cites
+  the import binding and region, callee resolution, each argument, call site, Pysa target and
+  model id before the raw return step.
+  This `preceding_call_normal` step is a safety witness if the call runs, not an assertion that it
+  runs. An opaque or possibly raising sibling, conditional/local import, unresolved target,
+  unpacking, approximate region or missing condition withholds the direct summary; a
+  BDD-proved disjoint call needs no
+  completion witness. The bounded kernel gives `established`, `conditional` or a named `unknown`;
+  a false condition yields nothing. **Tested in focused pure and Delta/native cases
+  (2026-09-26).** Parameter-name reads, nested calls as arguments and non-import callees are not
+  yet admitted.
 - **Modeled call:** an exact whole-expression call of `typing.cast` or `typing.assert_type` whose
   sole source target is closed, both modalities definite, the target asserts `normal_return`, the
   callee is one resolved simple name, and every explicit argument has ordered normal-evaluation
@@ -227,7 +242,11 @@ joined to one exact model step), `value_flow_predecessor_candidates` (a successo
 cited reaching definition and earlier raw fact) and `value_flow_predecessor_compatibility`
 (tri-state: false refutes this candidate under the declared atoms, true admits a may-path, and
 loop-carried, missing or capped roots are unknown, a cap staying `budget_reached`). None of them
-chooses a reaching definition or proves completion.
+chooses a reaching definition or proves completion. `preceding_normal_call_arguments` is the
+query-only, all-arguments witness for the narrow direct-return case; it produces no row if one
+argument or the callee's earlier module import is unproved, and the producer checks that import's
+condition is `true` before admitting. Otherwise it records `unsupported_control_flow` rather
+than borrowing a target's normal-return claim.
 
 **Coverage.** The finite producer takes raw parameter-origin return contributions as typed
 `summary_boundary_candidates` and returns admitted flows, ordered steps, typed refusals and

@@ -1613,6 +1613,8 @@ fn modeled_callee_candidates_sql() -> String {
     format!(
         "callee_candidates AS ( \
            SELECT c.node_id AS call_node_id, rr.fact_id AS resolution_fact_id, \
+                  rr.binding_id, s.module_node_id, s.start_byte AS callee_start_byte, \
+                  s.end_byte AS callee_end_byte, \
                   count(*) OVER (PARTITION BY c.node_id) AS candidate_count \
            FROM call_syntax c \
            JOIN syntax_nodes s ON s.parent_node_id = c.node_id \
@@ -1626,6 +1628,61 @@ fn modeled_callee_candidates_sql() -> String {
          )",
         callee_field = crate::codebook::SyntaxField::Callee.code(),
         name_expr = SyntaxKind::ExprName.code(),
+    )
+}
+
+/// One syntactic evaluator for direct literal and unshadowed builtin-name arguments. Both
+/// modeled return paths and preceding-call completion use it; other expressions remain unknown.
+fn simple_argument_evidence_sql() -> String {
+    format!(
+        "literal_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, s.fact_id AS syntax_fact_id, \
+                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
+             AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
+             AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
+             AND s.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
+                            {boolean_literal}, {none_literal}, {ellipsis_literal}) \
+           WHERE a.kind IN ({positional}, {keyword}) \
+         ), builtin_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
+                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
+             AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
+             AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
+             AND s.kind = {name_expr} \
+           JOIN references r ON r.name_node_id = s.node_id \
+             AND r.module_node_id = s.module_node_id \
+           JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+             AND rr.builtin_name = r.name AND rr.binding_id IS NULL AND rr.reason IS NULL \
+           WHERE a.kind IN ({positional}, {keyword}) \
+         ), simple_arguments AS ( \
+           SELECT a.fact_id AS argument_fact_id, \
+                  COALESCE(l.syntax_fact_id, b.resolution_fact_id) AS evidence_id, \
+                  CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
+                            WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
+                            ELSE {unknown} END AS SMALLINT) AS status \
+           FROM arguments a \
+           LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
+             AND l.candidate_count = 1 \
+           LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
+             AND b.candidate_count = 1 \
+         )",
+        argument_field = crate::codebook::SyntaxField::Argument.code(),
+        positional = ArgumentKind::Positional.code(),
+        keyword = ArgumentKind::Keyword.code(),
+        name_expr = SyntaxKind::ExprName.code(),
+        string_literal = SyntaxKind::ExprStringLiteral.code(),
+        bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
+        number_literal = SyntaxKind::ExprNumberLiteral.code(),
+        boolean_literal = SyntaxKind::ExprBooleanLiteral.code(),
+        none_literal = SyntaxKind::ExprNoneLiteral.code(),
+        ellipsis_literal = SyntaxKind::ExprEllipsisLiteral.code(),
+        literal_normal = ModeledArgumentEvaluationStatus::LiteralNormal.code(),
+        builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
+        unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
     )
 }
 
@@ -1951,67 +2008,24 @@ crate::relations! {
     modeled_argument_evaluations = "behavior:modeled_argument_evaluations",
         deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions"],
         sql = format!(
-            "WITH literal_candidates AS ( \
-               SELECT a.fact_id AS argument_fact_id, s.fact_id AS syntax_fact_id, \
-                      count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
-               FROM arguments a \
-               JOIN call_syntax c ON c.node_id = a.call_node_id \
-               JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
-                 AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
-                 AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
-                 AND s.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
-                                {boolean_literal}, {none_literal}, {ellipsis_literal}) \
-               WHERE a.kind IN ({positional}, {keyword}) \
-             ), builtin_candidates AS ( \
-               SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
-                      count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
-               FROM arguments a \
-               JOIN call_syntax c ON c.node_id = a.call_node_id \
-               JOIN syntax_nodes s ON s.module_node_id = c.module_node_id \
-                 AND s.parent_node_id = c.node_id AND s.field = {argument_field} \
-                 AND s.start_byte = a.value_start_byte AND s.end_byte = a.value_end_byte \
-                 AND s.kind = {name_expr} \
-               JOIN references r ON r.name_node_id = s.node_id \
-                 AND r.module_node_id = s.module_node_id \
-               JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
-                 AND rr.builtin_name = r.name AND rr.binding_id IS NULL AND rr.reason IS NULL \
-               WHERE a.kind IN ({positional}, {keyword}) \
-             ) \
+            "WITH {simple_args} \
              SELECT m.snapshot_id, m.flow_value_fact_id AS candidate_flow_fact_id, \
                     m.parameter_node_id, m.pysa_fact_id, m.model_id, m.rule_id, \
                     m.call_site_node_id, a.node_id AS argument_node_id, \
                     a.fact_id AS argument_fact_id, a.ordinal, \
                     CAST(CASE WHEN a.fact_id = m.argument_fact_id THEN {source_operand} \
-                              WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
-                              WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
-                              ELSE {unknown} END AS SMALLINT) AS status, \
+                              ELSE s.status END AS SMALLINT) AS status, \
                     CASE WHEN a.fact_id = m.argument_fact_id THEN m.flow_value_fact_id \
-                         ELSE COALESCE(l.syntax_fact_id, b.resolution_fact_id) END AS evidence_id, \
-                    CAST(CASE WHEN a.fact_id = m.argument_fact_id OR l.syntax_fact_id IS NOT NULL \
-                                   OR b.resolution_fact_id IS NOT NULL \
+                         ELSE s.evidence_id END AS evidence_id, \
+                    CAST(CASE WHEN a.fact_id = m.argument_fact_id OR s.evidence_id IS NOT NULL \
                               THEN NULL ELSE {outside} END AS SMALLINT) AS reason, \
                     m.condition_id \
              FROM modeled_exact_value_transfers m \
              JOIN arguments a ON a.call_node_id = m.call_site_node_id \
-             LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
-               AND l.candidate_count = 1 \
-             LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
-               AND b.candidate_count = 1",
+             JOIN simple_arguments s ON s.argument_fact_id = a.fact_id",
+            simple_args = simple_argument_evidence_sql(),
             source_operand = ModeledArgumentEvaluationStatus::SourceOperand.code(),
-            literal_normal = ModeledArgumentEvaluationStatus::LiteralNormal.code(),
-            builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
-            unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
-            argument_field = crate::codebook::SyntaxField::Argument.code(),
-            positional = ArgumentKind::Positional.code(),
-            keyword = ArgumentKind::Keyword.code(),
-            name_expr = SyntaxKind::ExprName.code(),
-            string_literal = SyntaxKind::ExprStringLiteral.code(),
-            bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
-            number_literal = SyntaxKind::ExprNumberLiteral.code(),
-            boolean_literal = SyntaxKind::ExprBooleanLiteral.code(),
-            none_literal = SyntaxKind::ExprNoneLiteral.code(),
-            ellipsis_literal = SyntaxKind::ExprEllipsisLiteral.code(),
         );
 
     /// The provider's reaching definition gives a predecessor value expression, but its
@@ -2161,6 +2175,73 @@ crate::relations! {
                     approximated FROM candidates WHERE pick = 1",
             function_kind = DeclarationKind::Function.code(),
             function_scope = crate::codebook::LexicalScopeKind::Function.code(),
+        );
+
+    /// A preceding call is safe to cross only under one closed, definite, pinned normal-return
+    /// target, an earlier module-level callee import and direct simple arguments. The producer
+    /// requires this import's condition to be true; this query preserves its condition and fact.
+    /// There is one row per evaluated argument; opaque operands and unpacking emit no rows.
+    preceding_normal_call_arguments = "behavior:preceding_normal_call_arguments",
+        deps = ["model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions"],
+        sql = format!(
+            "WITH {simple_args}, {callee_candidates}, \
+             module_imports AS ( \
+               SELECT cc.call_node_id, cc.resolution_fact_id, \
+                      b.fact_id AS import_binding_fact_id, \
+                      r.fact_id AS import_region_fact_id, \
+                      r.condition_id AS import_condition_id, r.approximated AS import_approximated, \
+                      row_number() OVER (PARTITION BY cc.call_node_id \
+                        ORDER BY r.end_byte - r.start_byte, r.start_byte, r.fact_id) AS pick \
+               FROM callee_candidates cc \
+               JOIN call_syntax c ON c.node_id = cc.call_node_id \
+               JOIN declarations d ON d.node_id = c.owner_node_id \
+                 AND d.module_node_id = c.module_node_id \
+               JOIN bindings b ON b.node_id = cc.binding_id \
+                 AND b.module_node_id = c.module_node_id \
+                 AND b.kind = {from_import} AND b.start_byte < d.start_byte \
+               JOIN scopes s ON s.node_id = b.scope_id AND s.kind = {module_scope} \
+               JOIN flow_regions r ON r.module_node_id = b.module_node_id \
+                 AND r.scope_kind = {module_scope} \
+                 AND r.start_byte <= b.start_byte AND r.end_byte >= b.end_byte \
+               WHERE cc.candidate_count = 1 \
+             ), \
+             counted AS ( \
+               SELECT a.*, count(*) OVER (PARTITION BY a.call_site_node_id) AS application_count \
+               FROM model_applications a \
+             ), evaluated AS ( \
+               SELECT a.call_fact_id, a.pysa_fact_id, a.model_id, \
+                      cc.resolution_fact_id AS callee_resolution_fact_id, \
+                      mi.import_binding_fact_id, mi.import_region_fact_id, \
+                      mi.import_condition_id, \
+                      arg.fact_id AS argument_fact_id, s.evidence_id AS evaluation_evidence_id, \
+                      arg.ordinal, c.positional_count + c.keyword_count AS declared_count, \
+                      count(*) OVER (PARTITION BY c.node_id) AS argument_count, \
+                      sum(CASE WHEN s.evidence_id IS NULL THEN 1 ELSE 0 END) \
+                        OVER (PARTITION BY c.node_id) AS unknown_count \
+               FROM counted a JOIN call_syntax c ON c.node_id = a.call_site_node_id \
+               JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
+                 AND cc.candidate_count = 1 \
+               JOIN module_imports mi ON mi.call_node_id = c.node_id \
+                 AND mi.resolution_fact_id = cc.resolution_fact_id \
+                 AND mi.pick = 1 AND NOT mi.import_approximated \
+               JOIN arguments arg ON arg.call_node_id = c.node_id \
+               JOIN simple_arguments s ON s.argument_fact_id = arg.fact_id \
+               WHERE a.application_count = 1 AND a.target_normal_return \
+                 AND a.target_modality = {definite} AND a.phase = {call_phase} \
+                 AND a.target_count = 1 AND a.candidate_set_complete_under_model \
+                 AND NOT a.has_unresolved_remainder \
+             ) \
+             SELECT call_fact_id, pysa_fact_id, model_id, callee_resolution_fact_id, \
+                    import_binding_fact_id, import_region_fact_id, import_condition_id, \
+                    argument_fact_id, evaluation_evidence_id, ordinal, argument_count \
+             FROM evaluated WHERE argument_count = declared_count \
+               AND argument_count > 0 AND unknown_count = 0",
+            simple_args = simple_argument_evidence_sql(),
+            callee_candidates = modeled_callee_candidates_sql(),
+            definite = Modality::Definite.code(),
+            call_phase = InvocationPhase::Call.code(),
+            from_import = crate::codebook::BindingKind::FromImport.code(),
+            module_scope = crate::codebook::LexicalScopeKind::Module.code(),
         );
 
     /// A direct return whose entire expression is one exact pinned identity-model call.

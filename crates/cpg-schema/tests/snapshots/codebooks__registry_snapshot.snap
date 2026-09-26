@@ -782,6 +782,9 @@ summary_flow_step_kind
   8 return_source
   9 callee_summary
   10 finalizer_pass
+  11 preceding_call_normal
+  12 module_import_binding
+  13 module_import_region
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal

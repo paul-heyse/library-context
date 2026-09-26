@@ -11,6 +11,7 @@ use cpg_core::snapshot::published;
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, TestHooks, extract};
 use cpg_schema::id::Id;
+use cpg_schema::codebook::{Codebook, SummaryFlowStepKind};
 use lctx_analytics::config::AnalyticsConfig;
 
 const CONFIG: &str = r#"
@@ -106,7 +107,7 @@ async fn compiled_summary_caps() -> (tempfile::TempDir, PathBuf) {
         ).unwrap(),
         venv_root: std::fs::canonicalize(base.join("venv")).unwrap(),
         site_packages: vec![std::fs::canonicalize(base.join("venv/site-packages")).unwrap()],
-        python_version: (3, 14, 0),
+        python_version: (3, 14, 7),
         python_platform: "linux".to_owned(),
         snapshot_id: SNAPSHOT,
         corpus: None,
@@ -152,6 +153,40 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
             .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
         assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary");
     }
+    for (name, expected) in [("completed_predecessor", 1), ("raising_predecessor", 0),
+        ("conditional_callee", 0), ("guarded_module_callee", 0)] {
+        let rows = sql::query(&ctx, &format!(
+            "SELECT count(*) AS n FROM model_applications a \
+             JOIN declarations d ON d.node_id = a.function_node_id \
+             WHERE d.name = '{name}' AND a.target_normal_return \
+               AND a.target_count = 1 AND a.candidate_set_complete_under_model \
+               AND NOT a.has_unresolved_remainder",
+        )).await.unwrap().collect().await.unwrap();
+        let counts = rows[0].column(0)
+            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        if name != "conditional_callee" && name != "guarded_module_callee" {
+            assert_eq!(counts.value(0), 1, "{name} must have a closed normal-return target");
+        }
+        let rows = sql::query(&ctx, &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
+               AND p.kind = {} \
+             WHERE d.name = '{name}' AND f.path_depth = 0",
+            SummaryFlowStepKind::PrecedingCallNormal.code(),
+        )).await.unwrap().collect().await.unwrap();
+        let counts = rows[0].column(0)
+            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        assert_eq!(counts.value(0), expected, "{name} normal predecessor admission");
+    }
+    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
+        JOIN declarations d ON d.node_id = b.function_node_id \
+        WHERE d.name IN ('raising_predecessor', 'conditional_callee', \
+          'guarded_module_callee') AND b.reason = 4")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 3, "raising sibling and uncertain callees must stay unknown");
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
         .await.unwrap();
     let script = r#"
@@ -163,10 +198,16 @@ index = generation.condition_graph
 for operation, expected in (
     ("capspkg.f9", "summary_depth_limit"),
     ("capspkg.unsupported", "unsupported_control_flow"),
+    ("capspkg.raising_predecessor", "unsupported_control_flow"),
+    ("capspkg.conditional_callee", "unsupported_control_flow"),
+    ("capspkg.guarded_module_callee", "unsupported_control_flow"),
 ):
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[2] == expected for boundary in boundaries), (operation, paths, boundaries)
+paths, boundaries, truncated, _ = index.value_paths("capspkg.completed_predecessor", "value", 20)
+assert not truncated and not boundaries, (paths, boundaries)
+assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script,
@@ -174,6 +215,19 @@ for operation, expected in (
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
+        .await.unwrap().into_view();
+    let omitted_completion = sql::query(&ctx, &format!(
+        "SELECT * FROM summary_flow_steps WHERE kind <> {}",
+        SummaryFlowStepKind::PrecedingCallNormal.code(),
+    )).await.unwrap().into_view();
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", omitted_completion).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
+        "missing normal-completion witness passed validation: {violations:?}");
+    ctx.deregister_table("summary_flow_steps").unwrap();
+    ctx.register_table("summary_flow_steps", original_steps).unwrap();
 }
 
 /// W1: a real finalizer proof survives extraction, Delta publication, IPC generation and the
