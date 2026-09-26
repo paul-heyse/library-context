@@ -11,7 +11,7 @@
 //! The queries read tables registered under their own names and filtered to one snapshot.
 
 use crate::codebook::{
-    AssertionKind, BehaviorKind, Codebook, DeclarationKind, EdgeKind, EvidenceStatus, FactFamily,
+    AssertionKind, BehaviorKind, BindingKind, Codebook, DeclarationKind, EdgeKind, EvidenceStatus, FactFamily,
     PremiseKind, SourceRole, SupportRole, Verdict, registry,
 };
 use crate::column::CODEBOOK_KEY;
@@ -1253,13 +1253,22 @@ fn semantic() -> Vec<Rule> {
             ),
         ),
         (
+            // A ty-only package-submodule definition is not a lexical binding row.
+            "semantic:ty-only-definition-not-lexical-binding",
+            format!(
+                "SELECT node_id FROM bindings WHERE kind = {}",
+                BindingKind::ImportFromSubmodule.code()
+            ),
+        ),
+        (
             // Every name ty defines is one of our bindings.
             "semantic:flow-definition-is-a-binding",
             format!(
                 "SELECT d.definition_id FROM flow_definitions d \
                  LEFT ANTI JOIN bindings b ON b.module_node_id = d.module_node_id \
                    AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte \
-                 WHERE {name_place}"
+                 WHERE {name_place} AND d.kind <> {}",
+                BindingKind::ImportFromSubmodule.code()
             ),
         ),
         (

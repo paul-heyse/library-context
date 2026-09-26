@@ -632,8 +632,8 @@ codebook!(
 );
 
 codebook!(
-    /// How a binding event binds its name (C3): the subset of Ruff's `BindingKind` our recognizer
-    /// emits, plus the unbinding (`del`) and the scope declarations.
+    /// How a binding event binds its name (C3): lexical recognizer events plus ty's distinguished
+    /// package-submodule definition, which is valid only in `flow_definitions`.
     BindingKind = "binding_kind" {
         FunctionDef = 0 => "function_def",
         ClassDef = 1 => "class_def",
@@ -658,6 +658,9 @@ codebook!(
         /// A name the runtime binds with no statement (C3 review F1): a module's implicit globals
         /// (Pyrefly's `ImplicitGlobal` set), a method's `__class__` cell.
         Implicit = 20 => "implicit",
+        /// ty's implicit package-submodule binding caused by `from pkg.child import name` in
+        /// `pkg/__init__.py`. The lexical provider has no name binding at the module-path span.
+        ImportFromSubmodule = 21 => "import_from_submodule",
     }
 );
 

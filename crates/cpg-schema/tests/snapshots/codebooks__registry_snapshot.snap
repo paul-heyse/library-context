@@ -397,6 +397,7 @@ binding_kind
   18 type_alias
   19 type_param
   20 implicit
+  21 import_from_submodule
 static_branch
   0 type_checking
   1 version_info

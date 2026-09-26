@@ -1171,7 +1171,7 @@ codebook:syntax_nodes.field
 codebook:scopes.kind
   SELECT kind FROM scopes WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4)
 codebook:bindings.kind
-  SELECT kind FROM bindings WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT kind FROM bindings WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 codebook:bindings.static_branch
   SELECT static_branch FROM bindings WHERE static_branch IS NOT NULL AND static_branch NOT IN (0, 1, 2, 3, 4)
 codebook:references.field
@@ -1213,7 +1213,7 @@ codebook:pysa_calls.unresolved_reason
 codebook:flow_uses.scope_kind
   SELECT scope_kind FROM flow_uses WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
 codebook:flow_definitions.kind
-  SELECT kind FROM flow_definitions WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+  SELECT kind FROM flow_definitions WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 codebook:flow_definitions.scope_kind
   SELECT scope_kind FROM flow_definitions WHERE scope_kind IS NOT NULL AND scope_kind NOT IN (0, 1, 2, 3, 4)
 codebook:flow_values.sink
@@ -1624,8 +1624,10 @@ semantic:flow-use-is-a-reference
   SELECT u.use_id FROM flow_uses u LEFT ANTI JOIN references r ON r.module_node_id = u.module_node_id AND r.start_byte = u.start_byte AND r.end_byte = u.end_byte WHERE NOT u.annotation AND strpos(place, '.') = 0 AND strpos(place, '[') = 0
 semantic:reference-is-a-flow-use
   SELECT r.node_id FROM references r JOIN (SELECT scope_node_id AS module_node_id FROM coverage WHERE fact_family = 13 AND status = 0) m ON m.module_node_id = r.module_node_id LEFT ANTI JOIN flow_uses u ON u.module_node_id = r.module_node_id AND u.start_byte = r.start_byte AND u.end_byte = r.end_byte
+semantic:ty-only-definition-not-lexical-binding
+  SELECT node_id FROM bindings WHERE kind = 21
 semantic:flow-definition-is-a-binding
-  SELECT d.definition_id FROM flow_definitions d LEFT ANTI JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte WHERE strpos(place, '.') = 0 AND strpos(place, '[') = 0
+  SELECT d.definition_id FROM flow_definitions d LEFT ANTI JOIN bindings b ON b.module_node_id = d.module_node_id AND b.start_byte = d.start_byte AND b.end_byte = d.end_byte WHERE strpos(place, '.') = 0 AND strpos(place, '[') = 0 AND d.kind <> 21
 semantic:binding-is-a-flow-definition
   SELECT b.node_id FROM bindings b JOIN (SELECT scope_node_id AS module_node_id FROM coverage WHERE fact_family = 13 AND status = 0) m ON m.module_node_id = b.module_node_id LEFT ANTI JOIN flow_definitions d ON d.module_node_id = b.module_node_id AND d.start_byte = b.start_byte AND d.end_byte = b.end_byte WHERE b.kind NOT IN (16, 17, 15, 20, 11)
 semantic:flow-reaching-within-candidates

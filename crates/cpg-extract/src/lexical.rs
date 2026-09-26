@@ -750,6 +750,9 @@ impl<'b> Lexical<'b> {
             return;
         }
         let (scope, nonlocal) = match kind {
+            BindingKind::ImportFromSubmodule => {
+                unreachable!("ty-only package submodule definitions are not lexical bindings")
+            }
             BindingKind::Global
             | BindingKind::Nonlocal
             | BindingKind::StarImport

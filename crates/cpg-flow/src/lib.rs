@@ -384,7 +384,7 @@ fn program_settings(db: &FlowDb, context: &RuntimeContext) -> ProgramSettings {
 
 #[cfg(test)]
 mod settings_tests {
-    use super::{FlowDb, Program, RuntimeContext, program_settings};
+    use super::{BindingKind, FlowDb, Input, Program, RuntimeBindings, RuntimeContext, index, program_settings};
     use ruff_db::system::DbWithWritableSystem;
     use ty_module_resolver::{ModuleName, resolve_module_confident};
 
@@ -410,6 +410,43 @@ mod settings_tests {
         assert!(resolved(current, "helper"));
         assert!(!resolved(old, "tomllib"));
         assert!(resolved(current, "tomllib"));
+    }
+
+    #[test]
+    fn package_submodule_definition_keeps_its_provider_kind() {
+        let source = "from pkg.child import Item\n";
+        let inputs = [
+            Input {
+                path: "pkg/__init__.py".to_owned(),
+                text: source.to_owned(),
+                runtime: RuntimeBindings::default(),
+            },
+            Input {
+                path: "pkg/child.py".to_owned(),
+                text: "class Item: pass\n".to_owned(),
+                runtime: RuntimeBindings::default(),
+            },
+        ];
+        let flows = index(
+            &inputs,
+            &RuntimeContext {
+                python_version: (3, 14, 0),
+                platform: "linux".to_owned(),
+            },
+        );
+        assert!(flows.iter().all(|flow| flow.error.is_none()), "{flows:?}");
+        let defs = &flows[0].defs;
+        assert!(defs.iter().any(|d| {
+            d.kind == BindingKind::ImportFromSubmodule
+                && d.place == "child"
+                // At ty 0.0.14 this variant's fallback range is the full module path.
+                && &source[d.target.start as usize..d.target.end as usize] == "pkg.child"
+        }), "{defs:?}");
+        assert!(defs.iter().any(|d| {
+            d.kind == BindingKind::FromImport
+                && d.place == "Item"
+                && &source[d.target.start as usize..d.target.end as usize] == "Item"
+        }), "{defs:?}");
     }
 }
 
@@ -655,8 +692,9 @@ impl<'db> Walk<'_, 'db> {
         let kind = d.kind(self.db);
         let (binding, value): (Option<BindingKind>, Option<TextRange>) = match kind {
             DefinitionKind::Import(_) => (Some(BindingKind::Import), None),
-            DefinitionKind::ImportFrom(_) | DefinitionKind::ImportFromSubmodule(_) => {
-                (Some(BindingKind::FromImport), None)
+            DefinitionKind::ImportFrom(_) => (Some(BindingKind::FromImport), None),
+            DefinitionKind::ImportFromSubmodule(_) => {
+                (Some(BindingKind::ImportFromSubmodule), None)
             }
             DefinitionKind::StarImport(_) => (Some(BindingKind::StarImport), None),
             DefinitionKind::Function(_) => (Some(BindingKind::FunctionDef), None),
