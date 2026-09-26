@@ -56,6 +56,10 @@ cpg_schema::relations! {
             UNION SELECT r.snapshot_id, r.return_site_fact_id, p.predecessor_condition_id AS condition_id \
             FROM returned r JOIN value_flow_predecessor_candidates p ON p.snapshot_id = r.snapshot_id AND p.successor_fact_id = r.flow_value_fact_id",
             cpg_schema::codebook::SyntaxKind::StmtReturn.code(),cpg_schema::codebook::ExitSiteKind::Return.code(),cpg_schema::codebook::FlowSink::Return.code());
+    completion_handler_types = "summary_completion_handler_types", deps = ["handler_types"], sql = "SELECT * FROM handler_types".to_owned();
+    completion_classes = "summary_completion_classes", deps = ["context_definitions"], sql = "SELECT * FROM context_definitions".to_owned();
+    completion_mro = "summary_completion_mro", deps = ["context_class_mro"], sql = "SELECT * FROM context_class_mro".to_owned();
+    completion_modules = "summary_completion_modules", deps = ["context_modules"], sql = "SELECT * FROM context_modules".to_owned();
     completion_tests = "summary_completion_tests", deps = ["flow_tests"], sql = "SELECT * FROM flow_tests".to_owned();
     provider_conditions = "summary_provider_conditions", deps = ["conditions"],
         sql = "SELECT DISTINCT condition_id, root_id, boundary_reason FROM conditions".to_owned();
@@ -329,12 +333,16 @@ pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::complet
     let bindings = sql::fetch(ctx, &completion_bindings(), sql::Params::new()).await?;
     let scopes = sql::fetch(ctx, &completion_scopes(), sql::Params::new()).await?;
     let exits = sql::fetch(ctx, &completion_exits(), sql::Params::new()).await?;
+    let handler_types = sql::fetch(ctx,&completion_handler_types(),sql::Params::new()).await?;
+    let classes = sql::fetch(ctx,&completion_classes(),sql::Params::new()).await?;
+    let mro = sql::fetch(ctx,&completion_mro(),sql::Params::new()).await?;
+    let modules = sql::fetch(ctx,&completion_modules(),sql::Params::new()).await?;
     let tests = sql::fetch(ctx, &completion_tests(), sql::Params::new()).await?;
     let (diagrams,boundaries) = load_conditions(ctx).await?;
     let requests:Vec<EntryCondition> = sql::fetch(ctx,&completion_entry_conditions(),sql::Params::new()).await?;
     let entry_conditions:Vec<_>=requests.iter().map(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id)).collect();
     Ok(lctx_analytics::completion::complete(lctx_analytics::completion::Inputs {
         syntax: &syntax, expressions: &expressions, expression_steps: &expression_steps, bindings: &bindings, scopes: &scopes, exits: &exits,
-        tests: &tests, diagrams: &diagrams, boundaries:&boundaries,entry_conditions:&entry_conditions,
+        handler_types:&handler_types,classes:&classes,mro:&mro,modules:&modules,tests: &tests, diagrams: &diagrams, boundaries:&boundaries,entry_conditions:&entry_conditions,
     }))
 }

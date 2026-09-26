@@ -107,7 +107,7 @@ records the additional architecture findings F01–F04; this table owns their di
 | Step | Functional work and deletion obligation | Focused acceptance | State |
 |---|---|---|---|
 | S1 | Schema-owned evaluation/completion/binding/proof/coverage contracts; pure analytics owners and mechanical core adapters. Replace the flattened one-control local-call shape and native adjacency assumptions as consumers migrate | Existing semantics retained; malformed groups, missing witnesses and mixed origins rejected | Partial: normalized arguments, expression/statement/frame certificates and shared proof capacity implemented; channel/coverage contracts remain |
-| S2 | Compose expression, predecessor and frame evaluation, including nested supported expressions/calls, exact bindings/defaults, ordered finalizers, handlers and synchronous context exits. Separate normal evaluation, exact value, normal return and exceptional/control outcomes | Raising/skipped operands, unbound reads, terminating/base-free recursion, overriding finalizers, suppression, callback-not-run and unreleased resources | Partial: normal reads, nested pinned calls, exact signature binding, path-specific predecessor sequencing and bounded statement/finalizer completion implemented; default values/typed handlers/context exits remain |
+| S2 | Compose expression, predecessor and frame evaluation, including nested supported expressions/calls, exact bindings/defaults, ordered finalizers, handlers and synchronous context exits. Separate normal evaluation, exact value, normal return and exceptional/control outcomes | Raising/skipped operands, unbound reads, terminating/base-free recursion, overriding finalizers, suppression, callback-not-run and unreleased resources | Partial: normal reads, nested pinned calls, exact signature binding, path-specific predecessor sequencing, bounded statement/finalizer completion and exact-TypeError typed handlers/re-raise implemented; default values/handler-body entry/context exits remain |
 | S3 | Activate §3.3 model families for supported source consumers with independent channel coverage, phase and exact pins. Add typed dynamic-schema identity before validation effects; retain unsupported/deferred consumers as named candidates | Source-backed positive/withholding pair per activated family; catalog equality and isolated pure-model challenge | Pending S1/S2 |
 | S4 | Bounded simultaneous condition substitution and multi-control bindings; extend the SCC producer to completion/value/transform/effect/exception/role channels. Separate semantic progress from bounded witnesses; retain origins/parallel calls. Recompare Ascent/datafrog on the actual multi-channel state/refusal contract | Capture/swapped-formal controls, exact primitive links, finite/no-base SCCs, shuffled bytes and typed cap outcomes | Partial: bounded simultaneous kernel substitution and multi-control pure contract; source stability, residual conditions and multi-channel engine remain |
 | S5 | Explicit channel/origin coverage and shared reconstruction discharge only matching proofs. Prepare handlers before summaries. Activate W14/F15 for affected SQL-only table construction, preserving semantic rederivation | behavior_shapes part 2; sibling unknown retained; tampered coverage/proofs refused | Partial prerequisites: handlers now precede summaries; twenty SQL-only derivations use Arrow transport. Coverage/discharge remains |
@@ -115,7 +115,7 @@ records the additional architecture findings F01–F04; this table owns their di
 | S7 | Close W5 work/node, W7 reach-work and W12 pair-work production-cap traces through actual producer outcomes, Delta and native. Broaden independent CPython/Hypothesis, CrossHair and real-rule Pysa TITO controls throughout S1–S6 | Default-limit traces distinguished from injected-budget tests; oracle inconclusive is not equivalence | Partial: 120 generated CPython/Hypothesis completion controls and implicit-execution counter-controls; expression and summary-proof cap traces added. Original W5/W7/W12 default-cap obligations remain |
 | S8 | Only after all functional work: format, test-all, fresh pilot, all-techniques digest, Stage 3 structured evaluation, clean-wheel query, W9 live replay/conformance, cost measurements and assembled target review | Existing Stage 3 exit rule; named command outcomes, baseline deltas and restart-safe STATUS | not_run |
 
-**Current implementation boundary (2026-09-26; Implemented, partial S1/S2).** Compiler output 78
+**Current implementation boundary (2026-09-26; Implemented, partial S1/S2).** Compiler output 79
 replaces `closed_expression_evaluations` with `expression_evaluations` and ordered operand proofs,
 and adds statement completion, pending-return frame proofs and condition-keyed return-entry
 certificates. Source-origin requests avoid a return/condition cross product; complete ordered
@@ -124,7 +124,16 @@ outcome premises after independently normal operands, without granting total com
 primitive stability. Existing and operation-time BDD refusal causes survive acquisition.
 The [predecessor review](../design_review/reviews/design_review_stage3-predecessor-completion_2026-09-26.md)
 F01/F02 are corrected by inspection; 36 focused expression/completion/finite and source/Delta/native
-cases passed, plus 13 reviewed schema contract/codebook cases (2026-09-26). Reviewed snapshots apply
+cases passed, plus 13 reviewed schema contract/codebook cases (2026-09-26).
+The next bounded handler extension adds proof kind 21 and a required `context_class_mro`
+`linearization_complete` field. Pysa's report drops native completeness and omits self/object;
+public pinned `get_all_classes`/`get_class_mro` APIs preserve the needed flag without a fork.
+The [typed-handler review](../design_review/reviews/design_review_stage3-typed-handler-completion_2026-09-26.md)
+F01 is corrected. Eleven focused pure/source/Delta/native cases and 13 reviewed schema cases
+passed after that change; 100 independent generated CPython controls passed. Exact-TypeError
+catches, ordered nonmatches and active re-raise are supported. Named-handler cleanup, exception
+groups, handler-body entry and opaque exception construction remain conservative. These receipts
+are scoped checks, not S2/S7 completion. Reviewed snapshots apply
 under ADR-0048; stores must be rebuilt. New boundary codes 28–30 distinguish completion depth/work
 and the shared 64-step summary-proof limit. Normal reads and nested pinned total calls compose
 through all agreeing signatures. Local-call arguments retain failed mappings and
@@ -232,23 +241,25 @@ shared validator and native generation were checked with two- and three-call pos
 raising inner sibling; [the scoped review](../design_review/reviews/design_review_modeled-call-chain_2026-09-26.md)
 records the boundary. This is narrower than order 1's exit:
 callee forms other than an unconditional module-level import,
-general predecessor sequencing, path-specific predecessor status, possible raises and the full
-return-path evaluation sequence
-remain to implement. A target's normal-return assertion alone never certifies its arguments.
+default values, unsupported predecessor protocols and the remaining handler/context entry
+sequence remain to implement. Condition-keyed predecessor certificates now check supported
+non-call statements, source-origin branches and first local initialization. A target's normal-return assertion alone never certifies its arguments.
 
 **Order 2 checkpoint (2026-09-26; Implemented, partial).** Pure statement completion now
 distinguishes normal, return, raise, break, continue and unknown. Pending finalizers preserve or
 replace outcomes in frame order, retaining full operand and model evidence. Normal expressions,
 unique local initialization outside loops, exact selected branches and nested try/finally are
 supported; opaque exception construction and rebinding/finalization stay unknown. A first bare
-handler can handle an exact invalid primitive raise. The
+handler can handle an exact invalid primitive raise. Ordered pinned typed handlers and active
+re-raise now compose that exact TypeError; MRO nonmatch requires retained native completeness. The
 [bounded review](../design_review/reviews/design_review_stage3-expression-completion_2026-09-26.md)
 identified producer/native proof-budget mismatch and implicit execution (F01/F02); corrections
 share the 64-step cap and restrict completion admission. The
 [independent controls](../design_review/evidence/2026-09-26_expression-completion/README.md)
 passed 120 generated cases and recorded two started implicit actions with no completion before
-timeout. General path-specific predecessor sequencing, typed handlers/re-raise, synchronous
-context exits/suppression, callback execution and resource fates remain open.
+timeout. The subsequent typed-handler extension passed eleven focused pure/source/Delta/native
+cases and 100 independent runtime controls. Handler-body entry, named-handler cleanup, exception
+groups, synchronous context exits/suppression, callback execution and resource fates remain open.
 
 **Order 3 checkpoint (2026-09-26; partial).** Schema-owned normalized local arguments separate
 syntax order, formal binding, normal completion and exact value. Up to 128 explicit arguments

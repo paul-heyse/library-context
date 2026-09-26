@@ -679,6 +679,12 @@ for operation in ("capspkg.composed_boolean_control", "capspkg.composed_expressi
 for operation in ("capspkg.composed_raising_control", "capspkg.composed_expression_raising_sibling"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated and not paths and boundaries, (operation, paths, boundaries)
+for operation in ("capspkg.typed_finalizer_identity", "capspkg.reraised_finalizer_identity"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not truncated and paths and not boundaries, (operation, paths, boundaries)
+    assert any(any(step[0] == "handler_class_evidence" for step in path[3]) for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.unmatched_finalizer_identity", "value")
+assert not truncated and not paths and boundaries, (paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.multiple_argument_true", "value")
 assert not truncated and paths and not boundaries, (paths, boundaries)
 assert any(sum(step[0] == "callee_condition_link" for step in path[3]) == 1 for path in paths), paths

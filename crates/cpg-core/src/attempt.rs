@@ -101,7 +101,9 @@ pub struct Published {
 /// 76: normalized local-call arguments, multi-control Boolean specialization and bounded
 /// closed-expression completion with separately represented exact Boolean values.
 /// 77: shared source-admitted expression evaluation and ordered operand proofs.
-pub const COMPILER_OUTPUT_VERSION: u32 = 78;
+/// 78: condition-keyed ordered return-entry completion proofs.
+/// 79: typed handler/re-raise completion and native context-MRO completeness.
+pub const COMPILER_OUTPUT_VERSION: u32 = 79;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -792,6 +794,10 @@ async fn finish(
             .await?;
         write_analysis_query::<ExitSites>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::exit_sites(), w).await?;
+        write_analysis_query::<HandlerClauses>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::handler_clauses(), w).await?;
+        write_analysis_query::<HandlerTypes>(&ctx, root, snapshot_id,
+            &cpg_schema::behavior::handler_types(), w).await?;
         let completions = crate::summaries::completions(&ctx).await?;
         write_analysis::<StatementCompletions>(&ctx, root, snapshot_id, &completions.statements, w).await?;
         write_analysis::<StatementCompletionSteps>(&ctx, root, snapshot_id, &completions.statement_steps, w).await?;
@@ -799,10 +805,6 @@ async fn finish(
         write_analysis::<ReturnExitSteps>(&ctx, root, snapshot_id, &completions.return_steps, w).await?;
         write_analysis::<cpg_schema::behavior::ReturnEntryStatuses>(&ctx, root, snapshot_id, &completions.entries, w).await?;
         write_analysis::<cpg_schema::behavior::ReturnEntrySteps>(&ctx, root, snapshot_id, &completions.entry_steps, w).await?;
-        write_analysis_query::<HandlerClauses>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::handler_clauses(), w).await?;
-        write_analysis_query::<HandlerTypes>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::handler_types(), w).await?;
         write_analysis_query::<ModeledExceptionHandlerCandidates>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::modeled_exception_handler_candidates(), w).await?;
         write_analysis_query::<ModeledExceptionHandlerWalks>(&ctx, root, snapshot_id,

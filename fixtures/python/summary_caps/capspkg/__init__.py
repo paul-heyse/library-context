@@ -940,3 +940,38 @@ def summary_proof_boundary(value):
         pass
         pass
         pass
+
+
+def typed_finalizer_identity(value):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except ValueError:
+            missing()
+        except TypeError:
+            pass
+
+
+def reraised_finalizer_identity(value):
+    try:
+        return value
+    finally:
+        try:
+            try:
+                raise 1
+            except TypeError:
+                raise
+        except Exception:
+            pass
+
+
+def unmatched_finalizer_identity(value):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except ValueError:
+            pass

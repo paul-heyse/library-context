@@ -207,14 +207,25 @@ witness.
   Supported actions include pass, normal expressions, unique local initialization outside loops,
   exact selected branches and nested try/finally. An opaque exception operand cannot establish
   a raise: exception classes can execute user constructors. Exact invalid primitive exception
-  operands establish a raise; a first bare handler can catch it. Typed handlers, bare re-raise,
-  arbitrary rebinding/finalization, loops and context exits remain unknown.
+  operands establish exact `TypeError`. Ordered bare or pinned typed handlers can catch that
+  exception; bare re-raise propagates a known active exception through nested handlers/finalizers.
+  Handler matching cites pinned class identity or MRO ancestry. Nonmatch additionally needs the
+  native Pyrefly `linearization_complete()` flag retained in `context_class_mro`: the Pysa report
+  alone drops that flag and omits self/object. Extraction retains the modeled runtime class and
+  acquires public metadata at the same pin; there is no fork or dependency change. Handler facts
+  are prepared before completion. Named-handler cleanup, exception groups (`except*` is marked
+  in syntax), opaque constructors, arbitrary rebinding/finalization, loops and context exits
+  remain unknown. This does not yet admit function-entry paths into handler bodies.
   Full operand/call/binding evidence is retained in inner-to-outer frame order. Completion depth
   128 and work 4096 have separate typed refusals. The shared summary-proof cap is 64 local steps;
   the producer emits `summary_proof_limit` before native admission could reject a generation.
   Pending-frame completion is separate from the path-specific entry certificates below.
   [Independent CPython/Hypothesis controls](../../design_review/evidence/2026-09-26_expression-completion/README.md)
   challenge normal/overriding/exceptional finalizers and implicit execution (**Tested**, 2026-09-26).
+  [Typed-handler controls](../../design_review/evidence/2026-09-26_typed-completion/README.md)
+  add 100 independent CPython/Hypothesis observations. The
+  [bounded handler review](../../design_review/reviews/design_review_stage3-typed-handler-completion_2026-09-26.md)
+  records the public-API correction and limits; eleven focused pure/source/Delta/native tests pass.
 - **Target** (Proposed; plan order 2): nested `try`/`finally` and `with` frame order, normal and
   exceptional completion, suppression and handler propagation; callbacks stored, invoked,
   forwarded or registered, and resource acquire/release, each only with an execution and exit

@@ -250,11 +250,14 @@ table!(
     /// Pysa's pinned MRO for a retained dependency class. Resolved ancestors have dense ordinals;
     /// an empty resolved MRO or a cyclic MRO has one marker row with no ancestor. This is a
     /// provider assertion under the pinned context, not a claim about runtime class mutation.
+    /// Pysa report ancestors exclude self/object and may be a recovery prefix; the retained
+    /// native linearization_complete flag is required before any negative hierarchy decision.
     ContextClassMro, ContextClassMroRow = "context_class_mro",
     family = Provenance,
     key = [snapshot_id, class_node_id, fact_id],
     checks = [
         ("ordinal_nonnegative", "ordinal IS NULL OR ordinal >= 0"),
+        ("complete_is_acyclic", "NOT linearization_complete OR NOT cyclic"),
         ("marker_shape", "(ordinal IS NULL AND ancestor_module IS NULL AND ancestor_key IS NULL AND ancestor_name IS NULL) OR (ordinal IS NOT NULL AND ancestor_module IS NOT NULL AND ancestor_key IS NOT NULL AND ancestor_name IS NOT NULL AND NOT cyclic)"),
     ],
     {
@@ -267,6 +270,9 @@ table!(
         ancestor_key: Option<String>,
         ancestor_name: Option<String>,
         cyclic: bool,
+        /// Exact provider metadata: resolved C3 linearization, not a recovery prefix.
+        /// Ancestors exclude the class itself and builtin object.
+        linearization_complete: bool,
     }
 );
 

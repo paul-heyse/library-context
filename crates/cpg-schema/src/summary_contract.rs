@@ -254,3 +254,14 @@ crate::query_row! {
         argument_count: i64,
     }
 }
+
+/// Exact exception outcomes established by the bounded Python completion rules. This list
+/// also owns which builtin classes extraction retains for their pinned hierarchy evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactRuntimeException { TypeError }
+impl ExactRuntimeException {
+    pub const ALL: &[Self] = &[Self::TypeError];
+    pub const fn class(self) -> (&'static str, &'static str) {
+        match self { Self::TypeError => ("builtins", "TypeError") }
+    }
+}

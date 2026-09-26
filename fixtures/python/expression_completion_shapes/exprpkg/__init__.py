@@ -153,3 +153,100 @@ def raising_selected_predecessor(value):
     if True:
         1 / 0
     return value
+
+
+def typed_exception_finalizer(value):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except TypeError:
+            pass
+
+
+def superclass_exception_finalizer(value):
+    try:
+        return value
+    finally:
+        try:
+            raise None
+        except Exception:
+            pass
+
+
+def later_matching_finalizer(value):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except ValueError:
+            missing()
+        except TypeError:
+            pass
+
+
+def reraised_caught_finalizer(value):
+    try:
+        return value
+    finally:
+        try:
+            try:
+                raise 1
+            except TypeError:
+                raise
+        except Exception:
+            pass
+
+
+def nonmatching_exception_finalizer(value):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except ValueError:
+            pass
+
+
+def shadowed_exception_finalizer(value, TypeError):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except TypeError:
+            pass
+
+
+def named_exception_finalizer(value, error):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except TypeError as error:
+            pass
+
+
+def grouped_exception_finalizer(value):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except* TypeError:
+            pass
+
+
+def unresolved_first_handler(value):
+    try:
+        return value
+    finally:
+        try:
+            raise 1
+        except missing:
+            pass
+        except TypeError:
+            pass

@@ -25,7 +25,7 @@ use cpg_schema::tables::{
     ContextModulesRow, ContextParameters, ContextParametersRow,
 };
 use pyrefly::report::pysa::captured_variable::collect_captured_variables_for_module;
-use pyrefly::report::pysa::class::PysaClassMro;
+use pyrefly::report::pysa::class::{PysaClassMro,ClassId,get_all_classes,get_class_mro};
 use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
 use pyrefly::report::pysa::export_module_definitions;
 use pyrefly::report::pysa::override_graph::create_reversed_override_graph_for_module;
@@ -196,7 +196,18 @@ pub(crate) fn context_facts(
         .collect();
     let referenced = refs.referenced.borrow().clone();
     let catalog = Catalog::committed().map_err(ExtractError::Context)?;
-    let mut modeled_classes = BTreeSet::new();
+    let mut modeled_classes:BTreeSet<(String,String)> = cpg_schema::summary_contract::ExactRuntimeException::ALL.iter()
+        .map(|exception| {let (module,name)=exception.class();(module.to_owned(),name.to_owned())}).collect();
+    if let Some(anchor)=anchor {
+        for exception in cpg_schema::summary_contract::ExactRuntimeException::ALL {
+            let (module,_)=exception.class();
+            if !handles.contains_key(module) {
+                let handle=txn.import_handle(anchor,ModuleName::from_str(module),None).finding()
+                    .ok_or_else(||ExtractError::Context(format!("runtime exception module {module} does not resolve")))?;
+                handles.insert(module.to_owned(),handle);
+            }
+        }
+    }
     for compiled in &catalog.models {
         for rule in &compiled.model.rules {
             if let Rule::Exception {
@@ -299,6 +310,9 @@ pub(crate) fn context_facts(
         let captured = collect_captured_variables_for_module(&context);
         let overrides = create_reversed_override_graph_for_module(&context);
         let defs = export_module_definitions(&context, &captured, &overrides);
+        // The report enum drops this flag and may expose only an MRO recovery prefix.
+        let mro_complete:HashMap<_,_>=get_all_classes(&context.answers_context).map(|class|
+            (ClassId::from_class(&class).to_int(),get_class_mro(&class,&context.answers_context).linearization_complete())).collect();
         let classes: HashMap<u32, (String, &ScopeParent)> = defs
             .class_definitions
             .iter()
@@ -394,6 +408,7 @@ pub(crate) fn context_facts(
                                 ancestor_key: Some(ancestor.class_id.to_int().to_string()),
                                 ancestor_name: Some(ancestor.class.name().as_str().to_owned()),
                                 cyclic: false,
+                                linearization_complete: mro_complete.get(&cid.to_int()).copied().unwrap_or(false),
                             }
                         ));
                     }
@@ -413,6 +428,7 @@ pub(crate) fn context_facts(
                             ancestor_key: None,
                             ancestor_name: None,
                             cyclic: matches!(&class.mro, PysaClassMro::Cyclic),
+                            linearization_complete: mro_complete.get(&cid.to_int()).copied().unwrap_or(false),
                         }
                     ));
                 }

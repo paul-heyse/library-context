@@ -9,11 +9,21 @@ use cpg_schema::id::Id;
 use cpg_schema::tables::{SyntaxNodesRow, BindingsRow, ScopesRow, FlowTestsRow};
 use cpg_schema::condition_kernel::Diagram;
 use crate::summaries::finite::condition_limit;
+use cpg_schema::summary_contract::ExactRuntimeException;
+use cpg_schema::behavior::HandlerTypesRow;
+use cpg_schema::tables::{ContextDefinitionsRow,ContextClassMroRow,ContextModulesRow};
+use cpg_schema::codebook::{HandlerTypeStatus,DefinitionKind,ModuleOrigin};
 
 const MAX_DEPTH: usize = 128;
 const MAX_WORK: usize = 4096;
 type Proof = Vec<(K, Id)>;
-type Result = std::result::Result<(C, Option<Id>), BoundaryReason>;
+#[derive(Clone, Copy)]
+struct Completion {kind:C,terminal:Option<Id>,exception:Option<ExactRuntimeException>}
+impl Completion {
+    fn plain(kind:C,terminal:Option<Id>)->Self {Self {kind,terminal,exception:None}}
+    fn raised(terminal:Id,exception:ExactRuntimeException)->Self {Self {kind:C::Raise,terminal:Some(terminal),exception:Some(exception)}}
+}
+type Result = std::result::Result<Completion, BoundaryReason>;
 
 pub struct Inputs<'a> {
     pub syntax: &'a [SyntaxNodesRow],
@@ -22,6 +32,10 @@ pub struct Inputs<'a> {
     pub bindings: &'a [BindingsRow],
     pub scopes: &'a [ScopesRow],
     pub exits: &'a [ExitSitesRow],
+    pub handler_types: &'a [HandlerTypesRow],
+    pub classes: &'a [ContextDefinitionsRow],
+    pub mro: &'a [ContextClassMroRow],
+    pub modules: &'a [ContextModulesRow],
     pub tests: &'a [FlowTestsRow],
     /// Requested (snapshot, return-site fact, candidate condition), never a function cross product.
     pub entry_conditions: &'a [(Id, Id, Id)],
@@ -49,6 +63,11 @@ struct Kernel<'a> {
     tests: HashMap<(Id,Id,i64,i64),Vec<&'a FlowTestsRow>>,
     diagrams: &'a HashMap<Id,Diagram>,
     boundaries: &'a HashMap<Id, BoundaryReason>,
+    handler_types: HashMap<(Id,Id),Vec<&'a HandlerTypesRow>>,
+    classes: HashMap<(Id,String,String),Vec<&'a ContextDefinitionsRow>>,
+    mro: HashMap<(Id,Id),Vec<&'a ContextClassMroRow>>,
+    modules: HashMap<(Id,Id),Vec<&'a ContextModulesRow>>,
+    active_exception: Option<ExactRuntimeException>,
     assumption: Option<Id>,
     entry_mode: bool,
     initialized: BTreeSet<(Id,Id,String)>,
@@ -78,7 +97,7 @@ impl Kernel<'_> {
             self.remaining=self.remaining.checked_sub(children.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
             match parent.kind {
                 S::StmtFunctionDef if parent.node_id==exit.function_node_id && node.field==F::Body => {},
-                S::StmtTry if node.field==F::Body => {},
+                S::StmtTry if node.field==F::Body && parent.detail.as_deref()!=Some("except*") => {},
                 S::ElifElseClause if node.field==F::Body => {},
                 S::StmtIf => {
                     let truth=self.truth(Self::field(&children,F::Test)?)?;
@@ -114,10 +133,73 @@ impl Kernel<'_> {
                     let value=self.children.get(&(exit.snapshot_id,statement.node_id));
                     if value.is_some_and(|v|v.len()==1 && v[0].field==F::Value && v[0].kind==S::ExprStringLiteral) {continue;}
                 }
-                if self.statement(statement,0)?.0!=C::Normal { return Err(BoundaryReason::RuntimeUnreachable); }
+                if self.statement(statement,0)?.kind!=C::Normal { return Err(BoundaryReason::RuntimeUnreachable); }
             }
         }
         Ok(())
+    }
+
+    fn pinned_class(&self,snapshot:Id,module:&str,name:&str)->std::result::Result<&ContextDefinitionsRow,BoundaryReason> {
+        let classes=self.classes.get(&(snapshot,module.to_owned(),name.to_owned())).ok_or(BoundaryReason::MissingEvidence)?;
+        if classes.len()!=1 || classes[0].kind!=DefinitionKind::Class {return Err(BoundaryReason::MissingEvidence);}
+        let class=classes[0];
+        let modules=self.modules.get(&(snapshot,class.module_node_id)).ok_or(BoundaryReason::MissingEvidence)?;
+        if modules.len()!=1 || modules[0].origin!=ModuleOrigin::BundledTypeshed || modules[0].module_name!=module {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+        Ok(class)
+    }
+
+    fn handler_matches(&mut self,handler:&SyntaxNodesRow,body:&[&SyntaxNodesRow],exception:ExactRuntimeException)
+        ->std::result::Result<bool,BoundaryReason> {
+        if body.iter().all(|n|n.field==F::Body) {return Ok(true);}
+        let test=Self::field(body,F::Test)?;
+        if body.iter().any(|n|!matches!(n.field,F::Body|F::Test)) {return Err(BoundaryReason::UnsupportedControlFlow);}
+        let rows=self.handler_types.get(&(handler.snapshot_id,handler.node_id)).ok_or(BoundaryReason::MissingEvidence)?;
+        if rows.len()!=1 {return Err(BoundaryReason::MissingEvidence);}
+        let row=rows[0];
+        if row.status!=HandlerTypeStatus::PinnedBuiltin || row.reason.is_some() {return Err(row.reason.unwrap_or(BoundaryReason::UnsupportedControlFlow));}
+        if Some(row.function_node_id)!=handler.owner_node_id || row.type_node_id!=Some(test.node_id) || row.type_fact_id!=Some(test.fact_id) {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+        let (module,name)=exception.class();
+        let raised=self.pinned_class(handler.snapshot_id,module,name)?;
+        let caught=self.pinned_class(handler.snapshot_id,"builtins",row.class_name.as_deref().ok_or(BoundaryReason::MissingEvidence)?)?;
+        if row.class_node_id!=Some(caught.symbol_node_id) || row.class_fact_id!=Some(caught.fact_id)
+            || row.class_module_fact_id!=Some(self.modules[&(handler.snapshot_id,caught.module_node_id)][0].fact_id) {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+        let mut evidence=vec![test.fact_id,row.reference_fact_id.ok_or(BoundaryReason::MissingEvidence)?,
+            row.resolution_fact_id.ok_or(BoundaryReason::MissingEvidence)?,caught.fact_id,
+            row.class_module_fact_id.ok_or(BoundaryReason::MissingEvidence)?,raised.fact_id];
+        let mut matched=raised.symbol_node_id==caught.symbol_node_id;
+        let mut work=evidence.len();
+        if !matched {
+            let ancestors=self.mro.get(&(handler.snapshot_id,raised.symbol_node_id)).ok_or(BoundaryReason::MissingEvidence)?;
+            work+=ancestors.len();
+            if work>self.remaining {return Err(BoundaryReason::CompletionWorkLimit);}
+            if ancestors.iter().enumerate().any(|(i,a)|a.cyclic || a.ordinal!=Some(i as i64) || a.ancestor_module.is_none() || a.ancestor_key.is_none() || a.ancestor_name.is_none()) {
+                return Err(BoundaryReason::MissingEvidence);
+            }
+            matched=ancestors.iter().any(|a|a.ancestor_module.as_deref()==Some(caught.module_name.as_str()) && a.ancestor_key.as_deref()==Some(caught.key.as_str()));
+            evidence.extend(ancestors.iter().map(|a|a.fact_id));
+            if !matched {
+                // Only an exact raised class and a complete resolved MRO justify nonmatch.
+                if ancestors.is_empty() || ancestors.iter().any(|a|!a.linearization_complete) {
+                    return Err(BoundaryReason::MissingEvidence);
+                }
+                let caught_mro=self.mro.get(&(handler.snapshot_id,caught.symbol_node_id)).ok_or(BoundaryReason::MissingEvidence)?;
+                work+=caught_mro.len();
+                if work>self.remaining {return Err(BoundaryReason::CompletionWorkLimit);}
+                if caught_mro.iter().any(|a|a.cyclic) || !caught_mro.iter().any(|a|a.ancestor_module.as_deref()==Some("builtins") && a.ancestor_name.as_deref()==Some("BaseException")) {
+                    return Err(BoundaryReason::UnsupportedControlFlow);
+                }
+                evidence.extend(caught_mro.iter().map(|a|a.fact_id));
+            }
+        }
+        self.remaining=self.remaining.checked_sub(work).ok_or(BoundaryReason::CompletionWorkLimit)?;
+        self.proof.extend(evidence.into_iter().map(|id|(K::HandlerClassEvidence,id)));
+        Ok(matched)
     }
 
     fn truth(&mut self, node:&SyntaxNodesRow) -> std::result::Result<bool,BoundaryReason> {
@@ -179,9 +261,9 @@ impl Kernel<'_> {
         if statements.iter().enumerate().any(|(i,n)| n.ordinal != i as i64) { return Err(BoundaryReason::MissingEvidence); }
         for statement in statements {
             let outcome = self.statement(statement, depth + 1)?;
-            if outcome.0 != C::Normal { return Ok(outcome); }
+            if outcome.kind != C::Normal { return Ok(outcome); }
         }
-        Ok((C::Normal, None))
+        Ok(Completion::plain(C::Normal, None))
     }
 
     fn statement(&mut self, node: &SyntaxNodesRow, depth: usize) -> Result {
@@ -196,11 +278,11 @@ impl Kernel<'_> {
         let outcome = match node.kind {
             S::StmtPass if children.is_empty() => {
                 self.proof.push((K::FinalizerPass, node.fact_id));
-                return Ok((C::Normal, None));
+                return Ok(Completion::plain(C::Normal, None));
             },
             S::StmtExpr if children.len() == 1 => {
                 self.expression(Self::field(&children, F::Value)?)?;
-                (C::Normal, None)
+                Completion::plain(C::Normal, None)
             },
             S::StmtAssign => {
                 self.expression(Self::field(&children, F::Value)?)?;
@@ -220,14 +302,18 @@ impl Kernel<'_> {
                     }
                     self.proof.push((K::LocalAssignmentBinding, binding.fact_id));
                 }
-                (C::Normal, None)
+                Completion::plain(C::Normal, None)
             },
             S::StmtReturn => {
                 if !children.is_empty() {
                     if children.len() != 1 { return Err(BoundaryReason::UnsupportedControlFlow); }
                     self.expression(Self::field(&children, F::Value)?)?;
                 }
-                (C::Return, Some(node.fact_id))
+                Completion::plain(C::Return, Some(node.fact_id))
+            },
+            S::StmtRaise if children.is_empty() => {
+                let exception=self.active_exception.ok_or(BoundaryReason::UnsupportedControlFlow)?;
+                Completion::raised(node.fact_id,exception)
             },
             S::StmtRaise => {
                 // An arbitrary exception class is instantiated by `raise` and its constructor
@@ -241,15 +327,15 @@ impl Kernel<'_> {
                 }
                 if children.iter().any(|n| !matches!(n.field, F::Exc | F::Cause)) { return Err(BoundaryReason::UnsupportedControlFlow); }
                 if children.iter().any(|n| n.field == F::Cause) { self.expression(Self::field(&children, F::Cause)?)?; }
-                (C::Raise, Some(node.fact_id))
+                Completion::raised(node.fact_id,ExactRuntimeException::TypeError)
             },
-            S::StmtBreak if children.is_empty() => (C::Break, Some(node.fact_id)),
-            S::StmtContinue if children.is_empty() => (C::Continue, Some(node.fact_id)),
+            S::StmtBreak if children.is_empty() => Completion::plain(C::Break, Some(node.fact_id)),
+            S::StmtContinue if children.is_empty() => Completion::plain(C::Continue, Some(node.fact_id)),
             S::StmtIf => {
                 let truth = self.truth(Self::field(&children, F::Test)?)?;
                 if truth { self.suite(&children, F::Body, depth)? }
                 else {
-                    let mut result = (C::Normal, None);
+                    let mut result = Completion::plain(C::Normal, None);
                     for clause in children.iter().filter(|n| n.field == F::Orelse) {
                         if clause.kind != S::ElifElseClause { return Err(BoundaryReason::UnsupportedControlFlow); }
                         let nodes = self.children.get(&(node.snapshot_id, clause.node_id)).cloned().unwrap_or_default();
@@ -262,28 +348,36 @@ impl Kernel<'_> {
                     result
                 }
             },
-            S::StmtTry => {
+            S::StmtTry if node.detail.as_deref()!=Some("except*") => {
                 let mut pending = self.suite(&children, F::Body, depth)?;
-                if pending.0 == C::Raise && children.iter().any(|n| n.field == F::Handler) {
-                    // A bare first handler catches every ordinary explicit raise. A typed
-                    // handler requires independently resolved exception matching; spelling
-                    // alone does not establish it. Exception groups remain unsupported.
-                    let handlers: Vec<_> = children.iter().filter(|n| n.field == F::Handler).collect();
-                    if handlers.iter().enumerate().any(|(i,h)|h.ordinal != i as i64)
-                        || handlers[0].kind != S::ExceptHandlerExceptHandler {
+                if pending.kind == C::Raise && children.iter().any(|n| n.field == F::Handler) {
+                    let handlers:Vec<_>=children.iter().filter(|n|n.field==F::Handler).collect();
+                    if handlers.iter().enumerate().any(|(i,h)|h.ordinal!=i as i64 || h.kind!=S::ExceptHandlerExceptHandler) {
                         return Err(BoundaryReason::MissingEvidence);
                     }
-                    let handler = handlers[0];
-                    let body = self.children.get(&(node.snapshot_id,handler.node_id)).cloned().unwrap_or_default();
-                    if body.iter().any(|n| n.field != F::Body) { return Err(BoundaryReason::UnsupportedControlFlow); }
-                    self.remaining=self.remaining.checked_sub(1+body.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
-                    self.proof.push((K::CompletionStatement,handler.fact_id));
-                    pending=self.suite(&body,F::Body,depth+1)?;
-                } else if pending.0 == C::Normal {
+                    let exception=pending.exception.ok_or(BoundaryReason::MissingEvidence)?;
+                    for handler in handlers {
+                        let body=self.children.get(&(node.snapshot_id,handler.node_id)).cloned().unwrap_or_default();
+                        self.remaining=self.remaining.checked_sub(1+body.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
+                        if !self.handler_matches(handler,&body,exception)? {continue;}
+                        // Exception-name rebinding and implicit deletion can run user cleanup.
+                        if handler.detail.as_deref().is_some_and(|name|!name.is_empty()) {return Err(BoundaryReason::UnsupportedControlFlow);}
+                        self.proof.push((K::CompletionStatement,handler.fact_id));
+                        let previous=self.active_exception.replace(exception);
+                        let result=self.suite(&body,F::Body,depth+1);
+                        self.active_exception=previous;
+                        pending=result?;
+                        break;
+                    }
+                } else if pending.kind == C::Normal {
                     pending = self.suite(&children, F::Orelse, depth)?;
                 }
-                let finalizer = self.suite(&children, F::Finalbody, depth)?;
-                if finalizer.0 == C::Normal { pending } else { finalizer }
+                let previous=self.active_exception;
+                if pending.kind==C::Raise {self.active_exception=pending.exception;}
+                let result=self.suite(&children,F::Finalbody,depth);
+                self.active_exception=previous;
+                let finalizer=result?;
+                if finalizer.kind == C::Normal { pending } else { finalizer }
             },
             _ => return Err(BoundaryReason::UnsupportedControlFlow),
         };
@@ -323,16 +417,26 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
     for steps in expression_steps.values_mut() { steps.sort_by_key(|s|s.ordinal); }
     let mut tests:HashMap<_,Vec<_>>=HashMap::new();
     for test in inputs.tests { tests.entry((test.snapshot_id,test.module_node_id,test.start_byte,test.end_byte)).or_default().push(test); }
+    let mut handler_types:HashMap<_,Vec<_>>=HashMap::new();
+    for handler in inputs.handler_types {handler_types.entry((handler.snapshot_id,handler.handler_node_id)).or_default().push(handler);}
+    let mut classes:HashMap<_,Vec<_>>=HashMap::new();
+    for class in inputs.classes {classes.entry((class.snapshot_id,class.module_name.clone(),class.qualified_name.clone())).or_default().push(class);}
+    let mut modules:HashMap<_,Vec<_>>=HashMap::new();
+    for module in inputs.modules {modules.entry((module.snapshot_id,module.module_node_id)).or_default().push(module);}
+    let mut mro:HashMap<_,Vec<_>>=HashMap::new();
+    for ancestor in inputs.mro {mro.entry((ancestor.snapshot_id,ancestor.class_node_id)).or_default().push(ancestor);}
+    for ancestors in mro.values_mut() {ancestors.sort_by_key(|a|(a.ordinal,a.fact_id));}
     let mut kernel = Kernel { children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
+        handler_types,classes,mro,modules,active_exception:None,
         entry_mode:false,initialized:BTreeSet::new(),path_initializations:eligible,
         remaining: MAX_WORK, proof: Vec::new(),
         expressions: inputs.expressions.iter().map(|e| ((e.snapshot_id,e.syntax_fact_id),e)).collect(),
         scopes: inputs.scopes.iter().map(|s| ((s.snapshot_id,s.node_id),s)).collect() };
     let mut out = Outcome::default();
     for node in inputs.syntax.iter().filter(|n| n.owner_node_id.is_some() && n.kind.text().starts_with("stmt_")) {
-        kernel.remaining = MAX_WORK; kernel.proof.clear();kernel.initialized.clear();
+        kernel.remaining = MAX_WORK; kernel.proof.clear();kernel.initialized.clear();kernel.active_exception=None;
         let result = kernel.statement(node,0);
-        let (kind,terminal_fact_id,reason) = match result { Ok((kind,terminal)) => (kind,terminal,None),
+        let (kind,terminal_fact_id,reason) = match result { Ok(outcome) => (outcome.kind,outcome.terminal,None),
             Err(reason) => (C::Unknown,None,Some(reason)) };
         out.statements.push(StatementCompletionsRow { snapshot_id: node.snapshot_id, source_fact_id: node.fact_id,
             statement_node_id: node.node_id, function_node_id: node.owner_node_id.unwrap(),
@@ -349,7 +453,7 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
         let mut conditions=requested.remove(&(exit.snapshot_id,exit.source_fact_id)).unwrap_or_default();
         conditions.insert(exit.condition_id);
         for condition_id in conditions {
-        kernel.remaining=MAX_WORK;kernel.proof.clear();kernel.initialized.clear();kernel.assumption=Some(condition_id);kernel.entry_mode=true;
+        kernel.remaining=MAX_WORK;kernel.proof.clear();kernel.initialized.clear();kernel.active_exception=None;kernel.assumption=Some(condition_id);kernel.entry_mode=true;
         let reason=kernel.entry(exit,&nodes).err();
         out.entries.push(ReturnEntryStatusesRow {snapshot_id:exit.snapshot_id,return_site_fact_id:exit.source_fact_id,
             function_node_id:exit.function_node_id,condition_id,reason,
@@ -361,7 +465,7 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
         }
         }
         kernel.assumption=None;kernel.entry_mode=false;
-        kernel.remaining = MAX_WORK; kernel.proof.clear();kernel.initialized.clear();
+        kernel.remaining = MAX_WORK; kernel.proof.clear();kernel.initialized.clear();kernel.active_exception=None;
         let mut row = ReturnExitStatusesRow { snapshot_id:exit.snapshot_id,function_node_id:exit.function_node_id,
             site_node_id:exit.site_node_id,source_fact_id:exit.source_fact_id,condition_id:exit.condition_id,
             walk_depth:0,frame_node_id:None,frame_fact_id:None,pass_node_id:None,pass_fact_id:None,reason:None };
@@ -380,7 +484,7 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
                 frames.push(parent.node_id);
                 if parent.kind == S::StmtWith { row.reason=Some(BoundaryReason::UnsupportedControlFlow); break; }
                 match kernel.suite(&actions,F::Finalbody,0) {
-                    Ok((C::Normal,_)) => {},
+                    Ok(outcome) if outcome.kind==C::Normal => {},
                     Ok(_) => { row.reason=Some(BoundaryReason::UnsupportedControlFlow); break; },
                     Err(reason) => { row.reason=Some(reason); break; },
                 }
@@ -421,7 +525,7 @@ mod tests {
     fn run(nodes:&[SyntaxNodesRow], exits:&[ExitSitesRow]) -> Outcome {
         let expressions=evaluate(EvaluationInputs {syntax:nodes,..Default::default()});
         complete(Inputs {syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
-            tests:&[],entry_conditions:&[],boundaries:&HashMap::new(),diagrams:&HashMap::new()})
+            handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&[],entry_conditions:&[],boundaries:&HashMap::new(),diagrams:&HashMap::new()})
     }
     fn exit(site:u8) -> ExitSitesRow {
         ExitSitesRow { snapshot_id:id(1),function_node_id:id(3),site_node_id:id(site),
@@ -483,7 +587,7 @@ mod tests {
         assert_eq!(run(&nodes,&[exit(11)]).returns[0].reason,Some(BoundaryReason::MissingEvidence));
     }
     #[test]
-    fn a_caught_raise_does_not_execute_else_and_bare_reraise_is_unknown() {
+    fn a_caught_raise_skips_else_and_bare_reraise_preserves_exception() {
         let mut nodes=vec![node(10,3,S::StmtTry,F::Body,0,""),
             node(11,10,S::StmtRaise,F::Body,0,""),
             node(12,11,S::ExprNoneLiteral,F::Exc,0,"None"),
@@ -496,7 +600,7 @@ mod tests {
         assert!(!out.statement_steps.iter().any(|r|r.source_fact_id==id(10)&&r.evidence_id==id(15)));
         nodes[4].kind=S::StmtRaise;
         let out=run(&nodes,&[]);
-        assert_eq!(out.statements.iter().find(|r|r.source_fact_id==id(10)).map(|r|r.kind),Some(C::Unknown));
+        assert_eq!(out.statements.iter().find(|r|r.source_fact_id==id(10)).map(|r|r.kind),Some(C::Raise));
     }
     #[test]
     fn production_completion_depth_and_work_limits_remain_distinct() {
@@ -513,6 +617,22 @@ mod tests {
         let out=run(&nodes,&[]);
         assert_eq!(out.statements.iter().find(|r|r.source_fact_id==id(10)).unwrap().reason,Some(BoundaryReason::CompletionWorkLimit));
         assert!(!out.statement_steps.iter().any(|r|r.source_fact_id==id(10)));
+    }
+
+    #[test]
+    fn bare_reraise_uses_active_handler_or_finally_exception_only() {
+        let nodes=vec![node(10,3,S::StmtTry,F::Body,0,""),
+            node(11,10,S::StmtTry,F::Body,0,""),node(12,11,S::StmtRaise,F::Body,0,""),
+            node(13,12,S::ExprNoneLiteral,F::Exc,0,"None"),
+            node(14,11,S::ExceptHandlerExceptHandler,F::Handler,0,""),node(15,14,S::StmtRaise,F::Body,0,""),
+            node(16,10,S::ExceptHandlerExceptHandler,F::Handler,0,""),node(17,16,S::StmtPass,F::Body,0,"")];
+        let out=run(&nodes,&[]);
+        assert_eq!(out.statements.iter().find(|s|s.source_fact_id==id(10)).unwrap().kind,C::Normal);
+        assert_eq!(out.statements.iter().find(|s|s.source_fact_id==id(15)).unwrap().kind,C::Unknown);
+        let mut finalizing=nodes.clone();
+        finalizing.retain(|n|n.node_id!=id(14));
+        let reraise=finalizing.iter_mut().find(|n|n.node_id==id(15)).unwrap();reraise.parent_node_id=id(11);reraise.field=F::Finalbody;
+        assert_eq!(run(&finalizing,&[]).statements.iter().find(|s|s.source_fact_id==id(10)).unwrap().kind,C::Normal);
     }
 
     #[test]
@@ -541,7 +661,7 @@ mod tests {
             let exits=[target];let tests=[test];
             let check=|diagrams:&HashMap<Id,Diagram>,boundaries:&HashMap<Id,BoundaryReason>| {
                 let out=complete(Inputs {syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
-                    bindings:&[],scopes:&[],exits:&exits,tests:&tests,entry_conditions:&[],boundaries,diagrams});
+                    bindings:&[],scopes:&[],exits:&exits,handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,entry_conditions:&[],boundaries,diagrams});
                 assert_eq!(out.entries[0].reason,Some(expected));assert!(out.entry_steps.is_empty());
             };
             check(&diagrams,&HashMap::new());
@@ -571,7 +691,7 @@ mod tests {
             let evaluations=evaluate(EvaluationInputs {syntax:nodes,reads:std::slice::from_ref(&read),..Default::default()});
             assert!(!evaluations.evaluations.iter().find(|e|e.syntax_fact_id==id(11)).unwrap().normal);
             complete(Inputs {syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
-                bindings:&[],scopes:&[],exits:std::slice::from_ref(&target),tests:&tests,
+                bindings:&[],scopes:&[],exits:std::slice::from_ref(&target),handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,
                 entry_conditions:&[(id(1),id(99),Diagram::always().id())],boundaries:&HashMap::new(),diagrams:&diagrams})
         };
         let out=check(&nodes);

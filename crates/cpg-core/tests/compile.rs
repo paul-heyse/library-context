@@ -5116,12 +5116,12 @@ budget = 1
         &raw_version("expression_completion_shapes", snapshot, (3, 14, 7)), Some(&analysis))
         .await.unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
-    for name in ["selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer", "literal_predecessor", "initialized_predecessor", "skipped_predecessor"] {
+    for name in ["typed_exception_finalizer", "superclass_exception_finalizer", "later_matching_finalizer", "reraised_caught_finalizer", "selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer", "literal_predecessor", "initialized_predecessor", "skipped_predecessor"] {
         assert!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \
             WHERE d.name = '{name}' AND s.verdict IN (0,1)")).await > 0, "{name}");
     }
-    for name in ["selected_missing", "unknown_truthiness", "deleted_read", "nested_call_raising", "missing_required_predecessor", "extra_argument_predecessor", "extra_keyword_result", "raising_call_finalizer", "overriding_finalizer", "unknown_finalizer", "arithmetic_predecessor", "raising_selected_predecessor", "repeated_initialization"] {
+    for name in ["nonmatching_exception_finalizer", "shadowed_exception_finalizer", "named_exception_finalizer", "grouped_exception_finalizer", "unresolved_first_handler", "selected_missing", "unknown_truthiness", "deleted_read", "nested_call_raising", "missing_required_predecessor", "extra_argument_predecessor", "extra_keyword_result", "raising_call_finalizer", "overriding_finalizer", "unknown_finalizer", "arithmetic_predecessor", "raising_selected_predecessor", "repeated_initialization"] {
         assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \
             WHERE d.name = '{name}'")).await, 0, "{name}");
@@ -5143,6 +5143,12 @@ budget = 1
         WHERE n.detail = 'typ' AND e.status IN (4,6)").await > 0);
     assert_eq!(count(&ctx, "SELECT count(*) FROM expression_evaluation_steps e \
         JOIN syntax_nodes n ON n.fact_id = e.operand_fact_id WHERE n.detail = 'missing'").await, 0);
+    let original_mro=sql::query(&ctx,"SELECT * FROM context_class_mro").await.unwrap().into_view();
+    let incomplete_mro=sql::query(&ctx,"SELECT snapshot_id,fact_id,class_node_id,module_node_id,ordinal,ancestor_module,ancestor_key,ancestor_name,cyclic,false AS linearization_complete FROM context_class_mro").await.unwrap().into_view();
+    ctx.deregister_table("context_class_mro").unwrap();ctx.register_table("context_class_mro",incomplete_mro).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="completion-source-equality"),"{violations:?}");
+    ctx.deregister_table("context_class_mro").unwrap();ctx.register_table("context_class_mro",original_mro).unwrap();
     let original = sql::query(&ctx, "SELECT * FROM expression_evaluation_steps").await.unwrap().into_view();
     let missing = sql::query(&ctx, "SELECT * FROM expression_evaluation_steps WHERE false").await.unwrap().into_view();
     ctx.deregister_table("expression_evaluation_steps").unwrap();

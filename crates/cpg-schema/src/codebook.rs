@@ -1391,6 +1391,7 @@ codebook!(
         LocalAssignmentBinding = 19 => "local_assignment_binding",
         /// A provider predicate fixed by the source return-path condition, not an exact value.
         StatementCondition = 20 => "statement_condition",
+        HandlerClassEvidence = 21 => "handler_class_evidence",
     }
 );
 
