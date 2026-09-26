@@ -1008,6 +1008,23 @@ budget = 1
         "a first keyword literal completes before the tracked second keyword value"
     );
     assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
+               AND first.kind = {evaluation} \
+             JOIN syntax_nodes literal ON literal.fact_id = first.evidence_id \
+               AND literal.detail = 'True' \
+             JOIN summary_flow_steps second ON second.summary_id = f.summary_id \
+               AND second.kind = {evaluation} AND second.ordinal = first.ordinal + 1 \
+               AND second.evidence_id = f.source_flow_fact_id \
+             WHERE d.name = 'recursive_reversed_keyword_true' AND f.path_depth = 1",
+            evaluation = cpg_schema::codebook::SummaryFlowStepKind::ArgumentEvaluation.code(),
+        )).await,
+        1,
+        "the published proof evaluates the first literal before the tracked value"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
             WHERE d.name = 'recursive_reversed_keyword_false' AND f.path_depth > 0").await,

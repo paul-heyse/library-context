@@ -25,6 +25,15 @@ case evaluates the literal before the tracked parameter use; both are
 direct normal-evaluation forms, so the argument-order change does not
 borrow a normal-return claim from a later call.
 
+The first implementation admitted the reversed call but serialized its
+proof as tracked-value evaluation followed by control evaluation. That
+order contradicted the source syntax and plan order 3's canonical ordered
+proof contract. The seed now carries both argument ordinals from Ruff;
+the finite producer sorts the two evaluation steps by those ordinals. A
+pure producer control and real source/Delta/native checks assert the
+literal-before-value order. The shared validator reruns the same producer,
+so a forged order cannot publish.
+
 The real fixture must expose the guarded function as a public path:
 entry-value links are intentionally formed only for public operations.
 The initial fixture omitted its `__all__` entries, so it correctly had no

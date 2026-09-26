@@ -96,7 +96,9 @@ cpg_schema::query_row! {
         return_condition_id: Id,
         return_start_byte: i64,
         approximated: bool,
+        source_argument_ordinal: i64,
         control_argument_fact_id: Option<Id>,
+        control_argument_ordinal: Option<i64>,
         control_evaluation_fact_id: Option<Id>,
         control_formal_node_id: Option<Id>,
         control_link_id: Option<Id>,
@@ -303,6 +305,14 @@ struct ControlEvidence<'a> {
 
 fn control_evidence(seed: &LocalCallSummaryFlowSeed)
     -> Result<Option<ControlEvidence<'_>>, BoundaryReason> {
+    if !matches!(seed.source_argument_ordinal, 0 | 1)
+        || (seed.control_argument_fact_id.is_none() && seed.source_argument_ordinal != 0)
+        || seed.control_argument_fact_id.is_some() != seed.control_argument_ordinal.is_some()
+        || seed.control_argument_ordinal.is_some_and(|ordinal|
+            !matches!(ordinal, 0 | 1) || ordinal == seed.source_argument_ordinal)
+    {
+        return Err(BoundaryReason::MissingEvidence);
+    }
     match (
         seed.control_argument_fact_id, seed.control_evaluation_fact_id,
         seed.control_formal_node_id, seed.control_link_id,
@@ -1134,26 +1144,24 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             }
             path.admitted = true;
             let mut proof = path.predecessor_proof.clone();
-            proof.extend([
-                (
-                    SummaryFlowStepKind::CalleeResolution,
-                    seed.callee_resolution_fact_id,
-                    seed.condition_id,
-                ),
-                (
-                    SummaryFlowStepKind::ArgumentEvaluation,
-                    seed.source_flow_fact_id,
-                    seed.condition_id,
-                ),
-            ].into_iter().map(|(kind, evidence_id, condition_id)|
-                recipe::SummaryFlowProofStep { kind, evidence_id, condition_id }));
+            proof.push(recipe::SummaryFlowProofStep {
+                kind: SummaryFlowStepKind::CalleeResolution,
+                evidence_id: seed.callee_resolution_fact_id,
+                condition_id: seed.condition_id,
+            });
+            let mut evaluations = vec![(seed.source_argument_ordinal, seed.source_flow_fact_id)];
             if let Some(control) = control {
-                proof.push(recipe::SummaryFlowProofStep {
-                    kind: SummaryFlowStepKind::ArgumentEvaluation,
-                    evidence_id: control.evaluation,
-                    condition_id: seed.condition_id,
-                });
+                evaluations.push((seed.control_argument_ordinal
+                    .expect("validated control ordinal"), control.evaluation));
             }
+            evaluations.sort_by_key(|(ordinal, _)| *ordinal);
+            proof.extend(evaluations.into_iter().map(|(_, evidence_id)| {
+                recipe::SummaryFlowProofStep {
+                    kind: SummaryFlowStepKind::ArgumentEvaluation,
+                    evidence_id,
+                    condition_id: seed.condition_id,
+                }
+            }));
             proof.extend([
                 (
                     SummaryFlowStepKind::CallSite,
@@ -1358,7 +1366,9 @@ mod tests {
             return_region_fact_id: id(call + 5),
             return_condition_id: Diagram::always().id(), return_start_byte: 30,
             approximated: false,
-            control_argument_fact_id: None, control_evaluation_fact_id: None,
+            source_argument_ordinal: 0,
+            control_argument_fact_id: None, control_argument_ordinal: None,
+            control_evaluation_fact_id: None,
             control_formal_node_id: None, control_link_id: None,
             control_atom: None, control_value: None,
             control_source_link_id: None, control_source_atom: None,
@@ -1416,6 +1426,7 @@ mod tests {
             let mut edge = recursive_edge(2, 3, 2, 3, 40, 41, 50);
             edge.condition_id = else_path.id();
             edge.control_argument_fact_id = Some(id(70));
+            edge.control_argument_ordinal = Some(1);
             edge.control_evaluation_fact_id = Some(id(71));
             edge.control_formal_node_id = Some(id(72));
             edge.control_link_id = Some(id(73));
@@ -1438,6 +1449,20 @@ mod tests {
         assert!(positive.steps.iter().any(|step| step.summary_id == local.summary_id
             && step.kind == SummaryFlowStepKind::CalleeConditionLink
             && step.evidence_id == id(73)));
+
+        let mut reversed = make_input(true);
+        reversed.local_seeds[0].source_argument_ordinal = 1;
+        reversed.local_seeds[0].control_argument_ordinal = Some(0);
+        let reversed = finite_flows(reversed);
+        let reversed_path = reversed.flows.iter()
+            .find(|row| row.source_origin_id == id(41)).unwrap();
+        let evaluations: Vec<_> = reversed.steps.iter()
+            .filter(|step| step.summary_id == reversed_path.summary_id
+                && step.kind == SummaryFlowStepKind::ArgumentEvaluation)
+            .map(|step| step.evidence_id)
+            .collect();
+        assert_eq!(evaluations, vec![id(71), id(40)],
+            "proof evaluations follow syntax order, not the tracked source argument");
 
         let withheld = finite_flows(make_input(false));
         assert!(!withheld.flows.iter().any(|row| row.source_origin_id == id(41)));
@@ -1469,6 +1494,7 @@ mod tests {
         let mut edge = recursive_edge(4, 5, 2, 3, 40, 41, 50);
         edge.condition_id = caller_guard.id();
         edge.control_argument_fact_id = Some(id(70));
+        edge.control_argument_ordinal = Some(1);
         edge.control_evaluation_fact_id = Some(id(71));
         edge.control_formal_node_id = Some(id(72));
         edge.control_link_id = Some(id(73));
@@ -1803,7 +1829,9 @@ mod tests {
                 return_condition_id: always,
                 return_start_byte: 30,
                 approximated: false,
-                control_argument_fact_id: None, control_evaluation_fact_id: None,
+                source_argument_ordinal: 0,
+                control_argument_fact_id: None, control_argument_ordinal: None,
+                control_evaluation_fact_id: None,
                 control_formal_node_id: None, control_link_id: None,
                 control_atom: None, control_value: None,
                 control_source_link_id: None, control_source_atom: None,
@@ -1845,7 +1873,9 @@ mod tests {
             callee_parameter_node_id: id(14), callee_resolution_fact_id: id(15),
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: always, return_start_byte: 30, approximated: false,
-            control_argument_fact_id: None, control_evaluation_fact_id: None,
+            source_argument_ordinal: 0,
+            control_argument_fact_id: None, control_argument_ordinal: None,
+            control_evaluation_fact_id: None,
             control_formal_node_id: None, control_link_id: None,
             control_atom: None, control_value: None,
             control_source_link_id: None, control_source_atom: None,
@@ -1902,7 +1932,9 @@ mod tests {
             callee_parameter_node_id: id(14), callee_resolution_fact_id: id(15),
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: exit_id, return_start_byte: 30, approximated: false,
-            control_argument_fact_id: None, control_evaluation_fact_id: None,
+            source_argument_ordinal: 0,
+            control_argument_fact_id: None, control_argument_ordinal: None,
+            control_evaluation_fact_id: None,
             control_formal_node_id: None, control_link_id: None,
             control_atom: None, control_value: None,
             control_source_link_id: None, control_source_atom: None,

@@ -2508,7 +2508,9 @@ crate::relations! {
                     e.condition_id AS return_condition_id, \
                     ret.start_byte AS return_start_byte, \
                     (f.approximated OR e.approximated) AS approximated, \
+                    arg.ordinal AS source_argument_ordinal, \
                     control_arg.fact_id AS control_argument_fact_id, \
+                    control_arg.ordinal AS control_argument_ordinal, \
                     CASE WHEN literal.fact_id IS NOT NULL THEN literal.fact_id \
                          ELSE control_eval.evidence_id END AS control_evaluation_fact_id, \
                     control_map.formal_node_id AS control_formal_node_id, \
