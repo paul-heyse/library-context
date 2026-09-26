@@ -1,6 +1,23 @@
 //! Resolved builtin access must be represented like direct attribute reads.
 use cpg_schema::{id::Id, table::Table};
 
+const CONFIG: &str = r#"
+version = 1
+[subsystem]
+module_prefixes = ["probe"]
+public_roots = ["probe"]
+[seeds]
+primary = ["probe.Settings"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#;
+
 #[tokio::test]
 async fn equivalent_getattr_spellings_and_computed_names_keep_no_read_sound() {
     let dir = tempfile::tempdir().unwrap();
@@ -15,6 +32,7 @@ import builtins
 from builtins import getattr as read_attribute
 
 class Settings:
+    """Read named configuration fields."""
     def __init__(self):
         self.bare_only = 1
         self.qualified_only = 2
@@ -91,5 +109,47 @@ dynamic_settings = DynamicSettings()
             .filter(|row| row.kind == cpg_schema::codebook::DynamicKind::Getattr)
             .count(),
         3
+    );
+
+    // The same corrected premise must survive the publication and serving projections.
+    let store = dir.path().join("store");
+    let analysis = cpg_core::analyze::Analysis {
+        config: lctx_analytics::config::AnalyticsConfig::parse(CONFIG).unwrap(),
+        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Default::default(),
+    };
+    cpg_core::attempt::compile_analyzed(&store, snapshot, &out.tables, Some(&analysis))
+        .await
+        .unwrap();
+    let generation = cpg_core::bundle::bundle(&store, snapshot, &dir.path().join("generations"))
+        .await
+        .unwrap();
+    let script = r#"
+import sys
+from pathlib import Path
+from lctx_mcp.generation import load
+from lctx_mcp.operations import get_operation
+generation = load(Path(sys.argv[1]), None)
+claims = generation.claims
+assert any(k.endswith("qualified_only]") and not v["holds"] for k, v in claims.items()), claims
+assert any(k.endswith("aliased_only]") and not v["holds"] for k, v in claims.items()), claims
+assert any(k.endswith("unread_only]") and v["holds"] for k, v in claims.items()), claims
+operation = get_operation(generation, generation.snapshot_id, "probe.Settings")
+fields = {field.name: field.never_read for field in operation.fields}
+assert "probe.settings" == operation.singleton_of, operation
+assert fields["qualified_only"].startswith("unknown (not refuted)"), fields
+assert fields["aliased_only"].startswith("unknown (not refuted)"), fields
+assert fields["unread_only"].startswith("refuted_under_model"), fields
+"#;
+    let output = std::process::Command::new("uv")
+        .args(["run", "--no-sync", "python", "-c", script])
+        .arg(&generation.dir)
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "published premise did not survive serving: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
