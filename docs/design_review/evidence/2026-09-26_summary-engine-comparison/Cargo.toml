@@ -1,0 +1,11 @@
+[package]
+name = "summary-engine-comparison"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+ascent = { version = "=0.8.1", default-features = false }
+datafrog = "=2.0.1"
+petgraph = "=0.8.3"

@@ -288,6 +288,14 @@ A new step kind needs its checked source relation, deterministic encoding, publi
 reconstruction and native admission before it creates positives. If a rule ever needs a
 multi-parent proof, that is a new decision, not parents smuggled into text.
 
+**Recursive value engine** (Interface-checked, 2026-09-26; implementation open). The first
+recursive value relation will use an SCC-local bounded worklist over the accepted petgraph
+component schedule, with each transfer owning BDD limits, ordered source proof and typed
+per-origin refusal. Ascent and datafrog agree with that schedule on a finite-base reachability
+probe, but do not supply those product semantics by themselves. Recompare if multiple recursive
+effect, exception or role channels share rules ([ADR-0053](../../adr/0053-bounded-scc-summary-worklist.md));
+the blanket recursive-member refusal remains until the new producer passes its fixtures.
+
 **Predecessors.** A true return region does not prove that an earlier call returned. The direct
 producer ignores an earlier same-function call when its narrowest non-approximate ty statement
 region and the return-value condition have a bounded conjunction of **false**. A compatible call
@@ -320,9 +328,10 @@ singleton recursive. Candidate/open dispatch contributes topology only.
 - W7: the flow model's cyclic reach uses the bounded source fixed point (§3.9); its production-cap
   native trace and fresh pilot cost remain open. A real extracted-flow row shuffle now preserves
   canonical published contribution, value-flow and premise bytes in a focused fixture.
-- W12: the engine for bounded SCC composition (a native SCC worklist, Ascent or datafrog) is an
-  open comparison on one semantic state and refusal contract, after W5; none is adopted. A
-  wall-clock timeout is not a deterministic budget.
+- W12: ADR-0053 selects the SCC-local bounded worklist for the first recursive value channel
+  after the same-state reachability comparison. Full product condition/proof/refusal fixtures,
+  publication and pilot cost are open; Ascent/datafrog remain candidates when several recursive
+  relation families share rules. A wall-clock timeout is not a deterministic budget.
 - W13: iterative SCC routine and schedule ownership are decided by ADR-0052 and tested in a
   deep chain. The separate type-term recursive set closures now terminate on cyclic controls;
   pilot cost and the integrated digest remain open. Keyed condensation ordering stays
@@ -370,6 +379,6 @@ proposed ([§11.3](synthesis-and-serving.md#section-11-3)).
   small (20–40 authored); ranked lookup waits until it outgrows one page. **`explain`** returns the
   stored witness chain.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053
 
 ---

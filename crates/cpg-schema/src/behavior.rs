@@ -533,8 +533,8 @@ table!(
 
 table!(
     /// A return's bounded syntax ancestry and nearest `with` or `try/finally` frame. All
-    /// pending frames must be sole `finally: pass` suites to discharge them; the nullable
-    /// pass fields retain the one-frame case, while ordered multi-frame evidence is queried
+    /// pending frames must be nonempty pass-only `finally` suites to discharge them; the nullable
+    /// pass fields retain the one-frame, one-pass case, while ordered multi-step evidence is queried
     /// from source syntax. Null reason is still only a local normal-return candidate and does not
     /// establish that evaluating the return expression succeeds.
     ReturnExitStatuses, ReturnExitStatusesRow = "return_exit_statuses",

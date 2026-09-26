@@ -291,10 +291,11 @@ dependence and summary composition beyond the acyclic case are **Proposed** targ
 - **What runs by default is decided by the §9.8 keep rule**: Passes A–C, direct usage and
   selection. Communities, FCA, kNN, PageRank, RCA and extra layers are variants, off by default
   and reachable with `lctx compile --analytics`.
-- Summary scheduling uses petgraph SCCs, callees first; the recursion engine and the stack-safe
-  SCC routine are open choices owned by the forward plan (W12, W13).
+- Summary scheduling uses iterative petgraph SCCs, callees first (ADR-0052). The first recursive
+  value channel uses an SCC-local bounded worklist owned by our finite producer (ADR-0053);
+  multi-relation effect/exception/role recursion triggers a fresh engine comparison (W12).
 
-> Decision: ADR-0044, ADR-0020
+> Decision: ADR-0044, ADR-0020, ADR-0052, ADR-0053
 
 <a id="section-b5"></a>
 
@@ -646,8 +647,9 @@ owns the scheduling triggers.
 - **An ANN index or Lance/LanceDB.** Exact search serves today; adoption needs an isolated
   workspace, Arrow IPC as the only interface and a derived index outside the byte-identical
   generation, because Lance writes are not byte-reproducible.
-- **A recursion engine (Ascent/datafrog).** Compared at the first shared recursive summary
-  contract, not adopted by default (§9.9).
+- **A recursion engine (Ascent/datafrog).** A same-state finite-base relation probe found no
+  integration advantage for the first value channel over the bounded SCC-local producer;
+  compare again when several recursive channels share rules (§9.9, ADR-0053).
 - **Graph-FCA in the pipeline; on-demand RCA at serve time.**
 - **Generative interpretation** (§B11), graph embeddings, neural reranking and composition planning.
 
