@@ -120,6 +120,28 @@ def raising_or_sibling(value: object) -> object:
     return cast(False or (1 / 0), value)
 
 
+def selected_true_predecessor(value: object) -> object:
+    """A literal true test selects the safe first branch."""
+    cast(object, 1 if True else (1 / 0))
+    return value
+
+
+def raising_false_predecessor(value: object) -> object:
+    """A literal false test selects the raising else branch."""
+    cast(object, 1 if False else (1 / 0))
+    return value
+
+
+def selected_false_sibling(value: object) -> object:
+    """A literal false test selects a safe modeled-call sibling."""
+    return cast((1 / 0) if False else 2, value)
+
+
+def raising_true_sibling(value: object) -> object:
+    """A literal true test selects a raising modeled-call sibling."""
+    return cast((1 / 0) if True else 2, value)
+
+
 def raising_binary_predecessor(value: object) -> object:
     """Division by zero does not acquire the safe binary-literal witness."""
     cast(object, 1 / 0)

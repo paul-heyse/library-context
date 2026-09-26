@@ -1714,6 +1714,27 @@ fn simple_argument_evidence_sql() -> String {
              AND operand_kind = {boolean_literal} \
              AND ((bool_operator = 'and' AND operand_detail = 'False') OR \
                   (bool_operator = 'or' AND operand_detail = 'True')) \
+         ), conditional_literal_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, expression.fact_id AS syntax_fact_id, \
+                  count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes expression ON expression.module_node_id = c.module_node_id \
+             AND expression.parent_node_id = c.node_id \
+             AND expression.field = {argument_field} \
+             AND expression.start_byte = a.value_start_byte \
+             AND expression.end_byte = a.value_end_byte \
+             AND expression.kind = {conditional_expr} \
+           JOIN syntax_nodes test ON test.parent_node_id = expression.node_id \
+             AND test.module_node_id = expression.module_node_id \
+             AND test.field = {test_field} AND test.kind = {boolean_literal} \
+             AND test.detail IN ('True', 'False') \
+           JOIN syntax_nodes selected ON selected.parent_node_id = expression.node_id \
+             AND selected.module_node_id = expression.module_node_id \
+             AND ((test.detail = 'True' AND selected.field = {value_field}) OR \
+                  (test.detail = 'False' AND selected.field = {orelse_field})) \
+             AND selected.kind IN ({string_literal}, {bytes_literal}, {number_literal}, \
+                                   {boolean_literal}, {none_literal}, {ellipsis_literal}) \
+           WHERE a.kind IN ({positional}, {keyword}) \
          ), builtin_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
                   count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
@@ -1782,7 +1803,7 @@ fn simple_argument_evidence_sql() -> String {
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
                   COALESCE(l.syntax_fact_id, ul.syntax_fact_id, bn.syntax_fact_id, \
-                           sc.syntax_fact_id, \
+                           sc.syntax_fact_id, cl.syntax_fact_id, \
                            b.resolution_fact_id, \
                            CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                                      AND n.definition_kind IN ({parameter}, {assignment}) \
@@ -1792,7 +1813,8 @@ fn simple_argument_evidence_sql() -> String {
                   CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
                             WHEN ul.syntax_fact_id IS NOT NULL \
                               OR bn.syntax_fact_id IS NOT NULL \
-                              OR sc.syntax_fact_id IS NOT NULL THEN {closed_expression_normal} \
+                              OR sc.syntax_fact_id IS NOT NULL \
+                              OR cl.syntax_fact_id IS NOT NULL THEN {closed_expression_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
                             WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                               AND n.definition_kind = {parameter} \
@@ -1812,6 +1834,8 @@ fn simple_argument_evidence_sql() -> String {
              AND bn.candidate_count = 1 \
            LEFT JOIN short_circuit_candidates sc ON sc.argument_fact_id = a.fact_id \
              AND sc.candidate_count = 1 \
+           LEFT JOIN conditional_literal_candidates cl ON cl.argument_fact_id = a.fact_id \
+             AND cl.candidate_count = 1 \
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
            LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
@@ -1821,12 +1845,16 @@ fn simple_argument_evidence_sql() -> String {
         operand_field = crate::codebook::SyntaxField::Operand.code(),
         left_field = crate::codebook::SyntaxField::Left.code(),
         right_field = crate::codebook::SyntaxField::Right.code(),
+        test_field = crate::codebook::SyntaxField::Test.code(),
+        value_field = crate::codebook::SyntaxField::Value.code(),
+        orelse_field = crate::codebook::SyntaxField::Orelse.code(),
         positional = ArgumentKind::Positional.code(),
         keyword = ArgumentKind::Keyword.code(),
         name_expr = SyntaxKind::ExprName.code(),
         unary_expr = SyntaxKind::ExprUnaryOp.code(),
         binary_expr = SyntaxKind::ExprBinOp.code(),
         boolean_expr = SyntaxKind::ExprBoolOp.code(),
+        conditional_expr = SyntaxKind::ExprIf.code(),
         string_literal = SyntaxKind::ExprStringLiteral.code(),
         bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
         number_literal = SyntaxKind::ExprNumberLiteral.code(),

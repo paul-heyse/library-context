@@ -322,8 +322,9 @@ and finite acyclic summaries; recursive and operation-wide composition is **Prop
   or exception-handler frame supplies the bounded fallback for ty's approximate `try` regions
   (ADR-0055). Missing evidence stays unknown.
 - **Closed argument expressions have their own witness kind.** A direct literal is
-  `literal_normal`; a bounded unary, numeric binary or decisive two-operand Boolean expression
-  is `closed_expression_normal` and cites its whole Ruff syntax fact (ADR-0056). Neither status
+  `literal_normal`; a bounded unary, numeric binary, decisive two-operand Boolean expression
+  or direct-literal-selected conditional expression is `closed_expression_normal` and cites its
+  whole Ruff syntax fact (ADR-0056). Neither status
   implies dispatch, an enclosing return or an evaluated value for an unproved operand.
 - **Proof identity.** A finite summary is identified by its callable, source contribution,
   input/output paths, transfer kind, condition, exit and ordered typed proof steps; each step cites checked source

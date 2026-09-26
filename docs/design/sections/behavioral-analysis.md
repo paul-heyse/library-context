@@ -134,11 +134,13 @@ every row; the shared validator reconstructs each relation and rejects forged st
   model candidate in source order: the selected operand cites its raw value fact and a separate
   normal-read witness; a direct literal has `literal_normal`, while bounded unary
   `+`/`-` on a numeric literal, `not` on a Boolean literal, `+`/`-` on two direct numeric
-  literals and a decisive two-operand `False and ...` or `True or ...` have
-  `closed_expression_normal` (ADR-0056). The latter skips the right operand entirely; its
+  literals, a decisive two-operand `False and ...` or `True or ...`, and a conditional
+  expression with a direct Boolean test and direct literal selected branch have
+  `closed_expression_normal` (ADR-0056). The Boolean form skips the right operand entirely; its
   opposite `True and ...` or `False or ...` requires a separate right-operand proof. These
-  witnesses cite the whole Ruff expression, not a computed value. Division, other evaluated
-  operands, chained Boolean operations and other operators remain unresolved. An exact
+  witnesses cite the whole Ruff expression, not a computed value. The conditional form skips
+  the other branch entirely. Division, other evaluated operands, chained Boolean operations,
+  nonliteral conditional tests or selected branches and other operators remain unresolved. An exact
   unshadowed builtin name also has a local normal-evaluation witness. A direct parameter
   name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
   definition matches that same lexical parameter binding and has a stored condition root. In a

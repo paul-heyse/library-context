@@ -184,6 +184,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         ("signed_literal_predecessor", 1), ("boolean_not_predecessor", 1),
         ("binary_numeric_predecessor", 1), ("raising_binary_predecessor", 0),
         ("short_circuit_and_predecessor", 1), ("raising_and_predecessor", 0),
+        ("selected_true_predecessor", 1), ("raising_false_predecessor", 0),
         ("two_completed_predecessors", 2),
         ("raising_unary_predecessor", 0), ("raising_not_predecessor", 0),
         ("completed_then_raising", 0),
@@ -220,13 +221,13 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'raising_not_predecessor', 'raising_binary_predecessor', 'raising_and_predecessor', 'completed_then_raising', 'possibly_unbound_argument', \
+        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'raising_not_predecessor', 'raising_binary_predecessor', 'raising_and_predecessor', 'raising_false_predecessor', 'completed_then_raising', 'possibly_unbound_argument', \
           'possibly_unbound_local_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 10, "uncertain arguments and callees must stay unknown");
+    assert_eq!(counts.value(0), 11, "uncertain arguments and callees must stay unknown");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
@@ -362,6 +363,17 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "the safe short circuit cites the outer Boolean syntax fact");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
+        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
+        JOIN declarations d ON d.node_id = c.owner_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+        WHERE d.name = 'selected_true_predecessor' AND s.kind = {}",
+        cpg_schema::behavior::preceding_normal_call_arguments().sql,
+        cpg_schema::codebook::SyntaxKind::ExprIf.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the selected literal cites the whole conditional syntax fact");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps proof ON proof.summary_id = f.summary_id \
@@ -417,6 +429,25 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "a raising Boolean sibling cannot complete the modeled return");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM modeled_argument_evaluations e \
+        JOIN call_syntax c ON c.node_id = e.call_site_node_id \
+        JOIN declarations d ON d.node_id = c.owner_node_id \
+        JOIN syntax_nodes expression ON expression.fact_id = e.evidence_id \
+        WHERE d.name = 'selected_false_sibling' AND e.status = {} \
+          AND expression.kind = {}",
+        ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
+        cpg_schema::codebook::SyntaxKind::ExprIf.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the selected else literal has a typed whole-expression witness");
+    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'raising_true_sibling'")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "the selected raising branch cannot complete the modeled return");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
         JOIN call_syntax c ON c.fact_id = p.call_fact_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
@@ -498,6 +529,7 @@ for operation, expected in (
     ("capspkg.raising_not_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_binary_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_and_predecessor", "unsupported_control_flow"),
+    ("capspkg.raising_false_predecessor", "unsupported_control_flow"),
     ("capspkg.completed_then_raising", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_local_argument", "unsupported_control_flow"),
@@ -511,7 +543,7 @@ for operation, expected in (
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[3] == expected for boundary in boundaries), (operation, paths, boundaries)
-for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.boolean_not_predecessor", "capspkg.binary_numeric_predecessor", "capspkg.short_circuit_and_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
+for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.boolean_not_predecessor", "capspkg.binary_numeric_predecessor", "capspkg.short_circuit_and_predecessor", "capspkg.selected_true_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated and not boundaries, (operation, paths, boundaries)
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
@@ -557,6 +589,11 @@ assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundarie
 paths, boundaries, total, truncated, work = inspect("capspkg.short_circuit_or_sibling", "value")
 assert not truncated and paths and not boundaries, (paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.raising_or_sibling", "value")
+assert not truncated and not paths and boundaries, (paths, boundaries)
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.selected_false_sibling", "value")
+assert not truncated and paths and not boundaries, (paths, boundaries)
+paths, boundaries, total, truncated, work = inspect("capspkg.raising_true_sibling", "value")
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = inspect("capspkg.framed_maybe_deleted_identity", "value")

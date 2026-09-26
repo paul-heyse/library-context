@@ -169,6 +169,10 @@ possible raise unresolved. Closed unary, numeric binary and Boolean expressions 
 append-only `closed_expression_normal` status 7, separate from direct `literal_normal`, with
 current-store rebuild under [ADR-0056](../adr/0056-closed-expression-evaluation.md)
 ([scoped review](../design_review/reviews/design_review_short-circuit-argument_2026-09-26.md)).
+An exact conditional expression with a direct Boolean test and a direct literal in the
+selected branch also has that status and cites its whole Ruff expression. The unselected
+branch can be raising; reversing the test to select it withholds the normal witness
+([scoped review](../design_review/reviews/design_review_selected-conditional-argument_2026-09-26.md)).
 An exact whole-return chain of two or three closed total `typing.cast` identity models now
 composes from the ordered raw call path, one bound source argument per step and normal-evaluation
 witnesses for every sibling. The innermost direct formal read must have either an exact ty reaching
