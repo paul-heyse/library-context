@@ -1397,6 +1397,8 @@ codebook!(
         AssignmentNameNormal = 5 => "assignment_name_normal",
         /// A direct lexical parameter read in a function with no deletion or exception handler.
         LexicalParameterNormal = 6 => "lexical_parameter_normal",
+        /// A closed syntax expression whose admitted operands and control guarantee completion.
+        ClosedExpressionNormal = 7 => "closed_expression_normal",
     }
 );
 

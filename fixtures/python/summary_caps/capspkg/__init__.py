@@ -98,6 +98,28 @@ def binary_numeric_predecessor(value: object) -> object:
     return value
 
 
+def short_circuit_and_predecessor(value: object) -> object:
+    """A false left operand skips the raising right operand."""
+    cast(object, False and (1 / 0))
+    return value
+
+
+def raising_and_predecessor(value: object) -> object:
+    """A true left operand reaches division by zero."""
+    cast(object, True and (1 / 0))
+    return value
+
+
+def short_circuit_or_sibling(value: object) -> object:
+    """A true left operand skips the modeled call's raising sibling."""
+    return cast(True or (1 / 0), value)
+
+
+def raising_or_sibling(value: object) -> object:
+    """A false left operand reaches the modeled call's raising sibling."""
+    return cast(False or (1 / 0), value)
+
+
 def raising_binary_predecessor(value: object) -> object:
     """Division by zero does not acquire the safe binary-literal witness."""
     cast(object, 1 / 0)

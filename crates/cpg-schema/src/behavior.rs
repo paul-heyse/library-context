@@ -734,7 +734,7 @@ table!(
 table!(
     /// Every explicit argument of an exact one-call modeled value candidate, in source order.
     /// The selected source operand cites its raw value fact and a separate normal-read witness;
-    /// a sibling literal cites its Ruff
+    /// a sibling direct literal or closed expression cites its Ruff
     /// expression fact; an exact unshadowed builtin name cites lexical resolution. Other
     /// evaluations remain explicit unknowns. This records local
     /// evaluation evidence, not a completed call, callee dispatch or enclosing return.
@@ -743,7 +743,7 @@ table!(
     key = [snapshot_id, candidate_flow_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, argument_fact_id],
     checks = [
         ("ordinal_nonnegative", "ordinal >= 0"),
-        ("evidence_iff_known", "(status IN (0, 1, 3, 4, 5, 6) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
+        ("evidence_iff_known", "(status IN (0, 1, 3, 4, 5, 6, 7) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
         ("source_read_witness", "(status = 0 AND source_normal_evidence_id IS NOT NULL AND evidence_id = candidate_flow_fact_id) OR (status <> 0 AND source_normal_evidence_id IS NULL)"),
     ],
     {
@@ -1688,6 +1688,32 @@ fn simple_argument_evidence_sql() -> String {
              AND rhs.module_node_id = expression.module_node_id \
              AND rhs.field = {right_field} AND rhs.kind = {number_literal} \
            WHERE a.kind IN ({positional}, {keyword}) \
+         ), boolean_operands AS ( \
+           SELECT a.fact_id AS argument_fact_id, expression.fact_id AS syntax_fact_id, \
+                  expression.detail AS bool_operator, operand.kind AS operand_kind, \
+                  operand.detail AS operand_detail, \
+                  row_number() OVER (PARTITION BY a.fact_id \
+                    ORDER BY operand.start_byte, operand.fact_id) AS operand_ordinal, \
+                  count(*) OVER (PARTITION BY a.fact_id) AS operand_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes expression ON expression.module_node_id = c.module_node_id \
+             AND expression.parent_node_id = c.node_id \
+             AND expression.field = {argument_field} \
+             AND expression.start_byte = a.value_start_byte \
+             AND expression.end_byte = a.value_end_byte \
+             AND expression.kind = {boolean_expr} AND expression.detail IN ('and', 'or') \
+           JOIN syntax_nodes operand ON operand.parent_node_id = expression.node_id \
+             AND operand.module_node_id = expression.module_node_id \
+             AND operand.field = {operand_field} \
+           WHERE a.kind IN ({positional}, {keyword}) \
+         ), short_circuit_candidates AS ( \
+           SELECT argument_fact_id, syntax_fact_id, \
+                  count(*) OVER (PARTITION BY argument_fact_id) AS candidate_count \
+           FROM boolean_operands \
+           WHERE operand_ordinal = 1 AND operand_count = 2 \
+             AND operand_kind = {boolean_literal} \
+             AND ((bool_operator = 'and' AND operand_detail = 'False') OR \
+                  (bool_operator = 'or' AND operand_detail = 'True')) \
          ), builtin_candidates AS ( \
            SELECT a.fact_id AS argument_fact_id, rr.fact_id AS resolution_fact_id, \
                   count(*) OVER (PARTITION BY a.fact_id) AS candidate_count \
@@ -1756,15 +1782,17 @@ fn simple_argument_evidence_sql() -> String {
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
                   COALESCE(l.syntax_fact_id, ul.syntax_fact_id, bn.syntax_fact_id, \
+                           sc.syntax_fact_id, \
                            b.resolution_fact_id, \
                            CASE WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                                      AND n.definition_kind IN ({parameter}, {assignment}) \
                                 THEN n.reaching_fact_id ELSE NULL END, \
                            CASE WHEN lp.candidate_count = 1 \
                                 THEN lp.resolution_fact_id ELSE NULL END) AS evidence_id, \
-                  CAST(CASE WHEN l.syntax_fact_id IS NOT NULL \
-                              OR ul.syntax_fact_id IS NOT NULL \
-                              OR bn.syntax_fact_id IS NOT NULL THEN {literal_normal} \
+                  CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
+                            WHEN ul.syntax_fact_id IS NOT NULL \
+                              OR bn.syntax_fact_id IS NOT NULL \
+                              OR sc.syntax_fact_id IS NOT NULL THEN {closed_expression_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
                             WHEN n.candidate_count = 1 AND n.unsafe_count = 0 \
                               AND n.definition_kind = {parameter} \
@@ -1782,6 +1810,8 @@ fn simple_argument_evidence_sql() -> String {
              AND ul.candidate_count = 1 \
            LEFT JOIN binary_numeric_literal_candidates bn ON bn.argument_fact_id = a.fact_id \
              AND bn.candidate_count = 1 \
+           LEFT JOIN short_circuit_candidates sc ON sc.argument_fact_id = a.fact_id \
+             AND sc.candidate_count = 1 \
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
            LEFT JOIN local_name_candidates n ON n.argument_fact_id = a.fact_id \
@@ -1796,6 +1826,7 @@ fn simple_argument_evidence_sql() -> String {
         name_expr = SyntaxKind::ExprName.code(),
         unary_expr = SyntaxKind::ExprUnaryOp.code(),
         binary_expr = SyntaxKind::ExprBinOp.code(),
+        boolean_expr = SyntaxKind::ExprBoolOp.code(),
         string_literal = SyntaxKind::ExprStringLiteral.code(),
         bytes_literal = SyntaxKind::ExprBytesLiteral.code(),
         number_literal = SyntaxKind::ExprNumberLiteral.code(),
@@ -1803,6 +1834,7 @@ fn simple_argument_evidence_sql() -> String {
         none_literal = SyntaxKind::ExprNoneLiteral.code(),
         ellipsis_literal = SyntaxKind::ExprEllipsisLiteral.code(),
         literal_normal = ModeledArgumentEvaluationStatus::LiteralNormal.code(),
+        closed_expression_normal = ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
         builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
         parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
         assignment_normal = ModeledArgumentEvaluationStatus::AssignmentNameNormal.code(),

@@ -30,6 +30,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0053](0053-bounded-scc-summary-worklist.md) | Use an SCC-local bounded worklist for recursive value summaries | 2026-09-26 | [§B4](../design/DESIGN.md#section-b4), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Interface-checked |  |
 | [ADR-0054](0054-origin-specific-summary-identity.md) | Persist source contribution identity across finite summaries and boundaries | 2026-09-26 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Tested |  |
 | [ADR-0055](0055-modeled-source-read.md) | Require an independent normal-read witness for modeled source operands | 2026-09-26 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Tested |  |
+| [ADR-0056](0056-closed-expression-evaluation.md) | Give closed argument expressions their own normal-evaluation status | 2026-09-26 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Tested |  |
 
 ## Proposed: open choices, not accepted decisions
 

@@ -796,3 +796,4 @@ modeled_argument_evaluation_status
   4 parameter_name_normal
   5 assignment_name_normal
   6 lexical_parameter_normal
+  7 closed_expression_normal

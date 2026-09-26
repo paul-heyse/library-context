@@ -163,6 +163,12 @@ records the real positive/raising contrast and the remaining expression boundary
 It now also admits `+`/`-` over two direct numeric literals, citing the outer Ruff expression
 for a preceding call or modeled-return sibling; division by zero still withholds both paths
 ([scoped review](../design_review/reviews/design_review_binary-numeric-argument_2026-09-26.md)).
+The same classifier admits a two-operand Boolean expression when the first direct literal
+short-circuits the second (`False and ...` or `True or ...`); the reversed literals leave a
+possible raise unresolved. Closed unary, numeric binary and Boolean expressions now have
+append-only `closed_expression_normal` status 7, separate from direct `literal_normal`, with
+current-store rebuild under [ADR-0056](../adr/0056-closed-expression-evaluation.md)
+([scoped review](../design_review/reviews/design_review_short-circuit-argument_2026-09-26.md)).
 An exact whole-return chain of two or three closed total `typing.cast` identity models now
 composes from the ordered raw call path, one bound source argument per step and normal-evaluation
 witnesses for every sibling. The innermost direct formal read must have either an exact ty reaching

@@ -11,7 +11,8 @@ use cpg_core::snapshot::published;
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, TestHooks, extract};
 use cpg_schema::id::Id;
-use cpg_schema::codebook::{BoundaryReason, Codebook, FlowSink, SummaryFlowStepKind};
+use cpg_schema::codebook::{BoundaryReason, Codebook, FlowSink,
+    ModeledArgumentEvaluationStatus, SummaryFlowStepKind};
 use lctx_analytics::config::AnalyticsConfig;
 
 const CONFIG: &str = r#"
@@ -182,6 +183,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
         ("signed_literal_predecessor", 1), ("boolean_not_predecessor", 1),
         ("binary_numeric_predecessor", 1), ("raising_binary_predecessor", 0),
+        ("short_circuit_and_predecessor", 1), ("raising_and_predecessor", 0),
         ("two_completed_predecessors", 2),
         ("raising_unary_predecessor", 0), ("raising_not_predecessor", 0),
         ("completed_then_raising", 0),
@@ -218,13 +220,13 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'raising_not_predecessor', 'raising_binary_predecessor', 'completed_then_raising', 'possibly_unbound_argument', \
+        WHERE d.name IN ('raising_predecessor', 'raising_unary_predecessor', 'raising_not_predecessor', 'raising_binary_predecessor', 'raising_and_predecessor', 'completed_then_raising', 'possibly_unbound_argument', \
           'possibly_unbound_local_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 9, "uncertain arguments and callees must stay unknown");
+    assert_eq!(counts.value(0), 10, "uncertain arguments and callees must stay unknown");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
@@ -348,6 +350,18 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1, "the binary literal proof cites the outer addition syntax fact");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
+        JOIN call_syntax c ON c.fact_id = p.call_fact_id \
+        JOIN declarations d ON d.node_id = c.owner_node_id \
+        JOIN syntax_nodes s ON s.fact_id = p.evaluation_evidence_id \
+        WHERE d.name = 'short_circuit_and_predecessor' \
+          AND s.kind = {} AND s.detail = 'and'",
+        cpg_schema::behavior::preceding_normal_call_arguments().sql,
+        cpg_schema::codebook::SyntaxKind::ExprBoolOp.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the safe short circuit cites the outer Boolean syntax fact");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps proof ON proof.summary_id = f.summary_id \
@@ -369,6 +383,40 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 0, "a raising binary sibling cannot complete the modeled return");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        JOIN summary_flow_steps proof ON proof.summary_id = f.summary_id \
+          AND proof.kind = {} \
+        JOIN syntax_nodes expression ON expression.fact_id = proof.evidence_id \
+          AND expression.kind = {} AND expression.detail = 'or' \
+        WHERE d.name = 'short_circuit_or_sibling' AND f.path_depth = 1 \
+          AND f.boundary_reason IS NULL",
+        SummaryFlowStepKind::ArgumentEvaluation.code(),
+        cpg_schema::codebook::SyntaxKind::ExprBoolOp.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1, "the modeled return cites its safe short-circuit sibling");
+    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM modeled_argument_evaluations e \
+        JOIN call_syntax c ON c.node_id = e.call_site_node_id \
+        JOIN declarations d ON d.node_id = c.owner_node_id \
+        JOIN syntax_nodes expression ON expression.fact_id = e.evidence_id \
+        WHERE d.name IN ('short_circuit_or_sibling', 'binary_sibling_identity') \
+          AND e.status = {} AND expression.kind IN ({}, {})",
+        ModeledArgumentEvaluationStatus::ClosedExpressionNormal.code(),
+        cpg_schema::codebook::SyntaxKind::ExprBoolOp.code(),
+        cpg_schema::codebook::SyntaxKind::ExprBinOp.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 2, "closed expressions have their own typed evaluation status");
+    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+        JOIN declarations d ON d.node_id = f.function_node_id \
+        WHERE d.name = 'raising_or_sibling'")
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 0, "a raising Boolean sibling cannot complete the modeled return");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) p \
         JOIN call_syntax c ON c.fact_id = p.call_fact_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
@@ -449,6 +497,7 @@ for operation, expected in (
     ("capspkg.raising_unary_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_not_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_binary_predecessor", "unsupported_control_flow"),
+    ("capspkg.raising_and_predecessor", "unsupported_control_flow"),
     ("capspkg.completed_then_raising", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
     ("capspkg.possibly_unbound_local_argument", "unsupported_control_flow"),
@@ -462,7 +511,7 @@ for operation, expected in (
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[3] == expected for boundary in boundaries), (operation, paths, boundaries)
-for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.boolean_not_predecessor", "capspkg.binary_numeric_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
+for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor", "capspkg.signed_literal_predecessor", "capspkg.boolean_not_predecessor", "capspkg.binary_numeric_predecessor", "capspkg.short_circuit_and_predecessor", "capspkg.two_completed_predecessors", "capspkg.assigned_local_argument"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated and not boundaries, (operation, paths, boundaries)
     assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
@@ -503,6 +552,11 @@ assert not truncated and not paths and not boundaries, (paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.binary_sibling_identity", "value")
 assert not truncated and paths and not boundaries, (paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.raising_binary_sibling", "value")
+assert not truncated and not paths and boundaries, (paths, boundaries)
+assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
+paths, boundaries, total, truncated, work = inspect("capspkg.short_circuit_or_sibling", "value")
+assert not truncated and paths and not boundaries, (paths, boundaries)
+paths, boundaries, total, truncated, work = inspect("capspkg.raising_or_sibling", "value")
 assert not truncated and not paths and boundaries, (paths, boundaries)
 assert any(boundary[3] == "call_transfer" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = inspect("capspkg.framed_maybe_deleted_identity", "value")

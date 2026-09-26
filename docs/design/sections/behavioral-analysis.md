@@ -132,10 +132,14 @@ every row; the shared validator reconstructs each relation and rejects forged st
   and fact.
 - **`modeled_argument_evaluations`** accounts for every explicit argument of an exact one-call
   model candidate in source order: the selected operand cites its raw value fact and a separate
-  normal-read witness; a direct literal, `+`/`-` on two direct numeric literals,
-  or an exact unshadowed builtin name has a local normal-evaluation witness. The binary witness
-  cites the outer Ruff expression; division, computed operands and other operators remain
-  unresolved. A direct parameter
+  normal-read witness; a direct literal has `literal_normal`, while bounded unary
+  `+`/`-` on a numeric literal, `not` on a Boolean literal, `+`/`-` on two direct numeric
+  literals and a decisive two-operand `False and ...` or `True or ...` have
+  `closed_expression_normal` (ADR-0056). The latter skips the right operand entirely; its
+  opposite `True and ...` or `False or ...` requires a separate right-operand proof. These
+  witnesses cite the whole Ruff expression, not a computed value. Division, other evaluated
+  operands, chained Boolean operations and other operators remain unresolved. An exact
+  unshadowed builtin name also has a local normal-evaluation witness. A direct parameter
   name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
   definition matches that same lexical parameter binding and has a stored condition root. In a
   `try` body, ty may mark this reach approximate; a direct reference resolved to the current
@@ -146,7 +150,7 @@ every row; the shared validator reconstructs each relation and rejects forged st
   definition must match the lexical assignment binding. Both cite the reaching fact, not the
   name spelling. A one-call source operand keeps its raw fact in `evidence_id` and the normal
   read in `source_normal_evidence_id`; without both it is unknown. Unpacking, possibly unbound/deleted names, nested calls outside the exact
-  modeled-chain route and other unproved expressions retain `outside_provider_model`. The literal/builtin/local-name classifier is
+  modeled-chain route and other unproved expressions retain `outside_provider_model`. The closed-expression/builtin/local-name classifier is
   shared with the predecessor-completion relation;
   neither treats a callee's `normal_return` assertion as proof that its arguments complete.
 
@@ -427,6 +431,6 @@ Serve-time semantic selection remains a proposed ADR-0025 target
   small (20–40 authored); ranked lookup waits until it outgrows one page. **`explain`** returns the
   stored witness chain.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053, ADR-0054, ADR-0055
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053, ADR-0054, ADR-0055, ADR-0056
 
 ---
