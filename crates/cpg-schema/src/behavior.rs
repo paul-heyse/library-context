@@ -2473,8 +2473,9 @@ crate::relations! {
     /// One exact source-call result returned by a synchronous caller, with a positional or
     /// explicit keyword parameter operand and one definite closed local target. A second
     /// explicit positional or keyword operand is admitted only when it is an exact boolean
-    /// literal or a directly read caller formal whose guard fixes its truth value. The two
-    /// arguments map definitely to distinct callee formals, with a cited entry-value test link.
+    /// literal or a directly read caller formal whose guard fixes its truth value. The tracked
+    /// value can occur before or after that control operand. The two arguments map definitely
+    /// to distinct callee formals, with a cited entry-value test link.
     /// Callee summaries join in the SCC worklist, not
     /// here: a call edge by itself is never a transfer proof.
     local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
@@ -2537,7 +2538,8 @@ crate::relations! {
                AND arg.fact_id = l.argument_fact_id \
                AND arg.call_node_id = c.node_id \
                AND arg.kind IN ({positional}, {keyword}) \
-               AND arg.ordinal = 0 \
+               AND (arg.ordinal = 0 OR \
+                    (c.positional_count + c.keyword_count = 2 AND arg.ordinal = 1)) \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN resolutions r ON r.call_site_node_id = c.node_id \
@@ -2553,7 +2555,7 @@ crate::relations! {
                AND a.mapping_count = 1 AND a.modality = {definite} \
                AND a.phase = {call_phase} \
              LEFT JOIN arguments control_arg ON control_arg.call_node_id = c.node_id \
-               AND control_arg.ordinal = 1 \
+               AND control_arg.ordinal <> arg.ordinal \
                AND control_arg.kind IN ({positional}, {keyword}) \
              LEFT JOIN mappings control_map ON control_map.call_site_node_id = c.node_id \
                AND control_map.target_node_id = t.target_node_id \

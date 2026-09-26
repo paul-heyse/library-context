@@ -9,16 +9,21 @@ owns general recursive argument substitution.
 
 ## Contract and scenario
 
-For `return f(value, stop=True)` and
-`return f(value=value, stop=True)`, Ruff supplies two explicit arguments,
-ty ties the returned source value to the first argument, and Pass B maps
-both arguments definitely to distinct callee formals. The second argument
-is an exact boolean literal, and the callee's direct entry-value test link
-cites the guard to specialize. The same bounded BDD restriction, ordered
+For `return f(value, stop=True)`,
+`return f(value=value, stop=True)` and
+`return f(stop=True, value=value)`, Ruff supplies two explicit arguments,
+ty ties the returned source value to its actual argument, and Pass B maps
+both arguments definitely to distinct callee formals. The control operand
+is an exact boolean literal regardless of syntax order, and the callee's
+direct entry-value test link cites the guard to specialize. The same bounded
+BDD restriction, ordered
 proof identity and SCC worklist as the two-positional case apply. The
 opposing `stop=False` variants cannot reuse the conditional base path;
 their recursive origins retain `call_transfer` unknowns. An unpacked
-argument does not meet the explicit argument mapping.
+argument does not meet the explicit argument mapping. The reversed-keyword
+case evaluates the literal before the tracked parameter use; both are
+direct normal-evaluation forms, so the argument-order change does not
+borrow a normal-return claim from a later call.
 
 The real fixture must expose the guarded function as a public path:
 entry-value links are intentionally formed only for public operations.

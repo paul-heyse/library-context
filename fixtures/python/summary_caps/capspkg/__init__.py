@@ -248,6 +248,18 @@ def recursive_all_keyword_false(value: object, stop: bool) -> object:
     return recursive_all_keyword_false(value=value, stop=False)
 
 
+def recursive_reversed_keyword_true(value: object, stop: bool) -> object:
+    if stop:
+        return value
+    return recursive_reversed_keyword_true(stop=True, value=value)
+
+
+def recursive_reversed_keyword_false(value: object, stop: bool) -> object:
+    if stop:
+        return value
+    return recursive_reversed_keyword_false(stop=False, value=value)
+
+
 def guarded_symbolic_recursive(value: object, stop: bool) -> object | None:
     """A caller guard fixes the directly forwarded control parameter."""
     if stop:

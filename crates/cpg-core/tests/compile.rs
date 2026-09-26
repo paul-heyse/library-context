@@ -996,6 +996,25 @@ budget = 1
         "the opposing all-keyword call remains open"
     );
     assert_eq!(
+        count(&ctx, &format!(
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
+               AND s.kind = {} \
+             WHERE d.name = 'recursive_reversed_keyword_true' AND f.path_depth = 1",
+            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+        )).await,
+        1,
+        "a first keyword literal completes before the tracked second keyword value"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id \
+            WHERE d.name = 'recursive_reversed_keyword_false' AND f.path_depth > 0").await,
+        0,
+        "the opposing reversed-keyword call remains open"
+    );
+    assert_eq!(
         count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
             WHERE d.name = 'conditional_self_recursive' AND f.path_depth > 0").await,
