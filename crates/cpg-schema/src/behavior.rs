@@ -741,7 +741,7 @@ table!(
     key = [snapshot_id, candidate_flow_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, argument_fact_id],
     checks = [
         ("ordinal_nonnegative", "ordinal >= 0"),
-        ("evidence_iff_known", "(status IN (0, 1, 3) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
+        ("evidence_iff_known", "(status IN (0, 1, 3, 4) AND evidence_id IS NOT NULL AND reason IS NULL) OR (status = 2 AND evidence_id IS NULL AND reason IS NOT NULL)"),
     ],
     {
         snapshot_id: Id,
@@ -1631,8 +1631,8 @@ fn modeled_callee_candidates_sql() -> String {
     )
 }
 
-/// One syntactic evaluator for direct literal and unshadowed builtin-name arguments. Both
-/// modeled return paths and preceding-call completion use it; other expressions remain unknown.
+/// One evaluator for direct literal, unshadowed builtin-name and single-reaching-parameter
+/// arguments. Both modeled return paths and preceding-call completion use it.
 fn simple_argument_evidence_sql() -> String {
     format!(
         "literal_candidates AS ( \
@@ -1658,17 +1658,51 @@ fn simple_argument_evidence_sql() -> String {
            JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
              AND rr.builtin_name = r.name AND rr.binding_id IS NULL AND rr.reason IS NULL \
            WHERE a.kind IN ({positional}, {keyword}) \
+         ), parameter_candidates AS ( \
+           SELECT a.fact_id AS argument_fact_id, min(fr.fact_id) AS reaching_fact_id, \
+                  count(*) AS candidate_count, \
+                  sum(CASE WHEN rr.binding_id IS NULL OR fr.definition_id IS NULL \
+                             OR fr.approximated OR fr.loop_carried \
+                             OR fd.kind <> {parameter} OR b.node_id IS NULL \
+                             OR ac.root_id IS NULL \
+                           THEN 1 ELSE 0 END) AS unsafe_count \
+           FROM arguments a JOIN call_syntax c ON c.node_id = a.call_node_id \
+           JOIN syntax_nodes n ON n.module_node_id = c.module_node_id \
+             AND n.parent_node_id = c.node_id AND n.field = {argument_field} \
+             AND n.start_byte = a.value_start_byte AND n.end_byte = a.value_end_byte \
+             AND n.kind = {name_expr} \
+           JOIN references r ON r.name_node_id = n.node_id \
+             AND r.module_node_id = n.module_node_id \
+           JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+             AND rr.reason IS NULL \
+           JOIN flow_uses u ON u.module_node_id = r.module_node_id \
+             AND u.start_byte = r.start_byte AND u.end_byte = r.end_byte \
+             AND NOT u.annotation \
+           LEFT JOIN flow_reaching fr ON fr.use_id = u.use_id \
+           LEFT JOIN flow_definitions fd ON fd.definition_id = fr.definition_id \
+           LEFT JOIN bindings b ON b.node_id = rr.binding_id \
+             AND b.module_node_id = fd.module_node_id \
+             AND b.start_byte = fd.start_byte AND b.end_byte = fd.end_byte \
+             AND b.kind = {parameter} \
+           LEFT JOIN analysis_conditions ac ON ac.condition_id = fr.condition_id \
+           WHERE a.kind IN ({positional}, {keyword}) \
+           GROUP BY a.fact_id \
          ), simple_arguments AS ( \
            SELECT a.fact_id AS argument_fact_id, \
-                  COALESCE(l.syntax_fact_id, b.resolution_fact_id) AS evidence_id, \
+                  COALESCE(l.syntax_fact_id, b.resolution_fact_id, \
+                           CASE WHEN p.candidate_count = 1 AND p.unsafe_count = 0 \
+                                THEN p.reaching_fact_id ELSE NULL END) AS evidence_id, \
                   CAST(CASE WHEN l.syntax_fact_id IS NOT NULL THEN {literal_normal} \
                             WHEN b.resolution_fact_id IS NOT NULL THEN {builtin_normal} \
+                            WHEN p.candidate_count = 1 AND p.unsafe_count = 0 \
+                              THEN {parameter_normal} \
                             ELSE {unknown} END AS SMALLINT) AS status \
            FROM arguments a \
            LEFT JOIN literal_candidates l ON l.argument_fact_id = a.fact_id \
              AND l.candidate_count = 1 \
            LEFT JOIN builtin_candidates b ON b.argument_fact_id = a.fact_id \
              AND b.candidate_count = 1 \
+           LEFT JOIN parameter_candidates p ON p.argument_fact_id = a.fact_id \
          )",
         argument_field = crate::codebook::SyntaxField::Argument.code(),
         positional = ArgumentKind::Positional.code(),
@@ -1682,7 +1716,9 @@ fn simple_argument_evidence_sql() -> String {
         ellipsis_literal = SyntaxKind::ExprEllipsisLiteral.code(),
         literal_normal = ModeledArgumentEvaluationStatus::LiteralNormal.code(),
         builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
+        parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
         unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
+        parameter = crate::codebook::BindingKind::Parameter.code(),
     )
 }
 
@@ -2003,10 +2039,10 @@ crate::relations! {
         );
 
     /// Preserve argument evaluation order for each exact modeled value candidate. The source
-    /// operand has an observed raw value path; direct literal and exact builtin-name siblings
-    /// complete normally without a further effect. All other siblings are named unknowns.
+    /// operand has an observed raw value path; direct literal, exact builtin-name and uniquely
+    /// reaching parameter-name siblings complete normally. Other siblings are named unknowns.
     modeled_argument_evaluations = "behavior:modeled_argument_evaluations",
-        deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions"],
+        deps = ["modeled_exact_value_transfers", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "flow_uses", "flow_reaching", "flow_definitions", "bindings", "analysis_conditions"],
         sql = format!(
             "WITH {simple_args} \
              SELECT m.snapshot_id, m.flow_value_fact_id AS candidate_flow_fact_id, \
@@ -2182,7 +2218,7 @@ crate::relations! {
     /// requires this import's condition to be true; this query preserves its condition and fact.
     /// There is one row per evaluated argument; opaque operands and unpacking emit no rows.
     preceding_normal_call_arguments = "behavior:preceding_normal_call_arguments",
-        deps = ["model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions"],
+        deps = ["model_applications", "call_syntax", "arguments", "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
         sql = format!(
             "WITH {simple_args}, {callee_candidates}, \
              module_imports AS ( \

@@ -249,6 +249,7 @@ pub const REFERENCES: &[Reference] = &[
             ("flow_values", "fact_id"),
             ("syntax_nodes", "fact_id"),
             ("reference_resolutions", "fact_id"),
+            ("flow_reaching", "fact_id"),
         ],
     ),
     r(

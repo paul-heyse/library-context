@@ -125,17 +125,19 @@ it is independent of A1–A6.
 | 10 | **Integrated exit.** `just fmt`, `just test-all`, fresh-store `just pilot`, Q01/Q03/Q05/Q09 and the structured Stage 3 evaluation, the clean-wheel query and the increment-end design/target review | Each command `passed`/`failed`/`blocked`/`not_run`; `call_transfer` before/after, condition budget counts, compile time/RSS and serving bounds. A material fix repeats only the affected gate plus invalidated acceptance |
 
 **Order 1 checkpoint (2026-09-26; partial).** A direct `return value` may now cross an earlier
-`typing.cast(object, 1)` call with a sole closed target, two source-ordered simple argument
-witnesses, an earlier unconditional module-level `from` import of the callee, a non-approximate
+`typing.cast(object, 1)` or `typing.cast(object, value)` call with a sole closed target, two
+source-ordered argument witnesses, an earlier unconditional module-level `from` import of the
+callee, a non-approximate
 ty call region and a pinned normal-return assertion. The proof contains the exact import
 binding/region, resolution, argument, site, Pysa target and model identities; the shared validator
 rejects removal of its `preceding_call_normal` step. An otherwise identical call with `1 / 0` as
-a sibling remains `unsupported_control_flow` in the published/native answer, as do a conditional
-local import and a guarded module import. The positive and withholding controls passed through
-the real provider and native generation, and the existing
-modeled-return fixture passed after sharing the simple-argument classifier. This is narrower than
-order 1's exit: parameter-name and nested-call arguments, callee forms other than an unconditional
-module-level import, branch termination/recursion ordering,
+a sibling remains `unsupported_control_flow` in the published/native answer, as do a possibly
+deleted parameter argument, conditional local import and guarded module import. A parameter-name
+argument now requires one exact ty reaching definition of the same lexical formal; the shared
+classifier also admits it in an existing modeled-return fixture without treating a shadowed
+builtin spelling as a builtin. The positive and withholding controls passed through the real
+provider and native generation. This is narrower than order 1's exit: nested-call arguments,
+callee forms other than an unconditional module-level import, branch termination/recursion ordering,
 path-specific predecessor status, possible raises and the full return-path evaluation sequence
 remain to implement. A target's normal-return assertion alone never certifies its arguments.
 

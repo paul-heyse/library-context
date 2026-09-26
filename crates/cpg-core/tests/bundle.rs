@@ -153,7 +153,8 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
             .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
         assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary");
     }
-    for (name, expected) in [("completed_predecessor", 1), ("raising_predecessor", 0),
+    for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
+        ("raising_predecessor", 0), ("possibly_unbound_argument", 0),
         ("conditional_callee", 0), ("guarded_module_callee", 0)] {
         let rows = sql::query(&ctx, &format!(
             "SELECT count(*) AS n FROM model_applications a \
@@ -181,12 +182,12 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name IN ('raising_predecessor', 'conditional_callee', \
+        WHERE d.name IN ('raising_predecessor', 'possibly_unbound_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 3, "raising sibling and uncertain callees must stay unknown");
+    assert_eq!(counts.value(0), 4, "uncertain arguments and callees must stay unknown");
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
         .await.unwrap();
     let script = r#"
@@ -199,15 +200,17 @@ for operation, expected in (
     ("capspkg.f9", "summary_depth_limit"),
     ("capspkg.unsupported", "unsupported_control_flow"),
     ("capspkg.raising_predecessor", "unsupported_control_flow"),
+    ("capspkg.possibly_unbound_argument", "unsupported_control_flow"),
     ("capspkg.conditional_callee", "unsupported_control_flow"),
     ("capspkg.guarded_module_callee", "unsupported_control_flow"),
 ):
     paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
     assert not truncated, (operation, paths, boundaries)
     assert any(boundary[2] == expected for boundary in boundaries), (operation, paths, boundaries)
-paths, boundaries, truncated, _ = index.value_paths("capspkg.completed_predecessor", "value", 20)
-assert not truncated and not boundaries, (paths, boundaries)
-assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
+for operation in ("capspkg.completed_predecessor", "capspkg.parameter_predecessor"):
+    paths, boundaries, truncated, _ = index.value_paths(operation, "value", 20)
+    assert not truncated and not boundaries, (operation, paths, boundaries)
+    assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script,

@@ -1384,6 +1384,8 @@ codebook!(
         LiteralNormal = 1 => "literal_normal",
         Unknown = 2 => "unknown",
         BuiltinNameNormal = 3 => "builtin_name_normal",
+        /// One exact ty reaching definition matches the formal's lexical binding.
+        ParameterNameNormal = 4 => "parameter_name_normal",
     }
 );
 

@@ -61,6 +61,20 @@ def completed_predecessor(value: object) -> object:
     return value
 
 
+def parameter_predecessor(value: object) -> object:
+    """A bound formal can be evaluated before the normal model call."""
+    cast(object, value)
+    return value
+
+
+def possibly_unbound_argument(value: object, other: object, clear: bool) -> object:
+    """A parameter read with a possible deletion is not a normal argument witness."""
+    if clear:
+        del other
+    cast(object, other)
+    return value
+
+
 def raising_predecessor(value: object) -> object:
     """An unevaluated sibling must not borrow the callee's normal-return claim."""
     cast(1 / 0, 1)

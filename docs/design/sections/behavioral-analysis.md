@@ -130,9 +130,12 @@ every row; the shared validator reconstructs each relation and rejects forged st
   and fact.
 - **`modeled_argument_evaluations`** accounts for every explicit argument of an exact one-call
   model candidate in source order: the selected operand cites its raw value fact; a direct literal
-  or an exact unshadowed builtin name has a local normal-evaluation witness; anything unpacked,
-  dynamic, shadowed or unproved has an `outside_provider_model` boundary and no witness.
-  The simple literal/builtin classifier is shared with the predecessor-completion relation;
+  or an exact unshadowed builtin name has a local normal-evaluation witness. A direct parameter
+  name is `parameter_name_normal` only when one non-approximate, non-loop-carried ty reaching
+  definition matches that same lexical parameter binding and its condition is admitted. Its
+  evidence is the reaching fact, not the name spelling. Unpacking, a possibly unbound/deleted
+  parameter, nested calls and other unproved expressions retain `outside_provider_model`.
+  The literal/builtin/parameter classifier is shared with the predecessor-completion relation;
   neither treats a callee's `normal_return` assertion as proof that its arguments complete.
 
 ## L2 fates: exits, handlers and finalizers
@@ -210,18 +213,18 @@ witness.
   crossed call or generator yield, citing the value fact, return syntax/region and recomposed
   condition. A compatible preceding call can be crossed only when one closed, definite pinned
   target asserts normal return, the callee has one earlier module-level `from` import whose ty
-  region is unconditionally reached, every argument is a direct literal or an exact unshadowed
-  builtin name with ordered evidence, and the ty call region is non-approximate. Its proof cites
-  the import binding and region, callee resolution, each argument, call site, Pysa target and
+  region is unconditionally reached, every argument is a direct literal, an exact unshadowed
+  builtin name or a uniquely reaching parameter name with ordered evidence, and the ty call
+  region is non-approximate. Its proof cites the import binding and region, callee resolution,
+  each argument, call site, Pysa target and
   model id before the raw return step.
   This `preceding_call_normal` step is a safety witness if the call runs, not an assertion that it
   runs. An opaque or possibly raising sibling, conditional/local import, unresolved target,
   unpacking, approximate region or missing condition withholds the direct summary; a
-  BDD-proved disjoint call needs no
-  completion witness. The bounded kernel gives `established`, `conditional` or a named `unknown`;
+  BDD-proved disjoint call needs no completion witness. The bounded kernel gives `established`,
+  `conditional` or a named `unknown`;
   a false condition yields nothing. **Tested in focused pure and Delta/native cases
-  (2026-09-26).** Parameter-name reads, nested calls as arguments and non-import callees are not
-  yet admitted.
+  (2026-09-26).** Nested calls as arguments and non-import callees are not yet admitted.
 - **Modeled call:** an exact whole-expression call of `typing.cast` or `typing.assert_type` whose
   sole source target is closed, both modalities definite, the target asserts `normal_return`, the
   callee is one resolved simple name, and every explicit argument has ordered normal-evaluation

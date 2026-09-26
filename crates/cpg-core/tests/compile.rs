@@ -2086,13 +2086,24 @@ budget = 1
             &ctx,
             "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
-             WHERE d.name IN ('identity_dynamic_type', 'identity_shadowed_type', \
-                              'identity_raising_sibling', 'nested_identity', \
+             WHERE d.name IN ('identity_raising_sibling', 'nested_identity', \
                               'computed_identity')",
         )
         .await,
         0,
-        "unknown arguments and non-exact expression paths cannot become modeled summaries"
+        "raising arguments and non-exact expression paths cannot become modeled summaries"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
+             JOIN declarations d ON d.node_id = f.function_node_id \
+             WHERE d.name IN ('identity_dynamic_type', 'identity_shadowed_type') \
+               AND f.path_depth = 1",
+        )
+        .await,
+        2,
+        "a uniquely reaching parameter-name sibling evaluates normally under the model"
     );
     assert_eq!(
         count(
@@ -2172,8 +2183,8 @@ budget = 1
             ),
         )
         .await,
-        2,
-        "both parameter-origin paths through a dynamic sibling retain transfer boundaries"
+        1,
+        "the parameter used only as a dynamic type remains a transfer boundary"
     );
     assert_eq!(
         count(
@@ -2244,15 +2255,14 @@ budget = 1
                   AND m.model_id = e.model_id AND m.rule_id = e.rule_id \
                  JOIN declarations d ON d.node_id = m.function_node_id \
                  WHERE d.name = 'identity_dynamic_type' \
-                   AND e.status = {} AND e.evidence_id IS NULL \
-                   AND e.reason = {}",
-                ModeledArgumentEvaluationStatus::Unknown.code(),
-                BoundaryReason::OutsideProviderModel.code(),
+                   AND e.status = {} AND e.evidence_id IN \
+                     (SELECT fact_id FROM flow_reaching) AND e.reason IS NULL",
+                ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
             ),
         )
         .await,
         1,
-        "an unresolved sibling expression cannot be certified as a literal normal evaluation"
+        "a uniquely reaching parameter sibling cites ty's definition evidence"
     );
     assert_eq!(
         count(
@@ -2286,13 +2296,13 @@ budget = 1
                   AND m.model_id = e.model_id AND m.rule_id = e.rule_id \
                  JOIN declarations d ON d.node_id = m.function_node_id \
                  WHERE d.name = 'identity_shadowed_type' AND e.status = {} \
-                   AND e.evidence_id IS NULL",
-                ModeledArgumentEvaluationStatus::Unknown.code(),
+                   AND e.evidence_id IN (SELECT fact_id FROM flow_reaching)",
+                ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
             ),
         )
         .await,
         1,
-        "a shadowed builtin spelling cannot inherit the builtin evaluation witness"
+        "a shadowed builtin spelling uses its parameter binding, never builtin evidence"
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
