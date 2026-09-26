@@ -11,7 +11,7 @@ use cpg_core::snapshot::published;
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, TestHooks, extract};
 use cpg_schema::id::Id;
-use cpg_schema::codebook::{Codebook, SummaryFlowStepKind};
+use cpg_schema::codebook::{BoundaryReason, Codebook, FlowSink, SummaryFlowStepKind};
 use lctx_analytics::config::AnalyticsConfig;
 
 const CONFIG: &str = r#"
@@ -144,6 +144,24 @@ budget = 3
 async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let (dir, store) = compiled_summary_caps().await;
     let (_, ctx) = published(&store, SNAPSHOT).await.unwrap().unwrap();
+    let rows = sql::query(&ctx, &format!("SELECT count(*) FROM ( \
+        SELECT c.flow_value_fact_id FROM value_flow_contributions c \
+        JOIN declarations d ON d.node_id = c.sink_function_node_id \
+        JOIN flow_values v ON v.fact_id = c.flow_value_fact_id \
+        LEFT JOIN summary_flows f ON f.source_origin_id = c.origin_id \
+          AND f.source_flow_fact_id = c.flow_value_fact_id \
+        LEFT JOIN summary_boundaries b ON b.source_origin_id = c.origin_id \
+          AND b.source_flow_fact_id = c.flow_value_fact_id \
+        WHERE d.name = 'mixed_origin' AND v.sink = {} \
+        GROUP BY c.flow_value_fact_id HAVING count(DISTINCT c.origin_id) = 2 \
+          AND count(DISTINCT f.summary_id) = 1 \
+          AND count(DISTINCT CASE WHEN b.reason = {} THEN b.source_origin_id END) = 1 \
+    )", FlowSink::Return.code(), BoundaryReason::CallTransfer.code()))
+        .await.unwrap().collect().await.unwrap();
+    let counts = rows[0].column(0)
+        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+    assert_eq!(counts.value(0), 1,
+        "one raw returned use keeps a proved value and an unproved call origin");
     for (name, reason) in [("f9", 21), ("unsupported", 4),
         ("condition_atom_cap", 24)] {
         let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_boundaries b \
@@ -423,6 +441,17 @@ paths, boundaries, total, truncated, work = index.inspect_value_paths(
 )
 assert not truncated and paths, (paths, boundaries)
 assert any(path[1] == "conditional" and any(step[0] == "callee_condition_link" for step in path[3]) for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.mixed_origin", "value")
+assert not truncated and len(paths) == 1 and not boundaries, (paths, boundaries)
+positive = next(row for row in generation.tables["summary_flows"].to_pylist()
+                if row["summary_id"].hex() == paths[0][0])
+paths, boundaries, total, truncated, work = inspect("capspkg.mixed_origin", "other")
+assert not truncated and not paths and len(boundaries) == 1, (paths, boundaries)
+assert boundaries[0][3] == "call_transfer", boundaries
+withheld = next(row for row in generation.tables["summary_boundaries"].to_pylist()
+                if row["source_origin_id"].hex() == boundaries[0][1])
+assert positive["source_flow_fact_id"] == withheld["source_flow_fact_id"]
+assert positive["source_origin_id"] != withheld["source_origin_id"]
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script,

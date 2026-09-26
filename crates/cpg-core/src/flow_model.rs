@@ -1624,7 +1624,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 if r.start_byte == c.callee_start_byte && r.end_byte == c.callee_end_byte {
                     return r.builtin_name.as_deref().or_else(|| {
                         (r.imported_module.as_deref() == Some("builtins"))
-                            .then(|| r.imported_name.as_deref())
+                            .then_some(r.imported_name.as_deref())
                             .flatten()
                     });
                 }

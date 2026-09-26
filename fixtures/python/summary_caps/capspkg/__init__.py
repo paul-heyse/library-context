@@ -49,6 +49,19 @@ def opaque() -> None:
     pass
 
 
+def opaque_source(value: object) -> object:
+    raise RuntimeError(value)
+
+
+def mixed_origin(value: object, other: object, choose: bool) -> object:
+    """One returned name has a direct value origin and an unproved call origin."""
+    if choose:
+        result = value
+    else:
+        result = opaque_source(other)
+    return result
+
+
 def unsupported(value: object) -> object:
     """Return the value after an opaque preceding call."""
     opaque()

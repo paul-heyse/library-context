@@ -343,8 +343,9 @@ singleton recursive. Candidate/open dispatch contributes topology only.
   specific depth/control/atom-limit refusals. Actual predecessor conjunctions also preserve
   work- and node-limit reasons through the pure producer and boundary decision in focused tests
   (2026-09-26). ADR-0054 carries stable contribution IDs through summary and native boundary
-  contracts, with separate pure and native sibling controls; a single real two-origin Delta/native
-  trace and work/node-limit publication controls remain open.
+  contracts. A real `mixed_origin` return now retains one admitted and one `call_transfer`
+  sibling on the same raw fact through Delta and native in one focused generation. Work/node-limit
+  publication controls remain open.
 - W7: the flow model's cyclic reach uses the bounded source fixed point (§3.9); its production-cap
   native trace and fresh pilot cost remain open. A real extracted-flow row shuffle now preserves
   canonical published contribution, value-flow and premise bytes in a focused fixture.
