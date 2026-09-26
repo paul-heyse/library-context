@@ -237,10 +237,14 @@ witness.
   callee is one resolved simple name, and every explicit argument has ordered normal-evaluation
   evidence. The call span must equal the whole value sink span (an outer operator or fallback
   cannot borrow the call). The candidate condition must be satisfiable and imply the direct return
-  region.
+  region. An earlier same-function call before that return also needs the ordered
+  normal-completion witness used by direct parameter returns; an opaque compatible earlier call
+  withholds the modeled positive.
 - **Assignment then return:** the same model-call proof on a whole assignment value, then a
   returned use with exactly one reaching definition whose bounded compatibility is proved and
-  whose condition implies the reaching, successor and return-region conditions.
+  whose condition implies the reaching, successor and return-region conditions. Every earlier
+  compatible call before the returned use, including the assignment's source call, needs an
+  independent ordered normal-completion witness.
 - **Local wrapper:** an acyclic synchronous wrapper inherits an **unconditional** value summary of
   its sole definite local target when ty's one-call value path, Ruff's exact one-positional-argument
   syntax, lexical callee resolution, Pass B's single formal mapping, a closed target set and a
@@ -253,7 +257,7 @@ cited reaching definition and earlier raw fact) and `value_flow_predecessor_comp
 (tri-state: false refutes this candidate under the declared atoms, true admits a may-path, and
 loop-carried, missing or capped roots are unknown, a cap staying `budget_reached`). None of them
 chooses a reaching definition or proves completion. `preceding_normal_call_arguments` is the
-query-only, all-arguments witness for the narrow direct-return case; it produces no row if one
+query-only, all-arguments witness for the narrow direct or modeled-return case; it produces no row if one
 argument or the callee's earlier module import is unproved, and the producer checks that import's
 condition is `true` before admitting. Otherwise it records `unsupported_control_flow` rather
 than borrowing a target's normal-return claim.

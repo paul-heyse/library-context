@@ -94,6 +94,32 @@ def two_completed_predecessors(value: object) -> object:
     return value
 
 
+def modeled_after_completed(value: object) -> object:
+    """A modeled return retains the earlier completed-call witness."""
+    cast(object, 1)
+    return cast(object, value)
+
+
+def modeled_after_opaque(value: object) -> object:
+    """An earlier opaque call blocks even an otherwise exact modeled return."""
+    opaque()
+    return cast(object, value)
+
+
+def assigned_modeled_after_completed(value: object) -> object:
+    """An assignment result retains both earlier normal-completion witnesses."""
+    result = cast(object, value)
+    cast(object, 1)
+    return result
+
+
+def assigned_modeled_after_opaque(value: object) -> object:
+    """A later opaque call blocks the assignment-to-return model path."""
+    result = cast(object, value)
+    opaque()
+    return result
+
+
 def completed_then_raising(value: object) -> object:
     """An earlier completed call cannot certify a later raising sibling."""
     cast(object, 1)

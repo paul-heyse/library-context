@@ -40,6 +40,7 @@ cpg_schema::query_row! {
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         return_condition_id: Id,
+        return_start_byte: i64,
         approximated: bool,
     }
 }
@@ -66,6 +67,7 @@ cpg_schema::query_row! {
         return_site_fact_id: Id,
         return_region_fact_id: Id,
         return_condition_id: Id,
+        return_start_byte: i64,
         approximated: bool,
     }
 }
@@ -326,15 +328,17 @@ pub struct FiniteSummaryInputs {
 }
 
 fn preceding_call_steps(
-    seed: &SummaryFlowSeed,
+    function_node_id: Id,
+    return_start_byte: i64,
+    condition_id: Id,
     calls: &PrecedingCallIndex,
     normal: &NormalPredecessorIndex,
     diagrams: &HashMap<Id, Diagram>,
     boundaries: &HashMap<Id, BoundaryReason>,
 ) -> Result<Vec<recipe::SummaryFlowProofStep>, BoundaryReason> {
     let mut proof = Vec::new();
-    for call in calls.get(&seed.function_node_id).into_iter().flatten()
-        .take_while(|call| call.call_start_byte < seed.return_start_byte) {
+    for call in calls.get(&function_node_id).into_iter().flatten()
+        .take_while(|call| call.call_start_byte < return_start_byte) {
         if call.approximated != Some(false) {
             return Err(BoundaryReason::UnsupportedControlFlow);
         }
@@ -345,8 +349,8 @@ fn preceding_call_steps(
             return Err(boundaries.get(&call_condition_id).copied()
                 .unwrap_or(BoundaryReason::MissingEvidence));
         };
-        let Some(return_condition) = diagrams.get(&seed.condition_id) else {
-            return Err(boundaries.get(&seed.condition_id).copied()
+        let Some(return_condition) = diagrams.get(&condition_id) else {
+            return Err(boundaries.get(&condition_id).copied()
                 .unwrap_or(BoundaryReason::MissingEvidence));
         };
         match return_condition.and(call_condition) {
@@ -427,7 +431,8 @@ fn direct_flows(
                     .unwrap_or(BoundaryReason::MissingEvidence));
             continue;
         };
-        let mut proof = match preceding_call_steps(&seed, preceding_calls,
+        let mut proof = match preceding_call_steps(seed.function_node_id,
+            seed.return_start_byte, seed.condition_id, preceding_calls,
             normal_predecessors, diagrams, boundaries) {
             Ok(proof) => proof,
             Err(reason) => {
@@ -723,7 +728,16 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
                 continue;
             },
         }
-        let Some(mut proof) = modeled_call_proof(
+        let mut proof = match preceding_call_steps(seed.function_node_id,
+            seed.return_start_byte, seed.condition_id, &preceding_calls,
+            &normal_by_call, &diagrams, &boundaries) {
+            Ok(proof) => proof,
+            Err(reason) => {
+                refuse(&mut refusals, key, reason);
+                continue;
+            }
+        };
+        let Some(model_proof) = modeled_call_proof(
             &CallEvidence {
                 flow_fact_id: seed.source_flow_fact_id,
                 parameter_node_id: seed.parameter_node_id,
@@ -741,6 +755,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
             refuse(&mut refusals, key, BoundaryReason::MissingEvidence);
             continue;
         };
+        proof.extend(model_proof);
         proof.push(recipe::SummaryFlowProofStep {
             kind: SummaryFlowStepKind::ReturnExit,
             evidence_id: seed.return_site_fact_id,
@@ -799,7 +814,16 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
             refuse(&mut refusals, key, reason);
             continue;
         }
-        let Some(mut proof) = modeled_call_proof(
+        let mut proof = match preceding_call_steps(seed.function_node_id,
+            seed.return_start_byte, seed.predecessor_condition_id, &preceding_calls,
+            &normal_by_call, &diagrams, &boundaries) {
+            Ok(proof) => proof,
+            Err(reason) => {
+                refuse(&mut refusals, key, reason);
+                continue;
+            }
+        };
+        let Some(model_proof) = modeled_call_proof(
             &CallEvidence {
                 flow_fact_id: seed.predecessor_flow_fact_id,
                 parameter_node_id: seed.parameter_node_id,
@@ -817,6 +841,7 @@ pub fn finite_flows(inputs: FiniteSummaryInputs) -> FiniteSummaryOutcome {
             refuse(&mut refusals, key, BoundaryReason::MissingEvidence);
             continue;
         };
+        proof.extend(model_proof);
         for (kind, evidence_id, condition_id) in [
             (
                 SummaryFlowStepKind::DefinitionReaching,

@@ -142,7 +142,10 @@ terminating branch survives disjoint recursion on the other branch, while an unc
 self-call before a direct return withholds it. Two completed source-ordered calls now leave
 two separate proof steps; a completed call followed by a raising sibling stays unknown. The
 pure producer sorts incoming predecessor rows before its stop-at-return scan, so a shuffled
-later call cannot hide an earlier unproved call. These positive and withholding controls passed
+later call cannot hide an earlier unproved call. The modeled direct-return producer now uses
+that same earlier-call witness: a preceding pinned total call is cited, while an opaque earlier
+call leaves an explicit unknown even when the returned model call is exact. The assignment-then-return
+route uses it too, including its source call; a later opaque call blocks that path. These positive and withholding controls passed
 through the real provider and native generation. This is narrower than order 1's exit:
 nested-call arguments, callee forms other than an unconditional module-level import,
 general predecessor sequencing, path-specific predecessor status, possible raises and the full

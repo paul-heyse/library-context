@@ -2322,6 +2322,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
+                    r.start_byte AS return_start_byte, \
                     (f.approximated OR e.approximated) AS approximated \
              FROM modeled_exact_value_transfers m \
              JOIN model_applications a ON a.call_site_node_id = m.call_site_node_id \
@@ -2388,6 +2389,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
+                    r.start_byte AS return_start_byte, \
                     (q.predecessor_raw_approximated OR q.reaching_approximated \
                      OR q.successor_raw_approximated OR e.approximated) AS approximated \
              FROM modeled_assignment_return_paths q \
