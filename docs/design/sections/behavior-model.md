@@ -329,8 +329,10 @@ reasoning, and every step is cited.
   for now; a measured cost or semantic gap reopens that choice. Reversing real extracted
   `flow_reaching` and `flow_values` rows before two analyzed compiles leaves canonical Arrow IPC
   bytes identical for published contributions, merged value flows and negative premises
-  (**Tested in a focused fixture, 2026-09-26**). The production cap's published/native behavior
-  and pilot cost are not yet verified.
+  (**Tested in a focused fixture, 2026-09-26**). A separate production-cap pure-model control
+  crosses one million work steps and leaves the cyclic head and dependent use open with
+  `budget_reached` and widened source conditions (**Tested**, 2026-09-26). Its published/native
+  behavior and pilot cost are not yet verified.
 
 ## Verdicts
 

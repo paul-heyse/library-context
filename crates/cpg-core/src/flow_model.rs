@@ -2548,4 +2548,19 @@ mod reach_fixed_point_tests {
             vec![(id(2), BoundaryReason::BudgetReached),
                  (id(3), BoundaryReason::BudgetReached)]);
     }
+
+    #[test]
+    fn production_work_cap_keeps_cycle_dependents_open() {
+        let mut model = model(true);
+        model.reaching.get_mut(&id(3)).unwrap().extend(
+            std::iter::repeat_n((None, id(1), false), MAX_REACH_WORK),
+        );
+        let _ = model.reach(id(2), &mut Vec::new());
+        assert_eq!(model.reach_boundary_rows(id(1)).iter()
+            .map(|row| (row.use_id, row.reason)).collect::<Vec<_>>(),
+            vec![(id(2), BoundaryReason::BudgetReached),
+                 (id(3), BoundaryReason::BudgetReached)]);
+        assert!(model.memo[&(id(2), false)].values().all(|source|
+            matches!(source.condition.diagram(), Err(KernelBoundary::SourceOverBudget))));
+    }
 }
