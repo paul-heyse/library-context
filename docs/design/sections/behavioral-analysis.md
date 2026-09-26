@@ -215,7 +215,9 @@ witness.
   acquires public metadata at the same pin; there is no fork or dependency change. Handler facts
   are prepared before completion. Named-handler cleanup, exception groups (`except*` is marked
   in syntax), opaque constructors, arbitrary rebinding/finalization, loops and context exits
-  remain unknown. This does not yet admit function-entry paths into handler bodies.
+  remain unknown. Handler/else/finalizer entry now reconstructs the pending outcome through
+  the same try-body owner. A shared `CompletionOutcome` enum prevents invalid combinations;
+  `statement_completions.exception` retains an exact raised kind independently of potential effects.
   Full operand/call/binding evidence is retained in inner-to-outer frame order. Completion depth
   128 and work 4096 have separate typed refusals. The shared summary-proof cap is 64 local steps;
   the producer emits `summary_proof_limit` before native admission could reject a generation.
@@ -400,7 +402,7 @@ Core requests only conditions from that return's source contributions and its as
 predecessors. The walker evaluates outer-to-inner enclosing suites and preceding statements in
 source order; non-call expressions, first local initialization and selected branches must
 complete normally. Function docstrings are definition-time metadata. Loops and unsupported
-handler/context entry remain explicit unknowns. A second executed assignment to the same local
+context entry and named-handler cleanup remain explicit unknowns. A second executed assignment to the same local
 is refused because releasing the old value can execute user finalization. Mutually exclusive
 syntactic assignments are admissible only on a fully walked path with no prior initialization.
 
@@ -414,6 +416,15 @@ assumptions. Finite summaries consume scoped dense entry proofs with condition i
 the shared proof cap; core reconstructs exactly the same rows for publication. The old call-only
 predecessor queries and classifier are deleted. See the
 [bounded review](../../design_review/reviews/design_review_stage3-predecessor-completion_2026-09-26.md).
+
+**Origin coverage (Implemented and focused Tested, 2026-09-26).**
+`summary_origin_coverage` separates completeness, refusal, retained witness count and omitted
+witnesses per contribution, condition, channel and phase. Only Value/Call rows are currently
+produced. A positive finite call path does not close its callee's alternatives: every call crossing
+remains open until S4/S5 compose coverage. Raw or retained-summary approximation also leaves it
+open. Complete direct-origin coverage is neither operation-wide completeness nor a negative
+claim about another channel. Core publishes and reconstructs the pure producer's full rows.
+See the [bounded review](../../design_review/reviews/design_review_stage3-origin-coverage_2026-09-26.md).
 
 **Schedule and recursion.** `summary_components` records every release function's SCC, sorted
 members, canonical component id and a callee-first schedule over attributed local call targets;

@@ -1,0 +1,23 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table summary_origin_coverage
+family findings
+key snapshot_id, source_origin_id, condition_id, channel, phase
+check coverage_shape: (complete AND reason IS NULL AND witness_count > 0) OR (NOT complete AND reason IS NOT NULL)
+check witness_count_nonnegative: witness_count >= 0
+@lctx.family=findings
+@lctx.table=summary_origin_coverage
+snapshot_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+parameter_node_id: FixedSizeBinary(16) NOT NULL
+source_flow_fact_id: FixedSizeBinary(16) NOT NULL
+source_origin_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+channel: Int16 NOT NULL [lctx.codebook=summary_channel]
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
+complete: Boolean NOT NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]
+witness_count: Int64 NOT NULL
+witnesses_omitted: Boolean NOT NULL

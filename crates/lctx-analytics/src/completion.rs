@@ -9,7 +9,7 @@ use cpg_schema::id::Id;
 use cpg_schema::tables::{SyntaxNodesRow, BindingsRow, ScopesRow, FlowTestsRow};
 use cpg_schema::condition_kernel::Diagram;
 use crate::summaries::finite::condition_limit;
-use cpg_schema::summary_contract::ExactRuntimeException;
+use cpg_schema::summary_contract::{ExactRuntimeException, CompletionOutcome as Completion};
 use cpg_schema::behavior::HandlerTypesRow;
 use cpg_schema::tables::{ContextDefinitionsRow,ContextClassMroRow,ContextModulesRow};
 use cpg_schema::codebook::{HandlerTypeStatus,DefinitionKind,ModuleOrigin};
@@ -17,12 +17,6 @@ use cpg_schema::codebook::{HandlerTypeStatus,DefinitionKind,ModuleOrigin};
 const MAX_DEPTH: usize = 128;
 const MAX_WORK: usize = 4096;
 type Proof = Vec<(K, Id)>;
-#[derive(Clone, Copy)]
-struct Completion {kind:C,terminal:Option<Id>,exception:Option<ExactRuntimeException>}
-impl Completion {
-    fn plain(kind:C,terminal:Option<Id>)->Self {Self {kind,terminal,exception:None}}
-    fn raised(terminal:Id,exception:ExactRuntimeException)->Self {Self {kind:C::Raise,terminal:Some(terminal),exception:Some(exception)}}
-}
 type Result = std::result::Result<Completion, BoundaryReason>;
 
 pub struct Inputs<'a> {
@@ -97,7 +91,31 @@ impl Kernel<'_> {
             self.remaining=self.remaining.checked_sub(children.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
             match parent.kind {
                 S::StmtFunctionDef if parent.node_id==exit.function_node_id && node.field==F::Body => {},
-                S::StmtTry if node.field==F::Body && parent.detail.as_deref()!=Some("except*") => {},
+                S::StmtTry if parent.detail.as_deref()!=Some("except*") => {
+                    match node.field {
+                        F::Body => {},
+                        F::Orelse => {
+                            if self.suite(&children,F::Body,0)?.kind()!=C::Normal {
+                                return Err(BoundaryReason::RuntimeUnreachable);
+                            }
+                        },
+                        F::Handler => {
+                            let pending=self.suite(&children,F::Body,0)?;
+                            if pending.kind()!=C::Raise {return Err(BoundaryReason::RuntimeUnreachable);}
+                            let exception=pending.exception().ok_or(BoundaryReason::MissingEvidence)?;
+                            let handler=self.selected_handler(parent,&children,exception)?
+                                .ok_or(BoundaryReason::RuntimeUnreachable)?;
+                            if handler.node_id!=node.node_id {return Err(BoundaryReason::RuntimeUnreachable);}
+                            self.enter_handler(handler,exception)?;
+                        },
+                        F::Finalbody => {
+                            let pending=self.try_body(parent,&children,0)?;
+                            if pending.kind()==C::Raise {self.active_exception=pending.exception();}
+                        },
+                        _ => return Err(BoundaryReason::UnsupportedControlFlow),
+                    }
+                },
+                S::ExceptHandlerExceptHandler if node.field==F::Body => {},
                 S::ElifElseClause if node.field==F::Body => {},
                 S::StmtIf => {
                     let truth=self.truth(Self::field(&children,F::Test)?)?;
@@ -120,7 +138,8 @@ impl Kernel<'_> {
                 _ => return Err(BoundaryReason::UnsupportedControlFlow),
             }
             // Orelse clauses are alternatives, not a preceding sequential suite.
-            if parent.kind==S::StmtIf && node.field==F::Orelse { continue; }
+            if (parent.kind==S::StmtIf && node.field==F::Orelse)
+                || (parent.kind==S::StmtTry && node.field==F::Handler) { continue; }
             let prefix:Vec<_>=children.iter().copied().filter(|n|n.field==node.field && n.ordinal<node.ordinal).collect();
             if prefix.len()!=usize::try_from(node.ordinal).map_err(|_|BoundaryReason::MissingEvidence)?
                 || prefix.iter().enumerate().any(|(i,n)|n.ordinal!=i as i64) {
@@ -133,10 +152,55 @@ impl Kernel<'_> {
                     let value=self.children.get(&(exit.snapshot_id,statement.node_id));
                     if value.is_some_and(|v|v.len()==1 && v[0].field==F::Value && v[0].kind==S::ExprStringLiteral) {continue;}
                 }
-                if self.statement(statement,0)?.kind!=C::Normal { return Err(BoundaryReason::RuntimeUnreachable); }
+                if self.statement(statement,0)?.kind()!=C::Normal { return Err(BoundaryReason::RuntimeUnreachable); }
             }
         }
         Ok(())
+    }
+
+    fn selected_handler<'a>(&mut self,node:&SyntaxNodesRow,children:&[&'a SyntaxNodesRow],exception:ExactRuntimeException)
+        -> std::result::Result<Option<&'a SyntaxNodesRow>,BoundaryReason> {
+        let handlers:Vec<_>=children.iter().copied().filter(|n|n.field==F::Handler).collect();
+        if handlers.iter().enumerate().any(|(i,h)|h.ordinal!=i as i64 || h.kind!=S::ExceptHandlerExceptHandler) {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+        for handler in handlers {
+            let body=self.children.get(&(node.snapshot_id,handler.node_id)).cloned().unwrap_or_default();
+            self.remaining=self.remaining.checked_sub(1+body.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
+            if self.handler_matches(handler,&body,exception)? {return Ok(Some(handler));}
+        }
+        Ok(None)
+    }
+
+    fn enter_handler(&mut self,handler:&SyntaxNodesRow,exception:ExactRuntimeException)
+        -> std::result::Result<(),BoundaryReason> {
+        // Binding and implicit deletion of a handler name can execute user cleanup.
+        if handler.detail.as_deref().is_some_and(|name|!name.is_empty()) {
+            return Err(BoundaryReason::UnsupportedControlFlow);
+        }
+        self.proof.push((K::CompletionStatement,handler.fact_id));
+        self.active_exception=Some(exception);
+        Ok(())
+    }
+
+    /// The try/handler/else portion has one owner; entering a finalizer and completing the
+    /// whole statement must agree on the pending outcome and ordered evidence.
+    fn try_body(&mut self,node:&SyntaxNodesRow,children:&[&SyntaxNodesRow],depth:usize) -> Result {
+        let mut pending=self.suite(children,F::Body,depth)?;
+        if pending.kind()==C::Raise {
+            let exception=pending.exception().ok_or(BoundaryReason::MissingEvidence)?;
+            if let Some(handler)=self.selected_handler(node,children,exception)? {
+                let previous=self.active_exception;
+                self.enter_handler(handler,exception)?;
+                let body=self.children.get(&(node.snapshot_id,handler.node_id)).cloned().unwrap_or_default();
+                let result=self.suite(&body,F::Body,depth+1);
+                self.active_exception=previous;
+                pending=result?;
+            }
+        } else if pending.kind()==C::Normal {
+            pending=self.suite(children,F::Orelse,depth)?;
+        }
+        Ok(pending)
     }
 
     fn pinned_class(&self,snapshot:Id,module:&str,name:&str)->std::result::Result<&ContextDefinitionsRow,BoundaryReason> {
@@ -261,9 +325,9 @@ impl Kernel<'_> {
         if statements.iter().enumerate().any(|(i,n)| n.ordinal != i as i64) { return Err(BoundaryReason::MissingEvidence); }
         for statement in statements {
             let outcome = self.statement(statement, depth + 1)?;
-            if outcome.kind != C::Normal { return Ok(outcome); }
+            if outcome.kind() != C::Normal { return Ok(outcome); }
         }
-        Ok(Completion::plain(C::Normal, None))
+        Ok(Completion::Normal)
     }
 
     fn statement(&mut self, node: &SyntaxNodesRow, depth: usize) -> Result {
@@ -278,11 +342,11 @@ impl Kernel<'_> {
         let outcome = match node.kind {
             S::StmtPass if children.is_empty() => {
                 self.proof.push((K::FinalizerPass, node.fact_id));
-                return Ok(Completion::plain(C::Normal, None));
+                return Ok(Completion::Normal);
             },
             S::StmtExpr if children.len() == 1 => {
                 self.expression(Self::field(&children, F::Value)?)?;
-                Completion::plain(C::Normal, None)
+                Completion::Normal
             },
             S::StmtAssign => {
                 self.expression(Self::field(&children, F::Value)?)?;
@@ -302,14 +366,14 @@ impl Kernel<'_> {
                     }
                     self.proof.push((K::LocalAssignmentBinding, binding.fact_id));
                 }
-                Completion::plain(C::Normal, None)
+                Completion::Normal
             },
             S::StmtReturn => {
                 if !children.is_empty() {
                     if children.len() != 1 { return Err(BoundaryReason::UnsupportedControlFlow); }
                     self.expression(Self::field(&children, F::Value)?)?;
                 }
-                Completion::plain(C::Return, Some(node.fact_id))
+                Completion::Return(node.fact_id)
             },
             S::StmtRaise if children.is_empty() => {
                 let exception=self.active_exception.ok_or(BoundaryReason::UnsupportedControlFlow)?;
@@ -329,13 +393,13 @@ impl Kernel<'_> {
                 if children.iter().any(|n| n.field == F::Cause) { self.expression(Self::field(&children, F::Cause)?)?; }
                 Completion::raised(node.fact_id,ExactRuntimeException::TypeError)
             },
-            S::StmtBreak if children.is_empty() => Completion::plain(C::Break, Some(node.fact_id)),
-            S::StmtContinue if children.is_empty() => Completion::plain(C::Continue, Some(node.fact_id)),
+            S::StmtBreak if children.is_empty() => Completion::Break(node.fact_id),
+            S::StmtContinue if children.is_empty() => Completion::Continue(node.fact_id),
             S::StmtIf => {
                 let truth = self.truth(Self::field(&children, F::Test)?)?;
                 if truth { self.suite(&children, F::Body, depth)? }
                 else {
-                    let mut result = Completion::plain(C::Normal, None);
+                    let mut result = Completion::Normal;
                     for clause in children.iter().filter(|n| n.field == F::Orelse) {
                         if clause.kind != S::ElifElseClause { return Err(BoundaryReason::UnsupportedControlFlow); }
                         let nodes = self.children.get(&(node.snapshot_id, clause.node_id)).cloned().unwrap_or_default();
@@ -349,35 +413,13 @@ impl Kernel<'_> {
                 }
             },
             S::StmtTry if node.detail.as_deref()!=Some("except*") => {
-                let mut pending = self.suite(&children, F::Body, depth)?;
-                if pending.kind == C::Raise && children.iter().any(|n| n.field == F::Handler) {
-                    let handlers:Vec<_>=children.iter().filter(|n|n.field==F::Handler).collect();
-                    if handlers.iter().enumerate().any(|(i,h)|h.ordinal!=i as i64 || h.kind!=S::ExceptHandlerExceptHandler) {
-                        return Err(BoundaryReason::MissingEvidence);
-                    }
-                    let exception=pending.exception.ok_or(BoundaryReason::MissingEvidence)?;
-                    for handler in handlers {
-                        let body=self.children.get(&(node.snapshot_id,handler.node_id)).cloned().unwrap_or_default();
-                        self.remaining=self.remaining.checked_sub(1+body.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
-                        if !self.handler_matches(handler,&body,exception)? {continue;}
-                        // Exception-name rebinding and implicit deletion can run user cleanup.
-                        if handler.detail.as_deref().is_some_and(|name|!name.is_empty()) {return Err(BoundaryReason::UnsupportedControlFlow);}
-                        self.proof.push((K::CompletionStatement,handler.fact_id));
-                        let previous=self.active_exception.replace(exception);
-                        let result=self.suite(&body,F::Body,depth+1);
-                        self.active_exception=previous;
-                        pending=result?;
-                        break;
-                    }
-                } else if pending.kind == C::Normal {
-                    pending = self.suite(&children, F::Orelse, depth)?;
-                }
+                let pending = self.try_body(node,&children,depth)?;
                 let previous=self.active_exception;
-                if pending.kind==C::Raise {self.active_exception=pending.exception;}
+                if pending.kind()==C::Raise {self.active_exception=pending.exception();}
                 let result=self.suite(&children,F::Finalbody,depth);
                 self.active_exception=previous;
                 let finalizer=result?;
-                if finalizer.kind == C::Normal { pending } else { finalizer }
+                pending.after_finalizer(finalizer)
             },
             _ => return Err(BoundaryReason::UnsupportedControlFlow),
         };
@@ -436,11 +478,11 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
     for node in inputs.syntax.iter().filter(|n| n.owner_node_id.is_some() && n.kind.text().starts_with("stmt_")) {
         kernel.remaining = MAX_WORK; kernel.proof.clear();kernel.initialized.clear();kernel.active_exception=None;
         let result = kernel.statement(node,0);
-        let (kind,terminal_fact_id,reason) = match result { Ok(outcome) => (outcome.kind,outcome.terminal,None),
-            Err(reason) => (C::Unknown,None,Some(reason)) };
+        let (kind,terminal_fact_id,exception,reason) = match result { Ok(outcome) => (outcome.kind(),outcome.terminal(),outcome.exception(),None),
+            Err(reason) => (C::Unknown,None,None,Some(reason)) };
         out.statements.push(StatementCompletionsRow { snapshot_id: node.snapshot_id, source_fact_id: node.fact_id,
             statement_node_id: node.node_id, function_node_id: node.owner_node_id.unwrap(),
-            kind,terminal_fact_id,reason,work: (MAX_WORK-kernel.remaining).max(1) as i64 });
+            kind,terminal_fact_id,exception,reason,work: (MAX_WORK-kernel.remaining).max(1) as i64 });
         if reason.is_none() {
             out.statement_steps.extend(kernel.proof.iter().enumerate().map(|(ordinal,&(kind,evidence_id))|
                 StatementCompletionStepsRow { snapshot_id:node.snapshot_id,source_fact_id:node.fact_id,
@@ -484,7 +526,7 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
                 frames.push(parent.node_id);
                 if parent.kind == S::StmtWith { row.reason=Some(BoundaryReason::UnsupportedControlFlow); break; }
                 match kernel.suite(&actions,F::Finalbody,0) {
-                    Ok(outcome) if outcome.kind==C::Normal => {},
+                    Ok(outcome) if outcome.kind()==C::Normal => {},
                     Ok(_) => { row.reason=Some(BoundaryReason::UnsupportedControlFlow); break; },
                     Err(reason) => { row.reason=Some(reason); break; },
                 }
@@ -531,6 +573,55 @@ mod tests {
         ExitSitesRow { snapshot_id:id(1),function_node_id:id(3),site_node_id:id(site),
             kind:ExitSiteKind::Return,module_node_id:id(2),source_fact_id:id(site),
             region_fact_id:id(90),start_byte:0,end_byte:100,condition_id:id(91),approximated:false }
+    }
+    #[test]
+    fn nested_handler_entry_restores_the_outer_active_exception() {
+        let nodes=vec![node(3,2,S::StmtFunctionDef,F::Body,0,"function"),
+            node(10,3,S::StmtTry,F::Body,0,""),
+            node(11,10,S::StmtRaise,F::Body,0,""),node(12,11,S::ExprNoneLiteral,F::Exc,0,"None"),
+            node(13,10,S::ExceptHandlerExceptHandler,F::Handler,0,""),
+            node(14,13,S::StmtTry,F::Body,0,""),
+            node(15,14,S::StmtRaise,F::Body,0,""),node(16,15,S::ExprNoneLiteral,F::Exc,0,"None"),
+            node(17,14,S::ExceptHandlerExceptHandler,F::Handler,0,""),node(18,17,S::StmtPass,F::Body,0,""),
+            node(19,13,S::StmtRaise,F::Body,1,""),node(20,13,S::StmtReturn,F::Body,2,"")];
+        let out=run(&nodes,&[exit(20)]);
+        assert_eq!(out.entries[0].reason,Some(BoundaryReason::RuntimeUnreachable));
+        assert_eq!(out.statements.iter().find(|s|s.source_fact_id==id(10)).unwrap().exception,Some(ExactRuntimeException::TypeError));
+    }
+
+    #[test]
+    fn handler_else_and_finalizer_entry_reconstruct_the_pending_outcome() {
+        let mut nodes=vec![node(3,2,S::StmtFunctionDef,F::Body,0,"function"),
+            node(10,3,S::StmtTry,F::Body,0,""),
+            node(11,10,S::StmtRaise,F::Body,0,""),
+            node(12,11,S::ExprNoneLiteral,F::Exc,0,"None"),
+            node(13,10,S::ExceptHandlerExceptHandler,F::Handler,0,""),
+            node(14,13,S::StmtReturn,F::Body,0,""),
+            node(15,10,S::StmtReturn,F::Orelse,0,""),
+            node(16,10,S::StmtReturn,F::Finalbody,0,"")];
+        let out=run(&nodes,&[exit(14),exit(15),exit(16)]);
+        let reason=|out:&Outcome,site|out.entries.iter().find(|e|e.return_site_fact_id==id(site)).unwrap().reason;
+        assert_eq!(reason(&out,14),None);
+        assert_eq!(reason(&out,15),Some(BoundaryReason::RuntimeUnreachable));
+        assert_eq!(reason(&out,16),None);
+        assert!(out.entry_steps.iter().any(|s|s.return_site_fact_id==id(14) && s.evidence_id==id(11)));
+        assert_eq!(out.statements.iter().find(|s|s.source_fact_id==id(11)).unwrap().exception,Some(ExactRuntimeException::TypeError));
+        nodes[4].detail=Some("caught".to_owned());
+        let out=run(&nodes,&[exit(14),exit(16)]);
+        assert_eq!(reason(&out,14),Some(BoundaryReason::UnsupportedControlFlow));
+        assert_eq!(reason(&out,16),Some(BoundaryReason::UnsupportedControlFlow));
+        nodes[4].detail=Some(String::new());
+        nodes[2].kind=S::StmtPass;
+        nodes.remove(3);
+        let out=run(&nodes,&[exit(14),exit(15),exit(16)]);
+        assert_eq!(reason(&out,14),Some(BoundaryReason::RuntimeUnreachable));
+        assert_eq!(reason(&out,15),None);
+        assert_eq!(reason(&out,16),None);
+        // An unresolved predecessor is not evidence that a handler or finalizer is entered.
+        nodes[2].kind=S::StmtExpr;
+        nodes.push(node(17,11,S::ExprName,F::Value,0,"unknown"));
+        let out=run(&nodes,&[exit(14),exit(15),exit(16)]);
+        for entry in out.entries {assert_eq!(entry.reason,Some(BoundaryReason::UnsupportedControlFlow));}
     }
     #[test]
     fn finalizer_outcome_preserves_or_replaces_pending_return() {

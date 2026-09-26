@@ -500,6 +500,11 @@ pub const REFERENCES: &[Reference] = &[
         &[("flow_values", "fact_id")],
     ),
     r("summary_boundaries", "source_origin_id", &[("value_flow_contributions", "origin_id")]),
+    r("summary_origin_coverage", "function_node_id", &[("declarations", "node_id")]),
+    r("summary_origin_coverage", "parameter_node_id", &[("parameter_syntax", "node_id")]),
+    r("summary_origin_coverage", "source_flow_fact_id", &[("flow_values", "fact_id")]),
+    r("summary_origin_coverage", "source_origin_id", &[("value_flow_contributions", "origin_id")]),
+    r("summary_origin_coverage", "condition_id", &[("analysis_conditions", "condition_id")]),
     r(
         "summary_boundaries",
         "condition_id",

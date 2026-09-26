@@ -257,11 +257,48 @@ crate::query_row! {
 
 /// Exact exception outcomes established by the bounded Python completion rules. This list
 /// also owns which builtin classes extraction retains for their pinned hierarchy evidence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExactRuntimeException { TypeError }
+pub use crate::codebook::ExactRuntimeException;
 impl ExactRuntimeException {
     pub const ALL: &[Self] = &[Self::TypeError];
     pub const fn class(self) -> (&'static str, &'static str) {
         match self { Self::TypeError => ("builtins", "TypeError") }
+    }
+}
+
+/// An admitted outcome under statement entry. Unknown outcomes are represented by the
+/// producer's typed refusal, not by a fictitious normal or raised completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompletionOutcome {
+    Normal,
+    Return(Id),
+    Raise { terminal: Id, exception: ExactRuntimeException },
+    Break(Id),
+    Continue(Id),
+}
+
+impl CompletionOutcome {
+    pub fn kind(self) -> crate::codebook::CompletionKind {
+        use crate::codebook::CompletionKind as C;
+        match self { Self::Normal=>C::Normal,Self::Return(_)=>C::Return,
+            Self::Raise {..}=>C::Raise,Self::Break(_)=>C::Break,Self::Continue(_)=>C::Continue }
+    }
+
+    pub fn terminal(self) -> Option<Id> {
+        match self {Self::Normal=>None,Self::Return(id)|Self::Break(id)|Self::Continue(id)
+            |Self::Raise {terminal:id,..}=>Some(id)}
+    }
+
+    pub fn exception(self) -> Option<ExactRuntimeException> {
+        match self {Self::Raise {exception,..}=>Some(exception),_=>None}
+    }
+
+    pub fn raised(terminal: Id, exception: ExactRuntimeException) -> Self {
+        Self::Raise { terminal, exception }
+    }
+
+    /// Python executes a finalizer even for an abrupt pending outcome. Only normal completion
+    /// preserves that outcome; return/raise/break/continue replace it.
+    pub fn after_finalizer(self, finalizer: Self) -> Self {
+        if finalizer == Self::Normal { self } else { finalizer }
     }
 }

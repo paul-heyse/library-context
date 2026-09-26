@@ -194,6 +194,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_summary_origin_coverage = "validate_stored_summary_origin_coverage", deps = ["summary_origin_coverage"],
+        sql = "SELECT * FROM summary_origin_coverage".to_owned();
     stored_summary_components = "validate_stored_summary_components", deps = ["summary_components"],
         sql = "SELECT * FROM summary_components".to_owned();
     stored_summary_flow_steps = "validate_stored_summary_flow_steps", deps = ["summary_flow_steps"],
@@ -498,6 +500,15 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
         });
     }
     violations.extend(validate_summary_boundaries(ctx, summary.boundaries).await?);
+    let mut actual_coverage:Vec<cpg_schema::behavior::SummaryOriginCoverageRow> =
+        sql::fetch(ctx,&stored_summary_origin_coverage(),sql::Params::new()).await?;
+    let mut expected_coverage=summary.coverage;
+    let key=|r:&cpg_schema::behavior::SummaryOriginCoverageRow|(r.snapshot_id,r.source_origin_id,r.condition_id,r.channel,r.phase);
+    actual_coverage.sort_by_key(key);expected_coverage.sort_by_key(key);
+    if actual_coverage!=expected_coverage {
+        violations.push(Violation {rule:"summary-origin-coverage-source-equality".to_owned(),rows:1,
+            sample:"origin/channel coverage differs from source reconstruction".to_owned()});
+    }
     Ok(violations)
 }
 

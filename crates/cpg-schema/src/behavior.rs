@@ -27,7 +27,7 @@
 //! (`semantic:behavior-covers-public`).
 
 use crate::codebook::{
-    ArgumentKind, BehaviorKind, BoundaryReason, Codebook, CompletionKind, DeclarationKind, DynamicKind,
+    ArgumentKind, BehaviorKind, BoundaryReason, Codebook, CompletionKind, ExactRuntimeException, DeclarationKind, DynamicKind,
     EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus,
     ImplicitReceiver, InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction,
     ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
@@ -35,7 +35,7 @@ use crate::codebook::{
     ModelTransferEndpointStatus, ModelTransferKind, ModeledArgumentEvaluationStatus,
     ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase,
     SourceRole, SummaryFlowKind, SummaryFlowStepKind, SyntaxKind, TestValueLinkOrigin, ValueClass,
-    Verdict,
+    Verdict, SummaryChannel,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -540,6 +540,7 @@ table!(
     checks = [
         ("unknown_reason", "(kind = 5 AND reason IS NOT NULL) OR (kind <> 5 AND reason IS NULL)"),
         ("terminal_shape", "(kind IN (1, 2, 3, 4) AND terminal_fact_id IS NOT NULL) OR (kind IN (0, 5) AND terminal_fact_id IS NULL)"),
+        ("exception_shape", "(kind = 2 AND exception IS NOT NULL) OR (kind <> 2 AND exception IS NULL)"),
         ("positive_work", "work > 0"),
     ],
     {
@@ -549,6 +550,7 @@ table!(
         function_node_id: Id,
         kind: CompletionKind,
         terminal_fact_id: Option<Id>,
+        exception: Option<ExactRuntimeException>,
         reason: Option<BoundaryReason>,
         work: i64,
     }
@@ -1484,6 +1486,32 @@ table!(
         local_through_call: bool,
         upstream_through_call: bool,
         raw_approximated: bool,
+    }
+);
+
+table!(
+    /// Coverage of one source contribution in one channel under its cited condition. Even a
+    /// complete row closes only this origin, never the operation's other paths or channels.
+    SummaryOriginCoverage, SummaryOriginCoverageRow = "summary_origin_coverage",
+    family = Findings,
+    key = [snapshot_id, source_origin_id, condition_id, channel, phase],
+    checks = [
+        ("coverage_shape", "(complete AND reason IS NULL AND witness_count > 0) OR (NOT complete AND reason IS NOT NULL)"),
+        ("witness_count_nonnegative", "witness_count >= 0"),
+    ],
+    {
+        snapshot_id: Id,
+        function_node_id: Id,
+        parameter_node_id: Id,
+        source_flow_fact_id: Id,
+        source_origin_id: Id,
+        condition_id: Id,
+        channel: SummaryChannel,
+        phase: InvocationPhase,
+        complete: bool,
+        reason: Option<BoundaryReason>,
+        witness_count: i64,
+        witnesses_omitted: bool,
     }
 );
 

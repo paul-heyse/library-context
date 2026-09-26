@@ -7,6 +7,7 @@ family findings
 key snapshot_id, source_fact_id
 check unknown_reason: (kind = 5 AND reason IS NOT NULL) OR (kind <> 5 AND reason IS NULL)
 check terminal_shape: (kind IN (1, 2, 3, 4) AND terminal_fact_id IS NOT NULL) OR (kind IN (0, 5) AND terminal_fact_id IS NULL)
+check exception_shape: (kind = 2 AND exception IS NOT NULL) OR (kind <> 2 AND exception IS NULL)
 check positive_work: work > 0
 @lctx.family=findings
 @lctx.table=statement_completions
@@ -16,5 +17,6 @@ statement_node_id: FixedSizeBinary(16) NOT NULL
 function_node_id: FixedSizeBinary(16) NOT NULL
 kind: Int16 NOT NULL [lctx.codebook=completion_kind]
 terminal_fact_id: FixedSizeBinary(16) NULL
+exception: Int16 NULL [lctx.codebook=exact_runtime_exception]
 reason: Int16 NULL [lctx.codebook=boundary_reason]
 work: Int64 NOT NULL

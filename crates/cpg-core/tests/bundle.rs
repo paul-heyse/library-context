@@ -585,6 +585,12 @@ generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
 def inspect(operation, formal):
     return index.inspect_value_paths(operation, formal, "none", "", True, 0, 20)
+paths, boundaries, total, truncated, work = inspect("capspkg.handler_entry_identity", "value")
+assert paths and not boundaries and not truncated, (paths, boundaries)
+assert any(any(step[0] == "handler_class_evidence" for step in path[3]) for path in paths), paths
+for operation in ("capspkg.handler_entry_nonmatch", "capspkg.handler_entry_cleanup"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not paths and boundaries and not truncated, (operation, paths, boundaries)
 for operation, expected in (
     ("capspkg.f9", "summary_depth_limit"),
     ("capspkg.condition_atom_cap", "condition_atom_limit"),

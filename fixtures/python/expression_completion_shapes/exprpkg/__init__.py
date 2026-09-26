@@ -2,6 +2,43 @@
 from typing import cast
 
 
+def handler_entry():
+    try:
+        raise None
+    except TypeError:
+        return None
+
+
+def unreachable_handler_entry():
+    try:
+        pass
+    except TypeError:
+        return None
+
+
+def else_entry():
+    try:
+        pass
+    except TypeError:
+        pass
+    else:
+        return None
+
+
+def finalizer_entry():
+    try:
+        raise None
+    finally:
+        return None
+
+
+def named_handler_entry():
+    try:
+        raise None
+    except TypeError as caught:
+        return None
+
+
 def selected_parameter(value, typ):
     return cast(typ if True else missing, value)
 

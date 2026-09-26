@@ -5121,6 +5121,29 @@ budget = 1
             JOIN declarations d ON d.node_id = s.function_node_id \
             WHERE d.name = '{name}' AND s.verdict IN (0,1)")).await > 0, "{name}");
     }
+    for name in ["handler_entry", "else_entry", "finalizer_entry"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM return_entry_statuses e \
+            JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL")).await,1,"{name}");
+    }
+    for name in ["unreachable_handler_entry", "named_handler_entry"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM return_entry_statuses e \
+            JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL")).await,0,"{name}");
+    }
+    assert!(count(&ctx,"SELECT count(*) FROM statement_completions WHERE kind=2 AND exception=0").await>0);
+    assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE complete").await>0);
+    assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE NOT complete").await>0);
+    let original_coverage=sql::query(&ctx,"SELECT * FROM summary_origin_coverage").await.unwrap().into_view();
+    let forged_coverage=sql::query(&ctx,"SELECT * EXCEPT (complete,reason), true AS complete, CAST(NULL AS SMALLINT) AS reason FROM summary_origin_coverage").await.unwrap().into_view();
+    ctx.deregister_table("summary_origin_coverage").unwrap();ctx.register_table("summary_origin_coverage",forged_coverage).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="summary-origin-coverage-source-equality"),"{violations:?}");
+    ctx.deregister_table("summary_origin_coverage").unwrap();ctx.register_table("summary_origin_coverage",original_coverage).unwrap();
+    let original_completions=sql::query(&ctx,"SELECT * FROM statement_completions").await.unwrap().into_view();
+    let missing_exceptions=sql::query(&ctx,"SELECT * EXCEPT (exception), CAST(NULL AS SMALLINT) AS exception FROM statement_completions").await.unwrap().into_view();
+    ctx.deregister_table("statement_completions").unwrap();ctx.register_table("statement_completions",missing_exceptions).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="completion-source-equality"),"{violations:?}");
+    ctx.deregister_table("statement_completions").unwrap();ctx.register_table("statement_completions",original_completions).unwrap();
     for name in ["nonmatching_exception_finalizer", "shadowed_exception_finalizer", "named_exception_finalizer", "grouped_exception_finalizer", "unresolved_first_handler", "selected_missing", "unknown_truthiness", "deleted_read", "nested_call_raising", "missing_required_predecessor", "extra_argument_predecessor", "extra_keyword_result", "raising_call_finalizer", "overriding_finalizer", "unknown_finalizer", "arithmetic_predecessor", "raising_selected_predecessor", "repeated_initialization"] {
         assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \

@@ -817,3 +817,14 @@ completion_kind
   3 break
   4 continue
   5 unknown
+exact_runtime_exception
+  0 type_error
+summary_channel
+  0 completion
+  1 value
+  2 transform
+  3 effect
+  4 exception
+  5 callback
+  6 resource
+  7 role

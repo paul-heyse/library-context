@@ -1739,6 +1739,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<SummaryFlowStepKind>(),
         CodebookEntry::of::<ModeledArgumentEvaluationStatus>(),
         CodebookEntry::of::<CompletionKind>(),
+        CodebookEntry::of::<ExactRuntimeException>(),
+        CodebookEntry::of::<SummaryChannel>(),
     ]
 }
 
@@ -1762,5 +1764,26 @@ codebook!(
         Break = 3 => "break",
         Continue = 4 => "continue",
         Unknown = 5 => "unknown",
+    }
+);
+
+codebook!(
+    /// Exact raised class established by the bounded completion rules, not a possible effect.
+    ExactRuntimeException = "exact_runtime_exception" {
+        TypeError = 0 => "type_error",
+    }
+);
+
+codebook!(
+    /// Independent semantic channels. Coverage of one channel never closes another.
+    SummaryChannel = "summary_channel" {
+        Completion = 0 => "completion",
+        Value = 1 => "value",
+        Transform = 2 => "transform",
+        Effect = 3 => "effect",
+        Exception = 4 => "exception",
+        Callback = 5 => "callback",
+        Resource = 6 => "resource",
+        Role = 7 => "role",
     }
 );

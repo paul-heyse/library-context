@@ -975,3 +975,24 @@ def unmatched_finalizer_identity(value):
             raise 1
         except ValueError:
             pass
+
+
+def handler_entry_identity(value):
+    try:
+        raise None
+    except TypeError:
+        return value
+
+
+def handler_entry_nonmatch(value):
+    try:
+        raise None
+    except ValueError:
+        return value
+
+
+def handler_entry_cleanup(value):
+    try:
+        raise None
+    except TypeError as caught:
+        return value

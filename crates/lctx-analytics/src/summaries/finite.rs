@@ -192,6 +192,7 @@ pub struct FiniteSummaryOutcome {
     pub steps: Vec<SummaryFlowStepsRow>,
     pub refusals: Vec<SummaryRefusal>,
     pub boundaries: Vec<SummaryBoundariesRow>,
+    pub coverage: Vec<cpg_schema::behavior::SummaryOriginCoverageRow>,
 }
 
 fn refuse(
@@ -1475,7 +1476,58 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     refusals.sort_by_key(|row| (row.key(), row.reason));
     refusals.dedup();
     let boundaries = summarize_boundaries(&boundary_candidates, &flows, &refusals);
-    FiniteSummaryOutcome { flows, steps, refusals, boundaries }
+    let coverage = origin_coverage(&boundary_candidates, &flows, &refusals, &boundaries);
+    FiniteSummaryOutcome { flows, steps, refusals, boundaries, coverage }
+}
+
+/// Coverage deliberately reads refusals even where a positive path means there is no
+/// summary_boundaries row. A retained witness is not evidence that all alternatives finished.
+fn origin_coverage(candidates: &[SummaryBoundaryCandidate], flows: &[SummaryFlowsRow],
+    refusals: &[SummaryRefusal], boundaries: &[SummaryBoundariesRow],
+) -> Vec<cpg_schema::behavior::SummaryOriginCoverageRow> {
+    use cpg_schema::codebook::{InvocationPhase, SummaryChannel};
+    let mut witnesses: HashMap<BoundaryKey,BTreeSet<Id>> = HashMap::new();
+    let mut reasons: HashMap<BoundaryKey,BTreeSet<BoundaryReason>> = HashMap::new();
+    for flow in flows.iter().filter(|f|matches!(f.verdict,Verdict::Established|Verdict::Conditional)) {
+        let key=(flow.snapshot_id,flow.function_node_id,flow.parameter_node_id,
+            flow.source_flow_fact_id,flow.condition_id,flow.source_origin_id);
+        witnesses.entry(key).or_default().insert(flow.summary_id);
+        if flow.approximated {reasons.entry(key).or_default().insert(BoundaryReason::OutsideProviderModel);}
+    }
+    for refusal in refusals {reasons.entry(refusal.key()).or_default().insert(refusal.reason);}
+    for b in boundaries {
+        reasons.entry((b.snapshot_id,b.function_node_id,b.parameter_node_id,b.source_flow_fact_id,
+            b.condition_id,b.source_origin_id)).or_default().insert(b.reason);
+    }
+    let mut rows = BTreeMap::new();
+    for c in candidates {
+        let key=(c.snapshot_id,c.function_node_id,c.parameter_node_id,c.source_flow_fact_id,c.condition_id,c.source_origin_id);
+        let witness_count=witnesses.get(&key).map_or(0, BTreeSet::len) as i64;
+        let explicit=reasons.get(&key);
+        let reason=explicit.and_then(|r|r.iter().min_by_key(|r|(refusal_priority(**r),**r))).copied()
+            .or(if c.reach_budget {Some(BoundaryReason::BudgetReached)}
+                else if c.raw_approximated {Some(BoundaryReason::OutsideProviderModel)}
+                else if c.through_call || c.local_through_call || c.upstream_through_call || c.raw_through_call {
+                    // The value worklist proves individual finite paths. Until it composes
+                    // callee/model channel coverage, a witness cannot close a call origin.
+                    Some(BoundaryReason::CallTransfer)
+                }
+                else if witness_count==0 {Some(BoundaryReason::CallTransfer)} else {None});
+        let row=cpg_schema::behavior::SummaryOriginCoverageRow {
+            snapshot_id:c.snapshot_id,function_node_id:c.function_node_id,parameter_node_id:c.parameter_node_id,
+            source_flow_fact_id:c.source_flow_fact_id,source_origin_id:c.source_origin_id,condition_id:c.condition_id,
+            channel:SummaryChannel::Value,phase:InvocationPhase::Call,complete:reason.is_none(),reason,witness_count,
+            witnesses_omitted:explicit.is_some_and(|r|r.contains(&BoundaryReason::SummaryProofLimit)),
+        };
+        rows.entry(key).and_modify(|existing:&mut cpg_schema::behavior::SummaryOriginCoverageRow| {
+            // Duplicate observations may weaken coverage, never make it complete by row order.
+            existing.reason=existing.reason.into_iter().chain(row.reason)
+                .min_by_key(|r|(refusal_priority(*r),*r));
+            existing.complete &= row.complete;
+            existing.witnesses_omitted |= row.witnesses_omitted;
+        }).or_insert(row);
+    }
+    rows.into_values().collect()
 }
 
 #[cfg(test)]
@@ -1554,6 +1606,42 @@ mod tests {
                 reach_budget: false,
             }],
         }
+    }
+
+    #[test]
+    fn positive_origin_does_not_close_siblings_or_an_unfinished_alternative() {
+        let mut input=inputs();
+        let mut approximate_exit=inputs();
+        approximate_exit.direct_seeds[0].approximated=true;
+        let approximate_exit=finite_flows(approximate_exit);
+        assert!(!approximate_exit.coverage[0].complete);
+        assert_eq!(approximate_exit.coverage[0].reason,Some(BoundaryReason::OutsideProviderModel));
+        let mut sibling=input.boundary_candidates[0].clone();
+        sibling.source_origin_id=id(99);
+        sibling.through_call=true;sibling.local_through_call=true;
+        input.boundary_candidates.push(sibling);
+        let outcome=finite_flows(input.clone());
+        assert!(outcome.coverage.iter().find(|c|c.source_origin_id==id(9)).unwrap().complete);
+        assert!(!outcome.coverage.iter().find(|c|c.source_origin_id==id(99)).unwrap().complete);
+        let refusal=SummaryRefusal {snapshot_id:id(1),function_node_id:id(2),parameter_node_id:id(3),
+            source_flow_fact_id:id(4),source_origin_id:id(9),condition_id:Diagram::always().id(),
+            reason:BoundaryReason::SummaryProofLimit};
+        let coverage=origin_coverage(&input.boundary_candidates,&outcome.flows,&[refusal],&outcome.boundaries);
+        let positive=coverage.iter().find(|c|c.source_origin_id==id(9)).unwrap();
+        assert_eq!(positive.witness_count,1);
+        assert!(!positive.complete && positive.witnesses_omitted);
+        assert_eq!(positive.reason,Some(BoundaryReason::SummaryProofLimit));
+        let mut called=input.boundary_candidates[0].clone();called.local_through_call=true;
+        let called=origin_coverage(&[called],&outcome.flows,&[],&[]);
+        assert_eq!(called[0].witness_count,1);
+        assert!(!called[0].complete);
+        let mut approximate=input.boundary_candidates[0].clone();
+        approximate.raw_approximated=true;
+        input.boundary_candidates.push(approximate);
+        let first=origin_coverage(&input.boundary_candidates,&outcome.flows,&[],&outcome.boundaries);
+        input.boundary_candidates.reverse();
+        assert_eq!(first,origin_coverage(&input.boundary_candidates,&outcome.flows,&[],&outcome.boundaries));
+        assert!(!first.iter().find(|c|c.source_origin_id==id(9)).unwrap().complete);
     }
 
     #[test]

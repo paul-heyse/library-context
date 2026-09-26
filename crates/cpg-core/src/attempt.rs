@@ -103,7 +103,7 @@ pub struct Published {
 /// 77: shared source-admitted expression evaluation and ordered operand proofs.
 /// 78: condition-keyed ordered return-entry completion proofs.
 /// 79: typed handler/re-raise completion and native context-MRO completeness.
-pub const COMPILER_OUTPUT_VERSION: u32 = 79;
+pub const COMPILER_OUTPUT_VERSION: u32 = 80;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -824,6 +824,7 @@ async fn finish(
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summaries.steps, w).await?;
         write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summaries.boundaries, w)
             .await?;
+        write_analysis::<cpg_schema::behavior::SummaryOriginCoverage>(&ctx, root, snapshot_id, &summaries.coverage, w).await?;
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
         write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
             .await?;

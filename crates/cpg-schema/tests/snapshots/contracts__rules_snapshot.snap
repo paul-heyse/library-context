@@ -198,6 +198,8 @@ key:summary_flow_steps
   SELECT snapshot_id, summary_id, ordinal, count(*) AS n FROM summary_flow_steps GROUP BY snapshot_id, summary_id, ordinal HAVING count(*) > 1
 key:summary_boundaries
   SELECT snapshot_id, source_origin_id, condition_id, count(*) AS n FROM summary_boundaries GROUP BY snapshot_id, source_origin_id, condition_id HAVING count(*) > 1
+key:summary_origin_coverage
+  SELECT snapshot_id, source_origin_id, condition_id, channel, phase, count(*) AS n FROM summary_origin_coverage GROUP BY snapshot_id, source_origin_id, condition_id, channel, phase HAVING count(*) > 1
 key:flow_test_value_links
   SELECT snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id, count(*) AS n FROM flow_test_value_links GROUP BY snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id HAVING count(*) > 1
 key:model_targets
@@ -574,6 +576,16 @@ ref:summary_boundaries.source_flow_fact_id->flow_values
   SELECT f.source_flow_fact_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.source_flow_fact_id = r.k WHERE f.source_flow_fact_id IS NOT NULL
 ref:summary_boundaries.source_origin_id->value_flow_contributions
   SELECT f.source_origin_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT origin_id AS k FROM value_flow_contributions) r ON f.source_origin_id = r.k WHERE f.source_origin_id IS NOT NULL
+ref:summary_origin_coverage.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM summary_origin_coverage f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:summary_origin_coverage.parameter_node_id->parameter_syntax
+  SELECT f.parameter_node_id AS value FROM summary_origin_coverage f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.parameter_node_id = r.k WHERE f.parameter_node_id IS NOT NULL
+ref:summary_origin_coverage.source_flow_fact_id->flow_values
+  SELECT f.source_flow_fact_id AS value FROM summary_origin_coverage f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values) r ON f.source_flow_fact_id = r.k WHERE f.source_flow_fact_id IS NOT NULL
+ref:summary_origin_coverage.source_origin_id->value_flow_contributions
+  SELECT f.source_origin_id AS value FROM summary_origin_coverage f LEFT ANTI JOIN (SELECT origin_id AS k FROM value_flow_contributions) r ON f.source_origin_id = r.k WHERE f.source_origin_id IS NOT NULL
+ref:summary_origin_coverage.condition_id->analysis_conditions
+  SELECT f.condition_id AS value FROM summary_origin_coverage f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:summary_boundaries.condition_id->analysis_conditions
   SELECT f.condition_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:model_exceptions.class_node_id->context_definitions
@@ -1414,6 +1426,12 @@ codebook:summary_flow_steps.kind
   SELECT kind FROM summary_flow_steps WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 codebook:summary_boundaries.reason
   SELECT reason FROM summary_boundaries WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
+codebook:summary_origin_coverage.channel
+  SELECT channel FROM summary_origin_coverage WHERE channel IS NOT NULL AND channel NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
+codebook:summary_origin_coverage.phase
+  SELECT phase FROM summary_origin_coverage WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
+codebook:summary_origin_coverage.reason
+  SELECT reason FROM summary_origin_coverage WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
 codebook:flow_test_value_links.origin
   SELECT origin FROM flow_test_value_links WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2)
 codebook:model_targets.transfer_coverage
@@ -1598,6 +1616,8 @@ codebook:return_entry_steps.kind
   SELECT kind FROM return_entry_steps WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 codebook:statement_completions.kind
   SELECT kind FROM statement_completions WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5)
+codebook:statement_completions.exception
+  SELECT exception FROM statement_completions WHERE exception IS NOT NULL AND exception NOT IN (0)
 codebook:statement_completions.reason
   SELECT reason FROM statement_completions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
 codebook:statement_completion_steps.kind
