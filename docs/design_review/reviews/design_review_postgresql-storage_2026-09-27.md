@@ -2,7 +2,9 @@
 
 The follow-up [PostgreSQL stack assessment](design_review_postgresql-stack_2026-09-27.md)
 examines the external Cornucopia/Rust-Postgres proposal and refines the library recommendation.
-This report retains the storage-scope analysis and adoption findings F01–F04.
+This report retains the storage-scope analysis and adoption findings F01–F04. Current
+disposition has transferred to the [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings);
+the [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns detailed work.
 
 ## 1. Scope, outcome and coverage
 
@@ -241,8 +243,10 @@ code. A specified target can have sound boundaries while its implementation gate
 ## 7. Findings and applicability
 
 Findings F01–F04 are constraints on the proposed adoption, not claims that absence of PostgreSQL
-is a defect. Their current disposition is **Deferred in this review** until the operator selects
-an implementation scope; transfer scheduled work to the sole active plan, preserving these IDs.
+is a defect. Their current disposition is owned by the
+[forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings),
+following the operator's implementation-planning request. The IDs and dated evidence below
+are unchanged; planning does not establish implementation or closure.
 
 <a id="F01"></a>
 
@@ -506,8 +510,10 @@ gates for this review.
 
 ## 11. Authority changes and dispositions
 
-No ADR is accepted by this assessment. A recommendation to change a decision is recorded here;
-adoption uses the existing ADR/owner route. The active product queue is unchanged.
+No ADR was accepted by this assessment. The subsequent
+[PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) now owns detailed
+adoption work; [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
+owns current finding disposition. ADR-0065 is a proposal; this dated assessment is not closure.
 
 | Proposed step, in dependency order | Authority / owner | Findings and deletion obligations |
 |---|---|---|

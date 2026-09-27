@@ -1,11 +1,14 @@
 # Plan: the behavioral model, going forward
 
-**Status:** Active; the sole product execution plan. **Revised:** 2026-09-27 (the operator
-resumed Stage 3 with an exit-driven sequence, §3.0; baseline diagnostic, §1.2).
+**Status:** Active; product sequencing and scheduled-finding disposition owner. **Revised:**
+2026-09-27 (Stage 3's exit-driven sequence, §3.0; baseline diagnostic, §1.2; the operator-requested
+distinct [PostgreSQL implementation plan](postgresql-integration-plan_2026-09-27.md), §3.4).
 **Authority.** The [architecture map](../design/README.md), DESIGN and its section owners own
 contracts and accepted targets; current ADRs own rationale. This plan owns execution order, the
 current disposition of scheduled findings (§6) and deferred triggers. A change to a §B decision
 lands its ADR and a design/target review first (binding under ADR-0040).
+The PostgreSQL plan owns its detailed work packages/deployment; this plan coordinates their
+ordering with Stage 3–5. Its review findings have one current disposition here, not two registers.
 
 ## 1. Current state and qualification boundary
 
@@ -569,7 +572,38 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 | Validation and settings | pydantic `BaseModel`, `Field`, `TypeAdapter.validate_python` (dynamic schema, above); pydantic-settings `BaseSettings` (environment prefix) |
 | HTTP and servers | httpx timeouts; the starlette and uvicorn entry points |
 
+<a id="postgresql-workstream"></a>
+
+### 3.4 PostgreSQL deployment and integration workstream
+
+**Proposed; implementation not started (operator request, 2026-09-27).** The distinct
+[PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) owns PG0–PG7's detailed work:
+SQLx/Tokio/Rustls, PG18 deployment/testing, exact-vector snapshot receipts, shared cache,
+operational attempt history and reconciled snapshot/generation discovery. Its §7 covers later
+workflow, SQL/search projections and library capabilities. [ADR-0065](../adr/0065-postgresql-services-and-vector-receipts.md)
+is proposed; existing accepted cache/serving contracts remain in force until superseded.
+
+| Order relative to this plan | PostgreSQL work | Dependency / boundary |
+|---|---|---|
+| May prepare independently of Stage 3 semantics | PG0 decisions/contracts and PG1a standalone disposable qualification | Keep the probe outside hashed production sources and the root dependency graph. No semantic baseline or evaluation target changes |
+| After Stage 3 P7 checkpoint by default | PG1b application/dependency integration; PG2 host deployment and PG3 snapshot receipts → PG4 PG cache → PG5 cutover/removal; PG6 operational CLI consumers | Every cpg-core Rust source contributes to compiler identity. Include compiler-affecting external SQL in its inventory; account for source/schema/content changes and fresh stores. Host administration requires usable credentials; frozen analytics/ranking parameters remain unchanged |
+| End of the integrated PostgreSQL scope | PG7 full product gate, pilot, live embedding, replay/restore/rollback, costs and assembled review | Do not rerun full integrated gates after every PG slice; fake vectors do not qualify live W9/W16 |
+| Stage 4–5 or a measured consumer trigger | PostgreSQL plan F1–F10 | Registry/semantic computation stays Rust/Arrow/DataFusion; serving/workflow changes require the owning decision and evidence |
+
+This sequencing protects the current Stage 3 exit; it does not add PostgreSQL to that exit's
+requirements. Reordering requires an explicit update here with baseline preservation. W9's
+shared admission/readback correction remains implemented; migration does not close its separate
+live qualification. W15's analytical fresh-store policy continues; durable operational history
+uses SQL migrations. Current finding status is in [§6](#postgresql-findings).
+
 ## 4. Stages 4 and 5
+
+PostgreSQL does not change the semantic authorities below. The
+[PostgreSQL workstream](#postgresql-workstream) supplies cache/operational capabilities;
+its F1–F10 packages describe later consumers and adoption triggers. Stage 4 registry TOML,
+Rust definition AST and DataFusion materialization remain authoritative; PostgreSQL may index
+their output only through an explicit projection. Stage 5 model/lifecycle computation remains
+Rust-owned. Neither stage waits for a database search engine or extension without a named need.
 
 ### Stage 4: the capability registry
 
@@ -738,6 +772,25 @@ modeled-finalizer positive and independent runtime identity controls pass. Compl
 Both reviews' tool-placement conclusions are in §5. W15's policy is decided by ADR-0048; the
 fresh-store execution is recorded in §1.1. No other review finding is closed by documentation cleanup.
 
+<a id="postgresql-findings"></a>
+
+### 6.1 PostgreSQL review findings
+
+**Single current disposition owner, 2026-09-27.** PGS is the
+[storage assessment](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md);
+PGK is the [stack assessment](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md).
+The [PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) provides detailed work and
+acceptance. No row closes through plan/ADR adoption alone; the original source IDs are retained.
+
+| Source finding | Owner / disposition | Work and closure evidence / trigger |
+|---|---|---|
+| **[PGS/F01](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F01)** exact used-vector replay | Schema, embed/attempt/bundle; **Open, planned PG0/PG3–PG5/PG7** | All consumed vectors including E0 are captured; exact receipt/value identity; concurrent winner and restored-cache conflicts handled; PostgreSQL-offline byte-identical rebuild; obsolete global cache routes deleted |
+| **[PGS/F02](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F02)** pinned serving semantics | Importer/retrieval/native/MCP; **Deferred to F2/F3** | Trigger: measured SQL serving/search consumer. Require immutable generation identity, exact semantic/evidence parity, declared ranking/recall changes, unknown coverage and interrupted-import/read-pinning controls |
+| **[PGS/F03](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F03)** canonical replacement case | Storage architecture; **Deferred to F9** | Trigger: measured canonical bottleneck or agreed PG-transaction capability. Complete write/validate/publish/read/rebuild cost comparison and removed-machinery/authority mapping; initial scope retains Delta |
+| **[PGS/F04](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F04)** unqualified federation/Arrow bridge | Driver/Arrow integration; **Deferred to F5** | Initial PG1/PG3 uses bounded typed conversion, not a generic provider. Trigger: bulk/federation consumer; exact family/type/metadata/null/ordering, pushdown and coherent-read-view evidence |
+| **[PGK/F01](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md#F01)** external-stack dependency composition | PostgreSQL adapter/dependency owner; **Deferred to reconsidering Cornucopia/Rust-Postgres** | Trigger: adopting that alternative (e.g. F5). Correct connector versions, binder and generated features, then resolve/build/execute its graph. PG1 qualifies SQLx separately; choosing SQLx neither corrects nor closes the external-stack finding |
+| **[PGK/F02](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md#F02)** test/generation server defaults | Test/deployment owners; **Open, planned PG1/PG2/PG7** | Pin image patch/digest and assert actual PG18 server version; migrated role/type/query tests, including extension-bearing image only when required |
+
 ## 7. Deferred, each with a trigger
 
 | Item | Trigger |
@@ -754,6 +807,7 @@ fresh-store execution is recorded in §1.1. No other review finding is closed by
 | Graph-FCA in the pipeline | An offline experiment yields templates the evaluation rates useful |
 | On-demand RCA at serve time | Materialized membership proves too coarse |
 | Lance / LanceDB | More than ~10⁵ vectors at 4,096-d, or filtered ANN with managed FTS |
+| PostgreSQL serving, pgvector/FTS, dynamic SQL, direct Python access, operator review, notifications/jobs, federation, pgrx and advanced operations | [PostgreSQL plan §7](postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers) owns work packages F1–F10; [§6.1](#postgresql-findings) owns review status. A PG alternative to the accepted LanceDB trigger needs its successor decision |
 | spaCy in compile | Regex directive tagging misses conditions the evaluation needs |
 | A neural reranker | An ADR under §B10 after a measured need |
 | Native-extension bodies | A pilot question needs one |
@@ -777,6 +831,8 @@ fresh-store execution is recorded in §1.1. No other review finding is closed by
 | ty churn and salsa skew | Exact pins; parity tests on upgrade |
 | Scope creep | Stage exit rules; §7's triggers; nothing starts before its stage |
 | Disk and GPU | One pilot store; live GPU legs only with ≥30 GB free and vLLM stopped afterwards |
+| PostgreSQL adoption disturbs the semantic baseline or creates a second authority | §3.4 sequencing; exact Delta vector receipts and one publication act; no live PG reads during immutable semantic replay |
+| PostgreSQL service, durable history and dependency/image drift | PG1–PG2 actual version/role/feature checks, bounded resources and restore drill; PG7 deployment evidence; later libraries stay behind named consumers |
 
 ## 9. Standing conventions
 

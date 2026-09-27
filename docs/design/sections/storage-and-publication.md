@@ -226,8 +226,9 @@ compares two snapshots read separately.
 ### §6.3 Schema evolution
 
 **Implemented** and **Tested** for strict verification (`cpg_core::delta::verify`;
-`cpg-core/tests/delta.rs`). The fresh-store rebuild policy is **Interface-checked**; its first
-execution after the `function_implementations` schema migration is pending the integrated gate.
+`cpg-core/tests/delta.rs`). The fresh-store rebuild policy's compiler102 execution is recorded
+in [plan §1.1 / W15](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition);
+that dated checkpoint does not establish current assembled Stage 3 acceptance.
 
 - **What is implemented: strict verification, no evolution.** When an attempt opens a table,
   `verify` compares the stored Delta schema with the table's declared `cpg-schema` contract and
@@ -260,10 +261,12 @@ execution after the `function_implementations` schema migration is pending the i
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
-**FORMAT 9 callable support (Implemented, 2026-09-27).** Internal callable/formal metadata
-replaces public-only `operation_parameters` so nested callee proofs can load. It does not add
-private operations to discovery or queries. General channel/proof support and typed semantic
-queries remain the forward plan S6 target; FORMAT 8 is no longer accepted.
+**FORMAT 10 (Implemented, source-inspected 2026-09-27).** FORMAT 9's internal callable/formal
+metadata remains, so nested callee proofs can load without adding private operations to
+discovery. FORMAT 10 adds claim-keyed `behavior_discharges` and native citation admission
+(ADR-0064). The executable `cpg_schema::bundle::files` list is authoritative. General
+channel/proof support and typed semantic queries remain the forward plan S6 target; older
+formats are not implicitly accepted.
 
 - **Derivation.** The generation is built **only after** the `snapshots` append succeeds, by
   reading the published snapshot at its recorded versions, including `embedding_cache`. That is
@@ -332,10 +335,11 @@ queries remain the forward plan S6 target; FORMAT 8 is no longer accepted.
   - `lctx compile` builds the generation after publishing; `lctx bundle` rebuilds it.
   - A reader session registers its own `snapshots` rows, so the manifest's digests are read
     from the store.
-- **Activation.**
-  - The bundle is smoke-queried by the serving code's own test entry point.
-  - Then the `generations/active` symlink is switched by atomic rename.
-  - A running server keeps the generation it loaded; restarting it picks up the new one.
+- **Activation.** The implemented builder stages and renames a generation directory; the
+  pilot smoke-queries its explicit path, and a running server retains the path loaded at
+  startup (source-inspected 2026-09-27). An atomic `generations/active` selector after successful
+  smoke validation remains a **Proposed** deployment workflow, not an implemented switch.
+  Restarting with an explicitly selected generation is the current selection boundary.
 
 - **Derived search indexes** (an FTS table, any ANN index) are rebuilt from the generation's Arrow
   files, keyed by the generation key, outside the byte-identical manifest.
@@ -345,3 +349,69 @@ queries remain the forward plan S6 target; FORMAT 8 is no longer accepted.
   pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
 > Decision: ADR-0047, ADR-0043, ADR-0049
+
+<a id="section-6-5"></a>
+
+### §6.5 PostgreSQL services and capability adoption
+
+**Proposed, 2026-09-27; no PostgreSQL product integration implemented.** The
+[PostgreSQL implementation plan](../../plans/postgresql-integration-plan_2026-09-27.md)
+owns deployment and work packages. The [forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
+owns the six review dispositions. Existing §6.1–§6.4 and §B7/§B12 remain current until the
+affected ADRs are superseded and the planned implementation is qualified.
+
+**Owners and authority.** Use SQLx's PostgreSQL driver, pool, migrations and transaction APIs
+with the existing Tokio runtime and one Rustls configuration. PostgreSQL effects live in
+`cpg-core` modules and `lctx` configuration/commands. Schema, analytics and native semantic
+transformations remain independent of database setup. Bounded driver reads construct declared
+Arrow batches; a generic federation layer is not required for the initial boundary.
+
+The first consumers are the shared embedding cache, compile-attempt history and reconciled
+snapshot/generation discovery. Attempt history is operational authority; discovery is derived
+from Delta/manifests. No PostgreSQL row publishes a snapshot, changes a semantic verdict or
+modifies a published generation. Durable operational records have SQL migrations and tested
+backup/restore; analytical projections remain rebuildable under §6.3.
+
+**Cache and replay.** PostgreSQL holds one insert-only committed value per existing full
+spec/input key. An attempt retains the exact admitted values it consumes, including E0 and
+other analytics-only keys, and writes a snapshot-qualified `used_embeddings` relation before
+shared validation/publication. Its versioned canonical value/aggregate receipt hashes are
+owned by `cpg-schema` and included in content identity. The snapshot's declared schema and
+embedding spec are sufficient for replay; bundle/rebuild never contacts PostgreSQL or the
+embedder. Initial adoption removes the former global Delta cache writer/read exceptions after
+all consumers migrate. This is one mutable reuse service plus immutable per-snapshot inputs.
+
+**Deployment boundary.** Reuse the installed PG18 service with a dedicated application database,
+explicit non-superuser runtime identity and separate migration identity. Keep connection pools,
+SQL operations, retries, transaction lifetime and memory/disk/WAL use bounded. Embedding/network
+work runs outside database transactions. Runtime configuration and secrets are explicit and
+redacted; checked query builds force `SQLX_OFFLINE=true`. Migrations are an explicit command,
+not a query/startup side effect. Disposable tests assert PG18 and use an explicitly pinned
+image; source inspection of libraries does not establish deployment compatibility.
+
+**Capability map.** These are proposed uses and revisit conditions, not installed features or
+an API allowlist. Candidate versions and dependency composition are in the implementation plan;
+the actual installed set will be recorded in `docs/pins.md` when adopted.
+
+| Capability / library mechanism | Initial or later consumer | Contract and adoption boundary |
+|---|---|---|
+| SQLx checked SQL/files, typed rows, runtime queries and statement cache | Initial cache/operations; later projections | Offline metadata follows one migrated PG18 schema; dynamic queries and overrides have executed controls; domain validation remains shared |
+| SQLx pool, transaction/isolation/savepoint APIs, error codes, Rustls | Initial application effect modules | Bounded leases/deadlines, explicit SQLSTATE retry policy, no connection across external I/O; selected root/hostname policy |
+| SQLx SQL migrations and locking | Initial application schema lifecycle | One history and owner; fresh/upgrade/failure/compatibility checks; runtime role has no DDL authority |
+| SQLx streaming, batching and raw COPY | Bounded initial transfers; larger imports when measured | Backpressure, byte/type fidelity and cancellation/reuse controls; compare established typed COPY/Arrow routes before bespoke generic encoding |
+| PostgreSQL constraints, native types, JSONB/arrays, indexes, CTEs/windows and partitioning | Schema/query-specific operational or projection consumer | Use through ordinary SQLx SQL when it earns its cost; compiler IDs/codebooks remain derived mappings, not independently authored meanings |
+| SeaQuery + sea-query-sqlx | Later variable joins/expressions | One typed structural query owner and binder; values bound; no duplicate Stage 4 concept-definition semantics |
+| SQLx PgListener / LISTEN-NOTIFY, row locks and work claiming | Later live operational consumer/job requirement | Notification is a wakeup; persistent events/rows determine state. Reconnect, idempotency, missed notification and crash cases before durable workflow claims |
+| Testcontainers modules | Initial and later real PostgreSQL integration tests | Pin server version/digest and extension-bearing image where needed; actual application role and migrations; a missing daemon is a block |
+| Psycopg 3 / psycopg_pool; possibly SQLAlchemy | Direct Python retrieval/operator domain only | Async lifetime/resource ownership, Python 3.14 qualification, one pool and one migration history; no Python semantic interpreter |
+| pgvector / PostgreSQL text or trigram indexes | Later search projection | §11.4 owns generation, evidence and ranking/approximation obligations; cache storage alone is no trigger |
+| ADBC / DataFusion PostgreSQL provider | Measured Arrow bulk/federated query need | Match pinned family and prove metadata/null/ID/value/ordering/pushdown/read-view semantics; no unsafe layout conversion |
+| pgrx | Measured SQL-side filtering/aggregation can avoid material transfer | Separate PG18 extension deployment; shared pure kernel, backend lifetime/thread/cancel constraints and unchanged evidence/model meaning |
+| pg_stat_statements / backup-WAL-replication / pooler | Observability or recovery/scale requirement | Explicit deployment and resource cost; extension preload/restart and proxy session semantics qualified before use |
+| Cornucopia + Rust-Postgres family; ORMs | A different query/domain programming model earns lower total complexity | Revisit driver decision through ADR; alternatives are not layered onto the base speculatively |
+
+Future review events preserve exact subject revision and become explicit attributed compile
+inputs when used. Later SQL serving remains an immutable projection. Both need their own
+consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
+
+> Decision: ADR-0065 (proposed)

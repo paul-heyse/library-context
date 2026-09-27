@@ -508,7 +508,14 @@ implemented** under a **Proposed** decision (ADR-0025).
   ([plan W9](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
   Deployment identity beyond the operator-controlled launch remains open (plan W16).
 
-> Decision: ADR-0043
+**Proposed, not implemented:** [§6.5](sections/storage-and-publication.md#section-6-5) and
+[ADR-0065](../adr/0065-postgresql-services-and-vector-receipts.md) describe PostgreSQL cache
+admission plus snapshot-local exact-vector receipts. This replaces the cache-version clause
+only after the affected accepted ADRs and consumers are migrated; the current contract above
+remains in force. The [PostgreSQL plan](../plans/postgresql-integration-plan_2026-09-27.md)
+owns that work and later library capability adoption.
+
+> Decision: ADR-0043; ADR-0065 (proposed target)
 
 ---
 

@@ -345,16 +345,15 @@ hashes is rejected (`semantic:one-embedding-spec`).
 - **Rejected responses:** wrong count, wrong index mapping, wrong length, non-finite values,
   norm ≠ 1 ± ε, model mismatch.
 
-**Token admission.** The intended contract: every text embedded under the spec is admitted by the
+**Token admission.** Every text embedded under the spec is admitted by the
 spec's tokenizer at or below the document token cap before its vector enters the cache. Byte
 limits (the 4-bytes-per-token proxy that chunks brief documents, and the 4,096-byte windows that
 cut views and E0 texts at line ends) only prepare texts; a byte window is **not** a guarantee of
-staying under 2,048 tokens. **Current state:** brief documents go through `embed_documents`, which
-counts tokens with the service's `/tokenize` for keys the cache lacks and fails the compile on an
-over-cap document (**Tested**: `only_documents_the_cache_lacks_are_counted_and_embedded`,
-`completed_batches_survive_a_later_failure`). Operation views and E0 go through `embed_texts`,
-which has no tokenizer admission, so a view window above the cap is not detected, and a cached
-key admitted by one path is trusted by the other
+staying under 2,048 tokens. **Implemented, source-inspected 2026-09-27:** brief documents use
+`embed_documents`; operation views and E0 use `embed_texts`; both call the same `fill_cache`,
+which counts missing texts through the tokenizer and rejects over-cap requests before insertion.
+Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
+`completed_batches_survive_a_later_failure`; current qualification is owned by
 ([plan W9](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
 **Clients.**
@@ -397,13 +396,18 @@ version they read, and generations copy the vectors they need from it.
 - Only keys the cache lacks are embedded, so a fully cached `--embedder vllm` compile needs no
   service; batches completed before a failing one are merged, so a rerun embeds only what is
   missing.
-- **Known gap.** A cache fill should return exactly the committed winner for each key. `embed_texts`
-  returns the vectors it computed locally without rereading, so under a concurrent fill E0/kNN
-  can consume a vector that differs from the committed one the snapshot and generation use; and
-  the two fill entry points apply different admission (above). The intended fix is one cache-fill
-  operation owning admission, batching, insert-only merge and versioned readback
+- **Committed readback (Implemented, source-inspected 2026-09-27).** Both entry points share
+  `fill_cache` admission, batching, insert-only merge and readback at the returned version.
+  `racing_fillers_return_the_committed_winner_at_their_version` covers the focused race.
+  Broader live replay/conformance qualification remains with
   ([plan W9](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - `lctx compile --embedder vllm|fake|none` selects the embedder.
+
+**Proposed PostgreSQL target:** [§6.5](storage-and-publication.md#section-6-5) replaces the
+mutable global cache with PostgreSQL only after each attempt captures all consumed vectors
+in its immutable Delta snapshot. This includes analytics-only E0 vectors, not only documents
+copied into serving files. Model/spec/tokenization and query-time client rules above continue;
+the proposed storage change is not currently implemented (ADR-0065).
 
 
 ### §11.2 Retrieval
@@ -663,3 +667,53 @@ syntax alone is insufficient. This remains part of S6 until source, publication 
 mutation controls pass. Typed Normal postconditions remain independent of actual completion.
 
 > Decision: ADR-0063
+
+<a id="section-11-4"></a>
+
+### §11.4 PostgreSQL workflow and serving candidates
+
+**Proposed, 2026-09-27.** The initial [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md)
+changes compile-time cache/operations, not the current file-generation MCP or native executor.
+[§6.5](storage-and-publication.md#section-6-5) owns the database effect boundary and library
+capability map. Its later F1–F10 work packages require named consumers before implementation.
+
+- **Operator review:** append events against exact subject/revision with actor/provenance,
+  preserve disagreement, and freeze an explicit selected event revision into attributed
+  compiler facts when consumed. §10.4's accepted manual-review target remains unimplemented.
+  A workflow must not edit a published brief, replace evidence or make approval out of silence.
+- **Relational serving:** import one immutable validated generation into PostgreSQL, qualify
+  schema/compiler/model/spec/source digests and full support closure, then mark it ready.
+  Generation identity belongs in keys, joins and cursors; a mutable active selector is resolved
+  once at server startup and pinned for the process lifetime, as in the current contract.
+  Hot switching would need a separate successor decision. No process-long MVCC transaction is
+  needed to express immutable generation identity.
+- **Exact semantic queries:** preserve the five verdicts, typed modality, coverage and explicit
+  unknown/unexamined partitions. SQL filters can select materialized facts; bounded semantic
+  interpretation remains in the shared Rust executor. Ranked search cannot implement exhaustive
+  `find_operations`, and missing rows cannot establish absence.
+- **Ranked retrieval:** pgvector, PostgreSQL text/trigram indexes and a LanceDB alternative must
+  preserve the declared discovery/semantic distinction. PostgreSQL FTS is not the current BM25
+  formula. Change ranking only through a declared spec/ADR with independent evaluation; retain
+  exact-symbol promotion, degradation reporting and evidence hydration. The accepted LanceDB
+  trigger is reopened explicitly if PostgreSQL is selected instead.
+- **Embedding dimensions:** current 4,096-dimensional vectors can be stored in pgvector, but
+  ordinary full/half-precision ANN indexes cap at 2,000/4,000 dimensions. Half precision alone
+  is insufficient. Exact search, a separately versioned reduced spec, or binary candidates with
+  full-vector reranking need their own recall/filtered-search/latency qualification. The
+  canonical full-vector receipt remains available regardless of the derived index.
+- **Client placement:** Rust SQLx remains the default. A direct Python database consumer may
+  use Psycopg 3 with an async pool owned by FastMCP lifespan and shared schema/version rules.
+  SQLAlchemy is conditional on a real Python relational domain. Neither creates another
+  migration authority or duplicates the native semantic evaluator.
+- **Server-side Rust:** pgrx is a later measured experiment, not a way to link the whole
+  compiler into PostgreSQL. Compare a shared pure kernel over SQL-side candidates with bounded
+  batch fetch into the existing executor. Preserve generation/model identity, evidence,
+  unknowns and cancellation/resource limits; respect PostgreSQL memory/thread rules.
+
+Adopting database serving changes §B13/ADR-0043's network and file-only boundary and therefore
+requires its successor decision, a generation importer, failure/read-pinning tests, exact-answer
+parity and explicit approximation evaluation. These are not established by the cache deployment.
+The [forward plan PostgreSQL findings](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
+retain the unresolved storage-review F02/F04 conditions.
+
+> Decision: ADR-0065 (proposed)

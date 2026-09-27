@@ -33,7 +33,10 @@ real consumer.
 1. Read `STATUS.md`: where we are and what's next.
 2. For product work, read the forward plan
    (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
-   boundary, §3 execution queue, §6 open findings (W1–W16). It is the only active plan.
+   boundary, §3 execution queue and §6 findings. It coordinates product sequencing and owns
+   finding disposition. For PostgreSQL work also read the distinct detailed plan
+   `docs/plans/postgresql-integration-plan_2026-09-27.md`; forward-plan §3.4 owns its relationship
+   to Stage 3–5, and §6.1 owns both PostgreSQL reviews' finding status.
 3. For design questions, follow **owner → decision → open work**:
    - start at the architecture map `docs/design/README.md` and read the owning section in
      `docs/design/DESIGN.md` (scope, §B1–§B14) or `docs/design/sections/` plus adjacent consumers;
@@ -51,7 +54,7 @@ real consumer.
 |---|---|
 | `docs/design/DESIGN.md`, `docs/design/sections/` | Architectural collection; stable § IDs. DESIGN §2 holds §B1–§B14 |
 | `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
-| `docs/plans/` | The active product plan only; a finished or superseded plan is removed once its obligations move |
+| `docs/plans/` | Behavioral-model forward plan plus the operator-requested PostgreSQL implementation plan, with distinct ownership; finished or superseded plans are removed once their obligations move |
 | `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |

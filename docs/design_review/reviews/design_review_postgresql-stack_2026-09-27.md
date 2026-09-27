@@ -146,6 +146,11 @@ No new product defect is established by this follow-up. The external manifest is
 not installed code. The following corrections are concrete adoption findings, separate from
 the earlier storage review's F01–F04.
 
+Current disposition for both reviews has transferred to the
+[forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings);
+the [PostgreSQL implementation plan](../../plans/postgresql-integration-plan_2026-09-27.md)
+owns work packages. The findings below remain dated assessment evidence, not completion claims.
+
 <a id="F01"></a>
 **F01 — The example stack does not complete its intended dependency composition.**
 Refinery's selected Rustls feature requires connector 0.13 while the direct connector is 0.14;
@@ -154,8 +159,9 @@ enable the synchronous driver that the external recommendation intends to exclud
 not demonstrate a compile failure: duplicate connector versions can coexist. It does defeat
 the claimed single connector/dependency profile. **DP-09/15/16; A3/G8.** The PostgreSQL adapter
 owner should use §8's corrected composition if choosing that alternative. Closure: inspect
-the actual resolved feature graph and build/execute the representative adapter. **Deferred
-here; trigger: adopting the Rust-Postgres/Cornucopia alternative.**
+the actual resolved feature graph and build/execute the representative adapter. The alternative
+correction applies if adopting Rust-Postgres/Cornucopia; current disposition is in the forward
+plan linked above.
 
 <a id="F02"></a>
 **F02 — Default test/generation servers do not establish PostgreSQL 18 compatibility.**
@@ -164,7 +170,7 @@ is `postgres:latest`. These can check a different major than deployment, with in
 query/catalog assumptions. **DP-15/22/23; G3/G7.** The test owner must choose the PG18 patch
 image/digest explicitly and assert `server_version_num`; extension tests need an explicitly
 versioned extension-bearing image. Closure: actual PG18 migration/query integration receipts.
-**Deferred here; trigger: first PostgreSQL adapter qualification.**
+Trigger: first PostgreSQL adapter qualification; current disposition is in the forward plan.
 
 For the selected proposal, FP-01/02/04/06 and DP-01/02/17/18 are **satisfied** by preserved
 schema ownership and isolated effects; FP-03/05 and DP-13/14/16 are **satisfied** by concrete
@@ -343,16 +349,18 @@ are justified only when they settle a real bulk-import/serving decision.
 
 ## 11. Authority changes and dispositions
 
-This report recommends a stack; it does not accept a storage pivot or schedule product work.
+This report recommends a stack; it does not accept a storage pivot. Subsequent product work
+is described in the [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md).
 The [earlier storage review §11](design_review_postgresql-storage_2026-09-27.md#11-authority-changes-and-dispositions)
 owns the adoption route, including affected §B7/§B12/§B13/§B14 and ADR-0043/ADR-0047 cache
-contracts. Its F01–F04 retain their disposition there. This report owns unscheduled F01/F02
-until a concrete PostgreSQL implementation is placed in the single active forward plan.
+contracts. Both reviews retain dated source findings; their current disposition now lives in
+the [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings).
 
 At adoption, the PostgreSQL effect owner records the driver decision and scope through
 ADR + owning DESIGN sections, updates pins through pin-check, and implements one migration
-history. Follow the existing acceptance timing; do not add a parallel product plan or a
-database-backed build requirement for ordinary semantic development. If the alternative is
+history. Follow the existing acceptance timing and the operator-requested two-plan split:
+PostgreSQL detail lives in its plan, with sequencing and dispositions in the forward plan.
+Ordinary semantic development keeps database-independent builds. If the alternative is
 selected, replace the SQLx boundary rather than retaining two speculative driver stacks.
 
 ## 12. Architectural judgment and decision
