@@ -18,6 +18,14 @@ rule_id: FixedSizeBinary(16) NOT NULL
 target_definition_fact_id: FixedSizeBinary(16) NOT NULL
 effect: Int16 NOT NULL [lctx.codebook=model_effect_kind]
 argument: Utf8 NULL
+schema_kind: Int16 NULL [lctx.codebook=model_schema_kind]
+schema_class_node_id: FixedSizeBinary(16) NULL
+schema_class_fact_id: FixedSizeBinary(16) NULL
+schema_path_id: FixedSizeBinary(16) NULL
+schema_path_kind: Int16 NULL [lctx.codebook=model_path_kind]
+schema_expression_node_id: FixedSizeBinary(16) NULL
+schema_expression_fact_id: FixedSizeBinary(16) NULL
+schema_reason: Int16 NULL [lctx.codebook=boundary_reason]
 subject_path_id: FixedSizeBinary(16) NULL
 subject_path_kind: Int16 NULL [lctx.codebook=model_path_kind]
 subject_expression_node_id: FixedSizeBinary(16) NULL

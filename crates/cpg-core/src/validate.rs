@@ -1412,12 +1412,15 @@ cpg_schema::relations! {
         sql = "SELECT * FROM flow_test_value_links".to_owned();
     exact_origins = "validate_exact_origins", deps = ["flow_test_exact_origins"],
         sql = "SELECT * FROM flow_test_exact_origins".to_owned();
-    test_value_source_snapshots = "validate_test_value_source_snapshots", deps = ["flow_uses"],
-        sql = "SELECT DISTINCT snapshot_id FROM flow_uses LIMIT 2".to_owned();
+    test_value_source_snapshots = "validate_test_value_source_snapshots", deps = ["flow_uses", "analysis_conditions"],
+        sql = "SELECT DISTINCT u.snapshot_id FROM flow_uses u WHERE EXISTS ( \
+            SELECT 1 FROM analysis_conditions c WHERE c.snapshot_id=u.snapshot_id) LIMIT 2".to_owned();
 }
 
 /// Reconstruct every proof from the pinned raw views. This also catches missing, duplicate and
 /// doctored rows; no consumer may treat a persisted link as authority before this check passes.
+/// Extraction-only runs have no published analysis catalog and request no entry proofs.
+/// Public visibility does not select the source domain: internal callables also need proofs.
 async fn validate_entry_proofs(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
     let mut actual_links: Vec<FlowTestValueLinksRow> =
         sql::fetch(ctx, &test_value_links(), sql::Params::new()).await?;

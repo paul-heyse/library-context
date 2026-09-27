@@ -1567,10 +1567,20 @@ codebook!(
 );
 
 codebook!(
+    /// What identifies a validation schema; a runtime adapter is never a static schema class.
+    ModelSchemaKind = "model_schema_kind" {
+        StaticClass = 0 => "static_class",
+        RuntimeValue = 1 => "runtime_value",
+        Unresolved = 2 => "unresolved",
+    }
+);
+
+codebook!(
     /// Whether a modeled resource refers to an input or to a result of the call.
     ModelPathRole = "model_path_role" {
         Input = 0 => "input",
         Output = 1 => "output",
+        Schema = 2 => "schema",
     }
 );
 
@@ -1729,6 +1739,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<PremiseKind>(),
         CodebookEntry::of::<ExitSiteKind>(),
         CodebookEntry::of::<ModelEffectKind>(),
+        CodebookEntry::of::<ModelSchemaKind>(),
         CodebookEntry::of::<ModelCallbackAction>(),
         CodebookEntry::of::<ModelResourceAction>(),
         CodebookEntry::of::<ModelExit>(),

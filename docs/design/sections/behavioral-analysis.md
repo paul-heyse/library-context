@@ -66,7 +66,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 - **Channel coverage.** Each target declares transfer, effect, callback, resource and exception
   coverage independently as complete, partial or unspecified. Only complete coverage can support a
   negative summary conclusion.
-- **Phase applicability (Implemented, 2026-09-26).** Catalog format 2 requires an authored phase
+- **Phase applicability (Implemented, 2026-09-26).** Catalog format 3 requires an authored phase
   per model. The same target may have distinct models and channel coverage for different phases;
   target/phase pairs are unique and phase participates in model identity. `model_targets.phase`
   is reconstructed from the catalog. A provider observation activates a model only on exact phase
@@ -92,12 +92,18 @@ A model is committed, typed data about a callable we do not analyze from source.
 | `atexit.register` | Identity transfer; `registered` callback action on normal exit | Invocation |
 | `pydantic==2.13.5` `TypeAdapter.validate_python(object)` | Potential input → result transform | Effects, raises, completion (below) |
 
-- **Pydantic dynamic schema.** A `TypeAdapter`'s schema is selected at runtime by the instance, so
-  the named-schema `validate(schema)` effect cannot name it without a false exact-schema claim.
-  Do not populate it with the adapter class name; a typed dynamic-schema case, with a source
-  witness where one can be proved, precedes any validation-effect or negative-coverage claim. The
-  focused fixture leaves this dependency model dormant; binding against the full pinned dependency
-  context is `not_run` until the integrated pilot.
+- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 3
+  separates the effect subject from `static_class`, `runtime_value` and `unresolved` schema
+  attribution. Static classes require a unique pinned class node/fact pair from the available
+  context; runtime sources have their own typed path and schema-role binding. A missing or
+  ambiguous binding remains a candidate with a reason. Resource endpoints still accept only
+  input/output roles. Candidate attribution establishes neither schema contents nor evaluation,
+  validation success or closed coverage. The extractor only acquires classes in available,
+  described context modules; unsupported class acquisition fails closed.
+- **Pydantic activation remains Proposed.** A `TypeAdapter` selects its schema at runtime;
+  its adapter class is not the validation schema. No validation effect is active in the current
+  catalog. The focused fixture leaves this dependency model dormant; binding against the full
+  pinned dependency context is `not_run` until the integrated pilot.
 - **Target families** (Proposed; plan §3.3): pure identity/value (`str`, `dict`, `list`, `tuple`,
   `functools.partial`/`wraps`), I/O (`io`, `pathlib`, `zlib`), async/timeouts/context (asyncio,
   anyio, `contextvars`, `contextlib`), validation/settings (pydantic `BaseModel`/`Field`,

@@ -19,7 +19,7 @@ use cpg_schema::codebook::{
 };
 use cpg_schema::id::{Id, recipe};
 use cpg_schema::metrics::Stages;
-use cpg_schema::models::{Catalog, Rule};
+use cpg_schema::models::Catalog;
 use cpg_schema::tables::{
     ContextClassMro, ContextClassMroRow, ContextDefinitions, ContextDefinitionsRow, ContextModules,
     ContextModulesRow, ContextParameters, ContextParametersRow,
@@ -210,14 +210,9 @@ pub(crate) fn context_facts(
     }
     for compiled in &catalog.models {
         for rule in &compiled.model.rules {
-            if let Rule::Exception {
-                class, to_class, ..
-            } = rule
-            {
-                for name in std::iter::once(class.as_str()).chain(to_class.as_deref()) {
-                    if let Some((module, qualified)) = name.rsplit_once('.') {
-                        modeled_classes.insert((module.to_owned(), qualified.to_owned()));
-                    }
+            for name in rule.context_classes() {
+                if let Some((module, qualified)) = name.rsplit_once('.') {
+                    modeled_classes.insert((module.to_owned(), qualified.to_owned()));
                 }
             }
         }

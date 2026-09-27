@@ -918,6 +918,11 @@ pub const REFERENCES: &[Reference] = &[
         &[("arguments", "node_id")],
     ),
     r("modeled_effect_sites", "subject_expression_fact_id", FACT),
+    r("modeled_effect_sites", "schema_class_node_id", &[("context_definitions", "symbol_node_id")]),
+    r("modeled_effect_sites", "schema_class_fact_id", FACT),
+    r("modeled_effect_sites", "schema_path_id", &[("model_effects", "schema_path_id")]),
+    r("modeled_effect_sites", "schema_expression_node_id", &[("arguments", "node_id")]),
+    r("modeled_effect_sites", "schema_expression_fact_id", FACT),
     r(
         "model_transfers",
         "target_node_id",
@@ -930,6 +935,8 @@ pub const REFERENCES: &[Reference] = &[
         &[("context_definitions", "symbol_node_id")],
     ),
     r("model_effects", "target_definition_fact_id", FACT),
+    r("model_effects", "schema_class_node_id", &[("context_definitions", "symbol_node_id")]),
+    r("model_effects", "schema_class_fact_id", FACT),
     r(
         "model_callbacks",
         "target_node_id",
@@ -1248,6 +1255,24 @@ fn quoted(values: impl IntoIterator<Item = impl std::fmt::Display>) -> String {
 }
 
 /// Rules that span tables in ways no declaration captures.
+fn validation_schema_shape() -> String {
+    use crate::codebook::{ModelEffectKind,ModelSchemaKind};
+    format!("((effect <> {validate} AND schema_kind IS NULL \
+        AND schema_class_node_id IS NULL AND schema_class_fact_id IS NULL \
+        AND schema_path_id IS NULL AND schema_path_kind IS NULL) \
+      OR (effect={validate} AND argument IS NULL AND ( \
+        (schema_kind={static_class} AND schema_class_node_id IS NOT NULL \
+          AND schema_class_fact_id IS NOT NULL AND schema_path_id IS NULL AND schema_path_kind IS NULL) \
+        OR (schema_kind={runtime} AND schema_class_node_id IS NULL AND schema_class_fact_id IS NULL \
+          AND schema_path_id IS NOT NULL AND schema_path_kind IN ({parameter}, {field}, {global})) \
+        OR (schema_kind={unresolved} AND schema_class_node_id IS NULL AND schema_class_fact_id IS NULL \
+          AND schema_path_id IS NULL AND schema_path_kind IS NULL))))",
+        validate=ModelEffectKind::Validate.code(),static_class=ModelSchemaKind::StaticClass.code(),
+        runtime=ModelSchemaKind::RuntimeValue.code(),unresolved=ModelSchemaKind::Unresolved.code(),
+        parameter=crate::codebook::ModelPathKind::Parameter.code(),
+        field=crate::codebook::ModelPathKind::ReceiverField.code(),global=crate::codebook::ModelPathKind::Global.code())
+}
+
 fn semantic() -> Vec<Rule> {
     let calls = FactFamily::Calls.code();
     // The flow family's parity with ours (ADR-0022 §The flow provider), over modules the
@@ -1474,7 +1499,7 @@ fn semantic() -> Vec<Rule> {
         (
             "semantic:modeled-resource-site-shape",
             format!(
-                "SELECT rule_id FROM modeled_resource_sites WHERE \
+                "SELECT rule_id FROM modeled_resource_sites WHERE resource_role NOT IN ({input_role},{output_role}) OR \
                  (source_status IN ({call_result}, {bound_argument}) \
                    AND (source_expression_node_id IS NULL \
                      OR source_expression_fact_id IS NULL OR source_reason IS NOT NULL)) \
@@ -1495,6 +1520,8 @@ fn semantic() -> Vec<Rule> {
                 return_value = crate::codebook::ModelPathKind::ReturnValue.code(),
                 parameter = crate::codebook::ModelPathKind::Parameter.code(),
                 synthetic = crate::codebook::Origin::SyntheticModel.code(),
+                input_role=crate::codebook::ModelPathRole::Input.code(),
+                output_role=crate::codebook::ModelPathRole::Output.code(),
             ),
         ),
         (
@@ -1607,6 +1634,27 @@ fn semantic() -> Vec<Rule> {
             ),
         ),
         (
+            "semantic:model-validation-schema-shape",
+            format!("SELECT rule_id FROM model_effects WHERE NOT COALESCE({},false)",validation_schema_shape()),
+        ),
+        (
+            "semantic:modeled-validation-schema-shape",
+            format!("SELECT rule_id FROM modeled_effect_sites WHERE NOT COALESCE(({}) AND ( \
+                ((schema_kind IS NULL OR schema_kind={static_class}) AND schema_expression_node_id IS NULL \
+                  AND schema_expression_fact_id IS NULL AND schema_reason IS NULL) \
+                OR (schema_kind={unresolved} AND schema_expression_node_id IS NULL \
+                  AND schema_expression_fact_id IS NULL AND schema_reason IS NOT NULL) \
+                OR (schema_kind={runtime} AND ( \
+                  (schema_path_kind={parameter} AND schema_expression_node_id IS NOT NULL \
+                    AND schema_expression_fact_id IS NOT NULL AND schema_reason IS NULL) \
+                  OR (schema_expression_node_id IS NULL AND schema_expression_fact_id IS NULL \
+                    AND schema_reason IS NOT NULL)))),false)",validation_schema_shape(),
+                static_class=crate::codebook::ModelSchemaKind::StaticClass.code(),
+                unresolved=crate::codebook::ModelSchemaKind::Unresolved.code(),
+                runtime=crate::codebook::ModelSchemaKind::RuntimeValue.code(),
+                parameter=crate::codebook::ModelPathKind::Parameter.code()),
+        ),
+        (
             "semantic:model-effect-target",
             format!(
                 "SELECT e.rule_id FROM model_effects e \
@@ -1638,8 +1686,9 @@ fn semantic() -> Vec<Rule> {
                    AND m.target_node_id = r.target_node_id \
                    AND m.target_definition_fact_id = r.target_definition_fact_id \
                    AND m.revision = r.revision \
-                 WHERE m.model_id IS NULL OR r.origin <> {}",
-                crate::codebook::Origin::SyntheticModel.code()
+                 WHERE m.model_id IS NULL OR r.origin <> {} OR r.resource_role NOT IN ({}, {})",
+                crate::codebook::Origin::SyntheticModel.code(),
+                crate::codebook::ModelPathRole::Input.code(),crate::codebook::ModelPathRole::Output.code()
             ),
         ),
         (

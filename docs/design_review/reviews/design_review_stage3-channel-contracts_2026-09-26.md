@@ -396,10 +396,11 @@ is removed rather than retained as a FORMAT 8 fallback. `operations` and `public
 their public-surface responsibilities. A private function becoming public changes those surface
 rows; it does not require a second source proof policy or a new native proof interpretation.
 
-The owning documentation must describe the source link as a **callable** entry-formal proof,
-rename the storage/publication inventory entry, and mark FORMAT 9's callable-support subset as
-implemented while keeping the rest of S6 unfinished. At inspection, those owner/STATUS/plan
-updates were still pending with the author. The initial target review's FORMAT 8 statements
+The owning documentation now describes the source link as a **callable** entry-formal proof,
+renames the storage/publication inventory entry, and marks FORMAT 9's callable-support subset as
+implemented while keeping the rest of S6 unfinished. These owner/STATUS/plan updates were
+re-inspected on 2026-09-27 after commit `3c59c0c`; the documentation condition is closed.
+The initial target review's FORMAT 8 statements
 describe its dated baseline, not the current slice. Full formal-reference admission for summary
 and boundary rows, complete typed channel/proof support, bounded cited spans and operation-wide
 conjunction/effect/role queries remain broader S6 obligations; this subset establishes none of
@@ -411,14 +412,92 @@ their closure.
 | A2 | satisfied | Callable formal identity is explicit; public query membership is checked separately |
 | A3 | satisfied | Private callee proofs reuse existing source and shared native admission, without a visibility-specific interpreter |
 | G1–G6; CI-G1/CI-G2 | pass by source inspection | Attributed same-snapshot projection, unchanged proof checks, explicit public lookup and bounded loading; full S6 closure excluded |
-| G7 | conditional on documentation closure | Current owners and checkpoint must distinguish the implemented FORMAT 9 prerequisite from the unfinished query contract |
+| G7 | pass by inspection after documentation correction | Current owners and checkpoint distinguish the implemented FORMAT 9 prerequisite from the unfinished query contract |
 | G8; CI-G3 | no new defect found in inspected scope | No new library, independent evaluation input or measured claim |
 
-**Bounded decision: Accept scoped at source-inspection strength, with documentation closure
-required before the slice is recorded complete.** No production correctness blocker was found.
+**Bounded decision: Accept scoped at source-inspection strength; documentation closure confirmed
+2026-09-27.** No production correctness blocker was found.
 Focused acceptance should cover a real nested default call through fresh source → Delta → native,
 refusal of a direct private-path query, rejection after removing the private formal needed by a
 link, duplicate callable name/owner rejection, and strict refusal of the retired format/schema.
-The author has added the public/private query control to the source/native fixture; execution
-results are not credited here yet. Full gates, pilot, clean-wheel and assembled S2/S6/Stage 3
-acceptance remain `not_run` in this review.
+**Author-recorded receipts, 2026-09-27:** read from STATUS after commit `3c59c0c`; this reviewer
+did not execute them. Cargo commands use `CARGO_TARGET_DIR=/home/paul/library-context/target`.
+
+| Command | Attributed outcome and limit |
+|---|---|
+| `INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p lctx-analytics -p cpg-schema -p cpg-core --lib --test contracts --test codebooks --test bundle -E 'test(completion::tests) \| test(summaries::finite::tests) \| test(summary_contract::) \| binary(contracts) \| binary(codebooks) \| test(finite_depth_and_unsupported_refusals_reach_the_native_response)' --status-level fail --final-status-level fail` | `passed`: 52 focused cases; reviewed append-only reason/proof codes, defaults and callable-support migration. |
+| `uv sync --frozen --reinstall-package lctx-semantics` | `passed`: editable-native rebuild for callable support, not clean-wheel qualification. |
+| `INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p cpg-core --test bundle -E 'test(finite_depth_and_unsupported_refusals_reach_the_native_response) \| test(serving_schema_digests_are_the_shared_known_answers) \| test(a_generation_rebuilds_to_the_same_bytes)' --status-level fail --final-status-level fail` | `passed`: 3 final source/generation cases including missing private formal rejection, default evidence without invocation-time evaluation, private query refusal, schema digests and deterministic rebuilding; fixture fake embedding only. |
+| `uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -k private_callable_formals`; `uv run --no-sync pytest python/lctx_mcp/tests/test_digest.py -k expected_schemas` | `passed`: 1 each; duplicate callable name/owner rejection, private query boundary and Python/Rust schema agreement. |
+| `uv run python docs/design_review/evidence/2026-09-26_default-availability/probe.py` | `passed`: independent CPython 3.14.7 default mutation/freshness/override/definition-once/unused-raise/short-circuit controls; not exhaustive compiler equivalence. |
+
+These focused receipts supplement §§14–15 only. Full gates, pilot, clean-wheel and assembled
+S2/S6/Stage 3 acceptance remain `not_run` in this review.
+
+## 16. Bounded contract follow-up: dynamic validation schemas
+
+**2026-09-27 · change/conformance · dirty slice after `3c59c0c` · source inspection.** Reviewed
+`cpg-schema::models`, the model/site Arrow rows and shared validation rules, typed context-class
+discovery in extraction, the argument-binding projection, and core's catalog/site reconstruction.
+This is the initial S1 schema contract required before activating validation models. No new
+validation model is authored by this slice; no production edits or tests were performed here.
+
+**Implemented, inspected:** catalog format 3 replaces the validation effect's string with the
+closed `ValidationSchema` variants `StaticClass`, `RuntimeValue` and `Unresolved`. Static classes
+must resolve uniquely to a pinned context class node and fact through the same resolver used by
+exception models. `Rule::context_classes` exposes the typed acquisition requirements; extraction
+does not interpret a rendered effect label. `Validate.argument` is absent. A runtime source is an
+`InputPath` with its own `ModelPathRole::Schema`, separate from the affected subject's Input role.
+The existing pinned-signature binder maps that role to a source argument without a second model
+grammar or schema-specific binding policy.
+
+`ModeledEffectSites` preserves the schema variant and either the static class evidence or the
+runtime argument node/fact pair. Missing, ambiguous, unpacked and unsupported source mappings
+retain a schema reason independently of the subject status/reason. Only an exactly bound
+Parameter path may presently identify a runtime source; field/global paths and implicit receiver
+values remain open rather than substituting the root argument for the selected value. A source
+expression witness identifies **where** a runtime schema comes from. It neither resolves its
+contents nor proves evaluation, validation success, invocation completion or a reached effect.
+The row remains an attributed candidate with the model/target modalities and open-target state.
+
+The shared shape helper requires the matching variant fields, makes validation and schema-kind
+presence agree, and keeps every schema field absent on other effect kinds. Runtime paths are
+restricted to the three InputPath kinds; ReturnValue and Raise are excluded. Site rules require
+either the complete expression pair or an explicit reason, with no class/source invention for
+Unresolved. `NOT COALESCE(..., false)` rejects nullable malformed shapes. New reference rules
+join schema class and source witnesses to their catalogs, while publication still reconstructs
+the exact authored catalog and site rows. The Schema role is append-only and the existing resource
+model/site rules now constrain resource roles to Input/Output, avoiding an accidental widening
+of that adjacent contract. These two invariant-strengthening observations were corrected during
+the bounded inspection; no producer false claim was established.
+
+**Scope and change scenario:** adding a supported validation rule changes the authored model,
+its pinned evidence and focused controls; its schema source and subject can use the same formal
+or different formals without adding a native interpreter. Static acquisition is currently bounded
+by available, described pinned context classes. Extraction still splits an authored full class
+name at its last dot and does not independently load arbitrary schema modules: an otherwise
+undescribed module or nested class can therefore be missing and compilation fails closed. Do not
+claim generic static-schema activation from this scaffold. The first model needing broader
+acquisition must establish the provider module/qualified-class boundary and cited class evidence.
+Likewise, supporting field/global/receiver values later needs actual selected-value evidence;
+an opaque path ID or its display spelling does not supply it.
+
+| Judgment/gate | Verdict for this contract subset | Evidence and remaining boundary |
+|---|---|---|
+| A1 | satisfied | Typed grammar/class discovery and resolver own model meaning; existing binder and reconstruction are reused |
+| A2 | satisfied after inspected shape corrections | Static identity, runtime source, unresolved schema and effect subject remain distinct; resource role retains its smaller domain |
+| A3 | satisfied for admitted Parameter sources | Model data composes with shared argument binding; broader source acquisition/value proofs are explicitly excluded |
+| G1–G6; CI-G1/CI-G2 | pass by source inspection for this subset | Closed variants, source references and equality reconstruction; no activation, success or negative-coverage claim |
+| G7 | scoped | Owners/checkpoint must describe the supported contract and fail-closed acquisition limits, separately from validation-model activation |
+| G8; CI-G3 | no new defect found in inspected scope | No dependency change, runtime execution, evaluation-data input or performance claim |
+
+**Bounded decision: Accept scoped at source-inspection strength.** Focused acceptance remains
+uncredited here: parse old-string/invalid-variant rejection; missing/ambiguous static class;
+same versus distinct subject/schema formals; runtime exact/missing/unpacked/overload-disagree
+binding; field/global/implicit receiver boundaries; forged class/source/variant reconstruction;
+and nonvalidation/resource regressions. Reviewed schema/codebook snapshots and a real
+source/Delta application control must precede a tested contract claim. Any schema-specific
+negative later requires schema-qualified coverage; a bound source or complete generic effect
+catalog alone cannot supply it. Model activation, multi-channel propagation, native schema
+selection, full S1/S3/S6 and integrated Stage 3 remain unfinished. Full gates and pilot are
+`not_run` in this review.

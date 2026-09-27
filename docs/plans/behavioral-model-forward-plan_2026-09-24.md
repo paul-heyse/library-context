@@ -24,13 +24,13 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 31; compiler output 84.
+**Accepted schema migrations at this checkpoint:** extractor output 31; compiler output 85.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
 under ADR-0048 remains pending. FORMAT 9 callable support is implemented; remaining S6 semantics are open.
 
-**Next dependency:** finish dynamic-schema/channel contracts and supported synchronous context exits;
+**Next dependency:** finish remaining channel contracts and supported synchronous context exits;
 then compose stable controls and channel coverage through the multi-channel worklist. Direct
 value-origin coverage exists, but call origins and approximated paths remain open even when a
 positive witness exists. Coverage is not operation-wide and does not close another channel.
@@ -100,14 +100,17 @@ operator-approved detailed execution queue. Orders 1–10 below retain their sem
 §6 retains finding disposition. The [composition review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
 F01–F04 remain applicable. Accepted targets do not certify their implementation.
 
-**Current implementation checkpoint.** Compiler output 84 includes typed value-origin and execution-site
+**Current implementation checkpoint.** Compiler output 85 includes typed value-origin and execution-site
 coverage, including complete empty escaping-exception domains under statement entry. Async and
 generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
 source/Delta controls; immediate fresh nested calls now use availability/value/stability certificates. Shared callee proof admission replaces
 the independent native adjacency policy and preserves typed proof-limit refusals. FORMAT 9 now carries private/nested callable formals for control-proof closure without exposing
-private operations; full S6 remains open. Catalog format 2 requires authored model phases with independent identities and exact
-provider-phase matching. Extraction-only compilations leave behavioral coverage unexamined when
-its published premise catalog is absent. These are partial S1/S2/S6 changes, not an assembled Stage 3 receipt. STATUS owns the latest
+private operations; full S6 remains open. Catalog format 3 requires authored model phases with independent identities and exact
+provider-phase matching, and typed static/runtime/unresolved validation schema attribution distinct
+from the effect subject. Runtime schema candidates retain a separate source binding or an explicit
+reason; no production validation effect is activated. Extraction-only compilations leave behavioral
+coverage unexamined when its published premise catalog is absent and reconstruct no entry links
+against that absent catalog. These are partial S1/S2/S6 changes, not an assembled Stage 3 receipt. STATUS owns the latest
 focused command/outcome; the [bounded review](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md)
 keeps target acceptance separate from implementation scope and corrected findings F01–F03.
 

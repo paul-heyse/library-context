@@ -16,12 +16,12 @@ use crate::behavior::{
 use crate::codebook::{
     DefinitionKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
     ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction,
-    ModelTransferKind, ModuleOrigin, Origin, SignatureForm, InvocationPhase, Codebook,
+    ModelTransferKind, ModelSchemaKind, ModuleOrigin, Origin, SignatureForm, InvocationPhase, Codebook,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -343,6 +343,16 @@ pub enum Rule {
 }
 
 impl Rule {
+    /// Context class identities needed by authored rules. Extraction and compilation consume
+    /// the same typed variants; no rendered effect/path string is interpreted.
+    pub fn context_classes(&self) -> Vec<&str> {
+        match self {
+            Self::Exception {class,to_class,..}=>std::iter::once(class.as_str()).chain(to_class.as_deref()).collect(),
+            Self::Effect {effect:Effect::Validate {schema:ValidationSchema::StaticClass {class}},..}=>vec![class],
+            _=>Vec::new(),
+        }
+    }
+
     fn validate(&self) -> Result<(), String> {
         match self {
             Self::Transfer { from, to, .. } => {
@@ -449,7 +459,7 @@ pub enum Effect {
     ThreadDispatch,
     Compress { format: String },
     Serialize { format: String },
-    Validate { schema: String },
+    Validate { schema: ValidationSchema },
     Register { container: String },
     Invoke { callable: String },
 }
@@ -465,7 +475,7 @@ impl Effect {
             Self::ThreadDispatch => (ModelEffectKind::ThreadDispatch, None),
             Self::Compress { format } => (ModelEffectKind::Compress, Some(format)),
             Self::Serialize { format } => (ModelEffectKind::Serialize, Some(format)),
-            Self::Validate { schema } => (ModelEffectKind::Validate, Some(schema)),
+            Self::Validate { .. } => (ModelEffectKind::Validate, None),
             Self::Register { container } => (ModelEffectKind::Register, Some(container)),
             Self::Invoke { callable } => (ModelEffectKind::Invoke, Some(callable)),
         }
@@ -480,11 +490,48 @@ impl Effect {
             | Self::Timeout
             | Self::ThreadDispatch => Ok(()),
             Self::Compress { format } | Self::Serialize { format } if identifier(format) => Ok(()),
-            Self::Validate { schema } if dotted_name(schema) => Ok(()),
+            Self::Validate { schema } => schema.validate(),
             Self::Register { container } if dotted_name(container) => Ok(()),
             Self::Invoke { callable } if dotted_name(callable) => Ok(()),
             _ => Err("invalid effect argument".to_owned()),
         }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ValidationSchema {
+    /// Initial statically resolved domain: a class in the pinned context, not an arbitrary label.
+    StaticClass { class: String },
+    /// The value at a proved input path determines the schema. It need not be a type object.
+    RuntimeValue { source: InputPath },
+    Unresolved {},
+}
+
+impl ValidationSchema {
+    fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::StaticClass { class } if dotted_name(class) => Ok(()),
+            Self::StaticClass { .. } => Err("invalid schema class".to_owned()),
+            Self::RuntimeValue { source } => source.validate(),
+            Self::Unresolved {} => Ok(()),
+        }
+    }
+
+    fn kind(&self) -> ModelSchemaKind {
+        match self {Self::StaticClass {..}=>ModelSchemaKind::StaticClass,
+            Self::RuntimeValue {..}=>ModelSchemaKind::RuntimeValue,
+            Self::Unresolved {}=>ModelSchemaKind::Unresolved}
+    }
+
+    fn source(&self) -> Option<&InputPath> {
+        match self {Self::RuntimeValue {source}=>Some(source),_=>None}
+    }
+}
+
+impl Effect {
+    fn schema(&self) -> Option<&ValidationSchema> {
+        match self {Self::Validate {schema}=>Some(schema),_=>None}
     }
 }
 
@@ -805,8 +852,9 @@ impl Catalog {
             for (index, rule) in model.rules.iter().enumerate() {
                 let formals: Vec<Option<&str>> = match rule {
                     Rule::Transfer { from, to, .. } => vec![from.formal(), to.formal()],
-                    Rule::Effect { subject, .. } => {
-                        vec![subject.as_ref().and_then(InputPath::formal)]
+                    Rule::Effect { subject, effect, .. } => {
+                        vec![subject.as_ref().and_then(InputPath::formal),
+                            effect.schema().and_then(ValidationSchema::source).and_then(InputPath::formal)]
                     }
                     Rule::Callback { callback, .. } => vec![callback.formal()],
                     Rule::Resource { resource, .. } => vec![resource.formal()],
@@ -822,10 +870,10 @@ impl Catalog {
                         (ModelPathRole::Input, from.id(), from.formal()),
                         (ModelPathRole::Output, to.id(), to.formal()),
                     ],
-                    Rule::Effect { subject, .. } => subject
-                        .as_ref()
-                        .map(|path| (ModelPathRole::Input, path.id(), path.formal()))
-                        .into_iter()
+                    Rule::Effect { subject, effect, .. } => subject.as_ref()
+                        .map(|path| (ModelPathRole::Input, path.id(), path.formal())).into_iter()
+                        .chain(effect.schema().and_then(ValidationSchema::source)
+                            .map(|path|(ModelPathRole::Schema,path.id(),path.formal())))
                         .collect(),
                     Rule::Callback { callback, .. } => {
                         vec![(ModelPathRole::Input, callback.id(), callback.formal())]
@@ -885,6 +933,12 @@ impl Catalog {
                         modality,
                     } => {
                         let (kind, argument) = effect.kind_argument();
+                        let schema=effect.schema();
+                        let schema_class=match schema {
+                            Some(ValidationSchema::StaticClass {class})=>Some(resolve_context_class(class,definitions)?),
+                            _=>None,
+                        };
+                        let schema_source=schema.and_then(ValidationSchema::source);
                         out.effects.push(ModelEffectsRow {
                             snapshot_id: target.snapshot_id,
                             model_id: target.model_id,
@@ -894,6 +948,11 @@ impl Catalog {
                             revision: target.revision,
                             effect: kind,
                             argument: argument.map(str::to_owned),
+                            schema_kind: schema.map(ValidationSchema::kind),
+                            schema_class_node_id:schema_class.map(|d|d.symbol_node_id),
+                            schema_class_fact_id:schema_class.map(|d|d.fact_id),
+                            schema_path_id:schema_source.map(InputPath::id),
+                            schema_path_kind:schema_source.map(InputPath::kind),
                             subject_path_id: subject.as_ref().map(InputPath::id),
                             subject_path_kind: subject.as_ref().map(InputPath::kind),
                             subject_path: subject.as_ref().map(InputPath::render),
@@ -951,10 +1010,10 @@ impl Catalog {
                         to_class,
                         modality,
                     } => {
-                        let source_class = resolve_exception_class(class, definitions)?;
+                        let source_class = resolve_context_class(class, definitions)?;
                         let replacement = to_class
                             .as_deref()
-                            .map(|name| resolve_exception_class(name, definitions))
+                            .map(|name| resolve_context_class(name, definitions))
                             .transpose()?;
                         out.exceptions.push(ModelExceptionsRow {
                             snapshot_id: target.snapshot_id,
@@ -981,7 +1040,7 @@ impl Catalog {
     }
 }
 
-fn resolve_exception_class<'a>(
+fn resolve_context_class<'a>(
     name: &str,
     definitions: &'a [ContextDefinitionsRow],
 ) -> Result<&'a ContextDefinitionsRow, String> {
@@ -990,10 +1049,10 @@ fn resolve_exception_class<'a>(
     });
     let class = matches
         .next()
-        .ok_or_else(|| format!("model exception class {name} has no pinned context definition"))?;
+        .ok_or_else(|| format!("model class {name} has no pinned context definition"))?;
     if matches.next().is_some() {
         return Err(format!(
-            "model exception class {name} has multiple pinned context definitions"
+            "model class {name} has multiple pinned context definitions"
         ));
     }
     Ok(class)
@@ -1148,6 +1207,57 @@ mod tests {
                 .compile_rules(&bound, std::slice::from_ref(&definition), &[])
                 .is_err()
         );
+        // Contract-only catalog controls: these authored rules are never production models
+        // for typing.cast. Reuse the pinned signature to challenge schema binding independently.
+        let header = r#"version = 3
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+[[models.rules]]
+kind = "effect"
+subject = { kind = "parameter", name = "val" }
+modality = "potential"
+"#;
+        let class=ContextDefinitionsRow {fact_id:Id([8;16]),symbol_node_id:Id([9;16]),
+            module_name:"builtins".into(),qualified_name:"int".into(),kind:DefinitionKind::Class,
+            ..definition.clone()};
+        for (schema,kind) in [
+            (r#"{kind="static_class", class="builtins.int"}"#,ModelSchemaKind::StaticClass),
+            (r#"{kind="runtime_value", source={kind="parameter", name="val"}}"#,ModelSchemaKind::RuntimeValue),
+            (r#"{kind="unresolved"}"#,ModelSchemaKind::Unresolved),
+        ] {
+            let text=format!("{header}effect = {{kind=\"validate\",schema={schema}}}");
+            let catalog=Catalog::parse("contract-control.toml",&text).unwrap();
+            let target=catalog.bind_targets(snapshot_id,std::slice::from_ref(&context),
+                std::slice::from_ref(&module),std::slice::from_ref(&definition)).unwrap();
+            let output=catalog.compile_rules(&target,&[definition.clone(),class.clone()],std::slice::from_ref(&parameter)).unwrap();
+            let [effect]=output.effects.as_slice() else {panic!("one validation effect")};
+            assert_eq!(effect.schema_kind,Some(kind));
+            assert!(effect.argument.is_none());
+            if kind==ModelSchemaKind::StaticClass {
+                assert_eq!(effect.schema_class_node_id,Some(class.symbol_node_id));
+                assert_eq!(effect.schema_class_fact_id,Some(class.fact_id));
+                assert!(catalog.compile_rules(&target,std::slice::from_ref(&definition),std::slice::from_ref(&parameter)).is_err());
+                assert!(catalog.compile_rules(&target,&[definition.clone(),class.clone(),class.clone()],std::slice::from_ref(&parameter)).is_err());
+            } else { assert!(effect.schema_class_node_id.is_none() && effect.schema_class_fact_id.is_none()); }
+            if kind==ModelSchemaKind::RuntimeValue {
+                assert_eq!(effect.schema_path_id,effect.subject_path_id);
+                assert_eq!(output.formals.iter().map(|r|r.path_role).collect::<BTreeSet<_>>(),
+                    [ModelPathRole::Input,ModelPathRole::Schema].into_iter().collect());
+                let missing=text.replace("source={kind=\"parameter\", name=\"val\"}","source={kind=\"parameter\", name=\"missing\"}");
+                let missing=Catalog::parse("missing.toml",&missing).unwrap();
+                let target=missing.bind_targets(snapshot_id,std::slice::from_ref(&context),
+                    std::slice::from_ref(&module),std::slice::from_ref(&definition)).unwrap();
+                assert!(missing.compile_rules(&target,std::slice::from_ref(&definition),std::slice::from_ref(&parameter)).is_err());
+            } else { assert!(effect.schema_path_id.is_none() && effect.schema_path_kind.is_none()); }
+        }
+        for schema in [r#""builtins.int""#,r#"{kind="unresolved", class="builtins.int"}"#,
+            r#"{kind="runtime_value", source={kind="return_value"}}"#] {
+            assert!(Catalog::parse("invalid.toml",&format!("{header}effect={{kind=\"validate\",schema={schema}}}")).is_err());
+        }
+
         let renamed = ContextParametersRow {
             name: Some("value".into()),
             ..parameter
@@ -1340,7 +1450,7 @@ mod tests {
 
     #[test]
     fn conversion_needs_a_target_and_resource_cannot_be_a_raise_path() {
-        let header = r#"version = 2
+        let header = r#"version = 3
 [[models]]
 phase = "call"
 revision = 1
@@ -1370,7 +1480,7 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
 
     #[test]
     fn normal_return_requires_complete_exception_coverage_without_exception_rules() {
-        let header = r#"version = 2
+        let header = r#"version = 3
 [[models]]
 phase = "call"
 revision = 1
@@ -1410,7 +1520,7 @@ modality = "definite"
             )
             .is_err()
         );
-        let second = valid.trim_start_matches("version = 2").trim();
+        let second = valid.trim_start_matches("version = 3").trim();
         assert!(Catalog::parse("bad.toml", &format!("{valid}\n{second}\n")).is_err());
     }
 
@@ -1430,7 +1540,7 @@ modality = "definite"
         assert!(Catalog::parse("missing.toml",&original.replace("phase = \"call\"\n","")).is_err());
         assert!(Catalog::parse("unknown.toml",&original.replace("phase = \"call\"","phase = \"later\"")).is_err());
         let first=original.split("# Python 3.14 typing.assert_type").next().unwrap();
-        let init=first.trim_start_matches("version = 2").replace("phase = \"call\"","phase = \"init\"")
+        let init=first.trim_start_matches("version = 3").replace("phase = \"call\"","phase = \"init\"")
             .replace("normal_return = true","normal_return = false")
             .replace("exceptions = \"complete\"","exceptions = \"partial\"");
         let catalog=Catalog::parse("phases.toml",&format!("{first}\n{init}")).unwrap();
@@ -1440,6 +1550,6 @@ modality = "definite"
         assert!(catalog.models[0].model.normal_return);
         assert!(!catalog.models[1].model.normal_return);
         assert_ne!(catalog.models[0].model_id,catalog.models[1].model_id);
-        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 2"))).is_err());
+        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 3"))).is_err());
     }
 }

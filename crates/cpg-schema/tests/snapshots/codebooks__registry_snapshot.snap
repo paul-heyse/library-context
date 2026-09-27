@@ -719,6 +719,10 @@ model_effect_kind
   8 validate
   9 register
   10 invoke
+model_schema_kind
+  0 static_class
+  1 runtime_value
+  2 unresolved
 model_callback_action
   0 stored
   1 registered
@@ -739,6 +743,7 @@ model_exception_action
 model_path_role
   0 input
   1 output
+  2 schema
 model_path_kind
   0 parameter
   1 receiver_field

@@ -1,4 +1,4 @@
-version = 2
+version = 3
 
 # `typing.cast` returns its value unchanged at runtime. The annotated type is not a value source.
 [[models]]

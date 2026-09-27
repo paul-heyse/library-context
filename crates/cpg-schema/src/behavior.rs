@@ -35,7 +35,7 @@ use crate::codebook::{
     ModelTransferEndpointStatus, ModelTransferKind, ModeledArgumentEvaluationStatus,
     ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase,
     SourceRole, SummaryFlowKind, SummaryFlowStepKind, SyntaxKind, TestValueLinkOrigin, ValueClass,
-    Verdict, SummaryChannel, SummarySubjectKind,
+    Verdict, SummaryChannel, SummarySubjectKind, ModelSchemaKind,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -57,6 +57,11 @@ table!(
         revision: i64,
         effect: ModelEffectKind,
         argument: Option<String>,
+        schema_kind: Option<ModelSchemaKind>,
+        schema_class_node_id: Option<Id>,
+        schema_class_fact_id: Option<Id>,
+        schema_path_id: Option<Id>,
+        schema_path_kind: Option<ModelPathKind>,
         subject_path_id: Option<Id>,
         subject_path_kind: Option<ModelPathKind>,
         subject_path: Option<String>,
@@ -84,6 +89,14 @@ table!(
         target_definition_fact_id: Id,
         effect: ModelEffectKind,
         argument: Option<String>,
+        schema_kind: Option<ModelSchemaKind>,
+        schema_class_node_id: Option<Id>,
+        schema_class_fact_id: Option<Id>,
+        schema_path_id: Option<Id>,
+        schema_path_kind: Option<ModelPathKind>,
+        schema_expression_node_id: Option<Id>,
+        schema_expression_fact_id: Option<Id>,
+        schema_reason: Option<BoundaryReason>,
         subject_path_id: Option<Id>,
         subject_path_kind: Option<ModelPathKind>,
         subject_expression_node_id: Option<Id>,
@@ -2897,6 +2910,13 @@ crate::relations! {
             "SELECT a.snapshot_id, a.call_site_node_id, a.function_node_id, \
                     a.call_fact_id, a.pysa_fact_id, a.target_node_id, a.model_id, \
                     m.rule_id, m.target_definition_fact_id, m.effect, m.argument, \
+                    m.schema_kind, m.schema_class_node_id, m.schema_class_fact_id, \
+                    m.schema_path_id, m.schema_path_kind, \
+                    CASE WHEN {schema_bound} THEN sb.argument_node_id END AS schema_expression_node_id, \
+                    CASE WHEN {schema_bound} THEN sb.argument_fact_id END AS schema_expression_fact_id, \
+                    CAST(CASE WHEN m.schema_kind IS NULL OR m.schema_kind={static_schema} \
+                                OR ({schema_bound}) THEN NULL \
+                              ELSE COALESCE(sb.reason,{outside}) END AS SMALLINT) AS schema_reason, \
                     m.subject_path_id, m.subject_path_kind, \
                     CASE WHEN m.subject_path_kind = {parameter} AND b.status = {bound} \
                            THEN b.argument_node_id END AS subject_expression_node_id, \
@@ -2921,7 +2941,11 @@ crate::relations! {
                ON b.call_site_node_id = a.call_site_node_id \
               AND b.pysa_fact_id = a.pysa_fact_id \
               AND b.model_id = a.model_id AND b.rule_id = m.rule_id \
-              AND b.path_id = m.subject_path_id AND b.path_role = {input}",
+              AND b.path_id = m.subject_path_id AND b.path_role = {input} \
+             LEFT JOIN model_argument_bindings sb \
+               ON sb.snapshot_id=a.snapshot_id AND sb.call_site_node_id=a.call_site_node_id \
+              AND sb.pysa_fact_id=a.pysa_fact_id AND sb.model_id=a.model_id \
+              AND sb.rule_id=m.rule_id AND sb.path_id=m.schema_path_id AND sb.path_role={schema_role}",
             parameter = ModelPathKind::Parameter.code(),
             bound = ModelArgumentStatus::Bound.code(),
             unqualified = ModelEffectSubjectStatus::Unqualified.code(),
@@ -2929,6 +2953,10 @@ crate::relations! {
             unknown = ModelEffectSubjectStatus::Unknown.code(),
             outside = BoundaryReason::OutsideProviderModel.code(),
             input = ModelPathRole::Input.code(),
+            static_schema=ModelSchemaKind::StaticClass.code(),
+            schema_role=ModelPathRole::Schema.code(),
+            schema_bound=format!("m.schema_kind={} AND m.schema_path_kind={} AND sb.status={}",
+                ModelSchemaKind::RuntimeValue.code(),ModelPathKind::Parameter.code(),ModelArgumentStatus::Bound.code()),
         );
 
     /// A pinned exception class and action applied at a candidate source call. The call may

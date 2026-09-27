@@ -1974,6 +1974,8 @@ async fn model_target_requires_its_cited_pinned_definition() {
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     assert_eq!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage").await,0,
         "extraction-only compilation does not request behavioral coverage");
+    assert_eq!(count(&ctx,"SELECT count(*) FROM flow_test_value_links").await,0,
+        "extraction-only compilation does not request entry proofs");
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
     let forged = ModelTargets::to_batch(&[ModelTargetsRow {
         snapshot_id: snapshot,
@@ -2054,6 +2056,8 @@ async fn model_target_requires_its_cited_pinned_definition() {
         revision: 1,
         effect: ModelEffectKind::IoRead,
         argument: None,
+        schema_kind:None, schema_class_node_id:None, schema_class_fact_id:None,
+        schema_path_id:None, schema_path_kind:None,
         subject_path_id: None,
         subject_path_kind: None,
         subject_path: None,
@@ -5212,5 +5216,83 @@ budget = 1
         assert!(violations.iter().any(|v| v.rule == "completion-source-equality"), "{table}: {violations:?}");
         ctx.deregister_table(table).unwrap();
         ctx.register_table(table, original).unwrap();
+    }
+}
+
+/// Contract probe over typed candidate inputs. These are not authored production models or
+/// evidence that a validation call executes; source/Delta controls remain separate.
+#[tokio::test]
+async fn validation_schema_candidates_keep_attribution_separate_from_subjects() {
+    use cpg_schema::behavior::{ModelApplications,ModelApplicationsRow,ModelArgumentBindings,
+        ModelArgumentBindingsRow,ModeledEffectSites,ModeledEffectSitesRow};
+    use cpg_schema::codebook::{InvocationPhase,ModelSchemaKind};
+    let id=|n|Id([n;16]);
+    let app=ModelApplicationsRow {snapshot_id:id(1),call_site_node_id:id(2),module_node_id:id(3),
+        function_node_id:Some(id(4)),call_fact_id:id(5),pysa_fact_id:id(6),target_node_id:id(7),
+        model_id:id(8),target_module_fact_id:id(9),target_definition_fact_id:id(10),revision:1,
+        target_modality:Modality::Definite,target_origin:Origin::SyntheticModel,phase:InvocationPhase::Call,
+        candidate_set_complete_under_model:true,has_unresolved_remainder:false,target_count:1,
+        target_normal_return:false,model_origin:Origin::SyntheticModel};
+    let model=ModelEffectsRow {snapshot_id:id(1),model_id:id(8),target_node_id:id(7),rule_id:id(11),
+        target_definition_fact_id:id(10),revision:1,effect:ModelEffectKind::Validate,argument:None,
+        schema_kind:Some(ModelSchemaKind::RuntimeValue),schema_class_node_id:None,schema_class_fact_id:None,
+        schema_path_id:Some(id(12)),schema_path_kind:Some(ModelPathKind::Parameter),
+        subject_path_id:Some(id(13)),subject_path_kind:Some(ModelPathKind::Parameter),subject_path:Some("display only".into()),
+        modality:Modality::Potential,origin:Origin::SyntheticModel};
+    let subject=ModelArgumentBindingsRow {snapshot_id:id(1),call_site_node_id:id(2),pysa_fact_id:id(6),
+        model_id:id(8),target_node_id:id(7),rule_id:id(11),path_role:ModelPathRole::Input,path_id:id(13),
+        formal_name:"value".into(),signature_count:1,matched_signatures:1,argument_node_id:Some(id(20)),
+        argument_fact_id:Some(id(21)),status:ModelArgumentStatus::Bound,reason:None};
+    let schema=ModelArgumentBindingsRow {path_role:ModelPathRole::Schema,path_id:id(12),formal_name:"schema".into(),
+        argument_node_id:Some(id(30)),argument_fact_id:Some(id(31)),..subject.clone()};
+    let shape=cpg_schema::rules::rules().into_iter().find(|r|r.name=="semantic:modeled-validation-schema-shape").unwrap();
+    let model_shape=cpg_schema::rules::rules().into_iter().find(|r|r.name=="semantic:model-validation-schema-shape").unwrap();
+    for case in 0..9 {
+        let ctx=SessionContext::new();
+        ctx.register_batch("model_applications",ModelApplications::to_batch(std::slice::from_ref(&app)).unwrap()).unwrap();
+        let mut model=model.clone();
+        let mut schema=schema.clone();
+        match case {
+            1=>{model.schema_path_id=model.subject_path_id;schema.path_id=subject.path_id;
+                schema.argument_node_id=subject.argument_node_id;schema.argument_fact_id=subject.argument_fact_id;},
+            2=>model.schema_path_kind=Some(ModelPathKind::ReceiverField),
+            3=>model.schema_path_kind=Some(ModelPathKind::Global),
+            4=>{schema.status=ModelArgumentStatus::Unknown;schema.argument_node_id=None;
+                schema.argument_fact_id=None;schema.reason=Some(BoundaryReason::UnsupportedUnpacking);},
+            5=>schema.call_site_node_id=id(99), // A schema witness for another call cannot leak.
+            6=>{model.schema_kind=Some(ModelSchemaKind::StaticClass);model.schema_path_id=None;
+                model.schema_path_kind=None;model.schema_class_node_id=Some(id(40));model.schema_class_fact_id=Some(id(41));},
+            7=>{model.schema_kind=Some(ModelSchemaKind::Unresolved);model.schema_path_id=None;model.schema_path_kind=None;},
+            8=>{schema.status=ModelArgumentStatus::Unknown;schema.argument_node_id=None;
+                schema.argument_fact_id=None;schema.reason=Some(BoundaryReason::AmbiguousBinding);},
+            _=>{},
+        }
+        ctx.register_batch("model_effects",ModelEffects::to_batch(&[model.clone()]).unwrap()).unwrap();
+        ctx.register_batch("model_argument_bindings",ModelArgumentBindings::to_batch(&[subject.clone(),schema]).unwrap()).unwrap();
+        let rows:Vec<ModeledEffectSitesRow>=sql::fetch(&ctx,&cpg_schema::behavior::modeled_effect_sites(),sql::Params::new()).await.unwrap();
+        let [row]=rows.as_slice() else {panic!("candidate fanout: {rows:?}")};
+        assert_eq!(row.subject_expression_node_id,Some(id(20)));
+        assert_eq!(row.subject_expression_fact_id,Some(id(21)));
+        assert!(row.subject_reason.is_none());
+        assert_eq!(row.schema_kind,model.schema_kind);
+        if case<=1 {
+            assert_eq!(row.schema_expression_node_id,Some(id(if case==0 {30} else {20})));
+            assert_eq!(row.schema_expression_fact_id,Some(id(if case==0 {31} else {21})));
+            assert!(row.schema_reason.is_none());
+        } else {
+            assert!(row.schema_expression_node_id.is_none() && row.schema_expression_fact_id.is_none());
+            assert_eq!(row.schema_reason,match case {4=>Some(BoundaryReason::UnsupportedUnpacking),
+                6=>None,8=>Some(BoundaryReason::AmbiguousBinding),_=>Some(BoundaryReason::OutsideProviderModel)});
+        }
+        ctx.register_batch("modeled_effect_sites",ModeledEffectSites::to_batch(&rows).unwrap()).unwrap();
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM ({})",shape.sql)).await,0);
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM ({})",model_shape.sql)).await,0);
+        let mut malformed=row.clone();
+        // Inventing a class identity alongside a runtime/unresolved schema (or breaking the
+        // static node/fact pair) is rejected by the shared publication rule.
+        malformed.schema_class_node_id=if case==6 {None} else {Some(id(40))};
+        ctx.deregister_table("modeled_effect_sites").unwrap();
+        ctx.register_batch("modeled_effect_sites",ModeledEffectSites::to_batch(&[malformed]).unwrap()).unwrap();
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM ({})",shape.sql)).await,1);
     }
 }
