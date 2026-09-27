@@ -120,7 +120,7 @@ pub struct Published {
 /// 94: explicit authored action triggers and candidate-backed action assessments.
 /// 95: pinned default availability and independently committed omitted-formal obligations.
 /// 96: normal-exit action implications with mandatory undischarged outcome obligations.
-pub const COMPILER_OUTPUT_VERSION: u32 = 96;
+pub const COMPILER_OUTPUT_VERSION: u32 = 97;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -798,6 +798,9 @@ async fn finish(
         write_analysis_query::<ModeledExactValueTransfers>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::modeled_exact_value_transfers(), w).await?;
         let expressions = crate::summaries::expression_evaluations(&ctx).await?;
+        write_analysis::<cpg_schema::frame_exit::ModelFrameExits>(&ctx,root,snapshot_id,&expressions.frames,w).await?;
+        write_analysis::<cpg_schema::frame_exit::ModelFrameExitArguments>(&ctx,root,snapshot_id,&expressions.frame_arguments,w).await?;
+        write_analysis::<cpg_schema::frame_exit::ModelFrameExitSteps>(&ctx,root,snapshot_id,&expressions.frame_steps,w).await?;
         write_analysis::<ExpressionEvaluations>(&ctx, root, snapshot_id, &expressions.evaluations, w)
             .await?;
         write_analysis::<ExpressionEvaluationSteps>(&ctx, root, snapshot_id, &expressions.steps, w)

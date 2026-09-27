@@ -13,6 +13,7 @@ check normal_evidence: (normal AND evidence_id IS NOT NULL AND status <> 2) OR (
 snapshot_id: FixedSizeBinary(16) NOT NULL
 syntax_fact_id: FixedSizeBinary(16) NOT NULL
 normal: Boolean NOT NULL
+release_safety: Int16 NOT NULL [lctx.codebook=release_safety]
 boolean_value: Boolean NULL
 status: Int16 NOT NULL [lctx.codebook=modeled_argument_evaluation_status]
 evidence_id: FixedSizeBinary(16) NULL

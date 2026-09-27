@@ -654,3 +654,12 @@ stored witness links at request time, retaining their row ids and reporting a bo
 depth budget is reached.
 
 > Decision: ADR-0043, ADR-0025, ADR-0046, ADR-0049
+
+
+**Accepted frame-completion target, implementation in progress (ADR-0063).** Every modeled normal-call obligation,
+including a returned root call, must cite its exact frame-release certificate and complete
+argument domain. The native consumer uses shared admission; model identity or body-return
+syntax alone is insufficient. This remains part of S6 until source, publication and native
+mutation controls pass. Typed Normal postconditions remain independent of actual completion.
+
+> Decision: ADR-0063

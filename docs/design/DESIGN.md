@@ -352,7 +352,7 @@ context body. Pure completion owns entry and reverse cleanup order. Shared
 source/native admission checks source-derived ordered return obligations, including condition
 scope; no missing exit observation is fabricated as a call. Full Stage 3 qualification is pending.
 
-> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058, ADR-0059
+> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058, ADR-0059, ADR-0063
 
 <a id="section-b6"></a>
 

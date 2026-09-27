@@ -229,6 +229,7 @@ codebook!(
         InvocationArgumentLimit = 34 => "invocation_argument_limit",
         ActionTriggerUnavailable = 35 => "action_trigger_unavailable",
         ResourceIdentityUnavailable = 36 => "resource_identity_unavailable",
+        FrameExitCleanup = 37 => "frame_exit_cleanup",
     }
 );
 
@@ -1468,6 +1469,7 @@ codebook!(
         SourceModeledIdentity = 33 => "source_modeled_identity",
         ModelDefaultsAvailable = 34 => "model_defaults_available",
         ModelDefaultFormal = 35 => "model_default_formal",
+        ModelFrameExit = 36 => "model_frame_exit",
     }
 );
 
@@ -1493,6 +1495,16 @@ codebook!(
         /// A resolved callee and its explicit arguments evaluated normally before invocation.
         /// The invoked callable's completion remains a separate assertion.
         CalleeEntryNormal = 10 => "callee_entry_normal",
+    }
+);
+
+codebook!(
+    /// Release safety over an exact window with no intervening user code. CallerRetained
+    /// never promises lifetime across an arbitrary call or effect.
+    ReleaseSafety = "release_safety" {
+        Closed = 0 => "closed",
+        CallerRetained = 1 => "caller_retained",
+        Unknown = 2 => "unknown",
     }
 );
 
@@ -1831,6 +1843,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<SummaryFlowKind>(),
         CodebookEntry::of::<SummaryFlowStepKind>(),
         CodebookEntry::of::<ModeledArgumentEvaluationStatus>(),
+        CodebookEntry::of::<ReleaseSafety>(),
         CodebookEntry::of::<CompletionKind>(),
         CodebookEntry::of::<ExactRuntimeException>(),
         CodebookEntry::of::<SummaryChannel>(),

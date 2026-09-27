@@ -45,6 +45,7 @@ cpg_schema::query_row! {
         model_id: Id,
         rule_id: Id,
         callee_resolution_fact_id: Id,
+        frame_exit_id: Id,
         argument_count: i64,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
@@ -56,7 +57,7 @@ cpg_schema::query_row! {
 
 cpg_schema::query_row! {
     pub struct ModeledChainArgument {
-        snapshot_id: Id,
+                        snapshot_id: Id,
         function_node_id: Id,
         parameter_node_id: Id,
         parameter_name: String,
@@ -80,6 +81,7 @@ cpg_schema::query_row! {
         model_id: Id,
         rule_id: Id,
         callee_resolution_fact_id: Id,
+        frame_exit_id: Id,
         argument_count: i64,
         argument_ordinal: i64,
         argument_fact_id: Id,
@@ -112,6 +114,7 @@ cpg_schema::query_row! {
         model_id: Id,
         rule_id: Id,
         callee_resolution_fact_id: Id,
+        frame_exit_id: Id,
         argument_count: i64,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
@@ -299,6 +302,7 @@ fn summarize_boundaries(
 }
 
 struct CallEvidence {
+    frame_exit_id: Id,
     flow_fact_id: Id,
     parameter_node_id: Id,
     source_argument_fact_id: Id,
@@ -528,6 +532,7 @@ type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 #[derive(Clone)]
 pub struct FiniteSummaryInputs {
+    pub model_frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
     pub modeled_identities: Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
     pub context_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     pub context_arguments: Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>,
@@ -750,7 +755,7 @@ fn direct_flows(
 
 pub(crate) fn modeled_return_proof(seed:&ModeledSummaryFlowSeed,index:&ArgumentIndex)
     ->Option<Vec<recipe::SummaryFlowProofStep>> {
-    modeled_call_proof(&CallEvidence {
+    modeled_call_proof(&CallEvidence {frame_exit_id:seed.frame_exit_id,
         flow_fact_id:seed.source_flow_fact_id,parameter_node_id:seed.parameter_node_id,
         source_argument_fact_id:seed.source_argument_fact_id,call_fact_id:seed.call_fact_id,
         pysa_fact_id:seed.pysa_fact_id,model_id:seed.model_id,rule_id:seed.rule_id,
@@ -826,6 +831,8 @@ fn modeled_call_proof(
     for (kind, evidence_id) in [
         (SummaryFlowStepKind::CallSite, seed.call_fact_id),
         (SummaryFlowStepKind::CallTarget, seed.pysa_fact_id),
+        (SummaryFlowStepKind::ModelFrameExit, seed.frame_exit_id),
+        (SummaryFlowStepKind::PrecedingCallNormal, seed.model_id),
         (SummaryFlowStepKind::ModelRule, seed.rule_id),
     ] {
         proof.push(recipe::SummaryFlowProofStep {
@@ -966,6 +973,8 @@ fn modeled_chain_proof(rows: &[ModeledChainArgument])
         for (kind, evidence_id) in [
             (SummaryFlowStepKind::CallSite, call.call_fact_id),
             (SummaryFlowStepKind::CallTarget, call.pysa_fact_id),
+            (SummaryFlowStepKind::ModelFrameExit, call.frame_exit_id),
+            (SummaryFlowStepKind::PrecedingCallNormal, call.model_id),
             (SummaryFlowStepKind::ModelRule, call.rule_id),
         ] {
             proof.push(recipe::SummaryFlowProofStep {
@@ -1084,7 +1093,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     -> FiniteSummaryOutcome
 {
     let FiniteSummaryInputs {
-        modeled_identities, identities, context_identities, context_arguments,
+        model_frames, modeled_identities, identities, context_identities, context_arguments,
         diagrams, boundaries, mut pass_steps, entries, entry_steps, components, context_sites, return_certificates,
         mut direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates,
@@ -1317,6 +1326,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         };
         let Some(model_proof) = modeled_call_proof(
             &CallEvidence {
+                frame_exit_id:seed.frame_exit_id,
                 flow_fact_id: seed.predecessor_flow_fact_id,
                 parameter_node_id: seed.parameter_node_id,
                 source_argument_fact_id: seed.source_argument_fact_id,
@@ -1668,6 +1678,10 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     }
     // Source and native consumers share lifecycle admission. Check complete witnesses after
     // finalizer insertion, in dependency order, and refuse callers of a rejected witness.
+    let mut frame_index=HashMap::new();
+    for frame in &model_frames {
+        frame_index.entry((frame.snapshot_id,frame.frame_exit_id)).and_modify(|prior|*prior=None).or_insert(Some(frame));
+    }
     let mut context_index=HashMap::new();
     for site in &context_sites {
         context_index.entry(site.site_id).and_modify(|prior|*prior=None).or_insert(Some(site));
@@ -1694,6 +1708,8 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             cpg_schema::completion_proof::admit(certificate,flow.function_node_id,flow.return_site_fact_id,
                 get(flow.condition_id)?,get(certificate.entry_condition_id)?,get(certificate.exit_condition_id)?,&proof)
                 .map_err(|error|error.reason)?;
+            cpg_schema::frame_exit::admit_proof(flow.function_node_id,&proof,
+                |id|frame_index.get(&(flow.snapshot_id,id)).copied().flatten()).map_err(|error|error.reason)?;
             cpg_schema::context_protocol::admit_proof(flow.function_node_id,&proof,
                 |id|context_index.get(&id).copied().flatten()).map_err(|_|BoundaryReason::MissingEvidence)?;
             if !proof.iter().filter(|s|s.kind==SummaryFlowStepKind::CalleeSummary)
@@ -1803,6 +1819,23 @@ mod tests {
         super::origin_coverage(candidates, flows, refusals, boundaries, &HashSet::new())
     }
     fn entry_inputs(mut input:FiniteSummaryInputs) -> FiniteSummaryInputs {
+        // These are composition-only fixtures. Expression admission owns the independently
+        // qualified argument/release support; this layer receives its occurrence header.
+        macro_rules! frames {($rows:expr)=>{for seed in $rows {
+            let frame_id=cpg_schema::id::IdHasher::new("test-model-frame").id(seed.call_fact_id).id(seed.model_id).finish_id();
+            seed.frame_exit_id=frame_id;
+            if !input.model_frames.iter().any(|f|f.frame_exit_id==frame_id) {
+                input.model_frames.push(cpg_schema::frame_exit::ModelFrameExitsRow {
+                    snapshot_id:seed.snapshot_id,frame_exit_id:frame_id,function_node_id:seed.function_node_id,
+                    call_node_id:seed.call_fact_id,call_fact_id:seed.call_fact_id,syntax_fact_id:seed.call_fact_id,
+                    target_node_id:seed.pysa_fact_id,pysa_fact_id:seed.pysa_fact_id,model_id:seed.model_id,
+                    return_parameter:"value".to_owned(),return_argument_fact_id:seed.source_argument_fact_id,
+                    argument_count:seed.argument_count,signature_count:1,arguments_digest:cpg_schema::id::Digest([0;32]),
+                    invocation_count:0,invocation_digest:cpg_schema::id::Digest([0;32]),
+                });
+            }
+        }};}
+        frames!(&mut input.modeled_seeds);frames!(&mut input.assignment_seeds);frames!(&mut input.chain_arguments);
         for seed in &input.local_seeds {
             if !input.local_bindings.iter().any(|b|b.call_fact_id==seed.call_fact_id && b.callee_node_id==seed.callee_node_id) {
                 input.local_bindings.push(SourceCallBinding {call_fact_id:seed.call_fact_id,
@@ -1868,6 +1901,7 @@ mod tests {
     fn inputs() -> FiniteSummaryInputs {
         let always = Diagram::always();
         FiniteSummaryInputs {
+            model_frames:Vec::new(),
             identities: Vec::new(),
             diagrams: HashMap::from([(always.id(), always)]),
             boundaries: HashMap::new(),
@@ -1983,7 +2017,7 @@ mod tests {
     #[test]
     fn one_call_model_needs_a_separate_normal_source_read_witness() {
         let condition = Diagram::always().id();
-        let seed = CallEvidence {
+        let seed = CallEvidence {frame_exit_id:id(121),
             flow_fact_id: id(4), parameter_node_id: id(3),
             source_argument_fact_id: id(12), call_fact_id: id(20),
             pysa_fact_id: id(21), model_id: id(22), rule_id: id(23),
@@ -2017,11 +2051,10 @@ mod tests {
 
     #[test]
     fn modeled_chain_proof_is_depth_generic_source_ordered_and_conservative() {
-        fn row(step: u8, ordinal: i64) -> ModeledChainArgument {
-            let spans = [(10, 40, 20, 39), (20, 39, 30, 38), (30, 38, 35, 36)];
+        fn row(step: u8, ordinal: i64) -> ModeledChainArgument {            let spans = [(10, 40, 20, 39), (20, 39, 30, 38), (30, 38, 35, 36)];
             let (call_start, call_end, source_start, source_end) = spans[usize::from(step)];
             ModeledChainArgument {
-                snapshot_id: id(1), function_node_id: id(2), parameter_node_id: id(3),
+                frame_exit_id:id(121),                snapshot_id: id(1), function_node_id: id(2), parameter_node_id: id(3),
                 parameter_name: "value".to_owned(), source_flow_fact_id: id(4),
                 source_origin_id: id(9), condition_id: Diagram::always().id(),
                 step: i64::from(step), raw_step_count: 3,

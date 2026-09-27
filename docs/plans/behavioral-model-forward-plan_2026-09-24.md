@@ -18,13 +18,13 @@ integrated qualification is outstanding.**
 | Scope | State (2026-09-27) | Remaining boundary |
 |---|---|---|
 | L1/L1.5 conditions | **Partially implemented; focused tests passed.** Bounded BDD catalogs, exact entry-value links, literal string membership and non-bool integer equality, non-allocating decisions, effective support, cube factoring, restricted exact-input assessments with bounded link minimization, a ten-atom truth-table control and focused CPython literal lowering | Operation-wide compatibility; real-pilot W6 cost; W11's served round trips and Q09 |
-| L4 pinned models | **Implemented; focused tests passed.** Typed transfer/effect/callback/resource/exception assertions and exact source applications. `typing.cast`/`typing.assert_type` assert total normal return. A Pydantic `TypeAdapter.validate_python` potential transform is dormant | Pure/helper, I/O, async/context, pydantic and HTTP/server families; a dynamic-schema representation before any validation effect |
+| L4 pinned models | **Implemented; focused tests passed.** Typed transfer/effect/callback/resource/exception assertions and exact source applications. `typing.cast`/`typing.assert_type` have typed direct-return bodies; full completion additionally requires a bound-argument frame-release certificate. A Pydantic `TypeAdapter.validate_python` potential transform is dormant | Pure/helper, I/O, async/context, pydantic and HTTP/server families; a dynamic-schema representation before any validation effect |
 | L2 fates | **Implemented and Tested in focused cases.** Ordered expression/predecessor/frame completion, exact-TypeError handlers and re-raise, handler/else/finalizer entry, persisted exact exception identity and pinned nullcontext/suppress lifecycle completion | Broader default domains, named-handler cleanup, unmodeled contexts, broader entry-result domains, callback fate and resource pairing remain open |
 | L3 summaries | **Partially implemented; focused tests passed.** Direct, exact modeled, unique-assignment and local value paths retain ordered, origin-specific proofs. Normalized local arguments require every explicit evaluation and all fixed formal mappings, with certified defaults for immediate fresh nested calls, including a separate tracked-source read. Bounded nested closed expressions supply independently represented exact Boolean controls. The BDD kernel supports simultaneous substitution; the pure producer consumes multiple stable linked controls. SCC scheduling separates semantic progress and shorter-proof progress from retained witness alternatives in the bounded ADR-0053 value worklist. Real three-argument/reversed-keyword calls, missing/raising arguments and default expression depth/work caps reach Delta/native; source-level later-predicate identity remains unknown | General reads/calls/defaults/predecessor/frame completion; call-specific multi-control stability and residual conjunction; multi-channel semantic/witness state; effect/exception/role summaries; original W5/W7/W12 cap traces and channel discharge |
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 96; catalog format 6.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 97; catalog format 7.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -106,7 +106,7 @@ coverage, including complete empty escaping-exception domains under statement en
 generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
 source/Delta controls; immediate fresh nested calls now use availability/value/stability certificates. Shared callee proof admission replaces
 the independent native adjacency policy and preserves typed proof-limit refusals. FORMAT 9 now carries private/nested callable formals for control-proof closure without exposing
-private operations; full S6 remains open. Catalog format 6 requires authored model phases with independent identities and exact
+private operations; full S6 remains open. Catalog format 7 requires authored model phases with independent identities and exact
 provider-phase matching, and typed static/runtime/unresolved validation schema attribution distinct
 from the effect subject. Runtime schema candidates retain a separate source binding or an explicit
 reason; no production validation effect is activated. Extraction-only compilations leave behavioral
@@ -260,6 +260,21 @@ Explicit `open` retains its natural `summary_proof_limit`; symbolic-resource pos
 contract-only. Six generated runtime cases independently challenge entry/outcome/action distinctions
 ([evidence](../design_review/evidence/2026-09-27_normal-postconditions/README.md)). No native or
 assembled Stage 3 acceptance is claimed.
+
+**Frame-completion correction (Implemented and focused Tested, 2026-09-27; compiler97,
+ADR-0063).** Catalog7 replaces unqualified normal return with a typed direct-return body and a
+complete bound-argument release certificate. Closed values and caller-retained roots are distinct;
+class-body custom namespaces and omitted-default release remain withheld. Invocation and qualified
+Normal postconditions remain independent. Ordered operand/formal segments, original proof limits,
+and mandatory root/nested frame obligations survive direct/chain/assignment summaries and native
+serving, including raw identity paths. Shared publication reconstructs the source domain; native
+checks the committed body, structural/digest closure and dependency ordering. Full raw-signature,
+read-provenance and action closure remain S6. The 69-case release selection and refreshed 13-case
+Python native replay passed; an earlier replay correctly rejected its stale fixture. Ten generated
+CPython controls independently observe body return before cleanup and delayed caller continuation
+([evidence](../design_review/evidence/2026-09-27_frame-exit/README.md)); none is claimed as a
+compiler false-positive reproduction. Source/local-callee bodies must next reuse the completion
+kernel with separate closed release evidence; broader cleanup remains open.
 
 ### 3.1 Contract repairs before extension
 
@@ -485,6 +500,15 @@ Avoid: crepe, DDlog, cozo, differential-dataflow; LinkML, OWL/RDF stacks, taxono
 BERTopic or UMAP in the pipeline; rust-bert, ort, fastembed.
 
 ## 6. Findings disposition
+
+**Stage 3 channel review F17 — open.** Owner: schema model/frame contracts and analytics
+expression/completion, with finite-summary and native consumers. ADR-0063 records the accepted
+correction to unqualified pinned normal return. Its bounded compiler97 implementation and focused
+qualification are under follow-up review; require exact
+binding/release-domain mutation rejection, preserved invocation/postconditions, original proof
+bounds and root-certificate survival through Delta/native. Source review and ten independent
+runtime controls are in [review §31](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#31-source-review-callee-frame-cleanup-before-normal-completion).
+
 
 This table is the **single current disposition owner** for the findings below. Source reviews
 keep their dated evidence and link here; STATUS links here. Qualified ids name the source:

@@ -193,6 +193,9 @@ cpg_schema::relations! {
     stored_expression_evaluations = "validate_stored_expression_evaluations",
         deps = ["expression_evaluations"],
         sql = "SELECT * FROM expression_evaluations".to_owned();
+    stored_model_frames = "validate_model_frames", deps = ["model_frame_exits"], sql = "SELECT * FROM model_frame_exits".to_owned();
+    stored_model_frame_arguments = "validate_model_frame_arguments", deps = ["model_frame_exit_arguments"], sql = "SELECT * FROM model_frame_exit_arguments".to_owned();
+    stored_model_frame_steps = "validate_model_frame_steps", deps = ["model_frame_exit_steps"], sql = "SELECT * FROM model_frame_exit_steps".to_owned();
     stored_expression_steps = "validate_stored_expression_steps", deps = ["expression_evaluation_steps"],
         sql = "SELECT * FROM expression_evaluation_steps".to_owned();
     stored_modeled_argument_evaluations = "validate_stored_modeled_argument_evaluations",
@@ -1965,7 +1968,13 @@ async fn validate_expression_evaluations(ctx: &SessionContext) -> Result<Vec<Vio
     actual_steps.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id, row.ordinal));
     actual.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
     expected.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
-    if actual == expected && actual_steps == outcome.steps { return Ok(Vec::new()); }
+    let mut frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>=sql::fetch(ctx,&stored_model_frames(),sql::Params::new()).await?;
+    let mut frame_arguments:Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>=sql::fetch(ctx,&stored_model_frame_arguments(),sql::Params::new()).await?;
+    frames.sort_by_key(|r|r.frame_exit_id);
+    frame_arguments.sort_by_key(|r|(r.frame_exit_id,r.ordinal));
+    let mut frame_steps:Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow>=sql::fetch(ctx,&stored_model_frame_steps(),sql::Params::new()).await?;
+    frame_steps.sort_by_key(|r|(r.frame_exit_id,r.ordinal));
+    if actual == expected && actual_steps == outcome.steps && frames==outcome.frames && frame_arguments==outcome.frame_arguments && frame_steps==outcome.frame_steps { return Ok(Vec::new()); }
     Ok(vec![Violation {
         rule: "expression-source-equality".to_owned(),
         rows: actual.len().abs_diff(expected.len()).max(1),

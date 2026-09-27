@@ -26,6 +26,6 @@ phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
 candidate_set_complete_under_model: Boolean NOT NULL
 has_unresolved_remainder: Boolean NOT NULL
 target_count: Int64 NOT NULL
-target_normal_return: Boolean NOT NULL
+target_body_return_parameter: Utf8 NULL
 target_call_defaults_available: Boolean NOT NULL
 model_origin: Int16 NOT NULL [lctx.codebook=origin]

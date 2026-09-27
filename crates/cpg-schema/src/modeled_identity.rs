@@ -56,9 +56,9 @@ pub fn admits(r:&SourceModeledIdentitiesRow,function:Id,parameter:Id,source:Id,o
         && s.evidence_id==r.callee_resolution_fact_id).map(|(i,_)|i).collect();
     let [start]=starts.as_slice() else {return false;};
     let Some(group)=proof.get(*start..start.saturating_add(r.model_proof_count as usize)) else {return false;};
-    if group.len()<5 || group.iter().any(|s|s.condition_id!=condition)
-        || group[group.len()-3..].iter().map(|s|(s.kind,s.evidence_id)).collect::<Vec<_>>()
-            !=[(K::CallSite,r.call_fact_id),(K::CallTarget,r.pysa_fact_id),(K::ModelRule,r.rule_id)]
+    if group.len()<7 || group.iter().any(|s|s.condition_id!=condition)
+        || group[group.len()-5..].iter().map(|s|(s.kind,s.evidence_id)).collect::<Vec<_>>()
+            !=[(K::CallSite,r.call_fact_id),(K::CallTarget,r.pysa_fact_id),(K::ModelFrameExit,group[group.len()-3].evidence_id),(K::PrecedingCallNormal,r.model_id),(K::ModelRule,r.rule_id)]
         || proof.iter().filter(|s|s.kind==K::SourceModeledIdentity).count()!=1
         || group.iter().filter(|s|s.kind==K::SourceModeledIdentity && s.evidence_id==r.identity_id).count()!=1
         || group.iter().any(|s|s.kind==K::RawIdentity)

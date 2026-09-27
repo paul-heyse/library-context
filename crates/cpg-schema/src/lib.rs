@@ -5,6 +5,7 @@
 
 pub mod behavior;
 pub mod call_execution;
+pub mod frame_exit;
 pub mod bundle;
 pub mod codebook;
 pub mod column;

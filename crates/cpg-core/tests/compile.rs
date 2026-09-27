@@ -2147,7 +2147,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         callback_coverage: ModelChannelCoverage::Complete,
         resource_coverage: ModelChannelCoverage::Complete,
         exception_coverage: ModelChannelCoverage::Complete,
-        normal_return: true,
+        body_return_parameter: Some("val".into()),
         call_defaults_available: false,
         origin: Origin::SyntheticModel,
     }])
@@ -2377,12 +2377,22 @@ budget = 1
     assert_eq!(
         count(
             &ctx,
-            "SELECT count(*) FROM model_targets WHERE normal_return"
+            "SELECT count(*) FROM model_targets WHERE body_return_parameter IS NOT NULL"
         )
         .await,
         2,
-        "only the two pinned typing identity helpers assert total normal return"
+        "only the two pinned typing identity helpers assert the direct-return body"
     );
+    assert!(count(&ctx,"SELECT count(*) FROM model_frame_exits").await>0);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM model_frame_exits f JOIN declarations d \
+        ON d.node_id=f.function_node_id WHERE d.name='ClassBodyFrame'").await,0,
+        "class LOAD_NAME and custom prepared namespaces cannot borrow function retention");
+    let frames=sql::query(&ctx,"SELECT * FROM model_frame_exit_arguments").await.unwrap().into_view();
+    let empty=sql::query(&ctx,"SELECT * FROM model_frame_exit_arguments WHERE false").await.unwrap().into_view();
+    ctx.deregister_table("model_frame_exit_arguments").unwrap();ctx.register_table("model_frame_exit_arguments",empty).unwrap();
+    assert!(cpg_core::validate::validate(&ctx).await.unwrap().iter().any(|v|v.rule=="expression-source-equality"),
+        "removing the entire release domain must fail source reconstruction");
+    ctx.deregister_table("model_frame_exit_arguments").unwrap();ctx.register_table("model_frame_exit_arguments",frames).unwrap();
     let original_model_targets = sql::query(&ctx, "SELECT * FROM model_targets")
         .await
         .unwrap()
@@ -2403,7 +2413,7 @@ budget = 1
     ctx.register_table("model_targets",original_model_targets.clone()).unwrap();
     let forged_completion = sql::query(
         &ctx,
-        "SELECT * EXCLUDE (normal_return), false AS normal_return FROM model_targets",
+        "SELECT * EXCLUDE (body_return_parameter), CAST(NULL AS VARCHAR) AS body_return_parameter FROM model_targets",
     )
     .await
     .unwrap()
@@ -2814,7 +2824,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_transfer_sites").await,
-        30,
+        32,
         "the typing, JSON, gzip and atexit transfers apply to resolved source calls"
     );
     assert_eq!(
@@ -3394,7 +3404,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        35,
+        37,
         "each pinned model applies only at its resolved source call"
     );
     assert!(
@@ -3403,7 +3413,7 @@ budget = 1
             "SELECT count(*) FROM model_applications a \
              JOIN model_targets t ON t.model_id = a.model_id \
                AND t.target_node_id = a.target_node_id \
-             WHERE a.target_normal_return AND a.target_count = 1 \
+             WHERE a.target_body_return_parameter IS NOT NULL AND a.target_count = 1 \
                AND a.candidate_set_complete_under_model \
                AND NOT a.has_unresolved_remainder \
                AND t.target_key IN ('stdlib:3.14.7:typing.cast', \
@@ -3559,8 +3569,8 @@ budget = 1
         .into_view();
     let forged_completion = sql::query(
         &ctx,
-        "SELECT * EXCLUDE (target_normal_return), \
-         false AS target_normal_return FROM model_applications",
+        "SELECT * EXCLUDE (target_body_return_parameter), \
+         CAST(NULL AS VARCHAR) AS target_body_return_parameter FROM model_applications",
     )
     .await
     .unwrap()
@@ -5505,7 +5515,7 @@ async fn validation_schema_candidates_keep_attribution_separate_from_subjects() 
         model_id:id(8),target_module_fact_id:id(9),target_definition_fact_id:id(10),revision:1,
         target_modality:Modality::Definite,target_origin:Origin::SyntheticModel,phase:InvocationPhase::Call,
         candidate_set_complete_under_model:true,has_unresolved_remainder:false,target_count:1,
-        target_normal_return:false,target_call_defaults_available:false,model_origin:Origin::SyntheticModel};
+        target_body_return_parameter:None,target_call_defaults_available:false,model_origin:Origin::SyntheticModel};
     let model=ModelEffectsRow {snapshot_id:id(1),model_id:id(8),target_node_id:id(7),rule_id:id(11),
         target_definition_fact_id:id(10),revision:1,effect:ModelEffectKind::Validate,exit:cpg_schema::codebook::ModelExit::Normal,argument:None,
         schema_kind:Some(ModelSchemaKind::RuntimeValue),schema_class_node_id:None,schema_class_fact_id:None,

@@ -16,6 +16,8 @@ pub struct Inputs<'a> {
     pub resources:&'a [ModeledResourceSitesRow],pub applications:&'a [ModelApplicationsRow],
     pub executions:&'a [CallExecutionsRow],pub execution_steps:&'a [CallExecutionStepsRow],
     pub expressions:&'a [ExpressionEvaluationsRow],pub expression_steps:&'a [ExpressionEvaluationStepsRow],
+    pub frames:&'a [cpg_schema::frame_exit::ModelFrameExitsRow],
+    pub frame_arguments:&'a [cpg_schema::frame_exit::ModelFrameExitArgumentsRow],
 }
 
 fn unique_index<'a,T,K:Ord>(rows:&'a [T],key:impl Fn(&T)->K)->BTreeMap<K,Option<&'a T>> {
@@ -67,7 +69,7 @@ pub fn assess(inputs:Inputs<'_>)->Outcome {
         let support=Support {
             bindings:bindings.get(&(v.snapshot_id,v.call_site_node_id,v.pysa_fact_id,v.model_id,v.rule_id)).map(Vec::as_slice).unwrap_or_default(),
             arguments:arguments.get(&(v.snapshot_id,v.call_site_node_id)).map(Vec::as_slice).unwrap_or_default(),
-            application,execution,invocation_steps:&proof,normal,normal_steps};
+            application,execution,invocation_steps:&proof,normal,normal_steps,frames:inputs.frames,frame_arguments:inputs.frame_arguments};
         let refusal=if !ordered {Some(BoundaryReason::MissingEvidence)}
             else {admit(&row,candidate,&support).err().map(|e|e.reason)};
         if let Some(reason)=refusal {
@@ -103,26 +105,44 @@ mod tests {
     struct Case {
         effect:ModeledEffectSitesRow,app:ModelApplicationsRow,execution:CallExecutionsRow,
         steps:Vec<CallExecutionStepsRow>,normal:ExpressionEvaluationsRow,normal_steps:Vec<ExpressionEvaluationStepsRow>,
+        frame:cpg_schema::frame_exit::ModelFrameExitsRow,frame_arguments:Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>,
+        arguments:Vec<cpg_schema::tables::ArgumentsRow>,
     }
     impl Case {
         fn new()->Self {
             let condition=cpg_schema::condition_kernel::Diagram::always().id();
             let proof:Vec<_>=[(K::ModuleImportBinding,id(20)),(K::ModuleImportRegion,id(21)),(K::CalleeResolution,id(22)),
+                (K::ExpressionSyntax,id(33)),(K::ParameterBinding,id(34)),
                 (K::CallSite,id(5)),(K::CallTarget,id(6)),(K::ModelInvocation,id(8))].into_iter()
                 .map(|(kind,evidence_id)|SummaryFlowProofStep {kind,evidence_id,condition_id:condition}).collect();
             let mut execution=CallExecutionsRow {snapshot_id:id(1),execution_id:Id::ZERO,function_node_id:id(4),
                 call_node_id:id(2),call_fact_id:id(5),syntax_fact_id:id(12),target_node_id:id(7),pysa_fact_id:id(6),
-                model_id:id(8),condition_id:condition,phase:InvocationPhase::Call,argument_count:0,default_formal_count:Some(0),
+                model_id:id(8),condition_id:condition,phase:InvocationPhase::Call,argument_count:1,default_formal_count:Some(0),
                 default_formals_digest:Some(cpg_schema::call_execution::defaults_digest(&[])),prefix_count:0,
-                invocation_count:6,prefix_digest:proof_digest(&[]),invocation_digest:proof_digest(&proof),reason:None,work:1};
+                invocation_count:8,prefix_digest:proof_digest(&[]),invocation_digest:proof_digest(&proof),reason:None,work:1};
             execution.execution_id=cpg_schema::call_execution::identity(&execution);
             let steps=proof.iter().enumerate().map(|(i,s)|CallExecutionStepsRow {snapshot_id:id(1),
                 execution_id:execution.execution_id,ordinal:i as i64,kind:s.kind,evidence_id:s.evidence_id,condition_id:condition}).collect();
-            let normal_steps=proof[..5].iter().map(|s|(s.kind,s.evidence_id,E::CalleeEntryNormal))
-                .chain([(K::PrecedingCallNormal,id(8),E::PinnedCallNormal),(K::ExpressionSyntax,id(12),E::PinnedCallNormal)])
-                .enumerate().map(|(i,(kind,evidence_id,status))|ExpressionEvaluationStepsRow {snapshot_id:id(1),
-                    syntax_fact_id:id(12),ordinal:i as i64,operand_fact_id:id(12),evidence_id,status,kind}).collect();
+            let mut normal_steps:Vec<_>=proof[..7].iter().enumerate().map(|(i,s)|ExpressionEvaluationStepsRow {
+                snapshot_id:id(1),syntax_fact_id:id(12),ordinal:i as i64,operand_fact_id:if matches!(i,3|4){id(33)}else{id(12)},
+                evidence_id:s.evidence_id,status:E::CalleeEntryNormal,kind:s.kind}).collect();
+            let mut frame_arguments=vec![cpg_schema::frame_exit::ModelFrameExitArgumentsRow {snapshot_id:id(1),frame_exit_id:Id::ZERO,
+                ordinal:0,argument_fact_id:id(32),expression_fact_id:id(33),safety:cpg_schema::codebook::ReleaseSafety::Closed,
+                parameter_name:"val".into(),expression_offset:3,expression_count:1,
+                expression_digest:cpg_schema::frame_exit::steps_digest(&normal_steps[3..4]),parameters_digest:cpg_schema::frame_exit::parameters_digest(&[id(34)])}];
+            let mut frame=cpg_schema::frame_exit::ModelFrameExitsRow {snapshot_id:id(1),frame_exit_id:Id::ZERO,
+                function_node_id:id(4),call_node_id:id(2),call_fact_id:id(5),syntax_fact_id:id(12),target_node_id:id(7),pysa_fact_id:id(6),model_id:id(8),
+                return_parameter:"val".into(),return_argument_fact_id:id(32),argument_count:1,signature_count:1,
+                arguments_digest:cpg_schema::frame_exit::arguments_digest(&frame_arguments),invocation_count:7,
+                invocation_digest:cpg_schema::frame_exit::steps_digest(&normal_steps)};
+            frame.frame_exit_id=cpg_schema::frame_exit::identity(&frame);frame_arguments[0].frame_exit_id=frame.frame_exit_id;
+            for(kind,evidence_id)in [(K::ModelFrameExit,frame.frame_exit_id),(K::PrecedingCallNormal,id(8)),(K::ExpressionSyntax,id(12))] {
+                normal_steps.push(ExpressionEvaluationStepsRow {snapshot_id:id(1),syntax_fact_id:id(12),ordinal:normal_steps.len() as i64,
+                    operand_fact_id:id(12),evidence_id,status:E::PinnedCallNormal,kind});
+            }
             Self {
+                arguments:vec![cpg_schema::tables::ArgumentsRow {snapshot_id:id(1),fact_id:id(32),node_id:id(31),call_node_id:id(2),ordinal:0,
+                    kind:cpg_schema::codebook::ArgumentKind::Positional,keyword:None,start_byte:1,end_byte:2,value_start_byte:1,value_end_byte:2}],
                 effect:ModeledEffectSitesRow {snapshot_id:id(1),call_site_node_id:id(2),function_node_id:Some(id(4)),
                     call_fact_id:id(5),pysa_fact_id:id(6),target_node_id:id(7),model_id:id(8),rule_id:id(9),
                     target_definition_fact_id:id(10),effect:ModelEffectKind::IoWrite,exit:ModelExit::Invocation,
@@ -135,37 +155,37 @@ mod tests {
                     call_fact_id:id(5),pysa_fact_id:id(6),target_node_id:id(7),model_id:id(8),target_module_fact_id:id(11),
                     target_definition_fact_id:id(10),revision:1,target_modality:Modality::Definite,target_origin:Origin::SyntheticModel,
                     phase:InvocationPhase::Call,candidate_set_complete_under_model:true,has_unresolved_remainder:false,target_count:1,
-                    target_normal_return:true,target_call_defaults_available:false,model_origin:Origin::SyntheticModel},
-                execution,steps,normal_steps,
-                normal:ExpressionEvaluationsRow {snapshot_id:id(1),syntax_fact_id:id(12),normal:true,boolean_value:None,
+                    target_body_return_parameter:Some("val".into()),target_call_defaults_available:false,model_origin:Origin::SyntheticModel},
+                execution,steps,normal_steps,frame,frame_arguments,
+                normal:ExpressionEvaluationsRow {snapshot_id:id(1),syntax_fact_id:id(12),normal:true,boolean_value:None,release_safety:cpg_schema::codebook::ReleaseSafety::Closed,
                     status:E::PinnedCallNormal,evidence_id:Some(id(12)),reason:None,work:1},
             }
         }
         fn assess(&self)->ModeledActionAssessmentsRow {
             let mut rows=assess(Inputs {effects:std::slice::from_ref(&self.effect),applications:std::slice::from_ref(&self.app),
                 executions:std::slice::from_ref(&self.execution),execution_steps:&self.steps,expressions:std::slice::from_ref(&self.normal),
-                expression_steps:&self.normal_steps,..Default::default()}).assessments;
+                arguments:&self.arguments,expression_steps:&self.normal_steps,frames:std::slice::from_ref(&self.frame),frame_arguments:&self.frame_arguments,..Default::default()}).assessments;
             assert_eq!(rows.len(),1);rows.pop().unwrap()
         }
         fn admits(&self,row:&ModeledActionAssessmentsRow)->bool {
             let proof:Vec<_>=self.steps.iter().map(|s|SummaryFlowProofStep {kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
-            admit(row,Candidate::Effect(&self.effect),&Support {bindings:&[],arguments:&[],application:Some(&self.app),execution:Some(&self.execution),
-                invocation_steps:&proof,normal:Some(&self.normal),normal_steps:&self.normal_steps}).is_ok()
+            admit(row,Candidate::Effect(&self.effect),&Support {bindings:&[],arguments:&self.arguments,application:Some(&self.app),execution:Some(&self.execution),
+                invocation_steps:&proof,normal:Some(&self.normal),normal_steps:&self.normal_steps,frames:std::slice::from_ref(&self.frame),frame_arguments:&self.frame_arguments}).is_ok()
         }
         fn postcondition(&self)->ModeledActionPostconditionsRow {
             let mut out=assess(Inputs {effects:std::slice::from_ref(&self.effect),applications:std::slice::from_ref(&self.app),
-                executions:std::slice::from_ref(&self.execution),execution_steps:&self.steps,..Default::default()});
+                executions:std::slice::from_ref(&self.execution),execution_steps:&self.steps,arguments:&self.arguments,..Default::default()});
             assert_eq!(out.postconditions.len(),1);out.postconditions.pop().unwrap()
         }
         fn admits_postcondition(&self,row:&ModeledActionPostconditionsRow)->bool {
             let proof:Vec<_>=self.steps.iter().map(|s|SummaryFlowProofStep {kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
-            admit_postcondition(row,Candidate::Effect(&self.effect),&Support {bindings:&[],arguments:&[],application:Some(&self.app),
-                execution:Some(&self.execution),invocation_steps:&proof,normal:None,normal_steps:&[]}).is_ok()
+            admit_postcondition(row,Candidate::Effect(&self.effect),&Support {bindings:&[],arguments:&self.arguments,application:Some(&self.app),
+                execution:Some(&self.execution),invocation_steps:&proof,normal:None,normal_steps:&[],frames:&[],frame_arguments:&[]}).is_ok()
         }
     }
     #[test]
     fn normal_postconditions_preserve_the_obligation_without_activating_fallible_actions() {
-        let mut c=Case::new();c.effect.exit=ModelExit::Normal;c.app.target_normal_return=false;
+        let mut c=Case::new();c.effect.exit=ModelExit::Normal;c.app.target_body_return_parameter=None;
         c.normal.normal=false;c.normal.reason=Some(BoundaryReason::UnsupportedControlFlow);c.normal_steps.clear();
         let good=c.postcondition();assert_eq!(good.reason,None);assert!(c.admits_postcondition(&good));
         assert_eq!(c.assess().reason,Some(BoundaryReason::ActionTriggerUnavailable));
@@ -199,7 +219,7 @@ mod tests {
                 5=>r.has_unresolved_remainder=true,6=>r.source_reason=Some(BoundaryReason::MissingEvidence),
                 7=>r.model_modality=Modality::Candidate,_=>{}}
             let out=assess(Inputs {resources:&[r],applications:std::slice::from_ref(&c.app),
-                executions:std::slice::from_ref(&c.execution),execution_steps:&c.steps,..Default::default()});
+                executions:std::slice::from_ref(&c.execution),execution_steps:&c.steps,arguments:&c.arguments,..Default::default()});
             assert_eq!(out.postconditions[0].reason.is_none(),mutation==0,"mutation {mutation}");
             assert!(out.assessments[0].reason.is_some(),"a symbolic endpoint never proves an acquired resource");
         }
@@ -207,7 +227,7 @@ mod tests {
 
     #[test]
     fn normal_postconditions_preserve_the_original_invocation_proof_cap() {
-        for prefix_count in [58,59] {
+        for prefix_count in [56,57] {
             let mut c=Case::new();c.effect.exit=ModelExit::Normal;
             let prefix:Vec<_>=(0..prefix_count).map(|_|SummaryFlowProofStep {
                 kind:K::CompletionStatement,evidence_id:id(80),condition_id:c.execution.condition_id}).collect();
@@ -217,7 +237,7 @@ mod tests {
             c.execution.execution_id=cpg_schema::call_execution::identity(&c.execution);
             for(i,s)in steps.iter_mut().enumerate(){s.ordinal=i as i64;s.execution_id=c.execution.execution_id;}
             c.steps=steps;
-            assert_eq!(c.postcondition().reason.is_none(),prefix_count==58);
+            assert_eq!(c.postcondition().reason.is_none(),prefix_count==56);
         }
     }
     #[test]
@@ -311,7 +331,7 @@ mod tests {
     }
     #[test]
     fn normal_action_composition_keeps_the_original_64_step_cap() {
-        for prefix_count in [57,58] {
+        for prefix_count in [54,55] {
             let mut c=Case::new();c.effect.exit=ModelExit::Normal;
             let prefix:Vec<_>=(0..prefix_count).map(|_|SummaryFlowProofStep {
                 kind:K::CompletionStatement,evidence_id:id(80),condition_id:c.execution.condition_id}).collect();
@@ -322,7 +342,7 @@ mod tests {
             c.execution.execution_id=cpg_schema::call_execution::identity(&c.execution);
             for(i,s)in steps.iter_mut().enumerate(){s.ordinal=i as i64;s.execution_id=c.execution.execution_id;}
             c.steps=steps;
-            assert_eq!(c.assess().reason,if prefix_count==57 {None} else {Some(BoundaryReason::SummaryProofLimit)});
+            assert_eq!(c.assess().reason,if prefix_count==54 {None} else {Some(BoundaryReason::SummaryProofLimit)});
         }
     }
 

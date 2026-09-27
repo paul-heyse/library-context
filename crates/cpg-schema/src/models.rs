@@ -21,7 +21,7 @@ use crate::codebook::{
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
-pub const FORMAT: u32 = 6;
+pub const FORMAT: u32 = 7;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -41,15 +41,25 @@ pub struct Model {
     /// Different phases of the same callable may have different channel contracts.
     pub phase: Phase,
     pub coverage: Channels,
-    /// Authored assertion that the pinned callable itself always completes normally after
-    /// argument evaluation. This is separate from transfer modality and call-site dispatch.
+    /// Exact body domain. Frame release and caller continuation require a separate proof.
     #[serde(default)]
-    pub normal_return: bool,
+    pub normal_body: Option<NormalBody>,
     /// Every omitted optional fixed formal has an already-created runtime default under
     /// this exact pinned implementation. No default value or normal outcome is promised.
     #[serde(default)]
     pub call_defaults_available: bool,
     pub rules: Vec<Rule>,
+}
+
+/// The complete pinned body directly returns this parameter, creates no other roots and
+/// runs no user code (including implicit releases) that can invalidate caller retainers.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum NormalBody {
+    DirectReturnParameter { name: String },
+}
+impl NormalBody {
+    pub fn parameter(&self) -> &str {match self {Self::DirectReturnParameter {name}=>name}}
 }
 
 /// A pinned runtime class assertion. Constructor roles retain their own identities and phases;
@@ -729,7 +739,7 @@ impl Catalog {
                 rule.validate()?;
                 model.coverage.validate_rule(rule)?;
             }
-            if model.normal_return
+            if model.normal_body.is_some()
                 && (model.coverage.exceptions != ChannelCoverage::Complete
                     || model
                         .rules
@@ -737,9 +747,14 @@ impl Catalog {
                         .any(|rule| matches!(rule, Rule::Exception { .. })))
             {
                 return Err(format!(
-                    "{}: normal_return requires complete no-exception coverage",
+                    "{}: body_return_parameter requires complete no-exception coverage",
                     model.target.key()
                 ));
+            }
+            if let Some(body)=&model.normal_body {
+                if model.phase!=Phase::Call || body.parameter().is_empty() || !body.parameter().chars().all(|c|c=='_' || c.is_alphanumeric()) {
+                    return Err("normal body needs an exact parameter name".into());
+                }
             }
             let key = model.target.key();
             if !seen.insert((key.clone(),model.phase)) {
@@ -809,9 +824,9 @@ impl Catalog {
         for compiled in &self.models {
             let target = &compiled.model.target;
             for (module,definition) in target.bindings(contexts,modules,definitions)? {
-                    if (compiled.model.normal_return || compiled.model.call_defaults_available) && definition.kind != DefinitionKind::Function {
+                    if (compiled.model.normal_body.is_some() || compiled.model.call_defaults_available) && definition.kind != DefinitionKind::Function {
                         return Err(format!(
-                            "{}: normal_return/default availability requires a function target",
+                            "{}: body_return_parameter/default availability requires a function target",
                             target.key()
                         ));
                     }
@@ -829,7 +844,7 @@ impl Catalog {
                         callback_coverage: compiled.model.coverage.callbacks.codebook(),
                         resource_coverage: compiled.model.coverage.resources.codebook(),
                         exception_coverage: compiled.model.coverage.exceptions.codebook(),
-                        normal_return: compiled.model.normal_return,
+                        body_return_parameter: compiled.model.normal_body.as_ref().map(|b|b.parameter().to_owned()),
                         call_defaults_available: compiled.model.call_defaults_available,
                         origin: Origin::SyntheticModel,
                     };
@@ -1229,7 +1244,7 @@ mod tests {
         assert_eq!(bound.len(), 1);
         assert_eq!(bound[0].target_node_id, definition.symbol_node_id);
         assert_eq!(bound[0].target_definition_fact_id, definition.fact_id);
-        assert!(bound[0].normal_return);
+        assert_eq!(bound[0].body_return_parameter.as_deref(), Some("val"));
         assert_eq!(bound[0].phase,InvocationPhase::Call);
         assert_eq!(bound[0].origin, Origin::SyntheticModel);
         let class_definition = ContextDefinitionsRow {
@@ -1278,7 +1293,7 @@ mod tests {
         );
         // Contract-only catalog controls: these authored rules are never production models
         // for typing.cast. Reuse the pinned signature to challenge schema binding independently.
-        let header = r#"version = 6
+        let header = r#"version = 7
 [[models]]
 phase = "call"
 revision = 1
@@ -1388,7 +1403,7 @@ modality = "potential"
             .unwrap()
             .model;
         assert_eq!(model.target.key(), "stdlib:3.14.7:typing.cast");
-        assert!(model.normal_return);
+        assert!(model.normal_body.is_some());
         let Rule::Transfer {
             from,
             to,
@@ -1416,7 +1431,7 @@ modality = "potential"
                 .unwrap()
                 .model;
             assert!(
-                !added.normal_return,
+                added.normal_body.is_none(),
                 "fallible {target} cannot assert total completion"
             );
             assert!(
@@ -1436,7 +1451,7 @@ modality = "potential"
             .find(|m| m.model.target.key() == "stdlib:3.14.7:logging.Logger.warning")
             .unwrap()
             .model;
-        assert!(!logging.normal_return);
+        assert!(logging.normal_body.is_none());
         assert!(logging.rules.iter().any(|rule| matches!(rule,
             Rule::Effect {
                 effect: Effect::Log,
@@ -1521,7 +1536,7 @@ modality = "potential"
 
     #[test]
     fn conversion_needs_a_target_and_resource_cannot_be_a_raise_path() {
-        let header = r#"version = 6
+        let header = r#"version = 7
 [[models]]
 phase = "call"
 revision = 1
@@ -1561,13 +1576,13 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
     }
 
     #[test]
-    fn normal_return_requires_complete_exception_coverage_without_exception_rules() {
-        let header = r#"version = 6
+    fn body_return_parameter_requires_complete_exception_coverage_without_exception_rules() {
+        let header = r#"version = 7
 [[models]]
 phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
-normal_return = true
+normal_body = { kind = "direct_return_parameter", name = "val" }
 coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "partial" }
 [[models.rules]]
 kind = "transfer"
@@ -1602,7 +1617,7 @@ modality = "definite"
             )
             .is_err()
         );
-        let second = valid.trim_start_matches("version = 6").trim();
+        let second = valid.trim_start_matches("version = 7").trim();
         assert!(Catalog::parse("bad.toml", &format!("{valid}\n{second}\n")).is_err());
     }
 
@@ -1622,16 +1637,16 @@ modality = "definite"
         assert!(Catalog::parse("missing.toml",&original.replace("phase = \"call\"\n","")).is_err());
         assert!(Catalog::parse("unknown.toml",&original.replace("phase = \"call\"","phase = \"later\"")).is_err());
         let first=original.split("# Python 3.14 typing.assert_type").next().unwrap();
-        let init=first.trim_start_matches("version = 6").replace("phase = \"call\"","phase = \"init\"")
-            .replace("normal_return = true","normal_return = false")
+        let init=first.trim_start_matches("version = 7").replace("phase = \"call\"","phase = \"init\"")
+            .replace(r#"normal_body = { kind = "direct_return_parameter", name = "val" }"#, "")
             .replace("exceptions = \"complete\"","exceptions = \"partial\"");
         let catalog=Catalog::parse("phases.toml",&format!("{first}\n{init}")).unwrap();
         assert_eq!(catalog.models.len(),2);
         assert_eq!(catalog.models[0].model.phase,Phase::Call);
         assert_eq!(catalog.models[1].model.phase,Phase::Init);
-        assert!(catalog.models[0].model.normal_return);
-        assert!(!catalog.models[1].model.normal_return);
+        assert!(catalog.models[0].model.normal_body.is_some());
+        assert!(catalog.models[1].model.normal_body.is_none());
         assert_ne!(catalog.models[0].model_id,catalog.models[1].model_id);
-        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 6"))).is_err());
+        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 7"))).is_err());
     }
 }

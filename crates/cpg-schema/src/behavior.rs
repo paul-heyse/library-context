@@ -142,7 +142,7 @@ table!(
         target_count: i64,
         /// The selected pinned model target asserts normal return after argument evaluation;
         /// this alone does not establish completion of this source call.
-        target_normal_return: bool,
+        target_body_return_parameter: Option<String>,
         target_call_defaults_available: bool,
         model_origin: Origin,
     }
@@ -723,7 +723,7 @@ table!(
         exception_coverage: ModelChannelCoverage,
         /// A pinned authored claim of total normal completion after argument evaluation;
         /// absence remains unknown. It never resolves call-site dispatch by itself.
-        normal_return: bool,
+        body_return_parameter: Option<String>,
         call_defaults_available: bool,
         origin: Origin,
     }
@@ -853,6 +853,8 @@ table!(
         snapshot_id: Id,
         syntax_fact_id: Id,
         normal: bool,
+        /// CallerRetained is qualified only over an effect-free evaluation/body window.
+        release_safety: crate::codebook::ReleaseSafety,
         boolean_value: Option<bool>,
         status: ModeledArgumentEvaluationStatus,
         evidence_id: Option<Id>,
@@ -1930,7 +1932,11 @@ pub fn expression_reads_sql() -> String {
           LEFT JOIN local_name_candidates r ON r.argument_fact_id = n.fact_id \
           LEFT JOIN lexical_parameter_candidates lp ON lp.argument_fact_id = n.fact_id \
           WHERE n.kind = {name_expr} \
-        ) SELECT snapshot_id, syntax_fact_id, evidence_id, status FROM reads WHERE evidence_id IS NOT NULL",
+        ) SELECT reads.snapshot_id, reads.syntax_fact_id, reads.evidence_id, reads.status FROM reads \
+          JOIN syntax_nodes source ON source.fact_id=reads.syntax_fact_id \
+          JOIN declarations owner ON owner.node_id=source.owner_node_id AND owner.kind={function_declaration} \
+          WHERE reads.evidence_id IS NOT NULL",
+        function_declaration=DeclarationKind::Function.code(),
         name_expr = SyntaxKind::ExprName.code(),
         builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
         parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
@@ -1999,10 +2005,12 @@ fn normal_call_candidates_sql() -> String {
 pub fn pinned_call_targets_sql() -> String {
     format!("WITH {candidates} \
       SELECT a.snapshot_id, c.node_id AS call_node_id, a.call_fact_id, a.target_node_id, \
-        d.signature_count, a.target_normal_return AS normal_return, a.target_call_defaults_available AS call_defaults_available, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
+        d.signature_count, a.target_body_return_parameter AS body_return_parameter, \
+        owner.kind={function_kind} AS caller_function_scope, a.target_call_defaults_available AS call_defaults_available, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
         mi.import_binding_fact_id, mi.import_region_fact_id, mi.import_condition_id, \
         c.positional_count + c.keyword_count AS argument_count \
       FROM counted a JOIN call_syntax c ON c.node_id = a.call_site_node_id \
+      JOIN declarations owner ON owner.node_id=c.owner_node_id \
       JOIN context_definitions d ON d.fact_id = a.target_definition_fact_id \
       JOIN callee_candidates cc ON cc.call_node_id = c.node_id AND cc.candidate_count = 1 \
       JOIN module_imports mi ON mi.call_node_id = c.node_id AND mi.resolution_fact_id = cc.resolution_fact_id \
@@ -2011,7 +2019,7 @@ pub fn pinned_call_targets_sql() -> String {
         AND a.target_modality = {definite} AND a.phase = {call_phase} \
         AND a.target_count = 1 AND a.candidate_set_complete_under_model \
         AND NOT a.has_unresolved_remainder AND d.signature_count BETWEEN 1 AND 128",
-        candidates = normal_call_candidates_sql(), definite = Modality::Definite.code(),
+        function_kind=DeclarationKind::Function.code(),candidates = normal_call_candidates_sql(), definite = Modality::Definite.code(),
         call_phase = InvocationPhase::Call.code())
 }
 
@@ -2048,7 +2056,7 @@ crate::relations! {
                     m.target_module_fact_id, m.target_definition_fact_id, m.revision, \
                     f.modality AS target_modality, f.origin AS target_origin, p.phase, \
                     r.candidate_set_complete_under_model, r.has_unresolved_remainder, \
-                    r.target_count, m.normal_return AS target_normal_return, m.call_defaults_available AS target_call_defaults_available, \
+                    r.target_count, m.body_return_parameter AS target_body_return_parameter, m.call_defaults_available AS target_call_defaults_available, \
                     m.origin AS model_origin \
              FROM call_targets t \
              JOIN model_targets m ON m.target_node_id = t.target_node_id \
@@ -2509,7 +2517,7 @@ crate::relations! {
     /// This relation selects attributed source/model facts; the bounded kernel and ordered
     /// argument-evaluation proof still decide admission in `cpg-core::summaries`.
     modeled_summary_flow_seeds = "behavior:modeled_summary_flow_seeds",
-        deps = ["expression_evaluations", "modeled_exact_value_transfers", "model_applications", "model_transfers",
+        deps = ["expression_evaluations", "model_frame_exits", "modeled_exact_value_transfers", "model_applications", "model_transfers",
                 "call_syntax", "syntax_nodes", "references", "reference_resolutions",
                 "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses", "flow_values"],
         sql = format!(
@@ -2519,7 +2527,7 @@ crate::relations! {
                     m.source_origin_id, \
                     m.condition_id, m.call_fact_id, \
                     m.argument_fact_id AS source_argument_fact_id, m.pysa_fact_id, \
-                    m.model_id, m.rule_id, cc.resolution_fact_id AS callee_resolution_fact_id, \
+                    m.model_id, m.rule_id, cc.resolution_fact_id AS callee_resolution_fact_id, frame.frame_exit_id, \
                     c.positional_count + c.keyword_count AS argument_count, \
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
@@ -2537,6 +2545,7 @@ crate::relations! {
                AND completed_node.module_node_id = c.module_node_id \
              JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
                AND completed.normal \
+             JOIN model_frame_exits frame ON frame.syntax_fact_id = completed.syntax_fact_id \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN parameter_syntax p ON p.node_id = m.parameter_node_id \
@@ -2554,7 +2563,7 @@ crate::relations! {
              WHERE m.sink = {return_sink} AND m.transfer = {identity} \
                AND m.target_modality = {definite} AND m.model_modality = {definite} \
                AND m.candidate_set_complete_under_model AND NOT m.has_unresolved_remainder \
-               AND a.target_count = 1 AND a.target_normal_return \
+               AND a.target_count = 1 AND a.target_body_return_parameter IS NOT NULL \
                AND a.phase = {call_phase} \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
@@ -2575,7 +2584,7 @@ crate::relations! {
     /// Every raw step must qualify independently; the pure finite producer checks dense
     /// nesting and argument order before it composes a path. A missing row is never normal.
     modeled_chain_arguments = "behavior:modeled_chain_arguments",
-        deps = ["expression_evaluations", "value_flow_contributions", "flow_values", "flow_value_calls",
+        deps = ["expression_evaluations", "model_frame_exits", "value_flow_contributions", "flow_values", "flow_value_calls",
                 "flow_value_call_links", "call_syntax", "arguments", "modeled_transfer_sites",
                 "model_applications", "syntax_nodes", "references", "reference_resolutions",
                 "parameter_syntax", "declarations", "exit_sites", "return_exit_statuses",
@@ -2598,7 +2607,7 @@ crate::relations! {
                     source_arg.value_start_byte AS source_value_start_byte, \
                     source_arg.value_end_byte AS source_value_end_byte, \
                     m.pysa_fact_id, m.model_id, m.rule_id, \
-                    cc.resolution_fact_id AS callee_resolution_fact_id, \
+                    cc.resolution_fact_id AS callee_resolution_fact_id, frame.frame_exit_id, \
                     c.positional_count + c.keyword_count AS argument_count, \
                     arg.ordinal AS argument_ordinal, arg.fact_id AS argument_fact_id, \
                     s.status AS evaluation_status, s.evidence_id AS evaluation_evidence_id, \
@@ -2630,6 +2639,7 @@ crate::relations! {
                AND completed_node.module_node_id = c.module_node_id \
              JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
                AND completed.normal \
+             JOIN model_frame_exits frame ON frame.syntax_fact_id = completed.syntax_fact_id \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN arguments arg ON arg.call_node_id = c.node_id \
@@ -2651,7 +2661,7 @@ crate::relations! {
                AND m.transfer = {identity} AND m.target_modality = {definite} \
                AND m.model_modality = {definite} \
                AND app.target_count = 1 AND app.candidate_set_complete_under_model \
-               AND NOT app.has_unresolved_remainder AND app.target_normal_return \
+               AND NOT app.has_unresolved_remainder AND app.target_body_return_parameter IS NOT NULL \
                AND app.phase = {call_phase} \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y WHERE y.owner_node_id = d.node_id \
                  AND y.kind IN ({yield_kind}, {yield_from_kind}))",
@@ -2677,7 +2687,7 @@ crate::relations! {
     /// exactly one provider reaching row, and the independent predecessor compatibility check
     /// must admit it. The kernel still verifies all four condition implications at admission.
     modeled_assignment_summary_flow_seeds = "behavior:modeled_assignment_summary_flow_seeds",
-        deps = ["expression_evaluations", "modeled_assignment_return_paths", "modeled_exact_value_transfers",
+        deps = ["expression_evaluations", "model_frame_exits", "modeled_assignment_return_paths", "modeled_exact_value_transfers",
                 "value_flow_contributions",
                 "model_applications", "model_transfers", "call_syntax", "references",
                 "reference_resolutions", "parameter_syntax", "declarations",
@@ -2694,7 +2704,7 @@ crate::relations! {
                     q.reaching_condition_id, q.successor_condition_id, \
                     m.argument_fact_id AS source_argument_fact_id, m.call_fact_id, \
                     q.pysa_fact_id, q.model_id, q.rule_id, \
-                    cc.resolution_fact_id AS callee_resolution_fact_id, \
+                    cc.resolution_fact_id AS callee_resolution_fact_id, frame.frame_exit_id, \
                     c.positional_count + c.keyword_count AS argument_count, \
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
@@ -2725,6 +2735,7 @@ crate::relations! {
                AND completed_node.module_node_id = c.module_node_id \
              JOIN expression_evaluations completed ON completed.syntax_fact_id = completed_node.fact_id \
                AND completed.normal \
+             JOIN model_frame_exits frame ON frame.syntax_fact_id = completed.syntax_fact_id \
              JOIN callee_candidates cc ON cc.call_node_id = c.node_id \
                AND cc.candidate_count = 1 \
              JOIN parameter_syntax p ON p.node_id = q.parameter_node_id \
@@ -2747,7 +2758,7 @@ crate::relations! {
                AND q.transfer = {identity} AND q.target_modality = {definite} \
                AND q.model_modality = {definite} \
                AND q.candidate_set_complete_under_model AND NOT q.has_unresolved_remainder \
-               AND a.target_count = 1 AND a.target_normal_return \
+               AND a.target_count = 1 AND a.target_body_return_parameter IS NOT NULL \
                AND a.phase = {call_phase} \
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \

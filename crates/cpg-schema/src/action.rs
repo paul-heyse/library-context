@@ -235,6 +235,8 @@ pub struct Support<'a> {
     pub invocation_steps:&'a [SummaryFlowProofStep],
     pub normal:Option<&'a ExpressionEvaluationsRow>,
     pub normal_steps:&'a [ExpressionEvaluationStepsRow],
+    pub frames:&'a [crate::frame_exit::ModelFrameExitsRow],
+    pub frame_arguments:&'a [crate::frame_exit::ModelFrameExitArgumentsRow],
 }
 
 /// Shared structural closure. Source publication also reconstructs the candidates, callee,
@@ -272,7 +274,7 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
                 Some(B::ExpressionDepthLimit)=>B::ExpressionDepthLimit,Some(B::ExpressionWorkLimit)=>B::ExpressionWorkLimit,
                 _=>B::ActionTriggerUnavailable},message:"callee normal outcome unresolved"});}
             if n.snapshot_id!=e.snapshot_id || n.syntax_fact_id!=e.syntax_fact_id || n.status!=E::PinnedCallNormal
-                || n.reason.is_some() || n.evidence_id!=Some(e.syntax_fact_id) || !app.target_normal_return
+                || n.reason.is_some() || n.evidence_id!=Some(e.syntax_fact_id) || app.target_body_return_parameter.is_none()
                 || r.normal_syntax_fact_id!=Some(e.syntax_fact_id) || r.normal_step_count as usize!=support.normal_steps.len()
                 || r.normal_steps_digest!=normal_digest(support.normal_steps) {
                 return Err("action normal outcome differs from this callee".into());
@@ -280,15 +282,32 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
             let invoke=&support.invocation_steps[e.prefix_count as usize..];
             let base=&invoke[..invoke.len()-1]; // Exclude entry marker; normal proof adds its own outcome.
             let steps=support.normal_steps;
-            if steps.len()<base.len()+2 || steps.len()>base.len()+3
+            if steps.len()<base.len()+3 || steps.len()>base.len()+4
                 || steps.iter().enumerate().any(|(i,s)|s.snapshot_id!=e.snapshot_id || s.syntax_fact_id!=e.syntax_fact_id || s.ordinal!=i as i64)
                 || base.iter().zip(steps).any(|(a,b)|a.kind!=b.kind || a.evidence_id!=b.evidence_id) {
                 return Err("normal proof does not extend this invocation".into());
             }
             let tail=&steps[base.len()..];
-            if (tail[0].kind,tail[0].evidence_id)!=(K::PrecedingCallNormal,e.model_id)
+            let frames:Vec<_>=support.frames.iter().filter(|f|f.frame_exit_id==tail[0].evidence_id).collect();
+            let [frame]=frames.as_slice() else {return Err("normal call lacks its frame release certificate".into());};
+            let mut arguments:Vec<_>=support.frame_arguments.iter().filter(|a|a.frame_exit_id==frame.frame_exit_id).cloned().collect();
+            arguments.sort_by_key(|a|a.ordinal);
+            crate::frame_exit::admit(frame,&arguments,&steps[..base.len()])?;
+            if arguments.iter().any(|a|support.arguments.iter().filter(|input|input.fact_id==a.argument_fact_id
+                && input.ordinal==a.ordinal && input.snapshot_id==e.snapshot_id && input.call_node_id==e.call_node_id).count()!=1) {
+                return Err("frame release input differs from the invocation argument".into());
+            }
+            if frame.snapshot_id!=e.snapshot_id || frame.function_node_id!=e.function_node_id
+                || frame.call_node_id!=e.call_node_id || frame.call_fact_id!=e.call_fact_id
+                || frame.syntax_fact_id!=e.syntax_fact_id || frame.target_node_id!=e.target_node_id
+                || frame.pysa_fact_id!=e.pysa_fact_id || frame.model_id!=e.model_id
+                || frame.argument_count!=e.argument_count || e.default_formal_count!=Some(0)
+                || Some(frame.return_parameter.as_str())!=app.target_body_return_parameter.as_deref() {
+                return Err("frame release belongs to a different call or binding".into());
+            }
+            if tail[0].kind!=K::ModelFrameExit || (tail[1].kind,tail[1].evidence_id)!=(K::PrecedingCallNormal,e.model_id)
                 || (tail.last().unwrap().kind,tail.last().unwrap().evidence_id)!=(K::ExpressionSyntax,e.syntax_fact_id)
-                || (tail.len()==3 && tail[1].kind!=K::ModelRule)
+                || (tail.len()==4 && tail[2].kind!=K::ModelRule)
                 || tail.iter().any(|s|s.operand_fact_id!=e.syntax_fact_id || s.status!=E::PinnedCallNormal) {
                 return Err("normal proof lacks this callee outcome".into());
             }

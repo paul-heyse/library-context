@@ -51,7 +51,7 @@ Positive actions do not establish complete channel coverage. Schema owns shared 
 analytics composes it, core reconstructs publication, and native consumes the same contract.
 
 `action.rs` owns candidate-backed assessments and shared structural admission; `actions.rs`
-composes existing call-input and normal-expression evidence. Catalog format 6 requires effect
+composes existing call-input and normal-expression evidence. Catalog format 7 requires effect
 triggers and appends Invocation to the existing selector. Partial I/O/logging retain Potential
 at Invocation; completed serialization/compression require Normal. Every existing candidate has
 an assessment, including a named refusal. Candidate references retain channel, descriptor and
@@ -149,24 +149,48 @@ A model is committed, typed data about a callable we do not analyze from source.
 - **Channel coverage.** Each target declares transfer, effect, callback, resource and exception
   coverage independently as complete, partial or unspecified. Only complete coverage can support a
   negative summary conclusion.
-- **Phase applicability (Implemented, 2026-09-26).** Catalog format 6 requires an authored phase
+- **Phase applicability (Implemented, 2026-09-26).** Catalog format 7 requires an authored phase
   per model. The same target may have distinct models and channel coverage for different phases;
   target/phase pairs are unique and phase participates in model identity. `model_targets.phase`
   is reconstructed from the catalog. A provider observation activates a model only on exact phase
   equality; it cannot widen applicability. The existing declarations explicitly select `call`.
-- **Total normal completion** is a separate, optional assertion (`normal_return`, default false =
-  unknown): the target itself returns normally once its arguments are evaluated, under the pinned
-  model. It is accepted only for a function target with complete exception coverage and no
-  exception rule, carried on the validated `model_targets` row, and never inferred from a transfer
-  rule (which describes the value *if* the callee returns) or from the absence of modeled
-  exceptions (which does not exclude divergence). Asserting it needs pinned source or
-  documentation evidence.
+- **Body and frame completion (Implemented and focused Tested, 2026-09-27; ADR-0063).** The optional typed
+  `normal_body = { kind = "direct_return_parameter", name = "val" }` replaces unqualified
+  `normal_return`. It asserts only the exact pinned eager body domain: direct return of that
+  parameter, no other value roots and no user code or invalidation of caller retainers.
+  Full callee completion additionally requires ordered completed arguments, all-signature
+  binding and a complete frame-release certificate. Closed values and caller-retained values
+  are distinct; retained values qualify only over this effect-free invocation window. Available
+  defaults remain insufficient for release safety. Complete catalog channel coverage also remains conditional on the frame-release domain;
+  cleanup effects cannot become negatives from body coverage alone. Invocation and Normal postconditions survive
+  a refused frame outcome. Source bodies must reuse the completion kernel with separate release
+  evidence; definition-header completion and a body-return event prove no caller continuation.
+  Compiler97 persists ordered bound-argument and invocation commitments; source publication
+  reconstructs them and native serving checks shared structural admission. General source-body
+  completion and full native raw-signature/read closure remain open.
+  The [independent controls](../../design_review/evidence/2026-09-27_frame-exit/README.md)
+  observe finalization before continuation; they are not compiler false-positive reproductions.
+
+**Next source-body domain (Proposed under ADR-0063, 2026-09-27).** The existing completion
+kernel evaluates a zero-parameter synchronous, undecorated body's suite under entry, separately
+from its definition header and independently of value-flow seeds. Fallthrough Normal, explicit
+Return, exact primitive-raise TypeError and unknown remain distinct. Closed expression values
+and first local initializations support a separately committed local release domain. Reads of
+locals require the exact executed initialization before acquiring closed-value provenance;
+unproved reads, defaults, closure/cell obligations and dynamic definitions remain withheld.
+The callable object itself still needs an external retainer. A body/local-release certificate
+therefore cannot establish caller continuation alone: its consumer must prove the exact function
+object remains held, initially through an immediate fresh nested definition's live binding and
+an effect-free body. Source publication reconstructs both domains; call composition and serving
+must preserve this independent retainer obligation.
+
+> Decision: ADR-0063
 
 **The current catalog** (`external.toml`; pinned CPython 3.14.7 unless noted):
 
 | Target | Asserted | Left open |
 |---|---|---|
-| `typing.cast`, `typing.assert_type` | Identity transfer; `normal_return` (the pinned bodies directly `return val`) | — |
+| `typing.cast`, `typing.assert_type` | Identity transfer; typed direct-return body; frame release separately required | — |
 | `builtins.print` | Potential `io.write`, no subject stream | Which stream |
 | `json.dumps`, `json.dump` | Potential `obj` → return transform (`dumps`); potential JSON serialization of `obj`; potential `io.write` on the bound `fp` (`dump`) | Custom encoder and `default` callbacks; completion |
 | `json.loads`, `gzip.compress`, `gzip.decompress` | Potential input → return transforms; `compress(gzip)` on `data` for `gzip.compress` | Malformed input, resource exhaustion, JSON hooks; completion; channel coverage |
@@ -175,7 +199,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 | `atexit.register` | Identity transfer; `registered` callback action on normal exit | Invocation |
 | `pydantic==2.13.5` `TypeAdapter.validate_python(object)` | Potential input → result transform | Effects, raises, completion (below) |
 
-- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 6
+- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 7
   separates the effect subject from `static_class`, `runtime_value` and `unresolved` schema
   attribution. Static classes require a unique pinned class node/fact pair from the available
   context; runtime sources have their own typed path and schema-role binding. A missing or
@@ -244,7 +268,7 @@ every row; the shared validator reconstructs each relation and rejects forged st
 - **`model_applications`** joins a source `call_targets` fact to an exactly pinned `model_targets`
   row, with the Pysa target's modality, origin and phase, the model identity/revision,
   `resolutions`' candidate-set completeness, unresolved remainder and target count, and the
-  target's `normal_return` assertion. Neither completeness nor the assertion alone means the call
+  target's typed body contract and exact frame-release certificate. Neither completeness nor the assertion alone means the call
   returns. Higher-order argument targets and annotation-only calls cannot pose as direct
   invocation; a shadowed builtin or a mismatched authored invocation phase has no application.
 - **`model_argument_bindings`** binds a model formal to the call's explicit argument only if every
@@ -294,7 +318,7 @@ every row; the shared validator reconstructs each relation and rejects forged st
   read in `source_normal_evidence_id`; without both it is unknown. Unpacking, possibly unbound/deleted names,
   unproved dispatch and other unsupported expressions remain unknown. The expression classifier is
   shared with the predecessor-completion relation;
-  neither treats a callee's `normal_return` assertion as proof that its arguments complete.
+  neither treats a callee's typed body contract as proof that its arguments complete.
 
 ## L2 fates: exits, handlers and finalizers
 
@@ -433,7 +457,7 @@ the dependency order and deletions.
   step 26; FORMAT 9 carries the certificate, and native admission rejects foreign, missing,
   duplicated or uncited certificates. This certifies value identity, not general frame completion.
 - **Modeled call:** an exact whole-expression call of `typing.cast` or `typing.assert_type` whose
-  sole source target is closed, both modalities definite, the target asserts `normal_return`, the
+  sole source target is closed, both modalities definite, the target has its typed body and exact frame-release proof, the
   callee is one resolved simple name, and every explicit argument has ordered normal-evaluation
   evidence. The call span must equal the whole value sink span (an outer operator or fallback
   cannot borrow the call). The candidate condition must be satisfiable and imply the direct return

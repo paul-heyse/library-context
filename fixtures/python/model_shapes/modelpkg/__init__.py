@@ -190,3 +190,22 @@ def validate_data(value: object) -> int:
 
 def shadowed_adapter(adapter, value: object):
     return adapter.validate_python(value)
+
+
+class FrameNamespace(dict):
+    def __getitem__(self, key):
+        if key == "value":
+            return self.pop(key)
+        return super().__getitem__(key)
+
+
+class FrameMeta(type):
+    @classmethod
+    def __prepare__(cls, name, bases):
+        return FrameNamespace()
+
+
+class ClassBodyFrame(metaclass=FrameMeta):
+    value = object()
+    retained_looking = cast(value, 1)
+    closed_looking = cast("object", 1)

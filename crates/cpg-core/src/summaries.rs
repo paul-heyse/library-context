@@ -24,6 +24,8 @@ use lctx_analytics::summaries::finite::{
 
 cpg_schema::relations! {
     inventory relations;
+    model_frames = "summary_model_frames", deps = ["model_frame_exits"], sql = "SELECT * FROM model_frame_exits".to_owned();
+    model_frame_arguments = "summary_model_frame_arguments", deps = ["model_frame_exit_arguments"], sql = "SELECT * FROM model_frame_exit_arguments".to_owned();
     action_bindings = "action_bindings", deps = ["model_argument_bindings"], sql = "SELECT * FROM model_argument_bindings".to_owned();
     action_candidates_effect = "action_candidates_effect", deps = ["modeled_effect_sites"], sql = "SELECT * FROM modeled_effect_sites".to_owned();
     action_candidates_callback = "action_candidates_callback", deps = ["modeled_callback_sites"], sql = "SELECT * FROM modeled_callback_sites".to_owned();
@@ -42,7 +44,7 @@ cpg_schema::relations! {
     context_regions = "summary_context_regions", deps = ["flow_regions"], sql = "SELECT * FROM flow_regions".to_owned();
     expression_syntax = "summary_expression_syntax", deps = ["syntax_nodes"],
         sql = "SELECT * FROM syntax_nodes".to_owned();
-    expression_reads = "summary_expression_reads", deps = ["syntax_nodes", "references", "reference_resolutions",
+    expression_reads = "summary_expression_reads", deps = ["syntax_nodes", "declarations", "references", "reference_resolutions",
         "bindings", "scopes", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
         sql = cpg_schema::behavior::expression_reads_sql();
     pinned_call_targets = "summary_pinned_call_targets", deps = ["model_applications", "call_syntax", "context_definitions",
@@ -275,8 +277,9 @@ pub async fn finite_flows(
     let context_arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
     let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
     let return_certificates=sql::fetch(ctx,&return_certificates(),sql::Params::new()).await?;
+    let model_frames=sql::fetch(ctx,&model_frames(),sql::Params::new()).await?;
     let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
-        modeled_identities,diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,context_identities,context_arguments,
+        model_frames,modeled_identities,diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,context_identities,context_arguments,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates, identities,
     });
@@ -492,6 +495,8 @@ pub async fn source_contexts(ctx:&SessionContext)->Result<lctx_analytics::contex
 /// Acquire already-owned candidates and independent execution/outcome proofs; no action
 /// meaning or timing policy lives in orchestration.
 pub async fn action_assessments(ctx:&SessionContext)->Result<lctx_analytics::actions::Outcome,CoreError> {
+    let frames=sql::fetch(ctx,&model_frames(),sql::Params::new()).await?;
+    let frame_arguments=sql::fetch(ctx,&model_frame_arguments(),sql::Params::new()).await?;
     let bindings=sql::fetch(ctx,&action_bindings(),sql::Params::new()).await?;
     let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
     let effects=sql::fetch(ctx,&action_candidates_effect(),sql::Params::new()).await?;
@@ -503,7 +508,7 @@ pub async fn action_assessments(ctx:&SessionContext)->Result<lctx_analytics::act
     let expressions=sql::fetch(ctx,&completion_expressions(),sql::Params::new()).await?;
     let expression_steps=sql::fetch(ctx,&completion_expression_steps(),sql::Params::new()).await?;
     Ok(lctx_analytics::actions::assess(lctx_analytics::actions::Inputs {
-        bindings:&bindings,arguments:&arguments,effects:&effects,callbacks:&callbacks,resources:&resources,applications:&applications,
+        frames:&frames,frame_arguments:&frame_arguments,bindings:&bindings,arguments:&arguments,effects:&effects,callbacks:&callbacks,resources:&resources,applications:&applications,
         executions:&executions,execution_steps:&execution_steps,expressions:&expressions,expression_steps:&expression_steps,
     }))
 }

@@ -23,7 +23,7 @@ const NAMES: &[&str] = &[
     "public_paths",
     "callable_parameters",
     "summary_flows",
-    "source_parameter_identities", "source_context_value_identities", "source_modeled_identities",
+    "source_parameter_identities", "source_context_value_identities", "source_modeled_identities", "model_frame_exits", "model_frame_exit_arguments", "model_frame_exit_steps",
     "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
     "summary_flow_steps",
     "summary_boundaries",
@@ -33,6 +33,10 @@ const NAMES: &[&str] = &[
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) struct Inputs {
+    pub model_frame_exits:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
+    pub model_frame_exit_arguments:Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>,
+    pub model_frame_exit_steps:Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow>,
+
     pub return_certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
     pub model_context_protocols: Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>,
     pub source_context_sites: Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
@@ -261,6 +265,46 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
             end_byte: table.integer("end_byte", row)?,
         })
     }).collect::<PyResult<_>>()?;
+    let table=batch(&batches,"model_frame_exits");
+    let model_frame_exits=(0..table.len()).map(|row|Ok(cpg_schema::frame_exit::ModelFrameExitsRow {snapshot_id:Id::ZERO,
+        frame_exit_id:super::id(&table.id("frame_exit_id",row)?)?,
+        function_node_id:super::id(&table.id("function_node_id",row)?)?,
+        call_node_id:super::id(&table.id("call_node_id",row)?)?,
+        call_fact_id:super::id(&table.id("call_fact_id",row)?)?,
+        syntax_fact_id:super::id(&table.id("syntax_fact_id",row)?)?,
+        target_node_id:super::id(&table.id("target_node_id",row)?)?,
+        pysa_fact_id:super::id(&table.id("pysa_fact_id",row)?)?,
+        model_id:super::id(&table.id("model_id",row)?)?,
+        return_parameter:table.text("return_parameter",row)?,
+        return_argument_fact_id:super::id(&table.id("return_argument_fact_id",row)?)?,
+        argument_count:table.integer("argument_count",row)?,
+        signature_count:table.integer("signature_count",row)?,
+        arguments_digest:super::digest(&table.digest("arguments_digest",row)?)?,
+        invocation_count:table.integer("invocation_count",row)?,
+        invocation_digest:super::digest(&table.digest("invocation_digest",row)?)?,
+    })).collect::<PyResult<_>>()?;
+    let table=batch(&batches,"model_frame_exit_arguments");
+    let model_frame_exit_arguments=(0..table.len()).map(|row|Ok(cpg_schema::frame_exit::ModelFrameExitArgumentsRow {snapshot_id:Id::ZERO,
+        frame_exit_id:super::id(&table.id("frame_exit_id",row)?)?,
+        ordinal:table.integer("ordinal",row)?,
+        argument_fact_id:super::id(&table.id("argument_fact_id",row)?)?,
+        expression_fact_id:super::id(&table.id("expression_fact_id",row)?)?,
+        safety:table.code::<cpg_schema::codebook::ReleaseSafety>("safety",row)?,
+        parameter_name:table.text("parameter_name",row)?,
+        expression_offset:table.integer("expression_offset",row)?,
+        expression_count:table.integer("expression_count",row)?,
+        expression_digest:super::digest(&table.digest("expression_digest",row)?)?,
+        parameters_digest:super::digest(&table.digest("parameters_digest",row)?)?,
+    })).collect::<PyResult<_>>()?;
+    let table=batch(&batches,"model_frame_exit_steps");
+    let model_frame_exit_steps=(0..table.len()).map(|row|Ok(cpg_schema::frame_exit::ModelFrameExitStepsRow {snapshot_id:Id::ZERO,
+        frame_exit_id:super::id(&table.id("frame_exit_id",row)?)?,
+        ordinal:table.integer("ordinal",row)?,
+        operand_fact_id:super::id(&table.id("operand_fact_id",row)?)?,
+        evidence_id:super::id(&table.id("evidence_id",row)?)?,
+        status:table.code::<cpg_schema::codebook::ModeledArgumentEvaluationStatus>("status",row)?,
+        kind:table.code::<cpg_schema::codebook::SummaryFlowStepKind>("kind",row)?,
+    })).collect::<PyResult<_>>()?;
     let table=batch(&batches,"source_modeled_identities");
     let modeled_identities=(0..table.len()).map(|row| {
         let key=|name|super::id(&table.id(name,row)?);
@@ -381,6 +425,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         })
     }).collect::<PyResult<_>>()?;
     Ok(Inputs {
+        model_frame_exits,model_frame_exit_arguments,model_frame_exit_steps,
         modeled_identities,        context_value_identities,
         return_certificates,
         model_context_protocols,

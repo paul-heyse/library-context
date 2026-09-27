@@ -222,7 +222,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         let rows = sql::query(&ctx, &format!(
             "SELECT count(*) AS n FROM model_applications a \
              JOIN declarations d ON d.node_id = a.function_node_id \
-             WHERE d.name = '{name}' AND a.target_normal_return \
+             WHERE d.name = '{name}' AND a.target_body_return_parameter IS NOT NULL \
                AND a.target_count = 1 AND a.candidate_set_complete_under_model \
                AND NOT a.has_unresolved_remainder",
         )).await.unwrap().collect().await.unwrap();
@@ -278,7 +278,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "modeled return must cite earlier normal completion");
+    assert_eq!(counts.value(0), 2, "modeled return cites its predecessor and returned call completion");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flow_steps p \
         JOIN summary_flows f ON f.summary_id = p.summary_id \
         JOIN declarations d ON d.node_id = f.function_node_id \
@@ -288,8 +288,8 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 2,
-        "assignment return must cite both its source and later completed call");
+    assert_eq!(counts.value(0), 3,
+        "assignment return cites its source invocation, later call and modeled value group");
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
@@ -635,6 +635,51 @@ else:
     raise AssertionError("missing private callable formal admitted")
 def inspect(operation, formal):
     return index.inspect_value_paths(operation, formal, "none", "", True, 0, 20)
+def altered_index(changes):
+    files = []
+    for name in NATIVE_IPC_FILES:
+        table = generation.tables[name]
+        if name in changes:
+            table = pa.Table.from_pylist(changes[name], schema=table.schema)
+        sink = pa.BufferOutputStream()
+        with ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
+        files.append((name, sink.getvalue().to_pybytes()))
+    return SemanticExecutor.from_ipc(kernel_format(), generation.snapshot_id,
+                                    generation.manifest["entry_value_effect_digest"], files)
+# Raw direct, nested and assignment-return paths need their root normal-call obligation
+# even when no SourceModeledIdentity commitment protects that group.
+for operation in ("capspkg.modeled_after_completed", "capspkg.nested_total_identity",
+                  "capspkg.assigned_modeled_after_completed"):
+    paths, boundaries, _, truncated, _ = inspect(operation, "value")
+    assert paths and not truncated, (operation, boundaries)
+    target = bytes.fromhex(paths[0][0])
+    rows = generation.tables["summary_flow_steps"].to_pylist()
+    group = sorted((r for r in rows if r["summary_id"] == target), key=lambda r: r["ordinal"])
+    assert any(r["kind"] == "raw_identity" for r in group), operation
+    assert not any(r["kind"] == "source_modeled_identity" for r in group), operation
+    last = max(i for i, r in enumerate(group) if r["kind"] == "model_rule")
+    assert [r["kind"] for r in group[last-2:last]] == ["model_frame_exit", "preceding_call_normal"]
+    # Both pair omission and whole conclusion omission retain the call occurrence anchors.
+    for end in (last, last + 1):
+        changed_group = group[:last-2] + group[end:]
+        for ordinal, row in enumerate(changed_group):
+            row["ordinal"] = ordinal
+        changed = [r for r in rows if r["summary_id"] != target] + changed_group
+        try:
+            altered_index({"summary_flow_steps": changed})
+        except ValueError as error:
+            assert ("modeled call omitted" in str(error)
+                    or "value basis" in str(error)), (operation, str(error))
+        else:
+            raise AssertionError(("root release obligation was erased", operation, end))
+for name in ("model_frame_exit_arguments", "model_frame_exit_steps"):
+    try:
+        altered_index({name: []})
+    except ValueError as error:
+        assert "frame release" in str(error), str(error)
+    else:
+        raise AssertionError(("frame evidence disappeared", name))
 try:
     inspect("capspkg.fresh_default_true.inner", "enabled")
 except ValueError:
@@ -804,7 +849,7 @@ assert not truncated and not boundaries, (paths, boundaries)
 assert any(any(step[0] == "preceding_call_normal" for step in path[3]) for path in paths), paths
 paths, boundaries, total, truncated, work = inspect("capspkg.assigned_modeled_after_completed", "value")
 assert not truncated and not boundaries, (paths, boundaries)
-assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 2 for path in paths), paths
+assert any(sum(step[0] == "preceding_call_normal" for step in path[3]) == 3 for path in paths), paths
 paths, boundaries, total, truncated, work = inspect("capspkg.keyword_local_wrapper", "value")
 assert not truncated and paths and not boundaries, (paths, boundaries)
 assert any(any(step[0] == "callee_summary" for step in path[3]) for path in paths), paths

@@ -221,6 +221,9 @@ struct SemanticExecutor {
 
 #[derive(Default)]
 struct ContextProofs {
+    frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
+    frame_arguments:Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>,
+    frame_steps:Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow>,
     values:Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     returns:Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
     protocols:Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>,
@@ -259,6 +262,7 @@ impl SemanticExecutor {
             || links.len() > MAX_SUMMARY_ROWS
             || contexts.returns.len()>MAX_SUMMARY_ROWS || contexts.protocols.len()>MAX_SUMMARY_ROWS || contexts.sites.len()>MAX_SUMMARY_ROWS
             || contexts.arguments.len()>MAX_SUMMARY_ROWS || contexts.values.len()>MAX_SUMMARY_ROWS
+            || contexts.frames.len()>MAX_SUMMARY_ROWS || contexts.frame_arguments.len()>MAX_SUMMARY_ROWS || contexts.frame_steps.len()>MAX_SUMMARY_ROWS
             || modeled_identities.len()>MAX_SUMMARY_ROWS
             || identities.len() > MAX_SUMMARY_ROWS
         {
@@ -590,6 +594,43 @@ impl SemanticExecutor {
             completion_by_return.entry((certificate.function_node_id,certificate.return_site_fact_id)).or_default().push(certificate);
         }
         let mut modeled_by_id=HashMap::new();
+        let mut frames=HashMap::new();
+        let mut frame_arguments:HashMap<_,Vec<_>>=HashMap::new();
+        let mut frame_steps:HashMap<_,Vec<_>>=HashMap::new();
+        for mut r in contexts.frame_arguments {r.snapshot_id=snapshot_id;frame_arguments.entry(r.frame_exit_id).or_default().push(r);}
+        for mut r in contexts.frame_steps {r.snapshot_id=snapshot_id;frame_steps.entry(r.frame_exit_id).or_default().push(r);}
+        let catalog=cpg_schema::models::Catalog::committed().map_err(PyValueError::new_err)?;
+        for mut r in contexts.frames {
+            r.snapshot_id=snapshot_id;
+            if !catalog.models.iter().any(|m|m.model_id==r.model_id && m.model.normal_body.as_ref().is_some_and(|b|b.parameter()==r.return_parameter)) {
+                return Err(PyValueError::new_err("frame certificate has no exact pinned body contract"));
+            }
+            let mut arguments=frame_arguments.remove(&r.frame_exit_id).unwrap_or_default();arguments.sort_by_key(|a|a.ordinal);
+            let mut steps=frame_steps.get(&r.frame_exit_id).cloned().unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
+            let proof:Vec<_>=steps.into_iter().map(|s|cpg_schema::behavior::ExpressionEvaluationStepsRow {
+                snapshot_id,syntax_fact_id:r.syntax_fact_id,ordinal:s.ordinal,operand_fact_id:s.operand_fact_id,
+                evidence_id:s.evidence_id,status:s.status,kind:s.kind}).collect();
+            cpg_schema::frame_exit::admit(&r,&arguments,&proof).map_err(|e|PyValueError::new_err(e.message))?;
+            if frames.insert(r.frame_exit_id,r).is_some() {return Err(PyValueError::new_err("duplicate frame release"));}
+        }
+        if !frame_arguments.is_empty() || frame_steps.keys().any(|id|!frames.contains_key(id)) {
+            return Err(PyValueError::new_err("orphan frame release support"));
+        }
+        for r in frames.values() {
+            let mut steps=frame_steps.remove(&r.frame_exit_id).unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
+            let proof:Vec<_>=steps.iter().map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
+                kind:s.kind,evidence_id:s.evidence_id,condition_id:Id::ZERO}).collect();
+            // admit() has checked the final root CallSite/CallTarget as invocation only.
+            // Nested operands, unlike that root, must already have completed.
+            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof[..proof.len()-2],|id|frames.get(&id))
+                .map_err(|e|PyValueError::new_err(e.message))?;
+            for s in steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ModelFrameExit) {
+                let inner=&frames[&s.evidence_id];
+                if inner.invocation_count>=r.invocation_count || inner.syntax_fact_id!=s.operand_fact_id {
+                    return Err(PyValueError::new_err("cyclic or foreign nested frame release"));
+                }
+            }
+        }
         for row in modeled_identities {
             if modeled_by_id.insert(row.identity_id,row).is_some() {return Err(PyValueError::new_err("duplicate modeled identity"));}
         }
@@ -603,6 +644,8 @@ impl SemanticExecutor {
                     kind:*SummaryFlowStepKind::all().iter().find(|k|k.text()==kind)
                         .expect("step kind admitted above"),evidence_id:*evidence_id,condition_id:*condition_id,
                 }).collect();
+            cpg_schema::frame_exit::admit_proof(summary.function_node_id,&steps,|id|frames.get(&id))
+                .map_err(|e|PyValueError::new_err(e.message))?;
             // Unknown roots cannot support a positive callee application. Their raw proofs
             // still pass structural admission using an inert root; no controls can be fixed.
             let empty=cpg_schema::condition_kernel::Diagram::never();
@@ -734,7 +777,7 @@ impl SemanticExecutor {
             input.identities,
             input.modeled_identities,
             input.return_sites,
-            ContextProofs {values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
+            ContextProofs {frames:input.model_frame_exits,frame_arguments:input.model_frame_exit_arguments,frame_steps:input.model_frame_exit_steps,values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
         )
     }
 

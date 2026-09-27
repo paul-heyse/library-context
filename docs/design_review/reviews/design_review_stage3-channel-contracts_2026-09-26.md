@@ -1734,3 +1734,215 @@ source/local-callee completion, concrete resource/callback/transform fates, all-
 and coverage, native semantic support and assembled Stage 3 remain open. Full `just test-all`,
 fresh `just pilot` and integrated qualification were **not_run** for this slice. Only this review
 artifact was changed by the reviewer.
+
+## 31. Source review: callee frame cleanup before normal completion
+
+**2026-09-27 · design/target · Interface-checked; correction Proposed.** This is the requested
+review before source/local-callee outcomes, under core 3.0, CI 1.1 and the repository binding.
+It inspects compiler 96's completion/evaluation owners and pinned CPython source. No production
+code, runtime probe or product test was changed or run. Earlier bounded receipts do not qualify
+the new cleanup obligation.
+
+**F17 — Body completion is not a complete call-normality contract (open).**
+`completion.rs:582` sequences statements, `:648` produces a pending Return, and `:723` already
+refuses unsafe rebinding because releasing a value can execute user finalization. None of these
+establishes completion of function-frame release. CPython 3.14.7's `RETURN_VALUE` preserves the
+result, clears the dying frame, and only then resumes the caller. Frame clearing closes the
+local references and the function reference. The relevant primary sources are
+[bytecodes.c, RETURN_VALUE](https://github.com/python/cpython/blob/v3.14.7/Python/bytecodes.c#L1101-L1115),
+[ceval.c, clear_thread_frame](https://github.com/python/cpython/blob/v3.14.7/Python/ceval.c#L1821-L1832)
+and [frame.c, ClearLocals/ClearExceptCode](https://github.com/python/cpython/blob/v3.14.7/Python/frame.c#L85-L120).
+Finalizer exceptions are normally ignored, but finalizers can execute effects or fail to return;
+the defect is not a claim that an arbitrary `__del__` exception propagates from the call.
+See the [pinned data-model documentation](https://docs.python.org/3.14/reference/datamodel.html#object.__del__).
+
+There is also an existing target-contract gap: `external.toml:9,26` asserts `normal_return` for
+`typing.cast` and `typing.assert_type`; §9.9 justifies this from their direct `return val` bodies.
+Those bodies are confirmed in the installed pinned `typing.py:2308,2319`. Ignored `typ` may be
+released before the caller resumes, so that body alone does not justify an unqualified promise
+over arbitrary actual values. `evaluation.rs:143` currently checks the target flag after
+invocation, without a separate cleanup premise. `summary_contract.rs:438` carries the same
+unqualified flag; action admission (`action.rs:274`) and modeled-return/predecessor proofs are
+adjacent consumers. Their meaning must change together, rather than adding a local-call-only fix.
+
+**Evidence limit:** no false positive in the currently admitted source grammar was reproduced.
+That grammar refuses arbitrary constructors and mostly obtains unknown objects from caller-held
+names, or constructs exact primitives/tuples and composes pinned identity calls. These restrictions
+can support a cleanup argument, but `ExpressionRead`/`expression_reads_sql` (`behavior.rs:1864`)
+prove a normal read, not a retained reference through arbitrary callee execution. Thus F17 is an
+explicit-contract and extension blocker, not a claim that prior positive fixtures were disproved.
+Identity *if the callee returns* remains a valid separate relation.
+
+**Attributed runtime evidence, inspected 2026-09-27:** the author reports **passed**, nine
+generated isolated CPython 3.14.7 controls in
+[runtime_oracle.py](../evidence/2026-09-27_frame-exit/runtime_oracle.py); the reviewer inspected
+the accompanying [receipt](../evidence/2026-09-27_frame-exit/raw/runtime_receipt.json). Temporary ignored arguments to a direct-return source body,
+`cast` and `assert_type` produce `PY_RETURN`, then `finalizer_started`, and no caller continuation
+within the two-second worker bound. Retained and literal controls reach `caller_continued`.
+The destructor sleeps for 30 seconds: the timeout establishes a cleanup interval after the body
+event, not divergence or a compiler false positive. The reviewer did not execute the harness.
+
+**Smallest correction and dependency order (Proposed).**
+
+1. Give shared call-normal admission two independent premises: a normal body outcome and safe
+   release of every owned reference relevant to that outcome. Keep the existing reached/bound
+   invocation premise separate. A bounded typed release domain distinguishes an exact closed
+   value from an occurrence-specific reference retained outside the callee until call completion.
+   Plain normal evaluation, a Python annotation, or an identity rule is insufficient. Exact
+   tuples qualify only through their element obligations. A returned object can be protected by
+   the retained result, but arbitrary other parameters cannot inherit that protection.
+2. Start source outcomes with a stable, exactly resolved, synchronous undecorated function with
+   **zero declared parameters**, no defaults, closure/cell obligations or dynamic definition
+   work, and a closed body. Admit literal/closed-operator/tuple expressions already supported by
+   the evaluator, pass, first local assignments of qualified values, and normal fallthrough or
+   return. Assignment reads can cite those same unique bindings and qualified initializers.
+   Literal-selected branches and supported try/finally compose through the existing kernel;
+   handlers, contexts, loops, opaque calls, deletion and unsupported cleanup stay unknown in the
+   first domain. Zero actual arguments alone is insufficient: defaults are owned parameters too.
+3. Invoke `Kernel::suite` for the callee's body using its actual owner and bounded inputs. Do not
+   treat `StmtFunctionDef`'s existing successful **header** evaluation (`completion.rs:602`) as
+   body execution. Require the complete requested body domain to produce Normal/fallthrough or
+   Return, followed by the release proof. One retained return witness, lack of modeled raises,
+   or caller continuation is not an exhaustive callee-normal proof. This adds a qualification
+   and composition layer, not another statement interpreter or a general reference-count model.
+4. Qualify the pinned typing models through their exact body behavior: they execute no user
+   operation before returning the selected argument. Closed exact argument values are the
+   first safe domain. A second domain may admit an actual caller-local binding retained across
+   the invocation, provided all subsequent argument evaluation and the pinned body cannot
+   remove that root. Reuse lexical binding/identity evidence where its premises fit; do not
+   promote every `ExpressionRead` to retention. A later callee that executes user code must
+   independently establish root preservation. Stable callable/default/closure references also
+   belong to the release domain when present. Keep arbitrary retained-name values opaque.
+5. Schema owns the typed outcome/release obligations and mandatory admission; analytics owns
+   qualification using the existing evaluator/completion/lexical owners; core independently
+   reconstructs the source rows. Bind evidence to exact call, callee, phase, condition, body
+   outcome and relevant bindings. Commit the required release domain independently of retained
+   proof, so removing the whole cleanup group cannot pass by omission. Retain existing work and
+   proof caps. Native must consume the same contract before exporting new successful outcomes.
+
+The typed release qualifier belongs beside expression/value qualification, not in SQL text
+classification or a second model catalog. A new ordinary cleanup-safe body should add source
+evidence; a new release domain should change this shared owner and its controls. Preserve the
+stated runtime abstraction and document any assumptions explicitly; this proposal does not prove
+the absence of unrelated ambient runtime activity. It accounts for synchronous release caused
+by the analyzed invocation and does not pull deferred execution into Stage 3.
+
+**Selected target refinement; not implemented or accepted as tested.** The author adopts an
+optional typed `normal_body = { kind = "direct_return_parameter", name = "val" }` assertion for
+the two typing models, replacing `normal_return` entirely. This promises a direct return of the
+specified bound parameter, with only parameter value roots and no other local/temporary creation
+or user-code execution. Resolve that name against every admitted signature; the identity transfer
+rule remains independent. A nullable `body_return_parameter` projection is sufficient for this
+single authored variant. Reject unknown variants and remove the old flag from every consumer.
+Catalog 7/compiler 97 are proposed migration identifiers here, not a completed migration.
+
+This is preferable to separate body-normal/no-user-code booleans: the typed form names the
+owned-root domain as well as the body result. The evaluator can compose Closed, CallerRetained
+and Unknown lifetime provenance through its existing grammar. Keep bounded numeric/truth
+knowledge separate: `Value::Literal` currently includes opaque name values and must not become
+an exact-value certificate. An exact tuple preserves element lifetime obligations; a selected
+identity result retains its actual input provenance. Call-argument and statement-result disposal
+must remain safe under that provenance, including nested total calls.
+
+Shared normal-call admission must validate one mandatory closed/retained qualification for every
+explicit bound argument in source evaluation order, followed by this call's `ModelFrameExit`
+and then `PrecedingCallNormal`. It must check the complete independent argument domain, exact
+call/model/body formal, operand and supporting binding identities, scope and phase. Reject
+missing/extra/duplicate/foreign qualifiers and entire cleanup-group deletion; a marker carrying
+only a model ID does not establish these premises. CallerRetained means a proven live binding
+through this invocation, not any normal name read. All later argument evaluations and the
+admitted body must preserve that root. Available omitted defaults lack this qualification and
+retain the proposed `FrameExitCleanup` refusal, while their successfully reached invocation and
+Normal postcondition remain intact. Cleanup evidence belongs after invocation, so its refusal
+cannot erase reached-prefix effects. Keep the original proof/work caps.
+
+**Adjacent summary/native obligation:** `finite.rs:803`'s `modeled_return_proof` and `:929`'s
+modeled-chain visitor currently retain argument evaluations and CallSite/CallTarget/ModelRule,
+but not the root call's expression-normal proof. The source SQL requires `completed.normal`;
+the resulting reduced proof is what `SourceModeledIdentities` commits. Therefore adding cleanup
+markers only to expression steps and action admission does not carry root cleanup support into
+direct, chain or assignment modeled summaries, including nonapproximate paths without an identity
+certificate. These consumers must retain an independently required exact root-normal/cleanup
+commitment and call shared admission, or explicitly remain outside the claimed native correction.
+Predecessor/finalizer call groups can be retained inside existing ReturnCompletionCertificates;
+their root-group validation must still preserve the new mandatory meaning. The current native
+loader's codebook recognition and generic ordered digests are not full semantic cleanup admission.
+FORMAT 9 support and a rebuilt native replay are required before claiming that closure; the
+broader S6 raw-fact obligation remains separate. Missing/foreign/removed-and-resealed group controls
+must exercise the actual native consumer when this support lands.
+
+**Required correction/closure:** amend §9.9's unqualified typing rationale and record the durable
+normality/cleanup decision in a new ADR; accepted ADRs remain immutable. Delete body-return-alone
+promotion to call-normality, wherever consumed. Add source/Delta controls for zero-parameter
+closed bodies, qualified first assignments, literal branches/finally, and rejected default,
+closure, unknown-owned-value and user-callback cases. Challenge missing/foreign/whole-group
+cleanup evidence and the unchanged caps. Independent generated CPython controls should contrast
+retained versus temporary ignored arguments, record destructor effects before caller resumption,
+and observe caller continuation rather than using `PY_RETURN` alone. A bounded worker timeout is
+a refusal observation, not a general proof of divergence. The attributed nine controls above
+cover that distinction; source/compiler and native correction controls remain **not_run**.
+The active plan §6 remains the disposition owner when F17 is scheduled.
+
+| Judgment/gate | Bounded verdict | Basis |
+|---|---|---|
+| A1 — Localize change | revise current contract; proposed ownership suitable | One release-qualification owner must serve source and pinned normality consumers |
+| A2 — Encode meaning structurally | revise | Body outcome, release safety and actual normal completion are presently indistinct in the target flag |
+| A3 — Extend through composition | proposed route suitable | Existing expression, lexical and statement kernels suffice; no new interpreter or generic lifecycle framework |
+| G2/G3/G7; CI-G1 | unresolved under F17 | A direct body return does not support the unrestricted completion meaning |
+| G1/G4/G5/G6/G8; CI-G2/CI-G3 | no additional finding in this source review | Proposed independent admission/reconstruction preserves ownership and evidence; implementation and independent qualification remain unreviewed |
+
+**Decision: Revise the normality contract before expanding its consumers.** The closed-domain
+route is a suitable bounded implementation target after its premises are recorded. No new
+source-callee outcome, pinned cleanup qualification, native behavior or enclosing Stage 3 scope
+is accepted as implemented or tested here. Only this existing review artifact was changed.
+
+**ADR-0063 target follow-up, 2026-09-27 — Accept target; F17 remains open.** The draft
+[ADR-0063](../../adr/0063-frame-exit-completion.md) records the ownership, three meaningful
+alternatives, typed body domain and separate complete release premise. Its §9.9/§11.3 targets
+preserve invocation and Normal postconditions when cleanup is refused. A1 is satisfied at target
+tier by one expression-provenance/shared-admission owner; A2 by distinct body, release and reached
+execution contracts; A3 by composition with the existing evaluator and completion kernel. This
+acceptance is of that contract, not the unfinished `frame_exit.rs`/`evaluation.rs` implementation.
+The preceding implementation/gate limitations and native obligations remain in force.
+
+The smallest conforming shared admission must make the following details concrete:
+
+- A release certificate under expression entry need not invent a reached-call condition or
+  execution ID. Its consuming outcome must match the exact snapshot, owner, call/syntax facts,
+  target/model and eager Call phase. This body variant applies to a synchronous function; an
+  authored deferred phase cannot borrow it. The independently bound argument domain must match
+  every ordinal, argument fact and operand expression, not only its count. The returned argument
+  must bind the authored returned formal in every admitted signature.
+- Each `(expression_fact, release_kind)` needs retained support beyond a self-consistent label.
+  An ordered operand-proof count/digest can reuse existing expression evidence, including exact
+  read evidence and nested frame certificates, and must match that operand's segment of this
+  call's normal proof. Source reconstruction owns the semantic release qualification. A digest
+  does not establish full raw-fact semantics; those remain S6. Separate duplicate binding
+  columns are unnecessary where retained typed read support already identifies the reference,
+  binding and scope. Where a read currently cites only reaching/resolution evidence, preserve
+  its resolvable support or initially use the narrower lexical-binding certificate domain.
+- CallerRetained for an exact tuple means all nonclosed element roots remain retained; it does
+  not assert that the tuple itself was already a caller local. Ordinary normal-read status alone
+  cannot be promoted to that property. The no-user-code window must include later arguments,
+  nested calls and disposal of earlier temporary results. The existing fixed body contract and
+  effect-free grammar provide the bounded route; arbitrary callees do not inherit it.
+- Require exact release-group presence, its ModelFrameExit conclusion and the following normal
+  conclusion. Test foreign/reordered/duplicate arguments, changed expression or read binding,
+  changing Retained to Closed, the wrong returned formal, entire-group deletion with proof
+  renumbering/resealing, absent nested support, available-but-unqualified defaults, and the
+  original bounds. A count/digest that is only rebuilt from the mutated retained group is not
+  an independent obligation. Source publication and native structural admission have distinct
+  checks; neither substitutes for the other.
+- Preserve cleanup qualification when complete catalog effect/callback/resource coverage is
+  later used negatively. An unqualified occurrence may execute cleanup actions even when the
+  authored direct-return body does not. This is an obligation of the remaining all-channel
+  consumer, not permission to weaken the completed body or infer arbitrary lifecycle behavior.
+
+The inspected draft's `frame_exit::admit` currently checks certificate/list self-consistency,
+while action admission checks scope and argument count; exact argument/formal/support matching
+is still needed. Finite root-certificate threading and native admission are also unfinished, as
+the author explicitly reported. The draft's duplicate boundary code 34 was reported for
+append-only correction; existing codes must remain unchanged. These observations are inputs to
+implementation, not acceptance failures assigned to a claimed completed slice. No product tests
+were run. The ADR may be accepted as the target with these admission obligations; implementation,
+F17 closure and integrated qualification require separate evidence.
