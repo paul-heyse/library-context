@@ -145,6 +145,18 @@ budget = 3
 async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let (dir, store) = compiled_summary_caps().await;
     let (_, ctx) = published(&store, SNAPSHOT).await.unwrap().unwrap();
+    let identity_rows = sql::query(&ctx, "SELECT p.identity_id FROM source_parameter_identities p \
+        JOIN declarations d ON d.node_id=p.function_node_id \
+        JOIN value_flow_contributions c ON c.origin_id=p.source_origin_id \
+        WHERE d.name='handler_entry_identity' AND c.approximated")
+        .await.unwrap().collect().await.unwrap();
+    assert_eq!(identity_rows.iter().map(|batch| batch.num_rows()).sum::<usize>(), 1,
+        "the independent proof retains the provider's approximation");
+    let rejected = sql::query(&ctx, "SELECT p.identity_id FROM source_parameter_identities p \
+        JOIN declarations d ON d.node_id=p.function_node_id WHERE d.name IN \
+        ('handler_entry_rebound', 'handler_entry_deleted', 'handler_entry_nested_mutation')")
+        .await.unwrap().collect().await.unwrap();
+    assert_eq!(rejected.iter().map(|batch| batch.num_rows()).sum::<usize>(), 0);
     for (name,expected) in [("fresh_default_true",1),("fresh_default_false",0),
         ("fresh_keyword_default",1),("fresh_unused_default",1),("fresh_skipped_default",1),
         ("fresh_missing_default",0),("fresh_removed_default",0),("fresh_removed_keyword_default",0),
@@ -650,6 +662,44 @@ for name in ("fresh_default_false", "fresh_missing_default", "fresh_removed_defa
 paths, boundaries, total, truncated, work = inspect("capspkg.handler_entry_identity", "value")
 assert paths and not boundaries and not truncated, (paths, boundaries)
 assert any(any(step[0] == "handler_class_evidence" for step in path[3]) for path in paths), paths
+assert any(any(step[0] == "source_parameter_identity" for step in path[3]) for path in paths), paths
+certificate_rows = generation.tables["source_parameter_identities"].to_pylist()
+own_certificate = next(row for row in certificate_rows if row["source_origin_id"].hex() == paths[0][9])
+foreign_certificate = next(row for row in certificate_rows if row["function_node_id"] != own_certificate["function_node_id"])
+for mutation in ("missing", "foreign", "removed_step", "duplicate_step"):
+    files = []
+    for name in NATIVE_IPC_FILES:
+        table = generation.tables[name]
+        rows = table.to_pylist()
+        if name == "source_parameter_identities" and mutation == "missing":
+            rows = [row for row in rows if row["identity_id"] != own_certificate["identity_id"]]
+        if name == "summary_flow_steps" and mutation == "foreign":
+            rows = [dict(row, evidence_id=foreign_certificate["identity_id"])
+                    if row["kind"] == "source_parameter_identity" and row["evidence_id"] == own_certificate["identity_id"]
+                    else row for row in rows]
+        if name == "summary_flow_steps" and mutation in ("removed_step", "duplicate_step"):
+            changed = []
+            ordinals = {}
+            for row in rows:
+                own_step = row["kind"] == "source_parameter_identity" and row["evidence_id"] == own_certificate["identity_id"]
+                copies = 0 if own_step and mutation == "removed_step" else 2 if own_step else 1
+                for _ in range(copies):
+                    ordinal = ordinals.get(row["summary_id"], 0)
+                    changed.append(dict(row, ordinal=ordinal))
+                    ordinals[row["summary_id"]] = ordinal + 1
+            rows = changed
+        table = pa.Table.from_pylist(rows, schema=table.schema)
+        sink = pa.BufferOutputStream()
+        with ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
+        files.append((name, sink.getvalue().to_pybytes()))
+    try:
+        SemanticExecutor.from_ipc(kernel_format(), generation.snapshot_id,
+                                  generation.manifest["entry_value_effect_digest"], files)
+    except ValueError as error:
+        assert "source parameter identity" in str(error), (mutation, str(error))
+    else:
+        raise AssertionError((mutation, "source identity mismatch admitted"))
 for operation in ("capspkg.handler_entry_nonmatch", "capspkg.handler_entry_cleanup"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not paths and boundaries and not truncated, (operation, paths, boundaries)
@@ -901,6 +951,17 @@ assert paths == [] and boundaries[0][0] == positive["source_flow_fact_id"].hex()
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let original_identities = sql::query(&ctx, "SELECT * FROM source_parameter_identities")
+        .await.unwrap().into_view();
+    let missing_identities = sql::query(&ctx, "SELECT * FROM source_parameter_identities WHERE false")
+        .await.unwrap().into_view();
+    ctx.deregister_table("source_parameter_identities").unwrap();
+    ctx.register_table("source_parameter_identities", missing_identities).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v| v.rule == "source-parameter-identity-equality"),
+        "missing source identity passed reconstruction: {violations:?}");
+    ctx.deregister_table("source_parameter_identities").unwrap();
+    ctx.register_table("source_parameter_identities", original_identities).unwrap();
     let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
         .await.unwrap().into_view();
     let omitted_completion = sql::query(&ctx, &format!(

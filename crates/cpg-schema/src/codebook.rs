@@ -1422,6 +1422,7 @@ codebook!(
         DefaultAvailabilityEvidence = 23 => "default_availability_evidence",
         DefaultValueEvidence = 24 => "default_value_evidence",
         DefaultStabilityEvidence = 25 => "default_stability_evidence",
+        SourceParameterIdentity = 26 => "source_parameter_identity",
     }
 );
 

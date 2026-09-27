@@ -580,7 +580,10 @@ uses FORMAT 9 through a current-store/generation rebuild (ADR-0048). The callabl
 subset is **Implemented (2026-09-27)**: private/nested formals validate callee controls without
 entering public lookup. Flow fates also carry typed transfer and the scope that owns their condition;
 Python preserves these fields instead of inferring transfer from presentation text. The remaining
-expanded semantics are still proposed implementation.
+expanded semantics are still proposed implementation. `source_parameter_identities` carries the
+bounded lexical return-read certificate and its source citations; the Rust loader checks its
+content identity, exact summary tuple and reverse proof-step closure. Source reconstruction owns
+the lexical proof. This does not establish general native semantic reconstruction.
 Typed effect/role terms and conjunctions of exact entry-formal primitive bindings are interpreted
 and canonicalized by Rust. Python remains a protocol/rendering adapter. Shared typed proof
 admission replaces shape-specific native rules, with full bounded source support. Coverage,

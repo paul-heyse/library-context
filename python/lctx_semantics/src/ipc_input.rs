@@ -8,6 +8,7 @@ use arrow_array::{Array, FixedSizeBinaryArray, Int64Array, RecordBatch, StringAr
 use arrow_ipc::reader::FileReader;
 use cpg_schema::bundle;
 use cpg_schema::id::{Digest, Id};
+use cpg_schema::parameter_identity::SourceParameterIdentitiesRow;
 use pyo3::exceptions::PyValueError;
 use pyo3::PyResult;
 
@@ -22,6 +23,7 @@ const NAMES: &[&str] = &[
     "public_paths",
     "callable_parameters",
     "summary_flows",
+    "source_parameter_identities",
     "summary_flow_steps",
     "summary_boundaries",
     "flow_test_leaves",
@@ -30,6 +32,8 @@ const NAMES: &[&str] = &[
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) struct Inputs {
+    pub identities: Vec<SourceParameterIdentitiesRow>,
+    pub return_sites: HashMap<Id, Id>,
     pub conditions: Vec<(String, Option<String>, Option<String>)>,
     pub nodes: Vec<(String, String, String, String)>,
     pub operations: Vec<String>,
@@ -195,6 +199,8 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
     let table = batch(&batches, "callable_parameters");
     let parameters = (0..table.len()).map(|row| Ok((table.id("function_node_id", row)?, table.id("formal_node_id", row)?, table.text("name", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_flows");
+    let return_sites = (0..table.len()).map(|row| Ok((super::id(&table.id("summary_id", row)?)?,
+        super::id(&table.id("return_site_fact_id", row)?)?))).collect::<PyResult<_>>()?;
     let flows = (0..table.len()).map(|row| Ok((table.id("summary_id", row)?, table.id("function_node_id", row)?, table.id("parameter_node_id", row)?, table.id("condition_id", row)?, table.text("verdict", row)?, table.optional_text("boundary_reason", row)?, table.integer("path_depth", row)?, table.id("source_flow_fact_id", row)?, table.id("source_origin_id", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_flow_steps");
     let steps = (0..table.len()).map(|row| Ok((table.id("summary_id", row)?, table.integer("ordinal", row)?, table.text("kind", row)?, table.id("evidence_id", row)?, table.id("condition_id", row)?))).collect::<PyResult<_>>()?;
@@ -204,7 +210,23 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
     let leaves = (0..table.len()).map(|row| Ok((table.id("fact_id", row)?, table.id("module_node_id", row)?, table.id("condition_id", row)?, table.id("atom_id", row)?, table.text("atom", row)?, table.optional_text("path", row)?, table.integer("leaf_start_byte", row)?, table.integer("leaf_end_byte", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "flow_test_value_links");
     let links = (0..table.len()).map(|row| Ok((table.id("link_id", row)?, table.id("operation_node_id", row)?, table.id("formal_node_id", row)?, table.id("module_node_id", row)?, table.id("leaf_fact_id", row)?, table.id("atom_id", row)?, table.id("condition_id", row)?, table.text("place", row)?, table.text("origin", row)?, table.digest("effect_model_digest", row)?, (table.optional_text("path", row)?, table.integer("operand_start_byte", row)?, table.integer("operand_end_byte", row)?)))).collect::<PyResult<_>>()?;
+    let table = batch(&batches, "source_parameter_identities");
+    let identities = (0..table.len()).map(|row| {
+        let key = |name| super::id(&table.id(name, row)?);
+        Ok(SourceParameterIdentitiesRow { snapshot_id: Id::ZERO,
+            identity_id: key("identity_id")?, function_node_id: key("function_node_id")?,
+            parameter_node_id: key("parameter_node_id")?, source_flow_fact_id: key("source_flow_fact_id")?,
+            source_origin_id: key("source_origin_id")?, condition_id: key("condition_id")?,
+            return_site_fact_id: key("return_site_fact_id")?, expression_fact_id: key("expression_fact_id")?,
+            reference_fact_id: key("reference_fact_id")?, resolution_fact_id: key("resolution_fact_id")?,
+            binding_fact_id: key("binding_fact_id")?, parameter_fact_id: key("parameter_fact_id")?,
+            module_node_id: key("module_node_id")?, start_byte: table.integer("start_byte", row)?,
+            end_byte: table.integer("end_byte", row)?,
+        })
+    }).collect::<PyResult<_>>()?;
     Ok(Inputs {
+        identities,
+        return_sites,
         conditions: conditions.into_values().collect(),
         nodes: nodes.into_values().collect(),
         operations,

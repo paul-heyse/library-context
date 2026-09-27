@@ -25,6 +25,7 @@ pub mod neighbours;
 pub mod primitive_theory;
 pub mod projection;
 pub mod public;
+pub mod parameter_identity;
 pub mod query;
 pub mod rules;
 pub mod summary_contract;

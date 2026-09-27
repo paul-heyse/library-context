@@ -298,6 +298,16 @@ the dependency order and deletions.
   (2026-09-26).** A recursive call on the non-terminating branch does not erase a cited direct
   return on the terminating branch; an unconditional self-call before return still withholds the
   direct flow. Nested calls as arguments of an earlier call and non-import callees are not yet admitted.
+- **Independent source parameter identity (Implemented, 2026-09-27):** an approximated reaching
+  contribution can use an occurrence-specific `source_parameter_identities` certificate for a
+  bare return read. The pure producer resolves the exact syntax span through reference,
+  resolution, scope and the sole immutable parameter binding; deletion, nonlocal mutation,
+  capture, decoration and yield withhold it. Source publication reconstructs the certificate.
+  Raw provider flags remain unchanged. Only the matching function/formal/source/origin/condition/
+  return tuple can discharge this value approximation, and entry and exit completion remain
+  mandatory. A sibling origin or crossed call stays open. The summary cites append-only proof
+  step 26; FORMAT 9 carries the certificate, and native admission rejects foreign, missing,
+  duplicated or uncited certificates. This certifies value identity, not general frame completion.
 - **Modeled call:** an exact whole-expression call of `typing.cast` or `typing.assert_type` whose
   sole source target is closed, both modalities definite, the target asserts `normal_return`, the
   callee is one resolved simple name, and every explicit argument has ordered normal-evaluation

@@ -355,6 +355,15 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             &["summary_id"],
         ),
         file(
+            "source_parameter_identities",
+            vec![id("identity_id", false), id("function_node_id", false), id("parameter_node_id", false),
+                id("source_flow_fact_id", false), id("source_origin_id", false), id("condition_id", false),
+                id("return_site_fact_id", false), id("expression_fact_id", false), id("reference_fact_id", false),
+                id("resolution_fact_id", false), id("binding_fact_id", false), id("parameter_fact_id", false),
+                id("module_node_id", false), int("start_byte", false), int("end_byte", false)],
+            &["identity_id"],
+        ),
+        file(
             "summary_flow_steps",
             vec![
                 id("summary_id", false),

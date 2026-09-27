@@ -75,6 +75,8 @@ cpg_schema::relations! {
     completion_tests = "summary_completion_tests", deps = ["flow_tests"], sql = "SELECT * FROM flow_tests".to_owned();
     binding_references = "summary_binding_references", deps = ["references"], sql = "SELECT * FROM references".to_owned();
     binding_resolutions = "summary_binding_resolutions", deps = ["reference_resolutions"], sql = "SELECT * FROM reference_resolutions".to_owned();
+    identity_values = "summary_identity_values", deps = ["flow_values"], sql = "SELECT * FROM flow_values".to_owned();
+    identity_contributions = "summary_identity_contributions", deps = ["value_flow_contributions"], sql = "SELECT * FROM value_flow_contributions".to_owned();
     binding_statements = "summary_binding_statements", deps = ["statement_completions"], sql = "SELECT * FROM statement_completions".to_owned();
     binding_statement_steps = "summary_binding_statement_steps", deps = ["statement_completion_steps"], sql = "SELECT * FROM statement_completion_steps".to_owned();
     provider_conditions = "summary_provider_conditions", deps = ["conditions"],
@@ -253,16 +255,38 @@ pub async fn finite_flows(
     let local_value_links: Vec<LocalCallValueLink> = sql::fetch(ctx, &cpg_schema::behavior::local_call_value_links(), sql::Params::new()).await?;
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
     let local_bindings=source_call_bindings(ctx,&local_seeds,&local_arguments).await?;
+    let identities = source_parameter_identities(ctx).await?;
     let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
         diagrams, boundaries, pass_steps, entries, entry_steps, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
-        local_arguments, local_value_links, local_bindings, boundary_candidates,
+        local_arguments, local_value_links, local_bindings, boundary_candidates, identities,
     });
     // Require the published premise, not a root available only in raw provider conditions.
     let statements=sql::fetch(ctx,&completion_outcomes(),
         sql::Params::new().ids("entry_condition",[Diagram::always().id()])).await?;
     result.coverage.extend(lctx_analytics::completion::coverage(&statements));
     Ok(result)
+}
+
+/// Mechanical acquisition for the independent source identity proof.
+async fn source_parameter_identities(ctx: &SessionContext)
+    -> Result<Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>, CoreError> {
+    let contributions = sql::fetch(ctx, &identity_contributions(), sql::Params::new()).await?;
+    if contributions.is_empty() { return Ok(Vec::new()); }
+    let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
+    let parameters = sql::fetch(ctx, &completion_parameters(), sql::Params::new()).await?;
+    let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
+    let bindings = sql::fetch(ctx, &completion_bindings(), sql::Params::new()).await?;
+    let scopes = sql::fetch(ctx, &completion_scopes(), sql::Params::new()).await?;
+    let references = sql::fetch(ctx, &binding_references(), sql::Params::new()).await?;
+    let resolutions = sql::fetch(ctx, &binding_resolutions(), sql::Params::new()).await?;
+    let values = sql::fetch(ctx, &identity_values(), sql::Params::new()).await?;
+    let exits = sql::fetch(ctx, &completion_exits(), sql::Params::new()).await?;
+    Ok(lctx_analytics::parameter_identity::prove(lctx_analytics::parameter_identity::Inputs {
+        declarations: &declarations, parameters: &parameters, syntax: &syntax,
+        bindings: &bindings, scopes: &scopes, references: &references, resolutions: &resolutions,
+        values: &values, contributions: &contributions, exits: &exits,
+    }))
 }
 
 async fn source_call_bindings(ctx:&SessionContext,seeds:&[LocalCallSummaryFlowSeed],mappings:&[LocalCallArgument])

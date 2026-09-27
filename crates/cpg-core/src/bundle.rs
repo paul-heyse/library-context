@@ -169,6 +169,11 @@ fn query(name: &str) -> Option<String> {
             files = cpg_schema::flows::display_files_sql(),
             limit = MAX_SUPPORT_ROWS + 1,
         ),
+        "source_parameter_identities" => format!(
+            "SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, \
+             source_origin_id, condition_id, return_site_fact_id, expression_fact_id, reference_fact_id, \
+             resolution_fact_id, binding_fact_id, parameter_fact_id, module_node_id, start_byte, end_byte \
+             FROM source_parameter_identities ORDER BY identity_id LIMIT {}", MAX_SUPPORT_ROWS + 1),
         "support_members" => format!(
             "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
                 JOIN brief_assertions ba ON ba.assertion_id = s.assertion_id \

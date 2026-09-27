@@ -194,6 +194,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_parameter_identities = "validate_stored_parameter_identities", deps = ["source_parameter_identities"],
+        sql = "SELECT * FROM source_parameter_identities".to_owned();
     stored_summary_origin_coverage = "validate_stored_summary_origin_coverage", deps = ["summary_origin_coverage"],
         sql = "SELECT * FROM summary_origin_coverage".to_owned();
     stored_summary_components = "validate_stored_summary_components", deps = ["summary_components"],
@@ -470,6 +472,15 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
     actual.sort_by_key(|r| r.summary_id);
     expected.sort_by_key(|r| r.summary_id);
     let mut violations = Vec::new();
+    let mut actual_identities: Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow> =
+        sql::fetch(ctx, &stored_parameter_identities(), sql::Params::new()).await?;
+    let mut expected_identities = summary.identities;
+    actual_identities.sort_by_key(|r| r.identity_id);
+    expected_identities.sort_by_key(|r| r.identity_id);
+    if actual_identities != expected_identities {
+        violations.push(Violation {rule: "source-parameter-identity-equality".to_owned(), rows: 1,
+            sample: "parameter identity certificates differ from source reconstruction".to_owned()});
+    }
     if actual != expected {
         violations.push(Violation {
             rule: "summary-flow-source-equality".to_owned(),

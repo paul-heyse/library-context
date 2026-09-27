@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 32; compiler output 86.
+**Accepted schema migrations at this checkpoint:** extractor output 32; compiler output 87.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -32,7 +32,7 @@ under ADR-0048 remains pending. FORMAT 9 callable support is implemented; remain
 
 **Next dependency:** finish remaining channel contracts and supported synchronous context exits;
 then compose stable controls and channel coverage through the multi-channel worklist. Direct
-value-origin coverage exists, but call origins and approximated paths remain open even when a
+value-origin coverage exists, but call origins and uncertified approximated paths remain open even when a
 positive witness exists. Coverage is not operation-wide and does not close another channel.
 W5/W7/W12 default-cap traces, model activation and native FORMAT 9 remain outstanding.
 
@@ -100,7 +100,7 @@ operator-approved detailed execution queue. Orders 1–10 below retain their sem
 §6 retains finding disposition. The [composition review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
 F01–F04 remain applicable. Accepted targets do not certify their implementation.
 
-**Current implementation checkpoint.** Compiler output 86 includes typed value-origin and execution-site
+**Current implementation checkpoint.** Compiler output 87 includes typed value-origin and execution-site
 coverage, including complete empty escaping-exception domains under statement entry. Async and
 generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
 source/Delta controls; immediate fresh nested calls now use availability/value/stability certificates. Shared callee proof admission replaces
@@ -112,12 +112,14 @@ reason; no production validation effect is activated. Extraction-only compilatio
 coverage unexamined when its published premise catalog is absent and reconstruct no entry links
 against that absent catalog. S5 now preserves transfer alternatives, origin-specific predecessor joins, provider approximation,
 exclusive receiver admission and typed transfer/scope through serving. Extractor output 32 separates
-provider approximation from the explicit call-transfer obligation. A newly exposed S1/S2 gap remains:
-`handler_entry_identity` has exact entry/exit proofs but an approximated reaching value; it stays
-unknown pending an occurrence-specific source parameter-identity certificate. These are partial
+provider approximation from the explicit call-transfer obligation. An occurrence-specific source
+parameter-identity certificate now links a bare return read to its unique immutable lexical
+parameter. It preserves provider flags and discharges only the matching origin's value
+approximation; entry/exit proofs remain mandatory. FORMAT 9 carries its source citations and
+rejects missing, foreign, duplicate or uncited certificate support. These are partial
 S1/S2/S5/S6 changes, not an assembled Stage 3 receipt. STATUS owns the latest
 focused command/outcome; the [bounded review](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md)
-keeps target acceptance separate from implementation scope and corrected findings F01–F07; the handler value-identity qualification gap stays open.
+keeps target acceptance separate from implementation scope and certificate correction F08.
 
 | Step | Work, owner and deletion obligation | Acceptance / current state |
 |---|---|---|

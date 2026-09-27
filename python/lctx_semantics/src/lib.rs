@@ -192,6 +192,8 @@ impl ConditionGraph {
 
 struct NativeSummary {
     function_node_id: Id,
+    parameter_node_id: Id,
+    return_site_fact_id: Option<Id>,
     condition_id: Id,
     source_flow_fact_id: Id,
     source_origin_id: Id,
@@ -217,41 +219,9 @@ struct SemanticExecutor {
     link_spans: HashMap<Id, (Option<String>, i64, i64)>,
 }
 
-#[pymethods]
 impl SemanticExecutor {
-    /// Production loader: validate the IPC file schemas against cpg-schema and decode columns
-    /// by name. The tuple constructor remains for focused synthetic proof tests.
-    #[staticmethod]
-    fn from_ipc(
-        kernel_format: u32,
-        snapshot_id: String,
-        effect_model_digest: String,
-        files: Vec<(String, Vec<u8>)>,
-    ) -> PyResult<Self> {
-        let input = ipc_input::decode(files)?;
-        Self::new(
-            kernel_format,
-            snapshot_id,
-            effect_model_digest,
-            input.conditions,
-            input.nodes,
-            input.operations,
-            input.public_paths,
-            input.parameters,
-            input.flows,
-            input.steps,
-            input.boundaries,
-            input.leaves,
-            input.links,
-        )
-    }
-
-    #[new]
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one checked generation crosses this constructor"
-    )]
-    fn new(
+    #[allow(clippy::too_many_arguments, reason = "one checked generation crosses this loader")]
+    fn load(
         kernel_format: u32,
         snapshot_id: String,
         effect_model_digest: String,
@@ -265,6 +235,8 @@ impl SemanticExecutor {
         boundaries: Vec<(String, String, String, String, String, String)>,
         leaves: Vec<LeafInput>,
         links: Vec<LinkInput>,
+        identities: Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>,
+        return_sites: HashMap<Id, Id>,
     ) -> PyResult<Self> {
         if operations.len() > MAX_SURFACE_ROWS
             || public_paths.len() > MAX_SURFACE_ROWS
@@ -274,6 +246,7 @@ impl SemanticExecutor {
             || boundaries.len() > MAX_SUMMARY_ROWS
             || leaves.len() > MAX_SUMMARY_ROWS
             || links.len() > MAX_SUMMARY_ROWS
+            || identities.len() > MAX_SUMMARY_ROWS
         {
             return Err(PyValueError::new_err("semantic index exceeds load limits"));
         }
@@ -345,6 +318,8 @@ impl SemanticExecutor {
                     summary,
                     NativeSummary {
                         function_node_id: function,
+                        parameter_node_id: formal,
+                        return_site_fact_id: return_sites.get(&summary).copied(),
                         condition_id: condition,
                         source_flow_fact_id: source_flow_fact,
                         source_origin_id: source_origin,
@@ -539,6 +514,15 @@ impl SemanticExecutor {
                         formal_node_id: link.formal_node_id, link_id: link.link_id,
                         atom: leaf.atom.clone(),
                     }))).collect();
+        let mut identity_by_id = HashMap::new();
+        for mut identity in identities {
+            identity.snapshot_id = snapshot_id;
+            if identity.identity_id != cpg_schema::parameter_identity::identity(&identity)
+                || identity_by_id.insert(identity.identity_id, identity).is_some() {
+                return Err(PyValueError::new_err("invalid or duplicate source parameter identity"));
+            }
+        }
+        let mut cited_identities = HashSet::new();
         for summary in summaries.values() {
             let steps:Vec<_>=summary.steps.iter().map(|(kind,evidence_id,condition_id)|
                 cpg_schema::id::recipe::SummaryFlowProofStep {
@@ -558,6 +542,26 @@ impl SemanticExecutor {
                         condition:graph.diagrams.get(&target.condition_id)?,verdict,path_depth:target.path_depth,
                     })
                 }).map_err(|error|PyValueError::new_err(error.message))?;
+            let identity_steps: Vec<_> = steps.iter().filter(|s| s.kind == SummaryFlowStepKind::SourceParameterIdentity).collect();
+            if identity_steps.len() > 1 {
+                return Err(PyValueError::new_err("duplicate source parameter identity step"));
+            }
+            for step in identity_steps {
+                let certificate = identity_by_id.get(&step.evidence_id)
+                    .ok_or_else(|| PyValueError::new_err("missing source parameter identity"))?;
+                let return_site = summary.return_site_fact_id
+                    .ok_or_else(|| PyValueError::new_err("missing source identity return site"))?;
+                if step.condition_id != summary.condition_id || summary.path_depth != 0
+                    || !cpg_schema::parameter_identity::admits(certificate, summary.function_node_id,
+                        summary.parameter_node_id, summary.source_flow_fact_id, summary.source_origin_id,
+                        summary.condition_id, return_site) {
+                    return Err(PyValueError::new_err("source parameter identity does not prove this origin"));
+                }
+                cited_identities.insert(step.evidence_id);
+            }
+        }
+        if cited_identities.len() != identity_by_id.len() {
+            return Err(PyValueError::new_err("uncited source parameter identity"));
         }
         Ok(Self {
             graph,
@@ -571,6 +575,62 @@ impl SemanticExecutor {
             leaves_by_formal,
             link_spans,
         })
+    }
+
+}
+
+#[pymethods]
+impl SemanticExecutor {
+    /// Production loader: validate the IPC file schemas against cpg-schema and decode columns
+    /// by name. The tuple constructor remains for focused synthetic proof tests.
+    #[staticmethod]
+    fn from_ipc(
+        kernel_format: u32,
+        snapshot_id: String,
+        effect_model_digest: String,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> PyResult<Self> {
+        let input = ipc_input::decode(files)?;
+        Self::load(
+            kernel_format,
+            snapshot_id,
+            effect_model_digest,
+            input.conditions,
+            input.nodes,
+            input.operations,
+            input.public_paths,
+            input.parameters,
+            input.flows,
+            input.steps,
+            input.boundaries,
+            input.leaves,
+            input.links,
+            input.identities,
+            input.return_sites,
+        )
+    }
+
+    #[new]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one checked generation crosses this constructor"
+    )]
+    fn new(
+        kernel_format: u32,
+        snapshot_id: String,
+        effect_model_digest: String,
+        conditions: Vec<(String, Option<String>, Option<String>)>,
+        nodes: Vec<(String, String, String, String)>,
+        operations: Vec<String>,
+        public_paths: Vec<(String, String)>,
+        parameters: Vec<(String, String, String)>,
+        flows: Vec<FlowInput>,
+        steps: Vec<(String, i64, String, String, String)>,
+        boundaries: Vec<(String, String, String, String, String, String)>,
+        leaves: Vec<LeafInput>,
+        links: Vec<LinkInput>,
+    ) -> PyResult<Self> {
+        Self::load(kernel_format, snapshot_id, effect_model_digest, conditions, nodes, operations, public_paths, parameters, flows, steps, boundaries, leaves, links, Vec::new(), HashMap::new())
     }
 
     #[getter]

@@ -666,3 +666,93 @@ preserves claim/grade separation. The native handler positive control is still f
 no clean 57-case compiler-86 receipt. Initial target acceptance and earlier S1/S2/FORMAT 9 slices
 remain separate. Full gates, pilot, complete S5/RCA repair and integrated Stage 3 acceptance
 remain `not_run` in this review.
+
+## 18. Bounded implementation follow-up: source parameter identity
+
+**2026-09-27 · change/conformance · dirty compiler-87 slice · source inspection.** Reviewed
+`cpg-schema::parameter_identity`, `lctx-analytics::parameter_identity`, direct finite admission
+and origin coverage, core publication/reconstruction, and FORMAT 9/native certificate loading.
+This addresses §17's handler-value gap only. No production edits or tests were performed by
+this reviewer; executed evidence below is attributed to the author.
+
+**Implemented, inspected:** the schema owns the certificate identity and shared tuple admission;
+the pure analytics producer owns lexical proof; core acquires and reconstructs the rows; native
+loading checks the served contract. The proof requires an exact bare return-name occurrence,
+one same-scope parameter binding and a unique lexical name, an undecorated synchronous owner,
+and an unapproximated raw value expression. Deletion, nonlocal mutation and generator hazards
+withhold certificates, including hazards in nested declaration chains. This is a local binding
+proof, not general alias analysis or a relaxation of provider fidelity.
+
+Only direct seeds can cite a matching certificate. Entry/exit admission remains mandatory;
+provider reaching and exit-region flags remain unchanged. The summary's nonapproximate result
+comes from independent source evidence. Coverage discharges the approximation reason only for
+the certified snapshot/function/parameter/source/condition/origin tuple, and only certificates
+cited by admitted summary steps are published. Foreign origins and uncertified siblings remain
+open. Core validation recomputes the certificates and summary products from source. The retained
+tuple constructor cannot supply certificates and therefore refuses a certificate-dependent proof.
+
+<a id="F08"></a>**F08 — Native certificate closure must include unreferenced rows.**
+The initial loader validated a `SourceParameterIdentity` step when present, but did not require
+every loaded certificate to be cited. Removing that proof step and making the remaining
+ordinals dense could leave an orphan certificate while the summary loaded positively.
+**Correction inspected:** each cited ID must resolve and pass shared tuple admission before it
+enters the cited set; equality with the loaded certificate set rejects orphans. More than one
+identity step in one summary is rejected. Missing/foreign certificates and removed/duplicated
+steps with dense renumbering are separate IPC controls, so ordinal-gap validation cannot mask
+the missing closure check. The certificate table is registered, and publication reconstruction
+also rejects a removed certificate table's contents. Owner: native FORMAT 9 evidence admission;
+current work disposition remains forward-plan S1/S2/S6. The correction reuses the source-owned
+lexical proof rather than duplicating that analysis in native loading.
+
+| Judgment/gate | Bounded verdict | Basis |
+|---|---|---|
+| A1 | satisfied | Lexical proof, semantic contract, persistence and loading have separate owners; publication shares reconstruction |
+| A2 | satisfied | The independent certificate names its exact occurrence and does not erase raw fidelity or replace completion evidence |
+| A3 | satisfied for this slice | The source-to-serving chain retains matching tuple admission and certificate closure, including missing proof rows |
+| G1/G3/G4/G5 | no additional blocker established | Existing identity, source reconstruction and bounded finite proof mechanisms are reused |
+| G2/G6; CI-G1 | no remaining blocker established in this slice | Present references and reverse certificate closure are checked; uncertified origins retain their fidelity boundary |
+| G7/G8; CI-G2/CI-G3 | scoped | No new library, evaluation-input path or performance claim; focused receipts do not certify integrated serving |
+
+**Bounded decision: Accept at source-inspection strength after F08 correction.** Focused evidence
+is recorded separately below. No full S1/S2/S6 completion or integrated Stage 3 acceptance is
+credited.
+
+**Attributed focused receipt, 2026-09-27:** after the author's reviewed schema/codebook/rule
+snapshot acceptance and editable native rebuild (`uv sync --frozen --reinstall-package
+lctx-semantics`, reported `passed`), the inspected final log
+`/tmp/lctx-stage3-parameter-identity-final.log` records:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-schema -p cpg-core -p lctx-analytics --lib \
+  --test contracts --test codebooks --test bundle --test compile \
+  -E 'test(summaries::) | binary(contracts) | binary(codebooks) | test(finite_depth_and_unsupported_refusals_reach_the_native_response) | test(transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries) | test(serving_schema_digests_are_the_shared_known_answers)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **failed: 43 cases run, 42 passed, 1 failed, 156 skipped** (11.253 seconds test time).
+The native fixture progressed past the positive handler identity and four certificate-closure
+mutations, then failed its `summary_proof_boundary` positive expectation: 63 finalizer passes,
+raw identity and the new required certificate total 65 steps, above the unchanged 64-step cap.
+The author resized the boundary fixture to 62 passes (64 total) and its over-cap companion to
+63 (65 total), preserving the production cap and admission rule. The inspected targeted log
+`/tmp/lctx-stage3-parameter-identity-cap-control.log` records the following rerun:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-core --test bundle \
+  -E 'test(finite_depth_and_unsupported_refusals_reach_the_native_response)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **passed: 1 case, 6 skipped** (10.048 seconds test time). This completes the fixture's
+source→Delta→native handler identity, missing/foreign/removed/duplicate certificate controls,
+64/65-step boundary controls and publication rejection of missing source certificates. The
+author also records `uv run --no-sync pytest python/lctx_mcp/tests/test_digest.py -k
+expected_schemas` as **passed**; the new known-answer digest is the certificate schema addition.
+The initial 43-case command retains its failed outcome; the targeted rerun resolves its sole
+failure without a cap increase. F08 is corrected at source-inspection strength with this focused
+fixture evidence. Full S1/S2/S6, all-channel summaries, RCA repair, clean-wheel qualification,
+full gates/pilot and integrated Stage 3 acceptance remain open.

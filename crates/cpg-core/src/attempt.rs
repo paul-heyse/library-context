@@ -110,7 +110,8 @@ pub struct Published {
 /// 84: source binding and call-specific fresh default availability/value/stability evidence.
 /// 85: typed static/runtime/unresolved validation schema contracts and catalog format 3.
 /// 86: condition-safe transfer alternatives and typed behavior transfer/scope in FORMAT 9.
-pub const COMPILER_OUTPUT_VERSION: u32 = 86;
+/// 87: occurrence-specific source parameter identity independent of provider reach approximation.
+pub const COMPILER_OUTPUT_VERSION: u32 = 87;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -827,6 +828,8 @@ async fn finish(
         write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w)
             .await?;
         let summaries = crate::summaries::finite_flows(&ctx).await?;
+        write_analysis::<cpg_schema::parameter_identity::SourceParameterIdentities>(
+            &ctx, root, snapshot_id, &summaries.identities, w).await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summaries.flows, w).await?;
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summaries.steps, w).await?;
         write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summaries.boundaries, w)

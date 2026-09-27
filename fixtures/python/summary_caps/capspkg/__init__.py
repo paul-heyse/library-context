@@ -804,10 +804,10 @@ def expression_work_cap(value):
 
 
 def summary_proof_cap(value):
+    # 63 finalizer steps plus raw identity and the source certificate.
     try:
         return value
     finally:
-        pass
         pass
         pass
         pass
@@ -874,10 +874,10 @@ def summary_proof_cap(value):
 
 
 def summary_proof_boundary(value):
+    # 62 finalizer steps plus raw identity and the source certificate.
     try:
         return value
     finally:
-        pass
         pass
         pass
         pass
@@ -978,6 +978,39 @@ def unmatched_finalizer_identity(value):
 
 
 def handler_entry_identity(value):
+    try:
+        raise None
+    except TypeError:
+        return value
+
+
+def handler_entry_other(value, other):
+    try:
+        raise None
+    except TypeError:
+        return other
+
+
+def handler_entry_rebound(value):
+    try:
+        raise None
+    except TypeError:
+        value = None
+        return value
+
+
+def handler_entry_deleted(value):
+    try:
+        raise None
+    except TypeError:
+        del value
+        return value
+
+
+def handler_entry_nested_mutation(value):
+    def replace():
+        nonlocal value
+        value = None
     try:
         raise None
     except TypeError:

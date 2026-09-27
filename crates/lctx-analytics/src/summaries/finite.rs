@@ -7,6 +7,7 @@ use cpg_schema::condition::Atom;
 use cpg_schema::condition_kernel::{Diagram, KernelBoundary};
 use cpg_schema::id::{Id, recipe};
 use cpg_schema::models::{InputPath, OutputPath};
+use cpg_schema::parameter_identity::{SourceParameterIdentitiesRow, admits as admits_identity};
 
 cpg_schema::query_row! {
     pub struct SummaryFlowSeed {
@@ -188,6 +189,7 @@ impl SummaryRefusal {
 }
 
 pub struct FiniteSummaryOutcome {
+    pub identities: Vec<SourceParameterIdentitiesRow>,
     pub flows: Vec<SummaryFlowsRow>,
     pub steps: Vec<SummaryFlowStepsRow>,
     pub refusals: Vec<SummaryRefusal>,
@@ -272,6 +274,7 @@ fn summarize_boundaries(
         let fallback = if origins.iter().any(|o| o.reach_budget) {
             BoundaryReason::BudgetReached
         } else if crossed_call { BoundaryReason::CallTransfer }
+            else if origins.iter().any(|o| o.raw_approximated) { BoundaryReason::OutsideProviderModel }
             else { BoundaryReason::UnsupportedControlFlow };
         let reason = if origins.iter().any(|o| o.reach_budget) {
             BoundaryReason::BudgetReached
@@ -528,6 +531,7 @@ type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 #[derive(Clone)]
 pub struct FiniteSummaryInputs {
+    pub identities: Vec<SourceParameterIdentitiesRow>,
     pub diagrams: HashMap<Id, Diagram>,
     pub boundaries: HashMap<Id, BoundaryReason>,
     pub pass_steps: HashMap<Id, Vec<ReturnPassStep>>,
@@ -578,6 +582,7 @@ fn entry_proof(
 /// A bounded/missing condition is a named unknown, never an admitted positive flow.
 fn direct_flows(
     seeds: Vec<SummaryFlowSeed>,
+    identities: &[SourceParameterIdentitiesRow],
     diagrams: &HashMap<Id, Diagram>,
     boundaries: &HashMap<Id, BoundaryReason>,
     pass_steps: &ReturnPassIndex,
@@ -587,6 +592,11 @@ fn direct_flows(
 ) -> (Vec<SummaryFlowsRow>, Vec<SummaryFlowStepsRow>) {
     let mut flows = Vec::new();
     let mut steps = Vec::new();
+    let mut identities_by_origin = HashMap::<_, Vec<_>>::new();
+    for identity in identities {
+        identities_by_origin.entry((identity.snapshot_id, identity.source_origin_id))
+            .or_default().push(identity);
+    }
     for seed in seeds {
         let Some(return_diagram) = diagrams.get(&seed.condition_id) else {
             refuse(refusals, (seed.snapshot_id, seed.function_node_id,
@@ -634,12 +644,23 @@ fn direct_flows(
                 condition_id: finalizer.condition_id,
             });
         }
+        let identity = identities_by_origin.get(&(seed.snapshot_id, seed.source_origin_id))
+            .into_iter().flatten().filter(|row| admits_identity(row, seed.function_node_id, seed.parameter_node_id,
+                seed.source_flow_fact_id, seed.source_origin_id, seed.condition_id,
+                seed.return_site_fact_id)).collect::<Vec<_>>();
+        let certified = if seed.approximated {
+            if let [identity] = identity.as_slice() {
+                proof.push(recipe::SummaryFlowProofStep { kind: SummaryFlowStepKind::SourceParameterIdentity,
+                    evidence_id: identity.identity_id, condition_id: seed.condition_id });
+                true
+            } else { false }
+        } else { false };
         if proof.len() > cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS {
             refuse(refusals, (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
                 seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id), BoundaryReason::SummaryProofLimit);
             continue;
         }
-        if seed.approximated {
+        if seed.approximated && !certified {
             refuse(refusals, (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
                 seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id),
                 BoundaryReason::OutsideProviderModel);
@@ -672,7 +693,7 @@ fn direct_flows(
             source_origin_id: seed.source_origin_id,
             return_site_fact_id: seed.return_site_fact_id,
             return_region_fact_id: seed.return_region_fact_id,
-            approximated: seed.approximated,
+            approximated: seed.approximated && !certified,
             path_depth: 0,
         });
         steps.extend(
@@ -1017,6 +1038,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     -> FiniteSummaryOutcome
 {
     let FiniteSummaryInputs {
+        identities,
         diagrams, boundaries, mut pass_steps, entries, entry_steps, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates,
@@ -1028,7 +1050,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     let mut steps_by_return:EntryStepIndex=HashMap::new();
     for row in entry_steps { steps_by_return.entry(row.return_site_fact_id).or_default().push(row); }
     for steps in steps_by_return.values_mut() { steps.sort_by_key(|s|s.ordinal); }
-    let (mut flows,mut steps)=direct_flows(direct_seeds,&diagrams,&boundaries,&pass_steps,
+    let (mut flows,mut steps)=direct_flows(direct_seeds,&identities,&diagrams,&boundaries,&pass_steps,
         &entries_by_return,&steps_by_return,&mut refusals);
     let seeds = modeled_seeds;
     let mut by_candidate: ArgumentIndex = HashMap::new();
@@ -1587,7 +1609,12 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     refusals.sort_by_key(|row| (row.key(), row.reason));
     refusals.dedup();
     let boundaries = summarize_boundaries(&boundary_candidates, &flows, &refusals);
-    let mut coverage = origin_coverage(&boundary_candidates, &flows, &refusals, &boundaries);
+    let cited: HashSet<_> = steps.iter().filter(|s| s.kind == SummaryFlowStepKind::SourceParameterIdentity)
+        .map(|s| s.evidence_id).collect();
+    let identities: Vec<_> = identities.into_iter().filter(|r| cited.contains(&r.identity_id)).collect();
+    let certified: HashSet<_> = identities.iter().map(|r| (r.snapshot_id, r.function_node_id,
+        r.parameter_node_id, r.source_flow_fact_id, r.condition_id, r.source_origin_id)).collect();
+    let mut coverage = origin_coverage(&boundary_candidates, &flows, &refusals, &boundaries, &certified);
     let omitted = unexpanded_witnesses(&flows, &steps);
     let omitted_origins: BTreeSet<_> = flows.iter().filter(|row|omitted.contains(&row.summary_id))
         .map(|row|(row.snapshot_id,row.function_node_id,row.parameter_node_id,
@@ -1597,13 +1624,14 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             omitted_origins.contains(&(row.snapshot_id,row.function_node_id,
                 parameter,row.source_fact_id,row.condition_id,row.subject_id)));
     }
-    FiniteSummaryOutcome { flows, steps, refusals, boundaries, coverage }
+    FiniteSummaryOutcome { identities, flows, steps, refusals, boundaries, coverage }
 }
 
 /// Coverage deliberately reads refusals even where a positive path means there is no
 /// summary_boundaries row. A retained witness is not evidence that all alternatives finished.
 fn origin_coverage(candidates: &[SummaryBoundaryCandidate], flows: &[SummaryFlowsRow],
     refusals: &[SummaryRefusal], boundaries: &[SummaryBoundariesRow],
+    certified: &HashSet<BoundaryKey>,
 ) -> Vec<cpg_schema::behavior::SummaryOriginCoverageRow> {
     use cpg_schema::codebook::{InvocationPhase, SummaryChannel};
     let mut witnesses: HashMap<BoundaryKey,BTreeSet<Id>> = HashMap::new();
@@ -1626,7 +1654,7 @@ fn origin_coverage(candidates: &[SummaryBoundaryCandidate], flows: &[SummaryFlow
         let explicit=reasons.get(&key);
         let reason=explicit.and_then(|r|r.iter().min_by_key(|r|(refusal_priority(**r),**r))).copied()
             .or(if c.reach_budget {Some(BoundaryReason::BudgetReached)}
-                else if c.raw_approximated {Some(BoundaryReason::OutsideProviderModel)}
+                else if c.raw_approximated && !certified.contains(&key) {Some(BoundaryReason::OutsideProviderModel)}
                 else if c.through_call || c.local_through_call || c.upstream_through_call || c.raw_through_call {
                     // The value worklist proves individual finite paths. Until it composes
                     // callee/model channel coverage, a witness cannot close a call origin.
@@ -1656,6 +1684,11 @@ fn origin_coverage(candidates: &[SummaryBoundaryCandidate], flows: &[SummaryFlow
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn origin_coverage(candidates: &[SummaryBoundaryCandidate], flows: &[SummaryFlowsRow],
+        refusals: &[SummaryRefusal], boundaries: &[SummaryBoundariesRow])
+        -> Vec<cpg_schema::behavior::SummaryOriginCoverageRow> {
+        super::origin_coverage(candidates, flows, refusals, boundaries, &HashSet::new())
+    }
     fn entry_inputs(mut input:FiniteSummaryInputs) -> FiniteSummaryInputs {
         for seed in &input.local_seeds {
             if !input.local_bindings.iter().any(|b|b.call_fact_id==seed.call_fact_id && b.callee_node_id==seed.callee_node_id) {
@@ -1704,6 +1737,7 @@ mod tests {
     fn inputs() -> FiniteSummaryInputs {
         let always = Diagram::always();
         FiniteSummaryInputs {
+            identities: Vec::new(),
             diagrams: HashMap::from([(always.id(), always)]),
             boundaries: HashMap::new(),
             pass_steps: HashMap::new(),
@@ -1736,6 +1770,44 @@ mod tests {
                 reach_budget: false,
             }],
         }
+    }
+
+    #[test]
+    fn source_identity_discharges_only_its_origin_and_still_requires_entry() {
+        let mut input = inputs();
+        input.direct_seeds[0].approximated = true;
+        input.boundary_candidates[0].raw_approximated = true;
+        let seed = &input.direct_seeds[0];
+        let mut proof = SourceParameterIdentitiesRow {
+            snapshot_id: seed.snapshot_id, identity_id: Id::ZERO,
+            function_node_id: seed.function_node_id, parameter_node_id: seed.parameter_node_id,
+            source_flow_fact_id: seed.source_flow_fact_id, source_origin_id: seed.source_origin_id,
+            condition_id: seed.condition_id, return_site_fact_id: seed.return_site_fact_id,
+            expression_fact_id: id(40), reference_fact_id: id(41), resolution_fact_id: id(42),
+            binding_fact_id: id(43), parameter_fact_id: id(44), module_node_id: id(45),
+            start_byte: 10, end_byte: 15,
+        };
+        proof.identity_id = cpg_schema::parameter_identity::identity(&proof);
+        input.identities.push(proof);
+        let mut sibling = input.boundary_candidates[0].clone();
+        sibling.source_origin_id = id(99);
+        input.boundary_candidates.push(sibling);
+        let result = finite_flows(input.clone());
+        assert_eq!(result.identities.len(), 1);
+        assert_eq!(result.flows.len(), 1);
+        assert!(!result.flows[0].approximated);
+        assert!(result.coverage.iter().find(|r| r.subject_id == id(9)).unwrap().complete);
+        let open = result.coverage.iter().find(|r| r.subject_id == id(99)).unwrap();
+        assert!(!open.complete);
+        assert_eq!(open.reason, Some(BoundaryReason::OutsideProviderModel));
+        let mut wrong = input.clone();
+        wrong.identities[0].source_origin_id = id(99);
+        wrong.identities[0].identity_id = cpg_schema::parameter_identity::identity(&wrong.identities[0]);
+        assert!(finite_flows(wrong).flows.is_empty());
+        input.entries[0].reason = Some(BoundaryReason::UnsupportedControlFlow);
+        let refused = finite_flows(input);
+        assert!(refused.flows.is_empty() && refused.identities.is_empty());
+        assert!(!refused.coverage.iter().any(|r| r.complete));
     }
 
     #[test]

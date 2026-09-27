@@ -30,7 +30,7 @@ NATIVE_IPC_FILES = frozenset(
     {
         "conditions", "condition_nodes", "analysis_conditions", "analysis_condition_nodes",
         "operations", "public_paths", "callable_parameters", "summary_flows",
-        "summary_flow_steps", "summary_boundaries", "flow_test_leaves",
+        "summary_flow_steps", "summary_boundaries", "flow_test_leaves", "source_parameter_identities",
         "flow_test_value_links",
     }
 )
@@ -267,6 +267,13 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _int("path_depth"),
             ]
         ),
+        "source_parameter_identities": pa.schema(
+            [_id("identity_id"), _id("function_node_id"), _id("parameter_node_id"),
+             _id("source_flow_fact_id"), _id("source_origin_id"), _id("condition_id"),
+             _id("return_site_fact_id"), _id("expression_fact_id"), _id("reference_fact_id"),
+             _id("resolution_fact_id"), _id("binding_fact_id"), _id("parameter_fact_id"),
+             _id("module_node_id"), _int("start_byte"), _int("end_byte")]
+        ),
         "summary_flow_steps": pa.schema(
             [
                 _id("summary_id"),
@@ -440,6 +447,7 @@ def _read(
             "analysis_conditions",
             "analysis_condition_nodes",
             "summary_flows",
+            "source_parameter_identities",
             "summary_flow_steps",
             "summary_boundaries",
             "flow_test_leaves",
@@ -548,6 +556,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         raise GenerationError("condition catalog exceeds native load limits")
     for name in (
         "summary_flows",
+        "source_parameter_identities",
         "summary_flow_steps",
         "summary_boundaries",
         "flow_test_leaves",
