@@ -40,13 +40,13 @@ needs to be a dependency of this project.
   in globset's syntax (`*` and `?` within one name, `**` across directories, `[…]`, `{a,b}`). A
   module's role is the key that selected it, and a file both `examples` and `tests` select is
   refused (ADR-0015). Each include glob must select a file. The tree is walked once (walkdir),
-  dot-directories skipped, **no link followed**: a symlink a glob selects is refused, naming it,
-  and so is a directory link that could hold a selection (it and a glob's literal prefix lie one
-  under the other) unless an exclude covers it. An exclude covers a link only when it names the
-  link, or matches any name under it (tested with two unrelated probe names). **Tested**:
-  `symlinks_in_a_tree_are_refused_unless_excluded`, with a partial exclude that does not cover and
-  a loop under an excluded path that is harmless. A source tree (`Release::from_tree`) refuses any
-  link.
+  dot-directories skipped, **no link followed**. Before selection, the corpus import-root check
+  below refuses every directory or analyzer-readable symlink, even under an excluded path:
+  selected code can import an unselected helper. Selection also refuses a selected non-Python
+  document link; an excluded non-Python document link is harmless. **Tested**:
+  `symlinks_in_corpus_imports_are_refused_even_when_unselected` checks selected links,
+  excluded import directories, an excluded loop and an excluded non-Python document link.
+  A source tree (`Release::from_tree`) refuses any link.
 - **The fetched tree.** `lctx acquire` fetches the tree hermetically (every `GIT_*` variable
   removed, no system or global git configuration, no prompts; `git init`, a shallow fetch of the
   one commit, checkout, then `rev-parse HEAD` checked every time; no ambient git attributes,
@@ -146,8 +146,8 @@ site-packages content and membership were already hashed. Editing an unselected 
 between extractions now yields the same fact tables as extracting the edited tree in a fresh
 location. Adding an unselected analyzer-readable helper after a warm extraction also matches a
 clean extraction of the augmented tree. Both changes move corpus release identity while
-relocation preserves it. A fresh pilot run remains outstanding before claiming end-to-end
-hermeticity.
+relocation preserves it. The compiler102 fresh pilot rebuilt and published successfully on 2026-09-27 (plan §1.1);
+the helper-mutation controls, rather than that ordinary pilot alone, establish this input-identity boundary.
 
 **Run.** A run is one producer applied to one context for a declared set of families under one
 analysis configuration. `runs` records that. `producers` records the tool, the revision (for the

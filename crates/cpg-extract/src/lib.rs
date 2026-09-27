@@ -38,11 +38,11 @@ use cpg_schema::tables::{
     ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
     Distributions, DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
     ExportSyntax, Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
-    FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues, FunctionImplementations, Mentions,
-    ParameterDocs, ParameterSemantics, ParameterSyntax, Passages, Producers, ProducersRow,
-    PublicNames, PysaCalls, PysaClasses, PysaFunctions, RecordFields, ReferenceResolutions,
-    References, Releases, ReleasesRow, Runs, RunsRow, Scopes, SourceFiles, SourceFilesRow,
-    SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
+    FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues,
+    FunctionImplementations, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax,
+    Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
+    RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes,
+    SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;

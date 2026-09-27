@@ -27,8 +27,8 @@ each with a positive and a withholding fixture and shared publication equality).
 value paths through an SCC-local worklist and one exact literal-controlled recursive path are
 **Tested in focused cases** (2026-09-26); general conditional recursive composition,
 effect/exception/role summaries, `call_transfer` discharge,
-operation-wide serving and the registry remain **Proposed** targets. Integrated Stage 3 acceptance and the pilot are
-`not_run`; the plan owns the queue and the current disposition of the findings cited here
+operation-wide serving and the registry remain **Proposed** targets. The compiler102 fresh-store pilot passes extraction/publication/serving smoke with fake vectors
+(2026-09-27); live embedding and assembled Stage 3 acceptance remain `not_run`. The plan owns the queue and the current disposition of the findings cited here
 ([plan §3, §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#3-stage-3-execution-queue)).
 The rationale is ADR-0045 and ADR-0050.
 
@@ -206,6 +206,15 @@ proofs. Consumers charge expanded header/body evidence against the original 64-s
 including invocation prefixes and Normal/Finally actions. FORMAT 9 exports referenced bodies and
 call certificates with shared admission and row/byte limits; missing groups and foreign-caller
 substitution refuse. Full raw-signature/read reconstruction and other S6 obligations remain open.
+
+**Repeated pinned observations (Implemented and Tested, 2026-09-27; compiler102).** Library and corpus
+extraction can report the same pinned external definition and signature. Raw observations remain
+separate facts. Model binding uses deterministic representatives of agreeing module/definition
+payloads and signature slots; a repeated report is not another overload. Schema-owned
+`context_observations` supplies parameter agreement to authored formals, constructors, call
+evaluation and the SQL argument-binding projection. A payload conflict or duplicate fact ID
+refuses binding instead of selecting a convenient report. Pure/SQL agreement and conflict
+controls pass, and the real pilot retains both raw `json.dumps` reports while binding its model.
 
 **Reached source invocation (Implemented and focused Tested, 2026-09-27; compiler100).**
 `call_executions` distinguishes source and pinned-model targets, with exclusive source-binding
@@ -691,6 +700,18 @@ singleton recursive. Candidate/open dispatch contributes topology only.
 
 > Decision: ADR-0052
 
+**Bounded progress ownership (Implemented and Tested, 2026-09-27; compiler101).**
+`lctx-analytics::summaries::worklist` owns the deterministic component queue, generic semantic
+frontier and per-alternative success/refusal state. The value adapter supplies semantic and
+applicability keys and expands its source proof cost. Nondominated depth/cost representatives
+can reopen dependent work; equal-cost witness alternatives do not. Depth 8, expanded proof 64
+and the original component pair-work bounds remain fixed. A later limited witness cannot undo
+an already admitted semantic alternative, while unrelated refusals survive. The existing value
+consumer uses these helpers; non-value channel composition, shared channel obligations and the
+Ascent/datafrog comparison remain accepted targets in the plan, not implemented consumers.
+
+> Decision: ADR-0053
+
 **Known gaps** ([plan W5, W7, W12, W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - W5 (ARC-02/03) has focused production and native evidence for explicit finite inputs and
   specific depth/control/atom-limit refusals. Actual predecessor conjunctions also preserve
@@ -711,7 +732,7 @@ singleton recursive. Candidate/open dispatch contributes topology only.
   relation families share rules. A wall-clock timeout is not a deterministic budget.
 - W13: iterative SCC routine and schedule ownership are decided by ADR-0052 and tested in a
   deep chain. The separate type-term recursive set closures now terminate on cyclic controls;
-  pilot cost and the integrated digest remain open. Keyed condensation ordering stays
+  the integrated digest passes at the current checkpoint; controlled pilot cost comparison remains open. Keyed condensation ordering stays
   repository-owned.
 
 ## Native serving boundary

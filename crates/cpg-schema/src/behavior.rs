@@ -27,15 +27,15 @@
 //! (`semantic:behavior-covers-public`).
 
 use crate::codebook::{
-    ArgumentKind, BehaviorKind, BoundaryReason, Codebook, CompletionKind, ExactRuntimeException, DeclarationKind, DynamicKind,
-    EmbeddingView, ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus,
-    ImplicitReceiver, InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction,
-    ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
-    ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction, ModelResourceSourceStatus,
-    ModelTransferEndpointStatus, ModelTransferKind, ModeledArgumentEvaluationStatus,
-    ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase,
-    SourceRole, SummaryFlowKind, SummaryFlowStepKind, SyntaxKind, TestValueLinkOrigin, ValueClass,
-    Verdict, SummaryChannel, SummarySubjectKind, ModelSchemaKind,
+    ArgumentKind, BehaviorKind, BoundaryReason, Codebook, CompletionKind, DeclarationKind,
+    DynamicKind, EmbeddingView, ExactRuntimeException, ExactValueOrigin, ExitSiteKind,
+    FlowCallLinkStatus, FlowSink, HandlerTypeStatus, ImplicitReceiver, InvocationPhase, Modality,
+    ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
+    ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
+    ModelResourceAction, ModelResourceSourceStatus, ModelSchemaKind, ModelTransferEndpointStatus,
+    ModelTransferKind, ModeledArgumentEvaluationStatus, ModeledHandlerClassMatch, OperationFacet,
+    Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole, SummaryChannel, SummaryFlowKind,
+    SummaryFlowStepKind, SummarySubjectKind, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -1818,8 +1818,15 @@ pub fn behavior_id(
 /// Different alternatives are never merged because they happen to render the same text.
 pub fn flow_behavior_id(row: &BehaviorsRow) -> Id {
     IdHasher::new("flow-behavior")
-        .id(behavior_id(row.operation_node_id, row.kind, row.parameter_node_id,
-            row.callee_node_id, row.target_node_id, row.value.as_deref(), row.site_node_id))
+        .id(behavior_id(
+            row.operation_node_id,
+            row.kind,
+            row.parameter_node_id,
+            row.callee_node_id,
+            row.target_node_id,
+            row.value.as_deref(),
+            row.site_node_id,
+        ))
         .i64(row.transfer.map_or(-1, |kind| i64::from(kind.code())))
         .id(row.condition_scope_node_id)
         .finish_id()
@@ -1936,7 +1943,7 @@ pub fn expression_reads_sql() -> String {
           JOIN syntax_nodes source ON source.fact_id=reads.syntax_fact_id \
           JOIN declarations owner ON owner.node_id=source.owner_node_id AND owner.kind={function_declaration} \
           WHERE reads.evidence_id IS NOT NULL",
-        function_declaration=DeclarationKind::Function.code(),
+        function_declaration = DeclarationKind::Function.code(),
         name_expr = SyntaxKind::ExprName.code(),
         builtin_normal = ModeledArgumentEvaluationStatus::BuiltinNameNormal.code(),
         parameter_normal = ModeledArgumentEvaluationStatus::ParameterNameNormal.code(),
@@ -1967,13 +1974,15 @@ fn simple_argument_evidence_sql() -> String {
         )",
         unknown = ModeledArgumentEvaluationStatus::Unknown.code(),
         argument_field = crate::codebook::SyntaxField::Argument.code(),
-        positional = ArgumentKind::Positional.code(), keyword = ArgumentKind::Keyword.code(),
+        positional = ArgumentKind::Positional.code(),
+        keyword = ArgumentKind::Keyword.code(),
     )
 }
 
 /// Source and pinned-target observations, before any argument evaluation.
 fn normal_call_candidates_sql() -> String {
-    format!("{callee_candidates}, module_imports AS ( \
+    format!(
+        "{callee_candidates}, module_imports AS ( \
                SELECT cc.call_node_id, cc.resolution_fact_id, \
                       b.fact_id AS import_binding_fact_id, \
                       r.fact_id AS import_region_fact_id, \
@@ -1999,11 +2008,13 @@ fn normal_call_candidates_sql() -> String {
              )",
         callee_candidates = modeled_callee_candidates_sql(),
         from_import = crate::codebook::BindingKind::FromImport.code(),
-        module_scope = crate::codebook::LexicalScopeKind::Module.code())
+        module_scope = crate::codebook::LexicalScopeKind::Module.code()
+    )
 }
 
 pub fn pinned_call_targets_sql() -> String {
-    format!("WITH {candidates} \
+    format!(
+        "WITH {candidates} \
       SELECT a.snapshot_id, c.node_id AS call_node_id, a.call_fact_id, a.target_node_id, \
         d.signature_count, a.target_body_return_parameter AS body_return_parameter, \
         owner.kind={function_kind} AS caller_function_scope, a.target_call_defaults_available AS call_defaults_available, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
@@ -2019,8 +2030,11 @@ pub fn pinned_call_targets_sql() -> String {
         AND a.target_modality = {definite} AND a.phase = {call_phase} \
         AND a.target_count = 1 AND a.candidate_set_complete_under_model \
         AND NOT a.has_unresolved_remainder AND d.signature_count BETWEEN 1 AND 128",
-        function_kind=DeclarationKind::Function.code(),candidates = normal_call_candidates_sql(), definite = Modality::Definite.code(),
-        call_phase = InvocationPhase::Call.code())
+        function_kind = DeclarationKind::Function.code(),
+        candidates = normal_call_candidates_sql(),
+        definite = Modality::Definite.code(),
+        call_phase = InvocationPhase::Call.code()
+    )
 }
 
 fn modeled_handler_climb_sql() -> String {
@@ -2100,7 +2114,7 @@ crate::relations! {
                SELECT b.*, cp.signature_index, arg.node_id AS matched_node_id, \
                       arg.ordinal AS matched_ordinal \
                FROM base b \
-               JOIN context_parameters cp ON cp.symbol_node_id = b.target_node_id \
+               JOIN ({parameters}) cp ON cp.symbol_node_id = b.target_node_id \
                  AND cp.name = b.formal_name \
                LEFT JOIN arguments arg ON arg.call_node_id = b.call_site_node_id \
                  AND ((arg.kind = {positional} \
@@ -2147,7 +2161,8 @@ crate::relations! {
             pos_only = ParameterKind::PositionalOnly.code(),
             pos_or_keyword = ParameterKind::PositionalOrKeyword.code(),
             keyword_only = ParameterKind::KeywordOnly.code(),
-            bound_condition = format!(
+            parameters = crate::context_observations::parameters_sql(),
+        bound_condition = format!(
                 "g.unpacked_count = 0 AND (g.implicit_receiver IS NULL \
                     OR g.implicit_receiver = {} \
                     OR (g.implicit_receiver = {} AND g.receiver_shift = 1)) \

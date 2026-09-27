@@ -594,12 +594,16 @@ mod tests {
             fake: FakeEmbedder::new(),
         };
         let mut docs = vec![document("one")];
-        assert!(embed_documents(dir.path(), Id([1; 16]), &embedder, &mut docs, &[])
-            .await
-            .is_err());
-        assert!(embed_texts(dir.path(), Id([2; 16]), &embedder, &["one".to_owned()])
-            .await
-            .is_err());
+        assert!(
+            embed_documents(dir.path(), Id([1; 16]), &embedder, &mut docs, &[])
+                .await
+                .is_err()
+        );
+        assert!(
+            embed_texts(dir.path(), Id([2; 16]), &embedder, &["one".to_owned()])
+                .await
+                .is_err()
+        );
         assert!(!dir.path().join(EmbeddingCache::NAME).exists());
     }
 
@@ -657,7 +661,10 @@ mod tests {
         assert_eq!(left_keys, right_keys);
         assert_eq!(left_vectors, right_vectors);
         let spec_hash = a.spec().hash();
-        for (vectors, version) in [(&left_vectors, left_version), (&right_vectors, right_version)] {
+        for (vectors, version) in [
+            (&left_vectors, left_version),
+            (&right_vectors, right_version),
+        ] {
             let stored = cached_vectors(dir.path(), spec_hash, version, left_keys.iter().copied())
                 .await
                 .unwrap();

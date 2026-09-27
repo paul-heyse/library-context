@@ -10,9 +10,10 @@ use cpg_core::bundle::{build, bundle, verify};
 use cpg_core::snapshot::published;
 use cpg_core::sql;
 use cpg_extract::{ExtractInput, TestHooks, extract};
+use cpg_schema::codebook::{
+    BoundaryReason, Codebook, FlowSink, ModeledArgumentEvaluationStatus, SummaryFlowStepKind,
+};
 use cpg_schema::id::Id;
-use cpg_schema::codebook::{BoundaryReason, Codebook, FlowSink,
-    ModeledArgumentEvaluationStatus, SummaryFlowStepKind};
 use lctx_analytics::config::AnalyticsConfig;
 
 const CONFIG: &str = r#"
@@ -98,14 +99,15 @@ async fn compiled(sub: &str, reverse: bool, finalizer: bool) -> (tempfile::TempD
 async fn compiled_summary_caps() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("caps");
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python/summary_caps");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/summary_caps");
     copy(&fixture, &base.join("release"));
     std::fs::create_dir_all(base.join("venv/site-packages")).unwrap();
     let out = extract(&ExtractInput {
         release: cpg_extract::Release::from_tree(
-            std::fs::canonicalize(base.join("release")).unwrap(), "summary_caps",
-        ).unwrap(),
+            std::fs::canonicalize(base.join("release")).unwrap(),
+            "summary_caps",
+        )
+        .unwrap(),
         venv_root: std::fs::canonicalize(base.join("venv")).unwrap(),
         site_packages: vec![std::fs::canonicalize(base.join("venv/site-packages")).unwrap()],
         python_version: (3, 14, 7),
@@ -114,8 +116,10 @@ async fn compiled_summary_caps() -> (tempfile::TempDir, PathBuf) {
         corpus: None,
         keep_pysa_json: false,
         test_hooks: TestHooks::default(),
-    }).unwrap();
-    let config = AnalyticsConfig::parse(r#"
+    })
+    .unwrap();
+    let config = AnalyticsConfig::parse(
+        r#"
 version = 1
 [subsystem]
 module_prefixes = ["capspkg"]
@@ -130,14 +134,18 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 3
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     let analysis = cpg_core::analyze::Analysis {
         config,
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Default::default(),
     };
     let store = dir.path().join("store");
-    compile_analyzed(&store, SNAPSHOT, &out.tables, Some(&analysis)).await.unwrap();
+    compile_analyzed(&store, SNAPSHOT, &out.tables, Some(&analysis))
+        .await
+        .unwrap();
     (dir, store)
 }
 
@@ -145,25 +153,71 @@ budget = 3
 async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let (dir, store) = compiled_summary_caps().await;
     let (_, ctx) = published(&store, SNAPSHOT).await.unwrap().unwrap();
-    let identity_rows = sql::query(&ctx, "SELECT p.identity_id FROM source_parameter_identities p \
+    let identity_rows = sql::query(
+        &ctx,
+        "SELECT p.identity_id FROM source_parameter_identities p \
         JOIN declarations d ON d.node_id=p.function_node_id \
         JOIN value_flow_contributions c ON c.origin_id=p.source_origin_id \
-        WHERE d.name='handler_entry_identity' AND c.approximated")
-        .await.unwrap().collect().await.unwrap();
-    assert_eq!(identity_rows.iter().map(|batch| batch.num_rows()).sum::<usize>(), 1,
-        "the independent proof retains the provider's approximation");
-    let rejected = sql::query(&ctx, "SELECT p.identity_id FROM source_parameter_identities p \
+        WHERE d.name='handler_entry_identity' AND c.approximated",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    assert_eq!(
+        identity_rows
+            .iter()
+            .map(|batch| batch.num_rows())
+            .sum::<usize>(),
+        1,
+        "the independent proof retains the provider's approximation"
+    );
+    let rejected = sql::query(
+        &ctx,
+        "SELECT p.identity_id FROM source_parameter_identities p \
         JOIN declarations d ON d.node_id=p.function_node_id WHERE d.name IN \
-        ('handler_entry_rebound', 'handler_entry_deleted', 'handler_entry_nested_mutation')")
-        .await.unwrap().collect().await.unwrap();
-    assert_eq!(rejected.iter().map(|batch| batch.num_rows()).sum::<usize>(), 0);
-    for (name,expected) in [("fresh_default_true",1),("fresh_default_false",0),
-        ("fresh_keyword_default",1),("fresh_unused_default",1),("fresh_skipped_default",1),
-        ("fresh_missing_default",0),("fresh_removed_default",0),("fresh_removed_keyword_default",0),
-        ("fresh_escaped_default",0),("fresh_intervening_default",0),("fresh_effectful_argument",0)] {
-        let rows=sql::query(&ctx,&format!("SELECT count(*) FROM summary_flows f JOIN declarations d \
-            ON d.node_id=f.function_node_id WHERE d.name='{name}'")).await.unwrap().collect().await.unwrap();
-        let counts=rows[0].column(0).as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        ('handler_entry_rebound', 'handler_entry_deleted', 'handler_entry_nested_mutation')",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    assert_eq!(
+        rejected.iter().map(|batch| batch.num_rows()).sum::<usize>(),
+        0
+    );
+    for (name, expected) in [
+        ("fresh_default_true", 1),
+        ("fresh_default_false", 0),
+        ("fresh_keyword_default", 1),
+        ("fresh_unused_default", 1),
+        ("fresh_skipped_default", 1),
+        ("fresh_missing_default", 0),
+        ("fresh_removed_default", 0),
+        ("fresh_removed_keyword_default", 0),
+        ("fresh_escaped_default", 0),
+        ("fresh_intervening_default", 0),
+        ("fresh_effectful_argument", 0),
+    ] {
+        let rows = sql::query(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id=f.function_node_id WHERE d.name='{name}'"
+            ),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        let counts = rows[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Int64Array>()
+            .unwrap();
         assert_eq!(counts.value(0),expected,"{name} fresh default admission: {}",
             sql::render(&ctx,&format!("SELECT d.qualified_name,b.reason,v.approximated AS raw_approx, \
                 c.approximated AS contribution_approx, c.condition_id, v.identity, v.through_call \
@@ -172,7 +226,10 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
                 JOIN flow_values v ON v.fact_id=c.flow_value_fact_id WHERE d.qualified_name LIKE '%{name}%'"))
                 .await.unwrap());
     }
-    let rows = sql::query(&ctx, &format!("SELECT count(*) FROM ( \
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) FROM ( \
         SELECT c.flow_value_fact_id FROM value_flow_contributions c \
         JOIN declarations d ON d.node_id = c.sink_function_node_id \
         JOIN flow_values v ON v.fact_id = c.flow_value_fact_id \
@@ -184,69 +241,167 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         GROUP BY c.flow_value_fact_id HAVING count(DISTINCT c.origin_id) = 2 \
           AND count(DISTINCT f.summary_id) = 1 \
           AND count(DISTINCT CASE WHEN b.reason = {} THEN b.source_origin_id END) = 1 \
-    )", FlowSink::Return.code(), BoundaryReason::CallTransfer.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1,
-        "one raw returned use keeps a proved value and an unproved call origin");
-    for (name, reason) in [("f9", 21), ("unsupported", BoundaryReason::ScopeBoundary.code()),
-        ("condition_atom_cap", 24), ("summary_proof_cap", 30)] {
-        let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_boundaries b \
+    )",
+            FlowSink::Return.code(),
+            BoundaryReason::CallTransfer.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "one raw returned use keeps a proved value and an unproved call origin"
+    );
+    for (name, reason) in [
+        ("f9", 21),
+        ("unsupported", BoundaryReason::ScopeBoundary.code()),
+        ("condition_atom_cap", 24),
+        ("summary_proof_cap", 30),
+    ] {
+        let rows = sql::query(
+            &ctx,
+            &format!(
+                "SELECT count(*) AS n FROM summary_boundaries b \
             JOIN declarations d ON d.node_id = b.function_node_id \
-            WHERE d.name = '{name}' AND b.reason = {reason}"))
-            .await.unwrap().collect().await.unwrap();
-        let counts = rows[0].column(0)
-            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-        assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary: {}",
-            sql::render(&ctx,&format!("SELECT b.reason FROM summary_boundaries b JOIN declarations d \
-                ON d.node_id=b.function_node_id WHERE d.name='{name}'")).await.unwrap());
+            WHERE d.name = '{name}' AND b.reason = {reason}"
+            ),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        let counts = rows[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Int64Array>()
+            .unwrap();
+        assert_eq!(
+            counts.value(0),
+            1,
+            "{name} must retain its typed boundary: {}",
+            sql::render(
+                &ctx,
+                &format!(
+                    "SELECT b.reason FROM summary_boundaries b JOIN declarations d \
+                ON d.node_id=b.function_node_id WHERE d.name='{name}'"
+                )
+            )
+            .await
+            .unwrap()
+        );
     }
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'condition_atom_cap' AND f.boundary_reason IS NULL")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "a bounded condition cannot publish a positive summary");
-    for (name, expected) in [("completed_predecessor", 1), ("parameter_predecessor", 1),
-        ("signed_literal_predecessor", 1), ("boolean_not_predecessor", 1),
-        ("binary_numeric_predecessor", 1), ("raising_binary_predecessor", 0),
-        ("short_circuit_and_predecessor", 1), ("raising_and_predecessor", 0),
-        ("selected_true_predecessor", 1), ("raising_false_predecessor", 0),
+        WHERE d.name = 'condition_atom_cap' AND f.boundary_reason IS NULL",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "a bounded condition cannot publish a positive summary"
+    );
+    for (name, expected) in [
+        ("completed_predecessor", 1),
+        ("parameter_predecessor", 1),
+        ("signed_literal_predecessor", 1),
+        ("boolean_not_predecessor", 1),
+        ("binary_numeric_predecessor", 1),
+        ("raising_binary_predecessor", 0),
+        ("short_circuit_and_predecessor", 1),
+        ("raising_and_predecessor", 0),
+        ("selected_true_predecessor", 1),
+        ("raising_false_predecessor", 0),
         ("two_completed_predecessors", 2),
-        ("raising_unary_predecessor", 0), ("raising_not_predecessor", 0),
+        ("raising_unary_predecessor", 0),
+        ("raising_not_predecessor", 0),
         ("completed_then_raising", 0),
         ("assigned_local_argument", 1),
-        ("raising_predecessor", 0), ("possibly_unbound_argument", 0),
+        ("raising_predecessor", 0),
+        ("possibly_unbound_argument", 0),
         ("possibly_unbound_local_argument", 0),
-        ("conditional_callee", 0), ("guarded_module_callee", 0)] {
-        let rows = sql::query(&ctx, &format!(
-            "SELECT count(*) AS n FROM model_applications a \
+        ("conditional_callee", 0),
+        ("guarded_module_callee", 0),
+    ] {
+        let rows = sql::query(
+            &ctx,
+            &format!(
+                "SELECT count(*) AS n FROM model_applications a \
              JOIN declarations d ON d.node_id = a.function_node_id \
              WHERE d.name = '{name}' AND a.target_body_return_parameter IS NOT NULL \
                AND a.target_count = 1 AND a.candidate_set_complete_under_model \
                AND NOT a.has_unresolved_remainder",
-        )).await.unwrap().collect().await.unwrap();
-        let counts = rows[0].column(0)
-            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+            ),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        let counts = rows[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Int64Array>()
+            .unwrap();
         if name != "conditional_callee" && name != "guarded_module_callee" {
-            let expected_applications = if name == "two_completed_predecessors"
-                || name == "completed_then_raising" { 2 } else { 1 };
-            assert_eq!(counts.value(0), expected_applications,
-                "{name} must have closed normal-return targets");
+            let expected_applications =
+                if name == "two_completed_predecessors" || name == "completed_then_raising" {
+                    2
+                } else {
+                    1
+                };
+            assert_eq!(
+                counts.value(0),
+                expected_applications,
+                "{name} must have closed normal-return targets"
+            );
         }
-        let rows = sql::query(&ctx, &format!(
-            "SELECT count(*) AS n FROM summary_flows f \
+        let rows = sql::query(
+            &ctx,
+            &format!(
+                "SELECT count(*) AS n FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
                AND p.kind = {} \
              WHERE d.name = '{name}' AND f.path_depth = 0",
-            SummaryFlowStepKind::PrecedingCallNormal.code(),
-        )).await.unwrap().collect().await.unwrap();
-        let counts = rows[0].column(0)
-            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-        assert_eq!(counts.value(0), expected, "{name} normal predecessor admission");
+                SummaryFlowStepKind::PrecedingCallNormal.code(),
+            ),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        let counts = rows[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Int64Array>()
+            .unwrap();
+        assert_eq!(
+            counts.value(0),
+            expected,
+            "{name} normal predecessor admission"
+        );
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
@@ -254,10 +409,20 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
           'possibly_unbound_local_argument', 'conditional_callee', \
           'guarded_module_callee') AND b.reason = 4")
         .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 11, "uncertain arguments and callees must stay unknown");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        11,
+        "uncertain arguments and callees must stay unknown"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
         JOIN summary_flow_steps second ON second.summary_id = f.summary_id \
@@ -266,84 +431,228 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         WHERE d.name = 'two_completed_predecessors' AND f.path_depth = 0 \
           AND first.kind = {call} AND second.kind = {call} \
           AND first.ordinal < second.ordinal AND c1.start_byte < c2.start_byte",
-        call = SummaryFlowStepKind::CallSite.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "both completed predecessor calls must retain source order");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+            call = SummaryFlowStepKind::CallSite.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "both completed predecessor calls must retain source order"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
         WHERE d.name = 'modeled_after_completed' AND f.path_depth = 1 \
           AND p.kind = {}",
-        SummaryFlowStepKind::PrecedingCallNormal.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 2, "modeled return cites its predecessor and returned call completion");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flow_steps p \
+            SummaryFlowStepKind::PrecedingCallNormal.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        2,
+        "modeled return cites its predecessor and returned call completion"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flow_steps p \
         JOIN summary_flows f ON f.summary_id = p.summary_id \
         JOIN declarations d ON d.node_id = f.function_node_id \
         WHERE d.name = 'assigned_modeled_after_completed' AND f.path_depth = 2 \
           AND p.kind = {}",
-        SummaryFlowStepKind::PrecedingCallNormal.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 3,
-        "assignment return cites its source invocation, later call and modeled value group");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+            SummaryFlowStepKind::PrecedingCallNormal.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        3,
+        "assignment return cites its source invocation, later call and modeled value group"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps p ON p.summary_id = f.summary_id \
         WHERE d.name = 'local_after_completed' AND f.path_depth = 1 \
           AND p.kind = {}",
-        SummaryFlowStepKind::PrecedingCallNormal.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "local wrapper must cite earlier normal completion");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+            SummaryFlowStepKind::PrecedingCallNormal.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "local wrapper must cite earlier normal completion"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'modeled_after_opaque'")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "opaque predecessor cannot certify modeled return");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
+        WHERE d.name = 'modeled_after_opaque'",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "opaque predecessor cannot certify modeled return"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name = 'modeled_after_opaque' AND b.reason = 5")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "opaque predecessor retains an explicit control boundary");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+        WHERE d.name = 'modeled_after_opaque' AND b.reason = 5",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "opaque predecessor retains an explicit control boundary"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'assigned_modeled_after_opaque'")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "opaque call cannot certify assignment result");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
+        WHERE d.name = 'assigned_modeled_after_opaque'",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "opaque call cannot certify assignment result"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name = 'assigned_modeled_after_opaque' AND b.reason = 5")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "opaque assignment predecessor retains control boundary");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+        WHERE d.name = 'assigned_modeled_after_opaque' AND b.reason = 5",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "opaque assignment predecessor retains control boundary"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'local_after_opaque'")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "opaque predecessor cannot certify local wrapper");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
+        WHERE d.name = 'local_after_opaque'",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "opaque predecessor cannot certify local wrapper"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name = 'local_after_opaque' AND b.reason = 5")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "opaque local predecessor retains control boundary");
+        WHERE d.name = 'local_after_opaque' AND b.reason = 5",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "opaque local predecessor retains control boundary"
+    );
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
         JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
         JOIN declarations d ON d.node_id = entry.function_node_id \
@@ -352,9 +661,16 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
           AND s.kind = {} AND s.detail = '-'",
         cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code()))
         .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the signed literal must cite its unary syntax fact");
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the signed literal must cite its unary syntax fact"
+    );
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
         JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
         JOIN declarations d ON d.node_id = entry.function_node_id \
@@ -363,9 +679,16 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
           AND s.kind = {} AND s.detail = 'not'",
         cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code()))
         .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the Boolean negation must cite its unary syntax fact");
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the Boolean negation must cite its unary syntax fact"
+    );
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
         JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
         JOIN declarations d ON d.node_id = entry.function_node_id \
@@ -374,9 +697,16 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
           AND s.kind = {} AND s.detail = '+'",
         cpg_schema::codebook::SyntaxKind::ExprBinOp.code()))
         .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the binary literal proof cites the outer addition syntax fact");
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the binary literal proof cites the outer addition syntax fact"
+    );
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
         JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
         JOIN declarations d ON d.node_id = entry.function_node_id \
@@ -385,9 +715,16 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
           AND s.kind = {} AND s.detail = 'and'",
         cpg_schema::codebook::SyntaxKind::ExprBoolOp.code()))
         .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the safe short circuit cites the outer Boolean syntax fact");
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the safe short circuit cites the outer Boolean syntax fact"
+    );
     let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM return_entry_steps p \
         JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
         JOIN declarations d ON d.node_id = entry.function_node_id \
@@ -395,10 +732,20 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         WHERE d.name = 'selected_true_predecessor' AND s.kind = {}",
         cpg_schema::codebook::SyntaxKind::ExprIf.code()))
         .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the selected literal cites the whole conditional syntax fact");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the selected literal cites the whole conditional syntax fact"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps proof ON proof.summary_id = f.summary_id \
           AND proof.kind = {} \
@@ -406,20 +753,50 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
           AND expression.kind = {} AND expression.detail = '+' \
         WHERE d.name = 'binary_sibling_identity' AND f.path_depth = 1 \
           AND f.boundary_reason IS NULL",
-        SummaryFlowStepKind::ArgumentEvaluation.code(),
-        cpg_schema::codebook::SyntaxKind::ExprBinOp.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the modeled return admits a normally evaluated binary sibling");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+            SummaryFlowStepKind::ArgumentEvaluation.code(),
+            cpg_schema::codebook::SyntaxKind::ExprBinOp.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the modeled return admits a normally evaluated binary sibling"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'raising_binary_sibling'")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "a raising binary sibling cannot complete the modeled return");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+        WHERE d.name = 'raising_binary_sibling'",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "a raising binary sibling cannot complete the modeled return"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps proof ON proof.summary_id = f.summary_id \
           AND proof.kind = {} \
@@ -427,91 +804,220 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
           AND expression.kind = {} AND expression.detail = 'or' \
         WHERE d.name = 'short_circuit_or_sibling' AND f.path_depth = 1 \
           AND f.boundary_reason IS NULL",
-        SummaryFlowStepKind::ArgumentEvaluation.code(),
-        cpg_schema::codebook::SyntaxKind::ExprBoolOp.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the modeled return cites its safe short-circuit sibling");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM modeled_argument_evaluations e \
+            SummaryFlowStepKind::ArgumentEvaluation.code(),
+            cpg_schema::codebook::SyntaxKind::ExprBoolOp.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the modeled return cites its safe short-circuit sibling"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM modeled_argument_evaluations e \
         JOIN call_syntax c ON c.node_id = e.call_site_node_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
         JOIN syntax_nodes expression ON expression.fact_id = e.evidence_id \
         WHERE d.name IN ('short_circuit_or_sibling', 'binary_sibling_identity') \
           AND e.status = {} AND expression.kind IN ({}, {})",
-        ModeledArgumentEvaluationStatus::ComposedExpressionNormal.code(),
-        cpg_schema::codebook::SyntaxKind::ExprBoolOp.code(),
-        cpg_schema::codebook::SyntaxKind::ExprBinOp.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 2, "closed expressions have their own typed evaluation status");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+            ModeledArgumentEvaluationStatus::ComposedExpressionNormal.code(),
+            cpg_schema::codebook::SyntaxKind::ExprBoolOp.code(),
+            cpg_schema::codebook::SyntaxKind::ExprBinOp.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        2,
+        "closed expressions have their own typed evaluation status"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'raising_or_sibling'")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "a raising Boolean sibling cannot complete the modeled return");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM modeled_argument_evaluations e \
+        WHERE d.name = 'raising_or_sibling'",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "a raising Boolean sibling cannot complete the modeled return"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM modeled_argument_evaluations e \
         JOIN call_syntax c ON c.node_id = e.call_site_node_id \
         JOIN declarations d ON d.node_id = c.owner_node_id \
         JOIN syntax_nodes expression ON expression.fact_id = e.evidence_id \
         WHERE d.name = 'selected_false_sibling' AND e.status = {} \
           AND expression.kind = {}",
-        ModeledArgumentEvaluationStatus::ComposedExpressionNormal.code(),
-        cpg_schema::codebook::SyntaxKind::ExprIf.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the selected else literal has a typed whole-expression witness");
-    let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
+            ModeledArgumentEvaluationStatus::ComposedExpressionNormal.code(),
+            cpg_schema::codebook::SyntaxKind::ExprIf.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the selected else literal has a typed whole-expression witness"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'raising_true_sibling'")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "the selected raising branch cannot complete the modeled return");
+        WHERE d.name = 'raising_true_sibling'",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "the selected raising branch cannot complete the modeled return"
+    );
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM return_entry_steps p \
         JOIN return_entry_statuses entry ON entry.return_site_fact_id = p.return_site_fact_id AND entry.condition_id = p.condition_id \
         JOIN declarations d ON d.node_id = entry.function_node_id \
         WHERE d.name = 'assigned_local_argument' \
           AND p.evidence_id IN (SELECT fact_id FROM flow_reaching)")
         .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the local argument must cite ty reaching evidence");
-    for (name, expected) in [("terminating_branch_before_recursion", 1),
-        ("unconditional_self_call", 0)] {
-        let rows = sql::query(&ctx, &format!(
-            "SELECT count(*) AS n FROM summary_flows f \
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the local argument must cite ty reaching evidence"
+    );
+    for (name, expected) in [
+        ("terminating_branch_before_recursion", 1),
+        ("unconditional_self_call", 0),
+    ] {
+        let rows = sql::query(
+            &ctx,
+            &format!(
+                "SELECT count(*) AS n FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              WHERE d.name = '{name}' AND f.path_depth = 0 AND f.boundary_reason IS NULL",
-        )).await.unwrap().collect().await.unwrap();
-        let counts = rows[0].column(0)
-            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-        assert_eq!(counts.value(0), expected, "{name} recursive predecessor admission");
+            ),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        let counts = rows[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Int64Array>()
+            .unwrap();
+        assert_eq!(
+            counts.value(0),
+            expected,
+            "{name} recursive predecessor admission"
+        );
     }
-    let rows = sql::query(&ctx, &format!(
-        "SELECT count(*) AS n FROM summary_flows f \
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
          JOIN declarations d ON d.node_id = f.function_node_id \
          JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
            AND s.kind = {} \
          JOIN flow_test_value_links l ON l.link_id = s.evidence_id \
          WHERE d.name = 'recursive_literal_return' AND f.path_depth = 1",
-        SummaryFlowStepKind::CalleeConditionLink.code(),
-    )).await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the real recursive literal cites its exact test link");
-    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+            SummaryFlowStepKind::CalleeConditionLink.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the real recursive literal cites its exact test link"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'recursive_literal_false' AND f.path_depth > 0")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "the false control must not derive a recursive path");
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+        WHERE d.name = 'recursive_literal_false' AND f.path_depth > 0",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "the false control must not derive a recursive path"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
         JOIN summary_flow_steps evaluation ON evaluation.summary_id = f.summary_id \
           AND evaluation.kind = {} \
@@ -520,32 +1026,82 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         JOIN summary_flow_steps link ON link.summary_id = f.summary_id \
           AND link.kind = {} AND evaluation.ordinal < link.ordinal \
         WHERE d.name = 'recursive_closed_true' AND f.path_depth = 1",
-        SummaryFlowStepKind::ArgumentEvaluation.code(),
-        cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code(),
-        SummaryFlowStepKind::CalleeConditionLink.code()))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the closed unary value and callee guard have ordered proof links");
-    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+            SummaryFlowStepKind::ArgumentEvaluation.code(),
+            cpg_schema::codebook::SyntaxKind::ExprUnaryOp.code(),
+            SummaryFlowStepKind::CalleeConditionLink.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the closed unary value and callee guard have ordered proof links"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'recursive_closed_false' AND f.path_depth > 0")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "the closed false value cannot select the recursive base");
-    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+        WHERE d.name = 'recursive_closed_false' AND f.path_depth > 0",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "the closed false value cannot select the recursive base"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'recursive_raising_control' AND f.path_depth > 0")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "a retained unknown argument cannot fix a recursive guard");
+        WHERE d.name = 'recursive_raising_control' AND f.path_depth > 0",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "a retained unknown argument cannot fix a recursive guard"
+    );
     for (name, kind) in [
-        ("recursive_short_circuit_true", cpg_schema::codebook::SyntaxKind::ExprBoolOp),
-        ("recursive_selected_true", cpg_schema::codebook::SyntaxKind::ExprIf),
+        (
+            "recursive_short_circuit_true",
+            cpg_schema::codebook::SyntaxKind::ExprBoolOp,
+        ),
+        (
+            "recursive_selected_true",
+            cpg_schema::codebook::SyntaxKind::ExprIf,
+        ),
     ] {
-        let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_flows f \
+        let rows = sql::query(
+            &ctx,
+            &format!(
+                "SELECT count(*) AS n FROM summary_flows f \
             JOIN declarations d ON d.node_id = f.function_node_id \
             JOIN summary_flow_steps evaluation ON evaluation.summary_id = f.summary_id \
               AND evaluation.kind = {} \
@@ -554,55 +1110,134 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
             JOIN summary_flow_steps link ON link.summary_id = f.summary_id \
               AND link.kind = {} AND evaluation.ordinal < link.ordinal \
             WHERE d.name = '{name}' AND f.path_depth = 1",
-            SummaryFlowStepKind::ArgumentEvaluation.code(), kind.code(),
-            SummaryFlowStepKind::CalleeConditionLink.code()))
-            .await.unwrap().collect().await.unwrap();
-        let counts = rows[0].column(0)
-            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-        assert_eq!(counts.value(0), 1, "{name} must cite its closed control before the callee link");
+                SummaryFlowStepKind::ArgumentEvaluation.code(),
+                kind.code(),
+                SummaryFlowStepKind::CalleeConditionLink.code()
+            ),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        let counts = rows[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Int64Array>()
+            .unwrap();
+        assert_eq!(
+            counts.value(0),
+            1,
+            "{name} must cite its closed control before the callee link"
+        );
     }
-    for name in ["recursive_short_circuit_false", "recursive_selected_false",
-        "recursive_selected_raising"] {
-        let rows = sql::query(&ctx, &format!("SELECT count(*) FROM summary_flows f \
+    for name in [
+        "recursive_short_circuit_false",
+        "recursive_selected_false",
+        "recursive_selected_raising",
+    ] {
+        let rows = sql::query(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
             JOIN declarations d ON d.node_id = f.function_node_id \
-            WHERE d.name = '{name}' AND f.path_depth > 0"))
-            .await.unwrap().collect().await.unwrap();
-        let counts = rows[0].column(0)
-            .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-        assert_eq!(counts.value(0), 0, "{name} cannot reach a recursive positive");
+            WHERE d.name = '{name}' AND f.path_depth > 0"
+            ),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        let counts = rows[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::Int64Array>()
+            .unwrap();
+        assert_eq!(
+            counts.value(0),
+            0,
+            "{name} cannot reach a recursive positive"
+        );
     }
-    let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM ({}) seed \
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM ({}) seed \
         JOIN declarations d ON d.node_id = seed.function_node_id \
         JOIN ({}) arg ON arg.call_fact_id = seed.call_fact_id \
           AND arg.callee_node_id = seed.callee_node_id AND arg.evaluation_fact_id IS NULL \
         WHERE d.name = 'recursive_selected_raising'",
-        cpg_schema::behavior::local_call_summary_flow_seeds().sql,
-        cpg_schema::behavior::local_call_arguments().sql))
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the selected raising branch retains a candidate with an unknown evaluation");
-    let rows = sql::query(&ctx, &format!(
-        "SELECT count(*) AS n FROM summary_flows f \
+            cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+            cpg_schema::behavior::local_call_arguments().sql
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the selected raising branch retains a candidate with an unknown evaluation"
+    );
+    let rows = sql::query(
+        &ctx,
+        &format!(
+            "SELECT count(*) AS n FROM summary_flows f \
          JOIN declarations d ON d.node_id = f.function_node_id \
          JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
            AND s.kind = {} \
          JOIN flow_test_value_links l ON l.link_id = s.evidence_id \
          WHERE d.name = 'recursive_keyword_true' AND f.path_depth = 1",
-        SummaryFlowStepKind::CalleeConditionLink.code(),
-    )).await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 1, "the keyword control must cite its callee guard link");
-    let rows = sql::query(&ctx, "SELECT count(*) FROM summary_flows f \
+            SummaryFlowStepKind::CalleeConditionLink.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        1,
+        "the keyword control must cite its callee guard link"
+    );
+    let rows = sql::query(
+        &ctx,
+        "SELECT count(*) FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
-        WHERE d.name = 'recursive_keyword_false' AND f.path_depth > 0")
-        .await.unwrap().collect().await.unwrap();
-    let counts = rows[0].column(0)
-        .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-    assert_eq!(counts.value(0), 0, "the false keyword control cannot derive a recursive path");
+        WHERE d.name = 'recursive_keyword_false' AND f.path_depth > 0",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let counts = rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<datafusion::arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(
+        counts.value(0),
+        0,
+        "the false keyword control cannot derive a recursive path"
+    );
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
-        .await.unwrap();
+        .await
+        .unwrap();
     let script = r#"
 import sys
 import asyncio
@@ -1057,46 +1692,96 @@ assert positive["source_origin_id"] != withheld["source_origin_id"]
 assert paths == [] and boundaries[0][0] == positive["source_flow_fact_id"].hex()
 "#;
     let output = std::process::Command::new("uv")
-        .args(["run", "--no-sync", "python", "-c", script,
-            generation.dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "-c",
+            script,
+            generation.dir.to_str().unwrap(),
+        ])
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let original_identities = sql::query(&ctx, "SELECT * FROM source_parameter_identities")
-        .await.unwrap().into_view();
-    let missing_identities = sql::query(&ctx, "SELECT * FROM source_parameter_identities WHERE false")
-        .await.unwrap().into_view();
+        .await
+        .unwrap()
+        .into_view();
+    let missing_identities = sql::query(
+        &ctx,
+        "SELECT * FROM source_parameter_identities WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("source_parameter_identities").unwrap();
-    ctx.register_table("source_parameter_identities", missing_identities).unwrap();
+    ctx.register_table("source_parameter_identities", missing_identities)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "source-parameter-identity-equality"),
-        "missing source identity passed reconstruction: {violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "source-parameter-identity-equality"),
+        "missing source identity passed reconstruction: {violations:?}"
+    );
     ctx.deregister_table("source_parameter_identities").unwrap();
-    ctx.register_table("source_parameter_identities", original_identities).unwrap();
+    ctx.register_table("source_parameter_identities", original_identities)
+        .unwrap();
     let original_steps = sql::query(&ctx, "SELECT * FROM summary_flow_steps")
-        .await.unwrap().into_view();
-    let omitted_completion = sql::query(&ctx, &format!(
-        "SELECT * FROM summary_flow_steps WHERE kind <> {}",
-        SummaryFlowStepKind::PrecedingCallNormal.code(),
-    )).await.unwrap().into_view();
+        .await
+        .unwrap()
+        .into_view();
+    let omitted_completion = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * FROM summary_flow_steps WHERE kind <> {}",
+            SummaryFlowStepKind::PrecedingCallNormal.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", omitted_completion).unwrap();
+    ctx.register_table("summary_flow_steps", omitted_completion)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
-        "missing normal-completion witness passed validation: {violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-flow-step-source-equality"),
+        "missing normal-completion witness passed validation: {violations:?}"
+    );
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", original_steps.clone()).unwrap();
-    let missing_link = sql::query(&ctx, &format!(
-        "SELECT * FROM summary_flow_steps WHERE kind <> {}",
-        SummaryFlowStepKind::CalleeConditionLink.code(),
-    )).await.unwrap().into_view();
+    ctx.register_table("summary_flow_steps", original_steps.clone())
+        .unwrap();
+    let missing_link = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * FROM summary_flow_steps WHERE kind <> {}",
+            SummaryFlowStepKind::CalleeConditionLink.code(),
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", missing_link).unwrap();
+    ctx.register_table("summary_flow_steps", missing_link)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
-        "missing recursive condition link passed validation: {violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-flow-step-source-equality"),
+        "missing recursive condition link passed validation: {violations:?}"
+    );
     ctx.deregister_table("summary_flow_steps").unwrap();
-    ctx.register_table("summary_flow_steps", original_steps).unwrap();
+    ctx.register_table("summary_flow_steps", original_steps)
+        .unwrap();
 }
 
 /// W1: a real finalizer proof survives extraction, Delta publication, IPC generation and the
@@ -1273,6 +1958,9 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "flow_test_value_links",
             "lexical_text",
             "model_context_protocols",
+            "model_frame_exit_arguments",
+            "model_frame_exit_steps",
+            "model_frame_exits",
             "operation_facet_status",
             "operation_facets",
             "operation_text",
@@ -1282,6 +1970,12 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "public_paths",
             "return_completion_certificates",
             "singletons",
+            "source_body_completions",
+            "source_body_release_inputs",
+            "source_body_steps",
+            "source_call_bindings",
+            "source_call_header_steps",
+            "source_call_normals",
             "source_context_arguments",
             "source_context_sites",
             "source_context_value_identities",

@@ -54,11 +54,28 @@ class Concrete:
     }
     cpg_schema::for_each_derived_table!(derive_all);
     let flow = cpg_core::flow_model::run(&ctx, snapshot).await.unwrap();
-    let reasons: Vec<_> = flow.premises.iter().filter_map(|row| row.reason.as_deref()).collect();
-    assert!(reasons.iter().any(|reason| reason.contains("an abstract method")), "{reasons:?}");
-    assert!(reasons.iter().any(|reason| reason.contains("a Protocol placeholder")), "{reasons:?}");
+    let reasons: Vec<_> = flow
+        .premises
+        .iter()
+        .filter_map(|row| row.reason.as_deref())
+        .collect();
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("an abstract method")),
+        "{reasons:?}"
+    );
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("a Protocol placeholder")),
+        "{reasons:?}"
+    );
     assert_eq!(
-        flow.premises.iter().filter(|row| row.boundary_reason == Some(BoundaryReason::AbstractBody)).count(),
+        flow.premises
+            .iter()
+            .filter(|row| row.boundary_reason == Some(BoundaryReason::AbstractBody))
+            .count(),
         4,
     );
     assert_eq!(flow.premises.iter().filter(|row| row.holds).count(), 4);

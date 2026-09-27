@@ -50,15 +50,15 @@ pub mod completion;
 /// Source binding and definition-time default availability/stability.
 pub mod call_binding;
 
-/// Source proofs of immutable bare-parameter return reads.
-pub mod parameter_identity;
 mod lexical_identity;
 pub mod modeled_identity;
+/// Source proofs of immutable bare-parameter return reads.
+pub mod parameter_identity;
 
 pub mod context_protocol;
 pub mod context_value;
 
 pub mod actions;
 
-pub mod source_call;
 pub mod execution;
+pub mod source_call;

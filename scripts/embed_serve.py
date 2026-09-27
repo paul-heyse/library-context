@@ -14,21 +14,38 @@ PROJECT = Path(__file__).resolve().parents[1] / "services/vllm"
 def launch_command(spec: dict, port: int) -> list[str]:
     if spec["server"] != "vllm 0.30.0":
         raise ValueError(f"unsupported serving engine: {spec['server']}")
-    if spec["pooling"] != "last-token, L2-normalized (the model's sentence-transformers config; E1)":
+    if (
+        spec["pooling"]
+        != "last-token, L2-normalized (the model's sentence-transformers config; E1)"
+    ):
         raise ValueError("the launch recipe does not support this pooling contract")
     if not 1 <= port <= 65535:
         raise ValueError("port must be between 1 and 65535")
     return [
-        "uv", "run", "--project", str(PROJECT), "--frozen", "vllm", "serve",
+        "uv",
+        "run",
+        "--project",
+        str(PROJECT),
+        "--frozen",
+        "vllm",
+        "serve",
         spec["model"],
-        "--revision", spec["revision"],
-        "--tokenizer-revision", spec["tokenizer_revision"],
-        "--served-model-name", spec["model"],
-        "--runner", "pooling",
-        "--max-model-len", "8192",
-        "--dtype", spec["served_dtype"],
-        "--gpu-memory-utilization", "0.80",
-        "--port", str(port),
+        "--revision",
+        spec["revision"],
+        "--tokenizer-revision",
+        spec["tokenizer_revision"],
+        "--served-model-name",
+        spec["model"],
+        "--runner",
+        "pooling",
+        "--max-model-len",
+        "8192",
+        "--dtype",
+        spec["served_dtype"],
+        "--gpu-memory-utilization",
+        "0.80",
+        "--port",
+        str(port),
     ]
 
 

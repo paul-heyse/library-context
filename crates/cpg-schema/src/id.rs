@@ -121,12 +121,15 @@ pub mod recipe {
 
     pub fn value_flow_origin(spec: &ValueFlowOriginKey<'_>) -> Id {
         IdHasher::new(kind::VALUE_FLOW_ORIGIN)
-            .opt_id(Some(spec.fact)).opt_id(Some(spec.use_id))
+            .opt_id(Some(spec.fact))
+            .opt_id(Some(spec.use_id))
             .opt_str(Some(spec.source_key))
-            .opt_bool(Some(spec.identity)).opt_bool(Some(spec.through_call))
+            .opt_bool(Some(spec.identity))
+            .opt_bool(Some(spec.through_call))
             .opt_bool(Some(spec.local_through_call))
             .opt_bool(Some(spec.upstream_identity))
-            .opt_bool(Some(spec.upstream_through_call)).finish_id()
+            .opt_bool(Some(spec.upstream_through_call))
+            .finish_id()
     }
     use crate::codebook::{Codebook, SummaryFlowKind, SummaryFlowStepKind};
 

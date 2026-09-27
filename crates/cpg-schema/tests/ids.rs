@@ -61,18 +61,33 @@ fn value_flow_origin_distinguishes_siblings_on_one_raw_fact() {
     let fact = Id([1; 16]);
     let use_id = Id([2; 16]);
     let key = recipe::ValueFlowOriginKey {
-        fact, use_id, source_key: "Parameter[value]", identity: true,
-        through_call: false, local_through_call: false,
-        upstream_identity: true, upstream_through_call: false,
+        fact,
+        use_id,
+        source_key: "Parameter[value]",
+        identity: true,
+        through_call: false,
+        local_through_call: false,
+        upstream_identity: true,
+        upstream_through_call: false,
     };
     let direct = recipe::value_flow_origin(&key);
     assert_eq!(direct, recipe::value_flow_origin(&key));
-    assert_ne!(direct, recipe::value_flow_origin(&recipe::ValueFlowOriginKey {
-        source_key: "Parameter[value]:sibling", ..key
-    }));
-    assert_ne!(direct, recipe::value_flow_origin(&recipe::ValueFlowOriginKey {
-        identity: false, through_call: true, local_through_call: true, ..key
-    }));
+    assert_ne!(
+        direct,
+        recipe::value_flow_origin(&recipe::ValueFlowOriginKey {
+            source_key: "Parameter[value]:sibling",
+            ..key
+        })
+    );
+    assert_ne!(
+        direct,
+        recipe::value_flow_origin(&recipe::ValueFlowOriginKey {
+            identity: false,
+            through_call: true,
+            local_through_call: true,
+            ..key
+        })
+    );
 }
 
 proptest! {

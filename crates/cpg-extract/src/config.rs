@@ -151,7 +151,8 @@ impl Release {
         h.str("analyzer-readable-root")
             .i64(analyzer_files.len() as i64);
         for (path, file) in analyzer_files {
-            h.str(path).digest_field(content_digest(&fs_err::read(file)?));
+            h.str(path)
+                .digest_field(content_digest(&fs_err::read(file)?));
         }
         let mut files: Vec<PathBuf> = usage.into_iter().map(|(f, _)| f).collect();
         files.sort();

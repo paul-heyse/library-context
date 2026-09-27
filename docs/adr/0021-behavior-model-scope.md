@@ -110,3 +110,17 @@ B1).
     DESIGN §1.5 as history.
 - **Revisit:** a stage's exit criterion fails twice, or Stage 1's structured evaluation shows no
   gain over briefs.
+
+
+## Amendments
+
+- **2026-09-27 — implementation-record correction (ADR-0058).** The gold freeze's
+  `variant_policies` digest now records the already accepted and implemented typed RCA
+  target/endpoint-modality/phase/incidence policy instead of the superseded label policy:
+  `e005aa1b58541fe26c7ff3b0cf6572ab6c56685d08519fa3466419f40115d212` →
+  `4e579857641d15273df5dcdc15f3fdbbe14686c0a396771a88d19fcc5a7292a2`.
+  This corrects a stale implementation receipt; ADR-0058 owns the semantic decision.
+  This checkpoint inspected freeze metadata and mechanical fixture outputs, not gold answer
+  items or heldout data, and ran no gold scoring before the correction. No target, threshold,
+  analytics/selection parameter or keep rule changes. Earlier exposure recorded in the
+  freeze remains disclosed there; this line makes no claim about earlier sessions' exposure.

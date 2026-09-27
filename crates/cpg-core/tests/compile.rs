@@ -4,7 +4,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch, UInt32Array};
+use arrow_array::{
+    Array, ArrayRef, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch, UInt32Array,
+};
 use cpg_core::CoreError;
 use cpg_core::analyze::{Analysis, Techniques};
 use cpg_core::attempt::{compile, compile_analyzed, publish};
@@ -118,92 +120,214 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
              public_roots = [\"transferpkg\"]\n[seeds]\nprimary = [\"transferpkg.mixed\"]\n\
              distractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\n\
              max_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n",
-        ).unwrap(),
+        )
+        .unwrap(),
         embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     let first = tempfile::tempdir().unwrap();
-    compile_analyzed(first.path(), snapshot, &inputs, Some(&analysis)).await.unwrap();
+    compile_analyzed(first.path(), snapshot, &inputs, Some(&analysis))
+        .await
+        .unwrap();
     let (_, ctx) = published(first.path(), snapshot).await.unwrap().unwrap();
-    assert_eq!(count(&ctx, "SELECT count(*) FROM value_flows v \
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM value_flows v \
         JOIN declarations d ON d.node_id = v.function_node_id \
         WHERE d.qualified_name = 'transferpkg.mixed' AND v.source_name = 'value' \
-          AND v.sink = 2").await, 3);
-    let alternatives = text(&ctx, "SELECT b.transfer, b.verdict, b.boundary_reason, b.condition \
+          AND v.sink = 2"
+        )
+        .await,
+        3
+    );
+    let alternatives = text(
+        &ctx,
+        "SELECT b.transfer, b.verdict, b.boundary_reason, b.condition \
         FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id \
         WHERE o.access_path = 'transferpkg.mixed' AND b.parameter_name = 'value' \
-          AND b.kind = 11 ORDER BY b.transfer").await;
+          AND b.kind = 11 ORDER BY b.transfer",
+    )
+    .await;
     assert!(alternatives.contains("| 0        | 1"), "{alternatives}");
     assert!(alternatives.contains("| 1        | 1"), "{alternatives}");
-    assert!(alternatives.contains("| 2        | 3       | 19"), "{alternatives}");
-    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b \
+    assert!(
+        alternatives.contains("| 2        | 3       | 19"),
+        "{alternatives}"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b \
         JOIN operations o ON o.node_id = b.operation_node_id \
         WHERE o.access_path = 'transferpkg.Holder.__init__' AND b.depth = 2 \
           AND b.kind = 11 AND b.parameter_name = 'value' \
-          AND b.condition_scope_node_id <> b.operation_node_id").await, 3);
+          AND b.condition_scope_node_id <> b.operation_node_id"
+        )
+        .await,
+        3
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
         ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.ConditionalHolder.__init__' \
         AND b.depth = 2 AND b.verdict IN (0, 1)").await, 0);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
         ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.captured' \
-        AND b.parameter_name = 'value' AND b.verdict IN (0, 1)").await, 0);
-    assert!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        AND b.parameter_name = 'value' AND b.verdict IN (0, 1)"
+        )
+        .await,
+        0
+    );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
         ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.captured' \
-        AND b.parameter_name = 'value' AND b.boundary_reason = 5").await > 0);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        AND b.parameter_name = 'value' AND b.boundary_reason = 5"
+        )
+        .await
+            > 0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
         ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.decorated' \
-        AND b.verdict <> 3").await, 0);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM operations \
+        AND b.verdict <> 3"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM operations \
         WHERE access_path = 'transferpkg.decorated_empty' \
-          AND behavior_status = 3 AND boundary_reason = 10").await, 1);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+          AND behavior_status = 3 AND boundary_reason = 10"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
         ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.through_decorated' \
-        AND b.kind IN (0, 4) AND b.verdict IN (0, 1)").await, 0);
-    assert!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        AND b.kind IN (0, 4) AND b.verdict IN (0, 1)"
+        )
+        .await,
+        0
+    );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
         ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.outer' \
-        AND b.kind = 0 AND b.parameter_name = 'value' AND b.verdict IN (0, 1)").await > 0);
-    assert!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        AND b.kind = 0 AND b.parameter_name = 'value' AND b.verdict IN (0, 1)"
+        )
+        .await
+            > 0
+    );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
         ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.outer' \
-        AND b.kind = 3 AND b.parameter_name = 'value' AND b.verdict = 3").await > 0);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM dynamic_accesses a \
+        AND b.kind = 3 AND b.parameter_name = 'value' AND b.verdict = 3"
+        )
+        .await
+            > 0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM dynamic_accesses a \
         JOIN declarations d ON d.node_id = a.function_node_id \
         WHERE d.qualified_name LIKE 'transferpkg.Stable.%' \
-          AND a.reaches_class_node_id IS NOT NULL").await, 2);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM dynamic_accesses a \
+          AND a.reaches_class_node_id IS NOT NULL"
+        )
+        .await,
+        2
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM dynamic_accesses a \
         JOIN declarations d ON d.node_id = a.function_node_id \
         WHERE d.qualified_name LIKE 'transferpkg.MixedReceiver.%' \
-          AND a.reaches_class_node_id IS NULL AND NOT a.reaches_all").await, 3);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM negative_premises \
+          AND a.reaches_class_node_id IS NULL AND NOT a.reaches_all"
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM negative_premises \
         WHERE place_key = 'Field[transferpkg.Unrelated.unread]' \
-          AND NOT holds AND boundary_reason = 16").await, 1);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM negative_premises p \
+          AND NOT holds AND boundary_reason = 16"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM negative_premises p \
         JOIN parameter_syntax s ON s.node_id = p.subject_node_id \
         JOIN declarations d ON d.node_id = s.function_node_id \
-        WHERE d.qualified_name = 'transferpkg.unused' AND s.name = 'ignored' AND p.holds").await, 1);
+        WHERE d.qualified_name = 'transferpkg.unused' AND s.name = 'ignored' AND p.holds"
+        )
+        .await,
+        1
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM singletons \
         WHERE global IN ('transferpkg.global_choice', 'transferpkg.rebound', 'transferpkg.selected_instance')").await, 0);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM singletons WHERE global = 'transferpkg.fixed'").await, 1);
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM singletons WHERE global = 'transferpkg.fixed'"
+        )
+        .await,
+        1
+    );
     assert_eq!(count(&ctx, "SELECT count(*) FROM dynamic_accesses a JOIN declarations d \
         ON d.node_id = a.function_node_id WHERE d.qualified_name IN \
         ('transferpkg.read_global_choice', 'transferpkg.read_rebound', 'transferpkg.read_selected') \
         AND a.reaches_class_node_id IS NULL").await, 3);
-    let flow_claims: Vec<cpg_schema::behavior::BehaviorsRow> = sql::fetch(&ctx, &Relation {
-        name: "test_finalized_transfer_claim_ids",
-        deps: &["behaviors"],
-        sql: "SELECT * FROM behaviors WHERE transfer IS NOT NULL".to_owned(),
-    }, sql::Params::new()).await.unwrap();
+    let flow_claims: Vec<cpg_schema::behavior::BehaviorsRow> = sql::fetch(
+        &ctx,
+        &Relation {
+            name: "test_finalized_transfer_claim_ids",
+            deps: &["behaviors"],
+            sql: "SELECT * FROM behaviors WHERE transfer IS NOT NULL".to_owned(),
+        },
+        sql::Params::new(),
+    )
+    .await
+    .unwrap();
     assert!(!flow_claims.is_empty());
     for row in &flow_claims {
-        assert_eq!(row.behavior_id, cpg_schema::behavior::flow_behavior_id(row),
-            "published identity must follow the typed transfer and scope");
+        assert_eq!(
+            row.behavior_id,
+            cpg_schema::behavior::flow_behavior_id(row),
+            "published identity must follow the typed transfer and scope"
+        );
         let mut regraded = row.clone();
         regraded.verdict = Verdict::Unknown;
         regraded.boundary_reason = Some(BoundaryReason::MissingEvidence);
-        assert_eq!(row.behavior_id, cpg_schema::behavior::flow_behavior_id(&regraded),
-            "grading does not change claim identity");
+        assert_eq!(
+            row.behavior_id,
+            cpg_schema::behavior::flow_behavior_id(&regraded),
+            "grading does not change claim identity"
+        );
     }
-    let generation = cpg_core::bundle::bundle(first.path(), snapshot, &first.path().join("generations"))
-        .await.unwrap();
+    let generation =
+        cpg_core::bundle::bundle(first.path(), snapshot, &first.path().join("generations"))
+            .await
+            .unwrap();
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", r#"
 import sys
@@ -223,24 +347,43 @@ assert all(f.verdict == 'unknown' for f in fates if f.transfer == 'call')
 "#]).arg(&generation.dir)
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output().unwrap();
-    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     for (name, batch) in &mut inputs {
         if matches!(*name, "flow_reaching" | "flow_values") && batch.num_rows() > 1 {
             let indices = UInt32Array::from((0..batch.num_rows() as u32).rev().collect::<Vec<_>>());
-            let columns = batch.columns().iter().map(|column|
-                arrow_select::take::take(column.as_ref(), &indices, None).unwrap()).collect();
+            let columns = batch
+                .columns()
+                .iter()
+                .map(|column| arrow_select::take::take(column.as_ref(), &indices, None).unwrap())
+                .collect();
             *batch = RecordBatch::try_new(batch.schema(), columns).unwrap();
         }
     }
     let second = tempfile::tempdir().unwrap();
-    compile_analyzed(second.path(), snapshot, &inputs, Some(&analysis)).await.unwrap();
+    compile_analyzed(second.path(), snapshot, &inputs, Some(&analysis))
+        .await
+        .unwrap();
     let (_, reordered) = published(second.path(), snapshot).await.unwrap().unwrap();
-    for (table, order) in [("value_flows", "function_node_id, sink, sink_start_byte, source_key, identity, through_call"),
-        ("behaviors", "behavior_id"), ("dynamic_accesses", "call_site_node_id"),
-        ("negative_premises", "place_key")] {
+    for (table, order) in [
+        (
+            "value_flows",
+            "function_node_id, sink, sink_start_byte, source_key, identity, through_call",
+        ),
+        ("behaviors", "behavior_id"),
+        ("dynamic_accesses", "call_site_node_id"),
+        ("negative_premises", "place_key"),
+    ] {
         let query = format!("SELECT * FROM {table} ORDER BY {order}");
-        assert_eq!(text(&ctx, &query).await, text(&reordered, &query).await, "{table}");
+        assert_eq!(
+            text(&ctx, &query).await,
+            text(&reordered, &query).await,
+            "{table}"
+        );
     }
     // Inject provider approximation without changing any condition identity. Its row-local
     // fidelity must survive acquisition, propagation, publication and Pass B admission.
@@ -248,20 +391,52 @@ assert all(f.verdict == 'unknown' for f in fates if f.transfer == 'call')
         if matches!(*name, "flow_reaching" | "flow_values") {
             let index = batch.schema().index_of("approximated").unwrap();
             let mut columns = batch.columns().to_vec();
-            columns[index] = Arc::new(arrow_array::BooleanArray::from(vec![true; batch.num_rows()]));
+            columns[index] = Arc::new(arrow_array::BooleanArray::from(vec![
+                true;
+                batch.num_rows()
+            ]));
             *batch = RecordBatch::try_new(batch.schema(), columns).unwrap();
         }
     }
     let approximate = tempfile::tempdir().unwrap();
-    compile_analyzed(approximate.path(), snapshot, &inputs, Some(&analysis)).await.unwrap();
-    let (_, approximate_ctx) = published(approximate.path(), snapshot).await.unwrap().unwrap();
-    assert!(count(&approximate_ctx, "SELECT count(*) FROM value_flows WHERE approximated").await > 0);
-    assert_eq!(count(&approximate_ctx, "SELECT count(*) FROM summary_flows").await, 0);
-    assert_eq!(count(&approximate_ctx, "SELECT count(*) FROM behaviors WHERE transfer IS NOT NULL \
-        AND verdict IN (0, 1)").await, 0);
-    assert_eq!(count(&approximate_ctx, "SELECT count(*) FROM dynamic_accesses a JOIN declarations d \
+    compile_analyzed(approximate.path(), snapshot, &inputs, Some(&analysis))
+        .await
+        .unwrap();
+    let (_, approximate_ctx) = published(approximate.path(), snapshot)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        count(
+            &approximate_ctx,
+            "SELECT count(*) FROM value_flows WHERE approximated"
+        )
+        .await
+            > 0
+    );
+    assert_eq!(
+        count(&approximate_ctx, "SELECT count(*) FROM summary_flows").await,
+        0
+    );
+    assert_eq!(
+        count(
+            &approximate_ctx,
+            "SELECT count(*) FROM behaviors WHERE transfer IS NOT NULL \
+        AND verdict IN (0, 1)"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            &approximate_ctx,
+            "SELECT count(*) FROM dynamic_accesses a JOIN declarations d \
         ON d.node_id = a.function_node_id WHERE d.qualified_name LIKE 'transferpkg.Stable.%' \
-        AND a.reaches_class_node_id IS NOT NULL").await, 0);
+        AND a.reaches_class_node_id IS NOT NULL"
+        )
+        .await,
+        0
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -275,13 +450,18 @@ async fn real_flow_input_row_order_keeps_published_contribution_bytes() {
             continue;
         }
         let indices = UInt32Array::from((0..batch.num_rows() as u32).rev().collect::<Vec<_>>());
-        let columns = batch.columns().iter().map(|column| {
-            arrow_select::take::take(column.as_ref(), &indices, None).unwrap()
-        }).collect();
+        let columns = batch
+            .columns()
+            .iter()
+            .map(|column| arrow_select::take::take(column.as_ref(), &indices, None).unwrap())
+            .collect();
         *batch = RecordBatch::try_new(batch.schema(), columns).unwrap();
         reversed_rows += batch.num_rows();
     }
-    assert!(reversed_rows > 2, "the real fixture must exercise reordered flow inputs");
+    assert!(
+        reversed_rows > 2,
+        "the real fixture must exercise reordered flow inputs"
+    );
 
     let first = tempfile::tempdir().unwrap();
     let second = tempfile::tempdir().unwrap();
@@ -291,23 +471,37 @@ async fn real_flow_input_row_order_keeps_published_contribution_bytes() {
              public_roots = [\"returnpkg\"]\n[seeds]\nprimary = [\"returnpkg.plain_identity\"]\n\
              distractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\n\
              max_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n",
-        ).unwrap(),
+        )
+        .unwrap(),
         embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
-    compile_analyzed(first.path(), snapshot, &ordered, Some(&analysis)).await.unwrap();
-    compile_analyzed(second.path(), snapshot, &shuffled, Some(&analysis)).await.unwrap();
+    compile_analyzed(first.path(), snapshot, &ordered, Some(&analysis))
+        .await
+        .unwrap();
+    compile_analyzed(second.path(), snapshot, &shuffled, Some(&analysis))
+        .await
+        .unwrap();
     let (_, first_ctx) = published(first.path(), snapshot).await.unwrap().unwrap();
     let (_, second_ctx) = published(second.path(), snapshot).await.unwrap().unwrap();
     assert!(count(&first_ctx, "SELECT count(*) FROM value_flow_contributions").await > 0);
     async fn bytes(ctx: &SessionContext, table: &str) -> Vec<u8> {
         let frame = sql::query(ctx, &format!("SELECT * FROM {table}"))
-            .await.unwrap();
+            .await
+            .unwrap();
         let schema = Arc::new(frame.schema().as_arrow().clone());
-        let columns = schema.fields().iter().map(|field| format!("\"{}\"", field.name()))
-            .collect::<Vec<_>>().join(", ");
+        let columns = schema
+            .fields()
+            .iter()
+            .map(|field| format!("\"{}\"", field.name()))
+            .collect::<Vec<_>>()
+            .join(", ");
         let sorted = sql::query(ctx, &format!("SELECT * FROM {table} ORDER BY {columns}"))
-            .await.unwrap().collect().await.unwrap();
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
         let batch = arrow_select::concat::concat_batches(&schema, &sorted).unwrap();
         let mut out = Vec::new();
         {
@@ -317,9 +511,16 @@ async fn real_flow_input_row_order_keeps_published_contribution_bytes() {
         }
         out
     }
-    for table in ["value_flow_contributions", "value_flows", "negative_premises"] {
-        assert_eq!(bytes(&first_ctx, table).await, bytes(&second_ctx, table).await,
-            "{table} changed when real extraction rows were reversed");
+    for table in [
+        "value_flow_contributions",
+        "value_flows",
+        "negative_premises",
+    ] {
+        assert_eq!(
+            bytes(&first_ctx, table).await,
+            bytes(&second_ctx, table).await,
+            "{table} changed when real extraction rows were reversed"
+        );
     }
 }
 
@@ -1011,12 +1212,17 @@ budget = 1
         "the source self-call belongs to a recursive SCC"
     );
     assert!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM ({}) s JOIN declarations d \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM ({}) s JOIN declarations d \
              ON d.node_id = s.function_node_id \
              WHERE d.name = 'conditional_self_recursive'",
-            cpg_schema::behavior::local_call_summary_flow_seeds().sql,
-        )).await > 0,
+                cpg_schema::behavior::local_call_summary_flow_seeds().sql,
+            )
+        )
+        .await
+            > 0,
         "the recursive return supplies a real local-call candidate"
     );
     assert!(
@@ -1034,17 +1240,21 @@ budget = 1
         "the second literal formal has an exact entry-value test link"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
                AND s.kind = {} \
              JOIN flow_test_value_links l ON l.link_id = s.evidence_id \
              WHERE d.name = 'recursive_base_identity' AND f.path_depth = 1 \
                AND f.verdict = {}",
-            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
-            Verdict::Conditional.code(),
-        )).await,
+                cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+                Verdict::Conditional.code(),
+            )
+        )
+        .await,
         1,
         "the finite recursive return cites the exact literal-to-guard link"
     );
@@ -1063,16 +1273,25 @@ budget = 1
         "the opposing literal also has a directly linked guard"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'recursive_false_control' AND f.path_depth > 0").await,
+            WHERE d.name = 'recursive_false_control' AND f.path_depth > 0"
+        )
+        .await,
         0,
         "restricting the callee base guard to false cannot prove recursive return"
     );
     assert!(
-        count(&ctx, "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
             ON d.node_id = b.function_node_id \
-            WHERE d.name = 'recursive_false_control' AND b.local_through_call").await > 0,
+            WHERE d.name = 'recursive_false_control' AND b.local_through_call"
+        )
+        .await
+            > 0,
         "the opposing recursive path remains an explicit unknown"
     );
     assert!(
@@ -1092,94 +1311,132 @@ budget = 1
         "both sides of the symbolic formal forwarding have direct guard links"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps caller ON caller.summary_id = f.summary_id \
                AND caller.kind = {} \
              JOIN summary_flow_steps callee ON callee.summary_id = f.summary_id \
                AND callee.kind = {} AND caller.ordinal < callee.ordinal \
              WHERE d.name = 'guarded_symbolic_recursive' AND f.path_depth = 1",
-            cpg_schema::codebook::SummaryFlowStepKind::CallerConditionLink.code(),
-            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
-        )).await,
+                cpg_schema::codebook::SummaryFlowStepKind::CallerConditionLink.code(),
+                cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+            )
+        )
+        .await,
         1,
         "the caller's guard fixes the forwarded formal before callee specialization"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'guarded_symbolic_base' AND f.path_depth > 0").await,
+            WHERE d.name = 'guarded_symbolic_base' AND f.path_depth > 0"
+        )
+        .await,
         0,
         "the opposite forwarded guard cannot reuse the recursive callee path"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'keyword_local_wrapper' AND f.path_depth = 1").await,
+            WHERE d.name = 'keyword_local_wrapper' AND f.path_depth = 1"
+        )
+        .await,
         1,
         "a single explicit keyword with a definite formal mapping transfers a local value"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'unpacked_local_wrapper'").await,
+            WHERE d.name = 'unpacked_local_wrapper'"
+        )
+        .await,
         0,
         "unpacked keyword arguments do not supply an exact local-call mapping"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
                AND s.kind = {} \
              WHERE d.name = 'recursive_keyword_true' AND f.path_depth = 1",
-            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
-        )).await,
+                cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+            )
+        )
+        .await,
         1,
         "the explicit keyword literal specializes the recursive callee guard"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'recursive_keyword_false' AND f.path_depth > 0").await,
+            WHERE d.name = 'recursive_keyword_false' AND f.path_depth > 0"
+        )
+        .await,
         0,
         "a false keyword control does not reach the recursive base"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
                AND s.kind = {} \
              WHERE d.name = 'recursive_all_keyword_true' AND f.path_depth = 1",
-            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
-        )).await,
+                cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+            )
+        )
+        .await,
         1,
         "two explicit keywords retain exact value and control mappings"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'recursive_all_keyword_false' AND f.path_depth > 0").await,
+            WHERE d.name = 'recursive_all_keyword_false' AND f.path_depth > 0"
+        )
+        .await,
         0,
         "the opposing all-keyword call remains open"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps s ON s.summary_id = f.summary_id \
                AND s.kind = {} \
              WHERE d.name = 'recursive_reversed_keyword_true' AND f.path_depth = 1",
-            cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
-        )).await,
+                cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code(),
+            )
+        )
+        .await,
         1,
         "a first keyword literal completes before the tracked second keyword value"
     );
     assert_eq!(
-        count(&ctx, &format!(
-            "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flows f \
              JOIN declarations d ON d.node_id = f.function_node_id \
              JOIN summary_flow_steps first ON first.summary_id = f.summary_id \
                AND first.kind = {evaluation} \
@@ -1192,43 +1449,82 @@ budget = 1
                AND source.kind = {source_kind} AND source.ordinal = first.ordinal + 1 \
                AND source.evidence_id = f.source_flow_fact_id \
              WHERE d.name = 'recursive_reversed_keyword_true' AND f.path_depth = 1",
-            evaluation = cpg_schema::codebook::SummaryFlowStepKind::ArgumentEvaluation.code(),
-            source_kind = cpg_schema::codebook::SummaryFlowStepKind::ReturnSource.code(),
-        )).await,
+                evaluation = cpg_schema::codebook::SummaryFlowStepKind::ArgumentEvaluation.code(),
+                source_kind = cpg_schema::codebook::SummaryFlowStepKind::ReturnSource.code(),
+            )
+        )
+        .await,
         1,
         "the published proof evaluates the first literal before the tracked value"
     );
-    for (name, expected) in [("multiple_argument_true", 1), ("multiple_argument_false", 0),
-        ("multiple_argument_raising", 0), ("multiple_argument_missing", 0), ("multiple_control_true", 0),
-        ("multiple_control_false", 0), ("multiple_control_raising", 0)] {
-        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows f \
+    for (name, expected) in [
+        ("multiple_argument_true", 1),
+        ("multiple_argument_false", 0),
+        ("multiple_argument_raising", 0),
+        ("multiple_argument_missing", 0),
+        ("multiple_control_true", 0),
+        ("multiple_control_false", 0),
+        ("multiple_control_raising", 0),
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows f \
             JOIN declarations d ON d.node_id = f.function_node_id \
-            WHERE d.name = '{name}' AND f.path_depth = 1")).await, expected,
-            "every argument needs normal evaluation and every callee predicate needs a stable entry link");
+            WHERE d.name = '{name}' AND f.path_depth = 1"
+                )
+            )
+            .await,
+            expected,
+            "every argument needs normal evaluation and every callee predicate needs a stable entry link"
+        );
     }
-    assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flow_steps step \
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM summary_flow_steps step \
         JOIN summary_flows f ON f.summary_id = step.summary_id \
         JOIN declarations d ON d.node_id = f.function_node_id \
         WHERE d.name = 'multiple_argument_true' AND f.path_depth = 1 AND step.kind = {}",
-        cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code())).await, 1);
+                cpg_schema::codebook::SummaryFlowStepKind::CalleeConditionLink.code()
+            )
+        )
+        .await,
+        1
+    );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'recursive_reversed_keyword_false' AND f.path_depth > 0").await,
+            WHERE d.name = 'recursive_reversed_keyword_false' AND f.path_depth > 0"
+        )
+        .await,
         0,
         "the opposing reversed-keyword call remains open"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f JOIN declarations d \
             ON d.node_id = f.function_node_id \
-            WHERE d.name = 'conditional_self_recursive' AND f.path_depth > 0").await,
+            WHERE d.name = 'conditional_self_recursive' AND f.path_depth > 0"
+        )
+        .await,
         0,
         "the conditional base cannot be reused as an unconditional recursive callee path"
     );
     assert!(
-        count(&ctx, "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_boundaries b JOIN declarations d \
             ON d.node_id = b.function_node_id \
-            WHERE d.name = 'conditional_self_recursive' AND b.local_through_call").await > 0,
+            WHERE d.name = 'conditional_self_recursive' AND b.local_through_call"
+        )
+        .await
+            > 0,
         "the unproved recursive call remains an explicit origin-specific unknown"
     );
     for name in ["recursive_before_return", "prior_call_identity"] {
@@ -1257,10 +1553,23 @@ budget = 1
             "{name} retains an explicit unknown boundary"
         );
     }
-    for name in ["finally_identity", "pass_then_effect_finally", "nested_effectful_finalizer"] {
-        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows f JOIN declarations d \
-            ON d.node_id = f.function_node_id WHERE d.name = '{name}'")).await, 1,
-            "a proven local assignment completes normally without replacing the pending return");
+    for name in [
+        "finally_identity",
+        "pass_then_effect_finally",
+        "nested_effectful_finalizer",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id = f.function_node_id WHERE d.name = '{name}'"
+                )
+            )
+            .await,
+            1,
+            "a proven local assignment completes normally without replacing the pending return"
+        );
         assert!(count(&ctx, &format!("SELECT count(*) FROM return_exit_steps s \
             JOIN return_exit_statuses x ON x.source_fact_id = s.return_site_fact_id \
             JOIN declarations d ON d.node_id = x.function_node_id WHERE d.name = '{name}' AND s.kind = {}",
@@ -1377,7 +1686,9 @@ budget = 1
         .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(
-        violations.iter().any(|v| v.rule == "summary-flow-step-source-equality"),
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-flow-step-source-equality"),
         "{violations:?}"
     );
     ctx.deregister_table("summary_flow_steps").unwrap();
@@ -2128,10 +2439,16 @@ async fn model_target_requires_its_cited_pinned_definition() {
         .await
         .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
-    assert_eq!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage").await,0,
-        "extraction-only compilation does not request behavioral coverage");
-    assert_eq!(count(&ctx,"SELECT count(*) FROM flow_test_value_links").await,0,
-        "extraction-only compilation does not request entry proofs");
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM summary_origin_coverage").await,
+        0,
+        "extraction-only compilation does not request behavioral coverage"
+    );
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM flow_test_value_links").await,
+        0,
+        "extraction-only compilation does not request entry proofs"
+    );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
     let forged = ModelTargets::to_batch(&[ModelTargetsRow {
         snapshot_id: snapshot,
@@ -2214,8 +2531,11 @@ async fn model_target_requires_its_cited_pinned_definition() {
         effect: ModelEffectKind::IoRead,
         exit: cpg_schema::codebook::ModelExit::Invocation,
         argument: None,
-        schema_kind:None, schema_class_node_id:None, schema_class_fact_id:None,
-        schema_path_id:None, schema_path_kind:None,
+        schema_kind: None,
+        schema_class_node_id: None,
+        schema_class_fact_id: None,
+        schema_path_id: None,
+        schema_path_kind: None,
         subject_path_id: None,
         subject_path_kind: None,
         subject_path: None,
@@ -2383,34 +2703,80 @@ budget = 1
         2,
         "only the two pinned typing identity helpers assert the direct-return body"
     );
-    assert!(count(&ctx,"SELECT count(*) FROM model_frame_exits").await>0);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM model_frame_exits f JOIN declarations d \
-        ON d.node_id=f.function_node_id WHERE d.name='ClassBodyFrame'").await,0,
-        "class LOAD_NAME and custom prepared namespaces cannot borrow function retention");
-    let frames=sql::query(&ctx,"SELECT * FROM model_frame_exit_arguments").await.unwrap().into_view();
-    let empty=sql::query(&ctx,"SELECT * FROM model_frame_exit_arguments WHERE false").await.unwrap().into_view();
-    ctx.deregister_table("model_frame_exit_arguments").unwrap();ctx.register_table("model_frame_exit_arguments",empty).unwrap();
-    assert!(cpg_core::validate::validate(&ctx).await.unwrap().iter().any(|v|v.rule=="expression-source-equality"),
-        "removing the entire release domain must fail source reconstruction");
-    ctx.deregister_table("model_frame_exit_arguments").unwrap();ctx.register_table("model_frame_exit_arguments",frames).unwrap();
+    assert!(count(&ctx, "SELECT count(*) FROM model_frame_exits").await > 0);
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM model_frame_exits f JOIN declarations d \
+        ON d.node_id=f.function_node_id WHERE d.name='ClassBodyFrame'"
+        )
+        .await,
+        0,
+        "class LOAD_NAME and custom prepared namespaces cannot borrow function retention"
+    );
+    let frames = sql::query(&ctx, "SELECT * FROM model_frame_exit_arguments")
+        .await
+        .unwrap()
+        .into_view();
+    let empty = sql::query(&ctx, "SELECT * FROM model_frame_exit_arguments WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("model_frame_exit_arguments").unwrap();
+    ctx.register_table("model_frame_exit_arguments", empty)
+        .unwrap();
+    assert!(
+        cpg_core::validate::validate(&ctx)
+            .await
+            .unwrap()
+            .iter()
+            .any(|v| v.rule == "expression-source-equality"),
+        "removing the entire release domain must fail source reconstruction"
+    );
+    ctx.deregister_table("model_frame_exit_arguments").unwrap();
+    ctx.register_table("model_frame_exit_arguments", frames)
+        .unwrap();
     let original_model_targets = sql::query(&ctx, "SELECT * FROM model_targets")
         .await
         .unwrap()
         .into_view();
-    let before:Vec<cpg_schema::behavior::ModelApplicationsRow>=sql::fetch(&ctx,
-        &cpg_schema::behavior::model_applications(),sql::Params::new()).await.unwrap();
+    let before: Vec<cpg_schema::behavior::ModelApplicationsRow> = sql::fetch(
+        &ctx,
+        &cpg_schema::behavior::model_applications(),
+        sql::Params::new(),
+    )
+    .await
+    .unwrap();
     assert!(!before.is_empty());
-    let wrong_phase=sql::query(&ctx,"SELECT * EXCLUDE (phase), CAST(2 AS SMALLINT) AS phase FROM model_targets")
-        .await.unwrap().into_view();
+    let wrong_phase = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (phase), CAST(2 AS SMALLINT) AS phase FROM model_targets",
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("model_targets").unwrap();
-    ctx.register_table("model_targets",wrong_phase).unwrap();
-    let after:Vec<cpg_schema::behavior::ModelApplicationsRow>=sql::fetch(&ctx,
-        &cpg_schema::behavior::model_applications(),sql::Params::new()).await.unwrap();
-    assert!(after.is_empty(),"observed Call cannot activate authored Init coverage");
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="model-catalog-target-equality"));
+    ctx.register_table("model_targets", wrong_phase).unwrap();
+    let after: Vec<cpg_schema::behavior::ModelApplicationsRow> = sql::fetch(
+        &ctx,
+        &cpg_schema::behavior::model_applications(),
+        sql::Params::new(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        after.is_empty(),
+        "observed Call cannot activate authored Init coverage"
+    );
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-catalog-target-equality")
+    );
     ctx.deregister_table("model_targets").unwrap();
-    ctx.register_table("model_targets",original_model_targets.clone()).unwrap();
+    ctx.register_table("model_targets", original_model_targets.clone())
+        .unwrap();
     let forged_completion = sql::query(
         &ctx,
         "SELECT * EXCLUDE (body_return_parameter), CAST(NULL AS VARCHAR) AS body_return_parameter FROM model_targets",
@@ -2540,7 +2906,10 @@ budget = 1
             WHERE d.name='framed_modeled_identity'").await.unwrap()
     );
     assert_eq!(
-        count(&ctx, &format!("SELECT count(*) FROM modeled_argument_evaluations a \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_argument_evaluations a \
             JOIN modeled_exact_value_transfers m \
               ON m.flow_value_fact_id = a.candidate_flow_fact_id \
              AND m.parameter_node_id = a.parameter_node_id \
@@ -2553,7 +2922,10 @@ budget = 1
             JOIN summary_flow_steps read ON read.summary_id = f.summary_id \
               AND read.kind = {} AND read.evidence_id = rr.fact_id \
             WHERE d.name = 'framed_modeled_identity'",
-            cpg_schema::codebook::SummaryFlowStepKind::ArgumentEvaluation.code())).await,
+                cpg_schema::codebook::SummaryFlowStepKind::ArgumentEvaluation.code()
+            )
+        )
+        .await,
         1,
         "the pass-only try frame cites its safe lexical parameter read separately from raw flow"
     );
@@ -2668,24 +3040,32 @@ budget = 1
         "the proved direct identity path has no spurious boundary"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows s \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows s \
             JOIN value_flow_contributions v ON v.snapshot_id = s.snapshot_id \
               AND v.origin_id = s.source_origin_id \
               AND v.flow_value_fact_id = s.source_flow_fact_id \
               AND v.parameter_node_id = s.parameter_node_id \
             JOIN declarations d ON d.node_id = s.function_node_id \
-            WHERE d.name = 'plain_identity'").await,
+            WHERE d.name = 'plain_identity'"
+        )
+        .await,
         1,
         "the published direct summary cites its exact raw source contribution"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM modeled_exact_value_transfers m \
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_exact_value_transfers m \
             JOIN value_flow_contributions v ON v.snapshot_id = m.snapshot_id \
               AND v.origin_id = m.source_origin_id \
             WHERE v.flow_value_fact_id <> m.flow_value_fact_id \
                OR v.use_id <> m.use_id \
                OR v.parameter_node_id <> m.parameter_node_id \
-               OR v.condition_id <> m.condition_id").await,
+               OR v.condition_id <> m.condition_id"
+        )
+        .await,
         0,
         "a modeled transfer retains the contribution it was derived from"
     );
@@ -2925,23 +3305,34 @@ budget = 1
         "a nested call or computed outer return has no exact two-step model path"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
             JOIN declarations d ON d.node_id = f.function_node_id \
             WHERE d.name = 'nested_total_identity' AND f.path_depth = 2 \
-              AND f.boundary_reason IS NULL").await,
+              AND f.boundary_reason IS NULL"
+        )
+        .await,
         1,
         "two exact total identity calls compose into one cited finite path"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
             JOIN declarations d ON d.node_id = f.function_node_id \
             WHERE d.name = 'nested_three_total_identity' AND f.path_depth = 3 \
-              AND f.boundary_reason IS NULL").await,
+              AND f.boundary_reason IS NULL"
+        )
+        .await,
         1,
         "the same finite producer composes a third exact total identity call"
     );
     assert_eq!(
-        count(&ctx, &format!("WITH first_eval AS ( \
+        count(
+            &ctx,
+            &format!(
+                "WITH first_eval AS ( \
               SELECT summary_id, min(ordinal) AS ordinal FROM summary_flow_steps \
               WHERE kind = {evaluation} GROUP BY summary_id) \
             SELECT count(*) FROM summary_flows f \
@@ -2957,49 +3348,87 @@ budget = 1
             WHERE d.name = 'nested_total_identity' AND f.path_depth = 2 \
               AND outer_literal.ordinal < inner_site.ordinal \
               AND inner_site.ordinal < outer_source.ordinal",
-            evaluation = SummaryFlowStepKind::ArgumentEvaluation.code(),
-            site = SummaryFlowStepKind::CallSite.code())).await,
+                evaluation = SummaryFlowStepKind::ArgumentEvaluation.code(),
+                site = SummaryFlowStepKind::CallSite.code()
+            )
+        )
+        .await,
         1,
         "the outer literal precedes the inner call, whose result precedes the outer call"
     );
-    for name in ["nested_identity", "nested_raising_identity", "nested_deleted_identity"] {
+    for name in [
+        "nested_identity",
+        "nested_raising_identity",
+        "nested_deleted_identity",
+    ] {
         assert_eq!(
-            count(&ctx, &format!("SELECT count(*) FROM summary_flows f \
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows f \
                 JOIN declarations d ON d.node_id = f.function_node_id \
-                WHERE d.name = '{name}' AND f.path_depth = 2")).await,
+                WHERE d.name = '{name}' AND f.path_depth = 2"
+                )
+            )
+            .await,
             0,
             "{name} has no exact normally completed inner identity"
         );
-        if name == "nested_deleted_identity" { continue; }
+        if name == "nested_deleted_identity" {
+            continue;
+        }
         assert!(
-            count(&ctx, &format!("SELECT count(*) FROM summary_boundaries b \
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_boundaries b \
                 JOIN declarations d ON d.node_id = b.function_node_id \
-                WHERE d.name = '{name}' AND b.local_through_call")).await > 0,
+                WHERE d.name = '{name}' AND b.local_through_call"
+                )
+            )
+            .await
+                > 0,
             "{name} keeps an explicit open source origin"
         );
     }
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM value_flow_contributions v \
+        count(
+            &ctx,
+            "SELECT count(*) FROM value_flow_contributions v \
             JOIN declarations d ON d.node_id = v.sink_function_node_id \
-            WHERE d.name = 'nested_deleted_identity' AND v.parameter_node_id IS NOT NULL").await,
+            WHERE d.name = 'nested_deleted_identity' AND v.parameter_node_id IS NOT NULL"
+        )
+        .await,
         0,
         "a deleted formal has no parameter-origin contribution to discharge or bound"
     );
     assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_flows f \
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows f \
             JOIN declarations d ON d.node_id = f.function_node_id \
-            WHERE d.name = 'framed_maybe_deleted_identity'").await,
+            WHERE d.name = 'framed_maybe_deleted_identity'"
+        )
+        .await,
         0,
         "the lexical read fallback withholds a formal that can be deleted in the try body"
     );
     assert!(
-        count(&ctx, "SELECT count(*) FROM modeled_exact_value_transfers m \
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_exact_value_transfers m \
             JOIN declarations d ON d.node_id = m.function_node_id \
-            WHERE d.name = 'framed_maybe_deleted_identity'").await > 0,
+            WHERE d.name = 'framed_maybe_deleted_identity'"
+        )
+        .await
+            > 0,
         "the deletion control must have a real raw model candidate to challenge"
     );
     assert_eq!(
-        count(&ctx, &format!("SELECT count(*) FROM modeled_argument_evaluations a \
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_argument_evaluations a \
             JOIN modeled_exact_value_transfers m \
               ON m.flow_value_fact_id = a.candidate_flow_fact_id \
              AND m.parameter_node_id = a.parameter_node_id \
@@ -3007,7 +3436,10 @@ budget = 1
              AND m.model_id = a.model_id AND m.rule_id = a.rule_id \
             JOIN declarations d ON d.node_id = m.function_node_id \
             WHERE d.name = 'framed_maybe_deleted_identity' AND a.status = {}",
-            ModeledArgumentEvaluationStatus::SourceOperand.code())).await,
+                ModeledArgumentEvaluationStatus::SourceOperand.code()
+            )
+        )
+        .await,
         0,
         "a possible deletion prevents the raw source from acquiring a normal-read witness"
     );
@@ -3785,16 +4217,25 @@ budget = 1
         .unwrap();
 
     let original_expressions = sql::query(&ctx, "SELECT * FROM expression_evaluations")
-        .await.unwrap().into_view();
+        .await
+        .unwrap()
+        .into_view();
     let forged_expressions = sql::query(&ctx,
         "SELECT * EXCLUDE (boolean_value), CASE WHEN normal THEN COALESCE(NOT boolean_value, true) ELSE NULL END AS boolean_value FROM expression_evaluations")
         .await.unwrap().into_view();
     ctx.deregister_table("expression_evaluations").unwrap();
-    ctx.register_table("expression_evaluations", forged_expressions).unwrap();
+    ctx.register_table("expression_evaluations", forged_expressions)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "expression-source-equality"), "{violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "expression-source-equality"),
+        "{violations:?}"
+    );
     ctx.deregister_table("expression_evaluations").unwrap();
-    ctx.register_table("expression_evaluations", original_expressions).unwrap();
+    ctx.register_table("expression_evaluations", original_expressions)
+        .unwrap();
 
     let original_argument_evaluations =
         sql::query(&ctx, "SELECT * FROM modeled_argument_evaluations")
@@ -4008,12 +4449,27 @@ budget = 1
 
     assert_eq!(count(&ctx,"SELECT count(*) FROM source_modeled_identities i JOIN declarations d ON d.node_id=i.function_node_id JOIN value_flow_contributions c ON c.origin_id=i.source_origin_id WHERE d.name IN ('framed_modeled_identity','nested_framed_modeled_identity') AND c.approximated").await,2,
         "modeled source certificates preserve raw approximation");
-    let original_modeled=sql::query(&ctx,"SELECT * FROM source_modeled_identities").await.unwrap().into_view();
-    let missing_modeled=sql::query(&ctx,"SELECT * FROM source_modeled_identities WHERE false").await.unwrap().into_view();
-    ctx.deregister_table("source_modeled_identities").unwrap();ctx.register_table("source_modeled_identities",missing_modeled).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="source-modeled-identity-equality"),"{violations:?}");
-    ctx.deregister_table("source_modeled_identities").unwrap();ctx.register_table("source_modeled_identities",original_modeled).unwrap();
+    let original_modeled = sql::query(&ctx, "SELECT * FROM source_modeled_identities")
+        .await
+        .unwrap()
+        .into_view();
+    let missing_modeled = sql::query(&ctx, "SELECT * FROM source_modeled_identities WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("source_modeled_identities").unwrap();
+    ctx.register_table("source_modeled_identities", missing_modeled)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "source-modeled-identity-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("source_modeled_identities").unwrap();
+    ctx.register_table("source_modeled_identities", original_modeled)
+        .unwrap();
 
     let original_analysis_conditions = sql::query(&ctx, "SELECT * FROM analysis_conditions")
         .await
@@ -5167,6 +5623,7 @@ fn every_rule_is_exercised_or_declared_an_edit_guard() {
             for (at, _) in source.match_indices(&format!("\"{kind}:")) {
                 if source[..at].trim_end().ends_with('(')
                     || source[..at].trim_end().ends_with("v.rule ==")
+                    || source[..at].trim_end().ends_with("r.name ==")
                 {
                     let rest = &source[at + 1..];
                     cases.insert(rest[..rest.find('"').unwrap()].to_owned());
@@ -5296,7 +5753,8 @@ async fn composed_argument_reads_keep_ordered_source_evidence() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([78; 16]);
     let analysis = Analysis {
-        config: AnalyticsConfig::parse(r#"
+        config: AnalyticsConfig::parse(
+            r#"
 version = 1
 [subsystem]
 module_prefixes = ["exprpkg"]
@@ -5311,18 +5769,54 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 1
-"#).unwrap(),
+"#,
+        )
+        .unwrap(),
         embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
-    compile_analyzed(root.path(), snapshot,
-        &raw_version("expression_completion_shapes", snapshot, (3, 14, 7)), Some(&analysis))
-        .await.unwrap();
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("expression_completion_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
-    for name in ["literal_default_header", "keyword_default_header", "unexecuted_body_header", "typed_exception_finalizer", "superclass_exception_finalizer", "later_matching_finalizer", "reraised_caught_finalizer", "selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer", "literal_predecessor", "initialized_predecessor", "skipped_predecessor"] {
-        assert!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
+    for name in [
+        "literal_default_header",
+        "keyword_default_header",
+        "unexecuted_body_header",
+        "typed_exception_finalizer",
+        "superclass_exception_finalizer",
+        "later_matching_finalizer",
+        "reraised_caught_finalizer",
+        "selected_parameter",
+        "selected_builtin",
+        "short_circuited",
+        "nested_call_sibling",
+        "nested_call_selected",
+        "nested_call_predecessor",
+        "normal_call_finalizer",
+        "selected_finalizer",
+        "literal_predecessor",
+        "initialized_predecessor",
+        "skipped_predecessor",
+    ] {
+        assert!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \
-            WHERE d.name = '{name}' AND s.verdict IN (0,1)")).await > 0, "{name}");
+            WHERE d.name = '{name}' AND s.verdict IN (0,1)"
+                )
+            )
+            .await
+                > 0,
+            "{name}"
+        );
     }
     for name in ["handler_entry", "else_entry", "finalizer_entry"] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM return_entry_statuses e \
@@ -5338,31 +5832,116 @@ budget = 1
     assert!(count(&ctx,&format!("SELECT count(*) FROM return_exit_statuses e \
         JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='named_exception_finalizer' AND e.reason={}",
         BoundaryReason::HandlerNameCleanup.code())).await>0);
-    assert!(count(&ctx,"SELECT count(*) FROM statement_completions WHERE kind=2 AND exception=0").await>0);
-    assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE complete").await>0);
-    assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE NOT complete").await>0);
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM statement_completions WHERE kind=2 AND exception=0"
+        )
+        .await
+            > 0
+    );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_origin_coverage WHERE complete"
+        )
+        .await
+            > 0
+    );
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_origin_coverage WHERE NOT complete"
+        )
+        .await
+            > 0
+    );
     assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE subject_kind=1 AND channel=4 AND complete AND witness_count=0 AND parameter_node_id IS NULL").await>0);
     assert_eq!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage c JOIN declarations d ON d.node_id=c.function_node_id WHERE c.subject_kind=1 AND d.name IN ('deferred_completion_async','deferred_completion_generator')").await,0);
-    assert!(count(&ctx,"SELECT count(*) FROM summary_flow_steps WHERE kind=22").await>0);
-    for name in ["missing_default_header","decorated_header","rebound_definition_header"] {
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flow_steps WHERE kind=22"
+        )
+        .await
+            > 0
+    );
+    for name in [
+        "missing_default_header",
+        "decorated_header",
+        "rebound_definition_header",
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
     }
-    let original_coverage=sql::query(&ctx,"SELECT * FROM summary_origin_coverage").await.unwrap().into_view();
+    let original_coverage = sql::query(&ctx, "SELECT * FROM summary_origin_coverage")
+        .await
+        .unwrap()
+        .into_view();
     let forged_coverage=sql::query(&ctx,"SELECT * EXCEPT (complete,reason), true AS complete, CAST(NULL AS SMALLINT) AS reason FROM summary_origin_coverage").await.unwrap().into_view();
-    ctx.deregister_table("summary_origin_coverage").unwrap();ctx.register_table("summary_origin_coverage",forged_coverage).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="summary-origin-coverage-source-equality"),"{violations:?}");
-    ctx.deregister_table("summary_origin_coverage").unwrap();ctx.register_table("summary_origin_coverage",original_coverage).unwrap();
-    let original_completions=sql::query(&ctx,"SELECT * FROM statement_completions").await.unwrap().into_view();
+    ctx.deregister_table("summary_origin_coverage").unwrap();
+    ctx.register_table("summary_origin_coverage", forged_coverage)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "summary-origin-coverage-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("summary_origin_coverage").unwrap();
+    ctx.register_table("summary_origin_coverage", original_coverage)
+        .unwrap();
+    let original_completions = sql::query(&ctx, "SELECT * FROM statement_completions")
+        .await
+        .unwrap()
+        .into_view();
     let missing_exceptions=sql::query(&ctx,"SELECT * EXCEPT (exception), CAST(NULL AS SMALLINT) AS exception FROM statement_completions").await.unwrap().into_view();
-    ctx.deregister_table("statement_completions").unwrap();ctx.register_table("statement_completions",missing_exceptions).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="completion-source-equality"),"{violations:?}");
-    ctx.deregister_table("statement_completions").unwrap();ctx.register_table("statement_completions",original_completions).unwrap();
-    for name in ["nonmatching_exception_finalizer", "shadowed_exception_finalizer", "named_exception_finalizer", "grouped_exception_finalizer", "unresolved_first_handler", "selected_missing", "unknown_truthiness", "deleted_read", "nested_call_raising", "missing_required_predecessor", "extra_argument_predecessor", "extra_keyword_result", "raising_call_finalizer", "overriding_finalizer", "unknown_finalizer", "arithmetic_predecessor", "raising_selected_predecessor", "repeated_initialization"] {
-        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
+    ctx.deregister_table("statement_completions").unwrap();
+    ctx.register_table("statement_completions", missing_exceptions)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "completion-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("statement_completions").unwrap();
+    ctx.register_table("statement_completions", original_completions)
+        .unwrap();
+    for name in [
+        "nonmatching_exception_finalizer",
+        "shadowed_exception_finalizer",
+        "named_exception_finalizer",
+        "grouped_exception_finalizer",
+        "unresolved_first_handler",
+        "selected_missing",
+        "unknown_truthiness",
+        "deleted_read",
+        "nested_call_raising",
+        "missing_required_predecessor",
+        "extra_argument_predecessor",
+        "extra_keyword_result",
+        "raising_call_finalizer",
+        "overriding_finalizer",
+        "unknown_finalizer",
+        "arithmetic_predecessor",
+        "raising_selected_predecessor",
+        "repeated_initialization",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \
-            WHERE d.name = '{name}'")).await, 0, "{name}");
+            WHERE d.name = '{name}'"
+                )
+            )
+            .await,
+            0,
+            "{name}"
+        );
     }
     for name in ["opaque_exception_finalizer", "rebinding_finalizer"] {
         assert_eq!(count(&ctx, &format!("SELECT count(*) FROM return_exit_statuses x \
@@ -5376,42 +5955,105 @@ budget = 1
         WHERE d.name='repeated_initialization' AND n.kind={} AND s.kind={}",
         cpg_schema::codebook::SyntaxKind::StmtAssign.code(), cpg_schema::codebook::CompletionKind::Normal.code())).await,0,
         "one syntactic assignment under a loop is not a first dynamic initialization");
-    assert!(count(&ctx, "SELECT count(*) FROM expression_evaluation_steps e \
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM expression_evaluation_steps e \
         JOIN syntax_nodes n ON n.fact_id = e.operand_fact_id \
-        WHERE n.detail = 'typ' AND e.status IN (4,6)").await > 0);
-    assert_eq!(count(&ctx, "SELECT count(*) FROM expression_evaluation_steps e \
-        JOIN syntax_nodes n ON n.fact_id = e.operand_fact_id WHERE n.detail = 'missing'").await, 0);
-    let original_mro=sql::query(&ctx,"SELECT * FROM context_class_mro").await.unwrap().into_view();
+        WHERE n.detail = 'typ' AND e.status IN (4,6)"
+        )
+        .await
+            > 0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM expression_evaluation_steps e \
+        JOIN syntax_nodes n ON n.fact_id = e.operand_fact_id WHERE n.detail = 'missing'"
+        )
+        .await,
+        0
+    );
+    let original_mro = sql::query(&ctx, "SELECT * FROM context_class_mro")
+        .await
+        .unwrap()
+        .into_view();
     let incomplete_mro=sql::query(&ctx,"SELECT snapshot_id,fact_id,class_node_id,module_node_id,ordinal,ancestor_module,ancestor_key,ancestor_name,cyclic,false AS linearization_complete FROM context_class_mro").await.unwrap().into_view();
-    ctx.deregister_table("context_class_mro").unwrap();ctx.register_table("context_class_mro",incomplete_mro).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="completion-source-equality"),"{violations:?}");
-    ctx.deregister_table("context_class_mro").unwrap();ctx.register_table("context_class_mro",original_mro).unwrap();
-    let original = sql::query(&ctx, "SELECT * FROM expression_evaluation_steps").await.unwrap().into_view();
-    let missing = sql::query(&ctx, "SELECT * FROM expression_evaluation_steps WHERE false").await.unwrap().into_view();
-    ctx.deregister_table("expression_evaluation_steps").unwrap();
-    ctx.register_table("expression_evaluation_steps", missing).unwrap();
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", incomplete_mro)
+        .unwrap();
     let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v| v.rule == "expression-source-equality"), "{violations:?}");
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "completion-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("context_class_mro").unwrap();
+    ctx.register_table("context_class_mro", original_mro)
+        .unwrap();
+    let original = sql::query(&ctx, "SELECT * FROM expression_evaluation_steps")
+        .await
+        .unwrap()
+        .into_view();
+    let missing = sql::query(
+        &ctx,
+        "SELECT * FROM expression_evaluation_steps WHERE false",
+    )
+    .await
+    .unwrap()
+    .into_view();
     ctx.deregister_table("expression_evaluation_steps").unwrap();
-    ctx.register_table("expression_evaluation_steps", original).unwrap();
-    for table in ["statement_completion_steps", "return_exit_steps", "return_entry_statuses", "return_entry_steps"] {
-        let original = sql::query(&ctx, &format!("SELECT * FROM {table}")).await.unwrap().into_view();
-        let missing = sql::query(&ctx, &format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
+    ctx.register_table("expression_evaluation_steps", missing)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "expression-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("expression_evaluation_steps").unwrap();
+    ctx.register_table("expression_evaluation_steps", original)
+        .unwrap();
+    for table in [
+        "statement_completion_steps",
+        "return_exit_steps",
+        "return_entry_statuses",
+        "return_entry_steps",
+    ] {
+        let original = sql::query(&ctx, &format!("SELECT * FROM {table}"))
+            .await
+            .unwrap()
+            .into_view();
+        let missing = sql::query(&ctx, &format!("SELECT * FROM {table} WHERE false"))
+            .await
+            .unwrap()
+            .into_view();
         ctx.deregister_table(table).unwrap();
         ctx.register_table(table, missing).unwrap();
         let violations = cpg_core::validate::validate(&ctx).await.unwrap();
-        assert!(violations.iter().any(|v| v.rule == "completion-source-equality"), "{table}: {violations:?}");
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "completion-source-equality"),
+            "{table}: {violations:?}"
+        );
         ctx.deregister_table(table).unwrap();
         ctx.register_table(table, original).unwrap();
     }
 }
 
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn call_execution_proves_reached_inputs_without_inventing_callee_completion() {
-    use cpg_schema::call_execution::{CallExecutions,CallExecutionsRow,CallExecutionSteps,CallExecutionStepsRow};
-    let root=tempfile::tempdir().unwrap();let snapshot=Id([97;16]);
-    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+    use cpg_schema::call_execution::{
+        CallExecutionSteps, CallExecutionStepsRow, CallExecutions, CallExecutionsRow,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([97; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
 version = 1
 [subsystem]
 module_prefixes = ["invocations"]
@@ -5426,11 +6068,31 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 1
-"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
-    compile_analyzed(root.path(),snapshot,&raw_version("invocation_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
-    let(_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
-    for(name,target)in [("before_raise","compress"),("missing_defaults","compress"),("selected","compress"),("assigned","decompress"),
-        ("returned","decompress"),("register_only","register"),("after_total","decompress"),("after_fallible","decompress")] {
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("invocation_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    for (name, target) in [
+        ("before_raise", "compress"),
+        ("missing_defaults", "compress"),
+        ("selected", "compress"),
+        ("assigned", "decompress"),
+        ("returned", "decompress"),
+        ("register_only", "register"),
+        ("after_total", "decompress"),
+        ("after_fallible", "decompress"),
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e \
             JOIN declarations d ON d.node_id=e.function_node_id JOIN context_definitions t ON t.symbol_node_id=e.target_node_id \
             WHERE d.name='{name}' AND t.qualified_name='{target}' AND e.reason IS NULL")).await,1,
@@ -5438,17 +6100,44 @@ budget = 1
             FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
             JOIN context_definitions t ON t.symbol_node_id=e.target_node_id").await.unwrap());
     }
-    for name in ["after_raise","after_opaque","raising_argument","unasserted_defaults","skipped","nested_argument","inner","deferred","generator"] {
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
-            ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL")).await,0,"{name}");
+    for name in [
+        "after_raise",
+        "after_opaque",
+        "raising_argument",
+        "unasserted_defaults",
+        "skipped",
+        "nested_argument",
+        "inner",
+        "deferred",
+        "generator",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM call_executions e JOIN declarations d \
+            ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL"
+                )
+            )
+            .await,
+            0,
+            "{name}"
+        );
     }
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM context_parameters p JOIN context_definitions d \
         ON d.symbol_node_id=p.symbol_node_id WHERE d.module_name='atexit' AND d.qualified_name='register' \
         AND p.form={} AND p.required IS NULL AND p.kind IN ({},{})",cpg_schema::codebook::SignatureForm::List.code(),
         cpg_schema::codebook::ParameterKind::VarPositional.code(),cpg_schema::codebook::ParameterKind::VarKeyword.code())).await,2,
         "empty variadic slots are not missing required ordinary arguments");
-    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_callback_sites s JOIN declarations d \
-        ON d.node_id=s.function_node_id WHERE d.name='register_only'").await,1);
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_callback_sites s JOIN declarations d \
+        ON d.node_id=s.function_node_id WHERE d.name='register_only'"
+        )
+        .await,
+        1
+    );
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
         WHERE d.name='unasserted_defaults' AND e.reason={}",BoundaryReason::UnsupportedControlFlow.code())).await,1);
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
@@ -5456,127 +6145,359 @@ budget = 1
     assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
         JOIN context_definitions t ON t.symbol_node_id=e.target_node_id WHERE d.name='after_fallible' \
         AND t.qualified_name='compress' AND e.reason IS NULL").await,0);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions e JOIN expression_evaluations v \
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM call_executions e JOIN expression_evaluations v \
         ON v.syntax_fact_id=e.syntax_fact_id JOIN declarations d ON d.node_id=e.function_node_id \
-        WHERE d.name IN ('before_raise','assigned','returned','register_only') AND v.normal").await,0,
-        "a reached invocation is not a normally completed expression");
+        WHERE d.name IN ('before_raise','assigned','returned','register_only') AND v.normal"
+        )
+        .await,
+        0,
+        "a reached invocation is not a normally completed expression"
+    );
     assert_eq!(count(&ctx,"SELECT count(*) FROM summary_flows s JOIN declarations d ON d.node_id=s.function_node_id \
         WHERE d.name IN ('before_raise','assigned','returned','register_only')").await,0);
-    let batches=sql::query(&ctx,"SELECT * FROM call_executions").await.unwrap().collect().await.unwrap();
-    let rows:Vec<CallExecutionsRow>=batches.iter().flat_map(|batch|<CallExecutionsRow as cpg_schema::query::QueryRow>::read_batch(
-        &cpg_core::delta::to_schema(batch,&CallExecutions::schema()).unwrap()).unwrap()).collect();
-    let batches=sql::query(&ctx,"SELECT * FROM call_execution_steps ORDER BY execution_id,ordinal").await.unwrap().collect().await.unwrap();
-    let steps:Vec<CallExecutionStepsRow>=batches.iter().flat_map(|batch|<CallExecutionStepsRow as cpg_schema::query::QueryRow>::read_batch(
-        &cpg_core::delta::to_schema(batch,&CallExecutionSteps::schema()).unwrap()).unwrap()).collect();
+    let batches = sql::query(&ctx, "SELECT * FROM call_executions")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let rows: Vec<CallExecutionsRow> = batches
+        .iter()
+        .flat_map(|batch| {
+            <CallExecutionsRow as cpg_schema::query::QueryRow>::read_batch(
+                &cpg_core::delta::to_schema(batch, &CallExecutions::schema()).unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let batches = sql::query(
+        &ctx,
+        "SELECT * FROM call_execution_steps ORDER BY execution_id,ordinal",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let steps: Vec<CallExecutionStepsRow> = batches
+        .iter()
+        .flat_map(|batch| {
+            <CallExecutionStepsRow as cpg_schema::query::QueryRow>::read_batch(
+                &cpg_core::delta::to_schema(batch, &CallExecutionSteps::schema()).unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
     for row in &rows {
-        let proof:Vec<_>=steps.iter().filter(|s|s.execution_id==row.execution_id).map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
-            kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
-        cpg_schema::call_execution::admit(row,&proof).unwrap();
+        let proof: Vec<_> = steps
+            .iter()
+            .filter(|s| s.execution_id == row.execution_id)
+            .map(|s| cpg_schema::id::recipe::SummaryFlowProofStep {
+                kind: s.kind,
+                evidence_id: s.evidence_id,
+                condition_id: s.condition_id,
+            })
+            .collect();
+        cpg_schema::call_execution::admit(row, &proof).unwrap();
         if row.reason.is_none() {
-            let mut missing=proof.clone();missing.pop();assert!(cpg_schema::call_execution::admit(row,&missing).is_err());
-            let mut foreign=proof.clone();foreign.last_mut().unwrap().evidence_id=Id::ZERO;
-            assert!(cpg_schema::call_execution::admit(row,&foreign).is_err());
-            let mut reordered=proof.clone();reordered.swap(0,1);assert!(cpg_schema::call_execution::admit(row,&reordered).is_err());
+            let mut missing = proof.clone();
+            missing.pop();
+            assert!(cpg_schema::call_execution::admit(row, &missing).is_err());
+            let mut foreign = proof.clone();
+            foreign.last_mut().unwrap().evidence_id = Id::ZERO;
+            assert!(cpg_schema::call_execution::admit(row, &foreign).is_err());
+            let mut reordered = proof.clone();
+            reordered.swap(0, 1);
+            assert!(cpg_schema::call_execution::admit(row, &reordered).is_err());
         }
     }
-    let repo=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let runtime=std::process::Command::new("uv").args(["run","--no-sync","python",
-        "docs/design_review/evidence/2026-09-27_call-entry/runtime_oracle.py"]).current_dir(&repo).output().unwrap();
-    assert!(runtime.status.success(),"{}",String::from_utf8_lossy(&runtime.stderr));
-    let runtime:serde_json::Value=serde_json::from_slice(&runtime.stdout).unwrap();
-    assert_eq!(runtime["outcome"],"passed");
-    for(name,target)in [("before_raise","compress"),("missing_defaults","compress"),("selected","compress"),("assigned","decompress"),
-        ("returned","decompress"),("register_only","register"),("after_total","decompress"),("after_fallible","decompress")] {
-        assert!(runtime["cases"][name]["events"].as_array().unwrap().iter().any(|event|event==target),"{name}");
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let runtime = std::process::Command::new("uv")
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "docs/design_review/evidence/2026-09-27_call-entry/runtime_oracle.py",
+        ])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(
+        runtime.status.success(),
+        "{}",
+        String::from_utf8_lossy(&runtime.stderr)
+    );
+    let runtime: serde_json::Value = serde_json::from_slice(&runtime.stdout).unwrap();
+    assert_eq!(runtime["outcome"], "passed");
+    for (name, target) in [
+        ("before_raise", "compress"),
+        ("missing_defaults", "compress"),
+        ("selected", "compress"),
+        ("assigned", "decompress"),
+        ("returned", "decompress"),
+        ("register_only", "register"),
+        ("after_total", "decompress"),
+        ("after_fallible", "decompress"),
+    ] {
+        assert!(
+            runtime["cases"][name]["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event == target),
+            "{name}"
+        );
     }
-    for name in ["after_raise","after_opaque","raising_argument","skipped"] {
-        assert!(runtime["cases"][name]["events"].as_array().unwrap().is_empty(),"{name}");
+    for name in ["after_raise", "after_opaque", "raising_argument", "skipped"] {
+        assert!(
+            runtime["cases"][name]["events"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "{name}"
+        );
     }
-    assert_eq!(runtime["cases"]["assigned"]["outcome"],"BadGzipFile");
-    assert_eq!(runtime["cases"]["register_only"]["callback_invoked"],false);
-    let original=sql::query(&ctx,"SELECT * FROM call_execution_steps").await.unwrap().into_view();
-    let missing=sql::query(&ctx,"SELECT * FROM call_execution_steps WHERE false").await.unwrap().into_view();
-    ctx.deregister_table("call_execution_steps").unwrap();ctx.register_table("call_execution_steps",missing).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="call-execution-source-equality"),"{violations:?}");
-    ctx.deregister_table("call_execution_steps").unwrap();ctx.register_table("call_execution_steps",original).unwrap();
+    assert_eq!(runtime["cases"]["assigned"]["outcome"], "BadGzipFile");
+    assert_eq!(runtime["cases"]["register_only"]["callback_invoked"], false);
+    let original = sql::query(&ctx, "SELECT * FROM call_execution_steps")
+        .await
+        .unwrap()
+        .into_view();
+    let missing = sql::query(&ctx, "SELECT * FROM call_execution_steps WHERE false")
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("call_execution_steps").unwrap();
+    ctx.register_table("call_execution_steps", missing).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "call-execution-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("call_execution_steps").unwrap();
+    ctx.register_table("call_execution_steps", original)
+        .unwrap();
 }
 
 /// Contract probe over typed candidate inputs. These are not authored production models or
 /// evidence that a validation call executes; source/Delta controls remain separate.
 #[tokio::test]
 async fn validation_schema_candidates_keep_attribution_separate_from_subjects() {
-    use cpg_schema::behavior::{ModelApplications,ModelApplicationsRow,ModelArgumentBindings,
-        ModelArgumentBindingsRow,ModeledEffectSites,ModeledEffectSitesRow};
-    use cpg_schema::codebook::{InvocationPhase,ModelSchemaKind};
-    let id=|n|Id([n;16]);
-    let app=ModelApplicationsRow {snapshot_id:id(1),call_site_node_id:id(2),module_node_id:id(3),
-        function_node_id:Some(id(4)),call_fact_id:id(5),pysa_fact_id:id(6),target_node_id:id(7),
-        model_id:id(8),target_module_fact_id:id(9),target_definition_fact_id:id(10),revision:1,
-        target_modality:Modality::Definite,target_origin:Origin::SyntheticModel,phase:InvocationPhase::Call,
-        candidate_set_complete_under_model:true,has_unresolved_remainder:false,target_count:1,
-        target_body_return_parameter:None,target_call_defaults_available:false,model_origin:Origin::SyntheticModel};
-    let model=ModelEffectsRow {snapshot_id:id(1),model_id:id(8),target_node_id:id(7),rule_id:id(11),
-        target_definition_fact_id:id(10),revision:1,effect:ModelEffectKind::Validate,exit:cpg_schema::codebook::ModelExit::Normal,argument:None,
-        schema_kind:Some(ModelSchemaKind::RuntimeValue),schema_class_node_id:None,schema_class_fact_id:None,
-        schema_path_id:Some(id(12)),schema_path_kind:Some(ModelPathKind::Parameter),
-        subject_path_id:Some(id(13)),subject_path_kind:Some(ModelPathKind::Parameter),subject_path:Some("display only".into()),
-        modality:Modality::Potential,origin:Origin::SyntheticModel};
-    let subject=ModelArgumentBindingsRow {snapshot_id:id(1),call_site_node_id:id(2),pysa_fact_id:id(6),
-        model_id:id(8),target_node_id:id(7),rule_id:id(11),path_role:ModelPathRole::Input,path_id:id(13),
-        formal_name:"value".into(),signature_count:1,matched_signatures:1,argument_node_id:Some(id(20)),
-        argument_fact_id:Some(id(21)),status:ModelArgumentStatus::Bound,reason:None};
-    let schema=ModelArgumentBindingsRow {path_role:ModelPathRole::Schema,path_id:id(12),formal_name:"schema".into(),
-        argument_node_id:Some(id(30)),argument_fact_id:Some(id(31)),..subject.clone()};
-    let shape=cpg_schema::rules::rules().into_iter().find(|r|r.name=="semantic:modeled-validation-schema-shape").unwrap();
-    let model_shape=cpg_schema::rules::rules().into_iter().find(|r|r.name=="semantic:model-validation-schema-shape").unwrap();
+    use cpg_schema::behavior::{
+        ModelApplications, ModelApplicationsRow, ModelArgumentBindings, ModelArgumentBindingsRow,
+        ModeledEffectSites, ModeledEffectSitesRow,
+    };
+    use cpg_schema::codebook::{InvocationPhase, ModelSchemaKind};
+    let id = |n| Id([n; 16]);
+    let app = ModelApplicationsRow {
+        snapshot_id: id(1),
+        call_site_node_id: id(2),
+        module_node_id: id(3),
+        function_node_id: Some(id(4)),
+        call_fact_id: id(5),
+        pysa_fact_id: id(6),
+        target_node_id: id(7),
+        model_id: id(8),
+        target_module_fact_id: id(9),
+        target_definition_fact_id: id(10),
+        revision: 1,
+        target_modality: Modality::Definite,
+        target_origin: Origin::SyntheticModel,
+        phase: InvocationPhase::Call,
+        candidate_set_complete_under_model: true,
+        has_unresolved_remainder: false,
+        target_count: 1,
+        target_body_return_parameter: None,
+        target_call_defaults_available: false,
+        model_origin: Origin::SyntheticModel,
+    };
+    let model = ModelEffectsRow {
+        snapshot_id: id(1),
+        model_id: id(8),
+        target_node_id: id(7),
+        rule_id: id(11),
+        target_definition_fact_id: id(10),
+        revision: 1,
+        effect: ModelEffectKind::Validate,
+        exit: cpg_schema::codebook::ModelExit::Normal,
+        argument: None,
+        schema_kind: Some(ModelSchemaKind::RuntimeValue),
+        schema_class_node_id: None,
+        schema_class_fact_id: None,
+        schema_path_id: Some(id(12)),
+        schema_path_kind: Some(ModelPathKind::Parameter),
+        subject_path_id: Some(id(13)),
+        subject_path_kind: Some(ModelPathKind::Parameter),
+        subject_path: Some("display only".into()),
+        modality: Modality::Potential,
+        origin: Origin::SyntheticModel,
+    };
+    let subject = ModelArgumentBindingsRow {
+        snapshot_id: id(1),
+        call_site_node_id: id(2),
+        pysa_fact_id: id(6),
+        model_id: id(8),
+        target_node_id: id(7),
+        rule_id: id(11),
+        path_role: ModelPathRole::Input,
+        path_id: id(13),
+        formal_name: "value".into(),
+        signature_count: 1,
+        matched_signatures: 1,
+        argument_node_id: Some(id(20)),
+        argument_fact_id: Some(id(21)),
+        status: ModelArgumentStatus::Bound,
+        reason: None,
+    };
+    let schema = ModelArgumentBindingsRow {
+        path_role: ModelPathRole::Schema,
+        path_id: id(12),
+        formal_name: "schema".into(),
+        argument_node_id: Some(id(30)),
+        argument_fact_id: Some(id(31)),
+        ..subject.clone()
+    };
+    let shape = cpg_schema::rules::rules()
+        .into_iter()
+        .find(|r| r.name == "semantic:modeled-validation-schema-shape")
+        .unwrap();
+    let model_shape = cpg_schema::rules::rules()
+        .into_iter()
+        .find(|r| r.name == "semantic:model-validation-schema-shape")
+        .unwrap();
     for case in 0..9 {
-        let ctx=SessionContext::new();
-        ctx.register_batch("model_applications",ModelApplications::to_batch(std::slice::from_ref(&app)).unwrap()).unwrap();
-        let mut model=model.clone();
-        let mut schema=schema.clone();
+        let ctx = SessionContext::new();
+        ctx.register_batch(
+            "model_applications",
+            ModelApplications::to_batch(std::slice::from_ref(&app)).unwrap(),
+        )
+        .unwrap();
+        let mut model = model.clone();
+        let mut schema = schema.clone();
         match case {
-            1=>{model.schema_path_id=model.subject_path_id;schema.path_id=subject.path_id;
-                schema.argument_node_id=subject.argument_node_id;schema.argument_fact_id=subject.argument_fact_id;},
-            2=>model.schema_path_kind=Some(ModelPathKind::ReceiverField),
-            3=>model.schema_path_kind=Some(ModelPathKind::Global),
-            4=>{schema.status=ModelArgumentStatus::Unknown;schema.argument_node_id=None;
-                schema.argument_fact_id=None;schema.reason=Some(BoundaryReason::UnsupportedUnpacking);},
-            5=>schema.call_site_node_id=id(99), // A schema witness for another call cannot leak.
-            6=>{model.schema_kind=Some(ModelSchemaKind::StaticClass);model.schema_path_id=None;
-                model.schema_path_kind=None;model.schema_class_node_id=Some(id(40));model.schema_class_fact_id=Some(id(41));},
-            7=>{model.schema_kind=Some(ModelSchemaKind::Unresolved);model.schema_path_id=None;model.schema_path_kind=None;},
-            8=>{schema.status=ModelArgumentStatus::Unknown;schema.argument_node_id=None;
-                schema.argument_fact_id=None;schema.reason=Some(BoundaryReason::AmbiguousBinding);},
-            _=>{},
+            1 => {
+                model.schema_path_id = model.subject_path_id;
+                schema.path_id = subject.path_id;
+                schema.argument_node_id = subject.argument_node_id;
+                schema.argument_fact_id = subject.argument_fact_id;
+            }
+            2 => model.schema_path_kind = Some(ModelPathKind::ReceiverField),
+            3 => model.schema_path_kind = Some(ModelPathKind::Global),
+            4 => {
+                schema.status = ModelArgumentStatus::Unknown;
+                schema.argument_node_id = None;
+                schema.argument_fact_id = None;
+                schema.reason = Some(BoundaryReason::UnsupportedUnpacking);
+            }
+            5 => schema.call_site_node_id = id(99), // A schema witness for another call cannot leak.
+            6 => {
+                model.schema_kind = Some(ModelSchemaKind::StaticClass);
+                model.schema_path_id = None;
+                model.schema_path_kind = None;
+                model.schema_class_node_id = Some(id(40));
+                model.schema_class_fact_id = Some(id(41));
+            }
+            7 => {
+                model.schema_kind = Some(ModelSchemaKind::Unresolved);
+                model.schema_path_id = None;
+                model.schema_path_kind = None;
+            }
+            8 => {
+                schema.status = ModelArgumentStatus::Unknown;
+                schema.argument_node_id = None;
+                schema.argument_fact_id = None;
+                schema.reason = Some(BoundaryReason::AmbiguousBinding);
+            }
+            _ => {}
         }
-        ctx.register_batch("model_effects",ModelEffects::to_batch(&[model.clone()]).unwrap()).unwrap();
-        ctx.register_batch("model_argument_bindings",ModelArgumentBindings::to_batch(&[subject.clone(),schema]).unwrap()).unwrap();
-        let rows:Vec<ModeledEffectSitesRow>=sql::fetch(&ctx,&cpg_schema::behavior::modeled_effect_sites(),sql::Params::new()).await.unwrap();
-        let [row]=rows.as_slice() else {panic!("candidate fanout: {rows:?}")};
-        assert_eq!(row.subject_expression_node_id,Some(id(20)));
-        assert_eq!(row.subject_expression_fact_id,Some(id(21)));
+        ctx.register_batch(
+            "model_effects",
+            ModelEffects::to_batch(&[model.clone()]).unwrap(),
+        )
+        .unwrap();
+        ctx.register_batch(
+            "model_argument_bindings",
+            ModelArgumentBindings::to_batch(&[subject.clone(), schema]).unwrap(),
+        )
+        .unwrap();
+        let rows: Vec<ModeledEffectSitesRow> = sql::fetch(
+            &ctx,
+            &cpg_schema::behavior::modeled_effect_sites(),
+            sql::Params::new(),
+        )
+        .await
+        .unwrap();
+        let [row] = rows.as_slice() else {
+            panic!("candidate fanout: {rows:?}")
+        };
+        assert_eq!(row.subject_expression_node_id, Some(id(20)));
+        assert_eq!(row.subject_expression_fact_id, Some(id(21)));
         assert!(row.subject_reason.is_none());
-        assert_eq!(row.schema_kind,model.schema_kind);
-        if case<=1 {
-            assert_eq!(row.schema_expression_node_id,Some(id(if case==0 {30} else {20})));
-            assert_eq!(row.schema_expression_fact_id,Some(id(if case==0 {31} else {21})));
+        assert_eq!(row.schema_kind, model.schema_kind);
+        if case <= 1 {
+            assert_eq!(
+                row.schema_expression_node_id,
+                Some(id(if case == 0 { 30 } else { 20 }))
+            );
+            assert_eq!(
+                row.schema_expression_fact_id,
+                Some(id(if case == 0 { 31 } else { 21 }))
+            );
             assert!(row.schema_reason.is_none());
         } else {
-            assert!(row.schema_expression_node_id.is_none() && row.schema_expression_fact_id.is_none());
-            assert_eq!(row.schema_reason,match case {4=>Some(BoundaryReason::UnsupportedUnpacking),
-                6=>None,8=>Some(BoundaryReason::AmbiguousBinding),_=>Some(BoundaryReason::OutsideProviderModel)});
+            assert!(
+                row.schema_expression_node_id.is_none() && row.schema_expression_fact_id.is_none()
+            );
+            assert_eq!(
+                row.schema_reason,
+                match case {
+                    4 => Some(BoundaryReason::UnsupportedUnpacking),
+                    6 => None,
+                    8 => Some(BoundaryReason::AmbiguousBinding),
+                    _ => Some(BoundaryReason::OutsideProviderModel),
+                }
+            );
         }
-        ctx.register_batch("modeled_effect_sites",ModeledEffectSites::to_batch(&rows).unwrap()).unwrap();
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM ({})",shape.sql)).await,0);
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM ({})",model_shape.sql)).await,0);
-        let mut malformed=row.clone();
+        ctx.register_batch(
+            "modeled_effect_sites",
+            ModeledEffectSites::to_batch(&rows).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            count(&ctx, &format!("SELECT count(*) FROM ({})", shape.sql)).await,
+            0
+        );
+        assert_eq!(
+            count(&ctx, &format!("SELECT count(*) FROM ({})", model_shape.sql)).await,
+            0
+        );
+        let mut malformed = row.clone();
         // Inventing a class identity alongside a runtime/unresolved schema (or breaking the
         // static node/fact pair) is rejected by the shared publication rule.
-        malformed.schema_class_node_id=if case==6 {None} else {Some(id(40))};
+        malformed.schema_class_node_id = if case == 6 { None } else { Some(id(40)) };
         ctx.deregister_table("modeled_effect_sites").unwrap();
-        ctx.register_batch("modeled_effect_sites",ModeledEffectSites::to_batch(&[malformed]).unwrap()).unwrap();
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM ({})",shape.sql)).await,1);
+        ctx.register_batch(
+            "modeled_effect_sites",
+            ModeledEffectSites::to_batch(&[malformed]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            count(&ctx, &format!("SELECT count(*) FROM ({})", shape.sql)).await,
+            1
+        );
+        model.schema_class_node_id = if case == 6 { None } else { Some(id(40)) };
+        ctx.deregister_table("model_effects").unwrap();
+        ctx.register_batch("model_effects", ModelEffects::to_batch(&[model]).unwrap())
+            .unwrap();
+        assert_eq!(
+            count(&ctx, &format!("SELECT count(*) FROM ({})", model_shape.sql)).await,
+            1
+        );
     }
 }
 
@@ -5584,26 +6505,57 @@ async fn validation_schema_candidates_keep_attribution_separate_from_subjects() 
 async fn context_protocols_bind_class_and_constructor_roles_independently() {
     use cpg_schema::context_protocol::ModelContextProtocolsRow;
     use cpg_schema::query::QueryRow;
-    use cpg_schema::tables::{ContextsRow,ContextModulesRow,ContextDefinitionsRow,ContextParametersRow};
-    let snapshot=Id([109;16]);
-    let inputs=raw_version("context_protocol_shapes",snapshot,(3,14,7));
-    let root=tempfile::tempdir().unwrap();
+    use cpg_schema::tables::{
+        ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow,
+    };
+    let snapshot = Id([109; 16]);
+    let inputs = raw_version("context_protocol_shapes", snapshot, (3, 14, 7));
+    let root = tempfile::tempdir().unwrap();
     let analysis=Analysis {config:AnalyticsConfig::parse(
         "version = 1\n[subsystem]\nmodule_prefixes = [\"contextpkg\"]\npublic_roots = [\"contextpkg\"]\n[seeds]\nprimary = [\"contextpkg.preserve\"]\ndistractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\nmax_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n").unwrap(),
         embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
-    compile_analyzed(root.path(),snapshot,&inputs,Some(&analysis)).await.unwrap();
-    let (_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
-    let rows=sql::query(&ctx,"SELECT * FROM model_context_protocols").await.unwrap().collect().await.unwrap();
-    let rows:Vec<ModelContextProtocolsRow>=rows.iter().flat_map(|b|ModelContextProtocolsRow::read_batch(&cpg_core::delta::to_schema(b,&ModelContextProtocolsRow::schema()).unwrap()).unwrap()).collect();
-    assert_eq!(rows.len(),2);
+    compile_analyzed(root.path(), snapshot, &inputs, Some(&analysis))
+        .await
+        .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    let rows = sql::query(&ctx, "SELECT * FROM model_context_protocols")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let rows: Vec<ModelContextProtocolsRow> = rows
+        .iter()
+        .flat_map(|b| {
+            ModelContextProtocolsRow::read_batch(
+                &cpg_core::delta::to_schema(b, &ModelContextProtocolsRow::schema()).unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+    assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(cpg_schema::context_protocol::valid_shape));
     assert_eq!(count(&ctx,"SELECT count(*) FROM source_context_sites s JOIN declarations d ON d.node_id=s.function_node_id WHERE d.name IN ('preserve','entry_value','suppress_type_error','multiple','unsupported','deferred')").await,5,
         "{}",text(&ctx,"SELECT d.name,s.* FROM source_context_sites s JOIN declarations d ON d.node_id=s.function_node_id").await);
-    for (name,kind) in [("preserve",1),("suppress_type_error",0),("multiple",0),("unsupported",5),("deferred",5),
-        ("nonmatching",2),("assignment_failure_suppressed",0),("constructor_failure_suppressed",0),
-        ("replacement_suppressed",0),("replacement_preserved",2),("return_preserved",1),
-        ("matching_short_circuit",0),("invalid_first",2),("break_preserved",3),("continue_preserved",4),
-        ("unknown_body",5),("generator",5)] {
+    for (name, kind) in [
+        ("preserve", 1),
+        ("suppress_type_error", 0),
+        ("multiple", 0),
+        ("unsupported", 5),
+        ("deferred", 5),
+        ("nonmatching", 2),
+        ("assignment_failure_suppressed", 0),
+        ("constructor_failure_suppressed", 0),
+        ("replacement_suppressed", 0),
+        ("replacement_preserved", 2),
+        ("return_preserved", 1),
+        ("matching_short_circuit", 0),
+        ("invalid_first", 2),
+        ("break_preserved", 3),
+        ("continue_preserved", 4),
+        ("unknown_body", 5),
+        ("generator", 5),
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM statement_completions c JOIN syntax_nodes n ON n.fact_id=c.source_fact_id JOIN declarations d ON d.node_id=c.function_node_id WHERE d.name='{name}' AND n.kind=13 AND c.kind={kind}")).await,1,
             "{name}: {}",text(&ctx,"SELECT d.name,c.kind,c.reason FROM statement_completions c JOIN syntax_nodes n ON n.fact_id=c.source_fact_id JOIN declarations d ON d.node_id=c.function_node_id WHERE n.kind=13").await);
     }
@@ -5613,14 +6565,34 @@ async fn context_protocols_bind_class_and_constructor_roles_independently() {
     assert_eq!(count(&ctx,"SELECT count(*) FROM source_context_value_identities i JOIN value_flow_contributions c ON c.origin_id=i.source_origin_id JOIN summary_flows f ON f.source_origin_id=i.source_origin_id WHERE NOT c.identity AND c.through_call AND f.kind=0").await,3,
         "raw transfer remains nonidentity; the new witness supplies modeled entry identity");
     assert_eq!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage c JOIN source_context_value_identities i ON i.source_origin_id=c.subject_id WHERE c.complete").await,0);
-    for name in ["entry_after_context","entry_rebound","entry_deleted","entry_nested_mutation","entry_none","entry_suppress", "entry_sibling","entry_overridden","entry_opaque_predecessor"] {
+    for name in [
+        "entry_after_context",
+        "entry_rebound",
+        "entry_deleted",
+        "entry_nested_mutation",
+        "entry_none",
+        "entry_suppress",
+        "entry_sibling",
+        "entry_overridden",
+        "entry_opaque_predecessor",
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_context_value_identities i JOIN declarations d ON d.node_id=i.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
     }
     assert_eq!(count(&ctx,"SELECT count(*) FROM model_context_protocols p JOIN context_definitions c ON c.fact_id=p.class_fact_id JOIN context_definitions i ON i.fact_id=p.initialization_fact_id WHERE c.kind=1 AND c.signature_count IS NULL AND i.kind=0 AND c.symbol_node_id<>i.symbol_node_id").await,2);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM pysa_calls WHERE target_name LIKE '%__exit__%'").await,0,
-        "a runtime class assertion does not manufacture missing provider exit calls");
-    let generation=cpg_core::bundle::bundle(root.path(),snapshot,&root.path().join("generations")).await.unwrap();
-    let script=r#"
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM pysa_calls WHERE target_name LIKE '%__exit__%'"
+        )
+        .await,
+        0,
+        "a runtime class assertion does not manufacture missing provider exit calls"
+    );
+    let generation =
+        cpg_core::bundle::bundle(root.path(), snapshot, &root.path().join("generations"))
+            .await
+            .unwrap();
+    let script = r#"
 import sys
 from pathlib import Path
 import pyarrow as pa
@@ -5697,64 +6669,152 @@ for mutation in ("missing_site","missing_certificate","duplicate_certificate","m
     else:
         raise AssertionError("accepted "+mutation)
 "#;
-    let output=std::process::Command::new("uv").args(["run","--no-sync","python","-c",script]).arg(&generation.dir)
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
-    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
-    let table=|name|inputs.iter().find(|(n,_)|*n==name).unwrap().1.clone();
-    let mut contexts=ContextsRow::read_batch(&table("contexts")).unwrap();
-    let mut modules=ContextModulesRow::read_batch(&table("context_modules")).unwrap();
-    let mut definitions=ContextDefinitionsRow::read_batch(&table("context_definitions")).unwrap();
-    let mut parameters=ContextParametersRow::read_batch(&table("context_parameters")).unwrap();
-    let catalog=cpg_schema::models::Catalog::committed().unwrap();
-    let bind=|contexts:&[_],modules:&[_],definitions:&[_],parameters:&[_]|
-        catalog.bind_context_protocols(snapshot,contexts,modules,definitions,parameters);
-    assert_eq!(bind(&contexts,&modules,&definitions,&parameters).unwrap().len(),2);
-    let allocation=definitions.iter().find(|d|d.qualified_name=="object.__new__").unwrap().clone();
+    let output = std::process::Command::new("uv")
+        .args(["run", "--no-sync", "python", "-c", script])
+        .arg(&generation.dir)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let table = |name| inputs.iter().find(|(n, _)| *n == name).unwrap().1.clone();
+    let mut contexts = ContextsRow::read_batch(&table("contexts")).unwrap();
+    let mut modules = ContextModulesRow::read_batch(&table("context_modules")).unwrap();
+    let mut definitions = ContextDefinitionsRow::read_batch(&table("context_definitions")).unwrap();
+    let mut parameters = ContextParametersRow::read_batch(&table("context_parameters")).unwrap();
+    let catalog = cpg_schema::models::Catalog::committed().unwrap();
+    let bind = |contexts: &[_], modules: &[_], definitions: &[_], parameters: &[_]| {
+        catalog.bind_context_protocols(snapshot, contexts, modules, definitions, parameters)
+    };
+    assert_eq!(
+        bind(&contexts, &modules, &definitions, &parameters)
+            .unwrap()
+            .len(),
+        2
+    );
+    let allocation = definitions
+        .iter()
+        .find(|d| d.qualified_name == "object.__new__")
+        .unwrap()
+        .clone();
     definitions.push(allocation.clone());
-    assert!(bind(&contexts,&modules,&definitions,&parameters).is_err(),"ambiguous constructor role");
+    assert!(
+        bind(&contexts, &modules, &definitions, &parameters).is_err(),
+        "ambiguous constructor role"
+    );
     definitions.pop();
-    definitions.retain(|d|d.fact_id!=allocation.fact_id);
-    assert!(bind(&contexts,&modules,&definitions,&parameters).unwrap().is_empty(),"missing independent allocation role");
+    definitions.retain(|d| d.fact_id != allocation.fact_id);
+    assert!(
+        bind(&contexts, &modules, &definitions, &parameters)
+            .unwrap()
+            .is_empty(),
+        "missing independent allocation role"
+    );
     definitions.push(allocation);
-    let i=parameters.iter().position(|p|p.name.as_deref()==Some("enter_result")).unwrap();
-    let parameter=parameters[i].clone();
-    parameters[i].ordinal=Some(99);
-    assert!(bind(&contexts,&modules,&definitions,&parameters).is_err(),"incomplete initializer signature");
-    parameters[i]=parameter;
-    let context=contexts[0].clone();
-    contexts[0].python_version="3.14.6".into();
-    assert!(bind(&contexts,&modules,&definitions,&parameters).unwrap().is_empty(),"wrong runtime pin");
+    let i = parameters
+        .iter()
+        .position(|p| p.name.as_deref() == Some("enter_result"))
+        .unwrap();
+    let parameter = parameters[i].clone();
+    parameters[i].ordinal = Some(99);
+    assert!(
+        bind(&contexts, &modules, &definitions, &parameters).is_err(),
+        "incomplete initializer signature"
+    );
+    parameters[i] = parameter;
+    let context = contexts[0].clone();
+    contexts[0].python_version = "3.14.6".into();
+    assert!(
+        bind(&contexts, &modules, &definitions, &parameters)
+            .unwrap()
+            .is_empty(),
+        "wrong runtime pin"
+    );
     contexts.push(context);
-    assert!(bind(&contexts,&modules,&definitions,&parameters).is_err(),"mixed runtime pins");
+    assert!(
+        bind(&contexts, &modules, &definitions, &parameters).is_err(),
+        "mixed runtime pins"
+    );
     contexts.remove(0);
-    for module in &mut modules {module.origin=cpg_schema::codebook::ModuleOrigin::SitePackages;}
-    assert!(bind(&contexts,&modules,&definitions,&parameters).unwrap().is_empty(),"wrong module authority");
-    let context_value_original=sql::query(&ctx,"SELECT * FROM source_context_value_identities").await.unwrap().into_view();
+    for module in &mut modules {
+        module.origin = cpg_schema::codebook::ModuleOrigin::SitePackages;
+    }
+    assert!(
+        bind(&contexts, &modules, &definitions, &parameters)
+            .unwrap()
+            .is_empty(),
+        "wrong module authority"
+    );
+    let context_value_original = sql::query(&ctx, "SELECT * FROM source_context_value_identities")
+        .await
+        .unwrap()
+        .into_view();
     let context_value_wrong=sql::query(&ctx,"SELECT * EXCLUDE (target_binding_fact_id), parameter_binding_fact_id AS target_binding_fact_id FROM source_context_value_identities").await.unwrap().into_view();
-    ctx.deregister_table("source_context_value_identities").unwrap();ctx.register_table("source_context_value_identities",context_value_wrong).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="source-context-value-identity-equality"),"{violations:?}");
-    ctx.deregister_table("source_context_value_identities").unwrap();ctx.register_table("source_context_value_identities",context_value_original).unwrap();
-    let completion_original=sql::query(&ctx,"SELECT * FROM return_completion_certificates").await.unwrap().into_view();
+    ctx.deregister_table("source_context_value_identities")
+        .unwrap();
+    ctx.register_table("source_context_value_identities", context_value_wrong)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "source-context-value-identity-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("source_context_value_identities")
+        .unwrap();
+    ctx.register_table("source_context_value_identities", context_value_original)
+        .unwrap();
+    let completion_original = sql::query(&ctx, "SELECT * FROM return_completion_certificates")
+        .await
+        .unwrap()
+        .into_view();
     let completion_wrong=sql::query(&ctx,"SELECT * EXCLUDE (entry_digest), exit_digest AS entry_digest FROM return_completion_certificates").await.unwrap().into_view();
-    ctx.deregister_table("return_completion_certificates").unwrap();
-    ctx.register_table("return_completion_certificates",completion_wrong).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="completion-certificate-source-equality"),"{violations:?}");
-    ctx.deregister_table("return_completion_certificates").unwrap();
-    ctx.register_table("return_completion_certificates",completion_original).unwrap();
-    let original=sql::query(&ctx,"SELECT * FROM model_context_protocols").await.unwrap().into_view();
+    ctx.deregister_table("return_completion_certificates")
+        .unwrap();
+    ctx.register_table("return_completion_certificates", completion_wrong)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "completion-certificate-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("return_completion_certificates")
+        .unwrap();
+    ctx.register_table("return_completion_certificates", completion_original)
+        .unwrap();
+    let original = sql::query(&ctx, "SELECT * FROM model_context_protocols")
+        .await
+        .unwrap()
+        .into_view();
     let wrong=sql::query(&ctx,"SELECT * EXCLUDE (class_fact_id), initialization_fact_id AS class_fact_id FROM model_context_protocols").await.unwrap().into_view();
-    ctx.deregister_table("model_context_protocols").unwrap();ctx.register_table("model_context_protocols",wrong).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="model-context-protocol-equality"),"{violations:?}");
-    ctx.deregister_table("model_context_protocols").unwrap();ctx.register_table("model_context_protocols",original).unwrap();
+    ctx.deregister_table("model_context_protocols").unwrap();
+    ctx.register_table("model_context_protocols", wrong)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "model-context-protocol-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("model_context_protocols").unwrap();
+    ctx.register_table("model_context_protocols", original)
+        .unwrap();
 }
 
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn action_triggers_preserve_partial_io_and_withhold_unproved_outcomes() {
-    let root=tempfile::tempdir().unwrap();let snapshot=Id([98;16]);
-    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([98; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
 version = 1
 [subsystem]
 module_prefixes = ["actions"]
@@ -5769,13 +6829,25 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 1
-"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
-    compile_analyzed(root.path(),snapshot,&raw_version("action_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
-    let(_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("action_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let display=sql::render(&ctx,"SELECT d.name,a.channel,a.reason,e.effect FROM modeled_action_assessments a \
         LEFT JOIN declarations d ON d.node_id=a.function_node_id LEFT JOIN modeled_effect_sites e \
         ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id").await.unwrap();
-    for name in ["normal","before_raise","missing_defaults"] {
+    for name in ["normal", "before_raise", "missing_defaults"] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a \
             JOIN declarations d ON d.node_id=a.function_node_id JOIN modeled_effect_sites e \
             ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id \
@@ -5786,24 +6858,87 @@ budget = 1
         ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id \
         WHERE e.effect IN ({},{}) AND a.reason IS NULL",ModelEffectKind::Serialize.code(),ModelEffectKind::Compress.code())).await,0,
         "completed transform cannot borrow a reached invocation: {display}");
-    for name in ["after_raise","raising_argument","after_opaque","unasserted_defaults","missing_required","skipped","compression","registration","acquisition"] {
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
-            ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason IS NULL")).await,0,"{display}");
-        if name!="skipped" {
-            assert!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
-                ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason IS NOT NULL")).await>0,"missing boundary {name}: {display}");
+    for name in [
+        "after_raise",
+        "raising_argument",
+        "after_opaque",
+        "unasserted_defaults",
+        "missing_required",
+        "skipped",
+        "compression",
+        "registration",
+        "acquisition",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
+            ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason IS NULL"
+                )
+            )
+            .await,
+            0,
+            "{display}"
+        );
+        if name != "skipped" {
+            assert!(
+                count(
+                    &ctx,
+                    &format!(
+                        "SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
+                ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason IS NOT NULL"
+                    )
+                )
+                .await
+                    > 0,
+                "missing boundary {name}: {display}"
+            );
         }
     }
-    for(name,reason)in [("registration",BoundaryReason::ActionTriggerUnavailable),
-        ("acquisition",BoundaryReason::ResourceIdentityUnavailable),("unasserted_defaults",BoundaryReason::UnsupportedControlFlow)] {
-        assert!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
-            ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason={}",reason.code())).await>0,"{display}");
+    for (name, reason) in [
+        ("registration", BoundaryReason::ActionTriggerUnavailable),
+        ("acquisition", BoundaryReason::ResourceIdentityUnavailable),
+        (
+            "unasserted_defaults",
+            BoundaryReason::UnsupportedControlFlow,
+        ),
+    ] {
+        assert!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
+            ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason={}",
+                    reason.code()
+                )
+            )
+            .await
+                > 0,
+            "{display}"
+        );
     }
-    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments").await,
-        count(&ctx,"SELECT count(*) FROM modeled_effect_sites").await+count(&ctx,"SELECT count(*) FROM modeled_callback_sites").await
-            +count(&ctx,"SELECT count(*) FROM modeled_resource_sites").await);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments WHERE reason IS NULL").await,3,"{display}");
-    for(name,defaults)in [("missing_defaults",9),("dumps_defaults",9),("loads_defaults",6),("compress_defaults",2)] {
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM modeled_action_assessments").await,
+        count(&ctx, "SELECT count(*) FROM modeled_effect_sites").await
+            + count(&ctx, "SELECT count(*) FROM modeled_callback_sites").await
+            + count(&ctx, "SELECT count(*) FROM modeled_resource_sites").await
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_action_assessments WHERE reason IS NULL"
+        )
+        .await,
+        3,
+        "{display}"
+    );
+    for (name, defaults) in [
+        ("missing_defaults", 9),
+        ("dumps_defaults", 9),
+        ("loads_defaults", 6),
+        ("compress_defaults", 2),
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
             ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL AND e.default_formal_count={defaults}")).await,1,
             "{name}: {}",sql::render(&ctx,"SELECT d.name,e.reason,e.default_formal_count FROM call_executions e \
@@ -5812,98 +6947,294 @@ budget = 1
             ON d.node_id=e.function_node_id JOIN expression_evaluations v ON v.syntax_fact_id=e.syntax_fact_id \
             WHERE d.name='{name}' AND v.normal")).await,0,"availability is not normal return");
     }
-    let original_apps=sql::query(&ctx,"SELECT * FROM model_applications").await.unwrap().into_view();
+    let original_apps = sql::query(&ctx, "SELECT * FROM model_applications")
+        .await
+        .unwrap()
+        .into_view();
     let unasserted=sql::query(&ctx,"SELECT * EXCLUDE (target_call_defaults_available), false AS target_call_defaults_available \
         FROM model_applications").await.unwrap().into_view();
-    ctx.deregister_table("model_applications").unwrap();ctx.register_table("model_applications",unasserted).unwrap();
-    let without_promise=cpg_core::summaries::execution(&ctx).await.unwrap().expressions;
-    assert_eq!(without_promise.invocations.iter().filter(|call|call.reason==Some(BoundaryReason::DefaultUnavailable)).count(),4,
-        "all four otherwise bound omitted-default calls require their independent model premise");
-    for call in without_promise.invocations.iter().filter(|call|call.reason==Some(BoundaryReason::DefaultUnavailable)) {
-        assert!(!call.default_formals.as_ref().unwrap().is_empty());assert!(call.proof.is_empty());
+    ctx.deregister_table("model_applications").unwrap();
+    ctx.register_table("model_applications", unasserted)
+        .unwrap();
+    let without_promise = cpg_core::summaries::execution(&ctx)
+        .await
+        .unwrap()
+        .expressions;
+    assert_eq!(
+        without_promise
+            .invocations
+            .iter()
+            .filter(|call| call.reason == Some(BoundaryReason::DefaultUnavailable))
+            .count(),
+        4,
+        "all four otherwise bound omitted-default calls require their independent model premise"
+    );
+    for call in without_promise
+        .invocations
+        .iter()
+        .filter(|call| call.reason == Some(BoundaryReason::DefaultUnavailable))
+    {
+        assert!(!call.default_formals.as_ref().unwrap().is_empty());
+        assert!(call.proof.is_empty());
     }
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="call-execution-source-equality"),"{violations:?}");
-    ctx.deregister_table("model_applications").unwrap();ctx.register_table("model_applications",original_apps).unwrap();
-    let repo=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let runtime=std::process::Command::new("uv").args(["run","--no-sync","python",
-        "docs/design_review/evidence/2026-09-27_action-triggers/runtime_oracle.py"]).current_dir(&repo).output().unwrap();
-    assert!(runtime.status.success(),"{}",String::from_utf8_lossy(&runtime.stderr));
-    let runtime:serde_json::Value=serde_json::from_slice(&runtime.stdout).unwrap();
-    assert_eq!(runtime["outcome"],"passed");
-    for name in ["normal","before_raise","partial_encoding"] {
-        assert!(!runtime["cases"][name]["chunks"].as_array().unwrap().is_empty());
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "call-execution-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("model_applications").unwrap();
+    ctx.register_table("model_applications", original_apps)
+        .unwrap();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let runtime = std::process::Command::new("uv")
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "docs/design_review/evidence/2026-09-27_action-triggers/runtime_oracle.py",
+        ])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(
+        runtime.status.success(),
+        "{}",
+        String::from_utf8_lossy(&runtime.stderr)
+    );
+    let runtime: serde_json::Value = serde_json::from_slice(&runtime.stdout).unwrap();
+    assert_eq!(runtime["outcome"], "passed");
+    for name in ["normal", "before_raise", "partial_encoding"] {
+        assert!(
+            !runtime["cases"][name]["chunks"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
-    assert_eq!(runtime["cases"]["partial_encoding"]["outcome"],"TypeError");
-    assert_eq!(runtime["cases"]["no_write_encoding"]["calls"],serde_json::json!(["dump"]));
-    assert!(runtime["cases"]["no_write_encoding"]["chunks"].as_array().unwrap().is_empty(),
-        "reached invocation never implies an actual write");
-    for name in ["after_raise","raising_argument","after_opaque","skipped"] {
-        assert!(runtime["cases"][name]["calls"].as_array().unwrap().is_empty());
+    assert_eq!(runtime["cases"]["partial_encoding"]["outcome"], "TypeError");
+    assert_eq!(
+        runtime["cases"]["no_write_encoding"]["calls"],
+        serde_json::json!(["dump"])
+    );
+    assert!(
+        runtime["cases"]["no_write_encoding"]["chunks"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "reached invocation never implies an actual write"
+    );
+    for name in ["after_raise", "raising_argument", "after_opaque", "skipped"] {
+        assert!(
+            runtime["cases"][name]["calls"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
-    let defaults=std::process::Command::new("uv").args(["run","--no-sync","python",
-        "docs/design_review/evidence/2026-09-27_pinned-defaults/qualify.py"]).current_dir(&repo).output().unwrap();
-    assert!(defaults.status.success(),"{}",String::from_utf8_lossy(&defaults.stderr));
-    let defaults:serde_json::Value=serde_json::from_slice(&defaults.stdout).unwrap();
-    assert_eq!(defaults["outcome"],"passed");
-    for (source,runtime,target) in [("missing_defaults","dump_fallible","dump"),
-        ("dumps_defaults","dumps_fallible","dumps"),("loads_defaults","loads_fallible","loads"),
-        ("compress_defaults","compress_defaults","compress")] {
-        assert_eq!(defaults["cases"][runtime]["starts"],serde_json::json!([target]));
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
-            ON d.node_id=e.function_node_id WHERE d.name='{source}' AND e.reason IS NULL")).await,1);
+    let defaults = std::process::Command::new("uv")
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "docs/design_review/evidence/2026-09-27_pinned-defaults/qualify.py",
+        ])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(
+        defaults.status.success(),
+        "{}",
+        String::from_utf8_lossy(&defaults.stderr)
+    );
+    let defaults: serde_json::Value = serde_json::from_slice(&defaults.stdout).unwrap();
+    assert_eq!(defaults["outcome"], "passed");
+    for (source, runtime, target) in [
+        ("missing_defaults", "dump_fallible", "dump"),
+        ("dumps_defaults", "dumps_fallible", "dumps"),
+        ("loads_defaults", "loads_fallible", "loads"),
+        ("compress_defaults", "compress_defaults", "compress"),
+    ] {
+        assert_eq!(
+            defaults["cases"][runtime]["starts"],
+            serde_json::json!([target])
+        );
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM call_executions e JOIN declarations d \
+            ON d.node_id=e.function_node_id WHERE d.name='{source}' AND e.reason IS NULL"
+                )
+            )
+            .await,
+            1
+        );
     }
-    for name in ["missing_required","raising_explicit"] {
-        assert!(defaults["cases"][name]["starts"].as_array().unwrap().is_empty());
+    for name in ["missing_required", "raising_explicit"] {
+        assert!(
+            defaults["cases"][name]["starts"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
     let postconditions=sql::render(&ctx,"SELECT d.name,p.reason,p.outcome_obligation,p.channel FROM modeled_action_postconditions p \
         JOIN declarations d ON d.node_id=p.function_node_id").await.unwrap();
-    for name in ["normal","before_raise","missing_defaults","dumps_defaults","compression","compress_defaults","registration"] {
+    for name in [
+        "normal",
+        "before_raise",
+        "missing_defaults",
+        "dumps_defaults",
+        "compression",
+        "compress_defaults",
+        "registration",
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
             ON d.node_id=p.function_node_id WHERE d.name='{name}' AND p.reason IS NULL AND p.outcome_obligation={}",
             cpg_schema::codebook::ModelExit::Normal.code())).await,1,"{postconditions}");
     }
-    for name in ["after_raise","raising_argument","after_opaque","missing_required","acquisition","acquisition_explicit"] {
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
-            ON d.node_id=p.function_node_id WHERE d.name='{name}' AND p.reason IS NULL")).await,0,"{postconditions}");
+    for name in [
+        "after_raise",
+        "raising_argument",
+        "after_opaque",
+        "missing_required",
+        "acquisition",
+        "acquisition_explicit",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
+            ON d.node_id=p.function_node_id WHERE d.name='{name}' AND p.reason IS NULL"
+                )
+            )
+            .await,
+            0,
+            "{postconditions}"
+        );
     }
-    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_postconditions WHERE channel=5 AND reason IS NULL").await,1,
-        "registration postcondition is separate from actual callback invocation");
-    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
-        ON d.node_id=p.function_node_id WHERE d.name='acquisition_explicit' AND p.reason={}",BoundaryReason::SummaryProofLimit.code())).await,1,
-        "the pinned open overload evidence still obeys the original proof cap: {postconditions}");
-    let implications=std::process::Command::new("uv").args(["run","--no-sync","python",
-        "docs/design_review/evidence/2026-09-27_normal-postconditions/runtime_oracle.py"]).current_dir(&repo).output().unwrap();
-    assert!(implications.status.success(),"{}",String::from_utf8_lossy(&implications.stderr));
-    let implications:serde_json::Value=serde_json::from_slice(&implications.stdout).unwrap();
-    assert_eq!(implications["outcome"],"passed");
-    assert_eq!(implications["cases"]["register_normal"]["before_shutdown"],serde_json::json!([]));
-    assert_eq!(implications["cases"]["register_raises"]["outcome"],"TypeError");
-    assert_eq!(implications["cases"]["serialize_raises"]["outcome"],"TypeError");
-    assert_eq!(implications["cases"]["acquire_raises"]["resource_result"],false);
-    let original=sql::query(&ctx,"SELECT * FROM modeled_action_postconditions").await.unwrap().into_view();
-    let erased=sql::query(&ctx,"SELECT * EXCLUDE (outcome_obligation), CAST(3 AS SMALLINT) AS outcome_obligation \
-        FROM modeled_action_postconditions").await.unwrap().into_view();
-    ctx.deregister_table("modeled_action_postconditions").unwrap();ctx.register_table("modeled_action_postconditions",erased).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="action-postcondition-source-equality"),"{violations:?}");
-    ctx.deregister_table("modeled_action_postconditions").unwrap();ctx.register_table("modeled_action_postconditions",original).unwrap();
-    for table in ["modeled_action_assessments","modeled_action_postconditions","call_execution_steps"] {
-        let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
-        let missing=sql::query(&ctx,&format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
-        ctx.deregister_table(table).unwrap();ctx.register_table(table,missing).unwrap();
-        let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-        let expected=if table=="modeled_action_postconditions" {"action-postcondition-source-equality"} else {"action-source-equality"};
-        assert!(violations.iter().any(|v|v.rule==expected),"{table}: {violations:?}");
-        ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM modeled_action_postconditions WHERE channel=5 AND reason IS NULL"
+        )
+        .await,
+        1,
+        "registration postcondition is separate from actual callback invocation"
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
+        ON d.node_id=p.function_node_id WHERE d.name='acquisition_explicit' AND p.reason={}",
+                BoundaryReason::SummaryProofLimit.code()
+            )
+        )
+        .await,
+        1,
+        "the pinned open overload evidence still obeys the original proof cap: {postconditions}"
+    );
+    let implications = std::process::Command::new("uv")
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "docs/design_review/evidence/2026-09-27_normal-postconditions/runtime_oracle.py",
+        ])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(
+        implications.status.success(),
+        "{}",
+        String::from_utf8_lossy(&implications.stderr)
+    );
+    let implications: serde_json::Value = serde_json::from_slice(&implications.stdout).unwrap();
+    assert_eq!(implications["outcome"], "passed");
+    assert_eq!(
+        implications["cases"]["register_normal"]["before_shutdown"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        implications["cases"]["register_raises"]["outcome"],
+        "TypeError"
+    );
+    assert_eq!(
+        implications["cases"]["serialize_raises"]["outcome"],
+        "TypeError"
+    );
+    assert_eq!(
+        implications["cases"]["acquire_raises"]["resource_result"],
+        false
+    );
+    let original = sql::query(&ctx, "SELECT * FROM modeled_action_postconditions")
+        .await
+        .unwrap()
+        .into_view();
+    let erased = sql::query(
+        &ctx,
+        "SELECT * EXCLUDE (outcome_obligation), CAST(3 AS SMALLINT) AS outcome_obligation \
+        FROM modeled_action_postconditions",
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("modeled_action_postconditions")
+        .unwrap();
+    ctx.register_table("modeled_action_postconditions", erased)
+        .unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "action-postcondition-source-equality"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("modeled_action_postconditions")
+        .unwrap();
+    ctx.register_table("modeled_action_postconditions", original)
+        .unwrap();
+    for table in [
+        "modeled_action_assessments",
+        "modeled_action_postconditions",
+        "call_execution_steps",
+    ] {
+        let original = sql::query(&ctx, &format!("SELECT * FROM {table}"))
+            .await
+            .unwrap()
+            .into_view();
+        let missing = sql::query(&ctx, &format!("SELECT * FROM {table} WHERE false"))
+            .await
+            .unwrap()
+            .into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, missing).unwrap();
+        let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+        let expected = if table == "modeled_action_postconditions" {
+            "action-postcondition-source-equality"
+        } else {
+            "action-source-equality"
+        };
+        assert!(
+            violations.iter().any(|v| v.rule == expected),
+            "{table}: {violations:?}"
+        );
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, original).unwrap();
     }
 }
 
 #[tokio::test]
 async fn source_body_outcomes_do_not_invent_value_flows_or_caller_continuation() {
-    let root=tempfile::tempdir().unwrap();
-    let snapshot=Id([85;16]);
-    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([85; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
 version = 1
 [subsystem]
 module_prefixes = ["bodypkg"]
@@ -5918,18 +7249,58 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 1
-"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
-    compile_analyzed(root.path(),snapshot,&raw_version("source_body_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
-    let (_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
-    for (name,kind) in [("fallthrough",0),("explicit_return",1),("first_initialization",1),
-        ("selected_literal",1),("preserved_return",1),("replaced_return",1),("replaced_raise",2),("explicit_raise",2)] {
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("source_body_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    for (name, kind) in [
+        ("fallthrough", 0),
+        ("explicit_return", 1),
+        ("first_initialization", 1),
+        ("selected_literal", 1),
+        ("preserved_return", 1),
+        ("replaced_return", 1),
+        ("replaced_raise", 2),
+        ("explicit_raise", 2),
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM source_body_completions b JOIN declarations d \
             ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.kind={kind} \
-            AND b.reason IS NULL AND b.release_reason IS NULL AND b.function_retainer_required")).await,1,"{name}");
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
-            ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await,0,"no invented value source: {name}");
+            AND b.reason IS NULL AND b.release_reason IS NULL AND b.function_retainer_required"
+                )
+            )
+            .await,
+            1,
+            "{name}"
+        );
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows s JOIN declarations d \
+            ON d.node_id=s.function_node_id WHERE d.name='{name}'"
+                )
+            )
+            .await,
+            0,
+            "no invented value source: {name}"
+        );
     }
-    for name in ["replaced_raise","explicit_raise"] {
+    for name in ["replaced_raise", "explicit_raise"] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
             ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.exception=0 AND b.terminal_fact_id IS NOT NULL")).await,1);
     }
@@ -5946,38 +7317,86 @@ budget = 1
         BoundaryReason::SummaryProofLimit.code())).await,1);
     // A normal local read has no closed-value provenance until its executed initialization is
     // linked. The known body outcome survives, while its release certificate stays open.
-    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+    assert_eq!(
+        count(
+            &ctx,
+            &format!(
+                "SELECT count(*) FROM source_body_completions b JOIN declarations d \
         ON d.node_id=b.function_node_id WHERE d.name='initialized_local_read' AND b.kind=1 \
-        AND b.reason IS NULL AND b.release_reason={}",BoundaryReason::FrameExitCleanup.code())).await,1);
-    for name in ["default_parameter","required_parameter","captured","dynamic_definition","deferred_async",
-        "deferred_generator","decorated"] {
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+        AND b.reason IS NULL AND b.release_reason={}",
+                BoundaryReason::FrameExitCleanup.code()
+            )
+        )
+        .await,
+        1
+    );
+    for name in [
+        "default_parameter",
+        "required_parameter",
+        "captured",
+        "dynamic_definition",
+        "deferred_async",
+        "deferred_generator",
+        "decorated",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM source_body_completions b JOIN declarations d \
             ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.kind=5 AND b.reason={}",
-            BoundaryReason::ScopeBoundary.code())).await,1,"{name}");
+                    BoundaryReason::ScopeBoundary.code()
+                )
+            )
+            .await,
+            1,
+            "{name}"
+        );
     }
-    for name in ["unknown_owned_value","reassignment"] {
+    for name in ["unknown_owned_value", "reassignment"] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
             ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.kind=5 AND b.reason IS NOT NULL")).await,1,"{name}");
     }
-    for (table,query) in [
-        ("source_body_completions","SELECT * EXCEPT(function_retainer_required), false AS function_retainer_required FROM source_body_completions"),
-        ("source_body_steps","SELECT * FROM source_body_steps WHERE false"),
-        ("source_body_release_inputs","SELECT * FROM source_body_release_inputs WHERE false"),
+    for (table, query) in [
+        (
+            "source_body_completions",
+            "SELECT * EXCEPT(function_retainer_required), false AS function_retainer_required FROM source_body_completions",
+        ),
+        (
+            "source_body_steps",
+            "SELECT * FROM source_body_steps WHERE false",
+        ),
+        (
+            "source_body_release_inputs",
+            "SELECT * FROM source_body_release_inputs WHERE false",
+        ),
     ] {
-        let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
-        let changed=sql::query(&ctx,query).await.unwrap().into_view();
-        ctx.deregister_table(table).unwrap();ctx.register_table(table,changed).unwrap();
-        let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-        assert!(violations.iter().any(|v|v.rule=="source-body-source-equality"),"{table}: {violations:?}");
-        ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
+        let original = sql::query(&ctx, &format!("SELECT * FROM {table}"))
+            .await
+            .unwrap()
+            .into_view();
+        let changed = sql::query(&ctx, query).await.unwrap().into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, changed).unwrap();
+        let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "source-body-source-equality"),
+            "{table}: {violations:?}"
+        );
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, original).unwrap();
     }
 }
 
 #[tokio::test]
 async fn fresh_source_calls_require_body_binding_and_release() {
-    let root=tempfile::tempdir().unwrap();
-    let snapshot=Id([85;16]);
-    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = Id([85; 16]);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            r#"
 version = 1
 [subsystem]
 module_prefixes = ["bodypkg"]
@@ -5992,64 +7411,192 @@ max_edges = 512
 max_witnesses = 3
 [briefs]
 budget = 1
-"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
-    compile_analyzed(root.path(),snapshot,&raw_version("source_body_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
-    let (_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
+"#,
+        )
+        .unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(
+        root.path(),
+        snapshot,
+        &raw_version("source_body_shapes", snapshot, (3, 14, 7)),
+        Some(&analysis),
+    )
+    .await
+    .unwrap();
+    let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
 
-    for name in ["call_literal","call_fallthrough","call_return_finally","call_modeled"] {
+    for name in [
+        "call_literal",
+        "call_fallthrough",
+        "call_return_finally",
+        "call_modeled",
+    ] {
         let diagnostic=sql::query(&ctx,&format!("SELECT d.name, s.kind, e.normal, e.reason, e.status FROM expression_evaluations e \
             JOIN syntax_nodes s ON s.fact_id=e.syntax_fact_id JOIN declarations d ON d.node_id=s.owner_node_id \
             WHERE d.name='{name}'")).await.unwrap().collect().await.unwrap();
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals n JOIN source_call_bindings c ON c.binding_id=n.binding_id JOIN declarations d \
             ON d.node_id=c.function_node_id WHERE d.name='{name}'")).await,1,"{name}: {}",pretty_format_batches(&diagnostic).unwrap());
-        assert!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
-            ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await>0,"{name}");
-        assert!(count(&ctx,&format!("SELECT count(*) FROM summary_flow_steps p JOIN summary_flows s \
+        assert!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows s JOIN declarations d \
+            ON d.node_id=s.function_node_id WHERE d.name='{name}'"
+                )
+            )
+            .await
+                > 0,
+            "{name}"
+        );
+        assert!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flow_steps p JOIN summary_flows s \
             ON s.summary_id=p.summary_id JOIN declarations d ON d.node_id=s.function_node_id \
-            WHERE d.name='{name}' AND p.kind={}",cpg_schema::codebook::SummaryFlowStepKind::SourceCallNormal.code())).await>0,"{name}");
+            WHERE d.name='{name}' AND p.kind={}",
+                    cpg_schema::codebook::SummaryFlowStepKind::SourceCallNormal.code()
+                )
+            )
+            .await
+                > 0,
+            "{name}"
+        );
     }
-    for name in ["call_raises","call_local_read","call_default","call_captured","call_intervening","call_alias","call_failed_header","call_unknown_body","call_generator","call_unreachable_yield"] {
+    for name in [
+        "call_raises",
+        "call_local_read",
+        "call_default",
+        "call_captured",
+        "call_intervening",
+        "call_alias",
+        "call_failed_header",
+        "call_unknown_body",
+        "call_generator",
+        "call_unreachable_yield",
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals n JOIN source_call_bindings c ON c.binding_id=n.binding_id JOIN declarations d \
             ON d.node_id=c.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
-            ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows s JOIN declarations d \
+            ON d.node_id=s.function_node_id WHERE d.name='{name}'"
+                )
+            )
+            .await,
+            0,
+            "{name}"
+        );
     }
-    for name in ["call_literal","call_fallthrough","call_return_finally","call_modeled","call_raises","call_local_read","call_captured","call_unknown_body"] {
+    for name in [
+        "call_literal",
+        "call_fallthrough",
+        "call_return_finally",
+        "call_modeled",
+        "call_raises",
+        "call_local_read",
+        "call_captured",
+        "call_unknown_body",
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
             WHERE d.name='{name}' AND e.target_kind={} AND e.model_id IS NULL AND e.source_binding_id IS NOT NULL AND e.reason IS NULL",
             cpg_schema::codebook::CallExecutionTarget::Source.code())).await,1,"source invocation {name}: {}",
             sql::render(&ctx,&format!("SELECT d.name,e.reason FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='{name}'")).await.unwrap());
     }
-    for name in ["call_default","call_intervening","call_alias","call_failed_header","call_unreachable","call_generator","call_unreachable_yield"] {
+    for name in [
+        "call_default",
+        "call_intervening",
+        "call_alias",
+        "call_failed_header",
+        "call_unreachable",
+        "call_generator",
+        "call_unreachable_yield",
+    ] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
             WHERE d.name='{name}' AND e.target_kind={} AND e.reason IS NULL",cpg_schema::codebook::CallExecutionTarget::Source.code())).await,0,"withheld invocation {name}");
     }
     // Normality under entry to an expression never asserts the caller reached it.
     assert_eq!(count(&ctx,"SELECT count(*) FROM source_call_normals n JOIN source_call_bindings c ON c.binding_id=n.binding_id JOIN declarations d \
         ON d.node_id=c.function_node_id WHERE d.name='call_unreachable'").await,1);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM summary_flows s JOIN declarations d \
-        ON d.node_id=s.function_node_id WHERE d.name='call_unreachable'").await,0);
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_flows s JOIN declarations d \
+        ON d.node_id=s.function_node_id WHERE d.name='call_unreachable'"
+        )
+        .await,
+        0
+    );
     assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions c JOIN declarations d ON d.node_id=c.function_node_id \
         WHERE d.name='call_prefix_small' AND c.model_id IS NOT NULL AND c.reason IS NULL").await,1);
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions c JOIN declarations d ON d.node_id=c.function_node_id \
         WHERE d.name='call_prefix_over_limit' AND c.reason={}",BoundaryReason::SummaryProofLimit.code())).await,1);
     assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments a JOIN declarations d ON d.node_id=a.function_node_id \
         WHERE d.name='call_prefix_over_limit' AND a.reason IS NULL").await,0);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM value_flows WHERE condition='false'").await,0);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM behaviors WHERE condition='false'").await,0);
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM value_flows WHERE condition='false'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors WHERE condition='false'"
+        )
+        .await,
+        0
+    );
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM behaviors b JOIN declarations d ON d.node_id=b.operation_node_id \
         WHERE d.name='call_unreachable' AND b.kind={}",cpg_schema::codebook::BehaviorKind::Delegates.code())).await,0);
-    let generation=cpg_core::bundle::build(&ctx,&root.path().join("generations")).await.unwrap();
-    let output=std::process::Command::new("uv").args(["run","--no-sync","python",
-        "docs/design_review/evidence/2026-09-27_frame-exit/native_source_call.py",generation.dir.to_str().unwrap()])
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
-    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
-    for table in ["source_call_bindings","source_call_normals","source_call_header_steps"] {
-        let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
-        let changed=sql::query(&ctx,&format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
-        ctx.deregister_table(table).unwrap();ctx.register_table(table,changed).unwrap();
-        let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-        assert!(violations.iter().any(|v|v.rule=="source-call-source-equality"),"{table}: {violations:?}");
-        ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
+    let generation = cpg_core::bundle::build(&ctx, &root.path().join("generations"))
+        .await
+        .unwrap();
+    let output = std::process::Command::new("uv")
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "docs/design_review/evidence/2026-09-27_frame-exit/native_source_call.py",
+            generation.dir.to_str().unwrap(),
+        ])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for table in [
+        "source_call_bindings",
+        "source_call_normals",
+        "source_call_header_steps",
+    ] {
+        let original = sql::query(&ctx, &format!("SELECT * FROM {table}"))
+            .await
+            .unwrap()
+            .into_view();
+        let changed = sql::query(&ctx, &format!("SELECT * FROM {table} WHERE false"))
+            .await
+            .unwrap()
+            .into_view();
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, changed).unwrap();
+        let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "source-call-source-equality"),
+            "{table}: {violations:?}"
+        );
+        ctx.deregister_table(table).unwrap();
+        ctx.register_table(table, original).unwrap();
     }
 }

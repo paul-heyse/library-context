@@ -123,7 +123,8 @@ fn hydrate_catalog_with_retained_limit(
             if retained > retained_limit {
                 return Err(format!(
                     "condition catalog retained-node limit: {} stored, over {} expanded",
-                    nodes.len(), retained_limit
+                    nodes.len(),
+                    retained_limit
                 ));
             }
             pending.push(node.low);
@@ -674,7 +675,11 @@ impl Diagram {
                 .map_err(|_| KernelBoundary::TransferUnsupported)?;
             values.push((BddVariable::from_index(index), value));
         }
-        Self::effective(self.support.clone(), self.ctx.clone(), self.bdd.restrict(&values))
+        Self::effective(
+            self.support.clone(),
+            self.ctx.clone(),
+            self.bdd.restrict(&values),
+        )
     }
 
     /// Simultaneously replace source atoms by Boolean functions. Replacements are evaluated
@@ -1187,16 +1192,32 @@ mod tests {
         let mut nodes = Vec::new();
         let mut tail = true_terminal();
         for index in (0..11).rev() {
-            let atom = Atom::Truthy { place: format!("z{index:02}") }.encode();
+            let atom = Atom::Truthy {
+                place: format!("z{index:02}"),
+            }
+            .encode();
             let root = node_id(&atom, false_terminal(), tail);
-            nodes.push(DiagramNode { node_id: root, atom, low: false_terminal(), high: tail });
+            nodes.push(DiagramNode {
+                node_id: root,
+                atom,
+                low: false_terminal(),
+                high: tail,
+            });
             tail = root;
         }
         let mut conditions = Vec::new();
         for index in 0..84_000 {
-            let atom = Atom::Truthy { place: format!("a{index:05}") }.encode();
+            let atom = Atom::Truthy {
+                place: format!("a{index:05}"),
+            }
+            .encode();
             let root = node_id(&atom, false_terminal(), tail);
-            nodes.push(DiagramNode { node_id: root, atom, low: false_terminal(), high: tail });
+            nodes.push(DiagramNode {
+                node_id: root,
+                atom,
+                low: false_terminal(),
+                high: tail,
+            });
             conditions.push(ConditionRoot {
                 condition_id: IdHasher::new("condition-bdd").id(root).finish_id(),
                 root_id: Some(root),
@@ -1206,7 +1227,10 @@ mod tests {
         assert!(nodes.len() < MAX_CATALOG_NODES);
         assert!(conditions.len() < MAX_CATALOG_CONDITIONS);
         let error = hydrate_catalog(&conditions, &nodes).err().unwrap();
-        assert!(error.contains("84011 stored, over 1000000 expanded"), "{error}");
+        assert!(
+            error.contains("84011 stored, over 1000000 expanded"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1247,13 +1271,18 @@ mod tests {
             .collect();
         let mut left = Diagram::always();
         for pair in 0..5 {
-            left = left.and(&atoms[2 * pair].or(&atoms[2 * pair + 1]).unwrap()).unwrap();
+            left = left
+                .and(&atoms[2 * pair].or(&atoms[2 * pair + 1]).unwrap())
+                .unwrap();
         }
         let right = atoms[0].and(&atoms[2]).unwrap();
         let both = left.and(&right).unwrap();
         let either = left.or(&right).unwrap();
         let complement = left.not().unwrap();
-        let names: Vec<&str> = atoms.iter().map(|atom| atom.support()[0].as_str()).collect();
+        let names: Vec<&str> = atoms
+            .iter()
+            .map(|atom| atom.support()[0].as_str())
+            .collect();
         let mut any_both = false;
         let mut counterexample = false;
         for mask in 0..(1 << 10) {
@@ -1275,8 +1304,16 @@ mod tests {
             };
             assert_eq!(value_of(&left), expected_left, "left at {mask}");
             assert_eq!(value_of(&right), expected_right, "right at {mask}");
-            assert_eq!(value_of(&both), expected_left && expected_right, "and at {mask}");
-            assert_eq!(value_of(&either), expected_left || expected_right, "or at {mask}");
+            assert_eq!(
+                value_of(&both),
+                expected_left && expected_right,
+                "and at {mask}"
+            );
+            assert_eq!(
+                value_of(&either),
+                expected_left || expected_right,
+                "or at {mask}"
+            );
             assert_eq!(value_of(&complement), !expected_left, "not at {mask}");
             any_both |= expected_left && expected_right;
             counterexample |= expected_left && !expected_right;
@@ -1434,13 +1471,21 @@ mod tests {
         fn equality_diagrams(bits: usize, gate: bool) -> (Diagram, Diagram) {
             let mut support = Vec::new();
             if gate {
-                support.push(Atom::Truthy { place: "0_gate".to_owned() }.encode());
+                support.push(
+                    Atom::Truthy {
+                        place: "0_gate".to_owned(),
+                    }
+                    .encode(),
+                );
             }
             for prefix in ["a", "b"] {
                 for bit in 0..bits {
-                    support.push(Atom::Truthy {
-                        place: format!("{prefix}{bit:02}"),
-                    }.encode());
+                    support.push(
+                        Atom::Truthy {
+                            place: format!("{prefix}{bit:02}"),
+                        }
+                        .encode(),
+                    );
                 }
             }
             let names: Vec<String> = support.iter().map(|atom| atom_name(atom)).collect();
@@ -1467,11 +1512,16 @@ mod tests {
             if gate {
                 let positive = ctx.mk_literal(vars[0], true);
                 let negative = ctx.mk_literal(vars[0], false);
-                (Diagram::effective(support.clone(), ctx.clone(), equality.and(&positive)).unwrap(),
-                 Diagram::effective(support, ctx, equality.and(&negative)).unwrap())
+                (
+                    Diagram::effective(support.clone(), ctx.clone(), equality.and(&positive))
+                        .unwrap(),
+                    Diagram::effective(support, ctx, equality.and(&negative)).unwrap(),
+                )
             } else {
-                (Diagram::effective(support.clone(), ctx.clone(), first).unwrap(),
-                 Diagram::effective(support, ctx, second).unwrap())
+                (
+                    Diagram::effective(support.clone(), ctx.clone(), first).unwrap(),
+                    Diagram::effective(support, ctx, second).unwrap(),
+                )
             }
         }
 

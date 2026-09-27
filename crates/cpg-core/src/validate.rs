@@ -11,16 +11,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cpg_schema::behavior::{
-    AnalysisConditionNodesRow, AnalysisConditionsRow, ExitSitesRow, FlowReachBoundariesRow, FlowTestExactOriginsRow,
-    FlowTestValueLinksRow, HandlerActionsRow, HandlerClausesRow, HandlerReturnNoneSitesRow,
-    HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow, ModelCallbacksRow,
-    ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow, ModelTargetsRow,
-    ModelTransfersRow, ModeledArgumentEvaluationsRow, ModeledAssignmentReturnPathsRow,
-    ModeledCallbackSitesRow, ModeledEffectSitesRow, ModeledExactValueTransfersRow,
-    ModeledExceptionHandlerCandidatesRow, ModeledExceptionHandlerWalksRow,
-    ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow, ModeledResourceSitesRow,
-    ModeledTransferSitesRow, ReturnExitStatusesRow, SummaryBoundariesRow, SummaryComponentsRow,
-    SummaryFlowStepsRow, SummaryFlowsRow, ValueFlowContributionsRow,
+    AnalysisConditionNodesRow, AnalysisConditionsRow, ExitSitesRow, FlowReachBoundariesRow,
+    FlowTestExactOriginsRow, FlowTestValueLinksRow, HandlerActionsRow, HandlerClausesRow,
+    HandlerReturnNoneSitesRow, HandlerTypesRow, ModelApplicationsRow, ModelArgumentBindingsRow,
+    ModelCallbacksRow, ModelEffectsRow, ModelExceptionsRow, ModelFormalPathsRow, ModelResourcesRow,
+    ModelTargetsRow, ModelTransfersRow, ModeledArgumentEvaluationsRow,
+    ModeledAssignmentReturnPathsRow, ModeledCallbackSitesRow, ModeledEffectSitesRow,
+    ModeledExactValueTransfersRow, ModeledExceptionHandlerCandidatesRow,
+    ModeledExceptionHandlerWalksRow, ModeledExceptionReturnNonePathsRow, ModeledExceptionSitesRow,
+    ModeledResourceSitesRow, ModeledTransferSitesRow, ReturnExitStatusesRow, SummaryBoundariesRow,
+    SummaryComponentsRow, SummaryFlowStepsRow, SummaryFlowsRow, ValueFlowContributionsRow,
     ValueFlowPredecessorCandidatesRow, ValueFlowPredecessorCompatibilityRow,
 };
 use cpg_schema::codebook::{Codebook, TestTypeOrigin};
@@ -496,33 +496,93 @@ cpg_schema::query_row! {
 
 /// Check each attributed incidence against the shared source relation. This validates source
 /// support, not completeness of an FCA scope or correctness of the enumerated lattice.
-async fn validate_concept_attributes(ctx:&SessionContext)->Result<Vec<Violation>,CoreError> {
-    use cpg_schema::concept_attributes::{ConceptAttributesRow,ConceptIncidencesRow};
-    use lctx_analytics::concepts::{self,CallAttributeObservation};
-    let attributes:Vec<ConceptAttributesRow>=sql::fetch(ctx,&stored_concept_attributes(),sql::Params::new()).await?;
-    let incidences:Vec<ConceptIncidencesRow>=sql::fetch(ctx,&stored_concept_incidences(),sql::Params::new()).await?;
-    if attributes.is_empty() && incidences.is_empty() {return Ok(Vec::new());}
-    let snapshot=attributes.first().map(|a|a.snapshot_id).or_else(||incidences.first().map(|i|i.snapshot_id)).unwrap();
-    let objects:Vec<_>=incidences.iter().map(|i|i.object_node_id).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
-    let mut expected=concepts::attributes_of(snapshot,&crate::analyze::collect(ctx,
-        &cpg_schema::concepts::attributes_sql(&objects),&cpg_schema::concepts::schemas::attributes()).await?)
-        .map_err(|e|CoreError::Analysis(e.to_string()))?;
-    let calls:Vec<ConceptCallSource>=sql::fetch(ctx,&concept_call_sources(),sql::Params::new()).await?;
-    let calls:Vec<_>=calls.into_iter().map(|a|CallAttributeObservation {caller:a.caller,target:a.target,
-        site:a.site,edge:a.edge,modality:a.modality,phase:a.phase}).collect();
-    let handoffs=lctx_analytics::pass_c::Handoffs::build(&crate::analyze::collect(ctx,
-        &cpg_schema::flows::handoffs_sql(),&cpg_schema::flows::schemas::handoffs()).await?)
-        .map_err(|e|CoreError::Analysis(e.to_string()))?;
-    let names=calls.iter().map(|c|c.target).chain(handoffs.rows.iter().flat_map(|h|[h.producer,h.consumer]))
-        .collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-    let names=crate::analyze::concept_names(ctx,&names).await?;
-    concepts::relational(snapshot,&mut expected,&objects,&calls,&handoffs.rows,&names);
-    let invalid_attributes=attributes.iter().filter(|a|a.key().is_none() || expected.catalog.get(&a.attribute_id)!=Some(*a)).count();
-    let invalid_incidences=incidences.iter().filter(|i|expected.incidences.get(&i.incidence_id)!=Some(i)).count();
-    if invalid_attributes+invalid_incidences==0 {Ok(Vec::new())} else {Ok(vec![Violation {
-        rule:"concept-attribute-source".into(),rows:invalid_attributes+invalid_incidences,
-        sample:"typed attribute or object incidence disagrees with its source observation".into(),
-    }])}
+async fn validate_concept_attributes(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    use cpg_schema::concept_attributes::{ConceptAttributesRow, ConceptIncidencesRow};
+    use lctx_analytics::concepts::{self, CallAttributeObservation};
+    let attributes: Vec<ConceptAttributesRow> =
+        sql::fetch(ctx, &stored_concept_attributes(), sql::Params::new()).await?;
+    let incidences: Vec<ConceptIncidencesRow> =
+        sql::fetch(ctx, &stored_concept_incidences(), sql::Params::new()).await?;
+    if attributes.is_empty() && incidences.is_empty() {
+        return Ok(Vec::new());
+    }
+    let snapshot = attributes
+        .first()
+        .map(|a| a.snapshot_id)
+        .or_else(|| incidences.first().map(|i| i.snapshot_id))
+        .unwrap();
+    let objects: Vec<_> = incidences
+        .iter()
+        .map(|i| i.object_node_id)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut expected = concepts::attributes_of(
+        snapshot,
+        &crate::analyze::collect(
+            ctx,
+            &cpg_schema::concepts::attributes_sql(&objects),
+            &cpg_schema::concepts::schemas::attributes(),
+        )
+        .await?,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let calls: Vec<ConceptCallSource> =
+        sql::fetch(ctx, &concept_call_sources(), sql::Params::new()).await?;
+    let calls: Vec<_> = calls
+        .into_iter()
+        .map(|a| CallAttributeObservation {
+            caller: a.caller,
+            target: a.target,
+            site: a.site,
+            edge: a.edge,
+            modality: a.modality,
+            phase: a.phase,
+        })
+        .collect();
+    let handoffs = lctx_analytics::pass_c::Handoffs::build(
+        &crate::analyze::collect(
+            ctx,
+            &cpg_schema::flows::handoffs_sql(),
+            &cpg_schema::flows::schemas::handoffs(),
+        )
+        .await?,
+    )
+    .map_err(|e| CoreError::Analysis(e.to_string()))?;
+    let names = calls
+        .iter()
+        .map(|c| c.target)
+        .chain(handoffs.rows.iter().flat_map(|h| [h.producer, h.consumer]))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let names = crate::analyze::concept_names(ctx, &names).await?;
+    concepts::relational(
+        snapshot,
+        &mut expected,
+        &objects,
+        &calls,
+        &handoffs.rows,
+        &names,
+    );
+    let invalid_attributes = attributes
+        .iter()
+        .filter(|a| a.key().is_none() || expected.catalog.get(&a.attribute_id) != Some(*a))
+        .count();
+    let invalid_incidences = incidences
+        .iter()
+        .filter(|i| expected.incidences.get(&i.incidence_id) != Some(i))
+        .count();
+    if invalid_attributes + invalid_incidences == 0 {
+        Ok(Vec::new())
+    } else {
+        Ok(vec![Violation {
+            rule: "concept-attribute-source".into(),
+            rows: invalid_attributes + invalid_incidences,
+            sample: "typed attribute or object incidence disagrees with its source observation"
+                .into(),
+        }])
+    }
 }
 
 /// Rebuild every finite flow with the same bounded condition kernel used at write.
@@ -546,24 +606,39 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
     let mut violations = Vec::new();
     let mut actual_identities: Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow> =
         sql::fetch(ctx, &stored_parameter_identities(), sql::Params::new()).await?;
-    let mut actual_context:Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>=
-        sql::fetch(ctx,&stored_context_value_identities(),sql::Params::new()).await?;
-    let mut expected_context=summary.context_identities;
-    actual_context.sort_by_key(|r|r.identity_id);expected_context.sort_by_key(|r|r.identity_id);
-    if actual_context!=expected_context {violations.push(Violation {rule:"source-context-value-identity-equality".into(),rows:1,
-        sample:"context entry value certificates differ from source reconstruction".into()});}
-    let mut actual_modeled:Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>=
-        sql::fetch(ctx,&stored_modeled_identities(),sql::Params::new()).await?;
-    let mut expected_modeled=summary.modeled_identities;
-    actual_modeled.sort_by_key(|r|r.identity_id);expected_modeled.sort_by_key(|r|r.identity_id);
-    if actual_modeled!=expected_modeled {violations.push(Violation {rule:"source-modeled-identity-equality".into(),rows:1,
-        sample:"modeled value certificates differ from source reconstruction".into()});}
+    let mut actual_context: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow> =
+        sql::fetch(ctx, &stored_context_value_identities(), sql::Params::new()).await?;
+    let mut expected_context = summary.context_identities;
+    actual_context.sort_by_key(|r| r.identity_id);
+    expected_context.sort_by_key(|r| r.identity_id);
+    if actual_context != expected_context {
+        violations.push(Violation {
+            rule: "source-context-value-identity-equality".into(),
+            rows: 1,
+            sample: "context entry value certificates differ from source reconstruction".into(),
+        });
+    }
+    let mut actual_modeled: Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow> =
+        sql::fetch(ctx, &stored_modeled_identities(), sql::Params::new()).await?;
+    let mut expected_modeled = summary.modeled_identities;
+    actual_modeled.sort_by_key(|r| r.identity_id);
+    expected_modeled.sort_by_key(|r| r.identity_id);
+    if actual_modeled != expected_modeled {
+        violations.push(Violation {
+            rule: "source-modeled-identity-equality".into(),
+            rows: 1,
+            sample: "modeled value certificates differ from source reconstruction".into(),
+        });
+    }
     let mut expected_identities = summary.identities;
     actual_identities.sort_by_key(|r| r.identity_id);
     expected_identities.sort_by_key(|r| r.identity_id);
     if actual_identities != expected_identities {
-        violations.push(Violation {rule: "source-parameter-identity-equality".to_owned(), rows: 1,
-            sample: "parameter identity certificates differ from source reconstruction".to_owned()});
+        violations.push(Violation {
+            rule: "source-parameter-identity-equality".to_owned(),
+            rows: 1,
+            sample: "parameter identity certificates differ from source reconstruction".to_owned(),
+        });
     }
     if actual != expected {
         violations.push(Violation {
@@ -593,14 +668,27 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
         });
     }
     violations.extend(validate_summary_boundaries(ctx, summary.boundaries).await?);
-    let mut actual_coverage:Vec<cpg_schema::behavior::SummaryOriginCoverageRow> =
-        sql::fetch(ctx,&stored_summary_origin_coverage(),sql::Params::new()).await?;
-    let mut expected_coverage=summary.coverage;
-    let key=|r:&cpg_schema::behavior::SummaryOriginCoverageRow|(r.snapshot_id,r.subject_kind,r.subject_id,r.condition_id,r.channel,r.phase);
-    actual_coverage.sort_by_key(key);expected_coverage.sort_by_key(key);
-    if actual_coverage!=expected_coverage {
-        violations.push(Violation {rule:"summary-origin-coverage-source-equality".to_owned(),rows:1,
-            sample:"origin/channel coverage differs from source reconstruction".to_owned()});
+    let mut actual_coverage: Vec<cpg_schema::behavior::SummaryOriginCoverageRow> =
+        sql::fetch(ctx, &stored_summary_origin_coverage(), sql::Params::new()).await?;
+    let mut expected_coverage = summary.coverage;
+    let key = |r: &cpg_schema::behavior::SummaryOriginCoverageRow| {
+        (
+            r.snapshot_id,
+            r.subject_kind,
+            r.subject_id,
+            r.condition_id,
+            r.channel,
+            r.phase,
+        )
+    };
+    actual_coverage.sort_by_key(key);
+    expected_coverage.sort_by_key(key);
+    if actual_coverage != expected_coverage {
+        violations.push(Violation {
+            rule: "summary-origin-coverage-source-equality".to_owned(),
+            rows: 1,
+            sample: "origin/channel coverage differs from source reconstruction".to_owned(),
+        });
     }
     Ok(violations)
 }
@@ -663,14 +751,19 @@ async fn validate_value_flow_contributions(
     let invocation_count: Vec<ValueFlowAnalysisCountRow> =
         sql::fetch(ctx, &value_flow_analysis_count(), sql::Params::new()).await?;
     if invocation_count[0].count == 0 {
-        return if actual.is_empty() && actual_reach_boundaries.is_empty()
-            && actual_conditions.is_empty() && actual_nodes.is_empty() {
+        return if actual.is_empty()
+            && actual_reach_boundaries.is_empty()
+            && actual_conditions.is_empty()
+            && actual_nodes.is_empty()
+        {
             Ok(Vec::new())
         } else {
             Ok(vec![Violation {
                 rule: "value-flow-contributions-without-analysis".to_owned(),
-                rows: actual.len() + actual_reach_boundaries.len()
-                    + actual_conditions.len() + actual_nodes.len(),
+                rows: actual.len()
+                    + actual_reach_boundaries.len()
+                    + actual_conditions.len()
+                    + actual_nodes.len(),
                 sample: "flow analysis rows exist without an analysis invocation".to_owned(),
             }])
         };
@@ -714,10 +807,15 @@ async fn validate_value_flow_contributions(
     if actual_reach_boundaries != expected_reach_boundaries {
         violations.push(Violation {
             rule: "flow-reach-boundary-source-equality".to_owned(),
-            rows: actual_reach_boundaries.len()
-                .abs_diff(expected_reach_boundaries.len()).max(1),
-            sample: format!("stored {} reach boundaries; derived {}",
-                actual_reach_boundaries.len(), expected_reach_boundaries.len()),
+            rows: actual_reach_boundaries
+                .len()
+                .abs_diff(expected_reach_boundaries.len())
+                .max(1),
+            sample: format!(
+                "stored {} reach boundaries; derived {}",
+                actual_reach_boundaries.len(),
+                expected_reach_boundaries.len()
+            ),
         });
     }
     actual_conditions.sort_by_key(|r| r.condition_id);
@@ -765,7 +863,8 @@ async fn validate_value_flow_contributions(
 
 /// Publication and consumers use the same derivation as the compiler. Equality also rejects a
 /// missing structural site, an altered condition and a mismatched source/region citation.
-async fn validate_exit_sites(ctx: &SessionContext,
+async fn validate_exit_sites(
+    ctx: &SessionContext,
     prepared: Result<lctx_analytics::completion::Outcome, String>,
 ) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<ExitSitesRow> =
@@ -786,54 +885,116 @@ async fn validate_exit_sites(ctx: &SessionContext,
     let mut actual_statuses: Vec<ReturnExitStatusesRow> =
         sql::fetch(ctx, &stored_return_exit_statuses(), sql::Params::new()).await?;
     let expected = match prepared {
-        Ok(expected)=>expected,
-        Err(error)=>{ violations.push(Violation {rule:"completion-source-equality".to_owned(),rows:1,
-            sample:format!("completion reconstruction refused invalid inputs: {error}")});return Ok(violations); },
+        Ok(expected) => expected,
+        Err(error) => {
+            violations.push(Violation {
+                rule: "completion-source-equality".to_owned(),
+                rows: 1,
+                sample: format!("completion reconstruction refused invalid inputs: {error}"),
+            });
+            return Ok(violations);
+        }
     };
-    let mut certificates:Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>=sql::fetch(ctx,&stored_return_certificates(),sql::Params::new()).await?;
-    let mut calls:Vec<cpg_schema::call_execution::CallExecutionsRow>=sql::fetch(ctx,&stored_call_executions(),sql::Params::new()).await?;
-    let mut call_steps:Vec<cpg_schema::call_execution::CallExecutionStepsRow>=sql::fetch(ctx,&stored_call_execution_steps(),sql::Params::new()).await?;
-    calls.sort_by_key(|r|(r.snapshot_id,r.execution_id));call_steps.sort_by_key(|r|(r.snapshot_id,r.execution_id,r.ordinal));
-    if calls!=expected.calls || call_steps!=expected.call_steps {violations.push(Violation {
-        rule:"call-execution-source-equality".into(),rows:1,
-        sample:"call invocation or ordered reach evidence differs from source reconstruction".into(),
-    });}
-    certificates.sort_by_key(|r|(r.snapshot_id,r.certificate_id));
-    if certificates!=expected.certificates {violations.push(Violation {rule:"completion-certificate-source-equality".into(),rows:1,
-        sample:"return evidence commitment differs from independently reconstructed entry and exit obligations".into()});}
-    let mut source_bindings:Vec<cpg_schema::source_call::SourceCallBindingsRow>=sql::fetch(ctx,&stored_source_call_bindings(),sql::Params::new()).await?;
-    source_bindings.sort_by_key(|r|(r.snapshot_id,r.binding_id));
-    let mut source_calls:Vec<cpg_schema::source_call::SourceCallNormalsRow>=sql::fetch(ctx,&stored_source_call_normals(),sql::Params::new()).await?;
-    let mut source_headers:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>=sql::fetch(ctx,&stored_source_call_headers(),sql::Params::new()).await?;
-    source_calls.sort_by_key(|r|(r.snapshot_id,r.certificate_id));source_headers.sort_by_key(|r|(r.snapshot_id,r.binding_id,r.ordinal));
-    if source_bindings!=expected.source_bindings || source_calls!=expected.source_calls || source_headers!=expected.source_call_headers {violations.push(Violation {
-        rule:"source-call-source-equality".into(),rows:1,sample:"fresh call binding, body or retention differs from base source preparation".into(),
-    });}
-    let mut bodies:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>=sql::fetch(ctx,&stored_source_bodies(),sql::Params::new()).await?;
-    let mut body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>=sql::fetch(ctx,&stored_source_body_steps(),sql::Params::new()).await?;
-    let mut body_releases:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>=sql::fetch(ctx,&stored_source_body_releases(),sql::Params::new()).await?;
-    bodies.sort_by_key(|r|(r.snapshot_id,r.body_id));
-    body_steps.sort_by_key(|r|(r.snapshot_id,r.body_id,r.ordinal));
-    body_releases.sort_by_key(|r|(r.snapshot_id,r.body_id,r.ordinal));
-    if bodies!=expected.bodies || body_steps!=expected.body_steps || body_releases!=expected.body_releases {
-        violations.push(Violation {rule:"source-body-source-equality".into(),rows:1,
-            sample:"callable body/release evidence differs from source suite reconstruction".into()});
+    let mut certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow> =
+        sql::fetch(ctx, &stored_return_certificates(), sql::Params::new()).await?;
+    let mut calls: Vec<cpg_schema::call_execution::CallExecutionsRow> =
+        sql::fetch(ctx, &stored_call_executions(), sql::Params::new()).await?;
+    let mut call_steps: Vec<cpg_schema::call_execution::CallExecutionStepsRow> =
+        sql::fetch(ctx, &stored_call_execution_steps(), sql::Params::new()).await?;
+    calls.sort_by_key(|r| (r.snapshot_id, r.execution_id));
+    call_steps.sort_by_key(|r| (r.snapshot_id, r.execution_id, r.ordinal));
+    if calls != expected.calls || call_steps != expected.call_steps {
+        violations.push(Violation {
+            rule: "call-execution-source-equality".into(),
+            rows: 1,
+            sample: "call invocation or ordered reach evidence differs from source reconstruction"
+                .into(),
+        });
+    }
+    certificates.sort_by_key(|r| (r.snapshot_id, r.certificate_id));
+    if certificates != expected.certificates {
+        violations.push(Violation {rule:"completion-certificate-source-equality".into(),rows:1,
+        sample:"return evidence commitment differs from independently reconstructed entry and exit obligations".into()});
+    }
+    let mut source_bindings: Vec<cpg_schema::source_call::SourceCallBindingsRow> =
+        sql::fetch(ctx, &stored_source_call_bindings(), sql::Params::new()).await?;
+    source_bindings.sort_by_key(|r| (r.snapshot_id, r.binding_id));
+    let mut source_calls: Vec<cpg_schema::source_call::SourceCallNormalsRow> =
+        sql::fetch(ctx, &stored_source_call_normals(), sql::Params::new()).await?;
+    let mut source_headers: Vec<cpg_schema::source_call::SourceCallHeaderStepsRow> =
+        sql::fetch(ctx, &stored_source_call_headers(), sql::Params::new()).await?;
+    source_calls.sort_by_key(|r| (r.snapshot_id, r.certificate_id));
+    source_headers.sort_by_key(|r| (r.snapshot_id, r.binding_id, r.ordinal));
+    if source_bindings != expected.source_bindings
+        || source_calls != expected.source_calls
+        || source_headers != expected.source_call_headers
+    {
+        violations.push(Violation {
+            rule: "source-call-source-equality".into(),
+            rows: 1,
+            sample: "fresh call binding, body or retention differs from base source preparation"
+                .into(),
+        });
+    }
+    let mut bodies: Vec<cpg_schema::source_body::SourceBodyCompletionsRow> =
+        sql::fetch(ctx, &stored_source_bodies(), sql::Params::new()).await?;
+    let mut body_steps: Vec<cpg_schema::source_body::SourceBodyStepsRow> =
+        sql::fetch(ctx, &stored_source_body_steps(), sql::Params::new()).await?;
+    let mut body_releases: Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow> =
+        sql::fetch(ctx, &stored_source_body_releases(), sql::Params::new()).await?;
+    bodies.sort_by_key(|r| (r.snapshot_id, r.body_id));
+    body_steps.sort_by_key(|r| (r.snapshot_id, r.body_id, r.ordinal));
+    body_releases.sort_by_key(|r| (r.snapshot_id, r.body_id, r.ordinal));
+    if bodies != expected.bodies
+        || body_steps != expected.body_steps
+        || body_releases != expected.body_releases
+    {
+        violations.push(Violation {
+            rule: "source-body-source-equality".into(),
+            rows: 1,
+            sample: "callable body/release evidence differs from source suite reconstruction"
+                .into(),
+        });
     }
     let mut expected_statuses = expected.returns;
-    let mut statements: Vec<cpg_schema::behavior::StatementCompletionsRow> = sql::fetch(ctx, &stored_statement_completions(), sql::Params::new()).await?;
-    let mut statement_steps: Vec<cpg_schema::behavior::StatementCompletionStepsRow> = sql::fetch(ctx, &stored_statement_completion_steps(), sql::Params::new()).await?;
-    let mut return_steps: Vec<cpg_schema::behavior::ReturnExitStepsRow> = sql::fetch(ctx, &stored_return_exit_steps(), sql::Params::new()).await?;
-    let mut entry_statuses: Vec<cpg_schema::behavior::ReturnEntryStatusesRow> = sql::fetch(ctx, &stored_return_entry_statuses(), sql::Params::new()).await?;
-    let mut entry_steps: Vec<cpg_schema::behavior::ReturnEntryStepsRow> = sql::fetch(ctx, &stored_return_entry_steps(), sql::Params::new()).await?;
-    statements.sort_by_key(|r| (r.snapshot_id,r.source_fact_id));
-    statement_steps.sort_by_key(|r| (r.snapshot_id,r.source_fact_id,r.ordinal));
-    return_steps.sort_by_key(|r| (r.snapshot_id,r.return_site_fact_id,r.ordinal));
-    entry_statuses.sort_by_key(|r| (r.snapshot_id,r.return_site_fact_id,r.condition_id));
-    entry_steps.sort_by_key(|r| (r.snapshot_id,r.return_site_fact_id,r.condition_id,r.ordinal));
-    if statements != expected.statements || statement_steps != expected.statement_steps || return_steps != expected.return_steps
-        || entry_statuses!=expected.entries || entry_steps!=expected.entry_steps {
-        violations.push(Violation { rule: "completion-source-equality".to_owned(), rows: 1,
-            sample: "statement or ordered frame completion differs from source reconstruction".to_owned() });
+    let mut statements: Vec<cpg_schema::behavior::StatementCompletionsRow> =
+        sql::fetch(ctx, &stored_statement_completions(), sql::Params::new()).await?;
+    let mut statement_steps: Vec<cpg_schema::behavior::StatementCompletionStepsRow> = sql::fetch(
+        ctx,
+        &stored_statement_completion_steps(),
+        sql::Params::new(),
+    )
+    .await?;
+    let mut return_steps: Vec<cpg_schema::behavior::ReturnExitStepsRow> =
+        sql::fetch(ctx, &stored_return_exit_steps(), sql::Params::new()).await?;
+    let mut entry_statuses: Vec<cpg_schema::behavior::ReturnEntryStatusesRow> =
+        sql::fetch(ctx, &stored_return_entry_statuses(), sql::Params::new()).await?;
+    let mut entry_steps: Vec<cpg_schema::behavior::ReturnEntryStepsRow> =
+        sql::fetch(ctx, &stored_return_entry_steps(), sql::Params::new()).await?;
+    statements.sort_by_key(|r| (r.snapshot_id, r.source_fact_id));
+    statement_steps.sort_by_key(|r| (r.snapshot_id, r.source_fact_id, r.ordinal));
+    return_steps.sort_by_key(|r| (r.snapshot_id, r.return_site_fact_id, r.ordinal));
+    entry_statuses.sort_by_key(|r| (r.snapshot_id, r.return_site_fact_id, r.condition_id));
+    entry_steps.sort_by_key(|r| {
+        (
+            r.snapshot_id,
+            r.return_site_fact_id,
+            r.condition_id,
+            r.ordinal,
+        )
+    });
+    if statements != expected.statements
+        || statement_steps != expected.statement_steps
+        || return_steps != expected.return_steps
+        || entry_statuses != expected.entries
+        || entry_steps != expected.entry_steps
+    {
+        violations.push(Violation {
+            rule: "completion-source-equality".to_owned(),
+            rows: 1,
+            sample: "statement or ordered frame completion differs from source reconstruction"
+                .to_owned(),
+        });
     }
     actual_statuses.sort_by_key(|row| row.site_node_id);
     expected_statuses.sort_by_key(|row| row.site_node_id);
@@ -1097,8 +1258,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_definitions(), sql::Params::new()).await?;
     let parameters: Vec<cpg_schema::tables::ContextParametersRow> =
         sql::fetch(ctx, &model_parameters(), sql::Params::new()).await?;
-    let mut actual_protocols:Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>=
-        sql::fetch(ctx,&model_context_protocols(),sql::Params::new()).await?;
+    let mut actual_protocols: Vec<cpg_schema::context_protocol::ModelContextProtocolsRow> =
+        sql::fetch(ctx, &model_context_protocols(), sql::Params::new()).await?;
     let mut actual_targets: Vec<ModelTargetsRow> =
         sql::fetch(ctx, &model_targets(), sql::Params::new()).await?;
     let mut actual_applications: Vec<ModelApplicationsRow> =
@@ -1127,7 +1288,8 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         sql::fetch(ctx, &model_resources(), sql::Params::new()).await?;
     let mut actual_exceptions: Vec<ModelExceptionsRow> =
         sql::fetch(ctx, &model_exceptions(), sql::Params::new()).await?;
-    let all_empty = actual_protocols.is_empty() && actual_targets.is_empty()
+    let all_empty = actual_protocols.is_empty()
+        && actual_targets.is_empty()
         && actual_applications.is_empty()
         && actual_formals.is_empty()
         && actual_arguments.is_empty()
@@ -1157,9 +1319,11 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
         });
     };
     let catalog = cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
-    let mut expected_protocols=catalog.bind_context_protocols(snapshot_id,&contexts,&modules,&definitions,&parameters)
+    let mut expected_protocols = catalog
+        .bind_context_protocols(snapshot_id, &contexts, &modules, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
-    expected_protocols.sort_by_key(|p|(p.model_id,p.class_node_id));actual_protocols.sort_by_key(|p|(p.model_id,p.class_node_id));
+    expected_protocols.sort_by_key(|p| (p.model_id, p.class_node_id));
+    actual_protocols.sort_by_key(|p| (p.model_id, p.class_node_id));
     let mut expected_targets = catalog
         .bind_targets(snapshot_id, &contexts, &modules, &definitions)
         .map_err(CoreError::Analysis)?;
@@ -1359,9 +1523,16 @@ async fn validate_models(ctx: &SessionContext) -> Result<Vec<Violation>, CoreErr
             sample: "model rows without a compiler run".into(),
         });
     }
-    if actual_protocols!=expected_protocols || actual_protocols.iter().any(|p|!cpg_schema::context_protocol::valid_shape(p)) {
-        violations.push(Violation {rule:"model-context-protocol-equality".into(),rows:1,
-            sample:"synchronous context protocol differs from its pinned class assertion".into()});
+    if actual_protocols != expected_protocols
+        || actual_protocols
+            .iter()
+            .any(|p| !cpg_schema::context_protocol::valid_shape(p))
+    {
+        violations.push(Violation {
+            rule: "model-context-protocol-equality".into(),
+            rows: 1,
+            sample: "synchronous context protocol differs from its pinned class assertion".into(),
+        });
     }
     if expected_targets != actual_targets {
         violations.push(Violation {
@@ -1981,18 +2152,21 @@ fn visit(plan: &Arc<dyn ExecutionPlan>, f: &mut impl FnMut(&dyn ExecutionPlan)) 
 }
 
 /// Reject both extra and missing completion rows, including forged exact values and budgets.
-async fn validate_expression_evaluations(ctx: &SessionContext,
+async fn validate_expression_evaluations(
+    ctx: &SessionContext,
     outcome: Result<lctx_analytics::evaluation::EvaluationOutcome, String>,
 ) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<cpg_schema::behavior::ExpressionEvaluationsRow> =
         sql::fetch(ctx, &stored_expression_evaluations(), sql::Params::new()).await?;
     let outcome = match outcome {
         Ok(outcome) => outcome,
-        Err(error) => return Ok(vec![Violation {
-            rule: "expression-source-equality".to_owned(),
-            rows: 1,
-            sample: format!("expression reconstruction refused invalid inputs: {error}"),
-        }]),
+        Err(error) => {
+            return Ok(vec![Violation {
+                rule: "expression-source-equality".to_owned(),
+                rows: 1,
+                sample: format!("expression reconstruction refused invalid inputs: {error}"),
+            }]);
+        }
     };
     let mut expected = outcome.evaluations;
     let mut actual_steps: Vec<cpg_schema::behavior::ExpressionEvaluationStepsRow> =
@@ -2000,44 +2174,89 @@ async fn validate_expression_evaluations(ctx: &SessionContext,
     actual_steps.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id, row.ordinal));
     actual.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
     expected.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
-    let mut frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>=sql::fetch(ctx,&stored_model_frames(),sql::Params::new()).await?;
-    let mut frame_arguments:Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>=sql::fetch(ctx,&stored_model_frame_arguments(),sql::Params::new()).await?;
-    frames.sort_by_key(|r|r.frame_exit_id);
-    frame_arguments.sort_by_key(|r|(r.frame_exit_id,r.ordinal));
-    let mut frame_steps:Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow>=sql::fetch(ctx,&stored_model_frame_steps(),sql::Params::new()).await?;
-    frame_steps.sort_by_key(|r|(r.frame_exit_id,r.ordinal));
-    if actual == expected && actual_steps == outcome.steps && frames==outcome.frames && frame_arguments==outcome.frame_arguments && frame_steps==outcome.frame_steps { return Ok(Vec::new()); }
+    let mut frames: Vec<cpg_schema::frame_exit::ModelFrameExitsRow> =
+        sql::fetch(ctx, &stored_model_frames(), sql::Params::new()).await?;
+    let mut frame_arguments: Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow> =
+        sql::fetch(ctx, &stored_model_frame_arguments(), sql::Params::new()).await?;
+    frames.sort_by_key(|r| r.frame_exit_id);
+    frame_arguments.sort_by_key(|r| (r.frame_exit_id, r.ordinal));
+    let mut frame_steps: Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow> =
+        sql::fetch(ctx, &stored_model_frame_steps(), sql::Params::new()).await?;
+    frame_steps.sort_by_key(|r| (r.frame_exit_id, r.ordinal));
+    if actual == expected
+        && actual_steps == outcome.steps
+        && frames == outcome.frames
+        && frame_arguments == outcome.frame_arguments
+        && frame_steps == outcome.frame_steps
+    {
+        return Ok(Vec::new());
+    }
     Ok(vec![Violation {
         rule: "expression-source-equality".to_owned(),
         rows: actual.len().abs_diff(expected.len()).max(1),
-        sample: format!("stored {} expressions; derived {}", actual.len(), expected.len()),
+        sample: format!(
+            "stored {} expressions; derived {}",
+            actual.len(),
+            expected.len()
+        ),
     }])
 }
 
-async fn validate_source_contexts(ctx:&SessionContext)->Result<Vec<Violation>,CoreError> {
-    let mut sites:Vec<cpg_schema::context_protocol::SourceContextSitesRow>=sql::fetch(ctx,&stored_context_sites(),sql::Params::new()).await?;
-    let mut arguments:Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>=sql::fetch(ctx,&stored_context_arguments(),sql::Params::new()).await?;
-    let expected=match crate::summaries::source_contexts(ctx).await {
-        Ok(expected)=>expected,
-        Err(error)=>return Ok(vec![Violation {rule:"context-site-source-equality".into(),rows:1,
-            sample:format!("context reconstruction refused invalid inputs: {error}")}]),
+async fn validate_source_contexts(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut sites: Vec<cpg_schema::context_protocol::SourceContextSitesRow> =
+        sql::fetch(ctx, &stored_context_sites(), sql::Params::new()).await?;
+    let mut arguments: Vec<cpg_schema::context_protocol::SourceContextArgumentsRow> =
+        sql::fetch(ctx, &stored_context_arguments(), sql::Params::new()).await?;
+    let expected = match crate::summaries::source_contexts(ctx).await {
+        Ok(expected) => expected,
+        Err(error) => {
+            return Ok(vec![Violation {
+                rule: "context-site-source-equality".into(),
+                rows: 1,
+                sample: format!("context reconstruction refused invalid inputs: {error}"),
+            }]);
+        }
     };
-    sites.sort_by_key(|s|(s.snapshot_id,s.site_id));arguments.sort_by_key(|a|(a.snapshot_id,a.site_id,a.ordinal));
-    Ok(if sites==expected.sites && arguments==expected.arguments {Vec::new()} else {vec![Violation {
-        rule:"context-site-source-equality".into(),rows:1,sample:"context binding or ordered argument evidence differs from source".into(),
-    }]})
+    sites.sort_by_key(|s| (s.snapshot_id, s.site_id));
+    arguments.sort_by_key(|a| (a.snapshot_id, a.site_id, a.ordinal));
+    Ok(
+        if sites == expected.sites && arguments == expected.arguments {
+            Vec::new()
+        } else {
+            vec![Violation {
+                rule: "context-site-source-equality".into(),
+                rows: 1,
+                sample: "context binding or ordered argument evidence differs from source".into(),
+            }]
+        },
+    )
 }
 
-async fn validate_actions(ctx:&SessionContext)->Result<Vec<Violation>,CoreError> {
-    let mut actual:Vec<cpg_schema::action::ModeledActionAssessmentsRow>=sql::fetch(ctx,&stored_action_assessments(),sql::Params::new()).await?;
-    actual.sort_by_key(|r|(r.snapshot_id,r.assessment_id));
-    let expected=crate::summaries::action_assessments(ctx).await?;
-    let mut postconditions:Vec<cpg_schema::action::ModeledActionPostconditionsRow>=sql::fetch(ctx,&stored_action_postconditions(),sql::Params::new()).await?;
-    postconditions.sort_by_key(|r|(r.snapshot_id,r.postcondition_id));
-    let mut violations=Vec::new();
-    if actual!=expected.assessments {violations.push(Violation {rule:"action-source-equality".into(),rows:1,
-        sample:"action assessment differs from candidate, invocation or callee outcome evidence".into()});}
-    if postconditions!=expected.postconditions {violations.push(Violation {rule:"action-postcondition-source-equality".into(),rows:1,
-        sample:"normal postcondition differs from candidate or reached invocation evidence".into()});}
+async fn validate_actions(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+    let mut actual: Vec<cpg_schema::action::ModeledActionAssessmentsRow> =
+        sql::fetch(ctx, &stored_action_assessments(), sql::Params::new()).await?;
+    actual.sort_by_key(|r| (r.snapshot_id, r.assessment_id));
+    let expected = crate::summaries::action_assessments(ctx).await?;
+    let mut postconditions: Vec<cpg_schema::action::ModeledActionPostconditionsRow> =
+        sql::fetch(ctx, &stored_action_postconditions(), sql::Params::new()).await?;
+    postconditions.sort_by_key(|r| (r.snapshot_id, r.postcondition_id));
+    let mut violations = Vec::new();
+    if actual != expected.assessments {
+        violations.push(Violation {
+            rule: "action-source-equality".into(),
+            rows: 1,
+            sample:
+                "action assessment differs from candidate, invocation or callee outcome evidence"
+                    .into(),
+        });
+    }
+    if postconditions != expected.postconditions {
+        violations.push(Violation {
+            rule: "action-postcondition-source-equality".into(),
+            rows: 1,
+            sample: "normal postcondition differs from candidate or reached invocation evidence"
+                .into(),
+        });
+    }
     Ok(violations)
 }

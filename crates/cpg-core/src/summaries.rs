@@ -16,10 +16,9 @@ use datafusion::prelude::SessionContext;
 
 use crate::{CoreError, sql};
 use lctx_analytics::summaries::finite::{
-    FiniteSummaryInputs, FiniteSummaryOutcome, LocalCallSummaryFlowSeed, LocalCallArgument,
-    LocalCallValueLink, ModeledChainArgument,
-    ModeledAssignmentSummaryFlowSeed, ModeledSummaryFlowSeed, ReturnPassStep,
-    SummaryBoundaryCandidate, SummaryFlowSeed,
+    FiniteSummaryInputs, FiniteSummaryOutcome, LocalCallArgument, LocalCallSummaryFlowSeed,
+    LocalCallValueLink, ModeledAssignmentSummaryFlowSeed, ModeledChainArgument,
+    ModeledSummaryFlowSeed, ReturnPassStep, SummaryBoundaryCandidate, SummaryFlowSeed,
 };
 
 cpg_schema::relations! {
@@ -262,48 +261,134 @@ pub async fn call_components(ctx: &SessionContext) -> Result<Vec<SummaryComponen
 }
 
 /// Acquire typed relations; finite composition itself owns no session or store.
-pub async fn finite_flows(
-    ctx: &SessionContext,
-) -> Result<FiniteSummaryOutcome, CoreError> {
+pub async fn finite_flows(ctx: &SessionContext) -> Result<FiniteSummaryOutcome, CoreError> {
     let (diagrams, boundaries) = load_conditions(ctx).await?;
     let pass_steps = return_pass_steps(ctx).await?;
     let entries = sql::fetch(ctx, &return_entries(), sql::Params::new()).await?;
     let entry_steps = sql::fetch(ctx, &return_entry_steps(), sql::Params::new()).await?;
-    let components: Vec<SummaryComponentsRow> = sql::fetch(ctx, &published_components(), sql::Params::new()).await?;
-    let direct_seeds: Vec<SummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::summary_flow_seeds(), sql::Params::new()).await?;
-    let modeled_seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::modeled_summary_flow_seeds(), sql::Params::new()).await?;
-    let chain_arguments: Vec<ModeledChainArgument> = sql::fetch(ctx, &cpg_schema::behavior::modeled_chain_arguments(), sql::Params::new()).await?;
-    let evaluations: Vec<cpg_schema::behavior::ModeledArgumentEvaluationsRow> = sql::fetch(ctx, &cpg_schema::behavior::modeled_argument_evaluations(), sql::Params::new()).await?;
-    let assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::modeled_assignment_summary_flow_seeds(), sql::Params::new()).await?;
-    let local_seeds: Vec<LocalCallSummaryFlowSeed> = sql::fetch(ctx, &cpg_schema::behavior::local_call_summary_flow_seeds(), sql::Params::new()).await?;
-    let local_arguments: Vec<LocalCallArgument> = sql::fetch(ctx, &cpg_schema::behavior::local_call_arguments(), sql::Params::new()).await?;
-    let local_value_links: Vec<LocalCallValueLink> = sql::fetch(ctx, &cpg_schema::behavior::local_call_value_links(), sql::Params::new()).await?;
-    let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
-    let local_bindings=source_call_bindings(ctx,&local_seeds,&local_arguments).await?;
-    let (identities,context_identities,modeled_identities) = source_value_identities(ctx,&modeled_seeds,&evaluations).await?;
-    let context_arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
-    let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
-    let return_certificates=sql::fetch(ctx,&return_certificates(),sql::Params::new()).await?;
-    let model_frames=sql::fetch(ctx,&model_frames(),sql::Params::new()).await?;
-    let source_bindings=sql::fetch(ctx,&admitted_source_call_bindings(),sql::Params::new()).await?;
-    let source_calls=sql::fetch(ctx,&source_call_normals(),sql::Params::new()).await?;
-    let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
-        source_bindings,source_calls,model_frames,modeled_identities,diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,context_identities,context_arguments,
-        direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
-        local_arguments, local_value_links, local_bindings, boundary_candidates, identities,
+    let components: Vec<SummaryComponentsRow> =
+        sql::fetch(ctx, &published_components(), sql::Params::new()).await?;
+    let direct_seeds: Vec<SummaryFlowSeed> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::summary_flow_seeds(),
+        sql::Params::new(),
+    )
+    .await?;
+    let modeled_seeds: Vec<ModeledSummaryFlowSeed> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_summary_flow_seeds(),
+        sql::Params::new(),
+    )
+    .await?;
+    let chain_arguments: Vec<ModeledChainArgument> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_chain_arguments(),
+        sql::Params::new(),
+    )
+    .await?;
+    let evaluations: Vec<cpg_schema::behavior::ModeledArgumentEvaluationsRow> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_argument_evaluations(),
+        sql::Params::new(),
+    )
+    .await?;
+    let assignment_seeds: Vec<ModeledAssignmentSummaryFlowSeed> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::modeled_assignment_summary_flow_seeds(),
+        sql::Params::new(),
+    )
+    .await?;
+    let local_seeds: Vec<LocalCallSummaryFlowSeed> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::local_call_summary_flow_seeds(),
+        sql::Params::new(),
+    )
+    .await?;
+    let local_arguments: Vec<LocalCallArgument> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::local_call_arguments(),
+        sql::Params::new(),
+    )
+    .await?;
+    let local_value_links: Vec<LocalCallValueLink> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::local_call_value_links(),
+        sql::Params::new(),
+    )
+    .await?;
+    let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(
+        ctx,
+        &cpg_schema::behavior::summary_boundary_candidates(),
+        sql::Params::new(),
+    )
+    .await?;
+    let local_bindings = source_call_bindings(ctx, &local_seeds, &local_arguments).await?;
+    let (identities, context_identities, modeled_identities) =
+        source_value_identities(ctx, &modeled_seeds, &evaluations).await?;
+    let context_arguments = sql::fetch(ctx, &context_arguments(), sql::Params::new()).await?;
+    let context_sites = sql::fetch(ctx, &context_sites(), sql::Params::new()).await?;
+    let return_certificates = sql::fetch(ctx, &return_certificates(), sql::Params::new()).await?;
+    let model_frames = sql::fetch(ctx, &model_frames(), sql::Params::new()).await?;
+    let source_bindings =
+        sql::fetch(ctx, &admitted_source_call_bindings(), sql::Params::new()).await?;
+    let source_calls = sql::fetch(ctx, &source_call_normals(), sql::Params::new()).await?;
+    let mut result = lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
+        source_bindings,
+        source_calls,
+        model_frames,
+        modeled_identities,
+        diagrams,
+        boundaries,
+        pass_steps,
+        entries,
+        entry_steps,
+        components,
+        context_sites,
+        return_certificates,
+        context_identities,
+        context_arguments,
+        direct_seeds,
+        modeled_seeds,
+        chain_arguments,
+        evaluations,
+        assignment_seeds,
+        local_seeds,
+        local_arguments,
+        local_value_links,
+        local_bindings,
+        boundary_candidates,
+        identities,
     });
     // Require the published premise, not a root available only in raw provider conditions.
-    let statements=sql::fetch(ctx,&completion_outcomes(),
-        sql::Params::new().ids("entry_condition",[Diagram::always().id()])).await?;
-    result.coverage.extend(lctx_analytics::completion::coverage(&statements));
+    let statements = sql::fetch(
+        ctx,
+        &completion_outcomes(),
+        sql::Params::new().ids("entry_condition", [Diagram::always().id()]),
+    )
+    .await?;
+    result
+        .coverage
+        .extend(lctx_analytics::completion::coverage(&statements));
     Ok(result)
 }
 
 /// Mechanical acquisition for the independent source identity proof.
-async fn source_value_identities(ctx: &SessionContext,seeds:&[ModeledSummaryFlowSeed],evaluations:&[cpg_schema::behavior::ModeledArgumentEvaluationsRow])
-    -> Result<(Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>,Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>), CoreError> {
+async fn source_value_identities(
+    ctx: &SessionContext,
+    seeds: &[ModeledSummaryFlowSeed],
+    evaluations: &[cpg_schema::behavior::ModeledArgumentEvaluationsRow],
+) -> Result<
+    (
+        Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>,
+        Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
+        Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
+    ),
+    CoreError,
+> {
     let contributions = sql::fetch(ctx, &identity_contributions(), sql::Params::new()).await?;
-    if contributions.is_empty() { return Ok((Vec::new(),Vec::new(),Vec::new())); }
+    if contributions.is_empty() {
+        return Ok((Vec::new(), Vec::new(), Vec::new()));
+    }
     let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
     let parameters = sql::fetch(ctx, &completion_parameters(), sql::Params::new()).await?;
     let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
@@ -313,51 +398,103 @@ async fn source_value_identities(ctx: &SessionContext,seeds:&[ModeledSummaryFlow
     let resolutions = sql::fetch(ctx, &binding_resolutions(), sql::Params::new()).await?;
     let values = sql::fetch(ctx, &identity_values(), sql::Params::new()).await?;
     let exits = sql::fetch(ctx, &completion_exits(), sql::Params::new()).await?;
-    let sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
-    let arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
-    let protocols=sql::fetch(ctx,&context_protocols(),sql::Params::new()).await?;
-    let context_identities=lctx_analytics::context_value::prove(lctx_analytics::context_value::Inputs {
-        declarations:&declarations,parameters:&parameters,syntax:&syntax,bindings:&bindings,scopes:&scopes,
-        references:&references,resolutions:&resolutions,values:&values,contributions:&contributions,exits:&exits,
-        sites:&sites,arguments:&arguments,protocols:&protocols,
-    });
-    let identities=lctx_analytics::parameter_identity::prove(lctx_analytics::parameter_identity::Inputs {
-        declarations: &declarations, parameters: &parameters, syntax: &syntax,
-        bindings: &bindings, scopes: &scopes, references: &references, resolutions: &resolutions,
-        values: &values, contributions: &contributions, exits: &exits,
-    });
-    let calls=sql::fetch(ctx,&context_calls(),sql::Params::new()).await?;
-    let call_arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
-    let modeled_identities=lctx_analytics::modeled_identity::prove(lctx_analytics::modeled_identity::Inputs {
-        declarations:&declarations,parameters:&parameters,syntax:&syntax,bindings:&bindings,scopes:&scopes,
-        references:&references,resolutions:&resolutions,values:&values,exits:&exits,calls:&calls,
-        arguments:&call_arguments,seeds,evaluations,
-    });
-    Ok((identities,context_identities,modeled_identities))
+    let sites = sql::fetch(ctx, &context_sites(), sql::Params::new()).await?;
+    let arguments = sql::fetch(ctx, &context_arguments(), sql::Params::new()).await?;
+    let protocols = sql::fetch(ctx, &context_protocols(), sql::Params::new()).await?;
+    let context_identities =
+        lctx_analytics::context_value::prove(lctx_analytics::context_value::Inputs {
+            declarations: &declarations,
+            parameters: &parameters,
+            syntax: &syntax,
+            bindings: &bindings,
+            scopes: &scopes,
+            references: &references,
+            resolutions: &resolutions,
+            values: &values,
+            contributions: &contributions,
+            exits: &exits,
+            sites: &sites,
+            arguments: &arguments,
+            protocols: &protocols,
+        });
+    let identities =
+        lctx_analytics::parameter_identity::prove(lctx_analytics::parameter_identity::Inputs {
+            declarations: &declarations,
+            parameters: &parameters,
+            syntax: &syntax,
+            bindings: &bindings,
+            scopes: &scopes,
+            references: &references,
+            resolutions: &resolutions,
+            values: &values,
+            contributions: &contributions,
+            exits: &exits,
+        });
+    let calls = sql::fetch(ctx, &context_calls(), sql::Params::new()).await?;
+    let call_arguments = sql::fetch(ctx, &expression_call_arguments(), sql::Params::new()).await?;
+    let modeled_identities =
+        lctx_analytics::modeled_identity::prove(lctx_analytics::modeled_identity::Inputs {
+            declarations: &declarations,
+            parameters: &parameters,
+            syntax: &syntax,
+            bindings: &bindings,
+            scopes: &scopes,
+            references: &references,
+            resolutions: &resolutions,
+            values: &values,
+            exits: &exits,
+            calls: &calls,
+            arguments: &call_arguments,
+            seeds,
+            evaluations,
+        });
+    Ok((identities, context_identities, modeled_identities))
 }
 
-async fn source_call_bindings(ctx:&SessionContext,seeds:&[LocalCallSummaryFlowSeed],mappings:&[LocalCallArgument])
-    -> Result<Vec<lctx_analytics::call_binding::SourceCallBinding>,CoreError> {
-    if seeds.is_empty() {return Ok(Vec::new());}
-    let requests:Vec<_>=seeds.iter().map(|s|lctx_analytics::call_binding::Request {
-        snapshot:s.snapshot_id,caller:s.function_node_id,call_node:s.call_site_node_id,
-        call_fact:s.call_fact_id,callee:s.callee_node_id,
-    }).collect();
-    let syntax=sql::fetch(ctx,&expression_syntax(),sql::Params::new()).await?;
-    let declarations=sql::fetch(ctx,&completion_declarations(),sql::Params::new()).await?;
-    let parameters=sql::fetch(ctx,&completion_parameters(),sql::Params::new()).await?;
-    let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
-    let bindings=sql::fetch(ctx,&completion_bindings(),sql::Params::new()).await?;
-    let references=sql::fetch(ctx,&binding_references(),sql::Params::new()).await?;
-    let resolutions=sql::fetch(ctx,&binding_resolutions(),sql::Params::new()).await?;
-    let statements=sql::fetch(ctx,&binding_statements(),sql::Params::new()).await?;
-    let statement_steps=sql::fetch(ctx,&binding_statement_steps(),sql::Params::new()).await?;
-    let expressions=sql::fetch(ctx,&completion_expressions(),sql::Params::new()).await?;
-    Ok(lctx_analytics::call_binding::bind(lctx_analytics::call_binding::Inputs {
-        requests:&requests,mappings,syntax:&syntax,declarations:&declarations,parameters:&parameters,
-        arguments:&arguments,bindings:&bindings,references:&references,resolutions:&resolutions,
-        statements:&statements,statement_steps:&statement_steps,expressions:&expressions,
-    }))
+async fn source_call_bindings(
+    ctx: &SessionContext,
+    seeds: &[LocalCallSummaryFlowSeed],
+    mappings: &[LocalCallArgument],
+) -> Result<Vec<lctx_analytics::call_binding::SourceCallBinding>, CoreError> {
+    if seeds.is_empty() {
+        return Ok(Vec::new());
+    }
+    let requests: Vec<_> = seeds
+        .iter()
+        .map(|s| lctx_analytics::call_binding::Request {
+            snapshot: s.snapshot_id,
+            caller: s.function_node_id,
+            call_node: s.call_site_node_id,
+            call_fact: s.call_fact_id,
+            callee: s.callee_node_id,
+        })
+        .collect();
+    let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
+    let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
+    let parameters = sql::fetch(ctx, &completion_parameters(), sql::Params::new()).await?;
+    let arguments = sql::fetch(ctx, &expression_call_arguments(), sql::Params::new()).await?;
+    let bindings = sql::fetch(ctx, &completion_bindings(), sql::Params::new()).await?;
+    let references = sql::fetch(ctx, &binding_references(), sql::Params::new()).await?;
+    let resolutions = sql::fetch(ctx, &binding_resolutions(), sql::Params::new()).await?;
+    let statements = sql::fetch(ctx, &binding_statements(), sql::Params::new()).await?;
+    let statement_steps = sql::fetch(ctx, &binding_statement_steps(), sql::Params::new()).await?;
+    let expressions = sql::fetch(ctx, &completion_expressions(), sql::Params::new()).await?;
+    Ok(lctx_analytics::call_binding::bind(
+        lctx_analytics::call_binding::Inputs {
+            requests: &requests,
+            mappings,
+            syntax: &syntax,
+            declarations: &declarations,
+            parameters: &parameters,
+            arguments: &arguments,
+            bindings: &bindings,
+            references: &references,
+            resolutions: &resolutions,
+            statements: &statements,
+            statement_steps: &statement_steps,
+            expressions: &expressions,
+        },
+    ))
 }
 
 async fn load_conditions(
@@ -389,9 +526,11 @@ async fn load_conditions(
         })
         .collect();
     let mut boundaries = HashMap::new();
-    let classify = |code: &str| KernelBoundary::from_code(code)
-        .map(lctx_analytics::summaries::finite::condition_limit)
-        .unwrap_or(BoundaryReason::MissingEvidence);
+    let classify = |code: &str| {
+        KernelBoundary::from_code(code)
+            .map(lctx_analytics::summaries::finite::condition_limit)
+            .unwrap_or(BoundaryReason::MissingEvidence)
+    };
     for root in &roots {
         if let Some(code) = root.boundary_reason.as_deref() {
             boundaries.insert(root.condition_id, classify(code));
@@ -427,7 +566,9 @@ async fn load_conditions(
 
 /// One source acquisition and pure staged preparation owns publication and reconstruction.
 /// Persisted expressions, source bodies and source-call certificates never feed this operator.
-pub async fn execution(ctx:&SessionContext)->Result<lctx_analytics::execution::Outcome,CoreError> {
+pub async fn execution(
+    ctx: &SessionContext,
+) -> Result<lctx_analytics::execution::Outcome, CoreError> {
     let nodes = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
     let reads = sql::fetch(ctx, &expression_reads(), sql::Params::new()).await?;
     let targets = sql::fetch(ctx, &pinned_call_targets(), sql::Params::new()).await?;
@@ -435,92 +576,176 @@ pub async fn execution(ctx:&SessionContext)->Result<lctx_analytics::execution::O
     let parameters = sql::fetch(ctx, &expression_parameters(), sql::Params::new()).await?;
     let transfers = sql::fetch(ctx, &expression_transfers(), sql::Params::new()).await?;
     let (diagrams, boundaries) = load_conditions(ctx).await?;
-    let unconditional_conditions: Vec<_> = diagrams.iter().filter(|(_, diagram)| diagram.is_true()).map(|(id, _)| *id).collect();
-    let references=sql::fetch(ctx,&binding_references(),sql::Params::new()).await?;
-    let resolutions=sql::fetch(ctx,&binding_resolutions(),sql::Params::new()).await?;
-    let context_protocols=sql::fetch(ctx,&context_protocols(),sql::Params::new()).await?;
-    let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
-    let context_arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
+    let unconditional_conditions: Vec<_> = diagrams
+        .iter()
+        .filter(|(_, diagram)| diagram.is_true())
+        .map(|(id, _)| *id)
+        .collect();
+    let references = sql::fetch(ctx, &binding_references(), sql::Params::new()).await?;
+    let resolutions = sql::fetch(ctx, &binding_resolutions(), sql::Params::new()).await?;
+    let context_protocols = sql::fetch(ctx, &context_protocols(), sql::Params::new()).await?;
+    let context_sites = sql::fetch(ctx, &context_sites(), sql::Params::new()).await?;
+    let context_arguments = sql::fetch(ctx, &context_arguments(), sql::Params::new()).await?;
     let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
     let source_parameters = sql::fetch(ctx, &completion_parameters(), sql::Params::new()).await?;
     let bindings = sql::fetch(ctx, &completion_bindings(), sql::Params::new()).await?;
     let scopes = sql::fetch(ctx, &completion_scopes(), sql::Params::new()).await?;
     let exits = sql::fetch(ctx, &completion_exits(), sql::Params::new()).await?;
-    let handler_types = sql::fetch(ctx,&completion_handler_types(),sql::Params::new()).await?;
-    let classes = sql::fetch(ctx,&completion_classes(),sql::Params::new()).await?;
-    let mro = sql::fetch(ctx,&completion_mro(),sql::Params::new()).await?;
-    let modules = sql::fetch(ctx,&completion_modules(),sql::Params::new()).await?;
+    let handler_types = sql::fetch(ctx, &completion_handler_types(), sql::Params::new()).await?;
+    let classes = sql::fetch(ctx, &completion_classes(), sql::Params::new()).await?;
+    let mro = sql::fetch(ctx, &completion_mro(), sql::Params::new()).await?;
+    let modules = sql::fetch(ctx, &completion_modules(), sql::Params::new()).await?;
     let tests = sql::fetch(ctx, &completion_tests(), sql::Params::new()).await?;
-    let requests:Vec<EntryCondition> = sql::fetch(ctx,&completion_entry_conditions(),sql::Params::new()).await?;
-    let entry_conditions:Vec<_>=requests.iter().map(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id)).collect();
-    let calls=sql::fetch(ctx,&context_calls(),sql::Params::new()).await?;
-    let targets_source=sql::fetch(ctx,&source_call_targets(),sql::Params::new()).await?;
-    let resolutions_source=sql::fetch(ctx,&source_call_resolutions(),sql::Params::new()).await?;
-    let providers=sql::fetch(ctx,&context_provider_calls(),sql::Params::new()).await?;
-    let functions=sql::fetch(ctx,&source_call_functions(),sql::Params::new()).await?;
-    let node_map=sql::fetch(ctx,&source_call_node_map(),sql::Params::new()).await?;
-    let parameters_source=sql::fetch(ctx,&source_call_parameters(),sql::Params::new()).await?;
-    Ok(lctx_analytics::execution::prepare(lctx_analytics::evaluation::EvaluationInputs {
-        syntax:&nodes,reads:&reads,targets:&targets,call_arguments:&call_arguments,
-        parameters:&parameters,transfers:&transfers,unconditional_conditions:&unconditional_conditions,
-        ..Default::default()
-    },lctx_analytics::completion::Inputs {
-        model_frames:&[],source_bindings:&[],source_calls:&[],references:&references,resolutions:&resolutions,invocations:&[],
-        context_protocols:&context_protocols,context_sites:&context_sites,context_arguments:&context_arguments,
-        declarations:&declarations,parameters:&source_parameters,syntax:&nodes,expressions:&[],expression_steps:&[],
-        bindings:&bindings,scopes:&scopes,exits:&exits,handler_types:&handler_types,classes:&classes,mro:&mro,
-        modules:&modules,tests:&tests,diagrams:&diagrams,boundaries:&boundaries,entry_conditions:&entry_conditions,
-    },lctx_analytics::source_call::Targets {arguments:&call_arguments,calls:&calls,targets:&targets_source,resolutions:&resolutions_source,
-        providers:&providers,functions:&functions,node_map:&node_map,parameters:&parameters_source}))
+    let requests: Vec<EntryCondition> =
+        sql::fetch(ctx, &completion_entry_conditions(), sql::Params::new()).await?;
+    let entry_conditions: Vec<_> = requests
+        .iter()
+        .map(|r| (r.snapshot_id, r.return_site_fact_id, r.condition_id))
+        .collect();
+    let calls = sql::fetch(ctx, &context_calls(), sql::Params::new()).await?;
+    let targets_source = sql::fetch(ctx, &source_call_targets(), sql::Params::new()).await?;
+    let resolutions_source =
+        sql::fetch(ctx, &source_call_resolutions(), sql::Params::new()).await?;
+    let providers = sql::fetch(ctx, &context_provider_calls(), sql::Params::new()).await?;
+    let functions = sql::fetch(ctx, &source_call_functions(), sql::Params::new()).await?;
+    let node_map = sql::fetch(ctx, &source_call_node_map(), sql::Params::new()).await?;
+    let parameters_source = sql::fetch(ctx, &source_call_parameters(), sql::Params::new()).await?;
+    Ok(lctx_analytics::execution::prepare(
+        lctx_analytics::evaluation::EvaluationInputs {
+            syntax: &nodes,
+            reads: &reads,
+            targets: &targets,
+            call_arguments: &call_arguments,
+            parameters: &parameters,
+            transfers: &transfers,
+            unconditional_conditions: &unconditional_conditions,
+            ..Default::default()
+        },
+        lctx_analytics::completion::Inputs {
+            model_frames: &[],
+            source_bindings: &[],
+            source_calls: &[],
+            references: &references,
+            resolutions: &resolutions,
+            invocations: &[],
+            context_protocols: &context_protocols,
+            context_sites: &context_sites,
+            context_arguments: &context_arguments,
+            declarations: &declarations,
+            parameters: &source_parameters,
+            syntax: &nodes,
+            expressions: &[],
+            expression_steps: &[],
+            bindings: &bindings,
+            scopes: &scopes,
+            exits: &exits,
+            handler_types: &handler_types,
+            classes: &classes,
+            mro: &mro,
+            modules: &modules,
+            tests: &tests,
+            diagrams: &diagrams,
+            boundaries: &boundaries,
+            entry_conditions: &entry_conditions,
+        },
+        lctx_analytics::source_call::Targets {
+            arguments: &call_arguments,
+            calls: &calls,
+            targets: &targets_source,
+            resolutions: &resolutions_source,
+            providers: &providers,
+            functions: &functions,
+            node_map: &node_map,
+            parameters: &parameters_source,
+        },
+    ))
 }
 
 /// Source admission and publication reconstruction use the same pure operator. No persisted
 /// site or completion result is an input to its own reconstruction.
-pub async fn source_contexts(ctx:&SessionContext)->Result<lctx_analytics::context_protocol::Outcome,CoreError> {
-    let protocols=sql::fetch(ctx,&context_protocols(),sql::Params::new()).await?;
-    let syntax=sql::fetch(ctx,&expression_syntax(),sql::Params::new()).await?;
-    let calls=sql::fetch(ctx,&context_calls(),sql::Params::new()).await?;
-    let provider_calls=sql::fetch(ctx,&context_provider_calls(),sql::Params::new()).await?;
-    let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
-    let declarations=sql::fetch(ctx,&completion_declarations(),sql::Params::new()).await?;
-    let definitions=sql::fetch(ctx,&completion_classes(),sql::Params::new()).await?;
-    let parameters=sql::fetch(ctx,&expression_parameters(),sql::Params::new()).await?;
-    let modules=sql::fetch(ctx,&completion_modules(),sql::Params::new()).await?;
-    let bindings=sql::fetch(ctx,&completion_bindings(),sql::Params::new()).await?;
-    let references=sql::fetch(ctx,&binding_references(),sql::Params::new()).await?;
-    let resolutions=sql::fetch(ctx,&binding_resolutions(),sql::Params::new()).await?;
-    let scopes=sql::fetch(ctx,&completion_scopes(),sql::Params::new()).await?;
-    let exports=sql::fetch(ctx,&context_exports(),sql::Params::new()).await?;
-    let regions=sql::fetch(ctx,&context_regions(),sql::Params::new()).await?;
-    let (diagrams,_)=load_conditions(ctx).await?;
-    let unconditional_conditions:Vec<_>=diagrams.iter().filter(|(_,d)|d.is_true()).map(|(id,_)|*id).collect();
-    Ok(lctx_analytics::context_protocol::admit(lctx_analytics::context_protocol::Inputs {
-        protocols:&protocols,syntax:&syntax,calls:&calls,provider_calls:&provider_calls,arguments:&arguments,
-        declarations:&declarations,definitions:&definitions,parameters:&parameters,modules:&modules,
-        bindings:&bindings,references:&references,resolutions:&resolutions,scopes:&scopes,exports:&exports,
-        regions:&regions,unconditional_conditions:&unconditional_conditions,
-    }))
+pub async fn source_contexts(
+    ctx: &SessionContext,
+) -> Result<lctx_analytics::context_protocol::Outcome, CoreError> {
+    let protocols = sql::fetch(ctx, &context_protocols(), sql::Params::new()).await?;
+    let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
+    let calls = sql::fetch(ctx, &context_calls(), sql::Params::new()).await?;
+    let provider_calls = sql::fetch(ctx, &context_provider_calls(), sql::Params::new()).await?;
+    let arguments = sql::fetch(ctx, &expression_call_arguments(), sql::Params::new()).await?;
+    let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
+    let definitions = sql::fetch(ctx, &completion_classes(), sql::Params::new()).await?;
+    let parameters = sql::fetch(ctx, &expression_parameters(), sql::Params::new()).await?;
+    let modules = sql::fetch(ctx, &completion_modules(), sql::Params::new()).await?;
+    let bindings = sql::fetch(ctx, &completion_bindings(), sql::Params::new()).await?;
+    let references = sql::fetch(ctx, &binding_references(), sql::Params::new()).await?;
+    let resolutions = sql::fetch(ctx, &binding_resolutions(), sql::Params::new()).await?;
+    let scopes = sql::fetch(ctx, &completion_scopes(), sql::Params::new()).await?;
+    let exports = sql::fetch(ctx, &context_exports(), sql::Params::new()).await?;
+    let regions = sql::fetch(ctx, &context_regions(), sql::Params::new()).await?;
+    let (diagrams, _) = load_conditions(ctx).await?;
+    let unconditional_conditions: Vec<_> = diagrams
+        .iter()
+        .filter(|(_, d)| d.is_true())
+        .map(|(id, _)| *id)
+        .collect();
+    Ok(lctx_analytics::context_protocol::admit(
+        lctx_analytics::context_protocol::Inputs {
+            protocols: &protocols,
+            syntax: &syntax,
+            calls: &calls,
+            provider_calls: &provider_calls,
+            arguments: &arguments,
+            declarations: &declarations,
+            definitions: &definitions,
+            parameters: &parameters,
+            modules: &modules,
+            bindings: &bindings,
+            references: &references,
+            resolutions: &resolutions,
+            scopes: &scopes,
+            exports: &exports,
+            regions: &regions,
+            unconditional_conditions: &unconditional_conditions,
+        },
+    ))
 }
 
 /// Acquire already-owned candidates and independent execution/outcome proofs; no action
 /// meaning or timing policy lives in orchestration.
-pub async fn action_assessments(ctx:&SessionContext)->Result<lctx_analytics::actions::Outcome,CoreError> {
-    let source_bindings=sql::fetch(ctx,&admitted_source_call_bindings(),sql::Params::new()).await?;
-    let source_calls=sql::fetch(ctx,&source_call_normals(),sql::Params::new()).await?;
-    let frames=sql::fetch(ctx,&model_frames(),sql::Params::new()).await?;
-    let frame_arguments=sql::fetch(ctx,&model_frame_arguments(),sql::Params::new()).await?;
-    let bindings=sql::fetch(ctx,&action_bindings(),sql::Params::new()).await?;
-    let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
-    let effects=sql::fetch(ctx,&action_candidates_effect(),sql::Params::new()).await?;
-    let callbacks=sql::fetch(ctx,&action_candidates_callback(),sql::Params::new()).await?;
-    let resources=sql::fetch(ctx,&action_candidates_resource(),sql::Params::new()).await?;
-    let applications=sql::fetch(ctx,&action_applications(),sql::Params::new()).await?;
-    let executions=sql::fetch(ctx,&action_executions(),sql::Params::new()).await?;
-    let execution_steps=sql::fetch(ctx,&action_execution_steps(),sql::Params::new()).await?;
-    let expressions=sql::fetch(ctx,&completion_expressions(),sql::Params::new()).await?;
-    let expression_steps=sql::fetch(ctx,&completion_expression_steps(),sql::Params::new()).await?;
-    Ok(lctx_analytics::actions::assess(lctx_analytics::actions::Inputs {source_bindings:&source_bindings,source_calls:&source_calls,
-        frames:&frames,frame_arguments:&frame_arguments,bindings:&bindings,arguments:&arguments,effects:&effects,callbacks:&callbacks,resources:&resources,applications:&applications,
-        executions:&executions,execution_steps:&execution_steps,expressions:&expressions,expression_steps:&expression_steps,
-    }))
+pub async fn action_assessments(
+    ctx: &SessionContext,
+) -> Result<lctx_analytics::actions::Outcome, CoreError> {
+    let source_bindings =
+        sql::fetch(ctx, &admitted_source_call_bindings(), sql::Params::new()).await?;
+    let source_calls = sql::fetch(ctx, &source_call_normals(), sql::Params::new()).await?;
+    let frames = sql::fetch(ctx, &model_frames(), sql::Params::new()).await?;
+    let frame_arguments = sql::fetch(ctx, &model_frame_arguments(), sql::Params::new()).await?;
+    let bindings = sql::fetch(ctx, &action_bindings(), sql::Params::new()).await?;
+    let arguments = sql::fetch(ctx, &expression_call_arguments(), sql::Params::new()).await?;
+    let effects = sql::fetch(ctx, &action_candidates_effect(), sql::Params::new()).await?;
+    let callbacks = sql::fetch(ctx, &action_candidates_callback(), sql::Params::new()).await?;
+    let resources = sql::fetch(ctx, &action_candidates_resource(), sql::Params::new()).await?;
+    let applications = sql::fetch(ctx, &action_applications(), sql::Params::new()).await?;
+    let executions = sql::fetch(ctx, &action_executions(), sql::Params::new()).await?;
+    let execution_steps = sql::fetch(ctx, &action_execution_steps(), sql::Params::new()).await?;
+    let expressions = sql::fetch(ctx, &completion_expressions(), sql::Params::new()).await?;
+    let expression_steps =
+        sql::fetch(ctx, &completion_expression_steps(), sql::Params::new()).await?;
+    Ok(lctx_analytics::actions::assess(
+        lctx_analytics::actions::Inputs {
+            source_bindings: &source_bindings,
+            source_calls: &source_calls,
+            frames: &frames,
+            frame_arguments: &frame_arguments,
+            bindings: &bindings,
+            arguments: &arguments,
+            effects: &effects,
+            callbacks: &callbacks,
+            resources: &resources,
+            applications: &applications,
+            executions: &executions,
+            execution_steps: &execution_steps,
+            expressions: &expressions,
+            expression_steps: &expression_steps,
+        },
+    ))
 }

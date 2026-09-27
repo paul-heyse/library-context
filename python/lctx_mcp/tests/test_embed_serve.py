@@ -18,8 +18,14 @@ def test_launch_tracks_hashed_model_and_tokenizer_revisions() -> None:
     assert command[command.index("--served-model-name") + 1] == spec["model"]
     assert command[-2:] == ["--port", "8123"]
 
-    changed = spec | {"revision": "another-model-revision", "tokenizer_revision": "another-tokenizer"}
+    changed = spec | {
+        "revision": "another-model-revision",
+        "tokenizer_revision": "another-tokenizer",
+    }
     changed_command = launch(changed, 8123)
     assert changed_command != command
     assert changed_command[changed_command.index("--revision") + 1] == changed["revision"]
-    assert changed_command[changed_command.index("--tokenizer-revision") + 1] == changed["tokenizer_revision"]
+    assert (
+        changed_command[changed_command.index("--tokenizer-revision") + 1]
+        == changed["tokenizer_revision"]
+    )

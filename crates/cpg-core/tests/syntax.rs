@@ -761,11 +761,10 @@ fn a_glob_that_selects_nothing_is_refused() {
     assert!(err.contains("selects nothing"), "{err}");
 }
 
-/// A fetched tree is read without following links (H1 C2): a symlink a glob selects is refused,
-/// naming it, and so is a directory link that could hold a selection; a link an exclude covers is
-/// neither followed nor refused, so a loop there is harmless. A source tree refuses any link.
+/// Corpus imports can read unselected helpers. Directory/Python links are refused even when
+/// selection excludes them; excluded non-Python document links remain harmless.
 #[test]
-fn symlinks_in_a_tree_are_refused_unless_excluded() {
+fn symlinks_in_corpus_imports_are_refused_even_when_unselected() {
     use std::os::unix::fs::symlink;
     let dir = tempfile::tempdir().unwrap();
     let input = corpus_input(dir.path(), Id([7; 16]), &[]);
@@ -795,15 +794,28 @@ fn symlinks_in_a_tree_are_refused_unless_excluded() {
         .to_string();
     assert!(err.contains("symlink docs/more"), "{err}");
     std::fs::remove_file(tree.join("docs/more")).unwrap();
-    // A link under the tests is refused, unless `tests_exclude` covers it.
+    // A directory link can supply imports even when tests_exclude covers its selection.
     symlink(dir.path(), tree.join("tests/fixtures")).unwrap();
     assert!(corpus().unwrap_err().contains("symlink tests/fixtures"));
     let mut excluded = source();
     excluded.tests_exclude.push("tests/fixtures/**".to_owned());
-    cpg_extract::library::corpus(&tree, &excluded, &input).unwrap();
+    assert!(
+        cpg_extract::library::corpus(&tree, &excluded, &input)
+            .map(|_| ())
+            .unwrap_err()
+            .to_string()
+            .contains("analyzer-readable symlink tests/fixtures")
+    );
     std::fs::remove_file(tree.join("tests/fixtures")).unwrap();
-    symlink(&tree, tree.join("docs/old/loop")).unwrap();
+    symlink(&outside, tree.join("docs/old/ignored.mdx")).unwrap();
     corpus().unwrap();
+    std::fs::remove_file(tree.join("docs/old/ignored.mdx")).unwrap();
+    symlink(&tree, tree.join("docs/old/loop")).unwrap();
+    assert!(
+        corpus()
+            .unwrap_err()
+            .contains("analyzer-readable symlink docs/old/loop")
+    );
     let err = cpg_extract::Release::from_tree(tree.clone(), "t")
         .unwrap_err()
         .to_string();
@@ -1770,16 +1782,22 @@ async fn all_techniques_guard() {
     // direct BDD producer, structural condition IDs and flow schema (version 24), then the
     // attributed test-use/type trace relation (version 25), then the direct entry-value proof
     // relation and its effect rule (compiler output version 17), then Stage 3's additional
-    // condition, model, exit and finite-summary analysis tables (output version 74).
-    const GUARD: &str = "fd5363958e64a6e89f865a42f075ac0f3f8b10ea17dd65f3ea99aa912f0b7f91";
+    // condition, model, exit and finite-summary analysis tables (output version 74), then the
+    // typed RCA/Pass C, origin coverage, model/default/action/frame and source-invocation
+    // migrations through the compiler101 checkpoint (ADR-0058/0060–0063), then compiler102's
+    // signature-observation query: behavior::digest includes the query, so the behavior scan
+    // invocation identity changes even where a fixture has no duplicate external signatures.
+    const GUARD: &str = "48610f82e966f70d43103c93794d8f7c88718543bff7d204960028d29c05cb36";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn typed_handoff_pair_support_survives_serving_without_becoming_a_call_chain() {
-    let (ctx,dir)=docs_shapes_analyzed("typed_handoff",false).await;
-    let generation=cpg_core::bundle::build(&ctx,&dir.path().join("generations")).await.unwrap();
-    let script=r#"
+    let (ctx, dir) = docs_shapes_analyzed("typed_handoff", false).await;
+    let generation = cpg_core::bundle::build(&ctx, &dir.path().join("generations"))
+        .await
+        .unwrap();
+    let script = r#"
 import sys
 from pathlib import Path
 import pyarrow as pa
@@ -1828,25 +1846,81 @@ for fields in (('other_fact_id',), ('other_edge_id', 'other_fact_id', 'other_fac
     else:
         raise AssertionError(('missing handoff evidence admitted', fields))
 "#;
-    let output=std::process::Command::new("uv").args(["run","--no-sync","python","-c",script,generation.dir.to_str().unwrap()])
-        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
-    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    let output = std::process::Command::new("uv")
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "-c",
+            script,
+            generation.dir.to_str().unwrap(),
+        ])
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     // An orphan member cannot silently remove a retained pair's evidence obligation.
-    let members=sql::query(&ctx,"SELECT * FROM finding_members").await.unwrap().into_view();
-    let forged=sql::query(&ctx,&format!("SELECT * FROM finding_members WHERE NOT (role={} AND ordinal=2)",cpg_schema::codebook::MemberRole::ConsumerSite.code())).await.unwrap().into_view();
-    ctx.deregister_table("finding_members").unwrap();ctx.register_table("finding_members",forged).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="semantic:handoff-member-shape"),"{violations:?}");
-    ctx.deregister_table("finding_members").unwrap();ctx.register_table("finding_members",members).unwrap();
+    let members = sql::query(&ctx, "SELECT * FROM finding_members")
+        .await
+        .unwrap()
+        .into_view();
+    let forged = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * FROM finding_members WHERE NOT (role={} AND ordinal=2)",
+            cpg_schema::codebook::MemberRole::ConsumerSite.code()
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("finding_members").unwrap();
+    ctx.register_table("finding_members", forged).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:handoff-member-shape"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("finding_members").unwrap();
+    ctx.register_table("finding_members", members).unwrap();
     // Removing one retained pair must fail publication even when its other pairs survive.
-    let required=cpg_schema::concept_attributes::handoff_support_requirements_sql();
-    let chosen=format!("WITH required AS ({required}), multiple AS (SELECT finding_id FROM required \
+    let required = cpg_schema::concept_attributes::handoff_support_requirements_sql();
+    let chosen = format!(
+        "WITH required AS ({required}), multiple AS (SELECT finding_id FROM required \
         GROUP BY finding_id HAVING count(*)>1) SELECT r.site_node_id,r.other_site_node_id \
-        FROM required r JOIN multiple m ON m.finding_id=r.finding_id ORDER BY r.site_node_id,r.other_site_node_id LIMIT 1");
-    assert_eq!(batches(&ctx,&chosen).await.iter().map(RecordBatch::num_rows).sum::<usize>(),1);
-    let view=sql::query(&ctx,&format!("SELECT i.* FROM concept_incidences i LEFT ANTI JOIN ({chosen}) r \
-        ON i.site_node_id=r.site_node_id AND i.other_site_node_id=r.other_site_node_id")).await.unwrap().into_view();
-    ctx.deregister_table("concept_incidences").unwrap();ctx.register_table("concept_incidences",view).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="semantic:handoff-pair-incidence"),"{violations:?}");
+        FROM required r JOIN multiple m ON m.finding_id=r.finding_id ORDER BY r.site_node_id,r.other_site_node_id LIMIT 1"
+    );
+    assert_eq!(
+        batches(&ctx, &chosen)
+            .await
+            .iter()
+            .map(RecordBatch::num_rows)
+            .sum::<usize>(),
+        1
+    );
+    let view = sql::query(
+        &ctx,
+        &format!(
+            "SELECT i.* FROM concept_incidences i LEFT ANTI JOIN ({chosen}) r \
+        ON i.site_node_id=r.site_node_id AND i.other_site_node_id=r.other_site_node_id"
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    ctx.deregister_table("concept_incidences").unwrap();
+    ctx.register_table("concept_incidences", view).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "semantic:handoff-pair-incidence"),
+        "{violations:?}"
+    );
 }

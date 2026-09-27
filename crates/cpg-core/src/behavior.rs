@@ -23,8 +23,8 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     AnalyticMethod, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
-    EmbeddingView, ExtractionMode, FindingKind, FlowSink, MemberRole, Modality, OperationFacet,
-    FlowTransfer, ValueClass, Verdict,
+    EmbeddingView, ExtractionMode, FindingKind, FlowSink, FlowTransfer, MemberRole, Modality,
+    OperationFacet, ValueClass, Verdict,
 };
 use cpg_schema::condition_kernel::{BoundedCondition as ModelCondition, KernelBoundary};
 use cpg_schema::findings::{
@@ -216,16 +216,15 @@ fn v2_flows(
             let mut row = r.clone();
             row.source_parameter_node_id = Some(p);
             row.alias_name = None;
-            let follows = v.identity && !v.captured && !v.approximated && exact_condition(v.condition_id);
+            let follows =
+                v.identity && !v.captured && !v.approximated && exact_condition(v.condition_id);
             row.value_class = if follows {
                 ValueClass::Parameter
             } else {
                 ValueClass::Other
             };
             row.conditional = follows && condition.is_some();
-            if follows
-                && let Some(c) = condition
-            {
+            if follows && let Some(c) = condition {
                 conditions.insert((r.call_site_node_id, r.formal_node_id, p), c);
             }
             if emitted.insert((p, row.value_class)) {
@@ -317,14 +316,20 @@ pub async fn run(
         let c = normal_path_model(&guards, function, c, None);
         (!c.is_always()).then(|| c.encode())
     };
-    let exact_condition = |id: Id| flow.condition_models.get(&id)
-        .is_some_and(|condition| condition.diagram().is_ok() && !condition.approximated()
-            && !condition.is_never());
+    let exact_condition = |id: Id| {
+        flow.condition_models.get(&id).is_some_and(|condition| {
+            condition.diagram().is_ok() && !condition.approximated() && !condition.is_never()
+        })
+    };
     // Raw provider call/read rows remain evidence. Only an exact false runtime condition
     // excludes a derived claim; missing and bounded conditions remain open alternatives.
-    let feasible_call = |site: Id| !flow.call_condition_ids.get(&site)
-        .and_then(|id| flow.condition_models.get(id))
-        .is_some_and(ModelCondition::is_never);
+    let feasible_call = |site: Id| {
+        !flow
+            .call_condition_ids
+            .get(&site)
+            .and_then(|id| flow.condition_models.get(id))
+            .is_some_and(ModelCondition::is_never)
+    };
     let (flow_rows, read_rows, hop_conditions) = v2_flows(
         &out.argument_flows,
         &out.parameter_reads,
@@ -373,8 +378,11 @@ pub async fn run(
     };
     for &op in &callables {
         if flow.decorated.contains(&op) {
-            meet(op, BoundaryReason::OutsideProviderModel,
-                "a decorator may replace the callable binding".to_owned());
+            meet(
+                op,
+                BoundaryReason::OutsideProviderModel,
+                "a decorator may replace the callable binding".to_owned(),
+            );
         }
     }
     // The reads each (callable, formal) makes: a frontier state with any is a depth cut.
@@ -621,7 +629,9 @@ pub async fn run(
                 occurrences: 1,
                 invocation_id: Some(invocation_id),
             };
-            if row.transfer.is_some() { row.behavior_id = b::flow_behavior_id(&row); }
+            if row.transfer.is_some() {
+                row.behavior_id = b::flow_behavior_id(&row);
+            }
             hops.insert(row.behavior_id, path);
             out.behaviors.push(row);
         }
@@ -814,11 +824,20 @@ pub async fn run(
     for r in &out.argument_flows {
         release_targets
             .entry(r.argument_node_id)
-            .or_default().insert((r.target_node_id, r.formal_node_id, r.formal_name.clone(), r.modality));
+            .or_default()
+            .insert((
+                r.target_node_id,
+                r.formal_node_id,
+                r.formal_name.clone(),
+                r.modality,
+            ));
     }
-    let release_target: BTreeMap<_, _> = release_targets.into_iter()
-        .filter_map(|(argument, targets)| (targets.len() == 1)
-            .then(|| (argument, targets.into_iter().next().expect("one target"))))
+    let release_target: BTreeMap<_, _> = release_targets
+        .into_iter()
+        .filter_map(|(argument, targets)| {
+            (targets.len() == 1)
+                .then(|| (argument, targets.into_iter().next().expect("one target")))
+        })
         .collect();
     // A call site's one release callee, for an argument no formal receives (`*args`, `**kwargs`).
     let mut site_callees: BTreeMap<Id, BTreeSet<(Id, Modality)>> = BTreeMap::new();
@@ -905,7 +924,12 @@ pub async fn run(
                     .call_site_node_id
                     .and_then(|c| flow.callee_text.get(&c))
                     .cloned();
-                if v.identity && !v.captured && !v.approximated && exact_condition(v.condition_id) && target.is_some() {
+                if v.identity
+                    && !v.captured
+                    && !v.approximated
+                    && exact_condition(v.condition_id)
+                    && target.is_some()
+                {
                     // A release callee: Pass B's forward, with its condition.
                     continue;
                 }
@@ -1082,7 +1106,8 @@ pub async fn run(
             r.kind == BehaviorKind::Stores
                 && r.transfer == Some(FlowTransfer::Identity)
                 && r.verdict == Verdict::Established
-                && condition.is_always() && !condition.approximated()
+                && condition.is_always()
+                && !condition.approximated()
                 && !flow.decorated.contains(&r.operation_node_id)
         })
         .map(|(r, _, _)| r.clone())
@@ -1231,15 +1256,26 @@ pub async fn run(
             row.verdict = Verdict::Unknown;
             row.boundary_reason = Some(BoundaryReason::MissingEvidence);
         }
-        if row.depth == 1 && row.condition_scope_node_id == row.operation_node_id
+        if row.depth == 1
+            && row.condition_scope_node_id == row.operation_node_id
             && let (Some(site), Some(callee)) = (row.site_node_id, row.callee_node_id)
-            && let Some(delegation) = out.delegations.iter().find(|d|
-                d.caller_node_id == row.operation_node_id && d.call_site_node_id == site
-                    && d.target_node_id == callee)
+            && let Some(delegation) = out.delegations.iter().find(|d| {
+                d.caller_node_id == row.operation_node_id
+                    && d.call_site_node_id == site
+                    && d.target_node_id == callee
+            })
         {
-            hops.insert(row.behavior_id, vec![Hop { caller: row.operation_node_id,
-                call_site: site, callee, modality: delegation.modality,
-                conditional: row.conditional, condition: row.condition.clone() }]);
+            hops.insert(
+                row.behavior_id,
+                vec![Hop {
+                    caller: row.operation_node_id,
+                    call_site: site,
+                    callee,
+                    modality: delegation.modality,
+                    conditional: row.conditional,
+                    condition: row.condition.clone(),
+                }],
+            );
         }
         out.behaviors.push(row);
     }
@@ -1252,16 +1288,22 @@ pub async fn run(
             r.verdict = Verdict::Unknown;
             r.boundary_reason = Some(BoundaryReason::RuntimeUnreachable);
         }
-        let decorated_path = hops.get(&r.behavior_id).into_iter().flatten()
-            .any(|hop| flow.decorated.contains(&hop.caller) || flow.decorated.contains(&hop.callee));
+        let decorated_path = hops.get(&r.behavior_id).into_iter().flatten().any(|hop| {
+            flow.decorated.contains(&hop.caller) || flow.decorated.contains(&hop.callee)
+        });
         if flow.decorated.contains(&r.operation_node_id)
-            || flow.decorated.contains(&r.condition_scope_node_id) || decorated_path {
+            || flow.decorated.contains(&r.condition_scope_node_id)
+            || decorated_path
+        {
             if r.verdict != Verdict::Unknown {
                 r.verdict = Verdict::Unknown;
                 r.boundary_reason = Some(BoundaryReason::OutsideProviderModel);
             }
-            meet(r.operation_node_id, BoundaryReason::OutsideProviderModel,
-                "a decorator may replace the callable binding".to_owned());
+            meet(
+                r.operation_node_id,
+                BoundaryReason::OutsideProviderModel,
+                "a decorator may replace the callable binding".to_owned(),
+            );
         }
     }
     out.behaviors.sort_by_key(|r| r.behavior_id);
@@ -1482,7 +1524,9 @@ pub async fn run(
     let attributes = crate::analyze::collect_attributes(ctx, &callables).await?;
     let mut declared: BTreeMap<Id, Vec<(OperationFacet, String)>> = BTreeMap::new();
     for (node, attribute) in attributes {
-        let (facet,value)=attribute.facet().ok_or_else(||CoreError::Analysis("invalid declared attribute".into()))?;
+        let (facet, value) = attribute
+            .facet()
+            .ok_or_else(|| CoreError::Analysis("invalid declared attribute".into()))?;
         put(node, facet, value.to_owned(), Verdict::Established);
         declared
             .entry(node)

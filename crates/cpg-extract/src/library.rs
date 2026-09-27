@@ -672,9 +672,11 @@ pub fn corpus(
     // was not itself selected, so the helper's membership and bytes belong to release identity.
     // Refuse links that could supply Python modules rather than hashing the link's text while
     // the analyzer reads mutable content behind it.
-    if let Some((path, _)) = walked.symlinks.iter().find(|(path, is_dir)| {
-        *is_dir || analyzer_readable(path)
-    }) {
+    if let Some((path, _)) = walked
+        .symlinks
+        .iter()
+        .find(|(path, is_dir)| *is_dir || analyzer_readable(path))
+    {
         return Err(fail(format!(
             "the corpus import root contains an analyzer-readable symlink {path} in {}; \
              materialize it as regular files",
@@ -883,7 +885,10 @@ mod corpus_identity_tests {
             keep_pysa_json: false,
             test_hooks: TestHooks::default(),
         };
-        corpus(root, &source(), &library).unwrap().release.release_id
+        corpus(root, &source(), &library)
+            .unwrap()
+            .release
+            .release_id
     }
 
     #[test]
@@ -900,7 +905,11 @@ mod corpus_identity_tests {
         fs_err::write(a.path().join("helper.py"), "VALUE = 2\n").unwrap();
         assert_ne!(baseline, identity(a.path()), "helper edit was invisible");
         fs_err::write(b.path().join("other_helper.pyi"), "VALUE: int\n").unwrap();
-        assert_ne!(baseline, identity(b.path()), "helper addition was invisible");
+        assert_ne!(
+            baseline,
+            identity(b.path()),
+            "helper addition was invisible"
+        );
     }
 
     #[test]
@@ -912,10 +921,16 @@ mod corpus_identity_tests {
             fs_err::create_dir_all(release.join("pkg")).unwrap();
             fs_err::create_dir_all(tree.join("examples")).unwrap();
             fs_err::create_dir_all(&site).unwrap();
-            fs_err::write(release.join("pkg/__init__.py"),
-                "def api(value: object) -> object:\n    return value\n").unwrap();
-            fs_err::write(tree.join("examples/main.py"),
-                "from helper import transform\nresult = transform(1)\n").unwrap();
+            fs_err::write(
+                release.join("pkg/__init__.py"),
+                "def api(value: object) -> object:\n    return value\n",
+            )
+            .unwrap();
+            fs_err::write(
+                tree.join("examples/main.py"),
+                "from helper import transform\nresult = transform(1)\n",
+            )
+            .unwrap();
             fs_err::write(tree.join("helper.py"), helper).unwrap();
             let mut library = ExtractInput {
                 release: Release::from_tree(release.canonicalize().unwrap(), "pkg").unwrap(),
@@ -928,8 +943,8 @@ mod corpus_identity_tests {
                 keep_pysa_json: false,
                 test_hooks: TestHooks::default(),
             };
-            library.corpus = Some(corpus(&tree.canonicalize().unwrap(), &source(), &library)
-                .unwrap());
+            library.corpus =
+                Some(corpus(&tree.canonicalize().unwrap(), &source(), &library).unwrap());
             library
         }
 
@@ -943,33 +958,57 @@ mod corpus_identity_tests {
         let changed = extract(&changed_input).unwrap();
         let fresh_input = input(clean.path(), after);
         let fresh = extract(&fresh_input).unwrap();
-        assert_ne!(before_input.corpus.as_ref().unwrap().release.release_id,
+        assert_ne!(
+            before_input.corpus.as_ref().unwrap().release.release_id,
             changed_input.corpus.as_ref().unwrap().release.release_id,
-            "the helper edit kept the old corpus input identity");
-        assert_eq!(changed_input.corpus.as_ref().unwrap().release.release_id,
+            "the helper edit kept the old corpus input identity"
+        );
+        assert_eq!(
+            changed_input.corpus.as_ref().unwrap().release.release_id,
             fresh_input.corpus.as_ref().unwrap().release.release_id,
-            "relocation changed the edited corpus input identity");
-        assert_eq!(changed.tables, fresh.tables, "warm extraction differs from clean facts");
-        assert_ne!(first.table("type_observations"), changed.table("type_observations"),
-            "the helper signature edit did not change the selected example's type facts");
+            "relocation changed the edited corpus input identity"
+        );
+        assert_eq!(
+            changed.tables, fresh.tables,
+            "warm extraction differs from clean facts"
+        );
+        assert_ne!(
+            first.table("type_observations"),
+            changed.table("type_observations"),
+            "the helper signature edit did not change the selected example's type facts"
+        );
 
         let added_clean = tempfile::tempdir().unwrap();
         for root in [reused.path(), added_clean.path()] {
             fs_err::create_dir_all(root.join("corpus")).unwrap();
-            fs_err::write(root.join("corpus/extra_helper.pyi"),
-                "def optional(value: str) -> str: ...\n").unwrap();
+            fs_err::write(
+                root.join("corpus/extra_helper.pyi"),
+                "def optional(value: str) -> str: ...\n",
+            )
+            .unwrap();
         }
         let added_input = input(reused.path(), after);
         let added = extract(&added_input).unwrap();
         let added_fresh_input = input(added_clean.path(), after);
         let added_fresh = extract(&added_fresh_input).unwrap();
-        assert_ne!(changed_input.corpus.as_ref().unwrap().release.release_id,
+        assert_ne!(
+            changed_input.corpus.as_ref().unwrap().release.release_id,
             added_input.corpus.as_ref().unwrap().release.release_id,
-            "the added unselected helper kept the old corpus input identity");
-        assert_eq!(added_input.corpus.as_ref().unwrap().release.release_id,
-            added_fresh_input.corpus.as_ref().unwrap().release.release_id,
-            "relocation changed the added-helper corpus input identity");
-        assert_eq!(added.tables, added_fresh.tables,
-            "warm extraction after helper addition differs from clean facts");
+            "the added unselected helper kept the old corpus input identity"
+        );
+        assert_eq!(
+            added_input.corpus.as_ref().unwrap().release.release_id,
+            added_fresh_input
+                .corpus
+                .as_ref()
+                .unwrap()
+                .release
+                .release_id,
+            "relocation changed the added-helper corpus input identity"
+        );
+        assert_eq!(
+            added.tables, added_fresh.tables,
+            "warm extraction after helper addition differs from clean facts"
+        );
     }
 }

@@ -32,22 +32,22 @@ pub use cpg_schema::codebook::{BindingKind, FlowCallOperandRole, LexicalScopeKin
 use cpg_schema::condition::{Atom, EvaluationIdentity};
 pub use cpg_schema::condition_kernel::BoundedCondition as Condition;
 use cpg_schema::id::IdHasher;
+use ruff_db::Db as _;
 use ruff_db::files::system_path_to_file;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
 use ruff_db::system::{DbWithWritableSystem, SystemPathBuf};
-use ruff_db::Db as _;
 use ruff_python_ast_ty::token::TokenKind;
 use ruff_python_ast_ty::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
 use ruff_python_ast_ty::{self as ast, AnyNodeRef, Expr, ExprContext, PySourceType, Stmt};
 use ruff_text_size_ty::{Ranged, TextRange};
 use serde::{Deserialize, Serialize};
+use ty_module_resolver::SearchPathSettings;
 use ty_python_core::ast_ids::HasScopedUseId;
 use ty_python_core::definition::{Definition, DefinitionKind, DefinitionState};
 use ty_python_core::place::PlaceExpr;
+use ty_python_core::platform::PythonPlatform;
 use ty_python_core::predicate::PredicateNode;
 use ty_python_core::program::{FallibleStrategy, Program, ProgramSettings};
-use ty_python_core::platform::PythonPlatform;
-use ty_module_resolver::SearchPathSettings;
 use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
 use ty_python_core::scope::{NodeWithScopeKind, NodeWithScopeRef};
 use ty_python_core::{FileScopeId, ProgramFile, UseDefMap, semantic_index};
@@ -380,74 +380,6 @@ fn program_settings(db: &FlowDb, context: &RuntimeContext) -> ProgramSettings {
         .to_search_paths(db.system(), db.vendored(), &FallibleStrategy)
         .expect("the virtual flow root is valid");
     settings
-}
-
-#[cfg(test)]
-mod settings_tests {
-    use super::{BindingKind, FlowDb, Input, Program, RuntimeBindings, RuntimeContext, index, program_settings};
-    use ruff_db::system::DbWithWritableSystem;
-    use ty_module_resolver::{ModuleName, resolve_module_confident};
-
-    #[test]
-    fn virtual_import_root_and_python_version_affect_resolution() {
-        let mut db = FlowDb::new();
-        db.write_file("/flow/consumer.py", "import helper\n").unwrap();
-        db.write_file("/flow/helper.py", "VALUE = 1\n").unwrap();
-        let context = |minor| RuntimeContext {
-            python_version: (3, minor, 0),
-            platform: "linux".to_owned(),
-        };
-        let old = Program::from_settings(&db, &program_settings(&db, &context(8)));
-        let current = Program::from_settings(&db, &program_settings(&db, &context(14)));
-        let resolved = |program: Program<'_>, name| {
-            resolve_module_confident(
-                &db,
-                program.resolver_environment(&db),
-                &ModuleName::new(name).unwrap(),
-            )
-            .is_some()
-        };
-        assert!(resolved(current, "helper"));
-        assert!(!resolved(old, "tomllib"));
-        assert!(resolved(current, "tomllib"));
-    }
-
-    #[test]
-    fn package_submodule_definition_keeps_its_provider_kind() {
-        let source = "from pkg.child import Item\n";
-        let inputs = [
-            Input {
-                path: "pkg/__init__.py".to_owned(),
-                text: source.to_owned(),
-                runtime: RuntimeBindings::default(),
-            },
-            Input {
-                path: "pkg/child.py".to_owned(),
-                text: "class Item: pass\n".to_owned(),
-                runtime: RuntimeBindings::default(),
-            },
-        ];
-        let flows = index(
-            &inputs,
-            &RuntimeContext {
-                python_version: (3, 14, 0),
-                platform: "linux".to_owned(),
-            },
-        );
-        assert!(flows.iter().all(|flow| flow.error.is_none()), "{flows:?}");
-        let defs = &flows[0].defs;
-        assert!(defs.iter().any(|d| {
-            d.kind == BindingKind::ImportFromSubmodule
-                && d.place == "child"
-                // At ty 0.0.14 this variant's fallback range is the full module path.
-                && &source[d.target.start as usize..d.target.end as usize] == "pkg.child"
-        }), "{defs:?}");
-        assert!(defs.iter().any(|d| {
-            d.kind == BindingKind::FromImport
-                && d.place == "Item"
-                && &source[d.target.start as usize..d.target.end as usize] == "Item"
-        }), "{defs:?}");
-    }
 }
 
 fn module(
@@ -1348,5 +1280,83 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
             Expr::Generator(c) => self.generators(&c.generators),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::{
+        BindingKind, FlowDb, Input, Program, RuntimeBindings, RuntimeContext, index,
+        program_settings,
+    };
+    use ruff_db::system::DbWithWritableSystem;
+    use ty_module_resolver::{ModuleName, resolve_module_confident};
+
+    #[test]
+    fn virtual_import_root_and_python_version_affect_resolution() {
+        let mut db = FlowDb::new();
+        db.write_file("/flow/consumer.py", "import helper\n")
+            .unwrap();
+        db.write_file("/flow/helper.py", "VALUE = 1\n").unwrap();
+        let context = |minor| RuntimeContext {
+            python_version: (3, minor, 0),
+            platform: "linux".to_owned(),
+        };
+        let old = Program::from_settings(&db, &program_settings(&db, &context(8)));
+        let current = Program::from_settings(&db, &program_settings(&db, &context(14)));
+        let resolved = |program: Program<'_>, name| {
+            resolve_module_confident(
+                &db,
+                program.resolver_environment(&db),
+                &ModuleName::new(name).unwrap(),
+            )
+            .is_some()
+        };
+        assert!(resolved(current, "helper"));
+        assert!(!resolved(old, "tomllib"));
+        assert!(resolved(current, "tomllib"));
+    }
+
+    #[test]
+    fn package_submodule_definition_keeps_its_provider_kind() {
+        let source = "from pkg.child import Item\n";
+        let inputs = [
+            Input {
+                path: "pkg/__init__.py".to_owned(),
+                text: source.to_owned(),
+                runtime: RuntimeBindings::default(),
+            },
+            Input {
+                path: "pkg/child.py".to_owned(),
+                text: "class Item: pass\n".to_owned(),
+                runtime: RuntimeBindings::default(),
+            },
+        ];
+        let flows = index(
+            &inputs,
+            &RuntimeContext {
+                python_version: (3, 14, 0),
+                platform: "linux".to_owned(),
+            },
+        );
+        assert!(flows.iter().all(|flow| flow.error.is_none()), "{flows:?}");
+        let defs = &flows[0].defs;
+        assert!(
+            defs.iter().any(|d| {
+                d.kind == BindingKind::ImportFromSubmodule
+                && d.place == "child"
+                // At ty 0.0.14 this variant's fallback range is the full module path.
+                && &source[d.target.start as usize..d.target.end as usize] == "pkg.child"
+            }),
+            "{defs:?}"
+        );
+        assert!(
+            defs.iter().any(|d| {
+                d.kind == BindingKind::FromImport
+                    && d.place == "Item"
+                    && &source[d.target.start as usize..d.target.end as usize] == "Item"
+            }),
+            "{defs:?}"
+        );
     }
 }

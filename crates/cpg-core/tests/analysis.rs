@@ -1366,6 +1366,18 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             18,
             "2e8c9be4c961e42a4a860b3b08fc81b89d41fd0787ed9ba6d1eb86522bd40259",
         ),
+        // Typed RCA/Pass C and source/model completion/invocation migrations.
+        (
+            101,
+            20,
+            "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
+        ),
+        // Independent library/corpus reports agree on pinned signature slots.
+        (
+            102,
+            20,
+            "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -1428,6 +1440,11 @@ async fn the_analysis_rules_reject_their_violations() {
         "behavior_steps",
         "negative_premises",
         "conditions",
+        "bindings",
+        "value_flow_contributions",
+        "concept_attributes",
+        "concept_incidences",
+        "type_terms",
     ] {
         let published = ctx.table(table).await.unwrap();
         ctx.register_table(format!("{table}_published").as_str(), published.into_view())
@@ -1590,14 +1607,8 @@ async fn the_analysis_rules_reject_their_violations() {
             "behaviors",
             "SELECT * FROM behaviors_published \
              UNION ALL \
-             SELECT b.snapshot_id, b.operation_node_id AS behavior_id, c.node_id AS operation_node_id, \
-                    b.kind, b.parameter_node_id, b.parameter_name, b.callee_node_id, \
-                    b.target_node_id, b.target_name, b.value, b.depth, b.conditional, \
-                    CAST(2 AS SMALLINT) AS verdict, CAST(NULL AS SMALLINT) AS boundary_reason, \
-                    b.condition, b.callee_text, b.phase, b.premise_key, \
-                    b.site_node_id, b.site_module_node_id, \
-                    b.site_start_byte, b.site_end_byte, b.site_line, b.site_text, b.occurrences, \
-                    b.invocation_id \
+             SELECT b.* REPLACE (b.operation_node_id AS behavior_id, c.node_id AS operation_node_id, \
+                    CAST(2 AS SMALLINT) AS verdict, CAST(NULL AS SMALLINT) AS boundary_reason) \
              FROM (SELECT * FROM behaviors_published LIMIT 1) b \
              CROSS JOIN (SELECT min(node_id) AS node_id FROM operations_published \
                          WHERE behavior_status <> 0) c",
@@ -1609,11 +1620,7 @@ async fn the_analysis_rules_reject_their_violations() {
         (
             "semantic:condition-not-false",
             "behaviors",
-            "SELECT snapshot_id, behavior_id, operation_node_id, kind, parameter_node_id, \
-                    parameter_name, callee_node_id, target_node_id, target_name, value, depth, \
-                    conditional, verdict, boundary_reason, 'false' AS condition, callee_text, \
-                    phase, premise_key, site_node_id, site_module_node_id, site_start_byte, \
-                    site_end_byte, site_line, site_text, occurrences, invocation_id \
+            "SELECT * REPLACE ('false' AS condition) \
              FROM behaviors_published",
         ),
         (
@@ -1632,14 +1639,8 @@ async fn the_analysis_rules_reject_their_violations() {
             "behaviors",
             "SELECT * FROM behaviors_published \
              UNION ALL \
-             SELECT b.snapshot_id, b.behavior_id, m.node_id AS operation_node_id, \
-                    CAST(10 AS SMALLINT) AS kind, b.parameter_node_id, b.parameter_name, \
-                    b.callee_node_id, b.target_node_id, b.target_name, b.value, b.depth, \
-                    b.conditional, CAST(2 AS SMALLINT) AS verdict, \
-                    CAST(NULL AS SMALLINT) AS boundary_reason, b.condition, b.callee_text, \
-                    b.phase, b.premise_key, b.site_node_id, b.site_module_node_id, \
-                    b.site_start_byte, b.site_end_byte, b.site_line, b.site_text, b.occurrences, \
-                    b.invocation_id \
+             SELECT b.* REPLACE (m.node_id AS operation_node_id, CAST(10 AS SMALLINT) AS kind, \
+                    CAST(2 AS SMALLINT) AS verdict, CAST(NULL AS SMALLINT) AS boundary_reason) \
              FROM (SELECT * FROM behaviors_published LIMIT 1) b \
              CROSS JOIN (SELECT min(m.node_id) AS node_id FROM declarations m \
                          JOIN edges e ON e.edge_kind = 10 AND e.dst_node_id = m.parent_node_id \
@@ -1832,14 +1833,6 @@ async fn the_analysis_rules_reject_their_violations() {
                     stop_reason, witnesses_omitted, score, condition_node_id \
              FROM findings_published",
         ),
-        // The increment-2 review's F2: a concept about an undetermined type.
-        (
-            "semantic:concept-attribute-known",
-            "finding_members",
-            "SELECT * EXCLUDE (label), \
-                    CASE WHEN role = 12 THEN 'returns Unknown' ELSE label END AS label \
-             FROM finding_members_published",
-        ),
         // Two specs in one snapshot.
         (
             "semantic:one-embedding-spec",
@@ -1851,9 +1844,39 @@ async fn the_analysis_rules_reject_their_violations() {
              FROM embedding_specs_published",
         ),
     ]);
+    let ty_only = format!(
+        "SELECT * REPLACE (CAST({} AS SMALLINT) AS kind) FROM bindings_published",
+        cpg_schema::codebook::BindingKind::ImportFromSubmodule.code()
+    );
+    let unknown_types = format!(
+        "SELECT * REPLACE (CAST({} AS SMALLINT) AS kind, 'implicit' AS detail) FROM type_terms_published",
+        cpg_schema::codebook::TypeTermKind::Any.code()
+    );
+    let call_transfer = format!(
+        "SELECT * REPLACE (CAST({} AS SMALLINT) AS transfer, CAST({} AS SMALLINT) AS verdict) FROM behaviors_published",
+        cpg_schema::codebook::FlowTransfer::Call.code(),
+        cpg_schema::codebook::Verdict::Established.code()
+    );
+    let unsupported_handoff = format!(
+        "SELECT * REPLACE (CAST({} AS SMALLINT) AS finding_kind) FROM findings_published",
+        cpg_schema::codebook::FindingKind::Handoff.code()
+    );
+    let cases = cases.chain([
+        ("semantic:ty-only-definition-not-lexical-binding", "bindings", ty_only.as_str()),
+        ("semantic:value-flow-origin-identity", "value_flow_contributions", "SELECT * REPLACE (CAST(X'00000000000000000000000000000000' AS BYTEA) AS origin_id) FROM value_flow_contributions_published"),
+        ("semantic:concept-attribute-known", "type_terms", unknown_types.as_str()),
+        ("semantic:concept-member-kind", "finding_members", "SELECT * REPLACE (CAST(NULL AS BYTEA) AS attribute_id) FROM finding_members_published"),
+        ("semantic:concept-attribute-incidence", "concept_incidences", "SELECT * FROM concept_incidences_published WHERE false"),
+        ("semantic:concept-extent-incidence", "concept_incidences", "SELECT * FROM concept_incidences_published WHERE false"),
+        ("semantic:handoff-attribute-support", "findings", unsupported_handoff.as_str()),
+        ("semantic:call-transfer-never-established", "behaviors", call_transfer.as_str()),
+    ]);
     let rules = cpg_schema::rules::rules();
     for (rule, table, view) in cases {
-        let doctored = sql::query(&ctx, view).await.unwrap().into_view();
+        let doctored = sql::query(&ctx, view)
+            .await
+            .unwrap_or_else(|error| panic!("{rule}: {error}"))
+            .into_view();
         ctx.deregister_table(table).unwrap();
         ctx.register_table(table, doctored).unwrap();
         let query = &rules.iter().find(|r| r.name == rule).expect(rule).sql;
@@ -1954,11 +1977,22 @@ async fn behaviors_cover_public_callables_outside_the_subsystem() {
 /// S5: source-attributed typed attributes survive the real store and served finding support.
 #[tokio::test(flavor = "multi_thread")]
 async fn typed_attributes_keep_source_evidence_through_serving() {
-    let (result,dir)=compile_variant("typed",CONFIG,"linux",Techniques::parse("+fca,+rca").unwrap()).await;
+    let (result, dir) = compile_variant(
+        "typed",
+        CONFIG,
+        "linux",
+        Techniques::parse("+fca,+rca").unwrap(),
+    )
+    .await;
     result.unwrap();
-    let (_,ctx)=published(&dir.path().join("store"),Id([7;16])).await.unwrap().unwrap();
-    let generation=cpg_core::bundle::build(&ctx,&dir.path().join("generations")).await.unwrap();
-    let script=r#"
+    let (_, ctx) = published(&dir.path().join("store"), Id([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    let generation = cpg_core::bundle::build(&ctx, &dir.path().join("generations"))
+        .await
+        .unwrap();
+    let script = r#"
 import sys
 from pathlib import Path
 import pyarrow as pa
@@ -1992,18 +2026,54 @@ for mutation in ('missing', 'foreign', 'source_fact_id', 'fact_table', 'fact_mod
     else:
         raise AssertionError((mutation, 'attribute support admitted'))
 "#;
-    let output=std::process::Command::new("uv").args(["run","--no-sync","python","-c",script,generation.dir.to_str().unwrap()])
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
-    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    let output = std::process::Command::new("uv")
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "-c",
+            script,
+            generation.dir.to_str().unwrap(),
+        ])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     // A hash-consistent key still cannot borrow an unrelated presentation label.
-    let original=sql::query(&ctx,"SELECT * FROM concept_attributes").await.unwrap().into_view();
+    let original = sql::query(&ctx, "SELECT * FROM concept_attributes")
+        .await
+        .unwrap()
+        .into_view();
     use cpg_schema::Table;
-    let fields=cpg_schema::concept_attributes::ConceptAttributes::schema().fields().iter()
-        .map(|f|if f.name()=="display" {"'unrelated label' AS display".to_owned()} else {f.name().clone()})
-        .collect::<Vec<_>>().join(", ");
-    let forged=sql::query(&ctx,&format!("SELECT {fields} FROM concept_attributes")).await.unwrap().into_view();
-    ctx.deregister_table("concept_attributes").unwrap();ctx.register_table("concept_attributes",forged).unwrap();
-    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-    assert!(violations.iter().any(|v|v.rule=="concept-attribute-source"),"{violations:?}");
-    ctx.deregister_table("concept_attributes").unwrap();ctx.register_table("concept_attributes",original).unwrap();
+    let fields = cpg_schema::concept_attributes::ConceptAttributes::schema()
+        .fields()
+        .iter()
+        .map(|f| {
+            if f.name() == "display" {
+                "'unrelated label' AS display".to_owned()
+            } else {
+                f.name().clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let forged = sql::query(&ctx, &format!("SELECT {fields} FROM concept_attributes"))
+        .await
+        .unwrap()
+        .into_view();
+    ctx.deregister_table("concept_attributes").unwrap();
+    ctx.register_table("concept_attributes", forged).unwrap();
+    let violations = cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "concept-attribute-source"),
+        "{violations:?}"
+    );
+    ctx.deregister_table("concept_attributes").unwrap();
+    ctx.register_table("concept_attributes", original).unwrap();
 }

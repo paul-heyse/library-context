@@ -20,7 +20,17 @@ mod ipc_input;
 const MAX_SMOKE_INPUT_BYTES: usize = 64 * 1024;
 const MAX_SUMMARY_ROWS: usize = 100_000;
 const MAX_SURFACE_ROWS: usize = 200_000;
-type FlowInput = (String, String, String, String, String, Option<String>, i64, String, String);
+type FlowInput = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    i64,
+    String,
+    String,
+);
 type ProofStep = (String, String, String);
 type OpenPathBoundary = (String, String, String, String);
 type BoundaryIndex = HashMap<(Id, Id), Vec<(Id, Id, Id, String)>>;
@@ -66,7 +76,13 @@ type InspectedPath = (
     String,
     String,
 );
-type ValuePathPage = (Vec<InspectedPath>, Vec<OpenPathBoundary>, usize, bool, usize);
+type ValuePathPage = (
+    Vec<InspectedPath>,
+    Vec<OpenPathBoundary>,
+    usize,
+    bool,
+    usize,
+);
 
 fn work_answer(work: TheoryWork) -> WorkAnswer {
     (
@@ -221,25 +237,28 @@ struct SemanticExecutor {
 
 #[derive(Default)]
 struct ContextProofs {
-    source_body_completions:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,
-    source_body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>,
-    source_body_release_inputs:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>,
-    source_call_bindings:Vec<cpg_schema::source_call::SourceCallBindingsRow>,
-    source_call_normals:Vec<cpg_schema::source_call::SourceCallNormalsRow>,
-    source_call_header_steps:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>,
+    source_body_completions: Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,
+    source_body_steps: Vec<cpg_schema::source_body::SourceBodyStepsRow>,
+    source_body_release_inputs: Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>,
+    source_call_bindings: Vec<cpg_schema::source_call::SourceCallBindingsRow>,
+    source_call_normals: Vec<cpg_schema::source_call::SourceCallNormalsRow>,
+    source_call_header_steps: Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>,
 
-    frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
-    frame_arguments:Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>,
-    frame_steps:Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow>,
-    values:Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
-    returns:Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
-    protocols:Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>,
-    sites:Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
-    arguments:Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>,
+    frames: Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
+    frame_arguments: Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>,
+    frame_steps: Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow>,
+    values: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
+    returns: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
+    protocols: Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>,
+    sites: Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
+    arguments: Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>,
 }
 
 impl SemanticExecutor {
-    #[allow(clippy::too_many_arguments, reason = "one checked generation crosses this loader")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one checked generation crosses this loader"
+    )]
     fn load(
         kernel_format: u32,
         snapshot_id: String,
@@ -255,7 +274,7 @@ impl SemanticExecutor {
         leaves: Vec<LeafInput>,
         links: Vec<LinkInput>,
         identities: Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>,
-        modeled_identities:Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
+        modeled_identities: Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
         return_sites: HashMap<Id, Id>,
         mut contexts: ContextProofs,
     ) -> PyResult<Self> {
@@ -267,10 +286,15 @@ impl SemanticExecutor {
             || boundaries.len() > MAX_SUMMARY_ROWS
             || leaves.len() > MAX_SUMMARY_ROWS
             || links.len() > MAX_SUMMARY_ROWS
-            || contexts.returns.len()>MAX_SUMMARY_ROWS || contexts.protocols.len()>MAX_SUMMARY_ROWS || contexts.sites.len()>MAX_SUMMARY_ROWS
-            || contexts.arguments.len()>MAX_SUMMARY_ROWS || contexts.values.len()>MAX_SUMMARY_ROWS
-            || contexts.frames.len()>MAX_SUMMARY_ROWS || contexts.frame_arguments.len()>MAX_SUMMARY_ROWS || contexts.frame_steps.len()>MAX_SUMMARY_ROWS
-            || modeled_identities.len()>MAX_SUMMARY_ROWS
+            || contexts.returns.len() > MAX_SUMMARY_ROWS
+            || contexts.protocols.len() > MAX_SUMMARY_ROWS
+            || contexts.sites.len() > MAX_SUMMARY_ROWS
+            || contexts.arguments.len() > MAX_SUMMARY_ROWS
+            || contexts.values.len() > MAX_SUMMARY_ROWS
+            || contexts.frames.len() > MAX_SUMMARY_ROWS
+            || contexts.frame_arguments.len() > MAX_SUMMARY_ROWS
+            || contexts.frame_steps.len() > MAX_SUMMARY_ROWS
+            || modeled_identities.len() > MAX_SUMMARY_ROWS
             || identities.len() > MAX_SUMMARY_ROWS
         {
             return Err(PyValueError::new_err("semantic index exceeds load limits"));
@@ -311,8 +335,18 @@ impl SemanticExecutor {
         }
         let mut summaries = HashMap::new();
         let mut by_formal: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
-        for (summary, function, formal, condition, verdict, boundary, path_depth,
-             source_flow_fact, source_origin) in flows {
+        for (
+            summary,
+            function,
+            formal,
+            condition,
+            verdict,
+            boundary,
+            path_depth,
+            source_flow_fact,
+            source_origin,
+        ) in flows
+        {
             let summary = id(&summary)?;
             let function = id(&function)?;
             let formal = id(&formal)?;
@@ -531,253 +565,558 @@ impl SemanticExecutor {
             );
         }
         let control_links: HashMap<Id, cpg_schema::summary_contract::DirectValueLink> =
-            links_by_formal.values().flatten()
+            links_by_formal
+                .values()
+                .flatten()
                 .filter(|link| link.origin == TestValueLinkOrigin::DirectParameterReachNoEffect)
-                .filter_map(|link| leaves_by_id.get(&link.leaf_fact_id).map(|leaf|
-                    (link.link_id, cpg_schema::summary_contract::DirectValueLink {
-                        operation_node_id: link.operation_node_id,
-                        formal_node_id: link.formal_node_id, link_id: link.link_id,
-                        atom: leaf.atom.clone(),
-                    }))).collect();
+                .filter_map(|link| {
+                    leaves_by_id.get(&link.leaf_fact_id).map(|leaf| {
+                        (
+                            link.link_id,
+                            cpg_schema::summary_contract::DirectValueLink {
+                                operation_node_id: link.operation_node_id,
+                                formal_node_id: link.formal_node_id,
+                                link_id: link.link_id,
+                                atom: leaf.atom.clone(),
+                            },
+                        )
+                    })
+                })
+                .collect();
         let mut identity_by_id = HashMap::new();
         for mut identity in identities {
             identity.snapshot_id = snapshot_id;
             if identity.identity_id != cpg_schema::parameter_identity::identity(&identity)
-                || identity_by_id.insert(identity.identity_id, identity).is_some() {
-                return Err(PyValueError::new_err("invalid or duplicate source parameter identity"));
+                || identity_by_id
+                    .insert(identity.identity_id, identity)
+                    .is_some()
+            {
+                return Err(PyValueError::new_err(
+                    "invalid or duplicate source parameter identity",
+                ));
             }
         }
-        let mut protocol_by_id=HashMap::new();
+        let mut protocol_by_id = HashMap::new();
         for mut protocol in contexts.protocols {
-            protocol.snapshot_id=snapshot_id;
+            protocol.snapshot_id = snapshot_id;
             if !cpg_schema::context_protocol::valid_shape(&protocol)
-                || protocol_by_id.insert(cpg_schema::context_protocol::binding_id(&protocol),protocol).is_some() {
-                return Err(PyValueError::new_err("invalid or duplicate context protocol"));
+                || protocol_by_id
+                    .insert(
+                        cpg_schema::context_protocol::binding_id(&protocol),
+                        protocol,
+                    )
+                    .is_some()
+            {
+                return Err(PyValueError::new_err(
+                    "invalid or duplicate context protocol",
+                ));
             }
         }
-        let mut arguments_by_site:HashMap<Id,Vec<_>>=HashMap::new();
-        for argument in &mut contexts.arguments {argument.snapshot_id=snapshot_id;}
-        for argument in contexts.arguments {arguments_by_site.entry(argument.site_id).or_default().push(argument);}
-        let mut context_by_id=HashMap::new();
-        let mut context_argument_by_id=HashMap::new();
-        let mut used_protocols=HashSet::new();
+        let mut arguments_by_site: HashMap<Id, Vec<_>> = HashMap::new();
+        for argument in &mut contexts.arguments {
+            argument.snapshot_id = snapshot_id;
+        }
+        for argument in contexts.arguments {
+            arguments_by_site
+                .entry(argument.site_id)
+                .or_default()
+                .push(argument);
+        }
+        let mut context_by_id = HashMap::new();
+        let mut context_argument_by_id = HashMap::new();
+        let mut used_protocols = HashSet::new();
         for mut site in contexts.sites {
-            site.snapshot_id=snapshot_id;
-            let protocol=protocol_by_id.get(&site.protocol_id).ok_or_else(||PyValueError::new_err("missing context protocol"))?;
-            let mut arguments=arguments_by_site.remove(&site.site_id).unwrap_or_default();
-            arguments.sort_by_key(|a|a.ordinal);
-            if !cpg_schema::context_protocol::admits_site(&site,&arguments,protocol)
-                || graph.diagrams.get(&site.import_condition_id).is_none_or(|d|!d.is_true()) {
+            site.snapshot_id = snapshot_id;
+            let protocol = protocol_by_id
+                .get(&site.protocol_id)
+                .ok_or_else(|| PyValueError::new_err("missing context protocol"))?;
+            let mut arguments = arguments_by_site.remove(&site.site_id).unwrap_or_default();
+            arguments.sort_by_key(|a| a.ordinal);
+            if !cpg_schema::context_protocol::admits_site(&site, &arguments, protocol)
+                || graph
+                    .diagrams
+                    .get(&site.import_condition_id)
+                    .is_none_or(|d| !d.is_true())
+            {
                 return Err(PyValueError::new_err("invalid context source certificate"));
             }
             for argument in arguments {
-                if context_argument_by_id.insert((argument.site_id,argument.argument_fact_id),argument).is_some() {
+                if context_argument_by_id
+                    .insert((argument.site_id, argument.argument_fact_id), argument)
+                    .is_some()
+                {
                     return Err(PyValueError::new_err("duplicate context argument identity"));
                 }
             }
             used_protocols.insert(site.protocol_id);
-            if context_by_id.insert(site.site_id,site).is_some() {return Err(PyValueError::new_err("duplicate context source certificate"));}
+            if context_by_id.insert(site.site_id, site).is_some() {
+                return Err(PyValueError::new_err(
+                    "duplicate context source certificate",
+                ));
+            }
         }
-        if !arguments_by_site.is_empty() || used_protocols.len()!=protocol_by_id.len() {
-            return Err(PyValueError::new_err("uncited context protocol or argument"));
+        if !arguments_by_site.is_empty() || used_protocols.len() != protocol_by_id.len() {
+            return Err(PyValueError::new_err(
+                "uncited context protocol or argument",
+            ));
         }
-        let mut context_value_by_id=HashMap::new();
+        let mut context_value_by_id = HashMap::new();
         for mut certificate in contexts.values {
-            certificate.snapshot_id=snapshot_id;
-            if certificate.identity_id!=cpg_schema::context_value::identity(&certificate)
-                || context_value_by_id.insert(certificate.identity_id,certificate).is_some() {
-                return Err(PyValueError::new_err("invalid or duplicate context value identity"));
+            certificate.snapshot_id = snapshot_id;
+            if certificate.identity_id != cpg_schema::context_value::identity(&certificate)
+                || context_value_by_id
+                    .insert(certificate.identity_id, certificate)
+                    .is_some()
+            {
+                return Err(PyValueError::new_err(
+                    "invalid or duplicate context value identity",
+                ));
             }
         }
-        let mut cited_context_values=HashSet::new();
-        let mut completion_by_return:HashMap<(Id,Id),Vec<_>>=HashMap::new();
-        let mut certificate_ids=HashSet::new();
+        let mut cited_context_values = HashSet::new();
+        let mut completion_by_return: HashMap<(Id, Id), Vec<_>> = HashMap::new();
+        let mut certificate_ids = HashSet::new();
         for mut certificate in contexts.returns {
-            certificate.snapshot_id=snapshot_id;
-            if certificate.certificate_id!=cpg_schema::completion_proof::identity(&certificate)
-                || !certificate_ids.insert(certificate.certificate_id) {
-                return Err(PyValueError::new_err("invalid or duplicate return completion certificate"));
+            certificate.snapshot_id = snapshot_id;
+            if certificate.certificate_id != cpg_schema::completion_proof::identity(&certificate)
+                || !certificate_ids.insert(certificate.certificate_id)
+            {
+                return Err(PyValueError::new_err(
+                    "invalid or duplicate return completion certificate",
+                ));
             }
-            completion_by_return.entry((certificate.function_node_id,certificate.return_site_fact_id)).or_default().push(certificate);
+            completion_by_return
+                .entry((
+                    certificate.function_node_id,
+                    certificate.return_site_fact_id,
+                ))
+                .or_default()
+                .push(certificate);
         }
-        let mut modeled_by_id=HashMap::new();
-        let mut frames=HashMap::new();
-        let mut frame_arguments:HashMap<_,Vec<_>>=HashMap::new();
-        let mut frame_steps:HashMap<_,Vec<_>>=HashMap::new();
-        for mut r in contexts.frame_arguments {r.snapshot_id=snapshot_id;frame_arguments.entry(r.frame_exit_id).or_default().push(r);}
-        for mut r in contexts.frame_steps {r.snapshot_id=snapshot_id;frame_steps.entry(r.frame_exit_id).or_default().push(r);}
-        let catalog=cpg_schema::models::Catalog::committed().map_err(PyValueError::new_err)?;
+        let mut modeled_by_id = HashMap::new();
+        let mut frames = HashMap::new();
+        let mut frame_arguments: HashMap<_, Vec<_>> = HashMap::new();
+        let mut frame_steps: HashMap<_, Vec<_>> = HashMap::new();
+        for mut r in contexts.frame_arguments {
+            r.snapshot_id = snapshot_id;
+            frame_arguments.entry(r.frame_exit_id).or_default().push(r);
+        }
+        for mut r in contexts.frame_steps {
+            r.snapshot_id = snapshot_id;
+            frame_steps.entry(r.frame_exit_id).or_default().push(r);
+        }
+        let catalog = cpg_schema::models::Catalog::committed().map_err(PyValueError::new_err)?;
         for mut r in contexts.frames {
-            r.snapshot_id=snapshot_id;
-            if !catalog.models.iter().any(|m|m.model_id==r.model_id && m.model.normal_body.as_ref().is_some_and(|b|b.parameter()==r.return_parameter)) {
-                return Err(PyValueError::new_err("frame certificate has no exact pinned body contract"));
+            r.snapshot_id = snapshot_id;
+            if !catalog.models.iter().any(|m| {
+                m.model_id == r.model_id
+                    && m.model
+                        .normal_body
+                        .as_ref()
+                        .is_some_and(|b| b.parameter() == r.return_parameter)
+            }) {
+                return Err(PyValueError::new_err(
+                    "frame certificate has no exact pinned body contract",
+                ));
             }
-            let mut arguments=frame_arguments.remove(&r.frame_exit_id).unwrap_or_default();arguments.sort_by_key(|a|a.ordinal);
-            let mut steps=frame_steps.get(&r.frame_exit_id).cloned().unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
-            let proof:Vec<_>=steps.into_iter().map(|s|cpg_schema::behavior::ExpressionEvaluationStepsRow {
-                snapshot_id,syntax_fact_id:r.syntax_fact_id,ordinal:s.ordinal,operand_fact_id:s.operand_fact_id,
-                evidence_id:s.evidence_id,status:s.status,kind:s.kind}).collect();
-            cpg_schema::frame_exit::admit(&r,&arguments,&proof).map_err(|e|PyValueError::new_err(e.message))?;
-            if frames.insert(r.frame_exit_id,r).is_some() {return Err(PyValueError::new_err("duplicate frame release"));}
+            let mut arguments = frame_arguments.remove(&r.frame_exit_id).unwrap_or_default();
+            arguments.sort_by_key(|a| a.ordinal);
+            let mut steps = frame_steps
+                .get(&r.frame_exit_id)
+                .cloned()
+                .unwrap_or_default();
+            steps.sort_by_key(|s| s.ordinal);
+            let proof: Vec<_> = steps
+                .into_iter()
+                .map(|s| cpg_schema::behavior::ExpressionEvaluationStepsRow {
+                    snapshot_id,
+                    syntax_fact_id: r.syntax_fact_id,
+                    ordinal: s.ordinal,
+                    operand_fact_id: s.operand_fact_id,
+                    evidence_id: s.evidence_id,
+                    status: s.status,
+                    kind: s.kind,
+                })
+                .collect();
+            cpg_schema::frame_exit::admit(&r, &arguments, &proof)
+                .map_err(|e| PyValueError::new_err(e.message))?;
+            if frames.insert(r.frame_exit_id, r).is_some() {
+                return Err(PyValueError::new_err("duplicate frame release"));
+            }
         }
-        if !frame_arguments.is_empty() || frame_steps.keys().any(|id|!frames.contains_key(id)) {
+        if !frame_arguments.is_empty() || frame_steps.keys().any(|id| !frames.contains_key(id)) {
             return Err(PyValueError::new_err("orphan frame release support"));
         }
-        let mut body_steps:HashMap<_,Vec<_>>=HashMap::new();
-        let mut body_releases:HashMap<_,Vec<_>>=HashMap::new();
-        let mut source_headers:HashMap<_,Vec<_>>=HashMap::new();
-        for mut r in contexts.source_body_steps {r.snapshot_id=snapshot_id;body_steps.entry(r.body_id).or_default().push(r);}
-        for mut r in contexts.source_body_release_inputs {r.snapshot_id=snapshot_id;body_releases.entry(r.body_id).or_default().push(r);}
-        for mut r in contexts.source_call_header_steps {r.snapshot_id=snapshot_id;source_headers.entry(r.binding_id).or_default().push(r);}
-        let mut bodies=HashMap::new();
+        let mut body_steps: HashMap<_, Vec<_>> = HashMap::new();
+        let mut body_releases: HashMap<_, Vec<_>> = HashMap::new();
+        let mut source_headers: HashMap<_, Vec<_>> = HashMap::new();
+        for mut r in contexts.source_body_steps {
+            r.snapshot_id = snapshot_id;
+            body_steps.entry(r.body_id).or_default().push(r);
+        }
+        for mut r in contexts.source_body_release_inputs {
+            r.snapshot_id = snapshot_id;
+            body_releases.entry(r.body_id).or_default().push(r);
+        }
+        for mut r in contexts.source_call_header_steps {
+            r.snapshot_id = snapshot_id;
+            source_headers.entry(r.binding_id).or_default().push(r);
+        }
+        let mut bodies = HashMap::new();
         for mut r in contexts.source_body_completions {
-            r.snapshot_id=snapshot_id;
-            let mut steps=body_steps.remove(&r.body_id).unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
-            let mut releases=body_releases.remove(&r.body_id).unwrap_or_default();releases.sort_by_key(|s|s.ordinal);
-            cpg_schema::source_body::admit(&r,&steps,&releases).map_err(|e|PyValueError::new_err(e.message))?;
-            let proof:Vec<_>=steps.iter().map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
-                kind:s.kind,evidence_id:s.evidence_id,condition_id:Id::ZERO}).collect();
+            r.snapshot_id = snapshot_id;
+            let mut steps = body_steps.remove(&r.body_id).unwrap_or_default();
+            steps.sort_by_key(|s| s.ordinal);
+            let mut releases = body_releases.remove(&r.body_id).unwrap_or_default();
+            releases.sort_by_key(|s| s.ordinal);
+            cpg_schema::source_body::admit(&r, &steps, &releases)
+                .map_err(|e| PyValueError::new_err(e.message))?;
+            let proof: Vec<_> = steps
+                .iter()
+                .map(|s| cpg_schema::id::recipe::SummaryFlowProofStep {
+                    kind: s.kind,
+                    evidence_id: s.evidence_id,
+                    condition_id: Id::ZERO,
+                })
+                .collect();
             // Base bodies can retain pinned frame obligations, but never depend on this
             // source-call stage. Ownership is the callee's, independently of its later caller.
-            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof,|id|frames.get(&id),|_|None)
-                .map_err(|e|PyValueError::new_err(e.message))?;
-            if bodies.insert(r.body_id,(r,steps,releases)).is_some() {return Err(PyValueError::new_err("duplicate source body"));}
+            cpg_schema::frame_exit::admit_proof(
+                r.function_node_id,
+                &proof,
+                |id| frames.get(&id),
+                |_| None,
+            )
+            .map_err(|e| PyValueError::new_err(e.message))?;
+            if bodies.insert(r.body_id, (r, steps, releases)).is_some() {
+                return Err(PyValueError::new_err("duplicate source body"));
+            }
         }
-        if !body_steps.is_empty() || !body_releases.is_empty() {return Err(PyValueError::new_err("orphan source body evidence"));}
-        let mut bindings=HashMap::new();
+        if !body_steps.is_empty() || !body_releases.is_empty() {
+            return Err(PyValueError::new_err("orphan source body evidence"));
+        }
+        let mut bindings = HashMap::new();
         for mut r in contexts.source_call_bindings {
-            r.snapshot_id=snapshot_id;
-            let mut header=source_headers.remove(&r.binding_id).unwrap_or_default();header.sort_by_key(|s|s.ordinal);
-            cpg_schema::source_call::admit_binding(&r,&header).map_err(|e|PyValueError::new_err(e.message))?;
-            if bindings.insert(r.binding_id,(r,header)).is_some() {return Err(PyValueError::new_err("duplicate source binding"));}
+            r.snapshot_id = snapshot_id;
+            let mut header = source_headers.remove(&r.binding_id).unwrap_or_default();
+            header.sort_by_key(|s| s.ordinal);
+            cpg_schema::source_call::admit_binding(&r, &header)
+                .map_err(|e| PyValueError::new_err(e.message))?;
+            if bindings.insert(r.binding_id, (r, header)).is_some() {
+                return Err(PyValueError::new_err("duplicate source binding"));
+            }
         }
-        let mut source_calls=HashMap::new();let mut used_bodies=HashSet::new();let mut used_bindings=HashSet::new();
+        let mut source_calls = HashMap::new();
+        let mut used_bodies = HashSet::new();
+        let mut used_bindings = HashSet::new();
         for mut r in contexts.source_call_normals {
-            r.snapshot_id=snapshot_id;
-            let (binding,header)=bindings.get(&r.binding_id).ok_or_else(||PyValueError::new_err("missing source call binding"))?;
-            let (body,steps,releases)=bodies.get(&r.body_id).ok_or_else(||PyValueError::new_err("missing source call body"))?;
-            cpg_schema::source_call::admit(&r,binding,header,body,steps,releases).map_err(|e|PyValueError::new_err(e.message))?;
-            used_bodies.insert(r.body_id);used_bindings.insert(r.binding_id);
-            if source_calls.insert(r.certificate_id,r).is_some() {return Err(PyValueError::new_err("duplicate source call completion"));}
+            r.snapshot_id = snapshot_id;
+            let (binding, header) = bindings
+                .get(&r.binding_id)
+                .ok_or_else(|| PyValueError::new_err("missing source call binding"))?;
+            let (body, steps, releases) = bodies
+                .get(&r.body_id)
+                .ok_or_else(|| PyValueError::new_err("missing source call body"))?;
+            cpg_schema::source_call::admit(&r, binding, header, body, steps, releases)
+                .map_err(|e| PyValueError::new_err(e.message))?;
+            used_bodies.insert(r.body_id);
+            used_bindings.insert(r.binding_id);
+            if source_calls.insert(r.certificate_id, r).is_some() {
+                return Err(PyValueError::new_err("duplicate source call completion"));
+            }
         }
-        if !source_headers.is_empty() || used_bodies.len()!=bodies.len() || used_bindings.len()!=bindings.len() {
+        if !source_headers.is_empty()
+            || used_bodies.len() != bodies.len()
+            || used_bindings.len() != bindings.len()
+        {
             return Err(PyValueError::new_err("orphan source call evidence"));
         }
-        let source=|id| {let normal=source_calls.get(&id)?;let (binding,_)=bindings.get(&normal.binding_id)?;
-            Some(cpg_schema::source_call::NormalSupport {normal,binding})};
+        let source = |id| {
+            let normal = source_calls.get(&id)?;
+            let (binding, _) = bindings.get(&normal.binding_id)?;
+            Some(cpg_schema::source_call::NormalSupport { normal, binding })
+        };
         for r in frames.values() {
-            let mut steps=frame_steps.remove(&r.frame_exit_id).unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
-            let proof:Vec<_>=steps.iter().map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
-                kind:s.kind,evidence_id:s.evidence_id,condition_id:Id::ZERO}).collect();
+            let mut steps = frame_steps.remove(&r.frame_exit_id).unwrap_or_default();
+            steps.sort_by_key(|s| s.ordinal);
+            let proof: Vec<_> = steps
+                .iter()
+                .map(|s| cpg_schema::id::recipe::SummaryFlowProofStep {
+                    kind: s.kind,
+                    evidence_id: s.evidence_id,
+                    condition_id: Id::ZERO,
+                })
+                .collect();
             // admit() has checked the final root CallSite/CallTarget as invocation only.
             // Nested operands, unlike that root, must already have completed.
-            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof[..proof.len()-2],|id|frames.get(&id),source)
-                .map_err(|e|PyValueError::new_err(e.message))?;
-            for s in steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ModelFrameExit) {
-                let inner=&frames[&s.evidence_id];
-                if inner.invocation_count>=r.invocation_count || inner.syntax_fact_id!=s.operand_fact_id {
-                    return Err(PyValueError::new_err("cyclic or foreign nested frame release"));
+            cpg_schema::frame_exit::admit_proof(
+                r.function_node_id,
+                &proof[..proof.len() - 2],
+                |id| frames.get(&id),
+                source,
+            )
+            .map_err(|e| PyValueError::new_err(e.message))?;
+            for s in steps
+                .iter()
+                .filter(|s| s.kind == SummaryFlowStepKind::ModelFrameExit)
+            {
+                let inner = &frames[&s.evidence_id];
+                if inner.invocation_count >= r.invocation_count
+                    || inner.syntax_fact_id != s.operand_fact_id
+                {
+                    return Err(PyValueError::new_err(
+                        "cyclic or foreign nested frame release",
+                    ));
                 }
             }
         }
         for row in modeled_identities {
-            if modeled_by_id.insert(row.identity_id,row).is_some() {return Err(PyValueError::new_err("duplicate modeled identity"));}
+            if modeled_by_id.insert(row.identity_id, row).is_some() {
+                return Err(PyValueError::new_err("duplicate modeled identity"));
+            }
         }
-        let mut cited_modeled=HashSet::new();
-        let mut cited_completions=HashSet::new();
-        let mut cited_contexts=HashSet::new();
+        let mut cited_modeled = HashSet::new();
+        let mut cited_completions = HashSet::new();
+        let mut cited_contexts = HashSet::new();
         let mut cited_identities = HashSet::new();
         for summary in summaries.values() {
-            let steps:Vec<_>=summary.steps.iter().map(|(kind,evidence_id,condition_id)|
-                cpg_schema::id::recipe::SummaryFlowProofStep {
-                    kind:*SummaryFlowStepKind::all().iter().find(|k|k.text()==kind)
-                        .expect("step kind admitted above"),evidence_id:*evidence_id,condition_id:*condition_id,
-                }).collect();
-            cpg_schema::frame_exit::admit_proof(summary.function_node_id,&steps,|id|frames.get(&id),source)
-                .map_err(|e|PyValueError::new_err(e.message))?;
+            let steps: Vec<_> = summary
+                .steps
+                .iter()
+                .map(|(kind, evidence_id, condition_id)| {
+                    cpg_schema::id::recipe::SummaryFlowProofStep {
+                        kind: *SummaryFlowStepKind::all()
+                            .iter()
+                            .find(|k| k.text() == kind)
+                            .expect("step kind admitted above"),
+                        evidence_id: *evidence_id,
+                        condition_id: *condition_id,
+                    }
+                })
+                .collect();
+            cpg_schema::frame_exit::admit_proof(
+                summary.function_node_id,
+                &steps,
+                |id| frames.get(&id),
+                source,
+            )
+            .map_err(|e| PyValueError::new_err(e.message))?;
             // Unknown roots cannot support a positive callee application. Their raw proofs
             // still pass structural admission using an inert root; no controls can be fixed.
-            let empty=cpg_schema::condition_kernel::Diagram::never();
-            let condition=graph.diagrams.get(&summary.condition_id).unwrap_or(&empty);
-            cpg_schema::summary_contract::admit_callee_proof(summary.function_node_id,
-                condition,summary.path_depth,&steps,&control_links,|id| {
-                    let target=summaries.get(&id)?;
-                    let verdict=*cpg_schema::codebook::Verdict::all().iter().find(|v|v.text()==target.verdict)?;
+            let empty = cpg_schema::condition_kernel::Diagram::never();
+            let condition = graph.diagrams.get(&summary.condition_id).unwrap_or(&empty);
+            cpg_schema::summary_contract::admit_callee_proof(
+                summary.function_node_id,
+                condition,
+                summary.path_depth,
+                &steps,
+                &control_links,
+                |id| {
+                    let target = summaries.get(&id)?;
+                    let verdict = *cpg_schema::codebook::Verdict::all()
+                        .iter()
+                        .find(|v| v.text() == target.verdict)?;
                     Some(cpg_schema::summary_contract::CalleeProofTarget {
-                        function_node_id:target.function_node_id,
-                        condition:graph.diagrams.get(&target.condition_id)?,verdict,path_depth:target.path_depth,
+                        function_node_id: target.function_node_id,
+                        condition: graph.diagrams.get(&target.condition_id)?,
+                        verdict,
+                        path_depth: target.path_depth,
                     })
-                }).map_err(|error|PyValueError::new_err(error.message))?;
-            if let Some(return_site)=summary.return_site_fact_id {
-                if summary.path_depth==0 {cpg_schema::summary_contract::admit_base_value(summary.source_flow_fact_id,summary.condition_id,&steps)
-                    .map_err(|error|PyValueError::new_err(error.message))?;}
-                let all=completion_by_return.get(&(summary.function_node_id,return_site))
-                    .ok_or_else(||PyValueError::new_err("missing return completion certificate"))?;
-                let exact:Vec<_>=all.iter().filter(|c|c.entry_condition_id==summary.condition_id).collect();
-                let candidates=if exact.is_empty() {all.iter().collect::<Vec<_>>()} else {exact};
-                let [certificate]=candidates.as_slice() else {return Err(PyValueError::new_err("ambiguous return completion certificate"));};
-                let entry=graph.diagrams.get(&certificate.entry_condition_id).ok_or_else(||PyValueError::new_err("missing completion entry premise"))?;
-                let exit=graph.diagrams.get(&certificate.exit_condition_id).ok_or_else(||PyValueError::new_err("missing completion exit premise"))?;
-                cpg_schema::completion_proof::admit(certificate,summary.function_node_id,return_site,condition,entry,exit,&steps)
-                    .map_err(|error|PyValueError::new_err(format!("{}: {}",error.reason.text(),error.message)))?;
+                },
+            )
+            .map_err(|error| PyValueError::new_err(error.message))?;
+            if let Some(return_site) = summary.return_site_fact_id {
+                if summary.path_depth == 0 {
+                    cpg_schema::summary_contract::admit_base_value(
+                        summary.source_flow_fact_id,
+                        summary.condition_id,
+                        &steps,
+                    )
+                    .map_err(|error| PyValueError::new_err(error.message))?;
+                }
+                let all = completion_by_return
+                    .get(&(summary.function_node_id, return_site))
+                    .ok_or_else(|| {
+                        PyValueError::new_err("missing return completion certificate")
+                    })?;
+                let exact: Vec<_> = all
+                    .iter()
+                    .filter(|c| c.entry_condition_id == summary.condition_id)
+                    .collect();
+                let candidates = if exact.is_empty() {
+                    all.iter().collect::<Vec<_>>()
+                } else {
+                    exact
+                };
+                let [certificate] = candidates.as_slice() else {
+                    return Err(PyValueError::new_err(
+                        "ambiguous return completion certificate",
+                    ));
+                };
+                let entry = graph
+                    .diagrams
+                    .get(&certificate.entry_condition_id)
+                    .ok_or_else(|| PyValueError::new_err("missing completion entry premise"))?;
+                let exit = graph
+                    .diagrams
+                    .get(&certificate.exit_condition_id)
+                    .ok_or_else(|| PyValueError::new_err("missing completion exit premise"))?;
+                cpg_schema::completion_proof::admit(
+                    certificate,
+                    summary.function_node_id,
+                    return_site,
+                    condition,
+                    entry,
+                    exit,
+                    &steps,
+                )
+                .map_err(|error| {
+                    PyValueError::new_err(format!("{}: {}", error.reason.text(), error.message))
+                })?;
                 cited_completions.insert(certificate.certificate_id);
             }
-            cited_contexts.extend(cpg_schema::context_protocol::admit_proof(summary.function_node_id,&steps,
-                |id|context_by_id.get(&id)).map_err(PyValueError::new_err)?);
-            let context_values:Vec<_>=steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ContextEntryValueIdentity).collect();
-            if context_values.len()>1 {return Err(PyValueError::new_err("duplicate context entry value witness"));}
+            cited_contexts.extend(
+                cpg_schema::context_protocol::admit_proof(summary.function_node_id, &steps, |id| {
+                    context_by_id.get(&id)
+                })
+                .map_err(PyValueError::new_err)?,
+            );
+            let context_values: Vec<_> = steps
+                .iter()
+                .filter(|s| s.kind == SummaryFlowStepKind::ContextEntryValueIdentity)
+                .collect();
+            if context_values.len() > 1 {
+                return Err(PyValueError::new_err(
+                    "duplicate context entry value witness",
+                ));
+            }
             for step in context_values {
-                let certificate=context_value_by_id.get(&step.evidence_id)
-                    .ok_or_else(||PyValueError::new_err("missing context value identity"))?;
-                let site=context_by_id.get(&certificate.context_site_id)
-                    .ok_or_else(||PyValueError::new_err("missing context value site"))?;
-                let argument=context_argument_by_id.get(&(site.site_id,certificate.argument_fact_id))
-                    .ok_or_else(||PyValueError::new_err("missing context value argument"))?;
-                let return_site=summary.return_site_fact_id.ok_or_else(||PyValueError::new_err("missing context value return site"))?;
-                if summary.path_depth!=0 || step.condition_id!=summary.condition_id
-                    || steps.iter().any(|s|matches!(s.kind,SummaryFlowStepKind::RawIdentity|SummaryFlowStepKind::SourceParameterIdentity))
-                    || !cpg_schema::context_value::admits(certificate,site,argument,summary.function_node_id,
-                        summary.parameter_node_id,summary.source_flow_fact_id,summary.source_origin_id,summary.condition_id,return_site,&steps) {
-                    return Err(PyValueError::new_err("context value identity does not prove this active entry result"));
+                let certificate = context_value_by_id
+                    .get(&step.evidence_id)
+                    .ok_or_else(|| PyValueError::new_err("missing context value identity"))?;
+                let site = context_by_id
+                    .get(&certificate.context_site_id)
+                    .ok_or_else(|| PyValueError::new_err("missing context value site"))?;
+                let argument = context_argument_by_id
+                    .get(&(site.site_id, certificate.argument_fact_id))
+                    .ok_or_else(|| PyValueError::new_err("missing context value argument"))?;
+                let return_site = summary
+                    .return_site_fact_id
+                    .ok_or_else(|| PyValueError::new_err("missing context value return site"))?;
+                if summary.path_depth != 0
+                    || step.condition_id != summary.condition_id
+                    || steps.iter().any(|s| {
+                        matches!(
+                            s.kind,
+                            SummaryFlowStepKind::RawIdentity
+                                | SummaryFlowStepKind::SourceParameterIdentity
+                        )
+                    })
+                    || !cpg_schema::context_value::admits(
+                        certificate,
+                        site,
+                        argument,
+                        cpg_schema::summary_contract::ReturnValueScope {
+                            function: summary.function_node_id,
+                            parameter: summary.parameter_node_id,
+                            source: summary.source_flow_fact_id,
+                            origin: summary.source_origin_id,
+                            condition: summary.condition_id,
+                            return_site,
+                        },
+                        &steps,
+                    )
+                {
+                    return Err(PyValueError::new_err(
+                        "context value identity does not prove this active entry result",
+                    ));
                 }
                 cited_context_values.insert(certificate.identity_id);
             }
-            if !cpg_schema::modeled_identity::admit_value_basis(summary.path_depth,&steps) {
-                return Err(PyValueError::new_err("modeled return requires a value basis"));
+            if !cpg_schema::modeled_identity::admit_value_basis(summary.path_depth, &steps) {
+                return Err(PyValueError::new_err(
+                    "modeled return requires a value basis",
+                ));
             }
-            for step in steps.iter().filter(|s|s.kind==SummaryFlowStepKind::SourceModeledIdentity) {
-                let certificate=modeled_by_id.get(&step.evidence_id)
-                    .ok_or_else(||PyValueError::new_err("missing modeled value identity"))?;
-                let return_site=summary.return_site_fact_id.ok_or_else(||PyValueError::new_err("missing modeled return site"))?;
-                if summary.path_depth!=1 || !cpg_schema::modeled_identity::admits(certificate,
-                    summary.function_node_id,summary.parameter_node_id,summary.source_flow_fact_id,
-                    summary.source_origin_id,summary.condition_id,return_site,&steps) {
-                    return Err(PyValueError::new_err("modeled value identity does not prove this origin"));
+            for step in steps
+                .iter()
+                .filter(|s| s.kind == SummaryFlowStepKind::SourceModeledIdentity)
+            {
+                let certificate = modeled_by_id
+                    .get(&step.evidence_id)
+                    .ok_or_else(|| PyValueError::new_err("missing modeled value identity"))?;
+                let return_site = summary
+                    .return_site_fact_id
+                    .ok_or_else(|| PyValueError::new_err("missing modeled return site"))?;
+                if summary.path_depth != 1
+                    || !cpg_schema::modeled_identity::admits(
+                        certificate,
+                        cpg_schema::summary_contract::ReturnValueScope {
+                            function: summary.function_node_id,
+                            parameter: summary.parameter_node_id,
+                            source: summary.source_flow_fact_id,
+                            origin: summary.source_origin_id,
+                            condition: summary.condition_id,
+                            return_site,
+                        },
+                        &steps,
+                    )
+                {
+                    return Err(PyValueError::new_err(
+                        "modeled value identity does not prove this origin",
+                    ));
                 }
                 cited_modeled.insert(certificate.identity_id);
             }
-            let identity_steps: Vec<_> = steps.iter().filter(|s| s.kind == SummaryFlowStepKind::SourceParameterIdentity).collect();
+            let identity_steps: Vec<_> = steps
+                .iter()
+                .filter(|s| s.kind == SummaryFlowStepKind::SourceParameterIdentity)
+                .collect();
             if identity_steps.len() > 1 {
-                return Err(PyValueError::new_err("duplicate source parameter identity step"));
+                return Err(PyValueError::new_err(
+                    "duplicate source parameter identity step",
+                ));
             }
             for step in identity_steps {
-                let certificate = identity_by_id.get(&step.evidence_id)
+                let certificate = identity_by_id
+                    .get(&step.evidence_id)
                     .ok_or_else(|| PyValueError::new_err("missing source parameter identity"))?;
-                let return_site = summary.return_site_fact_id
+                let return_site = summary
+                    .return_site_fact_id
                     .ok_or_else(|| PyValueError::new_err("missing source identity return site"))?;
-                if step.condition_id != summary.condition_id || summary.path_depth != 0
-                    || !cpg_schema::parameter_identity::admits(certificate, summary.function_node_id,
-                        summary.parameter_node_id, summary.source_flow_fact_id, summary.source_origin_id,
-                        summary.condition_id, return_site) {
-                    return Err(PyValueError::new_err("source parameter identity does not prove this origin"));
+                if step.condition_id != summary.condition_id
+                    || summary.path_depth != 0
+                    || !cpg_schema::parameter_identity::admits(
+                        certificate,
+                        summary.function_node_id,
+                        summary.parameter_node_id,
+                        summary.source_flow_fact_id,
+                        summary.source_origin_id,
+                        summary.condition_id,
+                        return_site,
+                    )
+                {
+                    return Err(PyValueError::new_err(
+                        "source parameter identity does not prove this origin",
+                    ));
                 }
                 cited_identities.insert(step.evidence_id);
             }
         }
-        if cited_modeled.len()!=modeled_by_id.len() {return Err(PyValueError::new_err("uncited modeled value identity"));}
-        if cited_context_values.len()!=context_value_by_id.len() {return Err(PyValueError::new_err("uncited context value identity"));}
-        if cited_completions!=certificate_ids {return Err(PyValueError::new_err("uncited return completion certificate"));}
-        if cited_contexts.len()!=context_by_id.len() {return Err(PyValueError::new_err("uncited context source certificate"));}
+        if cited_modeled.len() != modeled_by_id.len() {
+            return Err(PyValueError::new_err("uncited modeled value identity"));
+        }
+        if cited_context_values.len() != context_value_by_id.len() {
+            return Err(PyValueError::new_err("uncited context value identity"));
+        }
+        if cited_completions != certificate_ids {
+            return Err(PyValueError::new_err(
+                "uncited return completion certificate",
+            ));
+        }
+        if cited_contexts.len() != context_by_id.len() {
+            return Err(PyValueError::new_err("uncited context source certificate"));
+        }
         if cited_identities.len() != identity_by_id.len() {
             return Err(PyValueError::new_err("uncited source parameter identity"));
         }
@@ -794,7 +1133,6 @@ impl SemanticExecutor {
             link_spans,
         })
     }
-
 }
 
 #[pymethods]
@@ -826,7 +1164,22 @@ impl SemanticExecutor {
             input.identities,
             input.modeled_identities,
             input.return_sites,
-            ContextProofs {source_body_completions:input.source_body_completions,source_body_steps:input.source_body_steps,source_body_release_inputs:input.source_body_release_inputs,source_call_bindings:input.source_call_bindings,source_call_normals:input.source_call_normals,source_call_header_steps:input.source_call_header_steps,frames:input.model_frame_exits,frame_arguments:input.model_frame_exit_arguments,frame_steps:input.model_frame_exit_steps,values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
+            ContextProofs {
+                source_body_completions: input.source_body_completions,
+                source_body_steps: input.source_body_steps,
+                source_body_release_inputs: input.source_body_release_inputs,
+                source_call_bindings: input.source_call_bindings,
+                source_call_normals: input.source_call_normals,
+                source_call_header_steps: input.source_call_header_steps,
+                frames: input.model_frame_exits,
+                frame_arguments: input.model_frame_exit_arguments,
+                frame_steps: input.model_frame_exit_steps,
+                values: input.context_value_identities,
+                returns: input.return_certificates,
+                protocols: input.model_context_protocols,
+                sites: input.source_context_sites,
+                arguments: input.source_context_arguments,
+            },
         )
     }
 
@@ -850,7 +1203,25 @@ impl SemanticExecutor {
         leaves: Vec<LeafInput>,
         links: Vec<LinkInput>,
     ) -> PyResult<Self> {
-        Self::load(kernel_format, snapshot_id, effect_model_digest, conditions, nodes, operations, public_paths, parameters, flows, steps, boundaries, leaves, links, Vec::new(), Vec::new(), HashMap::new(), ContextProofs::default())
+        Self::load(
+            kernel_format,
+            snapshot_id,
+            effect_model_digest,
+            conditions,
+            nodes,
+            operations,
+            public_paths,
+            parameters,
+            flows,
+            steps,
+            boundaries,
+            leaves,
+            links,
+            Vec::new(),
+            Vec::new(),
+            HashMap::new(),
+            ContextProofs::default(),
+        )
     }
 
     #[getter]

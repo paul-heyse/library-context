@@ -263,7 +263,9 @@ fn assess_exact_input_inner(
                 let trial: Vec<(&str, bool)> = selected
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, (atom, value, _))| (i != index).then_some((atom.as_str(), *value)))
+                    .filter_map(|(i, (atom, value, _))| {
+                        (i != index).then_some((atom.as_str(), *value))
+                    })
                     .collect();
                 let cost = condition.node_count().saturating_mul(trial.len());
                 let Some(left) = remaining_work.checked_sub(cost) else {
@@ -282,7 +284,10 @@ fn assess_exact_input_inner(
                 }
             }
             return Ok(ExactInputOutcome::Refuted(Refutation {
-                value_link_ids: selected.into_iter().map(|(_, _, link_id)| link_id).collect(),
+                value_link_ids: selected
+                    .into_iter()
+                    .map(|(_, _, link_id)| link_id)
+                    .collect(),
             }));
         }
     }
@@ -290,7 +295,10 @@ fn assess_exact_input_inner(
         Ok(ExactInputOutcome::Unknown)
     } else {
         Ok(ExactInputOutcome::CompatibleUnderModel {
-            value_link_ids: selected.into_iter().map(|(_, _, link_id)| link_id).collect(),
+            value_link_ids: selected
+                .into_iter()
+                .map(|(_, _, link_id)| link_id)
+                .collect(),
         })
     }
 }
@@ -674,7 +682,7 @@ mod tests {
                 refute_exact_input(
                     &diagram,
                     exact(&link, &value, BuiltinNamespace::Unknown),
-                    &[link.clone()],
+                    std::slice::from_ref(&link),
                     &[leaf],
                 )
                 .unwrap()
@@ -701,29 +709,48 @@ mod tests {
                 other => panic!("unexpected oracle input {other}"),
             };
             let atom = match kind {
-                "str_member" => Atom::member_of("x".to_owned(), vec![
-                    Value::Str("sse".to_owned()), Value::Str("http".to_owned())]),
+                "str_member" => Atom::member_of(
+                    "x".to_owned(),
+                    vec![Value::Str("sse".to_owned()), Value::Str("http".to_owned())],
+                ),
                 "int_member" => Atom::member_of("x".to_owned(), vec![Value::Int(1)]),
-                "int_equal" => Atom::Equals { place: "x".to_owned(), value: Value::Int(2) },
-                "equal_one" => Atom::Equals { place: "x".to_owned(), value: Value::Int(1) },
-                "str_equal" => Atom::Equals {
-                    place: "x".to_owned(), value: Value::Str("http".to_owned()),
+                "int_equal" => Atom::Equals {
+                    place: "x".to_owned(),
+                    value: Value::Int(2),
                 },
-                "truthy" => Atom::Truthy { place: "x".to_owned() },
-                "is_none" => Atom::IsNone { place: "x".to_owned() },
+                "equal_one" => Atom::Equals {
+                    place: "x".to_owned(),
+                    value: Value::Int(1),
+                },
+                "str_equal" => Atom::Equals {
+                    place: "x".to_owned(),
+                    value: Value::Str("http".to_owned()),
+                },
+                "truthy" => Atom::Truthy {
+                    place: "x".to_owned(),
+                },
+                "is_none" => Atom::IsNone {
+                    place: "x".to_owned(),
+                },
                 "type_is_str" => Atom::TypeIs {
-                    place: "x".to_owned(), class: "str".to_owned(),
+                    place: "x".to_owned(),
+                    class: "str".to_owned(),
                 },
                 other => panic!("unexpected oracle predicate {other}"),
-            }.evaluated(EvaluationIdentity::Site {
-                module: Id([2; 16]).hex(), start: 10, end: 20,
+            }
+            .evaluated(EvaluationIdentity::Site {
+                module: Id([2; 16]).hex(),
+                start: 10,
+                end: 20,
             });
             let origin = if kind == "type_is_str" {
                 TestValueLinkOrigin::ResolvedBuiltinTypeOperand
             } else {
                 TestValueLinkOrigin::DirectParameterReachNoEffect
             };
-            let expected = row["lowered"].as_bool().unwrap()
+            let expected = row["lowered"]
+                .as_bool()
+                .unwrap()
                 .then(|| row["python"].as_bool().unwrap());
             assert_eq!(
                 evaluate_exact_input(&atom, &input, origin, BuiltinNamespace::StandardAssumed),
@@ -757,7 +784,9 @@ mod tests {
         }
         // x0 is true for this input, but x1 and x2 being false refutes the disjunction
         // independently of x0. The old prefix citation included all three links.
-        let condition = diagrams[0].and(&diagrams[1].or(&diagrams[2]).unwrap()).unwrap();
+        let condition = diagrams[0]
+            .and(&diagrams[1].or(&diagrams[2]).unwrap())
+            .unwrap();
         for (link, leaf) in links.iter_mut().zip(&mut leaves) {
             link.condition_id = condition.id();
             leaf.condition_id = condition.id();
@@ -770,6 +799,9 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(proof.value_link_ids, vec![links[1].link_id, links[2].link_id]);
+        assert_eq!(
+            proof.value_link_ids,
+            vec![links[1].link_id, links[2].link_id]
+        );
     }
 }

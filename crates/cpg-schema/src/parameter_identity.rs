@@ -35,19 +35,40 @@ table!(
 
 pub fn identity(row: &SourceParameterIdentitiesRow) -> Id {
     IdHasher::new("source-parameter-identity")
-        .id(row.function_node_id).id(row.parameter_node_id)
-        .id(row.source_flow_fact_id).id(row.source_origin_id).id(row.condition_id)
-        .id(row.return_site_fact_id).id(row.expression_fact_id).id(row.reference_fact_id)
-        .id(row.resolution_fact_id).id(row.binding_fact_id).id(row.parameter_fact_id)
-        .id(row.module_node_id).i64(row.start_byte).i64(row.end_byte).finish_id()
+        .id(row.function_node_id)
+        .id(row.parameter_node_id)
+        .id(row.source_flow_fact_id)
+        .id(row.source_origin_id)
+        .id(row.condition_id)
+        .id(row.return_site_fact_id)
+        .id(row.expression_fact_id)
+        .id(row.reference_fact_id)
+        .id(row.resolution_fact_id)
+        .id(row.binding_fact_id)
+        .id(row.parameter_fact_id)
+        .id(row.module_node_id)
+        .i64(row.start_byte)
+        .i64(row.end_byte)
+        .finish_id()
 }
 
 /// Shared source/native scope admission; the source producer/validator owns the lexical proof.
-pub fn admits(row: &SourceParameterIdentitiesRow, function: Id, parameter: Id,
-    source: Id, origin: Id, condition: Id, return_site: Id) -> bool {
-    row.identity_id == identity(row) && row.function_node_id == function
-        && row.parameter_node_id == parameter && row.source_flow_fact_id == source
-        && row.source_origin_id == origin && row.condition_id == condition
+pub fn admits(
+    row: &SourceParameterIdentitiesRow,
+    function: Id,
+    parameter: Id,
+    source: Id,
+    origin: Id,
+    condition: Id,
+    return_site: Id,
+) -> bool {
+    row.identity_id == identity(row)
+        && row.function_node_id == function
+        && row.parameter_node_id == parameter
+        && row.source_flow_fact_id == source
+        && row.source_origin_id == origin
+        && row.condition_id == condition
         && row.return_site_fact_id == return_site
-        && row.start_byte >= 0 && row.end_byte > row.start_byte
+        && row.start_byte >= 0
+        && row.end_byte > row.start_byte
 }

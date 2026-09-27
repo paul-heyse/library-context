@@ -2,7 +2,10 @@
 //! facts; `concept_attributes` owns meaning and rendering. Unknown types remain excluded by
 //! structural type traversal, never by a presentation-string test.
 
-use crate::codebook::{Codebook, ConceptAttributeKind as Kind, DeclarationKind, DefinitionKind, ParameterKind, TypeRole, TypeTermKind};
+use crate::codebook::{
+    Codebook, ConceptAttributeKind as Kind, DeclarationKind, DefinitionKind, ParameterKind,
+    TypeRole, TypeTermKind,
+};
 use crate::flows::{codes, receivers_sql};
 use crate::id::{Digest, Id, IdHasher};
 
@@ -21,8 +24,14 @@ crate::query_row! {
 }
 
 pub fn attributes_sql(functions: &[Id]) -> String {
-    let list = if functions.is_empty() { "NULL".to_owned() } else {
-        functions.iter().map(|f| format!("X'{}'",f.hex())).collect::<Vec<_>>().join(", ")
+    let list = if functions.is_empty() {
+        "NULL".to_owned()
+    } else {
+        functions
+            .iter()
+            .map(|f| format!("X'{}'", f.hex()))
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     format!(
         "WITH RECURSIVE unknown(node_id) AS ( \
@@ -61,15 +70,27 @@ pub fn attributes_sql(functions: &[Id]) -> String {
              SELECT node_id,fact_id,unnest(decorators) AS decorator FROM declarations \
              WHERE node_id IN (SELECT node_id FROM wanted)) d) \
          SELECT DISTINCT * FROM attributes ORDER BY function_node_id,kind,source_fact_id,symbol,type_term_id",
-        receivers=receivers_sql(), functions=codes(&[DeclarationKind::Function,DeclarationKind::AsyncFunction]),
-        class_definition=DefinitionKind::Class.code(), parameter=TypeRole::Parameter.code(),returns=TypeRole::Return.code(),raised=TypeRole::Raised.code(),
-        any=TypeTermKind::Any.code(),class_instance=TypeTermKind::ClassInstance.code(),class_object=TypeTermKind::ClassObject.code(),
-        param_kind=Kind::Parameter.code(),param_type_kind=Kind::ParameterType.code(),returns_kind=Kind::Returns.code(),raises_kind=Kind::Raises.code(),decorator_kind=Kind::Decorator.code(),
+        receivers = receivers_sql(),
+        functions = codes(&[DeclarationKind::Function, DeclarationKind::AsyncFunction]),
+        class_definition = DefinitionKind::Class.code(),
+        parameter = TypeRole::Parameter.code(),
+        returns = TypeRole::Return.code(),
+        raised = TypeRole::Raised.code(),
+        any = TypeTermKind::Any.code(),
+        class_instance = TypeTermKind::ClassInstance.code(),
+        class_object = TypeTermKind::ClassObject.code(),
+        param_kind = Kind::Parameter.code(),
+        param_type_kind = Kind::ParameterType.code(),
+        returns_kind = Kind::Returns.code(),
+        raises_kind = Kind::Raises.code(),
+        decorator_kind = Kind::Decorator.code(),
     )
 }
 
 pub fn digest() -> Digest {
-    IdHasher::new("concept-attributes").str(&attributes_sql(&[])).finish_digest()
+    IdHasher::new("concept-attributes")
+        .str(&attributes_sql(&[]))
+        .finish_digest()
 }
 
 pub mod schemas {

@@ -260,12 +260,21 @@ def _finding(served: Served, finding_id: bytes) -> FindingSupport:
         )
         for m in served.finding_members.get(finding_id, [])
     ]
+
     def encode_ids(row: dict) -> dict:
         return {k: v.hex() if isinstance(v, bytes) else v for k, v in row.items()}
 
-    attribute_ids = {m["attribute_id"] for m in served.finding_members.get(finding_id, []) if m["attribute_id"] is not None}
-    attributes = [ConceptAttribute(**encode_ids(served.attributes[a])) for a in sorted(attribute_ids)]
-    incidences = [AttributeIncidence(**encode_ids(r)) for r in served.attribute_incidences.get(finding_id, [])]
+    attribute_ids = {
+        m["attribute_id"]
+        for m in served.finding_members.get(finding_id, [])
+        if m["attribute_id"] is not None
+    }
+    attributes = [
+        ConceptAttribute(**encode_ids(served.attributes[a])) for a in sorted(attribute_ids)
+    ]
+    incidences = [
+        AttributeIncidence(**encode_ids(r)) for r in served.attribute_incidences.get(finding_id, [])
+    ]
     resolution = (
         "source_span"
         if witnesses

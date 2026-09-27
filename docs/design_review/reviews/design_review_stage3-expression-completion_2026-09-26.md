@@ -185,7 +185,7 @@ work and integrated qualification remain separate obligations in the forward pla
 ### Subsequent implementation receipts (2026-09-26)
 
 The implementation agent subsequently reported `passed` for the four focused source/Delta/native
-tests recorded in [STATUS](../../../STATUS.md#last-verified-2026-09-26), including the real
+tests then recorded in [STATUS](../../../STATUS.md), including the real
 64-step positive/65-step refusal and implicit-execution withholding cases. It reviewed and
 accepted the schema snapshots, then passed 15 schema/binding cases. These receipts resolve the
 execution checks that were pending at review time; they are not tests independently run by this

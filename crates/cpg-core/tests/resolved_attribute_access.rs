@@ -100,9 +100,11 @@ dynamic_settings = DynamicSettings()
             "{field} must not be a no-read premise"
         );
     }
-    assert!(flow.premises.iter().any(|row| {
-        row.place_key.contains("unread_only") && row.holds
-    }));
+    assert!(
+        flow.premises
+            .iter()
+            .any(|row| { row.place_key.contains("unread_only") && row.holds })
+    );
     assert_eq!(
         flow.dynamic_accesses
             .iter()

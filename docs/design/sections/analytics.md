@@ -499,6 +499,9 @@ facets is the Stage 4 target consumer (**Proposed**; plan Stage 4 item 7).
   `hands off to X` / `takes from X` for each handoff the Pass C relation holds, where X is the
   partner's preferred path, else its qualified name. The pairs come from the in-memory projection
   and Pass C's relation; `RCA_POLICY` joins the FCA invocations' parameters and relation digest.
+  The 2026-09-27 checkpoint aligns the frozen variant-policy digest with this already
+  accepted ADR-0058 contract; ADR-0021 records the disclosure. Evaluation targets, thresholds
+  and the remaining frozen analytics parameters are unchanged.
 - **Typed attribute contract (Implemented, 2026-09-27; ADR-0058).** `concept_attributes`
   owns meaning: parameter spelling/kind, structural type identity, normalized raised class,
   decorator syntax, or relation target/modality/phase. `concept_incidences` owns object membership

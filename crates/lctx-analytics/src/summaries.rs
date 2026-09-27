@@ -18,6 +18,7 @@ use petgraph::graph::{Graph, NodeIndex};
 use crate::AnalyticsError;
 
 pub mod finite;
+pub(crate) mod worklist;
 
 /// One component of an attributed caller→callee graph, scheduled after its callees.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,8 +222,10 @@ mod tests {
             Id(bytes)
         }
         let functions: Vec<_> = (0..30_000).rev().map(node).collect();
-        let calls: Vec<_> = (0..29_999).rev()
-            .map(|number| (node(number), node(number + 1))).collect();
+        let calls: Vec<_> = (0..29_999)
+            .rev()
+            .map(|number| (node(number), node(number + 1)))
+            .collect();
         let components = call_components(&functions, &calls).unwrap();
         assert_eq!(components.len(), functions.len());
         assert_eq!(components.first().unwrap().members, [node(29_999)]);

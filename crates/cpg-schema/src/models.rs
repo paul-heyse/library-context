@@ -14,9 +14,9 @@ use crate::behavior::{
     ModelTargetsRow, ModelTransfersRow,
 };
 use crate::codebook::{
-    DefinitionKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
-    ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction,
-    ModelTransferKind, ModelSchemaKind, ModuleOrigin, Origin, SignatureForm, InvocationPhase, Codebook,
+    Codebook, DefinitionKind, InvocationPhase, Modality, ModelCallbackAction, ModelChannelCoverage,
+    ModelEffectKind, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
+    ModelResourceAction, ModelSchemaKind, ModelTransferKind, ModuleOrigin, Origin, SignatureForm,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
@@ -59,7 +59,11 @@ pub enum NormalBody {
     DirectReturnParameter { name: String },
 }
 impl NormalBody {
-    pub fn parameter(&self) -> &str {match self {Self::DirectReturnParameter {name}=>name}}
+    pub fn parameter(&self) -> &str {
+        match self {
+            Self::DirectReturnParameter { name } => name,
+        }
+    }
 }
 
 /// A pinned runtime class assertion. Constructor roles retain their own identities and phases;
@@ -76,25 +80,44 @@ pub struct ContextProtocolModel {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
-pub enum ContextEntry { NoneValue, ArgumentOrNone {formal:String} }
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ContextEntry {
+    NoneValue,
+    ArgumentOrNone { formal: String },
+}
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
-pub enum ContextExit { Preserve, SuppressClasses {formal:String} }
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ContextExit {
+    Preserve,
+    SuppressClasses { formal: String },
+}
 
-pub struct CompiledContextProtocol {pub model_id:Id,pub model:ContextProtocolModel}
+pub struct CompiledContextProtocol {
+    pub model_id: Id,
+    pub model: ContextProtocolModel,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
-pub enum Phase { Call, New, Init, Decorator, PropertyGet, PropertySet }
+pub enum Phase {
+    Call,
+    New,
+    Init,
+    Decorator,
+    PropertyGet,
+    PropertySet,
+}
 
 impl Phase {
     fn codebook(self) -> InvocationPhase {
         match self {
-            Self::Call=>InvocationPhase::Call,Self::New=>InvocationPhase::New,
-            Self::Init=>InvocationPhase::Init,Self::Decorator=>InvocationPhase::Decorator,
-            Self::PropertyGet=>InvocationPhase::PropertyGet,Self::PropertySet=>InvocationPhase::PropertySet,
+            Self::Call => InvocationPhase::Call,
+            Self::New => InvocationPhase::New,
+            Self::Init => InvocationPhase::Init,
+            Self::Decorator => InvocationPhase::Decorator,
+            Self::PropertyGet => InvocationPhase::PropertyGet,
+            Self::PropertySet => InvocationPhase::PropertySet,
         }
     }
 }
@@ -183,24 +206,119 @@ impl Target {
         }
     }
 
-    fn bindings<'a>(&self,contexts:&[ContextsRow],modules:&'a [ContextModulesRow],definitions:&'a [ContextDefinitionsRow])
-        -> Result<Vec<(&'a ContextModulesRow,&'a ContextDefinitionsRow)>,String> {
-        let applicable:Vec<_>=modules.iter().filter(|m|match self {
-            Self::Stdlib {python,module,..}=>m.module_name==*module && m.origin==ModuleOrigin::BundledTypeshed
-                && contexts.iter().any(|c|c.python_version==*python),
-            Self::Dependency {distribution,version,module,..}=>m.module_name==*module && m.origin==ModuleOrigin::SitePackages
-                && m.distribution.as_deref()==Some(distribution) && m.version.as_deref()==Some(version),
-            Self::Release {..}=>false,
-        }).collect();
-        if matches!(self,Self::Release {..}) {return Err(format!("release model target binding is not implemented: {}",self.key()));}
-        if applicable.is_empty() {return Ok(Vec::new());}
-        if let Self::Stdlib {python,..}=self {
-            if contexts.iter().any(|c|c.python_version!=*python) {return Err(format!("mixed Python versions cannot safely bind {}",self.key()));}
+    fn bindings<'a>(
+        &self,
+        contexts: &[ContextsRow],
+        modules: &'a [ContextModulesRow],
+        definitions: &'a [ContextDefinitionsRow],
+    ) -> Result<Vec<(&'a ContextModulesRow, &'a ContextDefinitionsRow)>, String> {
+        let applicable: Vec<_> = modules
+            .iter()
+            .filter(|m| match self {
+                Self::Stdlib { python, module, .. } => {
+                    m.module_name == *module
+                        && m.origin == ModuleOrigin::BundledTypeshed
+                        && contexts.iter().any(|c| c.python_version == *python)
+                }
+                Self::Dependency {
+                    distribution,
+                    version,
+                    module,
+                    ..
+                } => {
+                    m.module_name == *module
+                        && m.origin == ModuleOrigin::SitePackages
+                        && m.distribution.as_deref() == Some(distribution)
+                        && m.version.as_deref() == Some(version)
+                }
+                Self::Release { .. } => false,
+            })
+            .collect();
+        if matches!(self, Self::Release { .. }) {
+            return Err(format!(
+                "release model target binding is not implemented: {}",
+                self.key()
+            ));
         }
-        let callable=match self {Self::Stdlib {callable,..}|Self::Dependency {callable,..}=>callable,Self::Release {..}=>unreachable!()};
-        Ok(applicable.into_iter().flat_map(|module|definitions.iter().filter(move |d|
-            d.module_node_id==module.module_node_id && d.qualified_name==*callable
-                && matches!(d.kind,DefinitionKind::Function|DefinitionKind::Class)).map(move |d|(module,d))).collect())
+        if applicable.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Self::Stdlib { python, .. } = self
+            && contexts.iter().any(|c| c.python_version != *python)
+        {
+            return Err(format!(
+                "mixed Python versions cannot safely bind {}",
+                self.key()
+            ));
+        }
+        let callable = match self {
+            Self::Stdlib { callable, .. } | Self::Dependency { callable, .. } => callable,
+            Self::Release { .. } => unreachable!(),
+        };
+        let mut module_facts = BTreeSet::new();
+        if applicable
+            .iter()
+            .any(|m| !module_facts.insert((m.snapshot_id, m.fact_id)))
+        {
+            return Err(format!("duplicate pinned module fact for {}", self.key()));
+        }
+        let mut definition_facts = BTreeSet::new();
+        if definitions
+            .iter()
+            .filter(|d| {
+                d.qualified_name == *callable
+                    && applicable
+                        .iter()
+                        .any(|m| m.module_node_id == d.module_node_id)
+            })
+            .any(|d| !definition_facts.insert((d.snapshot_id, d.fact_id)))
+        {
+            return Err(format!(
+                "duplicate pinned definition fact for {}",
+                self.key()
+            ));
+        }
+        let matches = applicable
+            .into_iter()
+            .flat_map(|module| {
+                definitions
+                    .iter()
+                    .filter(move |d| {
+                        d.module_node_id == module.module_node_id
+                            && d.qualified_name == *callable
+                            && matches!(d.kind, DefinitionKind::Function | DefinitionKind::Class)
+                    })
+                    .map(move |d| (module, d))
+            })
+            .collect::<Vec<_>>();
+        let mut canonical: BTreeMap<(Id, Id), (&ContextModulesRow, &ContextDefinitionsRow)> =
+            BTreeMap::new();
+        for (module, definition) in matches {
+            let key = (module.module_node_id, definition.symbol_node_id);
+            if let Some((old_module, old_definition)) = canonical.get(&key) {
+                let mut a = (*old_module).clone();
+                let mut b = module.clone();
+                a.fact_id = Id::ZERO;
+                b.fact_id = Id::ZERO;
+                let mut c = (*old_definition).clone();
+                let mut d = definition.clone();
+                c.fact_id = Id::ZERO;
+                d.fact_id = Id::ZERO;
+                if a != b || c != d {
+                    return Err(format!(
+                        "conflicting pinned observations for {}",
+                        self.key()
+                    ));
+                }
+                if (old_module.fact_id, old_definition.fact_id)
+                    <= (module.fact_id, definition.fact_id)
+                {
+                    continue;
+                }
+            }
+            canonical.insert(key, (module, definition));
+        }
+        Ok(canonical.into_values().collect())
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -407,9 +525,19 @@ impl Rule {
     /// the same typed variants; no rendered effect/path string is interpreted.
     pub fn context_classes(&self) -> Vec<&str> {
         match self {
-            Self::Exception {class,to_class,..}=>std::iter::once(class.as_str()).chain(to_class.as_deref()).collect(),
-            Self::Effect {effect:Effect::Validate {schema:ValidationSchema::StaticClass {class}},..}=>vec![class],
-            _=>Vec::new(),
+            Self::Exception {
+                class, to_class, ..
+            } => std::iter::once(class.as_str())
+                .chain(to_class.as_deref())
+                .collect(),
+            Self::Effect {
+                effect:
+                    Effect::Validate {
+                        schema: ValidationSchema::StaticClass { class },
+                    },
+                ..
+            } => vec![class],
+            _ => Vec::new(),
         }
     }
 
@@ -428,12 +556,17 @@ impl Rule {
             Self::Callback { callback, .. } => callback.validate(),
             Self::Resource { resource, exit, .. } => {
                 resource.validate()?;
-                if matches!(resource,ResourcePath::Output {path:OutputPath::ReturnValue})
-                    && !matches!(exit,Exit::Normal) {
+                if matches!(
+                    resource,
+                    ResourcePath::Output {
+                        path: OutputPath::ReturnValue
+                    }
+                ) && !matches!(exit, Exit::Normal)
+                {
                     return Err("a returned resource requires a normal trigger".into());
                 }
                 Ok(())
-            },
+            }
             Self::Exception {
                 class,
                 action,
@@ -569,9 +702,13 @@ impl Effect {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ValidationSchema {
     /// Initial statically resolved domain: a class in the pinned context, not an arbitrary label.
-    StaticClass { class: String },
+    StaticClass {
+        class: String,
+    },
     /// The value at a proved input path determines the schema. It need not be a type object.
-    RuntimeValue { source: InputPath },
+    RuntimeValue {
+        source: InputPath,
+    },
     Unresolved {},
 }
 
@@ -586,19 +723,27 @@ impl ValidationSchema {
     }
 
     fn kind(&self) -> ModelSchemaKind {
-        match self {Self::StaticClass {..}=>ModelSchemaKind::StaticClass,
-            Self::RuntimeValue {..}=>ModelSchemaKind::RuntimeValue,
-            Self::Unresolved {}=>ModelSchemaKind::Unresolved}
+        match self {
+            Self::StaticClass { .. } => ModelSchemaKind::StaticClass,
+            Self::RuntimeValue { .. } => ModelSchemaKind::RuntimeValue,
+            Self::Unresolved {} => ModelSchemaKind::Unresolved,
+        }
     }
 
     fn source(&self) -> Option<&InputPath> {
-        match self {Self::RuntimeValue {source}=>Some(source),_=>None}
+        match self {
+            Self::RuntimeValue { source } => Some(source),
+            _ => None,
+        }
     }
 }
 
 impl Effect {
     fn schema(&self) -> Option<&ValidationSchema> {
-        match self {Self::Validate {schema}=>Some(schema),_=>None}
+        match self {
+            Self::Validate { schema } => Some(schema),
+            _ => None,
+        }
     }
 }
 
@@ -751,14 +896,21 @@ impl Catalog {
                     model.target.key()
                 ));
             }
-            if let Some(body)=&model.normal_body {
-                if model.phase!=Phase::Call || body.parameter().is_empty() || !body.parameter().chars().all(|c|c=='_' || c.is_alphanumeric()) {
-                    return Err("normal body needs an exact parameter name".into());
-                }
+            if let Some(body) = &model.normal_body
+                && (model.phase != Phase::Call
+                    || body.parameter().is_empty()
+                    || !body
+                        .parameter()
+                        .chars()
+                        .all(|c| c == '_' || c.is_alphanumeric()))
+            {
+                return Err("normal body needs an exact parameter name".into());
             }
             let key = model.target.key();
-            if !seen.insert((key.clone(),model.phase)) {
-                return Err(format!("{source_name}: duplicate model target and phase {key}"));
+            if !seen.insert((key.clone(), model.phase)) {
+                return Err(format!(
+                    "{source_name}: duplicate model target and phase {key}"
+                ));
             }
             let model_id = IdHasher::new("behavior-model")
                 .str(source_name)
@@ -769,24 +921,38 @@ impl Catalog {
                 .finish_id();
             models.push(CompiledModel { model_id, model });
         }
-        models.sort_by_key(|row| (row.model.target.key(),row.model.phase));
-        let mut context_protocols=Vec::new();
-        let mut context_classes=BTreeSet::new();
+        models.sort_by_key(|row| (row.model.target.key(), row.model.phase));
+        let mut context_protocols = Vec::new();
+        let mut context_classes = BTreeSet::new();
         for model in parsed.context_protocols {
-            for target in [&model.target,&model.allocation,&model.initialization] {target.validate()?;}
-            if model.revision==0 || !context_classes.insert(model.target.key()) {
-                return Err("context protocol needs a positive revision and unique class target".into());
+            for target in [&model.target, &model.allocation, &model.initialization] {
+                target.validate()?;
             }
-            let entry=match &model.entry {ContextEntry::NoneValue=>None,ContextEntry::ArgumentOrNone {formal}=>Some(formal)};
-            let exit=match &model.exit {ContextExit::Preserve=>None,ContextExit::SuppressClasses {formal}=>Some(formal)};
-            if entry.into_iter().chain(exit).any(|name|!identifier(name)) {
+            if model.revision == 0 || !context_classes.insert(model.target.key()) {
+                return Err(
+                    "context protocol needs a positive revision and unique class target".into(),
+                );
+            }
+            let entry = match &model.entry {
+                ContextEntry::NoneValue => None,
+                ContextEntry::ArgumentOrNone { formal } => Some(formal),
+            };
+            let exit = match &model.exit {
+                ContextExit::Preserve => None,
+                ContextExit::SuppressClasses { formal } => Some(formal),
+            };
+            if entry.into_iter().chain(exit).any(|name| !identifier(name)) {
                 return Err("context protocol formal must be an identifier".into());
             }
-            let model_id=IdHasher::new("context-protocol-model").str(source_name).bytes(source.as_bytes())
-                .str(&model.target.key()).i64(i64::from(model.revision)).finish_id();
-            context_protocols.push(CompiledContextProtocol {model_id,model});
+            let model_id = IdHasher::new("context-protocol-model")
+                .str(source_name)
+                .bytes(source.as_bytes())
+                .str(&model.target.key())
+                .i64(i64::from(model.revision))
+                .finish_id();
+            context_protocols.push(CompiledContextProtocol { model_id, model });
         }
-        context_protocols.sort_by_key(|p|p.model.target.key());
+        context_protocols.sort_by_key(|p| p.model.target.key());
         Ok(Self {
             digest: IdHasher::new("behavior-model-catalog")
                 .str(source_name)
@@ -823,86 +989,142 @@ impl Catalog {
         let mut out: BTreeMap<(Id, Id), ModelTargetsRow> = BTreeMap::new();
         for compiled in &self.models {
             let target = &compiled.model.target;
-            for (module,definition) in target.bindings(contexts,modules,definitions)? {
-                    if (compiled.model.normal_body.is_some() || compiled.model.call_defaults_available) && definition.kind != DefinitionKind::Function {
-                        return Err(format!(
-                            "{}: body_return_parameter/default availability requires a function target",
-                            target.key()
-                        ));
+            for (module, definition) in target.bindings(contexts, modules, definitions)? {
+                if (compiled.model.normal_body.is_some() || compiled.model.call_defaults_available)
+                    && definition.kind != DefinitionKind::Function
+                {
+                    return Err(format!(
+                        "{}: body_return_parameter/default availability requires a function target",
+                        target.key()
+                    ));
+                }
+                let row = ModelTargetsRow {
+                    snapshot_id,
+                    model_id: compiled.model_id,
+                    target_node_id: definition.symbol_node_id,
+                    target_module_fact_id: module.fact_id,
+                    target_definition_fact_id: definition.fact_id,
+                    target_key: target.key(),
+                    revision: i64::from(compiled.model.revision),
+                    phase: compiled.model.phase.codebook(),
+                    transfer_coverage: compiled.model.coverage.transfers.codebook(),
+                    effect_coverage: compiled.model.coverage.effects.codebook(),
+                    callback_coverage: compiled.model.coverage.callbacks.codebook(),
+                    resource_coverage: compiled.model.coverage.resources.codebook(),
+                    exception_coverage: compiled.model.coverage.exceptions.codebook(),
+                    body_return_parameter: compiled
+                        .model
+                        .normal_body
+                        .as_ref()
+                        .map(|b| b.parameter().to_owned()),
+                    call_defaults_available: compiled.model.call_defaults_available,
+                    origin: Origin::SyntheticModel,
+                };
+                let key = (row.model_id, row.target_node_id);
+                match out.get(&key) {
+                    Some(old)
+                        if (old.target_module_fact_id, old.target_definition_fact_id)
+                            <= (row.target_module_fact_id, row.target_definition_fact_id) => {}
+                    _ => {
+                        out.insert(key, row);
                     }
-                    let row = ModelTargetsRow {
-                        snapshot_id,
-                        model_id: compiled.model_id,
-                        target_node_id: definition.symbol_node_id,
-                        target_module_fact_id: module.fact_id,
-                        target_definition_fact_id: definition.fact_id,
-                        target_key: target.key(),
-                        revision: i64::from(compiled.model.revision),
-                        phase: compiled.model.phase.codebook(),
-                        transfer_coverage: compiled.model.coverage.transfers.codebook(),
-                        effect_coverage: compiled.model.coverage.effects.codebook(),
-                        callback_coverage: compiled.model.coverage.callbacks.codebook(),
-                        resource_coverage: compiled.model.coverage.resources.codebook(),
-                        exception_coverage: compiled.model.coverage.exceptions.codebook(),
-                        body_return_parameter: compiled.model.normal_body.as_ref().map(|b|b.parameter().to_owned()),
-                        call_defaults_available: compiled.model.call_defaults_available,
-                        origin: Origin::SyntheticModel,
-                    };
-                    let key = (row.model_id, row.target_node_id);
-                    match out.get(&key) {
-                        Some(old)
-                            if (old.target_module_fact_id, old.target_definition_fact_id)
-                                <= (row.target_module_fact_id, row.target_definition_fact_id) => {}
-                        _ => {
-                            out.insert(key, row);
-                        }
-                    }
+                }
             }
         }
         Ok(out.into_values().collect())
     }
 
-    pub fn bind_context_protocols(&self,snapshot_id:Id,contexts:&[ContextsRow],modules:&[ContextModulesRow],
-        definitions:&[ContextDefinitionsRow],parameters:&[ContextParametersRow])
-        -> Result<Vec<crate::context_protocol::ModelContextProtocolsRow>,String> {
-        use crate::codebook::{ContextEntryKind as Entry,ContextExitKind as Exit};
-        let mut out=Vec::new();
+    pub fn bind_context_protocols(
+        &self,
+        snapshot_id: Id,
+        contexts: &[ContextsRow],
+        modules: &[ContextModulesRow],
+        definitions: &[ContextDefinitionsRow],
+        parameters: &[ContextParametersRow],
+    ) -> Result<Vec<crate::context_protocol::ModelContextProtocolsRow>, String> {
+        use crate::codebook::{ContextEntryKind as Entry, ContextExitKind as Exit};
+        let mut out = Vec::new();
         for compiled in &self.context_protocols {
-            let model=&compiled.model;
-            let classes=model.target.bindings(contexts,modules,definitions)?;
-            if classes.is_empty() {continue;}
-            if classes.len()!=1 || classes[0].1.kind!=DefinitionKind::Class {
-                return Err(format!("context protocol requires one pinned class: {}",model.target.key()));
+            let model = &compiled.model;
+            let classes = model.target.bindings(contexts, modules, definitions)?;
+            if classes.is_empty() {
+                continue;
             }
-            let (module,class)=classes[0];
-            let allocations=model.allocation.bindings(contexts,modules,definitions)?;
-            let initializations=model.initialization.bindings(contexts,modules,definitions)?;
+            if classes.len() != 1 || classes[0].1.kind != DefinitionKind::Class {
+                return Err(format!(
+                    "context protocol requires one pinned class: {}",
+                    model.target.key()
+                ));
+            }
+            let (module, class) = classes[0];
+            let allocations = model.allocation.bindings(contexts, modules, definitions)?;
+            let initializations = model
+                .initialization
+                .bindings(contexts, modules, definitions)?;
             // Merely importing a class need not expose its constructor roles. A source site
             // without these independently pinned premises cannot activate the protocol.
-            if allocations.is_empty() || initializations.is_empty() {continue;}
-            if allocations.len()!=1 || initializations.len()!=1
-                || allocations[0].1.kind!=DefinitionKind::Function || initializations[0].1.kind!=DefinitionKind::Function {
-                return Err(format!("context protocol has ambiguous or invalid constructor roles: {}",model.target.key()));
+            if allocations.is_empty() || initializations.is_empty() {
+                continue;
             }
-            let (allocation_module,allocation)=allocations[0];
-            let (initialization_module,initialization)=initializations[0];
-            let (entry,entry_formal)=match &model.entry {ContextEntry::NoneValue=>(Entry::NoneValue,None),
-                ContextEntry::ArgumentOrNone {formal}=>(Entry::ArgumentOrNone,Some(formal.clone()))};
-            let (exit,exception_formal)=match &model.exit {ContextExit::Preserve=>(Exit::Preserve,None),
-                ContextExit::SuppressClasses {formal}=>(Exit::SuppressClasses,Some(formal.clone()))};
-            let signatures=crate::context_protocol::initializer_signatures(initialization,parameters)
-                .map_err(|reason|format!("{}: {reason}",model.target.key()))?;
-            if entry_formal.iter().chain(exception_formal.iter()).any(|formal|
-                !signatures.iter().flatten().any(|p|p.name==*formal)) {
-                return Err(format!("context protocol initializer has no compatible formal: {}",model.target.key()));
+            if allocations.len() != 1
+                || initializations.len() != 1
+                || allocations[0].1.kind != DefinitionKind::Function
+                || initializations[0].1.kind != DefinitionKind::Function
+            {
+                return Err(format!(
+                    "context protocol has ambiguous or invalid constructor roles: {}",
+                    model.target.key()
+                ));
             }
-            out.push(crate::context_protocol::ModelContextProtocolsRow {snapshot_id,model_id:compiled.model_id,
-                revision:i64::from(model.revision),class_node_id:class.symbol_node_id,class_fact_id:class.fact_id,class_module_fact_id:module.fact_id,
-                allocation_node_id:allocation.symbol_node_id,allocation_fact_id:allocation.fact_id,allocation_module_fact_id:allocation_module.fact_id,
-                initialization_node_id:initialization.symbol_node_id,initialization_fact_id:initialization.fact_id,initialization_module_fact_id:initialization_module.fact_id,
-                entry,entry_formal,exit,exception_formal,origin:Origin::SyntheticModel});
+            let (allocation_module, allocation) = allocations[0];
+            let (initialization_module, initialization) = initializations[0];
+            let (entry, entry_formal) = match &model.entry {
+                ContextEntry::NoneValue => (Entry::NoneValue, None),
+                ContextEntry::ArgumentOrNone { formal } => {
+                    (Entry::ArgumentOrNone, Some(formal.clone()))
+                }
+            };
+            let (exit, exception_formal) = match &model.exit {
+                ContextExit::Preserve => (Exit::Preserve, None),
+                ContextExit::SuppressClasses { formal } => {
+                    (Exit::SuppressClasses, Some(formal.clone()))
+                }
+            };
+            let signatures =
+                crate::context_protocol::initializer_signatures(initialization, parameters)
+                    .map_err(|reason| format!("{}: {reason}", model.target.key()))?;
+            if entry_formal
+                .iter()
+                .chain(exception_formal.iter())
+                .any(|formal| !signatures.iter().flatten().any(|p| p.name == *formal))
+            {
+                return Err(format!(
+                    "context protocol initializer has no compatible formal: {}",
+                    model.target.key()
+                ));
+            }
+            out.push(crate::context_protocol::ModelContextProtocolsRow {
+                snapshot_id,
+                model_id: compiled.model_id,
+                revision: i64::from(model.revision),
+                class_node_id: class.symbol_node_id,
+                class_fact_id: class.fact_id,
+                class_module_fact_id: module.fact_id,
+                allocation_node_id: allocation.symbol_node_id,
+                allocation_fact_id: allocation.fact_id,
+                allocation_module_fact_id: allocation_module.fact_id,
+                initialization_node_id: initialization.symbol_node_id,
+                initialization_fact_id: initialization.fact_id,
+                initialization_module_fact_id: initialization_module.fact_id,
+                entry,
+                entry_formal,
+                exit,
+                exception_formal,
+                origin: Origin::SyntheticModel,
+            });
         }
-        out.sort_by_key(|p|(p.model_id,p.class_node_id));Ok(out)
+        out.sort_by_key(|p| (p.model_id, p.class_node_id));
+        Ok(out)
     }
 
     /// Compile every authored family in one pass, against the same pinned target and complete
@@ -934,9 +1156,16 @@ impl Catalog {
             for (index, rule) in model.rules.iter().enumerate() {
                 let formals: Vec<Option<&str>> = match rule {
                     Rule::Transfer { from, to, .. } => vec![from.formal(), to.formal()],
-                    Rule::Effect { subject, effect, .. } => {
-                        vec![subject.as_ref().and_then(InputPath::formal),
-                            effect.schema().and_then(ValidationSchema::source).and_then(InputPath::formal)]
+                    Rule::Effect {
+                        subject, effect, ..
+                    } => {
+                        vec![
+                            subject.as_ref().and_then(InputPath::formal),
+                            effect
+                                .schema()
+                                .and_then(ValidationSchema::source)
+                                .and_then(InputPath::formal),
+                        ]
                     }
                     Rule::Callback { callback, .. } => vec![callback.formal()],
                     Rule::Resource { resource, .. } => vec![resource.formal()],
@@ -952,10 +1181,18 @@ impl Catalog {
                         (ModelPathRole::Input, from.id(), from.formal()),
                         (ModelPathRole::Output, to.id(), to.formal()),
                     ],
-                    Rule::Effect { subject, effect, .. } => subject.as_ref()
-                        .map(|path| (ModelPathRole::Input, path.id(), path.formal())).into_iter()
-                        .chain(effect.schema().and_then(ValidationSchema::source)
-                            .map(|path|(ModelPathRole::Schema,path.id(),path.formal())))
+                    Rule::Effect {
+                        subject, effect, ..
+                    } => subject
+                        .as_ref()
+                        .map(|path| (ModelPathRole::Input, path.id(), path.formal()))
+                        .into_iter()
+                        .chain(
+                            effect
+                                .schema()
+                                .and_then(ValidationSchema::source)
+                                .map(|path| (ModelPathRole::Schema, path.id(), path.formal())),
+                        )
                         .collect(),
                     Rule::Callback { callback, .. } => {
                         vec![(ModelPathRole::Input, callback.id(), callback.formal())]
@@ -1016,12 +1253,14 @@ impl Catalog {
                         modality,
                     } => {
                         let (kind, argument) = effect.kind_argument();
-                        let schema=effect.schema();
-                        let schema_class=match schema {
-                            Some(ValidationSchema::StaticClass {class})=>Some(resolve_context_class(class,definitions)?),
-                            _=>None,
+                        let schema = effect.schema();
+                        let schema_class = match schema {
+                            Some(ValidationSchema::StaticClass { class }) => {
+                                Some(resolve_context_class(class, definitions)?)
+                            }
+                            _ => None,
                         };
-                        let schema_source=schema.and_then(ValidationSchema::source);
+                        let schema_source = schema.and_then(ValidationSchema::source);
                         out.effects.push(ModelEffectsRow {
                             snapshot_id: target.snapshot_id,
                             model_id: target.model_id,
@@ -1033,10 +1272,10 @@ impl Catalog {
                             exit: exit.codebook(),
                             argument: argument.map(str::to_owned),
                             schema_kind: schema.map(ValidationSchema::kind),
-                            schema_class_node_id:schema_class.map(|d|d.symbol_node_id),
-                            schema_class_fact_id:schema_class.map(|d|d.fact_id),
-                            schema_path_id:schema_source.map(InputPath::id),
-                            schema_path_kind:schema_source.map(InputPath::kind),
+                            schema_class_node_id: schema_class.map(|d| d.symbol_node_id),
+                            schema_class_fact_id: schema_class.map(|d| d.fact_id),
+                            schema_path_id: schema_source.map(InputPath::id),
+                            schema_path_kind: schema_source.map(InputPath::kind),
                             subject_path_id: subject.as_ref().map(InputPath::id),
                             subject_path_kind: subject.as_ref().map(InputPath::kind),
                             subject_path: subject.as_ref().map(InputPath::render),
@@ -1131,13 +1370,22 @@ fn resolve_context_class<'a>(
     let mut matches = definitions.iter().filter(|d| {
         d.kind == DefinitionKind::Class && format!("{}.{}", d.module_name, d.qualified_name) == name
     });
-    let class = matches
+    let mut class = matches
         .next()
         .ok_or_else(|| format!("model class {name} has no pinned context definition"))?;
-    if matches.next().is_some() {
-        return Err(format!(
-            "model class {name} has multiple pinned context definitions"
-        ));
+    for other in matches {
+        let mut a = class.clone();
+        let mut b = other.clone();
+        a.fact_id = Id::ZERO;
+        b.fact_id = Id::ZERO;
+        if class.fact_id == other.fact_id || a != b {
+            return Err(format!(
+                "model class {name} has multiple incompatible pinned context definitions"
+            ));
+        }
+        if other.fact_id < class.fact_id {
+            class = other;
+        }
     }
     Ok(class)
 }
@@ -1149,12 +1397,12 @@ fn validate_formals(
     formals: &[Option<&str>],
 ) -> Result<(), String> {
     for signature_index in 0..signature_count {
-        let rows: Vec<_> = parameters
-            .iter()
-            .filter(|p| {
-                p.symbol_node_id == target.target_node_id && p.signature_index == signature_index
-            })
-            .collect();
+        let rows = crate::context_observations::parameters(parameters.iter().filter(|p| {
+            p.snapshot_id == target.snapshot_id
+                && p.symbol_node_id == target.target_node_id
+                && p.signature_index == signature_index
+        }))
+        .map_err(|reason| format!("{}: {reason}", target.target_key))?;
         if rows.is_empty() || rows.iter().any(|p| p.form != SignatureForm::List) {
             return Err(format!(
                 "unresolved signature {signature_index} for {}",
@@ -1245,8 +1493,40 @@ mod tests {
         assert_eq!(bound[0].target_node_id, definition.symbol_node_id);
         assert_eq!(bound[0].target_definition_fact_id, definition.fact_id);
         assert_eq!(bound[0].body_return_parameter.as_deref(), Some("val"));
-        assert_eq!(bound[0].phase,InvocationPhase::Call);
+        assert_eq!(bound[0].phase, InvocationPhase::Call);
         assert_eq!(bound[0].origin, Origin::SyntheticModel);
+        let repeated_module = ContextModulesRow {
+            fact_id: Id([90; 16]),
+            ..module.clone()
+        };
+        let repeated_definition = ContextDefinitionsRow {
+            fact_id: Id([91; 16]),
+            ..definition.clone()
+        };
+        let repeated = catalog
+            .bind_targets(
+                snapshot_id,
+                std::slice::from_ref(&context),
+                &[repeated_module, module.clone()],
+                &[repeated_definition, definition.clone()],
+            )
+            .unwrap();
+        assert_eq!(repeated, bound);
+        let drift = ContextDefinitionsRow {
+            fact_id: Id([92; 16]),
+            signature_count: Some(2),
+            ..definition.clone()
+        };
+        assert!(
+            catalog
+                .bind_targets(
+                    snapshot_id,
+                    std::slice::from_ref(&context),
+                    std::slice::from_ref(&module),
+                    &[definition.clone(), drift]
+                )
+                .is_err()
+        );
         let class_definition = ContextDefinitionsRow {
             kind: DefinitionKind::Class,
             ..definition.clone()
@@ -1273,6 +1553,19 @@ mod tests {
             name: Some("val".into()),
             required: Some(true),
         };
+        let repeated_parameter = ContextParametersRow {
+            fact_id: Id([93; 16]),
+            ..parameter.clone()
+        };
+        assert!(
+            catalog
+                .compile_rules(
+                    &bound,
+                    std::slice::from_ref(&definition),
+                    &[repeated_parameter, parameter.clone()]
+                )
+                .is_ok()
+        );
         let compiled = catalog
             .compile_rules(
                 &bound,
@@ -1305,42 +1598,123 @@ exit = "normal"
 subject = { kind = "parameter", name = "val" }
 modality = "potential"
 "#;
-        let class=ContextDefinitionsRow {fact_id:Id([8;16]),symbol_node_id:Id([9;16]),
-            module_name:"builtins".into(),qualified_name:"int".into(),kind:DefinitionKind::Class,
-            ..definition.clone()};
-        for (schema,kind) in [
-            (r#"{kind="static_class", class="builtins.int"}"#,ModelSchemaKind::StaticClass),
-            (r#"{kind="runtime_value", source={kind="parameter", name="val"}}"#,ModelSchemaKind::RuntimeValue),
-            (r#"{kind="unresolved"}"#,ModelSchemaKind::Unresolved),
+        let class = ContextDefinitionsRow {
+            fact_id: Id([8; 16]),
+            symbol_node_id: Id([9; 16]),
+            module_name: "builtins".into(),
+            qualified_name: "int".into(),
+            kind: DefinitionKind::Class,
+            ..definition.clone()
+        };
+        for (schema, kind) in [
+            (
+                r#"{kind="static_class", class="builtins.int"}"#,
+                ModelSchemaKind::StaticClass,
+            ),
+            (
+                r#"{kind="runtime_value", source={kind="parameter", name="val"}}"#,
+                ModelSchemaKind::RuntimeValue,
+            ),
+            (r#"{kind="unresolved"}"#, ModelSchemaKind::Unresolved),
         ] {
-            let text=format!("{header}effect = {{kind=\"validate\",schema={schema}}}");
-            let catalog=Catalog::parse("contract-control.toml",&text).unwrap();
-            let target=catalog.bind_targets(snapshot_id,std::slice::from_ref(&context),
-                std::slice::from_ref(&module),std::slice::from_ref(&definition)).unwrap();
-            let output=catalog.compile_rules(&target,&[definition.clone(),class.clone()],std::slice::from_ref(&parameter)).unwrap();
-            let [effect]=output.effects.as_slice() else {panic!("one validation effect")};
-            assert_eq!(effect.schema_kind,Some(kind));
+            let text = format!("{header}effect = {{kind=\"validate\",schema={schema}}}");
+            let catalog = Catalog::parse("contract-control.toml", &text).unwrap();
+            let target = catalog
+                .bind_targets(
+                    snapshot_id,
+                    std::slice::from_ref(&context),
+                    std::slice::from_ref(&module),
+                    std::slice::from_ref(&definition),
+                )
+                .unwrap();
+            let output = catalog
+                .compile_rules(
+                    &target,
+                    &[definition.clone(), class.clone()],
+                    std::slice::from_ref(&parameter),
+                )
+                .unwrap();
+            let [effect] = output.effects.as_slice() else {
+                panic!("one validation effect")
+            };
+            assert_eq!(effect.schema_kind, Some(kind));
             assert!(effect.argument.is_none());
-            if kind==ModelSchemaKind::StaticClass {
-                assert_eq!(effect.schema_class_node_id,Some(class.symbol_node_id));
-                assert_eq!(effect.schema_class_fact_id,Some(class.fact_id));
-                assert!(catalog.compile_rules(&target,std::slice::from_ref(&definition),std::slice::from_ref(&parameter)).is_err());
-                assert!(catalog.compile_rules(&target,&[definition.clone(),class.clone(),class.clone()],std::slice::from_ref(&parameter)).is_err());
-            } else { assert!(effect.schema_class_node_id.is_none() && effect.schema_class_fact_id.is_none()); }
-            if kind==ModelSchemaKind::RuntimeValue {
-                assert_eq!(effect.schema_path_id,effect.subject_path_id);
-                assert_eq!(output.formals.iter().map(|r|r.path_role).collect::<BTreeSet<_>>(),
-                    [ModelPathRole::Input,ModelPathRole::Schema].into_iter().collect());
-                let missing=text.replace("source={kind=\"parameter\", name=\"val\"}","source={kind=\"parameter\", name=\"missing\"}");
-                let missing=Catalog::parse("missing.toml",&missing).unwrap();
-                let target=missing.bind_targets(snapshot_id,std::slice::from_ref(&context),
-                    std::slice::from_ref(&module),std::slice::from_ref(&definition)).unwrap();
-                assert!(missing.compile_rules(&target,std::slice::from_ref(&definition),std::slice::from_ref(&parameter)).is_err());
-            } else { assert!(effect.schema_path_id.is_none() && effect.schema_path_kind.is_none()); }
+            if kind == ModelSchemaKind::StaticClass {
+                assert_eq!(effect.schema_class_node_id, Some(class.symbol_node_id));
+                assert_eq!(effect.schema_class_fact_id, Some(class.fact_id));
+                assert!(
+                    catalog
+                        .compile_rules(
+                            &target,
+                            std::slice::from_ref(&definition),
+                            std::slice::from_ref(&parameter)
+                        )
+                        .is_err()
+                );
+                assert!(
+                    catalog
+                        .compile_rules(
+                            &target,
+                            &[definition.clone(), class.clone(), class.clone()],
+                            std::slice::from_ref(&parameter)
+                        )
+                        .is_err()
+                );
+            } else {
+                assert!(
+                    effect.schema_class_node_id.is_none() && effect.schema_class_fact_id.is_none()
+                );
+            }
+            if kind == ModelSchemaKind::RuntimeValue {
+                assert_eq!(effect.schema_path_id, effect.subject_path_id);
+                assert_eq!(
+                    output
+                        .formals
+                        .iter()
+                        .map(|r| r.path_role)
+                        .collect::<BTreeSet<_>>(),
+                    [ModelPathRole::Input, ModelPathRole::Schema]
+                        .into_iter()
+                        .collect()
+                );
+                let missing = text.replace(
+                    "source={kind=\"parameter\", name=\"val\"}",
+                    "source={kind=\"parameter\", name=\"missing\"}",
+                );
+                let missing = Catalog::parse("missing.toml", &missing).unwrap();
+                let target = missing
+                    .bind_targets(
+                        snapshot_id,
+                        std::slice::from_ref(&context),
+                        std::slice::from_ref(&module),
+                        std::slice::from_ref(&definition),
+                    )
+                    .unwrap();
+                assert!(
+                    missing
+                        .compile_rules(
+                            &target,
+                            std::slice::from_ref(&definition),
+                            std::slice::from_ref(&parameter)
+                        )
+                        .is_err()
+                );
+            } else {
+                assert!(effect.schema_path_id.is_none() && effect.schema_path_kind.is_none());
+            }
         }
-        for schema in [r#""builtins.int""#,r#"{kind="unresolved", class="builtins.int"}"#,
-            r#"{kind="runtime_value", source={kind="return_value"}}"#] {
-            assert!(Catalog::parse("invalid.toml",&format!("{header}effect={{kind=\"validate\",schema={schema}}}")).is_err());
+        for schema in [
+            r#""builtins.int""#,
+            r#"{kind="unresolved", class="builtins.int"}"#,
+            r#"{kind="runtime_value", source={kind="return_value"}}"#,
+        ] {
+            assert!(
+                Catalog::parse(
+                    "invalid.toml",
+                    &format!("{header}effect={{kind=\"validate\",schema={schema}}}")
+                )
+                .is_err()
+            );
         }
 
         let renamed = ContextParametersRow {
@@ -1566,12 +1940,24 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
 
     #[test]
     fn action_triggers_are_authored_and_returned_resources_require_normal() {
-        let source=include_str!("../models/external.toml");
-        assert!(Catalog::parse("missing-trigger.toml",&source.replacen("exit = \"invocation\"\n","",1)).is_err());
-        for exit in ["invocation","exceptional","finally"] {
-            let changed=source.replacen("action = \"acquire\"\nexit = \"normal\"",
-                &format!("action = \"acquire\"\nexit = \"{exit}\""),1);
-            assert!(Catalog::parse("early-resource.toml",&changed).is_err(),"{exit}");
+        let source = include_str!("../models/external.toml");
+        assert!(
+            Catalog::parse(
+                "missing-trigger.toml",
+                &source.replacen("exit = \"invocation\"\n", "", 1)
+            )
+            .is_err()
+        );
+        for exit in ["invocation", "exceptional", "finally"] {
+            let changed = source.replacen(
+                "action = \"acquire\"\nexit = \"normal\"",
+                &format!("action = \"acquire\"\nexit = \"{exit}\""),
+                1,
+            );
+            assert!(
+                Catalog::parse("early-resource.toml", &changed).is_err(),
+                "{exit}"
+            );
         }
     }
 
@@ -1633,20 +2019,42 @@ modality = "definite"
 
     #[test]
     fn phase_is_mandatory_and_same_target_can_have_distinct_phase_contracts() {
-        let original=include_str!("../models/external.toml");
-        assert!(Catalog::parse("missing.toml",&original.replace("phase = \"call\"\n","")).is_err());
-        assert!(Catalog::parse("unknown.toml",&original.replace("phase = \"call\"","phase = \"later\"")).is_err());
-        let first=original.split("# Python 3.14 typing.assert_type").next().unwrap();
-        let init=first.trim_start_matches("version = 7").replace("phase = \"call\"","phase = \"init\"")
-            .replace(r#"normal_body = { kind = "direct_return_parameter", name = "val" }"#, "")
-            .replace("exceptions = \"complete\"","exceptions = \"partial\"");
-        let catalog=Catalog::parse("phases.toml",&format!("{first}\n{init}")).unwrap();
-        assert_eq!(catalog.models.len(),2);
-        assert_eq!(catalog.models[0].model.phase,Phase::Call);
-        assert_eq!(catalog.models[1].model.phase,Phase::Init);
+        let original = include_str!("../models/external.toml");
+        assert!(
+            Catalog::parse("missing.toml", &original.replace("phase = \"call\"\n", "")).is_err()
+        );
+        assert!(
+            Catalog::parse(
+                "unknown.toml",
+                &original.replace("phase = \"call\"", "phase = \"later\"")
+            )
+            .is_err()
+        );
+        let first = original
+            .split("# Python 3.14 typing.assert_type")
+            .next()
+            .unwrap();
+        let init = first
+            .trim_start_matches("version = 7")
+            .replace("phase = \"call\"", "phase = \"init\"")
+            .replace(
+                r#"normal_body = { kind = "direct_return_parameter", name = "val" }"#,
+                "",
+            )
+            .replace("exceptions = \"complete\"", "exceptions = \"partial\"");
+        let catalog = Catalog::parse("phases.toml", &format!("{first}\n{init}")).unwrap();
+        assert_eq!(catalog.models.len(), 2);
+        assert_eq!(catalog.models[0].model.phase, Phase::Call);
+        assert_eq!(catalog.models[1].model.phase, Phase::Init);
         assert!(catalog.models[0].model.normal_body.is_some());
         assert!(catalog.models[1].model.normal_body.is_none());
-        assert_ne!(catalog.models[0].model_id,catalog.models[1].model_id);
-        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 7"))).is_err());
+        assert_ne!(catalog.models[0].model_id, catalog.models[1].model_id);
+        assert!(
+            Catalog::parse(
+                "duplicate.toml",
+                &format!("{first}\n{}", first.trim_start_matches("version = 7"))
+            )
+            .is_err()
+        );
     }
 }

@@ -20,13 +20,13 @@
 use std::collections::{HashMap, HashSet};
 
 use cpg_schema::codebook::{
-    BoundaryReason, DeclarationKind, ExtractionMode, Fidelity, FunctionBodyKind, Modality, Origin, ParameterKind,
-    RecordKind, SyntaxField, SyntaxKind, TypeArgRole, TypeRole, TypeTermKind,
+    BoundaryReason, DeclarationKind, ExtractionMode, Fidelity, FunctionBodyKind, Modality, Origin,
+    ParameterKind, RecordKind, SyntaxField, SyntaxKind, TypeArgRole, TypeRole, TypeTermKind,
 };
 use cpg_schema::id::{Id, IdHasher, kind, recipe};
 use cpg_schema::tables::{
-    FunctionImplementations, FunctionImplementationsRow, RecordFields, RecordFieldsRow, TypeObservations, TypeObservationsRow, TypeTermArgs,
-    TypeTermArgsRow, TypeTerms, TypeTermsRow,
+    FunctionImplementations, FunctionImplementationsRow, RecordFields, RecordFieldsRow,
+    TypeObservations, TypeObservationsRow, TypeTermArgs, TypeTermArgsRow, TypeTerms, TypeTermsRow,
 };
 use pyrefly::alt::answers::Solutions;
 use pyrefly::alt::types::class_metadata::DataclassKind;

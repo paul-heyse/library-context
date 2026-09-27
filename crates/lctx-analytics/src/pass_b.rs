@@ -267,12 +267,22 @@ impl Flows {
             {
                 out.followed.insert((f.argument, source));
             }
-            if f.value_class == value_class::OTHER && let Some(parameter) = f.source_parameter {
+            if f.value_class == value_class::OTHER
+                && let Some(parameter) = f.source_parameter
+            {
                 out.reads.push(Read {
-                    caller: f.caller, call_site: f.call_site, target: f.target,
-                    edge_id: f.edge_id, modality: f.modality, phase: f.phase,
-                    argument: f.argument, parameter,
-                    rebound: false, bare: false, unpacked: false, open_alternative: true,
+                    caller: f.caller,
+                    call_site: f.call_site,
+                    target: f.target,
+                    edge_id: f.edge_id,
+                    modality: f.modality,
+                    phase: f.phase,
+                    argument: f.argument,
+                    parameter,
+                    rebound: false,
+                    bare: false,
+                    unpacked: false,
+                    open_alternative: true,
                 });
             }
         }
@@ -512,8 +522,9 @@ pub fn run(
             .unwrap_or_default()
         {
             let read = &flows.reads[r];
-            if !inside(read.target) || (!read.open_alternative
-                && flows.followed.contains(&(read.argument, formal))) {
+            if !inside(read.target)
+                || (!read.open_alternative && flows.followed.contains(&(read.argument, formal)))
+            {
                 continue;
             }
             let reason = read.reason();
@@ -698,8 +709,10 @@ mod suppression_tests {
             conditional: false,
             value_tested: false,
         };
-        let mut flows = Flows::default();
-        flows.flows = vec![make_flow(5, true), make_flow(6, false)];
+        let mut flows = Flows {
+            flows: vec![make_flow(5, true), make_flow(6, false)],
+            ..Default::default()
+        };
         flows.by_caller.insert(seed, vec![0, 1]);
         flows.guards.push(Guard {
             function: target,

@@ -120,7 +120,10 @@ pub struct Published {
 /// 94: explicit authored action triggers and candidate-backed action assessments.
 /// 95: pinned default availability and independently committed omitted-formal obligations.
 /// 96: normal-exit action implications with mandatory undischarged outcome obligations.
-pub const COMPILER_OUTPUT_VERSION: u32 = 100;
+/// 97–100: frame/body/fresh-call completion and independent source invocation.
+/// 101: nondominated depth/proof-cost progress through shared bounded scheduling helpers.
+/// 102: agree on repeated pinned context observations without counting them as overloads.
+pub const COMPILER_OUTPUT_VERSION: u32 = 102;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -419,11 +422,18 @@ async fn write_analysis<T: Table>(
 /// SQL-only derivations remain columnar. Strict conversion and canonical ordering are the
 /// existing Delta/table contracts; this path removes decoding and re-encoding every row.
 async fn write_analysis_query<T: Table>(
-    ctx: &datafusion::prelude::SessionContext, root: &Path, snapshot_id: Id,
-    relation: &cpg_schema::query::Relation, w: &mut Written,
+    ctx: &datafusion::prelude::SessionContext,
+    root: &Path,
+    snapshot_id: Id,
+    relation: &cpg_schema::query::Relation,
+    w: &mut Written,
 ) -> Result<(), CoreError> {
     let mut declared = Vec::new();
-    for batch in crate::sql::query(ctx, &relation.sql).await?.collect().await? {
+    for batch in crate::sql::query(ctx, &relation.sql)
+        .await?
+        .collect()
+        .await?
+    {
         declared.push(crate::delta::to_declared::<T>(&batch)?);
     }
     let batch = arrow_select::concat::concat_batches(&T::schema(), &declared)?;
@@ -432,8 +442,11 @@ async fn write_analysis_query<T: Table>(
 }
 
 async fn write_analysis_batch<T: Table>(
-    ctx: &datafusion::prelude::SessionContext, root: &Path, snapshot_id: Id,
-    batch: RecordBatch, w: &mut Written,
+    ctx: &datafusion::prelude::SessionContext,
+    root: &Path,
+    snapshot_id: Id,
+    batch: RecordBatch,
+    w: &mut Written,
 ) -> Result<(), CoreError> {
     let version = write::<T>(root, &batch, snapshot_id).await?;
     register(ctx, root, T::NAME, version, snapshot_id).await?;
@@ -535,23 +548,23 @@ fn bind_models(
     }
     let catalog = cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
     let definitions = rows::<cpg_schema::tables::ContextDefinitions>(raw)?;
-    let contexts=rows::<cpg_schema::tables::Contexts>(raw)?;
-    let modules=rows::<cpg_schema::tables::ContextModules>(raw)?;
+    let contexts = rows::<cpg_schema::tables::Contexts>(raw)?;
+    let modules = rows::<cpg_schema::tables::ContextModules>(raw)?;
     let targets = catalog
-        .bind_targets(
-            snapshot_id,
-            &contexts,
-            &modules,
-            &definitions,
-        )
+        .bind_targets(snapshot_id, &contexts, &modules, &definitions)
         .map_err(CoreError::Analysis)?;
     let parameters = rows::<cpg_schema::tables::ContextParameters>(raw)?;
     let rules = catalog
         .compile_rules(&targets, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
-    let protocols=catalog.bind_context_protocols(snapshot_id,&contexts,&modules,&definitions,&parameters)
+    let protocols = catalog
+        .bind_context_protocols(snapshot_id, &contexts, &modules, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
-    Ok(BoundModels { targets, rules, contexts:protocols })
+    Ok(BoundModels {
+        targets,
+        rules,
+        contexts: protocols,
+    })
 }
 
 /// What the raw writes leave for the rest of the attempt.
@@ -642,7 +655,13 @@ async fn finish(
     )
     .await?;
     write_analysis::<cpg_schema::context_protocol::ModelContextProtocols>(
-        &ctx,root,snapshot_id,&models.contexts,&mut written).await?;
+        &ctx,
+        root,
+        snapshot_id,
+        &models.contexts,
+        &mut written,
+    )
+    .await?;
     write_analysis::<cpg_schema::behavior::ModelTargets>(
         &ctx,
         root,
@@ -699,20 +718,62 @@ async fn finish(
         &mut written,
     )
     .await?;
-    write_analysis_query::<cpg_schema::behavior::ModelApplications>(&ctx, root, snapshot_id,
-        &cpg_schema::behavior::model_applications(), &mut written).await?;
-    write_analysis_query::<cpg_schema::behavior::ModelArgumentBindings>(&ctx, root, snapshot_id,
-        &cpg_schema::behavior::model_argument_bindings(), &mut written).await?;
-    write_analysis_query::<cpg_schema::behavior::ModeledCallbackSites>(&ctx, root, snapshot_id,
-        &cpg_schema::behavior::modeled_callback_sites(), &mut written).await?;
-    write_analysis_query::<cpg_schema::behavior::ModeledResourceSites>(&ctx, root, snapshot_id,
-        &cpg_schema::behavior::modeled_resource_sites(), &mut written).await?;
-    write_analysis_query::<cpg_schema::behavior::ModeledTransferSites>(&ctx, root, snapshot_id,
-        &cpg_schema::behavior::modeled_transfer_sites(), &mut written).await?;
-    write_analysis_query::<cpg_schema::behavior::ModeledEffectSites>(&ctx, root, snapshot_id,
-        &cpg_schema::behavior::modeled_effect_sites(), &mut written).await?;
-    write_analysis_query::<cpg_schema::behavior::ModeledExceptionSites>(&ctx, root, snapshot_id,
-        &cpg_schema::behavior::modeled_exception_sites(), &mut written).await?;
+    write_analysis_query::<cpg_schema::behavior::ModelApplications>(
+        &ctx,
+        root,
+        snapshot_id,
+        &cpg_schema::behavior::model_applications(),
+        &mut written,
+    )
+    .await?;
+    write_analysis_query::<cpg_schema::behavior::ModelArgumentBindings>(
+        &ctx,
+        root,
+        snapshot_id,
+        &cpg_schema::behavior::model_argument_bindings(),
+        &mut written,
+    )
+    .await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledCallbackSites>(
+        &ctx,
+        root,
+        snapshot_id,
+        &cpg_schema::behavior::modeled_callback_sites(),
+        &mut written,
+    )
+    .await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledResourceSites>(
+        &ctx,
+        root,
+        snapshot_id,
+        &cpg_schema::behavior::modeled_resource_sites(),
+        &mut written,
+    )
+    .await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledTransferSites>(
+        &ctx,
+        root,
+        snapshot_id,
+        &cpg_schema::behavior::modeled_transfer_sites(),
+        &mut written,
+    )
+    .await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledEffectSites>(
+        &ctx,
+        root,
+        snapshot_id,
+        &cpg_schema::behavior::modeled_effect_sites(),
+        &mut written,
+    )
+    .await?;
+    write_analysis_query::<cpg_schema::behavior::ModeledExceptionSites>(
+        &ctx,
+        root,
+        snapshot_id,
+        &cpg_schema::behavior::modeled_exception_sites(),
+        &mut written,
+    )
+    .await?;
 
     // Stage 2.6 (ADR-0022): what the flow IR says about the release, before the behavior scan
     // reads it.
@@ -748,15 +809,15 @@ async fn finish(
     {
         use cpg_schema::behavior::{
             AmbientReads, AnalysisConditionNodes, AnalysisConditions, ArgumentFlows, BehaviorSteps,
-            Behaviors, Delegations, DynamicAccesses, ExitSites, FieldAccesses,
-            FlowReachBoundaries, FlowTestExactOrigins, FlowTestValueLinks, Guards, HandlerActions, HandlerClauses,
-            HandlerReturnNoneSites, HandlerTypes, Handoffs, ModeledArgumentEvaluations,
-            ExpressionEvaluations, ExpressionEvaluationSteps,
-            ModeledAssignmentReturnPaths, ModeledExactValueTransfers,
-            ModeledExceptionHandlerCandidates, ModeledExceptionHandlerWalks,
-            ModeledExceptionReturnNonePaths, NegativePremises, OperationDocuments,
-            OperationFacetStatus, OperationFacets, Operations, ParameterReads, RaiseSites,
-            ReturnExitStatuses, ReturnExitSteps, StatementCompletions, StatementCompletionSteps, Singletons, SummaryBoundaries, SummaryComponents, SummaryFlowSteps,
+            Behaviors, Delegations, DynamicAccesses, ExitSites, ExpressionEvaluationSteps,
+            ExpressionEvaluations, FieldAccesses, FlowReachBoundaries, FlowTestExactOrigins,
+            FlowTestValueLinks, Guards, HandlerActions, HandlerClauses, HandlerReturnNoneSites,
+            HandlerTypes, Handoffs, ModeledArgumentEvaluations, ModeledAssignmentReturnPaths,
+            ModeledExactValueTransfers, ModeledExceptionHandlerCandidates,
+            ModeledExceptionHandlerWalks, ModeledExceptionReturnNonePaths, NegativePremises,
+            OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
+            RaiseSites, ReturnExitStatuses, ReturnExitSteps, Singletons, StatementCompletionSteps,
+            StatementCompletions, SummaryBoundaries, SummaryComponents, SummaryFlowSteps,
             SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates,
             ValueFlowPredecessorCompatibility, ValueFlows,
         };
@@ -775,7 +836,8 @@ async fn finish(
         )
         .await?;
         write_analysis::<ValueFlows>(&ctx, root, snapshot_id, &m.value_flows, w).await?;
-        write_analysis::<FlowReachBoundaries>(&ctx, root, snapshot_id, &m.reach_boundaries, w).await?;
+        write_analysis::<FlowReachBoundaries>(&ctx, root, snapshot_id, &m.reach_boundaries, w)
+            .await?;
         write_analysis::<ValueFlowContributions>(
             &ctx,
             root,
@@ -784,8 +846,14 @@ async fn finish(
             w,
         )
         .await?;
-        write_analysis_query::<ValueFlowPredecessorCandidates>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::value_flow_predecessor_candidates(), w).await?;
+        write_analysis_query::<ValueFlowPredecessorCandidates>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::value_flow_predecessor_candidates(),
+            w,
+        )
+        .await?;
         let predecessor_compatibility = crate::summaries::predecessor_compatibility(&ctx).await?;
         write_analysis::<ValueFlowPredecessorCompatibility>(
             &ctx,
@@ -795,8 +863,14 @@ async fn finish(
             w,
         )
         .await?;
-        write_analysis_query::<ModeledExactValueTransfers>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::modeled_exact_value_transfers(), w).await?;
+        write_analysis_query::<ModeledExactValueTransfers>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::modeled_exact_value_transfers(),
+            w,
+        )
+        .await?;
         write_analysis::<FlowTestValueLinks>(&ctx, root, snapshot_id, &entry_links, w).await?;
         write_analysis::<FlowTestExactOrigins>(&ctx, root, snapshot_id, &exact_origins, w).await?;
         write_analysis::<FieldAccesses>(&ctx, root, snapshot_id, &m.field_accesses, w).await?;
@@ -807,74 +881,301 @@ async fn finish(
         write_analysis::<NegativePremises>(&ctx, root, snapshot_id, &m.premises, w).await?;
         write_analysis::<ArgumentFlows>(&ctx, root, snapshot_id, &behavior.argument_flows, w)
             .await?;
-        write_analysis_query::<ExitSites>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::exit_sites(), w).await?;
-        write_analysis_query::<HandlerClauses>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::handler_clauses(), w).await?;
-        write_analysis_query::<HandlerTypes>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::handler_types(), w).await?;
-        let contexts=crate::summaries::source_contexts(&ctx).await?;
-        write_analysis::<cpg_schema::context_protocol::SourceContextSites>(&ctx,root,snapshot_id,&contexts.sites,w).await?;
-        write_analysis::<cpg_schema::context_protocol::SourceContextArguments>(&ctx,root,snapshot_id,&contexts.arguments,w).await?;
+        write_analysis_query::<ExitSites>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::exit_sites(),
+            w,
+        )
+        .await?;
+        write_analysis_query::<HandlerClauses>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::handler_clauses(),
+            w,
+        )
+        .await?;
+        write_analysis_query::<HandlerTypes>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::handler_types(),
+            w,
+        )
+        .await?;
+        let contexts = crate::summaries::source_contexts(&ctx).await?;
+        write_analysis::<cpg_schema::context_protocol::SourceContextSites>(
+            &ctx,
+            root,
+            snapshot_id,
+            &contexts.sites,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::context_protocol::SourceContextArguments>(
+            &ctx,
+            root,
+            snapshot_id,
+            &contexts.arguments,
+            w,
+        )
+        .await?;
         let prepared = crate::summaries::execution(&ctx).await?;
-        let expressions=prepared.expressions;
-        write_analysis::<cpg_schema::frame_exit::ModelFrameExits>(&ctx,root,snapshot_id,&expressions.frames,w).await?;
-        write_analysis::<cpg_schema::frame_exit::ModelFrameExitArguments>(&ctx,root,snapshot_id,&expressions.frame_arguments,w).await?;
-        write_analysis::<cpg_schema::frame_exit::ModelFrameExitSteps>(&ctx,root,snapshot_id,&expressions.frame_steps,w).await?;
-        write_analysis::<ExpressionEvaluations>(&ctx, root, snapshot_id, &expressions.evaluations, w)
-            .await?;
+        let expressions = prepared.expressions;
+        write_analysis::<cpg_schema::frame_exit::ModelFrameExits>(
+            &ctx,
+            root,
+            snapshot_id,
+            &expressions.frames,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::frame_exit::ModelFrameExitArguments>(
+            &ctx,
+            root,
+            snapshot_id,
+            &expressions.frame_arguments,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::frame_exit::ModelFrameExitSteps>(
+            &ctx,
+            root,
+            snapshot_id,
+            &expressions.frame_steps,
+            w,
+        )
+        .await?;
+        write_analysis::<ExpressionEvaluations>(
+            &ctx,
+            root,
+            snapshot_id,
+            &expressions.evaluations,
+            w,
+        )
+        .await?;
         write_analysis::<ExpressionEvaluationSteps>(&ctx, root, snapshot_id, &expressions.steps, w)
             .await?;
-        write_analysis_query::<ModeledArgumentEvaluations>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::modeled_argument_evaluations(), w).await?;
-        write_analysis_query::<ModeledAssignmentReturnPaths>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::modeled_assignment_return_paths(), w).await?;
+        write_analysis_query::<ModeledArgumentEvaluations>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::modeled_argument_evaluations(),
+            w,
+        )
+        .await?;
+        write_analysis_query::<ModeledAssignmentReturnPaths>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::modeled_assignment_return_paths(),
+            w,
+        )
+        .await?;
         let completions = prepared.completions;
-        write_analysis::<cpg_schema::source_call::SourceCallBindings>(&ctx,root,snapshot_id,&completions.source_bindings,w).await?;
-        write_analysis::<cpg_schema::source_call::SourceCallNormals>(&ctx,root,snapshot_id,&completions.source_calls,w).await?;
-        write_analysis::<cpg_schema::source_call::SourceCallHeaderSteps>(&ctx,root,snapshot_id,&completions.source_call_headers,w).await?;
-        write_analysis::<cpg_schema::source_body::SourceBodyCompletions>(&ctx,root,snapshot_id,&completions.bodies,w).await?;
-        write_analysis::<cpg_schema::source_body::SourceBodySteps>(&ctx,root,snapshot_id,&completions.body_steps,w).await?;
-        write_analysis::<cpg_schema::source_body::SourceBodyReleaseInputs>(&ctx,root,snapshot_id,&completions.body_releases,w).await?;
-        write_analysis::<cpg_schema::call_execution::CallExecutions>(&ctx,root,snapshot_id,&completions.calls,w).await?;
-        write_analysis::<cpg_schema::call_execution::CallExecutionSteps>(&ctx,root,snapshot_id,&completions.call_steps,w).await?;
-        let actions=crate::summaries::action_assessments(&ctx).await?;
-        write_analysis::<cpg_schema::action::ModeledActionAssessments>(&ctx,root,snapshot_id,&actions.assessments,w).await?;
-        write_analysis::<cpg_schema::action::ModeledActionPostconditions>(&ctx,root,snapshot_id,&actions.postconditions,w).await?;
+        write_analysis::<cpg_schema::source_call::SourceCallBindings>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.source_bindings,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::source_call::SourceCallNormals>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.source_calls,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::source_call::SourceCallHeaderSteps>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.source_call_headers,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::source_body::SourceBodyCompletions>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.bodies,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::source_body::SourceBodySteps>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.body_steps,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::source_body::SourceBodyReleaseInputs>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.body_releases,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::call_execution::CallExecutions>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.calls,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::call_execution::CallExecutionSteps>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.call_steps,
+            w,
+        )
+        .await?;
+        let actions = crate::summaries::action_assessments(&ctx).await?;
+        write_analysis::<cpg_schema::action::ModeledActionAssessments>(
+            &ctx,
+            root,
+            snapshot_id,
+            &actions.assessments,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::action::ModeledActionPostconditions>(
+            &ctx,
+            root,
+            snapshot_id,
+            &actions.postconditions,
+            w,
+        )
+        .await?;
 
-        write_analysis::<cpg_schema::completion_proof::ReturnCompletionCertificates>(&ctx,root,snapshot_id,&completions.certificates,w).await?;
-        write_analysis::<StatementCompletions>(&ctx, root, snapshot_id, &completions.statements, w).await?;
-        write_analysis::<StatementCompletionSteps>(&ctx, root, snapshot_id, &completions.statement_steps, w).await?;
-        write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &completions.returns, w).await?;
-        write_analysis::<ReturnExitSteps>(&ctx, root, snapshot_id, &completions.return_steps, w).await?;
-        write_analysis::<cpg_schema::behavior::ReturnEntryStatuses>(&ctx, root, snapshot_id, &completions.entries, w).await?;
-        write_analysis::<cpg_schema::behavior::ReturnEntrySteps>(&ctx, root, snapshot_id, &completions.entry_steps, w).await?;
-        write_analysis_query::<ModeledExceptionHandlerCandidates>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::modeled_exception_handler_candidates(), w).await?;
-        write_analysis_query::<ModeledExceptionHandlerWalks>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::modeled_exception_handler_walks(), w).await?;
-        write_analysis_query::<HandlerActions>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::handler_actions(), w).await?;
-        write_analysis_query::<HandlerReturnNoneSites>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::handler_return_none_sites(), w).await?;
-        write_analysis_query::<ModeledExceptionReturnNonePaths>(&ctx, root, snapshot_id,
-            &cpg_schema::behavior::modeled_exception_return_none_paths(), w).await?;
+        write_analysis::<cpg_schema::completion_proof::ReturnCompletionCertificates>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.certificates,
+            w,
+        )
+        .await?;
+        write_analysis::<StatementCompletions>(&ctx, root, snapshot_id, &completions.statements, w)
+            .await?;
+        write_analysis::<StatementCompletionSteps>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.statement_steps,
+            w,
+        )
+        .await?;
+        write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &completions.returns, w)
+            .await?;
+        write_analysis::<ReturnExitSteps>(&ctx, root, snapshot_id, &completions.return_steps, w)
+            .await?;
+        write_analysis::<cpg_schema::behavior::ReturnEntryStatuses>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.entries,
+            w,
+        )
+        .await?;
+        write_analysis::<cpg_schema::behavior::ReturnEntrySteps>(
+            &ctx,
+            root,
+            snapshot_id,
+            &completions.entry_steps,
+            w,
+        )
+        .await?;
+        write_analysis_query::<ModeledExceptionHandlerCandidates>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::modeled_exception_handler_candidates(),
+            w,
+        )
+        .await?;
+        write_analysis_query::<ModeledExceptionHandlerWalks>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::modeled_exception_handler_walks(),
+            w,
+        )
+        .await?;
+        write_analysis_query::<HandlerActions>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::handler_actions(),
+            w,
+        )
+        .await?;
+        write_analysis_query::<HandlerReturnNoneSites>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::handler_return_none_sites(),
+            w,
+        )
+        .await?;
+        write_analysis_query::<ModeledExceptionReturnNonePaths>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::modeled_exception_return_none_paths(),
+            w,
+        )
+        .await?;
 
         let summary_components = crate::summaries::call_components(&ctx).await?;
         write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w)
             .await?;
         let summaries = crate::summaries::finite_flows(&ctx).await?;
         write_analysis::<cpg_schema::modeled_identity::SourceModeledIdentities>(
-            &ctx,root,snapshot_id,&summaries.modeled_identities,w).await?;
+            &ctx,
+            root,
+            snapshot_id,
+            &summaries.modeled_identities,
+            w,
+        )
+        .await?;
         write_analysis::<cpg_schema::parameter_identity::SourceParameterIdentities>(
-            &ctx, root, snapshot_id, &summaries.identities, w).await?;
+            &ctx,
+            root,
+            snapshot_id,
+            &summaries.identities,
+            w,
+        )
+        .await?;
         write_analysis::<cpg_schema::context_value::SourceContextValueIdentities>(
-            &ctx,root,snapshot_id,&summaries.context_identities,w).await?;
+            &ctx,
+            root,
+            snapshot_id,
+            &summaries.context_identities,
+            w,
+        )
+        .await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summaries.flows, w).await?;
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summaries.steps, w).await?;
         write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summaries.boundaries, w)
             .await?;
-        write_analysis::<cpg_schema::behavior::SummaryOriginCoverage>(&ctx, root, snapshot_id, &summaries.coverage, w).await?;
+        write_analysis::<cpg_schema::behavior::SummaryOriginCoverage>(
+            &ctx,
+            root,
+            snapshot_id,
+            &summaries.coverage,
+            w,
+        )
+        .await?;
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
         write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
             .await?;
@@ -922,8 +1223,22 @@ async fn finish(
         &mut written,
     )
     .await?;
-    write_analysis::<cpg_schema::concept_attributes::ConceptAttributes>(&ctx,root,snapshot_id,&found.concept_attributes,&mut written).await?;
-    write_analysis::<cpg_schema::concept_attributes::ConceptIncidences>(&ctx,root,snapshot_id,&found.concept_incidences,&mut written).await?;
+    write_analysis::<cpg_schema::concept_attributes::ConceptAttributes>(
+        &ctx,
+        root,
+        snapshot_id,
+        &found.concept_attributes,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<cpg_schema::concept_attributes::ConceptIncidences>(
+        &ctx,
+        root,
+        snapshot_id,
+        &found.concept_incidences,
+        &mut written,
+    )
+    .await?;
     write_analysis::<Findings>(&ctx, root, snapshot_id, &found.findings, &mut written).await?;
     write_analysis::<FindingMembers>(&ctx, root, snapshot_id, &found.members, &mut written).await?;
     write_analysis::<Witnesses>(&ctx, root, snapshot_id, &found.witnesses, &mut written).await?;

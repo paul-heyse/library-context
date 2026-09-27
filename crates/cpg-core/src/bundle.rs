@@ -34,10 +34,10 @@ use arrow_ipc::writer::{FileWriter, IpcWriteOptions};
 use arrow_schema::{DataType, Field, FieldRef, SchemaRef};
 use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
-    AnalyticMethod, ArcKind, AssertionKind, BehaviorKind, BoundaryReason, Codebook,
-    CoverageStatus, DeclarationKind, EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily,
-    FindingKind, InvocationPhase, MemberRole, Modality, OperationFacet, ReviewState, ScopeKind,
-    StopReason, SummaryFlowKind, SummaryFlowStepKind, SupportRole, TestValueLinkOrigin, Verdict,
+    AnalyticMethod, ArcKind, AssertionKind, BehaviorKind, BoundaryReason, Codebook, CoverageStatus,
+    DeclarationKind, EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily, FindingKind,
+    InvocationPhase, MemberRole, Modality, OperationFacet, ReviewState, ScopeKind, StopReason,
+    SummaryFlowKind, SummaryFlowStepKind, SupportRole, TestValueLinkOrigin, Verdict,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -169,43 +169,93 @@ fn query(name: &str) -> Option<String> {
             files = cpg_schema::flows::display_files_sql(),
             limit = MAX_SUPPORT_ROWS + 1,
         ),
-        "return_completion_certificates"=>format!(
+        "return_completion_certificates" => format!(
             "WITH candidates AS (SELECT c.*, f.condition_id AS selected_condition, \
                 count(*) OVER (PARTITION BY f.summary_id) AS candidate_count \
                 FROM return_completion_certificates c JOIN summary_flows f \
                 ON f.function_node_id=c.function_node_id AND f.return_site_fact_id=c.return_site_fact_id) \
              SELECT DISTINCT certificate_id,function_node_id,return_site_fact_id,entry_condition_id,exit_condition_id, \
                 entry_count,exit_count,entry_digest,exit_digest FROM candidates \
-             WHERE entry_condition_id=selected_condition OR candidate_count=1 ORDER BY certificate_id LIMIT {}",MAX_SUPPORT_ROWS+1),
-        "model_context_protocols"=>format!(
+             WHERE entry_condition_id=selected_condition OR candidate_count=1 ORDER BY certificate_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1
+        ),
+        "model_context_protocols" => format!(
             "SELECT p.model_id, p.revision, p.class_node_id, p.class_fact_id, p.class_module_fact_id, p.allocation_node_id, p.allocation_fact_id, p.allocation_module_fact_id, p.initialization_node_id, p.initialization_fact_id, p.initialization_module_fact_id, {entry} AS entry, p.entry_formal, {exit} AS exit, p.exception_formal, {origin} AS origin FROM model_context_protocols p WHERE EXISTS (SELECT 1 FROM source_context_sites site JOIN summary_flow_steps step ON step.evidence_id=site.site_id AND step.kind IN (27,28,29) WHERE site.model_id=p.model_id AND site.class_node_id=p.class_node_id) ORDER BY p.model_id, p.class_node_id LIMIT {limit}",
-            entry=text_of::<cpg_schema::codebook::ContextEntryKind>("p.entry"),
-            exit=text_of::<cpg_schema::codebook::ContextExitKind>("p.exit"),
-            origin=text_of::<cpg_schema::codebook::Origin>("p.origin"),
-            limit=MAX_SUPPORT_ROWS+1),
-        "source_context_sites"=>format!(
+            entry = text_of::<cpg_schema::codebook::ContextEntryKind>("p.entry"),
+            exit = text_of::<cpg_schema::codebook::ContextExitKind>("p.exit"),
+            origin = text_of::<cpg_schema::codebook::Origin>("p.origin"),
+            limit = MAX_SUPPORT_ROWS + 1
+        ),
+        "source_context_sites" => format!(
             "SELECT p.site_id, p.function_node_id, p.with_node_id, p.with_fact_id, p.item_node_id, p.item_fact_id, p.item_ordinal, p.call_node_id, p.call_fact_id, p.expression_fact_id, p.protocol_id, p.model_id, p.class_node_id, p.reference_fact_id, p.resolution_fact_id, p.import_binding_fact_id, p.import_region_fact_id, p.import_condition_id, p.export_fact_id, p.allocation_call_fact_id, p.initialization_call_fact_id, p.constructor_valid, p.entry_argument_fact_id FROM source_context_sites p WHERE EXISTS (SELECT 1 FROM summary_flow_steps step WHERE step.evidence_id=p.site_id AND step.kind IN (27,28,29)) ORDER BY p.site_id LIMIT {limit}",
-            limit=MAX_SUPPORT_ROWS+1),
-        "source_context_arguments"=>format!(
+            limit = MAX_SUPPORT_ROWS + 1
+        ),
+        "source_context_arguments" => format!(
             "SELECT p.site_id, p.ordinal, p.argument_fact_id, p.expression_fact_id, p.parameter_fact_id, p.exception_class_node_id, p.exception_class_fact_id, p.exception_module_fact_id, p.reference_fact_id, p.resolution_fact_id FROM source_context_arguments p WHERE EXISTS (SELECT 1 FROM summary_flow_steps step WHERE step.evidence_id=p.site_id AND step.kind IN (27,28,29)) ORDER BY p.site_id, p.ordinal LIMIT {limit}",
-            limit=MAX_SUPPORT_ROWS+1),
+            limit = MAX_SUPPORT_ROWS + 1
+        ),
         "source_context_value_identities" => format!(
-            "SELECT identity_id, function_node_id, parameter_node_id, parameter_name, source_flow_fact_id, source_origin_id, condition_id, return_site_fact_id, return_region_fact_id, return_condition_id, return_start_byte, context_site_id, argument_fact_id, argument_expression_fact_id, argument_reference_fact_id, argument_resolution_fact_id, parameter_binding_fact_id, parameter_fact_id, target_binding_fact_id, expression_fact_id, reference_fact_id, resolution_fact_id, scope_fact_id, module_node_id, start_byte, end_byte FROM source_context_value_identities ORDER BY identity_id LIMIT {}",MAX_SUPPORT_ROWS+1),
-        "source_body_completions" => format!("SELECT body_id, function_node_id, declaration_fact_id, syntax_fact_id, {kind} AS kind, terminal_fact_id, {exception} AS exception, {reason} AS reason, {release_reason} AS release_reason, function_retainer_required, runtime_statement_count, step_count, steps_digest, release_count, releases_digest, work FROM source_body_completions WHERE body_id IN (SELECT body_id FROM source_call_normals) ORDER BY body_id LIMIT {}",MAX_SUPPORT_ROWS+1, kind=text_of::<cpg_schema::codebook::CompletionKind>("kind"), exception=text_of::<cpg_schema::codebook::ExactRuntimeException>("exception"), reason=text_of::<cpg_schema::codebook::BoundaryReason>("reason"), release_reason=text_of::<cpg_schema::codebook::BoundaryReason>("release_reason")),
-        "source_body_steps" => format!("SELECT body_id, ordinal, {kind} AS kind, evidence_id FROM source_body_steps WHERE body_id IN (SELECT body_id FROM source_call_normals) ORDER BY body_id, ordinal LIMIT {}",MAX_SUPPORT_ROWS+1, kind=text_of::<cpg_schema::codebook::SummaryFlowStepKind>("kind")),
-        "source_body_release_inputs" => format!("SELECT body_id, ordinal, syntax_fact_id, {safety} AS safety, proof_offset, proof_count, proof_digest, evaluation_evidence_id FROM source_body_release_inputs WHERE body_id IN (SELECT body_id FROM source_call_normals) ORDER BY body_id, ordinal LIMIT {}",MAX_SUPPORT_ROWS+1, safety=text_of::<cpg_schema::codebook::ReleaseSafety>("safety")),
-        "source_call_bindings" => format!("SELECT binding_id, function_node_id, call_node_id, call_fact_id, syntax_fact_id, callee_node_id, pysa_fact_id, signature_fact_id, declaration_fact_id, header_fact_id, statement_fact_id, binding_fact_id, reference_fact_id, resolution_fact_id, header_count, header_digest FROM source_call_bindings WHERE binding_id IN (SELECT binding_id FROM source_call_normals) ORDER BY binding_id LIMIT {}",MAX_SUPPORT_ROWS+1),
-        "source_call_normals" => format!("SELECT certificate_id, binding_id, body_id, body_count, {body_kind} AS body_kind FROM source_call_normals ORDER BY certificate_id LIMIT {}",MAX_SUPPORT_ROWS+1, body_kind=text_of::<cpg_schema::codebook::CompletionKind>("body_kind")),
-        "source_call_header_steps" => format!("SELECT binding_id, ordinal, {kind} AS kind, evidence_id FROM source_call_header_steps WHERE binding_id IN (SELECT binding_id FROM source_call_normals) ORDER BY binding_id, ordinal LIMIT {}",MAX_SUPPORT_ROWS+1, kind=text_of::<cpg_schema::codebook::SummaryFlowStepKind>("kind")),
-        "model_frame_exits" => format!("SELECT frame_exit_id, function_node_id, call_node_id, call_fact_id, syntax_fact_id, target_node_id, pysa_fact_id, model_id, return_parameter, return_argument_fact_id, argument_count, signature_count, arguments_digest, invocation_count, invocation_digest FROM model_frame_exits ORDER BY frame_exit_id LIMIT {}",MAX_SUPPORT_ROWS+1),
-        "model_frame_exit_arguments" => format!("SELECT frame_exit_id, ordinal, argument_fact_id, expression_fact_id, {safety} AS safety, parameter_name, expression_offset, expression_count, expression_digest, parameters_digest FROM model_frame_exit_arguments ORDER BY frame_exit_id, ordinal LIMIT {}",MAX_SUPPORT_ROWS+1, safety=text_of::<cpg_schema::codebook::ReleaseSafety>("safety")),
-        "model_frame_exit_steps" => format!("SELECT frame_exit_id, ordinal, operand_fact_id, evidence_id, {status} AS status, {kind} AS kind FROM model_frame_exit_steps ORDER BY frame_exit_id, ordinal LIMIT {}",MAX_SUPPORT_ROWS+1, status=text_of::<cpg_schema::codebook::ModeledArgumentEvaluationStatus>("status"), kind=text_of::<cpg_schema::codebook::SummaryFlowStepKind>("kind")),
-        "source_modeled_identities" => format!("SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, source_origin_id, condition_id, return_site_fact_id, call_fact_id, call_expression_fact_id, source_argument_fact_id, pysa_fact_id, model_id, rule_id, callee_resolution_fact_id, expression_fact_id, reference_fact_id, resolution_fact_id, binding_fact_id, parameter_fact_id, scope_fact_id, module_node_id, start_byte, end_byte, model_proof_count, model_proof_digest FROM source_modeled_identities ORDER BY identity_id LIMIT {}", MAX_SUPPORT_ROWS+1),
+            "SELECT identity_id, function_node_id, parameter_node_id, parameter_name, source_flow_fact_id, source_origin_id, condition_id, return_site_fact_id, return_region_fact_id, return_condition_id, return_start_byte, context_site_id, argument_fact_id, argument_expression_fact_id, argument_reference_fact_id, argument_resolution_fact_id, parameter_binding_fact_id, parameter_fact_id, target_binding_fact_id, expression_fact_id, reference_fact_id, resolution_fact_id, scope_fact_id, module_node_id, start_byte, end_byte FROM source_context_value_identities ORDER BY identity_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1
+        ),
+        "source_body_completions" => format!(
+            "SELECT body_id, function_node_id, declaration_fact_id, syntax_fact_id, {kind} AS kind, terminal_fact_id, {exception} AS exception, {reason} AS reason, {release_reason} AS release_reason, function_retainer_required, runtime_statement_count, step_count, steps_digest, release_count, releases_digest, work FROM source_body_completions WHERE body_id IN (SELECT body_id FROM source_call_normals) ORDER BY body_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1,
+            kind = text_of::<cpg_schema::codebook::CompletionKind>("kind"),
+            exception = text_of::<cpg_schema::codebook::ExactRuntimeException>("exception"),
+            reason = text_of::<cpg_schema::codebook::BoundaryReason>("reason"),
+            release_reason = text_of::<cpg_schema::codebook::BoundaryReason>("release_reason")
+        ),
+        "source_body_steps" => format!(
+            "SELECT body_id, ordinal, {kind} AS kind, evidence_id FROM source_body_steps WHERE body_id IN (SELECT body_id FROM source_call_normals) ORDER BY body_id, ordinal LIMIT {}",
+            MAX_SUPPORT_ROWS + 1,
+            kind = text_of::<cpg_schema::codebook::SummaryFlowStepKind>("kind")
+        ),
+        "source_body_release_inputs" => format!(
+            "SELECT body_id, ordinal, syntax_fact_id, {safety} AS safety, proof_offset, proof_count, proof_digest, evaluation_evidence_id FROM source_body_release_inputs WHERE body_id IN (SELECT body_id FROM source_call_normals) ORDER BY body_id, ordinal LIMIT {}",
+            MAX_SUPPORT_ROWS + 1,
+            safety = text_of::<cpg_schema::codebook::ReleaseSafety>("safety")
+        ),
+        "source_call_bindings" => format!(
+            "SELECT binding_id, function_node_id, call_node_id, call_fact_id, syntax_fact_id, callee_node_id, pysa_fact_id, signature_fact_id, declaration_fact_id, header_fact_id, statement_fact_id, binding_fact_id, reference_fact_id, resolution_fact_id, header_count, header_digest FROM source_call_bindings WHERE binding_id IN (SELECT binding_id FROM source_call_normals) ORDER BY binding_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1
+        ),
+        "source_call_normals" => format!(
+            "SELECT certificate_id, binding_id, body_id, body_count, {body_kind} AS body_kind FROM source_call_normals ORDER BY certificate_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1,
+            body_kind = text_of::<cpg_schema::codebook::CompletionKind>("body_kind")
+        ),
+        "source_call_header_steps" => format!(
+            "SELECT binding_id, ordinal, {kind} AS kind, evidence_id FROM source_call_header_steps WHERE binding_id IN (SELECT binding_id FROM source_call_normals) ORDER BY binding_id, ordinal LIMIT {}",
+            MAX_SUPPORT_ROWS + 1,
+            kind = text_of::<cpg_schema::codebook::SummaryFlowStepKind>("kind")
+        ),
+        "model_frame_exits" => format!(
+            "SELECT frame_exit_id, function_node_id, call_node_id, call_fact_id, syntax_fact_id, target_node_id, pysa_fact_id, model_id, return_parameter, return_argument_fact_id, argument_count, signature_count, arguments_digest, invocation_count, invocation_digest FROM model_frame_exits ORDER BY frame_exit_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1
+        ),
+        "model_frame_exit_arguments" => format!(
+            "SELECT frame_exit_id, ordinal, argument_fact_id, expression_fact_id, {safety} AS safety, parameter_name, expression_offset, expression_count, expression_digest, parameters_digest FROM model_frame_exit_arguments ORDER BY frame_exit_id, ordinal LIMIT {}",
+            MAX_SUPPORT_ROWS + 1,
+            safety = text_of::<cpg_schema::codebook::ReleaseSafety>("safety")
+        ),
+        "model_frame_exit_steps" => format!(
+            "SELECT frame_exit_id, ordinal, operand_fact_id, evidence_id, {status} AS status, {kind} AS kind FROM model_frame_exit_steps ORDER BY frame_exit_id, ordinal LIMIT {}",
+            MAX_SUPPORT_ROWS + 1,
+            status = text_of::<cpg_schema::codebook::ModeledArgumentEvaluationStatus>("status"),
+            kind = text_of::<cpg_schema::codebook::SummaryFlowStepKind>("kind")
+        ),
+        "source_modeled_identities" => format!(
+            "SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, source_origin_id, condition_id, return_site_fact_id, call_fact_id, call_expression_fact_id, source_argument_fact_id, pysa_fact_id, model_id, rule_id, callee_resolution_fact_id, expression_fact_id, reference_fact_id, resolution_fact_id, binding_fact_id, parameter_fact_id, scope_fact_id, module_node_id, start_byte, end_byte, model_proof_count, model_proof_digest FROM source_modeled_identities ORDER BY identity_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1
+        ),
         "source_parameter_identities" => format!(
             "SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, \
              source_origin_id, condition_id, return_site_fact_id, expression_fact_id, reference_fact_id, \
              resolution_fact_id, binding_fact_id, parameter_fact_id, module_node_id, start_byte, end_byte \
-             FROM source_parameter_identities ORDER BY identity_id LIMIT {}", MAX_SUPPORT_ROWS + 1),
+             FROM source_parameter_identities ORDER BY identity_id LIMIT {}",
+            MAX_SUPPORT_ROWS + 1
+        ),
         "support_members" => format!(
             "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
                 JOIN brief_assertions ba ON ba.assertion_id = s.assertion_id \
@@ -218,17 +268,22 @@ fn query(name: &str) -> Option<String> {
             role = text_of::<MemberRole>("m.role"),
             limit = MAX_SUPPORT_ROWS + 1,
         ),
-        "support_attributes"=>format!(
+        "support_attributes" => format!(
             "SELECT DISTINCT a.attribute_id,{kind} AS kind,a.symbol,{parameter} AS parameter_kind,a.type_term_id, \
                 a.class_module,a.class_key,a.target_node_id,{modality} AS modality,{phase} AS phase, \
                 {producer_modality} AS producer_modality,{producer_phase} AS producer_phase,a.display \
              FROM assertion_support s JOIN brief_assertions ba ON ba.assertion_id=s.assertion_id \
              JOIN finding_members m ON m.finding_id=s.finding_id JOIN concept_attributes a ON a.attribute_id=m.attribute_id \
              ORDER BY a.attribute_id LIMIT {limit}",
-            kind=text_of::<cpg_schema::codebook::ConceptAttributeKind>("a.kind"),parameter=text_of::<cpg_schema::codebook::ParameterKind>("a.parameter_kind"),
-            modality=text_of::<Modality>("a.modality"),phase=text_of::<InvocationPhase>("a.phase"),
-            producer_modality=text_of::<Modality>("a.producer_modality"),producer_phase=text_of::<InvocationPhase>("a.producer_phase"),limit=MAX_SUPPORT_ROWS+1),
-        "support_attribute_incidences"=>format!(
+            kind = text_of::<cpg_schema::codebook::ConceptAttributeKind>("a.kind"),
+            parameter = text_of::<cpg_schema::codebook::ParameterKind>("a.parameter_kind"),
+            modality = text_of::<Modality>("a.modality"),
+            phase = text_of::<InvocationPhase>("a.phase"),
+            producer_modality = text_of::<Modality>("a.producer_modality"),
+            producer_phase = text_of::<InvocationPhase>("a.producer_phase"),
+            limit = MAX_SUPPORT_ROWS + 1
+        ),
+        "support_attribute_incidences" => format!(
             "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
                 JOIN brief_assertions ba ON ba.assertion_id=s.assertion_id WHERE s.finding_id IS NOT NULL), \
              links AS ({links}) \
@@ -239,7 +294,10 @@ fn query(name: &str) -> Option<String> {
              FROM cited c JOIN links k ON k.finding_id=c.finding_id JOIN concept_incidences i ON i.incidence_id=k.incidence_id \
              LEFT JOIN edges e ON e.edge_id=i.edge_id LEFT JOIN facts f ON f.fact_id=COALESCE(i.source_fact_id,e.evidence_fact_id) \
              LEFT JOIN edges other ON other.edge_id=i.other_edge_id LEFT JOIN facts of ON of.fact_id=other.evidence_fact_id \
-             ORDER BY k.finding_id,i.incidence_id LIMIT {limit}",links=cpg_schema::concept_attributes::finding_incidence_keys_sql(),limit=MAX_SUPPORT_ROWS+1),
+             ORDER BY k.finding_id,i.incidence_id LIMIT {limit}",
+            links = cpg_schema::concept_attributes::finding_incidence_keys_sql(),
+            limit = MAX_SUPPORT_ROWS + 1
+        ),
         "evidence" => format!(
             "SELECT e.evidence_id, {kind} AS kind, e.node_id, COALESCE(sf.path, d.path) AS path, \
                     e.start_byte, e.end_byte, e.text \
@@ -332,7 +390,9 @@ fn query(name: &str) -> Option<String> {
              FROM declarations d JOIN parameter_syntax p ON p.function_node_id=d.node_id \
                AND p.snapshot_id=d.snapshot_id WHERE d.kind IN ({}, {}) \
              ORDER BY function_node_id, formal_node_id",
-            DeclarationKind::Function.code(), DeclarationKind::AsyncFunction.code()),
+            DeclarationKind::Function.code(),
+            DeclarationKind::AsyncFunction.code()
+        ),
         "summary_flows" => format!(
             "SELECT summary_id, function_node_id, parameter_node_id, input_path, output_path, \
                     {kind} AS kind, condition_id, {verdict} AS verdict, \
@@ -862,16 +922,39 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
             (None, "operation_text") => operation_text(ctx, &file.schema).await?,
             (None, _) => lexical(ctx, &file.schema).await?,
         };
-        let bounded_support = file.name.starts_with("support_") || matches!(file.name,
-            "return_completion_certificates" | "model_context_protocols" | "source_context_sites"
-            | "source_context_arguments" | "source_context_value_identities" | "source_parameter_identities" | "source_modeled_identities" | "model_frame_exits" | "model_frame_exit_arguments" | "model_frame_exit_steps" | "source_body_completions" | "source_body_steps" | "source_body_release_inputs" | "source_call_bindings" | "source_call_normals" | "source_call_header_steps" );
+        let bounded_support = file.name.starts_with("support_")
+            || matches!(
+                file.name,
+                "return_completion_certificates"
+                    | "model_context_protocols"
+                    | "source_context_sites"
+                    | "source_context_arguments"
+                    | "source_context_value_identities"
+                    | "source_parameter_identities"
+                    | "source_modeled_identities"
+                    | "model_frame_exits"
+                    | "model_frame_exit_arguments"
+                    | "model_frame_exit_steps"
+                    | "source_body_completions"
+                    | "source_body_steps"
+                    | "source_body_release_inputs"
+                    | "source_call_bindings"
+                    | "source_call_normals"
+                    | "source_call_header_steps"
+            );
         if bounded_support && batch.num_rows() > MAX_SUPPORT_ROWS {
-            return Err(bad(format!("{} exceeds the support projection row limit", file.name)));
+            return Err(bad(format!(
+                "{} exceeds the support projection row limit",
+                file.name
+            )));
         }
         let digest = schema_digest(&file.schema).map_err(bad)?;
         let bytes = ipc_bytes(&batch)?;
         if bounded_support && bytes.len() > MAX_SUPPORT_FILE_BYTES {
-            return Err(bad(format!("{} exceeds the support projection byte limit", file.name)));
+            return Err(bad(format!(
+                "{} exceeds the support projection byte limit",
+                file.name
+            )));
         }
         built.push((file.name, bytes, batch.num_rows(), digest));
     }

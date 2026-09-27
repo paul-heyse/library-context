@@ -35,9 +35,19 @@ def test_private_callable_formals_are_support_only_and_have_one_owner() -> None:
 
     def executor(parameters: list[tuple[str, str, str]]) -> SemanticExecutor:
         return SemanticExecutor(
-            kernel_format(), "44" * 16, "55" * 32, [], [], [public],
-            [("pkg.public", public), ("pkg.private", private)], parameters,
-            [], [], [], [], [],
+            kernel_format(),
+            "44" * 16,
+            "55" * 32,
+            [],
+            [],
+            [public],
+            [("pkg.public", public), ("pkg.private", private)],
+            parameters,
+            [],
+            [],
+            [],
+            [],
+            [],
         )
 
     index = executor([(private, formal, "control")])
@@ -157,8 +167,11 @@ def test_native_index_resolves_one_public_formal_and_its_proof(generation: Path)
 def test_native_open_boundaries_keep_sibling_origin_ids(generation: Path) -> None:
     loaded = load(generation, None)
     conditions = [
-        (r["condition_id"].hex(), None if r["root_id"] is None else r["root_id"].hex(),
-         r["boundary_reason"])
+        (
+            r["condition_id"].hex(),
+            None if r["root_id"] is None else r["root_id"].hex(),
+            r["boundary_reason"],
+        )
         for r in loaded.tables["conditions"].to_pylist()
     ]
     nodes = [
@@ -168,12 +181,22 @@ def test_native_open_boundaries_keep_sibling_origin_ids(generation: Path) -> Non
     condition = next(r[0] for r in conditions if r[1] is not None)
     operation, formal, fact = ("01" * 16, "02" * 16, "03" * 16)
     index = SemanticExecutor(
-        kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
-        conditions, nodes, [operation], [("pkg.siblings", operation)],
-        [(operation, formal, "value")], [], [],
-        [(operation, formal, fact, "04" * 16, condition, "call_transfer"),
-         (operation, formal, fact, "05" * 16, condition, "summary_pair_work_limit")],
-        [], [],
+        kernel_format(),
+        loaded.snapshot_id,
+        loaded.manifest["entry_value_effect_digest"],
+        conditions,
+        nodes,
+        [operation],
+        [("pkg.siblings", operation)],
+        [(operation, formal, "value")],
+        [],
+        [],
+        [
+            (operation, formal, fact, "04" * 16, condition, "call_transfer"),
+            (operation, formal, fact, "05" * 16, condition, "summary_pair_work_limit"),
+        ],
+        [],
+        [],
     )
     paths, open_rows, total, truncated, work = index.inspect_value_paths(
         "pkg.siblings", "value", "none", "", True, 0, 2
@@ -210,8 +233,7 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
         [operation],
         [("pkg.one", operation)],
         [(operation, formal, "value")],
-        [(summary, operation, formal, condition, "established", None, 0,
-          "06" * 16, "07" * 16)],
+        [(summary, operation, formal, condition, "established", None, 0, "06" * 16, "07" * 16)],
     )
     with pytest.raises(ValueError, match="no proof steps"):
         SemanticExecutor(*args, [], [], [], [])
@@ -219,42 +241,60 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
         SemanticExecutor(*args, [(summary, 0, "callee_summary", "04" * 16, condition)], [], [], [])
     caller = "05" * 16
     conditional = (
-        (summary, operation, formal, condition, "conditional", None, 0,
-         "06" * 16, "07" * 16),
-        (caller, operation, formal, condition, "conditional", None, 1,
-         "08" * 16, "09" * 16),
+        (summary, operation, formal, condition, "conditional", None, 0, "06" * 16, "07" * 16),
+        (caller, operation, formal, condition, "conditional", None, 1, "08" * 16, "09" * 16),
     )
     with pytest.raises(ValueError, match="conditional callee lacks a test link"):
         SemanticExecutor(
-            *args[:-1], conditional,
-            [(summary, 0, "raw_identity", "04" * 16, condition),
-             (caller, 0, "callee_summary", summary, condition)],
-            [], [], [],
+            *args[:-1],
+            conditional,
+            [
+                (summary, 0, "raw_identity", "04" * 16, condition),
+                (caller, 0, "callee_summary", summary, condition),
+            ],
+            [],
+            [],
+            [],
         )
     with pytest.raises(ValueError, match="caller condition link does not fix"):
         SemanticExecutor(
-            *args[:-1], conditional,
-            [(summary, 0, "raw_identity", "04" * 16, condition),
-             (caller, 0, "caller_condition_link", "0a" * 16, condition),
-             (caller, 1, "callee_condition_link", "0b" * 16, condition),
-             (caller, 2, "callee_summary", summary, condition)],
-            [], [], [],
+            *args[:-1],
+            conditional,
+            [
+                (summary, 0, "raw_identity", "04" * 16, condition),
+                (caller, 0, "caller_condition_link", "0a" * 16, condition),
+                (caller, 1, "callee_condition_link", "0b" * 16, condition),
+                (caller, 2, "callee_summary", summary, condition),
+            ],
+            [],
+            [],
+            [],
         )
     other_condition = next(row[0] for row in conditions if row[0] != condition and row[1])
     with pytest.raises(ValueError, match="callee reference condition mismatch"):
         SemanticExecutor(
-            *args[:-1], conditional,
-            [(summary, 0, "raw_identity", "04" * 16, condition),
-             (caller, 0, "callee_summary", summary, other_condition)],
-            [], [], [],
+            *args[:-1],
+            conditional,
+            [
+                (summary, 0, "raw_identity", "04" * 16, condition),
+                (caller, 0, "callee_summary", summary, other_condition),
+            ],
+            [],
+            [],
+            [],
         )
     with pytest.raises(ValueError, match="orphan condition proof link"):
         SemanticExecutor(
-            *args[:-1], conditional,
-            [(summary, 0, "raw_identity", "04" * 16, condition),
-             (caller, 0, "callee_condition_link", "0b" * 16, condition),
-             (caller, 1, "return_exit", "0c" * 16, condition)],
-            [], [], [],
+            *args[:-1],
+            conditional,
+            [
+                (summary, 0, "raw_identity", "04" * 16, condition),
+                (caller, 0, "callee_condition_link", "0b" * 16, condition),
+                (caller, 1, "return_exit", "0c" * 16, condition),
+            ],
+            [],
+            [],
+            [],
         )
 
 
@@ -273,17 +313,19 @@ def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(
     condition = next(r[0] for r in conditions if r[1] is not None)
     operation, formal, summary = ("01" * 16, "02" * 16, "03" * 16)
     prefix = (
-        kernel_format(), loaded.snapshot_id, loaded.manifest["entry_value_effect_digest"],
-        conditions, nodes, [operation], [("pkg.finalizer", operation)],
+        kernel_format(),
+        loaded.snapshot_id,
+        loaded.manifest["entry_value_effect_digest"],
+        conditions,
+        nodes,
+        [operation],
+        [("pkg.finalizer", operation)],
         [(operation, formal, "value")],
-        [(summary, operation, formal, condition, "established", None, 0,
-          "06" * 16, "07" * 16)],
+        [(summary, operation, formal, condition, "established", None, 0, "06" * 16, "07" * 16)],
     )
     finalizer = (summary, 0, "finalizer_pass", "04" * 16, condition)
     index = SemanticExecutor(*prefix, [finalizer], [], [], [])
-    paths, _, _, _, _ = index.inspect_value_paths(
-        "pkg.finalizer", "value", "none", "", True, 0, 1
-    )
+    paths, _, _, _, _ = index.inspect_value_paths("pkg.finalizer", "value", "none", "", True, 0, 1)
     assert paths[0][3][0][0] == "finalizer_pass"
     assert paths[0][8:] == ("06" * 16, "07" * 16)
     with pytest.raises(ValueError, match="invalid summary proof step"):
@@ -294,8 +336,10 @@ def test_native_ipc_projection_rejects_schema_drift(generation: Path) -> None:
     loaded = load(generation, None)
     files = [(name, (generation / f"{name}.arrow").read_bytes()) for name in NATIVE_IPC_FILES]
     index = SemanticExecutor.from_ipc(
-        kernel_format(), loaded.snapshot_id,
-        loaded.manifest["entry_value_effect_digest"], files,
+        kernel_format(),
+        loaded.snapshot_id,
+        loaded.manifest["entry_value_effect_digest"],
+        files,
     )
     assert index.condition_count == loaded.condition_graph.condition_count
 
@@ -310,8 +354,10 @@ def test_native_ipc_projection_rejects_schema_drift(generation: Path) -> None:
     ]
     with pytest.raises(ValueError, match="native serving schema drift"):
         SemanticExecutor.from_ipc(
-            kernel_format(), loaded.snapshot_id,
-            loaded.manifest["entry_value_effect_digest"], drifted,
+            kernel_format(),
+            loaded.snapshot_id,
+            loaded.manifest["entry_value_effect_digest"],
+            drifted,
         )
 
 
@@ -379,34 +425,77 @@ def test_native_string_membership_and_integer_equality_stay_path_local() -> None
     false_id = "b9902e4735719efc29674ec10253ffeb"
     true_id = "119f0180894a5ece441560e03b8236a6"
     entries = (
-        ("1e620f8e6baa4f80335aa61d523df131", "35f0fe9b56ec63e62d552dcec6baea49",
-         "11c2c3afeac4740229637d741053f688",
-         'member_of(transport,{"http","sse"})#02020202020202020202020202020202:s10-20'),
-        ("5eb046a3c7c73c13eda3af197414aabd", "75dbd3aa23cbd30889b03a140ad17cc1",
-         "91e83ddc13998c845e62e903de83f584",
-         "equals(transport,2)#02020202020202020202020202020202:s10-20"),
+        (
+            "1e620f8e6baa4f80335aa61d523df131",
+            "35f0fe9b56ec63e62d552dcec6baea49",
+            "11c2c3afeac4740229637d741053f688",
+            'member_of(transport,{"http","sse"})#02020202020202020202020202020202:s10-20',
+        ),
+        (
+            "5eb046a3c7c73c13eda3af197414aabd",
+            "75dbd3aa23cbd30889b03a140ad17cc1",
+            "91e83ddc13998c845e62e903de83f584",
+            "equals(transport,2)#02020202020202020202020202020202:s10-20",
+        ),
     )
     snapshot, effect = "aa" * 16, "bb" * 32
     operation, formal, module = "01" * 16, "03" * 16, "02" * 16
     conditions = [(condition, root, None) for condition, root, _, _ in entries]
     nodes = [(root, atom, false_id, true_id) for _, root, _, atom in entries]
-    flows = [(f"{index:02x}" * 16, operation, formal, condition, "conditional", None, 0,
-              "0a" * 16, f"{index + 10:02x}" * 16)
-             for index, (condition, _, _, _) in enumerate(entries, start=4)]
-    steps = [(summary, 0, "finalizer_pass", "09" * 16, condition)
-             for summary, _, _, condition, _, _, _, _, _ in flows]
-    leaves = [(f"{index:02x}" * 16, module, condition, atom_id, atom, "pkg/transport.py", 10, 20)
-              for index, (condition, _, atom_id, atom) in enumerate(entries, start=6)]
-    links = [(f"{index:02x}" * 16, operation, formal, module, leaf[0], atom_id, condition,
-              "transport", "direct_parameter_reach_no_effect", effect,
-              ("pkg/transport.py", 10, 20))
-             for index, ((condition, _, atom_id, _), leaf) in enumerate(
-                 zip(entries, leaves, strict=True), start=8
-             )]
+    flows = [
+        (
+            f"{index:02x}" * 16,
+            operation,
+            formal,
+            condition,
+            "conditional",
+            None,
+            0,
+            "0a" * 16,
+            f"{index + 10:02x}" * 16,
+        )
+        for index, (condition, _, _, _) in enumerate(entries, start=4)
+    ]
+    steps = [
+        (summary, 0, "finalizer_pass", "09" * 16, condition)
+        for summary, _, _, condition, _, _, _, _, _ in flows
+    ]
+    leaves = [
+        (f"{index:02x}" * 16, module, condition, atom_id, atom, "pkg/transport.py", 10, 20)
+        for index, (condition, _, atom_id, atom) in enumerate(entries, start=6)
+    ]
+    links = [
+        (
+            f"{index:02x}" * 16,
+            operation,
+            formal,
+            module,
+            leaf[0],
+            atom_id,
+            condition,
+            "transport",
+            "direct_parameter_reach_no_effect",
+            effect,
+            ("pkg/transport.py", 10, 20),
+        )
+        for index, ((condition, _, atom_id, _), leaf) in enumerate(
+            zip(entries, leaves, strict=True), start=8
+        )
+    ]
     index = SemanticExecutor(
-        kernel_format(), snapshot, effect, conditions, nodes,
-        [operation], [("pkg.transport", operation)], [(operation, formal, "transport")],
-        flows, steps, [], leaves, links,
+        kernel_format(),
+        snapshot,
+        effect,
+        conditions,
+        nodes,
+        [operation],
+        [("pkg.transport", operation)],
+        [(operation, formal, "transport")],
+        flows,
+        steps,
+        [],
+        leaves,
+        links,
     )
 
     def results(kind: str, value: str) -> dict[str, str]:
@@ -418,13 +507,16 @@ def test_native_string_membership_and_integer_equality_stay_path_local() -> None
 
     member, equals = (flow[0] for flow in flows)
     assert results("str", "stdio") == {
-        member: "refuted_under_model", equals: "unknown",
+        member: "refuted_under_model",
+        equals: "unknown",
     }
     assert results("str", "http") == {
-        member: "compatible_under_model", equals: "unknown",
+        member: "compatible_under_model",
+        equals: "unknown",
     }
     assert results("int", "3") == {
-        member: "unknown", equals: "refuted_under_model",
+        member: "unknown",
+        equals: "refuted_under_model",
     }
     assert results("bool", "true") == {member: "unknown", equals: "unknown"}
 

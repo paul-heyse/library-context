@@ -6,11 +6,11 @@
 use crate::codebook::{
     AncestryRelation, ArgumentKind, AttributeValueKind, BindingKind, BoundaryReason, ComponentForm,
     ConditionAtom, CoverageStatus, DeclarationKind, DefinitionKind, ExportSyntaxKind,
-    ExtractionMode, FactFamily, Fidelity, FlowCallOperandRole, FlowSink, FunctionBodyKind, ImplicitReceiver,
-    InvocationPhase, LexicalScopeKind, MentionClass, MentionSource, Modality, ModuleOrigin, Origin,
-    ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason, RecordKind,
-    ScopeKind, SignatureForm, SourceRole, StaticBranch, SymbolKind, SyntaxField, SyntaxKind,
-    TestTypeOrigin, TypeArgRole, TypeRole, TypeTermKind,
+    ExtractionMode, FactFamily, Fidelity, FlowCallOperandRole, FlowSink, FunctionBodyKind,
+    ImplicitReceiver, InvocationPhase, LexicalScopeKind, MentionClass, MentionSource, Modality,
+    ModuleOrigin, Origin, ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind,
+    PysaUnresolvedReason, RecordKind, ScopeKind, SignatureForm, SourceRole, StaticBranch,
+    SymbolKind, SyntaxField, SyntaxKind, TestTypeOrigin, TypeArgRole, TypeRole, TypeTermKind,
 };
 use crate::id::{Digest, Id};
 use crate::table::table;

@@ -347,8 +347,16 @@ fn listed(items: &[String]) -> String {
 /// directly in its body, is decorated (§9.6's attribute forms, `cpg_schema::concepts`); and, in
 /// the `+rca` variant, calls a subsystem function, or has its result passed on or takes another's
 /// in official usage (`lctx_analytics::concepts::RCA_POLICY`).
-fn attributes_text(attributes: &[Id], catalog:&BTreeMap<Id,&cpg_schema::concept_attributes::ConceptAttributesRow>) -> String {
-    listed(&attributes.iter().map(|id| catalog[id].render().expect("validated typed attribute")).collect::<Vec<_>>())
+fn attributes_text(
+    attributes: &[Id],
+    catalog: &BTreeMap<Id, &cpg_schema::concept_attributes::ConceptAttributesRow>,
+) -> String {
+    listed(
+        &attributes
+            .iter()
+            .map(|id| catalog[id].render().expect("validated typed attribute"))
+            .collect::<Vec<_>>(),
+    )
 }
 
 // Stage F's relations (the holistic assessment's A4, B2): each declared once, its values bound as
@@ -881,7 +889,11 @@ pub async fn run(
     // Each seed's FCA attributes, as Stage E's context held them (RCA's included), for the
     // implications it meets.
     let seed_attributes = &found.seed_attributes;
-    let attribute_catalog:BTreeMap<_,_>=found.concept_attributes.iter().map(|r|(r.attribute_id,r)).collect();
+    let attribute_catalog: BTreeMap<_, _> = found
+        .concept_attributes
+        .iter()
+        .map(|r| (r.attribute_id, r))
+        .collect();
 
     let mut evidence: BTreeMap<Id, EvidenceRow> = BTreeMap::new();
     let mut add_evidence = |row: EvidenceRow| -> Id {
@@ -1579,7 +1591,7 @@ pub async fn run(
                              {}.",
                             listed(&others),
                             count + 1,
-                            attributes_text(&intent,&attribute_catalog)
+                            attributes_text(&intent, &attribute_catalog)
                         ),
                     )
                     .citing(f),
@@ -1623,8 +1635,8 @@ pub async fn run(
                             format!(
                                 "Among the public APIs of `{scope_label}`, every one that {} also \
                                  {} ({} APIs).",
-                                attributes_text(&premise,&attribute_catalog),
-                                attributes_text(&conclusion,&attribute_catalog),
+                                attributes_text(&premise, &attribute_catalog),
+                                attributes_text(&conclusion, &attribute_catalog),
                                 f.score.unwrap_or_default() as i64
                             ),
                         )
@@ -1824,9 +1836,19 @@ pub async fn run(
                 "{n} occurrence{}, e.g. in `{example}`",
                 if n == 1 { "" } else { "s" }
             );
-            let Some(attribute)=found.members.iter().find(|m|m.finding_id==f.finding_id && m.role==MemberRole::HandoffAttribute)
-                .and_then(|m|m.attribute_id).and_then(|id|attribute_catalog.get(&id)) else {continue};
-            let text=format!("`{seed_label}` {} as `{formal_name}` ({occurrences}).",attribute.render().expect("validated handoff attribute"));
+            let Some(attribute) = found
+                .members
+                .iter()
+                .find(|m| m.finding_id == f.finding_id && m.role == MemberRole::HandoffAttribute)
+                .and_then(|m| m.attribute_id)
+                .and_then(|id| attribute_catalog.get(&id))
+            else {
+                continue;
+            };
+            let text = format!(
+                "`{seed_label}` {} as `{formal_name}` ({occurrences}).",
+                attribute.render().expect("validated handoff attribute")
+            );
             drafts.push(Draft::new(AssertionKind::Handoff, text).citing(f));
         }
 
