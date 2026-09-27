@@ -1851,6 +1851,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ExactRuntimeException>(),
         CodebookEntry::of::<SummaryChannel>(),
         CodebookEntry::of::<SummarySubjectKind>(),
+        CodebookEntry::of::<DischargeDecision>(),
+        CodebookEntry::of::<DischargeProofKind>(),
         CodebookEntry::of::<ConceptAttributeKind>(),
         CodebookEntry::of::<ContextEntryKind>(),
         CodebookEntry::of::<ContextExitKind>(),
@@ -1907,6 +1909,23 @@ codebook!(
         Callback = 5 => "callback",
         Resource = 6 => "resource",
         Role = 7 => "role",
+    }
+);
+
+codebook!(
+    /// Where one member origin of a call-transfer claim stands under summary discharge
+    /// (ADR-0064). Open is never a negative conclusion.
+    DischargeDecision = "discharge_decision" {
+        Proved = 0 => "proved",
+        Open = 1 => "open",
+    }
+);
+
+codebook!(
+    /// The proof object that discharges one member origin (ADR-0064). Argument and store sinks
+    /// append their own kinds when they gain producers.
+    DischargeProofKind = "discharge_proof_kind" {
+        CallerReturnSummary = 0 => "caller_return_summary",
     }
 );
 

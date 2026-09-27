@@ -1787,8 +1787,10 @@ async fn all_techniques_guard() {
     // migrations through the compiler101 checkpoint (ADR-0058/0060–0063), then compiler102's
     // signature-observation query: behavior::digest includes the query, so the behavior scan
     // invocation identity changes even where a fixture has no duplicate external signatures;
-    // then compiler103's flow-model descriptor query (the builtin descriptor exemption).
-    const GUARD: &str = "3d992653c567237b1216b4c9ba503b18397d5cf45fe334d0dc624a3d7f675831";
+    // then compiler103's flow-model descriptor query (the builtin descriptor exemption), then
+    // compiler105's discharge ordering: argument flows written by query before summaries, and
+    // the behavior scan graded from their decisions (ADR-0064).
+    const GUARD: &str = "71ead0fd7a648da3c8a80b058055e2a09b7b68f82fdc14b71294e0c3272ee4ce";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

@@ -21,7 +21,7 @@ from lctx_semantics import SemanticExecutor, catalog_limits, native_files
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 9
+FORMAT = 10
 KERNEL_FORMAT = 1
 MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
 MAX_SUPPORT_FILE_BYTES = 64 * 1024 * 1024
@@ -591,6 +591,16 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 pa.field("raw_approximated", pa.bool_(), nullable=False),
             ]
         ),
+        "behavior_discharges": pa.schema(
+            [
+                _id("behavior_id"),
+                _id("origin_id"),
+                _utf8("proof_kind"),
+                _utf8("decision"),
+                _id("summary_id", True),
+                _utf8("reason", True),
+            ]
+        ),
         "flow_test_leaves": pa.schema(
             [
                 _id("fact_id"),
@@ -1010,8 +1020,13 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     facet_status: dict[bytes, dict[str, tuple[str, str | None]]] = {}
     for r in tables["operation_facet_status"].to_pylist():
         facet_status.setdefault(r["node_id"], {})[r["facet"]] = (r["verdict"], r["reason"])
+    # FORMAT 10 (ADR-0064): each graded call-transfer claim's member evidence, by claim.
+    discharges: dict[bytes, list[dict]] = {}
+    for r in tables["behavior_discharges"].to_pylist():
+        discharges.setdefault(r["behavior_id"], []).append(r)
     behaviors: dict[bytes, list[dict]] = {}
     for r in tables["behaviors"].to_pylist():
+        r["discharges"] = discharges.get(r["behavior_id"], [])
         behaviors.setdefault(r["operation_node_id"], []).append(r)
     singletons = {r["global"]: r["class_node_id"] for r in tables["singletons"].to_pylist()}
     ambient: dict[str, list[dict]] = {}

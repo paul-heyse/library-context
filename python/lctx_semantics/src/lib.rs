@@ -1159,6 +1159,40 @@ impl SemanticExecutor {
     }
 }
 
+/// Discharge evidence is admitted only when each proved member cites a loaded established or
+/// conditional summary of exactly its origin, and each open member states its reason
+/// (ADR-0064). Duplicate (claim, origin) rows are refused.
+fn admit_discharges(flows: &[FlowInput], discharges: &[ipc_input::Discharge]) -> PyResult<()> {
+    use cpg_schema::codebook::DischargeDecision;
+    if discharges.len() > MAX_SUMMARY_ROWS {
+        return Err(PyValueError::new_err(
+            "discharge evidence exceeds native load limits",
+        ));
+    }
+    let mut summaries: HashMap<Id, (Id, bool)> = HashMap::new();
+    for flow in flows {
+        let admitted = matches!(flow.4.as_str(), "established" | "conditional");
+        summaries.insert(id(&flow.0)?, (id(&flow.8)?, admitted));
+    }
+    let mut seen = HashSet::new();
+    for d in discharges {
+        if !seen.insert((d.behavior_id, d.origin_id)) {
+            return Err(PyValueError::new_err("duplicate discharge evidence"));
+        }
+        let cited = match (d.decision, d.summary_id, d.reason) {
+            (DischargeDecision::Proved, Some(summary), None) => summaries.get(&summary),
+            (DischargeDecision::Open, None, Some(_)) => continue,
+            _ => return Err(PyValueError::new_err("malformed discharge evidence")),
+        };
+        if cited != Some(&(d.origin_id, true)) {
+            return Err(PyValueError::new_err(
+                "discharge evidence cites a missing, foreign or unproved summary",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[pymethods]
 impl SemanticExecutor {
     /// Production loader: validate the IPC file schemas against cpg-schema and decode columns
@@ -1171,6 +1205,7 @@ impl SemanticExecutor {
         files: Vec<(String, Vec<u8>)>,
     ) -> PyResult<Self> {
         let input = ipc_input::decode(files)?;
+        admit_discharges(&input.flows, &input.discharges)?;
         Self::load(
             kernel_format,
             snapshot_id,

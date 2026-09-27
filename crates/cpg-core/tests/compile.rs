@@ -303,6 +303,56 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
         .await,
         0
     );
+    // ADR-0064: a return reached only through a call is established once every member origin the
+    // flow model merged is proved, and it cites one summary per member.
+    let discharged = |access: &str| {
+        format!(
+            "SELECT count(*) FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id \
+             JOIN behavior_discharges d ON d.behavior_id = b.behavior_id \
+             WHERE o.access_path = '{access}' AND b.kind = 11 AND b.transfer = 2 \
+               AND b.verdict IN (0, 1) AND d.decision = 0"
+        )
+    };
+    assert_eq!(
+        count(&ctx, &discharged("transferpkg.through_sink")).await,
+        1
+    );
+    // `twice` merges two call contributions into one claim; neither is proved (a conditional
+    // expression is not a whole-return call), so the claim stays open with both members cited.
+    assert_eq!(count(&ctx, &discharged("transferpkg.twice")).await, 0);
+    let twice_members = "SELECT d.origin_id FROM behavior_discharges d \
+         JOIN behaviors b ON b.behavior_id = d.behavior_id \
+         JOIN operations o ON o.node_id = b.operation_node_id \
+         WHERE o.access_path = 'transferpkg.twice'";
+    assert_eq!(
+        count(&ctx, &format!("SELECT count(*) FROM ({twice_members})")).await,
+        2
+    );
+    // Deleting one member's evidence breaks the sibling closure the publication rule enforces.
+    let rule = cpg_schema::rules::rules()
+        .into_iter()
+        .find(|r| r.name == "semantic:discharge-sibling-closure")
+        .expect("the sibling-closure rule");
+    assert_eq!(
+        count(&ctx, &format!("SELECT count(*) FROM ({})", rule.sql)).await,
+        0
+    );
+    let doctored = sql::query(
+        &ctx,
+        &format!(
+            "SELECT * FROM behavior_discharges \
+             WHERE origin_id <> (SELECT min(origin_id) FROM ({twice_members}))"
+        ),
+    )
+    .await
+    .unwrap()
+    .into_view();
+    let original = ctx.table("behavior_discharges").await.unwrap().into_view();
+    ctx.deregister_table("behavior_discharges").unwrap();
+    ctx.register_table("behavior_discharges", doctored).unwrap();
+    assert!(count(&ctx, &format!("SELECT count(*) FROM ({})", rule.sql)).await > 0);
+    ctx.deregister_table("behavior_discharges").unwrap();
+    ctx.register_table("behavior_discharges", original).unwrap();
     // The exempt descriptor's unread formal is judged like any other body (descriptor review F01).
     assert_eq!(
         count(

@@ -524,6 +524,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::SummaryFlowSteps,
             $crate::behavior::SummaryBoundaries,
             $crate::behavior::SummaryOriginCoverage,
+            $crate::behavior::BehaviorDischarges,
             $crate::behavior::FlowTestValueLinks,
             $crate::behavior::ModelTargets,
             $crate::behavior::ModelApplications,

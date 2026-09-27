@@ -195,3 +195,11 @@ class Settable:
     @level.deleter
     def level(self):
         del self._level
+
+
+def twice(flag, value):
+    return sink(value) if flag else sink(value)
+
+
+def through_sink(value):
+    return sink(value)

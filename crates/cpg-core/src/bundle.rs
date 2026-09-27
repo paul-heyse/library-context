@@ -35,9 +35,10 @@ use arrow_schema::{DataType, Field, FieldRef, SchemaRef};
 use cpg_schema::bundle::{ServingFile, files, schema_digest};
 use cpg_schema::codebook::{
     AnalyticMethod, ArcKind, AssertionKind, BehaviorKind, BoundaryReason, Codebook, CoverageStatus,
-    DeclarationKind, EmbeddingView, EvidenceKind, EvidenceStatus, FactFamily, FindingKind,
-    InvocationPhase, MemberRole, Modality, OperationFacet, ReviewState, ScopeKind, StopReason,
-    SummaryFlowKind, SummaryFlowStepKind, SupportRole, TestValueLinkOrigin, Verdict,
+    DeclarationKind, DischargeDecision, DischargeProofKind, EmbeddingView, EvidenceKind,
+    EvidenceStatus, FactFamily, FindingKind, InvocationPhase, MemberRole, Modality, OperationFacet,
+    ReviewState, ScopeKind, StopReason, SummaryFlowKind, SummaryFlowStepKind, SupportRole,
+    TestValueLinkOrigin, Verdict,
 };
 use cpg_schema::findings::{ASSERTION_POLICY, SLOT_SECTIONS};
 use cpg_schema::id::Id;
@@ -48,7 +49,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 9;
+pub const FORMAT: u64 = 10;
 const MAX_SUPPORT_ROWS: usize = 100_000;
 const MAX_SUPPORT_FILE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -413,6 +414,14 @@ fn query(name: &str) -> Option<String> {
                     {reason} AS reason, local_through_call, upstream_through_call, \
                     raw_approximated FROM summary_boundaries \
              ORDER BY function_node_id, parameter_node_id, source_origin_id, condition_id",
+            reason = text_of::<BoundaryReason>("reason"),
+        ),
+        "behavior_discharges" => format!(
+            "SELECT behavior_id, origin_id, {kind} AS proof_kind, {decision} AS decision, \
+                    summary_id, {reason} AS reason \
+             FROM behavior_discharges ORDER BY behavior_id, origin_id",
+            kind = text_of::<DischargeProofKind>("proof_kind"),
+            decision = text_of::<DischargeDecision>("decision"),
             reason = text_of::<BoundaryReason>("reason"),
         ),
         "flow_test_leaves" => format!(

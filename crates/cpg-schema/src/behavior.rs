@@ -28,13 +28,14 @@
 
 use crate::codebook::{
     ArgumentKind, BehaviorKind, BoundaryReason, Codebook, CompletionKind, DeclarationKind,
-    DynamicKind, EmbeddingView, ExactRuntimeException, ExactValueOrigin, ExitSiteKind,
-    FlowCallLinkStatus, FlowSink, HandlerTypeStatus, ImplicitReceiver, InvocationPhase, Modality,
-    ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
-    ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole,
-    ModelResourceAction, ModelResourceSourceStatus, ModelSchemaKind, ModelTransferEndpointStatus,
-    ModelTransferKind, ModeledArgumentEvaluationStatus, ModeledHandlerClassMatch, OperationFacet,
-    Origin, ParameterKind, PremiseKind, ReadPhase, SourceRole, SummaryChannel, SummaryFlowKind,
+    DischargeDecision, DischargeProofKind, DynamicKind, EmbeddingView, ExactRuntimeException,
+    ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus,
+    ImplicitReceiver, InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction,
+    ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
+    ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction, ModelResourceSourceStatus,
+    ModelSchemaKind, ModelTransferEndpointStatus, ModelTransferKind,
+    ModeledArgumentEvaluationStatus, ModeledHandlerClassMatch, OperationFacet, Origin,
+    ParameterKind, PremiseKind, ReadPhase, SourceRole, SummaryChannel, SummaryFlowKind,
     SummaryFlowStepKind, SummarySubjectKind, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
@@ -1527,6 +1528,28 @@ table!(
         local_through_call: bool,
         upstream_through_call: bool,
         raw_approximated: bool,
+    }
+);
+
+table!(
+    /// One member origin of a call-transfer behavior claim and its discharge evidence
+    /// (ADR-0064). Membership is the flow model's merge of contributions into the claim's value
+    /// flows; a proved row cites the established or conditional summary with that origin. A claim
+    /// is established or conditional only when every member row is proved.
+    BehaviorDischarges, BehaviorDischargesRow = "behavior_discharges",
+    family = Findings,
+    key = [snapshot_id, behavior_id, origin_id],
+    checks = [
+        ("decision_shape", "(decision = 0 AND summary_id IS NOT NULL AND reason IS NULL) OR (decision = 1 AND summary_id IS NULL AND reason IS NOT NULL)"),
+    ],
+    {
+        snapshot_id: Id,
+        behavior_id: Id,
+        origin_id: Id,
+        proof_kind: DischargeProofKind,
+        decision: DischargeDecision,
+        summary_id: Option<Id>,
+        reason: Option<BoundaryReason>,
     }
 );
 

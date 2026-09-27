@@ -731,6 +731,20 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                 "condition_id",
             ],
         ),
+        // FORMAT 10 (ADR-0064): each graded call-transfer claim's member origins and the summary
+        // that proves each, beside the behaviors that cite them.
+        file(
+            "behavior_discharges",
+            vec![
+                id("behavior_id", false),
+                id("origin_id", false),
+                utf8("proof_kind", false),
+                utf8("decision", false),
+                id("summary_id", true),
+                utf8("reason", true),
+            ],
+            &["behavior_id", "origin_id"],
+        ),
         file(
             "flow_test_leaves",
             vec![

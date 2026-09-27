@@ -3338,13 +3338,56 @@ fn semantic() -> Vec<Rule> {
                 .to_owned(),
         ),
         (
-            "semantic:call-transfer-never-established",
+            // ADR-0064: a call-transfer claim is established or conditional only with discharge
+            // evidence, and every member origin of that evidence is proved.
+            "semantic:call-transfer-discharged",
             format!(
-                "SELECT behavior_id FROM behaviors WHERE transfer = {call} \
-                 AND verdict <> {unknown}",
+                "SELECT b.behavior_id FROM behaviors b \
+                 LEFT JOIN (SELECT behavior_id, count(*) AS members, \
+                                   sum(CASE WHEN decision = {proved} THEN 0 ELSE 1 END) AS open \
+                            FROM behavior_discharges GROUP BY behavior_id) d \
+                   ON d.behavior_id = b.behavior_id \
+                 WHERE b.transfer = {call} AND b.verdict <> {unknown} \
+                   AND (d.members IS NULL OR d.open > 0)",
                 call = crate::codebook::FlowTransfer::Call.code(),
                 unknown = Verdict::Unknown.code(),
+                proved = crate::codebook::DischargeDecision::Proved.code(),
             ),
+        ),
+        (
+            // ADR-0064: discharge evidence belongs to a call-transfer claim, and a proved member
+            // cites an established or conditional summary of exactly that origin.
+            "semantic:discharge-cites-summary",
+            format!(
+                "SELECT d.behavior_id FROM behavior_discharges d \
+                 LEFT JOIN behaviors b ON b.behavior_id = d.behavior_id AND b.transfer = {call} \
+                 LEFT JOIN summary_flows s ON s.summary_id = d.summary_id \
+                   AND s.source_origin_id = d.origin_id \
+                   AND s.verdict IN ({established}, {conditional}) \
+                 WHERE b.behavior_id IS NULL \
+                    OR (d.decision = {proved} AND s.summary_id IS NULL)",
+                call = crate::codebook::FlowTransfer::Call.code(),
+                established = Verdict::Established.code(),
+                conditional = Verdict::Conditional.code(),
+                proved = crate::codebook::DischargeDecision::Proved.code(),
+            ),
+        ),
+        (
+            // ADR-0064 (target review F01): discharge evidence names every member the flow model
+            // merged with a cited origin: same sink, source and transfer.
+            "semantic:discharge-sibling-closure",
+            "SELECT d.behavior_id FROM behavior_discharges d \
+             JOIN value_flow_contributions c1 ON c1.origin_id = d.origin_id \
+             JOIN flow_values f1 ON f1.fact_id = c1.flow_value_fact_id \
+             JOIN flow_values f2 ON f2.module_node_id = f1.module_node_id \
+               AND f2.sink = f1.sink AND f2.sink_start_byte = f1.sink_start_byte \
+               AND f2.sink_end_byte = f1.sink_end_byte \
+             JOIN value_flow_contributions c2 ON c2.flow_value_fact_id = f2.fact_id \
+               AND c2.source_key = c1.source_key AND c2.identity = c1.identity \
+               AND c2.through_call = c1.through_call \
+             LEFT ANTI JOIN behavior_discharges d2 \
+               ON d2.behavior_id = d.behavior_id AND d2.origin_id = c2.origin_id"
+                .to_owned(),
         ),
         (
             // Increment 3's deep review, F1: a behavior whose path crosses a non-definite arc

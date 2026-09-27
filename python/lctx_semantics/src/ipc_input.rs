@@ -42,6 +42,7 @@ pub(super) const NAMES: &[&str] = &[
     "return_completion_certificates",
     "summary_flow_steps",
     "summary_boundaries",
+    "behavior_discharges",
     "flow_test_leaves",
     "flow_test_value_links",
 ];
@@ -85,8 +86,19 @@ pub(super) struct Inputs {
     pub flows: Vec<FlowInput>,
     pub steps: Vec<(String, i64, String, String, String)>,
     pub boundaries: Vec<(String, String, String, String, String, String)>,
+    pub discharges: Vec<Discharge>,
     pub leaves: Vec<LeafInput>,
     pub links: Vec<LinkInput>,
+}
+
+/// One member origin of a graded call-transfer claim and its cited summary (ADR-0064).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Discharge {
+    pub behavior_id: Id,
+    pub origin_id: Id,
+    pub decision: cpg_schema::codebook::DischargeDecision,
+    pub summary_id: Option<Id>,
+    pub reason: Option<cpg_schema::codebook::BoundaryReason>,
 }
 
 fn invalid(message: impl Into<String>) -> pyo3::PyErr {
@@ -362,6 +374,22 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
                 table.id("condition_id", row)?,
                 table.text("reason", row)?,
             ))
+        })
+        .collect::<PyResult<_>>()?;
+    let table = batch(&batches, "behavior_discharges");
+    let discharges = (0..table.len())
+        .map(|row| {
+            let _: cpg_schema::codebook::DischargeProofKind = table.code("proof_kind", row)?;
+            Ok(Discharge {
+                behavior_id: super::id(&table.id("behavior_id", row)?)?,
+                origin_id: super::id(&table.id("origin_id", row)?)?,
+                decision: table.code("decision", row)?,
+                summary_id: table
+                    .optional_id("summary_id", row)?
+                    .map(|s| super::id(&s))
+                    .transpose()?,
+                reason: table.optional_code("reason", row)?,
+            })
         })
         .collect::<PyResult<_>>()?;
     let table = batch(&batches, "flow_test_leaves");
@@ -811,6 +839,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         flows,
         steps,
         boundaries,
+        discharges,
         leaves,
         links,
     })

@@ -647,6 +647,9 @@ pub fn digest() -> cpg_schema::id::Digest {
 #[derive(Debug, Default)]
 pub struct FlowModelRows {
     pub value_flows: Vec<ValueFlowsRow>,
+    /// Each value flow's member contributions (their `origin_id`s), index-aligned with
+    /// `value_flows`: the merge this module owns, which discharge evidence cites (ADR-0064).
+    pub value_flow_members: Vec<BTreeSet<Id>>,
     pub reach_boundaries: Vec<FlowReachBoundariesRow>,
     pub value_flow_contributions: Vec<ValueFlowContributionsRow>,
     pub field_accesses: Vec<FieldAccessesRow>,
@@ -1729,6 +1732,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         // Persist contributions for *all* provider sinks, including ordinary definitions.
         // The display `value_flows` below intentionally omits non-stored definitions and
         // coalesces source paths, neither of which is safe for interprocedural composition.
+        let mut members: BTreeMap<(String, bool, bool), BTreeSet<Id>> = BTreeMap::new();
         for contribution in model.sink_contributions(key) {
             let (function_node_id, source_key, parameter_node_id, class_node_id) =
                 match contribution.origin {
@@ -1775,6 +1779,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     upstream_through_call,
                 },
             );
+            members
+                .entry((source_key.clone(), identity, through_call))
+                .or_default()
+                .insert(origin_id);
             out.value_flow_contributions
                 .push(ValueFlowContributionsRow {
                     snapshot_id,
@@ -1869,6 +1877,18 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 call_site_node_id: argument.map(|a| a.call_node_id),
                 place: place.clone(),
             });
+            out.value_flow_members.push(
+                members
+                    .get(&(
+                        out.value_flows[out.value_flows.len() - 1]
+                            .source_key
+                            .clone(),
+                        transfer == Transfer::Identity,
+                        transfer == Transfer::Call,
+                    ))
+                    .cloned()
+                    .unwrap_or_default(),
+            );
         }
     }
 

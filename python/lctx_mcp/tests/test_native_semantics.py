@@ -361,6 +361,50 @@ def test_native_ipc_projection_rejects_schema_drift(generation: Path) -> None:
         )
 
 
+def test_native_admits_only_cited_discharges(generation: Path) -> None:
+    """ADR-0064: a proved discharge cites a loaded admitted summary of exactly its origin."""
+    loaded = load(generation, None)
+    files = [(name, (generation / f"{name}.arrow").read_bytes()) for name in NATIVE_IPC_FILES]
+    original = ipc.open_file(generation / "behavior_discharges.arrow").read_all()
+    summaries = ipc.open_file(generation / "summary_flows.arrow").read_all().to_pylist()
+    admitted = next(s for s in summaries if s["verdict"] in ("established", "conditional"))
+
+    def with_rows(rows: list[dict]) -> list[tuple[str, bytes]]:
+        table = pa.Table.from_pylist(rows, schema=original.schema)
+        sink = pa.BufferOutputStream()
+        with ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
+        doctored = sink.getvalue().to_pybytes()
+        return [(n, doctored if n == "behavior_discharges" else data) for n, data in files]
+
+    def load_rows(rows: list[dict]) -> None:
+        SemanticExecutor.from_ipc(
+            kernel_format(),
+            loaded.snapshot_id,
+            loaded.manifest["entry_value_effect_digest"],
+            with_rows(rows),
+        )
+
+    good = {
+        "behavior_id": b"\x01" * 16,
+        "origin_id": admitted["source_origin_id"],
+        "proof_kind": "caller_return_summary",
+        "decision": "proved",
+        "summary_id": admitted["summary_id"],
+        "reason": None,
+    }
+    load_rows([good])
+    load_rows([{**good, "decision": "open", "summary_id": None, "reason": "call_transfer"}])
+    for rows, message in [
+        ([{**good, "origin_id": b"\x02" * 16}], "missing, foreign or unproved"),
+        ([{**good, "summary_id": b"\x03" * 16}], "missing, foreign or unproved"),
+        ([{**good, "decision": "open"}], "malformed discharge"),
+        ([good, good], "duplicate discharge"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            load_rows(rows)
+
+
 def _hex(value: bytes | None) -> str | None:
     return None if value is None else value.hex()
 

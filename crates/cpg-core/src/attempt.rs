@@ -125,7 +125,8 @@ pub struct Published {
 /// 102: agree on repeated pinned context observations without counting them as overloads.
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 104;
+/// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
+pub const COMPILER_OUTPUT_VERSION: u32 = 105;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -791,24 +792,9 @@ async fn finish(
         Some(_) => crate::entry_links::all(&ctx, snapshot_id).await?,
         None => (Vec::new(), Vec::new()),
     };
-    // The behavior model's Stage 1 (ADR-0021, ADR-0022): the whole public surface, before Stage E.
-    let behavior = match analysis {
-        Some((a, compiler)) => {
-            crate::behavior::run(
-                &ctx,
-                root,
-                snapshot_id,
-                a,
-                compiler,
-                &public,
-                &flow_model,
-                &mut written.stages,
-            )
-            .await?
-        }
-        None => crate::behavior::BehaviorRows::default(),
-    };
-    {
+    // The behavior model's Stage 1 (ADR-0021, ADR-0022) runs inside this block after the finite
+    // summaries, whose decisions discharge call-transfer claims (ADR-0064); before Stage E.
+    let behavior = {
         use cpg_schema::behavior::{
             AmbientReads, AnalysisConditionNodes, AnalysisConditions, ArgumentFlows, BehaviorSteps,
             Behaviors, Delegations, DynamicAccesses, ExitSites, ExpressionEvaluationSteps,
@@ -881,8 +867,15 @@ async fn finish(
         write_analysis::<RaiseSites>(&ctx, root, snapshot_id, &m.raise_sites, w).await?;
         write_analysis::<Singletons>(&ctx, root, snapshot_id, &m.singletons, w).await?;
         write_analysis::<NegativePremises>(&ctx, root, snapshot_id, &m.premises, w).await?;
-        write_analysis::<ArgumentFlows>(&ctx, root, snapshot_id, &behavior.argument_flows, w)
-            .await?;
+        // Summaries read argument flows before the behavior scan runs (ADR-0064).
+        write_analysis_query::<ArgumentFlows>(
+            &ctx,
+            root,
+            snapshot_id,
+            &cpg_schema::behavior::argument_flows(),
+            w,
+        )
+        .await?;
         write_analysis_query::<ExitSites>(
             &ctx,
             root,
@@ -1178,6 +1171,27 @@ async fn finish(
             w,
         )
         .await?;
+        let decisions = lctx_analytics::summaries::discharge::Decisions::from_outcome(
+            &summaries.flows,
+            &summaries.boundaries,
+        );
+        let behavior = match analysis {
+            Some((a, compiler)) => {
+                crate::behavior::run(
+                    &ctx,
+                    root,
+                    snapshot_id,
+                    a,
+                    compiler,
+                    &public,
+                    m,
+                    &decisions,
+                    &mut w.stages,
+                )
+                .await?
+            }
+            None => crate::behavior::BehaviorRows::default(),
+        };
         write_analysis::<Guards>(&ctx, root, snapshot_id, &behavior.guards, w).await?;
         write_analysis::<ParameterReads>(&ctx, root, snapshot_id, &behavior.parameter_reads, w)
             .await?;
@@ -1189,9 +1203,18 @@ async fn finish(
             .await?;
         write_analysis::<Behaviors>(&ctx, root, snapshot_id, &behavior.behaviors, w).await?;
         write_analysis::<BehaviorSteps>(&ctx, root, snapshot_id, &behavior.steps, w).await?;
+        write_analysis::<cpg_schema::behavior::BehaviorDischarges>(
+            &ctx,
+            root,
+            snapshot_id,
+            &behavior.discharges,
+            w,
+        )
+        .await?;
         write_analysis::<OperationDocuments>(&ctx, root, snapshot_id, &behavior.documents, w)
             .await?;
-    }
+        behavior
+    };
 
     // Stage E (ADR-0019): the analyses read the session, and their rows are written like any
     // other table's, one commit each.

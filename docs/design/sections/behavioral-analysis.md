@@ -474,8 +474,8 @@ the dependency order and deletions.
   modality.
 - **Discharge:** a callee's summary resolves a `call_transfer` claim to `established` or
   `conditional` only with the matching proof; `refuted_under_model` needs a complete summary with
-  every candidate call, handler and modeled channel closed. **Accepted target (ADR-0064;
-  implementation open, plan P1):**
+  every candidate call, handler and modeled channel closed. **Implemented and focused Tested
+  (ADR-0064; 2026-09-27, compiler 105, FORMAT 10), for return claims only:**
   - `lctx-analytics::summaries::discharge` decides per candidate origin, purely: `proved` (an
     established or conditional summary with that `source_origin_id`) or `open` (the refusal
     reason). It grades a claim from all its members after the claim merge, independent of order.
@@ -488,6 +488,12 @@ the dependency order and deletions.
     with sibling closure" replaces `semantic:call-transfer-never-established`.
   - FORMAT carries the relation, and native admission checks each citation.
   - Refutation evidence and argument/store proof kinds come later (P4, plan §7).
+  - Tested by pure decide/grade/order tests, `transferpkg` (`through_sink` discharged;
+    `twice` open with both siblings cited; injected sibling omission rejected;
+    `through_decorated` withheld), the analysis rule meta-test, native refusal of foreign,
+    missing, malformed and duplicate citations, and the CPython served-claim harness
+    (`tests/scripts/test_semantic_soundness.py`). The pilot count is unchanged by construction:
+    no pilot summary crosses a call.
 
 **Positive paths** (implemented producers). A finite `summary_flows` path is admitted only when:
 - **Direct base:** a synchronous function body returns its own parameter by raw identity, with no

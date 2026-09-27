@@ -17,6 +17,7 @@ use petgraph::graph::{Graph, NodeIndex};
 
 use crate::AnalyticsError;
 
+pub mod discharge;
 pub mod finite;
 pub(crate) mod worklist;
 

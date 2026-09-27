@@ -49,6 +49,8 @@ pub const WINDOW_BYTES: usize = 4096;
 #[derive(Debug, Default)]
 pub struct BehaviorRows {
     pub argument_flows: Vec<ArgumentFlowsRow>,
+    /// Discharge evidence of graded call-transfer claims (ADR-0064).
+    pub discharges: Vec<cpg_schema::behavior::BehaviorDischargesRow>,
     pub guards: Vec<GuardsRow>,
     pub parameter_reads: Vec<ParameterReadsRow>,
     pub handoffs: Vec<HandoffsRow>,
@@ -269,6 +271,7 @@ pub async fn run(
     compiler: CompilerRun,
     public: &[PublicPathsRow],
     flow: &crate::flow_model::FlowModelRows,
+    discharges: &lctx_analytics::summaries::discharge::Decisions,
     stages: &mut Stages,
 ) -> Result<BehaviorRows, CoreError> {
     let mut out = BehaviorRows {
@@ -861,17 +864,23 @@ pub async fn run(
         mut row: BehaviorsRow,
         condition: &ModelCondition,
         scope: Id,
-    ) {
+    ) -> Id {
         let c = condition.clone();
         row.condition_scope_node_id = scope;
         row.behavior_id = b::flow_behavior_id(&row);
+        let id = row.behavior_id;
         match stage2.get_mut(&row.behavior_id) {
             Some((_, e, _)) => *e = e.or(&c),
             None => {
                 stage2.insert(row.behavior_id, (row, c, scope));
             }
         }
+        id
     }
+    // A graded call-transfer claim's member origins (the flow model's merge, accumulated over
+    // every merged row) and whether each merged row was open only because of the call
+    // (ADR-0064). The grade is applied after the merge, so it does not depend on row order.
+    let mut discharge_members: BTreeMap<Id, (BTreeSet<Id>, bool)> = BTreeMap::new();
     let blank = |op: Id, kind: BehaviorKind| BehaviorsRow {
         snapshot_id,
         behavior_id: Id::ZERO,
@@ -902,10 +911,11 @@ pub async fn run(
         occurrences: 1,
         invocation_id: Some(invocation_id),
     };
-    for v in flow
+    for (index, v) in flow
         .value_flows
         .iter()
-        .filter(|v| own.contains(&v.function_node_id) && v.parameter_node_id.is_some())
+        .enumerate()
+        .filter(|(_, v)| own.contains(&v.function_node_id) && v.parameter_node_id.is_some())
     {
         let site_at = |row: &mut BehaviorsRow| {
             row.site_module_node_id = Some(v.module_node_id);
@@ -1006,7 +1016,17 @@ pub async fn run(
             .get(&v.condition_id)
             .cloned()
             .unwrap_or_else(|| ModelCondition::unknown(KernelBoundary::SourceOverBudget));
-        claim(&mut stage2, row, &condition, v.function_node_id);
+        // P1 discharges return claims only (`caller_return_summary`, ADR-0064).
+        let graded = row.kind == BehaviorKind::Returns && v.through_call;
+        let call_only = row.boundary_reason == Some(BoundaryReason::CallTransfer);
+        let behavior_id = claim(&mut stage2, row, &condition, v.function_node_id);
+        if graded {
+            let (members, only) = discharge_members
+                .entry(behavior_id)
+                .or_insert_with(|| (BTreeSet::new(), true));
+            members.extend(flow.value_flow_members[index].iter().copied());
+            *only &= call_only;
+        }
     }
     // Only a raise that may leave its function is a `raises_when` fate (ADR-0022 §Conditions).
     for r in flow
@@ -1234,6 +1254,21 @@ pub async fn run(
         let condition = normal_path_model(&guards, scope, &condition, row.site_start_byte);
         if condition.is_never() {
             continue;
+        }
+        if let Some((members, call_only)) = discharge_members.get(&row.behavior_id) {
+            let (proved, evidence) = lctx_analytics::summaries::discharge::grade(
+                snapshot_id,
+                row.behavior_id,
+                members,
+                discharges,
+            );
+            out.discharges.extend(evidence);
+            // The members' proofs discharge the call and their certified value approximation;
+            // the condition, capture, decoration and reachability rules below still apply.
+            if proved && *call_only {
+                row.verdict = Verdict::Established;
+                row.boundary_reason = None;
+            }
         }
         match condition.diagram() {
             Ok(_) if condition.is_always() => {}

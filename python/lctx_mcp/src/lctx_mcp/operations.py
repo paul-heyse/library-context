@@ -77,6 +77,18 @@ class Where(BaseModel):
     path_prefix: Annotated[str, Field(max_length=500)] | None = None
 
 
+class Discharge(BaseModel):
+    """One member origin of a call-transfer claim (ADR-0064): the finite summary that proves
+    it, or why it stays open. A claim is established or conditional only when every member is
+    proved; an open member is never a negative conclusion."""
+
+    origin_id: str
+    proof_kind: str
+    decision: Literal["proved", "open"]
+    summary_id: str | None
+    reason: str | None
+
+
 class Fate(BaseModel):
     """What one behavior row states, with its verdict and where it is shown."""
 
@@ -105,6 +117,8 @@ class Fate(BaseModel):
     path: str | None
     line: int | None
     site_text: str | None
+    # A call-transfer claim's discharge evidence, one entry per member origin (ADR-0064).
+    discharges: list[Discharge] = []
 
 
 class ParameterRecord(BaseModel):
@@ -258,6 +272,16 @@ def _fate(r: dict) -> Fate:
         path=r["path"],
         line=r["line"],
         site_text=r["site_text"],
+        discharges=[
+            Discharge(
+                origin_id=d["origin_id"].hex(),
+                proof_kind=d["proof_kind"],
+                decision=d["decision"],
+                summary_id=d["summary_id"].hex() if d["summary_id"] else None,
+                reason=d["reason"],
+            )
+            for d in r.get("discharges", [])
+        ],
     )
 
 

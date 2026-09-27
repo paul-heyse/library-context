@@ -332,7 +332,7 @@ reasoning, and every step is cited.
   weakest step (identity, derived, through a call). A `derives`, `stores`, `returns` or
   `raises_when` claim reached only through a call is `unknown` (`call_transfer`), keeping the
   condition it would hold under. Operators, f-strings and containers are computed from their
-  operands directly. **Discharge (accepted target, ADR-0064; implementation open, plan P1):**
+  operands directly. **Discharge (ADR-0064; Implemented and focused Tested 2026-09-27, compiler 105, FORMAT 10):**
   claims are graded after finite summaries. A call-transfer claim becomes established or
   conditional only when every member origin has a proved summary. The claim keeps
   `transfer = call` and cites its `behavior_discharges` rows (behavior, origin, typed proof kind,

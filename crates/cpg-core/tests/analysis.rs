@@ -1390,6 +1390,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             20,
             "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
         ),
+        // Call-transfer return claims are graded from claim-keyed discharges (ADR-0064).
+        (
+            105,
+            20,
+            "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -1454,6 +1460,7 @@ async fn the_analysis_rules_reject_their_violations() {
         "conditions",
         "bindings",
         "value_flow_contributions",
+        "behavior_discharges",
         "concept_attributes",
         "concept_incidences",
         "type_terms",
@@ -1869,6 +1876,16 @@ async fn the_analysis_rules_reject_their_violations() {
         cpg_schema::codebook::FlowTransfer::Call.code(),
         cpg_schema::codebook::Verdict::Established.code()
     );
+    // A proved member citing no summary of its origin (ADR-0064).
+    let foreign_summary = format!(
+        "SELECT b.snapshot_id, b.behavior_id, b.behavior_id AS origin_id, \
+                CAST({} AS SMALLINT) AS proof_kind, CAST({} AS SMALLINT) AS decision, \
+                b.behavior_id AS summary_id, CAST(NULL AS SMALLINT) AS reason \
+         FROM behaviors_published b WHERE b.transfer = {}",
+        cpg_schema::codebook::DischargeProofKind::CallerReturnSummary.code(),
+        cpg_schema::codebook::DischargeDecision::Proved.code(),
+        cpg_schema::codebook::FlowTransfer::Call.code()
+    );
     let unsupported_handoff = format!(
         "SELECT * REPLACE (CAST({} AS SMALLINT) AS finding_kind) FROM findings_published",
         cpg_schema::codebook::FindingKind::Handoff.code()
@@ -1881,7 +1898,8 @@ async fn the_analysis_rules_reject_their_violations() {
         ("semantic:concept-attribute-incidence", "concept_incidences", "SELECT * FROM concept_incidences_published WHERE false"),
         ("semantic:concept-extent-incidence", "concept_incidences", "SELECT * FROM concept_incidences_published WHERE false"),
         ("semantic:handoff-attribute-support", "findings", unsupported_handoff.as_str()),
-        ("semantic:call-transfer-never-established", "behaviors", call_transfer.as_str()),
+        ("semantic:call-transfer-discharged", "behaviors", call_transfer.as_str()),
+        ("semantic:discharge-cites-summary", "behavior_discharges", foreign_summary.as_str()),
     ]);
     let rules = cpg_schema::rules::rules();
     for (rule, table, view) in cases {

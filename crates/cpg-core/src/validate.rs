@@ -231,6 +231,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM source_parameter_identities".to_owned();
     stored_summary_origin_coverage = "validate_stored_summary_origin_coverage", deps = ["summary_origin_coverage"],
         sql = "SELECT * FROM summary_origin_coverage".to_owned();
+    stored_behavior_discharges = "validate_stored_behavior_discharges", deps = ["behavior_discharges"],
+        sql = "SELECT * FROM behavior_discharges".to_owned();
     stored_summary_components = "validate_stored_summary_components", deps = ["summary_components"],
         sql = "SELECT * FROM summary_components".to_owned();
     stored_summary_flow_steps = "validate_stored_summary_flow_steps", deps = ["summary_flow_steps"],
@@ -665,6 +667,33 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
                 actual_steps.len(),
                 expected_steps.len()
             ),
+        });
+    }
+    // Discharge decisions come from the same reconstructed outcome, never a second producer run
+    // (ADR-0064): each published member row states what that outcome decides for its origin.
+    let decisions = lctx_analytics::summaries::discharge::Decisions::from_outcome(
+        &expected,
+        &summary.boundaries,
+    );
+    let discharges: Vec<cpg_schema::behavior::BehaviorDischargesRow> =
+        sql::fetch(ctx, &stored_behavior_discharges(), sql::Params::new()).await?;
+    let mismatched = discharges
+        .iter()
+        .filter(|row| {
+            let (_, expected) = lctx_analytics::summaries::discharge::grade(
+                row.snapshot_id,
+                row.behavior_id,
+                &[row.origin_id].into(),
+                &decisions,
+            );
+            expected.first() != Some(row)
+        })
+        .count();
+    if mismatched > 0 {
+        violations.push(Violation {
+            rule: "behavior-discharge-source-equality".to_owned(),
+            rows: mismatched,
+            sample: "discharge decisions differ from the reconstructed summary outcome".to_owned(),
         });
     }
     violations.extend(validate_summary_boundaries(ctx, summary.boundaries).await?);

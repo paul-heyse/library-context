@@ -1946,6 +1946,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "analysis_condition_nodes",
             "analysis_conditions",
             "assertions",
+            "behavior_discharges",
             "behaviors",
             "brief_members",
             "briefs",

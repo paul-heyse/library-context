@@ -49,6 +49,7 @@ class Function:
     name: str
     flagged: bool
     body: str
+    decorated: bool = False
 
 
 # Leaf shapes take `value` (and, when flagged, `flag`); callers reference earlier unflagged or
@@ -61,6 +62,8 @@ LEAVES = {
     "listed": (False, "    return [value]\n"),
     "guard": (True, "    if flag:\n        return value\n    return None\n"),
 }
+# A decorator that replaces the binding: its body never runs (ADR-0064, target review F02).
+DECORATED = "    return value\n"
 
 
 @st.composite
@@ -74,7 +77,11 @@ def packages(draw: st.DrawFn) -> list[Function]:
         shapes += ["call_flag"] if flagged else []
         shape = draw(st.sampled_from(shapes))
         if shape == "leaf":
-            is_flagged, body = LEAVES[draw(st.sampled_from(sorted(LEAVES)))]
+            leaf = draw(st.sampled_from([*sorted(LEAVES), "decorated"]))
+            if leaf == "decorated":
+                functions.append(Function(name, False, DECORATED, decorated=True))
+                continue
+            is_flagged, body = LEAVES[leaf]
             functions.append(Function(name, is_flagged, body))
             continue
         if shape == "call_flag":
@@ -94,12 +101,20 @@ def packages(draw: st.DrawFn) -> list[Function]:
 
 
 def _source(functions: list[Function]) -> str:
-    parts = ['"""Generated for the semantic soundness challenge; never an analyzer fixture."""\n']
+    parts = [
+        '"""Generated for the semantic soundness challenge; never an analyzer fixture."""\n',
+        "\n\ndef _replace(function):\n    return lambda *args: None\n",
+    ]
     for f in functions:
         params = "value, flag" if f.flagged else "value"
+        if f.decorated:
+            parts.append("\n\n@_replace")
         # A docstring gives the analysis seed a documented outcome (an undocumented,
         # analysis-free seed fails `semantic:documentation-only-has-outcome`).
-        parts.append(f'\n\ndef {f.name}({params}):\n    """Generated."""\n{f.body}')
+        parts.append(
+            ("\n" if f.decorated else "\n\n")
+            + f'def {f.name}({params}):\n    """Generated."""\n{f.body}'
+        )
     return "".join(parts)
 
 
@@ -186,10 +201,20 @@ def _check(functions: list[Function]) -> None:
         returns = served[f.name]
         normal = [r for r in observed[f.name] if r["raised"] is None]
         identity = any(r["identity"] for r in normal)
+        # Identity claims: a direct `unchanged` return, or a call-transfer return discharged by
+        # proved summaries (every current summary is a Value-kind identity path, ADR-0064).
         established = [
             r
             for r in returns
-            if r.verdict == "established" and (r.value or "").startswith("unchanged")
+            if r.verdict == "established"
+            and (
+                (r.value or "").startswith("unchanged")
+                or (
+                    r.transfer == "call"
+                    and bool(r.discharges)
+                    and all(d.decision == "proved" for d in r.discharges)
+                )
+            )
         ]
         refuted = [r for r in returns if r.verdict == "refuted_under_model"]
         PRECISION["identity_observed"] += identity
@@ -211,6 +236,8 @@ def test_known_shapes() -> None:
         Function("f3", False, "    return f2(value, False)\n"),
         Function("f4", False, LEAVES["logged"][1]),
         Function("f5", False, "    f4(value)\n    return value\n"),
+        Function("f6", False, DECORATED, decorated=True),
+        Function("f7", False, "    return f6(value)\n"),
     ]
     _check(fs)
 
