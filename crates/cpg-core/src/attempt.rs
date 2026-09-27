@@ -123,7 +123,8 @@ pub struct Published {
 /// 97–100: frame/body/fresh-call completion and independent source invocation.
 /// 101: nondominated depth/proof-cost progress through shared bounded scheduling helpers.
 /// 102: agree on repeated pinned context observations without counting them as overloads.
-pub const COMPILER_OUTPUT_VERSION: u32 = 102;
+/// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
+pub const COMPILER_OUTPUT_VERSION: u32 = 103;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

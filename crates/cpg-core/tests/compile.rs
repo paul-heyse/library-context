@@ -220,6 +220,76 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
         .await,
         0
     );
+    // Builtin binding-preserving descriptors run the function's own body: lexical builtin
+    // resolution and Pysa's descriptor flag agree, so no decorator boundary is written.
+    for access in [
+        "transferpkg.Descriptors.build",
+        "transferpkg.Descriptors.make",
+    ] {
+        assert!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM behaviors b JOIN operations o \
+                     ON o.node_id = b.operation_node_id WHERE o.access_path = '{access}' \
+                     AND b.kind = 11 AND b.parameter_name = 'value' AND b.verdict IN (0, 1)"
+                )
+            )
+            .await
+                > 0,
+            "{access}"
+        );
+    }
+    for access in [
+        "transferpkg.Descriptors.build",
+        "transferpkg.Descriptors.make",
+        "transferpkg.Descriptors.shown",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM operations o LEFT JOIN behaviors b \
+                     ON b.operation_node_id = o.node_id WHERE o.access_path = '{access}' \
+                     AND (o.boundary_reason = 10 OR b.boundary_reason = 10)"
+                )
+            )
+            .await,
+            0,
+            "{access}"
+        );
+    }
+    // A second decorator, or a class-local name spelled `classmethod`, keeps the withholding.
+    for access in [
+        "transferpkg.Descriptors.stacked",
+        "transferpkg.Shadowed.build",
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM operations WHERE access_path = '{access}' \
+                     AND behavior_status = 3 AND boundary_reason = 10"
+                )
+            )
+            .await,
+            1,
+            "{access}"
+        );
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM behaviors b JOIN operations o \
+                     ON o.node_id = b.operation_node_id WHERE o.access_path = '{access}' \
+                     AND b.verdict IN (0, 1)"
+                )
+            )
+            .await,
+            0,
+            "{access}"
+        );
+    }
     assert!(
         count(
             &ctx,

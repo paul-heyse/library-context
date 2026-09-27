@@ -143,3 +143,30 @@ selected_instance = Selected()
 
 def read_selected(name):
     return getattr(selected_instance, name)
+
+
+class Descriptors:
+    @classmethod
+    def build(cls, value):
+        return value
+
+    @staticmethod
+    def make(value):
+        return value
+
+    @property
+    def shown(self):
+        return self
+
+    @classmethod
+    @replace
+    def stacked(cls, value):
+        return value
+
+
+class Shadowed:
+    classmethod = replace
+
+    @classmethod
+    def build(cls, value):
+        return value

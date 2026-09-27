@@ -463,6 +463,21 @@ pub fn receivers_sql() -> String {
     )
 }
 
+/// The functions Pysa resolves as a builtin binding-preserving descriptor (`classmethod`,
+/// `staticmethod`, a `property` getter), one row per provider definition, ordered by function.
+/// The flow model admits such a decorator only when our own lexical resolution agrees (the
+/// Stage 3 channel review's F06: withholding until an identity-preserving decorator model exists).
+pub fn descriptor_functions_sql() -> String {
+    "SELECT m.node_id AS function_node_id, f.is_classmethod, f.is_staticmethod, \
+            f.is_property_getter \
+     FROM provider_node_map m \
+     JOIN pysa_functions f ON f.module_node_id = m.module_node_id \
+       AND f.function_key = m.function_key \
+     WHERE m.node_id IS NOT NULL \
+     ORDER BY function_node_id, f.is_classmethod, f.is_staticmethod, f.is_property_getter"
+        .to_owned()
+}
+
 /// Pass C's handoffs query (DESIGN §9.3), over the official usage code (examples, tests, doc
 /// blocks), totally ordered by `(consumer, producer, formal, module path, consumer site)`.
 ///

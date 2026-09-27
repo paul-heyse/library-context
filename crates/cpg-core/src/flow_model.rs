@@ -224,6 +224,15 @@ cpg_schema::query_row! {
 }
 
 cpg_schema::query_row! {
+    struct DescriptorRow {
+        function_node_id: Id,
+        is_classmethod: bool,
+        is_staticmethod: bool,
+        is_property_getter: bool,
+    }
+}
+
+cpg_schema::query_row! {
     struct NameRootRow {
         module_node_id: Id,
         start_byte: i64,
@@ -296,6 +305,75 @@ fn scope_join(alias: &str) -> String {
            AND sd.name_start_byte = {alias}.scope_start_byte \
            AND sd.name_end_byte = {alias}.scope_end_byte"
     )
+}
+
+/// The functions whose binding a decorator may replace (the Stage 3 channel review's F06).
+///
+/// A function is exempt only when its sole decorator is a bare name that our lexical resolution
+/// binds to the builtin `classmethod`, `staticmethod` or `property` on every resolution, and every
+/// Pysa definition of the function carries the matching descriptor flag. These CPython
+/// descriptors keep the function's own body as what a call (or property read) runs. Any other
+/// decorator, a second decorator, a shadowing or conditional binding, or disagreement between the
+/// two resolutions keeps the function withheld.
+fn decorated_functions(
+    bodies: &[BodyRow],
+    roots: &[NameRootRow],
+    descriptors: &[DescriptorRow],
+) -> BTreeSet<Id> {
+    let mut decorators: BTreeMap<Id, Vec<&BodyRow>> = BTreeMap::new();
+    for row in bodies.iter().filter(|r| r.field == SyntaxField::Decorator) {
+        decorators
+            .entry(row.function_node_id)
+            .or_default()
+            .push(row);
+    }
+    let mut roots_at: HashMap<(Id, i64, i64), Vec<&NameRootRow>> = HashMap::new();
+    for r in roots {
+        roots_at
+            .entry((r.module_node_id, r.start_byte, r.end_byte))
+            .or_default()
+            .push(r);
+    }
+    let mut flags: HashMap<Id, Vec<&DescriptorRow>> = HashMap::new();
+    for d in descriptors {
+        flags.entry(d.function_node_id).or_default().push(d);
+    }
+    decorators
+        .into_iter()
+        .filter(|(function, rows)| {
+            let [row] = rows.as_slice() else {
+                return true;
+            };
+            if row.kind != SyntaxKind::ExprName {
+                return true;
+            }
+            let builtin = roots_at
+                .get(&(row.module_node_id, row.start_byte, row.end_byte))
+                .and_then(|resolutions| {
+                    let name = resolutions.first()?.builtin_name.as_deref();
+                    resolutions
+                        .iter()
+                        .all(|r| {
+                            r.binding_kind == BindingKind::Implicit
+                                && r.builtin_name.as_deref() == name
+                        })
+                        .then_some(name)
+                        .flatten()
+                });
+            let provider = flags.get(function).map(Vec::as_slice).unwrap_or_default();
+            let flagged = |flag: fn(&DescriptorRow) -> bool| {
+                !provider.is_empty() && provider.iter().all(|d| flag(d))
+            };
+            let exempt = match builtin {
+                Some("classmethod") => flagged(|d| d.is_classmethod),
+                Some("staticmethod") => flagged(|d| d.is_staticmethod),
+                Some("property") => flagged(|d| d.is_property_getter),
+                _ => false,
+            };
+            !exempt
+        })
+        .map(|(function, _)| function)
+        .collect()
 }
 
 fn release_modules() -> String {
@@ -453,6 +531,10 @@ cpg_schema::relations! {
     receivers = "flow_model_receivers",
         deps = ["parameter_syntax", "provider_node_map", "pysa_functions"],
         sql = cpg_schema::flows::receivers_sql();
+    /// Pysa's descriptor flags per function, for the binding-preserving decorator exemption.
+    descriptors = "flow_model_descriptors",
+        deps = ["provider_node_map", "pysa_functions"],
+        sql = cpg_schema::flows::descriptor_functions_sql();
     /// Each name reference with the binding our resolution gives it, and an import's source.
     roots = "flow_model_roots",
         deps = ["references", "reference_resolutions", "bindings", "scopes", "export_syntax"],
@@ -1231,6 +1313,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     let parameter_rows: Vec<ParameterRow> = sql::fetch(ctx, &parameters(), p()).await?;
     let function_rows: Vec<FunctionRow> = sql::fetch(ctx, &functions(), p()).await?;
     let receiver_rows: Vec<ReceiverRow> = sql::fetch(ctx, &receivers(), p()).await?;
+    let descriptor_rows: Vec<DescriptorRow> = sql::fetch(ctx, &descriptors(), p()).await?;
     let root_rows: Vec<NameRootRow> = sql::fetch(ctx, &roots(), p()).await?;
     let module_rows: Vec<ModuleRow> = sql::fetch(ctx, &modules(), p()).await?;
     let call_rows: Vec<CallRow> = sql::fetch(ctx, &calls(), p()).await?;
@@ -1618,11 +1701,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     // Value flows.
     let mut out = FlowModelRows {
         unreachable: unreachable.clone(),
-        decorated: body_rows
-            .iter()
-            .filter(|row| row.field == SyntaxField::Decorator)
-            .map(|row| row.function_node_id)
-            .collect(),
+        decorated: decorated_functions(&body_rows, &root_rows, &descriptor_rows),
         ..FlowModelRows::default()
     };
     let mut sinks: BTreeSet<(Id, FlowSink, i64, i64)> = BTreeSet::new();

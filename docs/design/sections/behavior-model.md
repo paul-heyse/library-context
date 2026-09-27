@@ -309,7 +309,14 @@ reasoning, and every step is cited.
   open sibling. Pass B publishes that sibling as an unproved transfer, including after a followed
   call, rather than calling it computed or silently dropping it.
   Flow behaviors carry typed transfer and condition-owner scope through FORMAT 9 and Python.
-  Captured values, decorated owners and decorated intermediary calls stay unknown. Only an exact,
+  Captured values, decorated owners and decorated intermediary calls stay unknown
+  (`outside_provider_model`). **Descriptor exemption (Implemented, focused Tested 2026-09-27;
+  compiler 103):** a function whose *sole* decorator is a bare name is not treated as decorated
+  when both of these agree. Our lexical resolution binds the name to the builtin `classmethod`,
+  `staticmethod` or `property` on every resolution. Every Pysa definition carries the matching
+  resolved descriptor flag. These CPython descriptors run the function's own body. A second
+  decorator, a shadowing or conditional binding, a property setter/deleter or any disagreement
+  keeps the withholding. Only an exact,
   unconditional identity store composes with later field reads; a guarded store retains its direct
   claim. Receiver narrowing requires an exclusive exact identity chain. Unknown receiver scope
   blocks field/singleton negatives, and a rebound or conditional global construction is not a

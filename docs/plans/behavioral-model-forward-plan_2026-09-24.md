@@ -214,6 +214,7 @@ phase ends with a handoff; full gates run only at P7, apart from one diagnostic 
 | Phase | Work (S-step) | Key acceptance |
 |---|---|---|
 | P0 | Rubric rule, evaluation-only requests, packet digests and guard (done, `2c6a59c`); baseline diagnostic (§1.2); these amendments; S6.0 native cleanup (typed row structs replace `ipc_input` positional tuples, one native file list) | Guard test; no product semantics changed |
+| P0.7 | **Precision repair (operator, 2026-09-27).** Builtin descriptor exemption from decorator withholding (compiler 103; behavior-model §"Value flows and call transfers"). The `missing_evidence` shift is diagnosed as ty's AMBIGUOUS reachability inside or after `try`, `with` and loops over unknown iterables. F07 withholds it deliberately; a precise repair needs completion-kernel reachability certificates for non-return sinks (§7) | `transferpkg.Descriptors` positives; stacked and shadowed `classmethod` stay withheld |
 | P1 | **S5a discharge.** A design/target review first, covering discharge ordering, the `summary_effects` representation and the generic component driver; then an ADR. Split `behavior::run` into relations → (finite summaries) → claims → facets. A pure `summaries::discharge` makes per-origin proved/refuted/open decisions. Flip `call_transfer` only when every contribution agrees. Add a validator equality rule, a rules.rs rule, and `behavior_discharges` in the generation | `local_wrapper` established; `labelled`, a sibling origin and a mixed row stay unknown |
 | P2 | **S7 foundation.** `lctx compile-fixture`; a composed Hypothesis/`sys.monitoring` harness against served results; the original W5/W7/W12 default-cap fixtures with no injected limits; `just oracles` | Each cap reason traced through Delta, bundle and native |
 | P3 | **S3b logging and S1 contracts.** `Logger.*` models, including the module-global logger binding. `SummarySubjectKind` CallableFormal/CallableEntry. CallableFormal complete-empty coverage. `summary_effects` + steps for effect/callback/resource (value/transform/constant stay in `summary_flows`) | Complete-empty positives and withholding controls; no fabricated value IDs |
@@ -763,6 +764,7 @@ fresh-store execution is recorded in §1.1. No other review finding is closed by
 | pydantic field storage, dataclass `__init__`, `inspect` predicates; rich, subprocess, `sys.exit` models | A sync consumer, or Stage 5 |
 | Role channel producer | An authored role meaning with a consumer |
 | F17 broader release/default/binding domains | A graded item or pilot bucket needs them |
+| Reachability certificates for non-return sinks under ty's AMBIGUOUS regions (`try` bodies, `with` exits, loops over unknown iterables): 730 pilot `missing_evidence` rows, including Q03.d and Q05.b | A graded item whose rating depends on it, or a completion-kernel extension that already covers the shape |
 
 ## 8. Risks
 
