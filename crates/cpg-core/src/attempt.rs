@@ -118,7 +118,8 @@ pub struct Published {
 /// 92: invocation prefixes and source call execution independent of callee completion.
 /// 93: independent lexical input/model identity for direct modeled returns.
 /// 94: explicit authored action triggers and candidate-backed action assessments.
-pub const COMPILER_OUTPUT_VERSION: u32 = 94;
+/// 95: pinned default availability and independently committed omitted-formal obligations.
+pub const COMPILER_OUTPUT_VERSION: u32 = 95;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

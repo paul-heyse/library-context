@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 94.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 95; catalog format 6.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -106,7 +106,7 @@ coverage, including complete empty escaping-exception domains under statement en
 generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
 source/Delta controls; immediate fresh nested calls now use availability/value/stability certificates. Shared callee proof admission replaces
 the independent native adjacency policy and preserves typed proof-limit refusals. FORMAT 9 now carries private/nested callable formals for control-proof closure without exposing
-private operations; full S6 remains open. Catalog format 5 requires authored model phases with independent identities and exact
+private operations; full S6 remains open. Catalog format 6 requires authored model phases with independent identities and exact
 provider-phase matching, and typed static/runtime/unresolved validation schema attribution distinct
 from the effect subject. Runtime schema candidates retain a separate source binding or an explicit
 reason; no production validation effect is activated. Extraction-only compilations leave behavioral
@@ -230,9 +230,21 @@ extends that same invocation and retains the original 64-step cap. A call-expres
 becomes a returned-resource identity. Publication reconstructs action and upstream source proof;
 normal/Finally positive controls are contract-only, not production model activation. Independent
 nine-program CPython partial-I/O evidence is retained in the [challenge](../design_review/evidence/2026-09-27_action-triggers/README.md).
-Native action support, defaults on non-total pinned calls, broader bindings, resource/callback
+Native action support, broader bindings/default domains, resource/callback
 positive fates, complete coverage and all-channel composition remain open. This advances S1/S3;
 it does not close S2b/S3b/S4/S6 or integrated acceptance.
+
+**Pinned call defaults (2026-09-27; Implemented and focused Tested, ADR-0061).** Compiler95/catalog6
+separate availability from normal return. Individually qualified JSON dump/dumps/loads and gzip
+compress defaults support reached invocation; the same fallible calls retain outcome refusals.
+Binding derives omitted-formal commitments independently of retained proof, preserving each
+signature's fact IDs. Shared admission rejects absent, reordered, foreign, extra and oversized
+default groups before allocation. All-signature agreement and known requiredness remain mandatory;
+availability supplies no value, stability or source argument. Removing the authored premise from
+the real source applications produces DefaultUnavailable and invalidates publication. The final
+33-case release selection passed, plus seven generated pinned-runtime entry controls
+([evidence](../design_review/evidence/2026-09-27_pinned-defaults/README.md)); native actions,
+nested default-proof ownership and broader local/default/model domains remain open.
 
 ### 3.1 Contract repairs before extension
 
@@ -469,6 +481,13 @@ F01–F03 → ARC-01–03; `design_review_v3_nested_finalizers_calibration_2026-
 whose §7.1 qualifications govern where the two disagree. Evidence is Interface-checked or Tested
 as stated in the source; corrections are **Proposed**. A deferred item keeps its trigger; closure
 needs the named evidence, never an accepted ADR or a moved row.
+
+The [channel review](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md)
+**F16 is corrected in the bounded pinned-default source/Delta slice (2026-09-27, focused Tested)**:
+`cpg-schema::call_execution` checks count bounds before allocation and requires an exact root
+default group, including when the independent omitted-formal domain is empty. Huge-count,
+extra-marker and whole-group-deletion controls pass in the 33-case selection. Native action
+admission and nested default-group ownership remain open under S6/S1.
 
 The [channel review §21](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#21-bounded-implementation-follow-up-synchronous-lifecycle-and-return-obligations)
 **F11/F12 are corrected within the bounded synchronous slice (2026-09-27, focused Tested)**:

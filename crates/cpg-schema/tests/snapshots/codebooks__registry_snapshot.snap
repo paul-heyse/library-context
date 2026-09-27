@@ -829,6 +829,8 @@ summary_flow_step_kind
   31 context_entry_value_identity
   32 model_invocation
   33 source_modeled_identity
+  34 model_defaults_available
+  35 model_default_formal
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal

@@ -805,7 +805,9 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
             function_node_id:invocation.function_node_id,call_node_id:invocation.call_node_id,call_fact_id:invocation.call_fact_id,
             syntax_fact_id:invocation.syntax_fact_id,target_node_id:invocation.target_node_id,pysa_fact_id:invocation.pysa_fact_id,
             model_id:invocation.model_id,condition_id:condition,phase:cpg_schema::codebook::InvocationPhase::Call,
-            argument_count:invocation.argument_count,prefix_count:before.len() as i64,invocation_count:invoke.len() as i64,
+            argument_count:invocation.argument_count,
+            default_formal_count:invocation.default_formals.as_ref().map(|d|d.len() as i64),
+            default_formals_digest:invocation.default_formals.as_ref().map(|d|cpg_schema::call_execution::defaults_digest(d)),prefix_count:before.len() as i64,invocation_count:invoke.len() as i64,
             prefix_digest:proof_digest(&before),invocation_digest:proof_digest(&invoke),reason,
             work:(MAX_WORK-kernel.remaining).max(1) as i64+invocation.work};
         row.execution_id=identity(&row);

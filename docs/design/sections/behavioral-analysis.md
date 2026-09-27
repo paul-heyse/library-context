@@ -51,7 +51,7 @@ Positive actions do not establish complete channel coverage. Schema owns shared 
 analytics composes it, core reconstructs publication, and native consumes the same contract.
 
 `action.rs` owns candidate-backed assessments and shared structural admission; `actions.rs`
-composes existing call-input and normal-expression evidence. Catalog format 5 requires effect
+composes existing call-input and normal-expression evidence. Catalog format 6 requires effect
 triggers and appends Invocation to the existing selector. Partial I/O/logging retain Potential
 at Invocation; completed serialization/compression require Normal. Every existing candidate has
 an assessment, including a named refusal. Candidate references retain channel, descriptor and
@@ -67,14 +67,25 @@ remain S6 work; structural admission does not replace raw-fact source validation
 
 ## Pinned call default availability
 
-**Accepted target; implementation Proposed.** An exact pinned callable may author
+**Implemented and focused Tested (2026-09-27; compiler95/catalog6).** An exact pinned callable may author
 `call_defaults_available` independently of its normal-return assertion. The promise concerns
 already-created defaults for every omitted optional fixed formal in each admitted signature;
 it supplies no default value, control truth, mutable-value stability or omitted-argument subject.
 Known requiredness and cross-signature agreement remain mandatory. The common invocation owner
 cites the availability model and omitted-formal context facts without evaluating default
-expressions at the call. Source publication reconstructs the same evidence. Remove the existing
-normal-return shortcut when this premise lands; broader local-default domains remain separate.
+expressions at the call. Source publication reconstructs the same evidence. The normal-return
+shortcut is removed. Independently bound omitted-formal count/digest survive refused or removed
+proofs; shared admission requires the exact bounded root evidence group, rejecting missing,
+duplicate, foreign, reordered and oversized groups. Nested groups require their own independent
+binding commitments before flattened invocation admission.
+
+The individually qualified targets are `json.dump`, `json.dumps`, `json.loads` and `gzip.compress`.
+Their ordinary omitted-default calls reach invocation while normal completion remains unproved.
+Removing only the model availability premise withholds all four source calls and invalidates
+publication. The [independent pinned-runtime qualification](../../design_review/evidence/2026-09-27_pinned-defaults/README.md)
+checks runtime default creation and seven generated entry/outcome controls. Pure tests cover
+signature agreement, requiredness and work bounds. Broader local-default/binding domains and
+native action support remain open; no omitted subject is manufactured.
 
 > Decision: ADR-0061
 
@@ -107,7 +118,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 - **Channel coverage.** Each target declares transfer, effect, callback, resource and exception
   coverage independently as complete, partial or unspecified. Only complete coverage can support a
   negative summary conclusion.
-- **Phase applicability (Implemented, 2026-09-26).** Catalog format 5 requires an authored phase
+- **Phase applicability (Implemented, 2026-09-26).** Catalog format 6 requires an authored phase
   per model. The same target may have distinct models and channel coverage for different phases;
   target/phase pairs are unique and phase participates in model identity. `model_targets.phase`
   is reconstructed from the catalog. A provider observation activates a model only on exact phase
@@ -133,7 +144,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 | `atexit.register` | Identity transfer; `registered` callback action on normal exit | Invocation |
 | `pydantic==2.13.5` `TypeAdapter.validate_python(object)` | Potential input → result transform | Effects, raises, completion (below) |
 
-- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 5
+- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 6
   separates the effect subject from `static_class`, `runtime_value` and `unresolved` schema
   attribution. Static classes require a unique pinned class node/fact pair from the available
   context; runtime sources have their own typed path and schema-role binding. A missing or

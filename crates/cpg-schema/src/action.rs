@@ -221,6 +221,10 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
     }
     if let Some(reason)=e.reason {return Err(ProofAdmissionError {reason,message:"action invocation unresolved"});}
     crate::call_execution::admit(e,support.invocation_steps)?;
+    if e.default_formal_count.is_some_and(|n|n>0) && !app.target_call_defaults_available {
+        return Err("action lacks an authored pinned-default availability promise".into());
+    }
+
     if support.arguments.len()!=e.argument_count as usize
         || support.arguments.iter().any(|a|a.snapshot_id!=e.snapshot_id || a.call_node_id!=e.call_node_id) {
         return Err("action argument domain differs from its invocation".into());

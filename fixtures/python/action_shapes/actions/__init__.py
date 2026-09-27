@@ -1,7 +1,8 @@
 """Action triggers; static analyzer input, never executed."""
-from json import dump
+from json import dump, dumps, loads
 from gzip import compress
 from atexit import register
+from builtins import print
 
 
 def normal(value, sink):
@@ -46,3 +47,23 @@ def registration(callback):
 
 def acquisition(path):
     return open(path)
+
+
+def unasserted_defaults(value):
+    print()
+
+
+def missing_required(value):
+    dump(value)
+
+
+def dumps_defaults(value):
+    return dumps(value)
+
+
+def loads_defaults(value):
+    return loads(value)
+
+
+def compress_defaults(value):
+    return compress(value)

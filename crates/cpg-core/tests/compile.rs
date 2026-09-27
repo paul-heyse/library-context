@@ -2148,6 +2148,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         resource_coverage: ModelChannelCoverage::Complete,
         exception_coverage: ModelChannelCoverage::Complete,
         normal_return: true,
+        call_defaults_available: false,
         origin: Origin::SyntheticModel,
     }])
     .unwrap();
@@ -5418,7 +5419,7 @@ budget = 1
 "#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
     compile_analyzed(root.path(),snapshot,&raw_version("invocation_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
     let(_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
-    for(name,target)in [("before_raise","compress"),("selected","compress"),("assigned","decompress"),
+    for(name,target)in [("before_raise","compress"),("missing_defaults","compress"),("selected","compress"),("assigned","decompress"),
         ("returned","decompress"),("register_only","register"),("after_total","decompress"),("after_fallible","decompress")] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e \
             JOIN declarations d ON d.node_id=e.function_node_id JOIN context_definitions t ON t.symbol_node_id=e.target_node_id \
@@ -5427,7 +5428,7 @@ budget = 1
             FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
             JOIN context_definitions t ON t.symbol_node_id=e.target_node_id").await.unwrap());
     }
-    for name in ["after_raise","after_opaque","raising_argument","missing_defaults","skipped","nested_argument","inner","deferred","generator"] {
+    for name in ["after_raise","after_opaque","raising_argument","unasserted_defaults","skipped","nested_argument","inner","deferred","generator"] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
             ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL")).await,0,"{name}");
     }
@@ -5439,7 +5440,7 @@ budget = 1
     assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_callback_sites s JOIN declarations d \
         ON d.node_id=s.function_node_id WHERE d.name='register_only'").await,1);
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
-        WHERE d.name='missing_defaults' AND e.reason={}",BoundaryReason::DefaultUnavailable.code())).await,1);
+        WHERE d.name='unasserted_defaults' AND e.reason={}",BoundaryReason::UnsupportedControlFlow.code())).await,1);
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
         WHERE d.name='oversized_arguments' AND e.argument_count=130 AND e.reason={}",BoundaryReason::InvocationArgumentLimit.code())).await,1);
     assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
@@ -5474,7 +5475,7 @@ budget = 1
     assert!(runtime.status.success(),"{}",String::from_utf8_lossy(&runtime.stderr));
     let runtime:serde_json::Value=serde_json::from_slice(&runtime.stdout).unwrap();
     assert_eq!(runtime["outcome"],"passed");
-    for(name,target)in [("before_raise","compress"),("selected","compress"),("assigned","decompress"),
+    for(name,target)in [("before_raise","compress"),("missing_defaults","compress"),("selected","compress"),("assigned","decompress"),
         ("returned","decompress"),("register_only","register"),("after_total","decompress"),("after_fallible","decompress")] {
         assert!(runtime["cases"][name]["events"].as_array().unwrap().iter().any(|event|event==target),"{name}");
     }
@@ -5504,7 +5505,7 @@ async fn validation_schema_candidates_keep_attribution_separate_from_subjects() 
         model_id:id(8),target_module_fact_id:id(9),target_definition_fact_id:id(10),revision:1,
         target_modality:Modality::Definite,target_origin:Origin::SyntheticModel,phase:InvocationPhase::Call,
         candidate_set_complete_under_model:true,has_unresolved_remainder:false,target_count:1,
-        target_normal_return:false,model_origin:Origin::SyntheticModel};
+        target_normal_return:false,target_call_defaults_available:false,model_origin:Origin::SyntheticModel};
     let model=ModelEffectsRow {snapshot_id:id(1),model_id:id(8),target_node_id:id(7),rule_id:id(11),
         target_definition_fact_id:id(10),revision:1,effect:ModelEffectKind::Validate,exit:cpg_schema::codebook::ModelExit::Normal,argument:None,
         schema_kind:Some(ModelSchemaKind::RuntimeValue),schema_class_node_id:None,schema_class_fact_id:None,
@@ -5764,7 +5765,7 @@ budget = 1
     let display=sql::render(&ctx,"SELECT d.name,a.channel,a.reason,e.effect FROM modeled_action_assessments a \
         LEFT JOIN declarations d ON d.node_id=a.function_node_id LEFT JOIN modeled_effect_sites e \
         ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id").await.unwrap();
-    for name in ["normal","before_raise"] {
+    for name in ["normal","before_raise","missing_defaults"] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a \
             JOIN declarations d ON d.node_id=a.function_node_id JOIN modeled_effect_sites e \
             ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id \
@@ -5775,7 +5776,7 @@ budget = 1
         ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id \
         WHERE e.effect IN ({},{}) AND a.reason IS NULL",ModelEffectKind::Serialize.code(),ModelEffectKind::Compress.code())).await,0,
         "completed transform cannot borrow a reached invocation: {display}");
-    for name in ["after_raise","raising_argument","after_opaque","missing_defaults","skipped","compression","registration","acquisition"] {
+    for name in ["after_raise","raising_argument","after_opaque","unasserted_defaults","missing_required","skipped","compression","registration","acquisition"] {
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
             ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason IS NULL")).await,0,"{display}");
         if name!="skipped" {
@@ -5784,14 +5785,36 @@ budget = 1
         }
     }
     for(name,reason)in [("registration",BoundaryReason::ActionTriggerUnavailable),
-        ("acquisition",BoundaryReason::ResourceIdentityUnavailable),("missing_defaults",BoundaryReason::DefaultUnavailable)] {
+        ("acquisition",BoundaryReason::ResourceIdentityUnavailable),("unasserted_defaults",BoundaryReason::UnsupportedControlFlow)] {
         assert!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
             ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason={}",reason.code())).await>0,"{display}");
     }
     assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments").await,
         count(&ctx,"SELECT count(*) FROM modeled_effect_sites").await+count(&ctx,"SELECT count(*) FROM modeled_callback_sites").await
             +count(&ctx,"SELECT count(*) FROM modeled_resource_sites").await);
-    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments WHERE reason IS NULL").await,2,"{display}");
+    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments WHERE reason IS NULL").await,3,"{display}");
+    for(name,defaults)in [("missing_defaults",9),("dumps_defaults",9),("loads_defaults",6),("compress_defaults",2)] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
+            ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL AND e.default_formal_count={defaults}")).await,1,
+            "{name}: {}",sql::render(&ctx,"SELECT d.name,e.reason,e.default_formal_count FROM call_executions e \
+                JOIN declarations d ON d.node_id=e.function_node_id").await.unwrap());
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
+            ON d.node_id=e.function_node_id JOIN expression_evaluations v ON v.syntax_fact_id=e.syntax_fact_id \
+            WHERE d.name='{name}' AND v.normal")).await,0,"availability is not normal return");
+    }
+    let original_apps=sql::query(&ctx,"SELECT * FROM model_applications").await.unwrap().into_view();
+    let unasserted=sql::query(&ctx,"SELECT * EXCLUDE (target_call_defaults_available), false AS target_call_defaults_available \
+        FROM model_applications").await.unwrap().into_view();
+    ctx.deregister_table("model_applications").unwrap();ctx.register_table("model_applications",unasserted).unwrap();
+    let without_promise=cpg_core::summaries::expression_evaluations(&ctx).await.unwrap();
+    assert_eq!(without_promise.invocations.iter().filter(|call|call.reason==Some(BoundaryReason::DefaultUnavailable)).count(),4,
+        "all four otherwise bound omitted-default calls require their independent model premise");
+    for call in without_promise.invocations.iter().filter(|call|call.reason==Some(BoundaryReason::DefaultUnavailable)) {
+        assert!(!call.default_formals.as_ref().unwrap().is_empty());assert!(call.proof.is_empty());
+    }
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="call-execution-source-equality"),"{violations:?}");
+    ctx.deregister_table("model_applications").unwrap();ctx.register_table("model_applications",original_apps).unwrap();
     let repo=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let runtime=std::process::Command::new("uv").args(["run","--no-sync","python",
         "docs/design_review/evidence/2026-09-27_action-triggers/runtime_oracle.py"]).current_dir(&repo).output().unwrap();
@@ -5807,6 +5830,21 @@ budget = 1
         "reached invocation never implies an actual write");
     for name in ["after_raise","raising_argument","after_opaque","skipped"] {
         assert!(runtime["cases"][name]["calls"].as_array().unwrap().is_empty());
+    }
+    let defaults=std::process::Command::new("uv").args(["run","--no-sync","python",
+        "docs/design_review/evidence/2026-09-27_pinned-defaults/qualify.py"]).current_dir(&repo).output().unwrap();
+    assert!(defaults.status.success(),"{}",String::from_utf8_lossy(&defaults.stderr));
+    let defaults:serde_json::Value=serde_json::from_slice(&defaults.stdout).unwrap();
+    assert_eq!(defaults["outcome"],"passed");
+    for (source,runtime,target) in [("missing_defaults","dump_fallible","dump"),
+        ("dumps_defaults","dumps_fallible","dumps"),("loads_defaults","loads_fallible","loads"),
+        ("compress_defaults","compress_defaults","compress")] {
+        assert_eq!(defaults["cases"][runtime]["starts"],serde_json::json!([target]));
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
+            ON d.node_id=e.function_node_id WHERE d.name='{source}' AND e.reason IS NULL")).await,1);
+    }
+    for name in ["missing_required","raising_explicit"] {
+        assert!(defaults["cases"][name]["starts"].as_array().unwrap().is_empty());
     }
     for table in ["modeled_action_assessments","call_execution_steps"] {
         let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();

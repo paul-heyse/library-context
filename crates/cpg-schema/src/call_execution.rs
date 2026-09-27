@@ -25,6 +25,9 @@ table!(
         condition_id:Id,
         phase:InvocationPhase,
         argument_count:i64,
+        /// Derived from all bound signatures independently of retained invocation proof.
+        default_formal_count:Option<i64>,
+        default_formals_digest:Option<Digest>,
         prefix_count:i64,
         invocation_count:i64,
         prefix_digest:Digest,
@@ -53,9 +56,17 @@ pub fn identity(r:&CallExecutionsRow)->Id {
     use crate::codebook::Codebook;
     IdHasher::new("call-execution").id(r.function_node_id).id(r.call_node_id).id(r.call_fact_id)
         .id(r.syntax_fact_id).id(r.target_node_id).id(r.pysa_fact_id).id(r.model_id).id(r.condition_id)
-        .i64(i64::from(r.phase.code())).i64(r.argument_count).i64(r.prefix_count).i64(r.invocation_count)
+        .i64(i64::from(r.phase.code())).i64(r.argument_count).opt_i64(r.default_formal_count)
+        .opt_digest(r.default_formals_digest).i64(r.prefix_count).i64(r.invocation_count)
         .bytes(&r.prefix_digest.0).bytes(&r.invocation_digest.0)
         .i64(r.reason.map_or(-1,|x|i64::from(x.code()))).i64(r.work).finish_id()
+}
+
+/// Canonical binding commitment; signature-specific fact IDs are preserved in binder order.
+pub fn defaults_digest(formals:&[Id])->Digest {
+    let mut h=IdHasher::new("pinned-call-default-formals");h.i64(formals.len() as i64);
+    for &formal in formals {h.id(formal);}
+    h.finish_digest()
 }
 
 /// Shared structural admission; publication additionally reconstructs source semantics.
@@ -63,7 +74,9 @@ pub fn identity(r:&CallExecutionsRow)->Id {
 /// groups, including empty prefixes, and end at this call's invocation rather than an exit.
 pub fn admit(r:&CallExecutionsRow,steps:&[SummaryFlowProofStep])->Result<(),ProofAdmissionError> {
     if r.execution_id!=identity(r) || r.phase!=InvocationPhase::Call || r.argument_count<0
-        || r.prefix_count<0 || r.invocation_count<0 || r.work<=0 {
+        || r.prefix_count<0 || r.invocation_count<0 || r.work<=0
+        || r.default_formal_count.is_some()!=r.default_formals_digest.is_some()
+        || r.default_formal_count.is_some_and(|n|n<0) {
         return Err("invalid call execution identity or scope".into());
     }
     if r.reason.is_some() {
@@ -91,6 +104,35 @@ pub fn admit(r:&CallExecutionsRow,steps:&[SummaryFlowProofStep])->Result<(),Proo
         || steps.iter().any(|s|matches!(s.kind,K::ReturnExit|K::ContextEntry|K::ContextExit)) {
         return Err("call execution has a foreign invocation or unsupported frontier".into());
     }
+    let count=r.default_formal_count.ok_or("call lacks independently bound default obligations")? as usize;
+    if count>invoke.len().saturating_sub(7) {
+        return Err("call default obligations exceed its bounded invocation proof".into());
+    }
+    // This occurrence owns exactly one root group. Nested default groups need their own
+    // independent commitments before this flattened invocation contract can admit them.
+    let markers:Vec<_>=invoke.iter().enumerate().filter(|(_,s)|matches!(s.kind,K::ModelDefaultsAvailable|K::ModelDefaultFormal))
+        .map(|(i,_)|i).collect();
+    let expected:Vec<_>=if count==0 {Vec::new()} else {(3..4+count).collect()};
+    if markers!=expected {return Err("foreign or duplicate default availability group".into());}
+    if count==0 {
+        if r.default_formals_digest!=Some(defaults_digest(&[]))
+            || matches!(invoke[3].kind,K::ModelDefaultsAvailable|K::ModelDefaultFormal) {
+            return Err("call has foreign default availability evidence".into());
+        }
+    } else {
+        if invoke[3].kind!=K::ModelDefaultsAvailable
+            || invoke[3].evidence_id!=r.model_id {
+            return Err("call lacks its required default availability group".into());
+        }
+        let formals=&invoke[4..4+count];
+        let ids:Vec<_>=formals.iter().map(|s|s.evidence_id).collect();
+        if formals.iter().any(|s|s.kind!=K::ModelDefaultFormal)
+            || ids.iter().copied().collect::<std::collections::BTreeSet<_>>().len()!=count
+            || r.default_formals_digest!=Some(defaults_digest(&ids))
+            || matches!(invoke[4+count].kind,K::ModelDefaultsAvailable|K::ModelDefaultFormal) {
+            return Err("call default evidence differs from its bound obligations".into());
+        }
+    }
     Ok(())
 }
 
@@ -103,11 +145,50 @@ mod tests {
         let mut row=CallExecutionsRow {snapshot_id:id,execution_id:Id::ZERO,function_node_id:id,
             call_node_id:id,call_fact_id:id,syntax_fact_id:id,target_node_id:id,pysa_fact_id:id,model_id:id,
             condition_id:crate::condition_kernel::Diagram::always().id(),phase:InvocationPhase::Call,
-            argument_count:130,prefix_count:0,invocation_count:0,prefix_digest:proof_digest(&[]),
+            argument_count:130,default_formal_count:None,default_formals_digest:None,prefix_count:0,invocation_count:0,prefix_digest:proof_digest(&[]),
             invocation_digest:proof_digest(&[]),reason:Some(BoundaryReason::InvocationArgumentLimit),work:1};
         row.execution_id=identity(&row);
         assert!(admit(&row,&[]).is_ok());
         row.reason=None;row.execution_id=identity(&row);
         assert!(admit(&row,&[]).is_err());
     }
+    #[test]
+    fn default_obligations_survive_omission_of_the_entire_evidence_group() {
+        let id=|n|Id([n;16]);let condition=crate::condition_kernel::Diagram::always().id();
+        let ids=[id(8),id(9)];
+        let proof:Vec<_>=[(K::ModuleImportBinding,id(10)),(K::ModuleImportRegion,id(11)),(K::CalleeResolution,id(12)),
+            (K::ModelDefaultsAvailable,id(7)),(K::ModelDefaultFormal,ids[0]),(K::ModelDefaultFormal,ids[1]),
+            (K::CallSite,id(3)),(K::CallTarget,id(4)),(K::ModelInvocation,id(7))].into_iter()
+            .map(|(kind,evidence_id)|SummaryFlowProofStep {kind,evidence_id,condition_id:condition}).collect();
+        let mut row=CallExecutionsRow {snapshot_id:id(1),execution_id:Id::ZERO,function_node_id:id(2),call_node_id:id(5),
+            call_fact_id:id(3),syntax_fact_id:id(6),target_node_id:id(13),pysa_fact_id:id(4),model_id:id(7),condition_id:condition,
+            phase:InvocationPhase::Call,argument_count:0,default_formal_count:Some(2),default_formals_digest:Some(defaults_digest(&ids)),
+            prefix_count:0,invocation_count:proof.len() as i64,prefix_digest:proof_digest(&[]),invocation_digest:proof_digest(&proof),reason:None,work:1};
+        row.execution_id=identity(&row);assert!(admit(&row,&proof).is_ok());
+        let mut oversized=row.clone();oversized.default_formal_count=Some(i64::MAX);
+        oversized.execution_id=identity(&oversized);
+        assert!(admit(&oversized,&proof).is_err(),"forged counts must refuse before allocation");
+        for mutation in 0..8 {
+            let mut altered=proof.clone();let mut row=row.clone();
+            match mutation {
+                0=>{altered.drain(3..6);},1=>{altered.remove(4);},2=>altered.swap(4,5),
+                3=>altered[5].evidence_id=ids[0],4=>altered[3].evidence_id=id(90),5=>altered[4].evidence_id=id(90),
+                6=>{altered.insert(6,altered[3].clone());},_=>{altered.insert(6,altered[4].clone());},
+            }
+            // A self-consistent retained-proof commitment cannot erase the binding obligation.
+            row.invocation_count=altered.len() as i64;row.invocation_digest=proof_digest(&altered);row.execution_id=identity(&row);
+            assert!(admit(&row,&altered).is_err(),"mutation {mutation}");
+        }
+        let mut no_defaults=proof.clone();no_defaults.drain(3..6);
+        row.default_formal_count=Some(0);row.default_formals_digest=Some(defaults_digest(&[]));
+        row.invocation_count=no_defaults.len() as i64;row.invocation_digest=proof_digest(&no_defaults);
+        row.execution_id=identity(&row);assert!(admit(&row,&no_defaults).is_ok());
+        for kind in [K::ModelDefaultsAvailable,K::ModelDefaultFormal] {
+            let mut altered=no_defaults.clone();let mut row=row.clone();
+            altered.insert(3,SummaryFlowProofStep {kind,evidence_id:id(8),condition_id:condition});
+            row.invocation_count=altered.len() as i64;row.invocation_digest=proof_digest(&altered);row.execution_id=identity(&row);
+            assert!(admit(&row,&altered).is_err(),"zero-default call accepts foreign group");
+        }
+    }
+
 }

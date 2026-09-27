@@ -92,7 +92,8 @@ mod tests {
                 .map(|(kind,evidence_id)|SummaryFlowProofStep {kind,evidence_id,condition_id:condition}).collect();
             let mut execution=CallExecutionsRow {snapshot_id:id(1),execution_id:Id::ZERO,function_node_id:id(4),
                 call_node_id:id(2),call_fact_id:id(5),syntax_fact_id:id(12),target_node_id:id(7),pysa_fact_id:id(6),
-                model_id:id(8),condition_id:condition,phase:InvocationPhase::Call,argument_count:0,prefix_count:0,
+                model_id:id(8),condition_id:condition,phase:InvocationPhase::Call,argument_count:0,default_formal_count:Some(0),
+                default_formals_digest:Some(cpg_schema::call_execution::defaults_digest(&[])),prefix_count:0,
                 invocation_count:6,prefix_digest:proof_digest(&[]),invocation_digest:proof_digest(&proof),reason:None,work:1};
             execution.execution_id=cpg_schema::call_execution::identity(&execution);
             let steps=proof.iter().enumerate().map(|(i,s)|CallExecutionStepsRow {snapshot_id:id(1),
@@ -114,7 +115,7 @@ mod tests {
                     call_fact_id:id(5),pysa_fact_id:id(6),target_node_id:id(7),model_id:id(8),target_module_fact_id:id(11),
                     target_definition_fact_id:id(10),revision:1,target_modality:Modality::Definite,target_origin:Origin::SyntheticModel,
                     phase:InvocationPhase::Call,candidate_set_complete_under_model:true,has_unresolved_remainder:false,target_count:1,
-                    target_normal_return:true,model_origin:Origin::SyntheticModel},
+                    target_normal_return:true,target_call_defaults_available:false,model_origin:Origin::SyntheticModel},
                 execution,steps,normal_steps,
                 normal:ExpressionEvaluationsRow {snapshot_id:id(1),syntax_fact_id:id(12),normal:true,boolean_value:None,
                     status:E::PinnedCallNormal,evidence_id:Some(id(12)),reason:None,work:1},

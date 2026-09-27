@@ -21,7 +21,7 @@ use crate::codebook::{
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
-pub const FORMAT: u32 = 5;
+pub const FORMAT: u32 = 6;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,6 +45,10 @@ pub struct Model {
     /// argument evaluation. This is separate from transfer modality and call-site dispatch.
     #[serde(default)]
     pub normal_return: bool,
+    /// Every omitted optional fixed formal has an already-created runtime default under
+    /// this exact pinned implementation. No default value or normal outcome is promised.
+    #[serde(default)]
+    pub call_defaults_available: bool,
     pub rules: Vec<Rule>,
 }
 
@@ -805,9 +809,9 @@ impl Catalog {
         for compiled in &self.models {
             let target = &compiled.model.target;
             for (module,definition) in target.bindings(contexts,modules,definitions)? {
-                    if compiled.model.normal_return && definition.kind != DefinitionKind::Function {
+                    if (compiled.model.normal_return || compiled.model.call_defaults_available) && definition.kind != DefinitionKind::Function {
                         return Err(format!(
-                            "{}: normal_return requires a function target",
+                            "{}: normal_return/default availability requires a function target",
                             target.key()
                         ));
                     }
@@ -826,6 +830,7 @@ impl Catalog {
                         resource_coverage: compiled.model.coverage.resources.codebook(),
                         exception_coverage: compiled.model.coverage.exceptions.codebook(),
                         normal_return: compiled.model.normal_return,
+                        call_defaults_available: compiled.model.call_defaults_available,
                         origin: Origin::SyntheticModel,
                     };
                     let key = (row.model_id, row.target_node_id);
@@ -1273,7 +1278,7 @@ mod tests {
         );
         // Contract-only catalog controls: these authored rules are never production models
         // for typing.cast. Reuse the pinned signature to challenge schema binding independently.
-        let header = r#"version = 5
+        let header = r#"version = 6
 [[models]]
 phase = "call"
 revision = 1
@@ -1516,7 +1521,7 @@ modality = "potential"
 
     #[test]
     fn conversion_needs_a_target_and_resource_cannot_be_a_raise_path() {
-        let header = r#"version = 5
+        let header = r#"version = 6
 [[models]]
 phase = "call"
 revision = 1
@@ -1557,7 +1562,7 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
 
     #[test]
     fn normal_return_requires_complete_exception_coverage_without_exception_rules() {
-        let header = r#"version = 5
+        let header = r#"version = 6
 [[models]]
 phase = "call"
 revision = 1
@@ -1597,7 +1602,7 @@ modality = "definite"
             )
             .is_err()
         );
-        let second = valid.trim_start_matches("version = 5").trim();
+        let second = valid.trim_start_matches("version = 6").trim();
         assert!(Catalog::parse("bad.toml", &format!("{valid}\n{second}\n")).is_err());
     }
 
@@ -1617,7 +1622,7 @@ modality = "definite"
         assert!(Catalog::parse("missing.toml",&original.replace("phase = \"call\"\n","")).is_err());
         assert!(Catalog::parse("unknown.toml",&original.replace("phase = \"call\"","phase = \"later\"")).is_err());
         let first=original.split("# Python 3.14 typing.assert_type").next().unwrap();
-        let init=first.trim_start_matches("version = 5").replace("phase = \"call\"","phase = \"init\"")
+        let init=first.trim_start_matches("version = 6").replace("phase = \"call\"","phase = \"init\"")
             .replace("normal_return = true","normal_return = false")
             .replace("exceptions = \"complete\"","exceptions = \"partial\"");
         let catalog=Catalog::parse("phases.toml",&format!("{first}\n{init}")).unwrap();
@@ -1627,6 +1632,6 @@ modality = "definite"
         assert!(catalog.models[0].model.normal_return);
         assert!(!catalog.models[1].model.normal_return);
         assert_ne!(catalog.models[0].model_id,catalog.models[1].model_id);
-        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 5"))).is_err());
+        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 6"))).is_err());
     }
 }

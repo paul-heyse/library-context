@@ -1,4 +1,4 @@
-version = 5
+version = 6
 
 # `typing.cast` returns its value unchanged at runtime. The annotated type is not a value source.
 [[models]]
@@ -51,6 +51,8 @@ modality = "potential"
 phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "dumps" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
 coverage = { transfers = "partial", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
 
 [[models.rules]]
@@ -75,6 +77,8 @@ modality = "potential"
 phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "dump" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
 coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
 
 [[models.rules]]
@@ -97,6 +101,8 @@ modality = "potential"
 phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "loads" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
 coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
 
 [[models.rules]]
@@ -112,6 +118,8 @@ modality = "potential"
 phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "gzip", callable = "compress" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
 coverage = { transfers = "partial", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
 
 [[models.rules]]

@@ -74,6 +74,13 @@ impl Evaluator<'_> {
             (Step::ModuleImportRegion,call.target.import_region_fact_id),(Step::CalleeResolution,call.target.resolution_fact_id)] {
             self.proof.push((node.fact_id,evidence,Status::CalleeEntryNormal,kind));
         }
+        if !call.default_formals.is_empty() {
+            self.remaining=self.remaining.checked_sub(1+call.default_formals.len()).ok_or(Refusal::ExpressionWorkLimit)?;
+            self.proof.push((node.fact_id,call.target.model_id,Status::CalleeEntryNormal,Step::ModelDefaultsAvailable));
+            for &formal in &call.default_formals {
+                self.proof.push((node.fact_id,formal,Status::CalleeEntryNormal,Step::ModelDefaultFormal));
+            }
+        }
         let mut returned=Value::Literal;
         for(index,argument)in call.arguments.iter().enumerate() {
             let operands:Vec<_>=children.iter().filter(|c|c.field==SyntaxField::Argument
@@ -253,7 +260,7 @@ pub struct EvaluationOutcome {
 pub struct CallInvocation {
     pub snapshot_id:Id,pub function_node_id:Id,pub call_node_id:Id,pub call_fact_id:Id,
     pub syntax_fact_id:Id,pub target_node_id:Id,pub pysa_fact_id:Id,pub model_id:Id,
-    pub argument_count:i64,pub reason:Option<BoundaryReason>,pub work:i64,
+    pub argument_count:i64,pub default_formals:Option<Vec<Id>>,pub reason:Option<BoundaryReason>,pub work:i64,
     pub proof:Vec<(Step,Id)>,
 }
 
@@ -264,6 +271,7 @@ struct PreparedCall<'a> {
     parameter_evidence: Vec<Vec<Id>>,
     identity: Option<(Id, Id)>,
     defaults_available:bool,
+    default_formals:Vec<Id>,
 }
 
 #[derive(Default)]
@@ -306,6 +314,8 @@ fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<
         let mut bindings: Option<Vec<BoundArgument>> = None;
         let mut parameter_evidence = vec![Vec::new(); arguments.len()];
         let mut defaults_available=true;
+        let mut default_formals=Vec::new();
+        let mut default_names:Option<Vec<String>>=None;
         let mut valid = parameters.iter().all(|p| (0..target.signature_count).contains(&p.signature_index));
         for index in 0..target.signature_count {
             let signature: Option<Vec<_>> = parameters.iter().filter(|p| p.signature_index == index).map(|parameter| {
@@ -315,9 +325,13 @@ fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<
             let Some(signature) = signature else { valid = false; break; };
             if signature.is_empty() { valid = false; break; }
             let Ok(bound) = bind_arguments(&signature, &owned_arguments) else { valid = false; break; };
-            // Only a total model currently promises default availability. Other pinned calls
-            // retain a specific refusal until every omitted default has an owned premise.
-            defaults_available &= target.normal_return || bound.defaults.is_empty();
+            // Binding owns the complete omitted domain before proof construction. Each
+            // signature retains its fact identities; a model promise never resolves drift.
+            let names:Vec<_>=bound.defaults.iter().map(|d|d.parameter_name.clone()).collect();
+            if default_names.as_ref().is_some_and(|previous|*previous!=names) {valid=false;break;}
+            default_names=Some(names);
+            default_formals.extend(bound.defaults.iter().map(|d|d.parameter_fact_id));
+            defaults_available &= target.call_defaults_available || bound.defaults.is_empty();
             let bound = bound.explicit;
             if bindings.as_ref().is_some_and(|previous| previous.iter().zip(&bound).any(|(a,b)|
                 a.argument_fact_id != b.argument_fact_id || a.parameter_name != b.parameter_name)) {
@@ -343,7 +357,7 @@ fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<
                 }
             }
         }
-        out.insert(key, Some(PreparedCall { target, arguments, parameter_evidence, identity,defaults_available }));
+        out.insert(key, Some(PreparedCall { target, arguments, parameter_evidence, identity,defaults_available,default_formals }));
     }
     out
 }
@@ -400,7 +414,9 @@ fn evaluate_with_limits(inputs: EvaluationInputs<'_>, depth: usize, work: usize)
                 out.invocations.push(CallInvocation {snapshot_id:node.snapshot_id,function_node_id:function,
                     call_node_id:node.node_id,call_fact_id:target.call_fact_id,syntax_fact_id:node.fact_id,
                     target_node_id:target.target_node_id,pysa_fact_id:target.pysa_fact_id,model_id:target.model_id,
-                    argument_count:target.argument_count,reason,work:work.saturating_sub(evaluator.remaining).max(1) as i64,proof});
+                    argument_count:target.argument_count,
+                    default_formals:evaluator.calls.get(&(node.snapshot_id,node.node_id)).and_then(|c|c.as_ref()).map(|c|c.default_formals.clone()),
+                    reason,work:work.saturating_sub(evaluator.remaining).max(1) as i64,proof});
             }
         }
     }
@@ -413,6 +429,50 @@ fn evaluate_with_limits(inputs: EvaluationInputs<'_>, depth: usize, work: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pinned_defaults_require_an_independent_promise_and_all_signature_agreement() {
+        use cpg_schema::codebook::ParameterKind;
+        let id=|n|Id([n;16]);let condition=cpg_schema::condition_kernel::Diagram::always().id();
+        let syntax=vec![node(10,0,SyntaxKind::ExprCall,SyntaxField::Value,0,""),
+            node(11,10,SyntaxKind::ExprName,SyntaxField::Callee,0,"callee")];
+        let target=PinnedCallTarget {snapshot_id:id(1),call_node_id:id(10),call_fact_id:id(12),
+            target_node_id:id(20),signature_count:2,normal_return:false,call_defaults_available:true,
+            pysa_fact_id:id(21),model_id:id(22),resolution_fact_id:id(23),import_binding_fact_id:id(24),
+            import_region_fact_id:id(25),import_condition_id:condition,argument_count:0};
+        let parameters:Vec<_>=(0..2).map(|index|ContextParametersRow {snapshot_id:id(1),fact_id:id(30+index as u8),
+            symbol_node_id:id(20),module_node_id:id(2),signature_index:index,form:SignatureForm::List,
+            ordinal:Some(0),kind:Some(ParameterKind::KeywordOnly),name:Some("optional".to_owned()),required:Some(false)}).collect();
+        let run=|target:&PinnedCallTarget,parameters:&[ContextParametersRow],work|evaluate_with_limits(EvaluationInputs {
+            syntax:&syntax,targets:std::slice::from_ref(target),parameters,unconditional_conditions:&[condition],
+            ..Default::default()},64,work);
+        let out=run(&target,&parameters,MAX_WORK);
+        assert_eq!(out.invocations[0].reason,None);
+        assert_eq!(out.invocations[0].default_formals,Some(vec![id(30),id(31)]));
+        assert!(!out.evaluations.iter().find(|row|row.syntax_fact_id==id(10)).unwrap().normal,
+            "available defaults never establish normal return");
+        let mut no_promise=target.clone();no_promise.call_defaults_available=false;no_promise.normal_return=true;
+        let out=run(&no_promise,&parameters,MAX_WORK);
+        assert_eq!(out.invocations[0].reason,Some(Refusal::DefaultUnavailable));
+        assert_eq!(out.invocations[0].default_formals,Some(vec![id(30),id(31)]));
+        assert!(out.invocations[0].proof.is_empty());
+        for mutation in 0..3 {
+            let mut changed=parameters.clone();
+            match mutation {0=>changed[1].name=Some("different".to_owned()),
+                1=>changed[1].required=Some(true),_=>changed[1].required=None}
+            let out=run(&target,&changed,MAX_WORK);
+            assert_eq!(out.invocations[0].reason,Some(UNSUPPORTED));
+            assert!(out.invocations[0].default_formals.is_none());
+        }
+        let out=run(&target,&parameters,4);
+        assert_eq!(out.invocations[0].reason,Some(Refusal::ExpressionWorkLimit));
+        assert!(out.invocations[0].proof.is_empty());
+        assert_eq!(out.invocations[0].default_formals,Some(vec![id(30),id(31)]));
+        assert_eq!(run(&target,&parameters,5).invocations[0].reason,None);
+        let mut reversed=parameters.clone();reversed.reverse();
+        assert_eq!(run(&target,&reversed,MAX_WORK).invocations[0].proof,
+            run(&target,&parameters,MAX_WORK).invocations[0].proof);
+    }
 
     fn arguments(nodes: &[SyntaxNodesRow], reads: &[ExpressionRead]) -> EvaluationOutcome {
         let mut out = evaluate(EvaluationInputs { syntax: nodes, reads, ..Default::default() });

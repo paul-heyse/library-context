@@ -351,8 +351,8 @@ pub struct CallBinding {
 }
 
 /// Bind an argument group without evaluating it. Source callers must discharge every omitted
-/// default through definition-time availability/stability evidence; a pinned total model owns
-/// that promise separately. No default expression is evaluated at the call site.
+/// default through definition-time availability/stability evidence; a pinned model must
+/// author availability independently of any normal-return promise. No default expression is evaluated at the call site.
 /// Unpacking and variadic collection remain unsupported rather than partially bound.
 pub fn bind_arguments(parameters: &[SignatureParameter], arguments: &[crate::tables::ArgumentsRow])
     -> Result<CallBinding, BoundaryReason> {
@@ -448,6 +448,7 @@ crate::query_row! {
         target_node_id: Id,
         signature_count: i64,
         normal_return: bool,
+        call_defaults_available: bool,
         pysa_fact_id: Id,
         model_id: Id,
         resolution_fact_id: Id,

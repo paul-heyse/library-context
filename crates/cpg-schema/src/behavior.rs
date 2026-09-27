@@ -143,6 +143,7 @@ table!(
         /// The selected pinned model target asserts normal return after argument evaluation;
         /// this alone does not establish completion of this source call.
         target_normal_return: bool,
+        target_call_defaults_available: bool,
         model_origin: Origin,
     }
 );
@@ -723,6 +724,7 @@ table!(
         /// A pinned authored claim of total normal completion after argument evaluation;
         /// absence remains unknown. It never resolves call-site dispatch by itself.
         normal_return: bool,
+        call_defaults_available: bool,
         origin: Origin,
     }
 );
@@ -1997,7 +1999,7 @@ fn normal_call_candidates_sql() -> String {
 pub fn pinned_call_targets_sql() -> String {
     format!("WITH {candidates} \
       SELECT a.snapshot_id, c.node_id AS call_node_id, a.call_fact_id, a.target_node_id, \
-        d.signature_count, a.target_normal_return AS normal_return, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
+        d.signature_count, a.target_normal_return AS normal_return, a.target_call_defaults_available AS call_defaults_available, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
         mi.import_binding_fact_id, mi.import_region_fact_id, mi.import_condition_id, \
         c.positional_count + c.keyword_count AS argument_count \
       FROM counted a JOIN call_syntax c ON c.node_id = a.call_site_node_id \
@@ -2046,7 +2048,7 @@ crate::relations! {
                     m.target_module_fact_id, m.target_definition_fact_id, m.revision, \
                     f.modality AS target_modality, f.origin AS target_origin, p.phase, \
                     r.candidate_set_complete_under_model, r.has_unresolved_remainder, \
-                    r.target_count, m.normal_return AS target_normal_return, \
+                    r.target_count, m.normal_return AS target_normal_return, m.call_defaults_available AS target_call_defaults_available, \
                     m.origin AS model_origin \
              FROM call_targets t \
              JOIN model_targets m ON m.target_node_id = t.target_node_id \

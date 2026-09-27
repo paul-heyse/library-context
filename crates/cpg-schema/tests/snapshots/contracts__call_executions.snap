@@ -20,6 +20,8 @@ model_id: FixedSizeBinary(16) NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
 argument_count: Int64 NOT NULL
+default_formal_count: Int64 NULL
+default_formals_digest: FixedSizeBinary(32) NULL
 prefix_count: Int64 NOT NULL
 invocation_count: Int64 NOT NULL
 prefix_digest: FixedSizeBinary(32) NOT NULL

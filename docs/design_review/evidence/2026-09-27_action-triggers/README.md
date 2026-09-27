@@ -19,7 +19,9 @@ Both **passed** after two harness line-length errors were corrected. The runtime
 only after those writes; an unencodable later element produces partial writes before TypeError;
 an unencodable root reaches the call without writing. A prior raise, raising argument, opaque
 prior failure and skipped branch never invoke dump. Omitted defaults execute successfully in
-this runtime example even though the current source proof deliberately withholds availability.
+this runtime example even though compiler94 deliberately withheld availability. The subsequent
+[pinned-default qualification](../2026-09-27_pinned-defaults/README.md) records that distinct
+premise; it does not change this dated runtime receipt or imply normal return.
 
 The catalog timing was qualified against the installed CPython **3.14.7** `json.dump`,
 `gzip.compress` and `logging.Logger.warning` implementations with `inspect.getsource`.

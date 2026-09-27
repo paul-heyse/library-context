@@ -1485,3 +1485,88 @@ accepted and the owner “Accepted target; implementation Proposed.” No new pr
 assertion, native action support, broader local-default domain or Stage 3 completion is accepted.
 Product tests, full `just test-all` and fresh `just pilot` were **not_run** for this documentation
 review. Only this existing review artifact was changed by the reviewer.
+
+## 28. Bounded implementation follow-up: pinned call defaults
+
+**2026-09-27 · change/conformance · Implemented; focused Tested as attributed below.**
+This reviews compiler 95 / catalog 6 against ADR-0061 and §27, under core 3.0, CI 1.1 and
+the repository binding. Acceptance covers common invocation evaluation, shared structural
+admission and source/Delta publication. Installed native remains compiler 93; no native
+default/action acceptance or full S6 semantic closure is claimed.
+
+The catalog's `call_defaults_available` premise reaches model targets, exact applications and
+pinned call inputs separately from `normal_return`. `evaluation::prepare_calls` derives omitted
+fixed formals from every bound signature before proof construction, requiring known requiredness
+and matching omitted names while retaining each signature's fact identities. Empty variadics
+are excluded. Invocation cites one availability model and those formal facts; it evaluates no
+default expression and invents no argument value. The total-normal shortcut and its stale binder
+documentation are removed. Failed binding leaves the obligation domain unknown; an availability
+or work refusal retains a successfully bound domain without retaining positive proof.
+
+`CallExecutions` commits that domain's count/digest independently of the retained invocation
+proof. Shared admission requires the exact root group, and action admission also checks the
+same application's authored promise when defaults were omitted. Core reconstructs source
+binding and model application before accepting persisted results. Counts/digests prove structural
+agreement, not raw binding semantics by themselves; immutable consumers must retain the latter
+obligation during S6 migration. Nested default groups in a flattened invocation remain refused
+until they have independently owned commitments.
+
+**F16 — Bounded, exact default-group admission (corrected in this slice).** The first shared
+admission checked only the leading group/immediate successor and could accept stray markers
+later among argument evidence. The correction then constructed an expected marker range before
+bounding a persisted count, allowing a huge count to request an unbounded allocation. Owner:
+`cpg-schema/src/call_execution.rs`. The final implementation bounds the count by the already
+bounded invocation before constructing ranges, then compares all invocation marker positions
+with the sole committed root group. Focused controls reject whole-group deletion after resealing
+the retained proof, individual deletion, reorder, duplicate/foreign/extra markers, markers in a
+zero-default invocation and `i64::MAX`. The final source inspection and receipt below establish
+this bounded correction; they do not establish future native raw-fact closure.
+
+The extension scenario is a separately qualified fallible target with omitted defaults. It adds
+an authored availability assertion and qualification evidence; the existing binder/evaluator,
+call proof, action consumer and publication reconstruction compose it. The four initial targets
+are individually qualified `json.dump`, `json.dumps`, `json.loads` and `gzip.compress`. Source
+controls establish invocation while keeping their normal outcomes unproved; only the existing
+potential I/O rule activates. Availability adds no default truth/value, callback behavior,
+resource identity or complete coverage. Model argument bindings still withhold omitted subjects.
+
+| Judgment/gate | Bounded verdict | Basis and limit |
+|---|---|---|
+| A1 — Localize change | satisfied | Catalog owns the promise, the common binder owns obligations, and invocation/action consumers reuse the same contract |
+| A2 — Encode meaning structurally | satisfied | Unknown, empty and nonempty obligation domains differ; availability is independent of normal outcome and value identity |
+| A3 — Extend through composition | satisfied | Existing signature binding, evaluation and proof commitments supply the extension; no second binder or model-name classifier |
+| G1/G2/G3/G5/G6; CI-G1 | pass for this source/Delta slice | F16 corrected; all-signature/requiredness, retained-obligation, mutation and work-bound controls preserve explicit refusal |
+| G4/G7/G8; CI-G3 | pass for this slice | No call-time default evaluation, generic interpreter or oracle input; qualification and implementation limits remain explicit |
+| CI-G2 | pass for inspected source publication; native closure unresolved | Source reconstruction remains authoritative; no shared structural hash is presented as complete raw-fact semantics |
+
+**Attributed receipt, inspected 2026-09-27; the reviewer did not run product tests:**
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 \
+cargo nextest run --release -p cpg-schema -p cpg-core -p lctx-analytics --lib \
+  --test contracts --test codebooks --test compile \
+  -E 'binary(contracts) | binary(codebooks) | test(models::) | test(actions::) | test(call_execution::) | test(pinned_defaults_require_an_independent_promise_and_all_signature_agreement) | test(action_triggers_preserve_partial_io_and_withhold_unproved_outcomes) | test(call_execution_proves_reached_inputs_without_inventing_callee_completion) | test(validation_schema_candidates_keep_attribution_separate_from_subjects)' \
+  --status-level fail --final-status-level fail
+```
+
+**passed:** 33 tests, 176 skipped, 6.797s (`/tmp/lctx-stage3-pinned-defaults-tests4.log`), after
+the author read and accepted the model/application/call schemas and codebook/rule migrations.
+The source negative control removes only application default availability for the four otherwise
+bound JSON/gzip calls: each becomes `default_unavailable`, retains its obligations and has no
+positive invocation proof; publication detects the mismatch. `print()` remains an unsupported
+binding control and is not misreported as an availability-specific success. Earlier attempts
+encountered that control mismatch and expected migrations; the final receipt supersedes them.
+
+The author's `uv run --no-sync python docs/design_review/evidence/2026-09-27_pinned-defaults/qualify.py`
+and corresponding `uv run --no-sync ruff check` on that file **passed**. The retained
+[qualification and seven generated programs](../evidence/2026-09-27_pinned-defaults/README.md)
+compare pinned runtime/source optional formals and observe actual callee-body `PY_START`, including
+fallible bodies and non-entry on missing required/raising explicit arguments. A CALL event alone
+does not establish body entry. Analyzer fixtures are not executed; these finite observations do
+not qualify arbitrary inputs or normal completion.
+
+**Decision: Accept this bounded implementation; F16 is corrected with no remaining in-scope
+blocker identified.** Native call/action support, full raw-fact semantics, nested default groups,
+broader local/default-value domains, positive resource/callback fates, all-channel composition
+and assembled Stage 3 remain open. Full `just test-all`, fresh `just pilot` and integrated
+qualification were **not_run** for this slice. Only this review artifact was changed by the reviewer.
