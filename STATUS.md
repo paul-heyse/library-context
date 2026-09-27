@@ -4,48 +4,55 @@ _Updated 2026-09-27 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Increment and checkpoint
 
-- **Increment 4 / Stage 3 is functionally incomplete and resumed.** The operator approved an
-  exit-driven remaining sequence P0–P7. The owners are
-  [forward plan §3.0](docs/plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
-  ("Remaining sequence"), the done bar, §3.3 (added builtins) and §7 (new deferrals). §6 still
-  owns finding disposition.
-- **P0 in progress.**
-  - Landed in `2c6a59c`, before any Stage 3 packet was read: the qualified unknown→partial rule
-    (`eval/behavior/README.md`), the evaluation-only requests
-    (`eval/behavior/fastmcp-4.0.5.requests.toml`), `structured_eval.py --requests`, input digests,
-    source-range marks and a guard test.
-  - The baseline diagnostic is recorded in
+- **Increment 4 / Stage 3 is resumed and functionally incomplete.**
+  [Forward plan §3.0](docs/plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
+  ("Remaining sequence", P0–P7, exit-driven done bar) owns execution; §6 owns finding disposition.
+- **P0 done:**
+  - `2c6a59c`: qualified unknown→partial rubric rule, evaluation-only requests and packet
+    digests, committed before any Stage 3 packet was read.
+  - `50969ba`: baseline diagnostic,
     [plan §1.2](docs/plans/behavioral-model-forward-plan_2026-09-24.md#12-stage-3-baseline-diagnostic-2026-09-27-not-qualification).
-    It is an informal reading, not the exit.
-  - P0.6 (S6.0 native row-struct cleanup) has not started.
-- **Diagnostic findings that bear on the next step** (plan §1.2):
-  - Decorator over-withholding: builtin `@classmethod`, `@staticmethod` and `@property` count as
-    binding-replacing, giving 2,436 `outside_provider_model` rows.
-  - 612 shared rows moved to `missing_evidence`.
-  - A field-insensitive `ToolMeta` smear in `FunctionTool.from_function`.
-  - Behaviors never consume summaries (`call_transfer` is set unconditionally).
-- **Prior checkpoint (unchanged):**
-  - Compiler output 102, extractor 33, template 20, catalog 7, FORMAT 9.
-  - Scheduler foundation (compiler101) and pilot binding repair (compiler102).
-  - Exact receipts are in [plan §1.1](docs/plans/behavioral-model-forward-plan_2026-09-24.md#11-operator-requested-checkpoint-2026-09-27).
+  - `ddcc149`: the native extension owns its file list and row caps.
+  - `8a7c936` + `a8f6b49`: P0.7 builtin descriptor exemption from decorator withholding
+    (compiler 103; [review](docs/design_review/reviews/design_review_descriptor-exemption_2026-09-27.md)
+    F01–F03 corrected).
+  - The `missing_evidence` shift is ty's AMBIGUOUS reachability, withheld by design; its
+    repair is a §7 row.
+- **P2 partly done:** `8c3ca5c` adds `lctx compile-fixture`, the served-claim CPython challenge
+  (`tests/scripts/test_semantic_soundness.py`) and `just oracles`. The original W5/W7/W12
+  default-cap traces (P2.3) are open.
+- **P1 implemented, change review running:**
+  - `9263af8`: ADR-0064, after the [target review](docs/design_review/reviews/design_review_stage3-discharge-target_2026-09-27.md).
+  - `220a0c8`: summaries refuse decorated functions (compiler 104; a live F02 defect).
+  - `d8fa5f5`: claim-keyed `behavior_discharges`; return claims graded after summaries
+    (compiler 105, FORMAT 10); native citation admission.
+  - Pilot `call_transfer` cannot move yet: no pilot summary crosses a call (target review O1).
+- **Versions:** compiler output **105**, extractor **33**, synthesis template **20**, catalog
+  **7**, FORMAT **10**. Schema migrations since the checkpoint: the `behavior_discharges`
+  table, two codebooks, three replacement rules and the serving known answers. A fresh store is
+  needed under ADR-0048.
 
 ## Last verified (2026-09-27)
 
+`CARGO_TARGET_DIR=/home/paul/library-context/target`, `RUST_MIN_STACK=16777216`.
+
 | Command | Outcome and scope |
 |---|---|
-| `uv run --no-sync pytest tests/scripts/test_structured_eval_guard.py -q` | **passed:** 3 tests (Stage 3 set 23+/5−, exit-rule hash, requests evaluation-only, source-range mapping) |
-| `ruff check`, `ruff format --check`, `pyrefly check` on the changed script and test | **passed** |
-| `scripts/structured_eval.py build/generations/cdcf4b4e519e8b79 … --stage 3 --requests …` | **passed:** `build/structured/stage3-baseline-diagnostic.md` written; diagnostic only |
-| Read-only verdict diff of generations `7219df40ce349931` → `cdcf4b4e519e8b79` (pyarrow over `behaviors.arrow`) | **passed:** 13,091 shared keys; 914 established/conditional → `outside_provider_model`; 612 → `missing_evidence` |
-| `just docs-check` | **passed:** 135 canonical pages, offline links |
-| `just test-all`, `just pilot` | **not_run:** no product code changed; end-of-scope acceptance per AGENTS.md. Last full receipts are in plan §1.1 |
+| `INSTA_UPDATE=no cargo nextest run --release --workspace` | **passed:** 434 tests after the P1.2 manifest-list update |
+| `cargo fmt --all --check`; `cargo clippy --release --workspace --all-targets -- -D warnings` | **passed** |
+| `just py-fixture`; `uv sync --frozen --reinstall-package lctx-semantics`; `uv run pytest` | **passed:** includes native discharge admission and the extended CPython harness |
+| `just docs-check`; `just adr lint` | **passed:** 138 pages; 36 records |
+| `just test-all`, `just pilot` | **not_run:** end-of-scope acceptance (P7), apart from one diagnostic pilot after P5 |
+
+## Known issues and decisions
+
+- A documentation-only brief for an undocumented, analysis-free seed fails
+  `semantic:documentation-only-has-outcome` (fail-closed). Seen only with generated packages;
+  unscheduled.
+- Target review F08–F11 bind P3/P4 (plan §3.0 rows).
 
 ## Next
 
-- **Operator decision pending:** whether to add a precision-repair slice for the decorator and
-  `missing_evidence` withholding before P1. Without one, P1 proceeds as planned.
-- Then P0.6: native typed row structs and one native file list. Focused native and Python checks.
-- Then P1: a design/target review (design-reviewer) of discharge ordering, the `summary_effects`
-  representation and the generic component driver; an ADR; then S5a discharge in
-  `cpg-core::behavior`/`attempt`, `lctx-analytics::summaries`, `validate.rs` and the generation.
-- Environment: `CARGO_TARGET_DIR=/home/paul/library-context/target`, `RUST_MIN_STACK=16777216`.
+- Settle the P1 change review (`design_review_stage3-discharge-change_2026-09-27.md`), then P2.3
+  default-cap traces and P3: `Logger.*` models; CallableFormal/CallableEntry coverage with the
+  F08 escape premise; `summary_effects`.
