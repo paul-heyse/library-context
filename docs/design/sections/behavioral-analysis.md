@@ -184,14 +184,15 @@ therefore cannot establish caller continuation alone: its consumer must prove th
 object remains held, initially through an immediate fresh nested definition's live binding and
 an effect-free body. Source publication reconstructs both domains; call composition and serving
 must preserve this independent retainer obligation.
-Compiler99 persists `source_body_completions`, `source_body_steps` and ordered
+Compiler100 persists `source_body_completions`, `source_body_steps` and ordered
 `source_body_release_inputs`. Terminal anchors and release-root segments are shared structural
 obligations; publication independently reconstructs their source meaning. Leading docstrings
 remain definition metadata; a docstring-only body has zero runtime statements and no invented
 proof. Indexed preparation preserves the existing suite, work and 64-step proof bounds. The
 fresh-call consumer also requires a sole exact zero-argument source target, successful fresh
 header creation, the immediately following bare call and the live lexical function binding.
-`source_call_normals` and its header steps commit those premises separately from the body.
+`source_call_bindings` and its header steps commit those premises independently of body
+outcomes. `source_call_normals` links that binding to a separately qualified body.
 Lexical reference identity and syntax name identity are joined explicitly, never interchanged.
 
 **Fresh source-call consumption (Implemented and focused Tested, 2026-09-27).** Preparation has
@@ -205,6 +206,25 @@ proofs. Consumers charge expanded header/body evidence against the original 64-s
 including invocation prefixes and Normal/Finally actions. FORMAT 9 exports referenced bodies and
 call certificates with shared admission and row/byte limits; missing groups and foreign-caller
 substitution refuse. Full raw-signature/read reconstruction and other S6 obligations remain open.
+
+**Reached source invocation (Implemented and focused Tested, 2026-09-27; compiler100).**
+`call_executions` distinguishes source and pinned-model targets, with exclusive source-binding
+or model support. The shared expression invocation owner proves evaluated inputs; the completion
+kernel separately proves the caller reaches the call. Fresh source binding is available even
+when the callee raises, captures a value or has an unresolved body/release. It proves the live
+callable at entry only; normal completion still requires the body and closed release obligations.
+No model ID or value-flow subject is fabricated. A separate owned-yield index excludes generators,
+including unreachable yields; creation is not eager body entry. Defaults, aliases, intervening
+statements, failed/decorated headers and deferred phases remain outside this source domain.
+
+Source binding IDs exclude body outcomes; normal IDs commit binding and body. Duplicate-aware
+indexes are prepared once for binding/normal/call-site lookups. Expanded invocation costs include
+binding/header support; normal costs additionally include the body, under the unchanged 64-step
+limit. Invocation conclusions cannot prove a completed operand or predecessor. Model action
+consumers require the Model target variant. Native loads shared binding/header support before
+normal certificates and refuses missing, duplicate, orphan or foreign support. Only bindings
+needed by served normal certificates are exported: source-invocation publication does not yet
+provide native invocation queries. Full raw-source closure and all-channel composition remain open.
 
 > Decision: ADR-0063
 

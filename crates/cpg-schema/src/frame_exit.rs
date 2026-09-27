@@ -105,13 +105,14 @@ pub fn admit(r:&ModelFrameExitsRow,args:&[ModelFrameExitArgumentsRow],steps:&[cr
 /// owns semantic retention; this check is shared by persisted summary and native consumers.
 pub fn admit_proof<'a>(function:Id,proof:&[crate::id::recipe::SummaryFlowProofStep],
     resolve:impl Fn(Id)->Option<&'a ModelFrameExitsRow>,
-    source:impl Fn(Id)->Option<&'a crate::source_call::SourceCallNormalsRow>)->Result<(),ProofAdmissionError> {
+    source:impl Fn(Id)->Option<crate::source_call::NormalSupport<'a>>)->Result<(),ProofAdmissionError> {
     use crate::codebook::SummaryFlowStepKind as K;
     if crate::source_call::expanded_len(proof.iter().map(|s|(s.kind,s.evidence_id)),&source)?>64 {
         return Err(ProofAdmissionError {reason:crate::codebook::BoundaryReason::SummaryProofLimit,
             message:"expanded source call proof exceeds its original cap".into()});
     }
     for (i,s) in proof.iter().enumerate() {
+        if matches!(s.kind,K::SourceInvocation|K::ModelInvocation) {return Err("invocation cannot prove completed evaluation".into());}
         if s.kind==K::CallSite && (i+1>=proof.len() || proof[i+1].kind!=K::CallTarget) {
             return Err("call occurrence omitted its exact target".into());
         }

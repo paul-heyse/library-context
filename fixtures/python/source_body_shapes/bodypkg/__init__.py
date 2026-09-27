@@ -376,3 +376,34 @@ def call_prefix_over_limit(value):
     pass
     dump(value, value)
     return value
+
+
+def call_failed_header(value):
+    @value
+    def inner():
+        return 13
+    inner()
+    return value
+
+
+def call_unknown_body(value):
+    def inner():
+        unresolved()
+    inner()
+    return value
+
+
+def call_generator(value):
+    def inner():
+        yield 14
+    inner()
+    return value
+
+
+def call_unreachable_yield(value):
+    def inner():
+        if False:
+            yield 15
+        return 16
+    inner()
+    return value

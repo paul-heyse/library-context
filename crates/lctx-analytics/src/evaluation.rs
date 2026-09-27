@@ -1,8 +1,10 @@
-//! Bounded source-expression completion over independently admitted name reads.
-//!
-//! Pure operators compose with source read certificates. A normal outcome does not assert a
-//! normal callee return. Unsupported/effectful operands stop evaluation unless Python skips
-//! them. The root syntax fact is a reproducible witness, not a synthetic execution observation.
+use cpg_schema::source_call::{SourceCallBindingsRow,NormalSupport,SourceCallIndex};
+use cpg_schema::codebook::CallExecutionTarget;
+// Bounded source-expression completion over independently admitted name reads.
+//
+// Pure operators compose with source read certificates. A normal outcome does not assert a
+// normal callee return. Unsupported/effectful operands stop evaluation unless Python skips
+// them. The root syntax fact is a reproducible witness, not a synthetic execution observation.
 use std::collections::{HashMap, BTreeMap, BTreeSet};
 use cpg_schema::codebook::ReleaseSafety;
 use cpg_schema::frame_exit::{ModelFrameExitsRow,ModelFrameExitArgumentsRow};
@@ -60,7 +62,8 @@ struct Evaluator<'a> {
     reads: HashMap<(Id, Id), Option<&'a ExpressionRead>>,
     proof: Vec<(Id, Id, Status, Step)>,
     calls: HashMap<(Id, Id), Option<PreparedCall<'a>>>,
-    source_calls:HashMap<(Id,Id),Option<&'a cpg_schema::source_call::SourceCallNormalsRow>>,
+    source_calls:HashMap<(Id,Id),Option<NormalSupport<'a>>>,
+    source_bindings:HashMap<(Id,Id),Option<&'a SourceCallBindingsRow>>,
     source_refusals:HashMap<(Id,Id),BoundaryReason>,
     frames:BTreeMap<Id,(ModelFrameExitsRow,Vec<ModelFrameExitArgumentsRow>,Vec<ExpressionEvaluationStepsRow>)>,
 }
@@ -78,6 +81,23 @@ impl Evaluator<'_> {
         let proof_start=self.proof.len();
         self.remaining=self.remaining.checked_sub(1).ok_or(Refusal::ExpressionWorkLimit)?;
         if depth>self.depth_limit {return Err(Refusal::ExpressionDepthLimit);}
+        if let Some(binding)=self.source_bindings.get(&(node.snapshot_id,node.node_id)) {
+            let binding=binding.ok_or(Refusal::MissingEvidence)?;
+            if self.calls.contains_key(&(node.snapshot_id,node.node_id)) || node.kind!=SyntaxKind::ExprCall
+                || node.owner_node_id!=Some(binding.function_node_id) || node.fact_id!=binding.syntax_fact_id {
+                return Err(Refusal::MissingEvidence);
+            }
+            let children=self.children.get(&(node.snapshot_id,node.module_node_id,node.node_id));
+            if !matches!(children.map(Vec::as_slice),Some([n]) if n.kind==SyntaxKind::ExprName
+                && n.field==SyntaxField::Callee && n.owner_node_id==node.owner_node_id
+                && n.start_byte>=node.start_byte && n.end_byte<=node.end_byte) {return Err(UNSUPPORTED);}
+            let cost=cpg_schema::source_call::binding_cost(binding).map_err(|e|e.reason)?;
+            self.remaining=self.remaining.checked_sub(cost+1).ok_or(Refusal::ExpressionWorkLimit)?;
+            for(kind,id)in [(Step::CallSite,binding.call_fact_id),(Step::CallTarget,binding.pysa_fact_id)] {
+                self.proof.push((node.fact_id,id,Status::CalleeEntryNormal,kind));
+            }
+            return Ok((Value::Unknown,Vec::new()));
+        }
         let call=self.calls.get(&(node.snapshot_id,node.node_id)).and_then(|c|c.clone()).ok_or(UNSUPPORTED)?;
         if !call.defaults_available {return Err(Refusal::DefaultUnavailable);}
         let children=self.children.get(&(node.snapshot_id,node.module_node_id,node.node_id)).cloned().unwrap_or_default();
@@ -169,20 +189,20 @@ impl Evaluator<'_> {
         let detail = node.detail.as_deref().unwrap_or("");
         match node.kind {
             SyntaxKind::ExprCall if self.source_calls.contains_key(&(node.snapshot_id,node.node_id)) => {
-                let call=self.source_calls.get(&(node.snapshot_id,node.node_id)).and_then(|c|*c).ok_or(UNSUPPORTED)?;
-                if call.certificate_id!=cpg_schema::source_call::identity(call) || !(0..=64).contains(&call.body_count)
-                    || !(1..=64).contains(&call.header_count) || !matches!(call.body_kind,cpg_schema::codebook::CompletionKind::Normal|cpg_schema::codebook::CompletionKind::Return)
-                    || self.calls.contains_key(&(node.snapshot_id,node.node_id)) || node.owner_node_id!=Some(call.function_node_id)
-                    || node.fact_id!=call.syntax_fact_id || !matches!(children.as_slice(),[n]
-                        if n.kind==SyntaxKind::ExprName && n.field==SyntaxField::Callee) {
+                let support=self.source_calls.get(&(node.snapshot_id,node.node_id)).and_then(|c|*c).ok_or(UNSUPPORTED)?;
+                support.check_link().map_err(|e|e.reason)?;
+                let call=support.normal;
+                if !(0..=64).contains(&call.body_count)
+                    || !matches!(call.body_kind,cpg_schema::codebook::CompletionKind::Normal|cpg_schema::codebook::CompletionKind::Return) {
                     return Err(Refusal::MissingEvidence);
                 }
-                self.remaining=self.remaining.checked_sub((call.body_count+call.header_count+6) as usize)
-                    .ok_or(Refusal::ExpressionWorkLimit)?;
-                for (kind,id) in [(Step::CallSite,call.call_fact_id),(Step::CallTarget,call.pysa_fact_id),
-                    (Step::SourceCallNormal,call.certificate_id)] {
-                    self.proof.push((node.fact_id,id,Status::SourceCallNormal,kind));
-                }
+                // The same callee-entry owner supplies invocation; normality adds the body.
+                self.remaining+=1+children.len();
+                let start=self.proof.len();
+                self.invoke(node,depth)?;
+                self.remaining=self.remaining.checked_sub(call.body_count as usize).ok_or(Refusal::ExpressionWorkLimit)?;
+                for step in &mut self.proof[start..] {step.2=Status::SourceCallNormal;}
+                self.proof.push((node.fact_id,call.certificate_id,Status::SourceCallNormal,Step::SourceCallNormal));
                 // Exact primitive shape is intentionally not exported by the body contract.
                 // Both variants have a closed disposal domain; only fallthrough fixes None.
                 Ok(if call.body_kind==cpg_schema::codebook::CompletionKind::Normal {Value::None} else {Value::Literal})
@@ -337,7 +357,7 @@ pub struct EvaluationOutcome {
 #[derive(Clone)]
 pub struct CallInvocation {
     pub snapshot_id:Id,pub function_node_id:Id,pub call_node_id:Id,pub call_fact_id:Id,
-    pub syntax_fact_id:Id,pub target_node_id:Id,pub pysa_fact_id:Id,pub model_id:Id,
+    pub syntax_fact_id:Id,pub target_node_id:Id,pub pysa_fact_id:Id,pub target_kind:CallExecutionTarget,pub model_id:Option<Id>,pub source_binding_id:Option<Id>,
     pub argument_count:i64,pub default_formals:Option<Vec<Id>>,pub reason:Option<BoundaryReason>,pub work:i64,
     pub proof:Vec<(Step,Id)>,
 }
@@ -356,6 +376,8 @@ struct PreparedCall<'a> {
 
 #[derive(Default,Clone,Copy)]
 pub struct EvaluationInputs<'a> {
+    pub source_bindings:&'a [SourceCallBindingsRow],
+    pub source_invocations:&'a [crate::source_call::InvocationCandidate],
     pub source_calls:&'a [cpg_schema::source_call::SourceCallNormalsRow],
     pub source_refusals:&'a [(Id,Id,BoundaryReason)],
     pub syntax: &'a [SyntaxNodesRow],
@@ -473,12 +495,21 @@ fn evaluate_with_limits(inputs: EvaluationInputs<'_>, depth: usize, work: usize)
         read_index.entry((read.snapshot_id, read.syntax_fact_id))
             .and_modify(|r| *r = None).or_insert(Some(read));
     }
-    let mut source_calls=HashMap::new();
-    for row in inputs.source_calls {source_calls.entry((row.snapshot_id,row.call_node_id))
+    let source_index=SourceCallIndex::new(inputs.source_calls,inputs.source_bindings);
+    let mut source_invocations:HashMap<_,Vec<_>>=HashMap::new();
+    for candidate in inputs.source_invocations {source_invocations.entry((candidate.snapshot_id,candidate.call_node_id)).or_default().push(candidate);}
+    let mut source_bindings=HashMap::new();
+    for row in inputs.source_bindings {source_bindings.entry((row.snapshot_id,row.call_node_id))
         .and_modify(|r|*r=None).or_insert(Some(row));}
+    let mut source_calls=HashMap::new();let mut by_certificate=HashMap::new();
+    for row in inputs.source_calls {
+        if let Some(support)=source_index.normal(row.snapshot_id,row.certificate_id) {
+            source_calls.entry((row.snapshot_id,support.binding.call_node_id)).and_modify(|r|*r=None).or_insert(Some(support));
+            by_certificate.insert(row.certificate_id,support);
+        }
+    }
     let source_refusals=inputs.source_refusals.iter().map(|&(s,c,r)|((s,c),r)).collect();
-    let by_certificate:HashMap<_,_>=inputs.source_calls.iter().map(|r|(r.certificate_id,r)).collect();
-    let mut evaluator = Evaluator { source_calls,source_refusals,children, remaining: work, depth_limit: depth,
+    let mut evaluator = Evaluator { source_calls,source_bindings,source_refusals,children, remaining: work, depth_limit: depth,
         reads: read_index, proof: Vec::new(), calls,frames:BTreeMap::new() };
     let mut out = EvaluationOutcome::default();
     for node in nodes.iter().filter(|node| node.kind.text().starts_with("expr_") && node.field != SyntaxField::Target) {
@@ -513,9 +544,21 @@ fn evaluate_with_limits(inputs: EvaluationInputs<'_>, depth: usize, work: usize)
                 if reason.is_none() {proof.push((Step::ModelInvocation,target.model_id));}
                 out.invocations.push(CallInvocation {snapshot_id:node.snapshot_id,function_node_id:function,
                     call_node_id:node.node_id,call_fact_id:target.call_fact_id,syntax_fact_id:node.fact_id,
-                    target_node_id:target.target_node_id,pysa_fact_id:target.pysa_fact_id,model_id:target.model_id,
+                    target_node_id:target.target_node_id,pysa_fact_id:target.pysa_fact_id,target_kind:CallExecutionTarget::Model,model_id:Some(target.model_id),source_binding_id:None,
                     argument_count:target.argument_count,
                     default_formals:evaluator.calls.get(&(node.snapshot_id,node.node_id)).and_then(|c|c.as_ref()).map(|c|c.default_formals.clone()),
+                    reason,work:work.saturating_sub(evaluator.remaining).max(1) as i64,proof});
+            }
+            for candidate in source_invocations.get(&(node.snapshot_id,node.node_id)).into_iter().flatten() {
+                evaluator.remaining=work;evaluator.proof.clear();
+                let reason=candidate.reason.or_else(||evaluator.invoke(node,0).err());
+                let mut proof=if reason.is_none() {evaluator.proof.iter().map(|&(_,id,_,kind)|(kind,id)).collect()} else {Vec::new()};
+                if reason.is_none() {proof.push((Step::SourceInvocation,candidate.binding_id.expect("admitted source binding")));}
+                out.invocations.push(CallInvocation {snapshot_id:node.snapshot_id,function_node_id:function,
+                    call_node_id:node.node_id,call_fact_id:candidate.call_fact_id,syntax_fact_id:node.fact_id,
+                    target_node_id:candidate.target_node_id,pysa_fact_id:candidate.pysa_fact_id,
+                    target_kind:CallExecutionTarget::Source,model_id:None,source_binding_id:candidate.binding_id,
+                    argument_count:candidate.argument_count,default_formals:candidate.binding_id.map(|_|Vec::new()),
                     reason,work:work.saturating_sub(evaluator.remaining).max(1) as i64,proof});
             }
         }

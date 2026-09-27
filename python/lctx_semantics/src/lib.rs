@@ -224,6 +224,7 @@ struct ContextProofs {
     source_body_completions:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,
     source_body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>,
     source_body_release_inputs:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>,
+    source_call_bindings:Vec<cpg_schema::source_call::SourceCallBindingsRow>,
     source_call_normals:Vec<cpg_schema::source_call::SourceCallNormalsRow>,
     source_call_header_steps:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>,
 
@@ -627,7 +628,7 @@ impl SemanticExecutor {
         let mut source_headers:HashMap<_,Vec<_>>=HashMap::new();
         for mut r in contexts.source_body_steps {r.snapshot_id=snapshot_id;body_steps.entry(r.body_id).or_default().push(r);}
         for mut r in contexts.source_body_release_inputs {r.snapshot_id=snapshot_id;body_releases.entry(r.body_id).or_default().push(r);}
-        for mut r in contexts.source_call_header_steps {r.snapshot_id=snapshot_id;source_headers.entry(r.certificate_id).or_default().push(r);}
+        for mut r in contexts.source_call_header_steps {r.snapshot_id=snapshot_id;source_headers.entry(r.binding_id).or_default().push(r);}
         let mut bodies=HashMap::new();
         for mut r in contexts.source_body_completions {
             r.snapshot_id=snapshot_id;
@@ -643,23 +644,34 @@ impl SemanticExecutor {
             if bodies.insert(r.body_id,(r,steps,releases)).is_some() {return Err(PyValueError::new_err("duplicate source body"));}
         }
         if !body_steps.is_empty() || !body_releases.is_empty() {return Err(PyValueError::new_err("orphan source body evidence"));}
-        let mut source_calls=HashMap::new();let mut used_bodies=HashSet::new();
+        let mut bindings=HashMap::new();
+        for mut r in contexts.source_call_bindings {
+            r.snapshot_id=snapshot_id;
+            let mut header=source_headers.remove(&r.binding_id).unwrap_or_default();header.sort_by_key(|s|s.ordinal);
+            cpg_schema::source_call::admit_binding(&r,&header).map_err(|e|PyValueError::new_err(e.message))?;
+            if bindings.insert(r.binding_id,(r,header)).is_some() {return Err(PyValueError::new_err("duplicate source binding"));}
+        }
+        let mut source_calls=HashMap::new();let mut used_bodies=HashSet::new();let mut used_bindings=HashSet::new();
         for mut r in contexts.source_call_normals {
             r.snapshot_id=snapshot_id;
-            let mut header=source_headers.remove(&r.certificate_id).unwrap_or_default();header.sort_by_key(|s|s.ordinal);
+            let (binding,header)=bindings.get(&r.binding_id).ok_or_else(||PyValueError::new_err("missing source call binding"))?;
             let (body,steps,releases)=bodies.get(&r.body_id).ok_or_else(||PyValueError::new_err("missing source call body"))?;
-            cpg_schema::source_call::admit(&r,&header,body,steps,releases).map_err(|e|PyValueError::new_err(e.message))?;
-            used_bodies.insert(r.body_id);
+            cpg_schema::source_call::admit(&r,binding,header,body,steps,releases).map_err(|e|PyValueError::new_err(e.message))?;
+            used_bodies.insert(r.body_id);used_bindings.insert(r.binding_id);
             if source_calls.insert(r.certificate_id,r).is_some() {return Err(PyValueError::new_err("duplicate source call completion"));}
         }
-        if !source_headers.is_empty() || used_bodies.len()!=bodies.len() {return Err(PyValueError::new_err("orphan source call evidence"));}
+        if !source_headers.is_empty() || used_bodies.len()!=bodies.len() || used_bindings.len()!=bindings.len() {
+            return Err(PyValueError::new_err("orphan source call evidence"));
+        }
+        let source=|id| {let normal=source_calls.get(&id)?;let (binding,_)=bindings.get(&normal.binding_id)?;
+            Some(cpg_schema::source_call::NormalSupport {normal,binding})};
         for r in frames.values() {
             let mut steps=frame_steps.remove(&r.frame_exit_id).unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
             let proof:Vec<_>=steps.iter().map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
                 kind:s.kind,evidence_id:s.evidence_id,condition_id:Id::ZERO}).collect();
             // admit() has checked the final root CallSite/CallTarget as invocation only.
             // Nested operands, unlike that root, must already have completed.
-            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof[..proof.len()-2],|id|frames.get(&id),|id|source_calls.get(&id))
+            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof[..proof.len()-2],|id|frames.get(&id),source)
                 .map_err(|e|PyValueError::new_err(e.message))?;
             for s in steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ModelFrameExit) {
                 let inner=&frames[&s.evidence_id];
@@ -681,7 +693,7 @@ impl SemanticExecutor {
                     kind:*SummaryFlowStepKind::all().iter().find(|k|k.text()==kind)
                         .expect("step kind admitted above"),evidence_id:*evidence_id,condition_id:*condition_id,
                 }).collect();
-            cpg_schema::frame_exit::admit_proof(summary.function_node_id,&steps,|id|frames.get(&id),|id|source_calls.get(&id))
+            cpg_schema::frame_exit::admit_proof(summary.function_node_id,&steps,|id|frames.get(&id),source)
                 .map_err(|e|PyValueError::new_err(e.message))?;
             // Unknown roots cannot support a positive callee application. Their raw proofs
             // still pass structural admission using an inert root; no controls can be fixed.
@@ -814,7 +826,7 @@ impl SemanticExecutor {
             input.identities,
             input.modeled_identities,
             input.return_sites,
-            ContextProofs {source_body_completions:input.source_body_completions,source_body_steps:input.source_body_steps,source_body_release_inputs:input.source_body_release_inputs,source_call_normals:input.source_call_normals,source_call_header_steps:input.source_call_header_steps,frames:input.model_frame_exits,frame_arguments:input.model_frame_exit_arguments,frame_steps:input.model_frame_exit_steps,values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
+            ContextProofs {source_body_completions:input.source_body_completions,source_body_steps:input.source_body_steps,source_body_release_inputs:input.source_body_release_inputs,source_call_bindings:input.source_call_bindings,source_call_normals:input.source_call_normals,source_call_header_steps:input.source_call_header_steps,frames:input.model_frame_exits,frame_arguments:input.model_frame_exit_arguments,frame_steps:input.model_frame_exit_steps,values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
         )
     }
 

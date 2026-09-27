@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 99; catalog format 7.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 100; catalog format 7.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -289,7 +289,7 @@ compiler false-positive reproduction. Source/local-callee bodies must next reuse
 kernel with separate closed release evidence; broader cleanup remains open.
 
 **Value-independent source bodies and fresh calls (Implemented and focused Tested, 2026-09-27;
-compiler99, ADR-0063).** The existing statement kernel evaluates a zero-formal callable's
+compiler100, ADR-0063).** The existing statement kernel evaluates a zero-formal callable's
 suite separately from definition headers and value-flow seeds. Persisted body outcomes distinguish
 Normal fallthrough, Return, exact TypeError and unknown; closed local releases remain a separate
 obligation. Every row still requires the exact function object to remain externally retained.
@@ -302,13 +302,25 @@ the live definition-binding retainer, exact zero-argument binding, successful he
 Normal/Return body and closed release/result domains. It consumes base bodies in an explicit
 acyclic stage; caller enrichment never feeds its own premises. The original expanded 64-step
 bound applies to expressions, summaries, invocation prefixes and Normal/Finally action proofs.
-Normality under entry remains distinct from reached invocation. Exact-false flow and behavior
-projections are absent; unknown conditions remain. The 54-case focused selection passes source,
-Delta and native controls, including 20 native positive/withholding/omission/foreign-caller cases
-and resealed shared-contract mutations. Ten additional generated CPython programs challenge
-fresh-call continuation independently; the earlier twelve body controls retain callable-lifetime
-evidence ([evidence](../design_review/evidence/2026-09-27_frame-exit/README.md)). Broader source
-binding/default/release domains, full S6 semantic closure and integrated Stage 3 remain open.
+Normality under entry remains distinct from reached invocation. `source_call_bindings` now owns
+the independent creation/binding contract; reduced normals reference it and a qualified body.
+The existing reached-call owner has explicit Source/Model targets and does not manufacture a model
+ID for source calls. A raising, captured or unknown body can have an admitted source invocation
+without normal completion. Failed headers, unsupported default/binding forms and unreachable
+callers withhold invocation; a separate callee-owned yield index excludes both reachable and
+unreachable yields. Source/model invocation conclusions cannot satisfy completed evaluation.
+Duplicate-aware binding/normal/call-site indexes avoid repeated global scans.
+
+The final 87-case focused selection passes with snapshot updates disabled, including real source,
+Delta and 25 native controls, source invocation variants/original cap boundaries, adjacent
+value/default/action cases and current schema projections. Thirteen Python native tests and
+14 independently generated CPython entry/outcome controls pass
+([evidence](../design_review/evidence/2026-09-27_frame-exit/README.md#reached-source-invocation)).
+Native exports only binding support for served normal certificates; source-invocation querying,
+full S6 evidence closure and integrated Stage 3 remain open. Exact-false derived projections
+remain absent while unknown conditions stay explicit. Next compose typed non-value subjects
+through the shared scheduler, preserving invocation versus outcome obligations, origins,
+modality and phase; broaden binding/default/release domains and model families as scheduled.
 
 ### 3.1 Contract repairs before extension
 
@@ -541,9 +553,20 @@ correction to unqualified pinned normal return. Its bounded compiler97 implement
 qualification received **Accept scoped** in review §32 (2026-09-27): exact
 binding/release-domain mutation rejection, preserved invocation/postconditions, original proof
 bounds and root-certificate survival through Delta/native are checked in that domain. Compiler99
-adds the separately qualified fresh zero-argument source-call domain above (**Accept scoped**, review §34); broader source/release
-domains and full S6 raw-fact closure remain open. Source review and ten independent
+adds the separately qualified fresh zero-argument source-call domain above (**Accept scoped**, review §34).
+Compiler100 separates reached source invocation from body outcome (**Accept scoped**, review §35);
+broader source/release domains and full S6 raw-fact closure remain open. Source review and ten independent
 runtime controls are in [review §31](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#31-source-review-callee-frame-cleanup-before-normal-completion).
+
+
+**Stage 3 channel review F18/F19 — corrected in compiler100, scoped Tested (2026-09-27).**
+Owner: analytics source-invocation preparation and shared schema binding support. Independent
+callee-owned yield indexing excludes reachable/unreachable generator bodies from eager entry
+(F18); shared duplicate-aware binding/normal and call-site indexes remove the new global rescans
+(F19). Source inspection plus the final 87-case source/Delta/native selection, duplicate support
+controls and independent generated runtime cases supply closure in this domain
+([review §35](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#35-bounded-implementation-follow-up-source-invocation-independent-of-outcome)).
+This is no whole-corpus performance measurement or deferred-execution implementation.
 
 
 This table is the **single current disposition owner** for the findings below. Source reviews

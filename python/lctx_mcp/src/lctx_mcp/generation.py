@@ -48,6 +48,7 @@ NATIVE_IPC_FILES = frozenset(
         "source_body_completions",
         "source_body_steps",
         "source_body_release_inputs",
+        "source_call_bindings",
         "source_call_normals",
         "source_call_header_steps",
         "flow_test_value_links",
@@ -397,9 +398,9 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _id("evaluation_evidence_id"),
             ]
         ),
-        "source_call_normals": pa.schema(
+        "source_call_bindings": pa.schema(
             [
-                _id("certificate_id"),
+                _id("binding_id"),
                 _id("function_node_id"),
                 _id("call_node_id"),
                 _id("call_fact_id"),
@@ -407,7 +408,7 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _id("callee_node_id"),
                 _id("pysa_fact_id"),
                 _id("signature_fact_id"),
-                _id("body_id"),
+                _id("declaration_fact_id"),
                 _id("header_fact_id"),
                 _id("statement_fact_id"),
                 _id("binding_fact_id"),
@@ -415,17 +416,19 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _id("resolution_fact_id"),
                 _int("header_count"),
                 pa.field("header_digest", pa.binary(32), nullable=False),
+            ]
+        ),
+        "source_call_normals": pa.schema(
+            [
+                _id("certificate_id"),
+                _id("binding_id"),
+                _id("body_id"),
                 _int("body_count"),
                 _utf8("body_kind"),
             ]
         ),
         "source_call_header_steps": pa.schema(
-            [
-                _id("certificate_id"),
-                _int("ordinal"),
-                _utf8("kind"),
-                _id("evidence_id"),
-            ]
+            [_id("binding_id"), _int("ordinal"), _utf8("kind"), _id("evidence_id")]
         ),
         "model_frame_exits": pa.schema(
             [
@@ -774,6 +777,7 @@ def _read(
             "source_body_completions",
             "source_body_steps",
             "source_body_release_inputs",
+            "source_call_bindings",
             "source_call_normals",
             "source_call_header_steps",
             "model_context_protocols",
@@ -1021,6 +1025,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         "source_body_completions",
         "source_body_steps",
         "source_body_release_inputs",
+        "source_call_bindings",
         "source_call_normals",
         "source_call_header_steps",
         "model_context_protocols",

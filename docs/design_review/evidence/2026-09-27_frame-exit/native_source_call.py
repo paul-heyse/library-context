@@ -17,15 +17,38 @@ def main() -> None:
     checked = 0
     for name in ("call_literal", "call_fallthrough", "call_return_finally", "call_modeled"):
         paths, _, _, truncated, _ = index.inspect_value_paths(
-            "bodypkg." + name, "value", "none", "", True, 0, 20,
+            "bodypkg." + name,
+            "value",
+            "none",
+            "",
+            True,
+            0,
+            20,
         )
         assert paths and not truncated, name
         assert any(any(step[0] == "source_call_normal" for step in p[3]) for p in paths), name
         checked += 1
-    for name in ("call_raises", "call_local_read", "call_default", "call_captured",
-                 "call_intervening", "call_alias", "call_unreachable"):
+    for name in (
+        "call_raises",
+        "call_local_read",
+        "call_default",
+        "call_captured",
+        "call_intervening",
+        "call_alias",
+        "call_unreachable",
+        "call_failed_header",
+        "call_unknown_body",
+        "call_generator",
+        "call_unreachable_yield",
+    ):
         paths, _, _, truncated, _ = index.inspect_value_paths(
-            "bodypkg." + name, "value", "none", "", True, 0, 20,
+            "bodypkg." + name,
+            "value",
+            "none",
+            "",
+            True,
+            0,
+            20,
         )
         assert not paths and not truncated, name
         checked += 1
@@ -40,12 +63,25 @@ def main() -> None:
             with ipc.new_file(sink, table.schema) as writer:
                 writer.write_table(table)
             files.append((name, sink.getvalue().to_pybytes()))
-        SemanticExecutor.from_ipc(kernel_format(), generation.snapshot_id,
-                                  generation.manifest["entry_value_effect_digest"], files)
+        SemanticExecutor.from_ipc(
+            kernel_format(),
+            generation.snapshot_id,
+            generation.manifest["entry_value_effect_digest"],
+            files,
+        )
 
-    changes = [{name: []} for name in ("source_call_normals", "source_call_header_steps",
-                                      "source_body_completions", "source_body_steps",
-                                      "source_body_release_inputs", "model_frame_exits")]
+    changes = [
+        {name: []}
+        for name in (
+            "source_call_bindings",
+            "source_call_normals",
+            "source_call_header_steps",
+            "source_body_completions",
+            "source_body_steps",
+            "source_body_release_inputs",
+            "model_frame_exits",
+        )
+    ]
     rows = generation.tables["summary_flow_steps"].to_pylist()
     selected = next(r["summary_id"] for r in rows if r["kind"] == "source_call_normal")
     group = sorted((r for r in rows if r["summary_id"] == selected), key=lambda r: r["ordinal"])
@@ -58,13 +94,19 @@ def main() -> None:
         changes.append({"summary_flow_steps": other + kept})
     # Use a separately valid certificate, not a fabricated hash, at this exact occurrence.
     certificates = generation.tables["source_call_normals"].to_pylist()
+    bindings = {r["binding_id"]: r for r in generation.tables["source_call_bindings"].to_pylist()}
     current = next(r for r in certificates if r["certificate_id"] == group[at]["evidence_id"])
-    foreign = next(r for r in certificates
-                   if r["function_node_id"] != current["function_node_id"])
+    foreign = next(
+        r
+        for r in certificates
+        if bindings[r["binding_id"]]["function_node_id"]
+        != bindings[current["binding_id"]]["function_node_id"]
+    )
     substituted = [dict(r) for r in group]
     substituted[at]["evidence_id"] = foreign["certificate_id"]
-    changes.append({"summary_flow_steps": [r for r in rows if r["summary_id"] != selected]
-                    + substituted})
+    changes.append(
+        {"summary_flow_steps": [r for r in rows if r["summary_id"] != selected] + substituted}
+    )
     for change in changes:
         try:
             altered(change)

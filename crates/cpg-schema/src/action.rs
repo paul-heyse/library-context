@@ -228,7 +228,7 @@ pub fn identity(r:&ModeledActionAssessmentsRow)->Id {
 }
 
 pub struct Support<'a> {
-    pub source_calls:&'a [crate::source_call::SourceCallNormalsRow],
+    pub source:&'a crate::source_call::SourceCallIndex<'a>,
     pub bindings:&'a [ModelArgumentBindingsRow],
     pub arguments:&'a [crate::tables::ArgumentsRow],
     pub application:Option<&'a ModelApplicationsRow>,
@@ -301,12 +301,12 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
             if frame.snapshot_id!=e.snapshot_id || frame.function_node_id!=e.function_node_id
                 || frame.call_node_id!=e.call_node_id || frame.call_fact_id!=e.call_fact_id
                 || frame.syntax_fact_id!=e.syntax_fact_id || frame.target_node_id!=e.target_node_id
-                || frame.pysa_fact_id!=e.pysa_fact_id || frame.model_id!=e.model_id
+                || frame.pysa_fact_id!=e.pysa_fact_id || Some(frame.model_id)!=e.model_id
                 || frame.argument_count!=e.argument_count || e.default_formal_count!=Some(0)
                 || Some(frame.return_parameter.as_str())!=app.target_body_return_parameter.as_deref() {
                 return Err("frame release belongs to a different call or binding".into());
             }
-            if tail[0].kind!=K::ModelFrameExit || (tail[1].kind,tail[1].evidence_id)!=(K::PrecedingCallNormal,e.model_id)
+            if tail[0].kind!=K::ModelFrameExit || (tail[1].kind,Some(tail[1].evidence_id))!=(K::PrecedingCallNormal,e.model_id)
                 || (tail.last().unwrap().kind,tail.last().unwrap().evidence_id)!=(K::ExpressionSyntax,e.syntax_fact_id)
                 || (tail.len()==4 && tail[2].kind!=K::ModelRule)
                 || tail.iter().any(|s|s.operand_fact_id!=e.syntax_fact_id || s.status!=E::PinnedCallNormal) {
@@ -314,8 +314,7 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
             }
             let full=support.invocation_steps[..e.prefix_count as usize].iter().map(|s|(s.kind,s.evidence_id))
                 .chain(steps.iter().map(|s|(s.kind,s.evidence_id)));
-            if crate::source_call::expanded_len(full,|id|support.source_calls.iter()
-                .find(|r|r.snapshot_id==e.snapshot_id && r.certificate_id==id))?>MAX_SUMMARY_PROOF_STEPS {
+            if crate::source_call::expanded_len(full,|id|support.source.normal(e.snapshot_id,id))?>MAX_SUMMARY_PROOF_STEPS {
                 return Err(ProofAdmissionError {reason:B::SummaryProofLimit,message:"action proof limit"});
             }
         },
@@ -358,15 +357,15 @@ fn admit_invocation<'a>(candidate:Candidate<'_>,support:&Support<'a>,meaning:Sub
     let e=support.execution.ok_or("action lacks reached invocation")?;
     if e.snapshot_id!=v.snapshot_id || Some(e.function_node_id)!=v.function_node_id || e.call_node_id!=v.call_site_node_id
         || e.call_fact_id!=v.call_fact_id || e.pysa_fact_id!=v.pysa_fact_id || e.target_node_id!=v.target_node_id
-        || e.model_id!=v.model_id || e.phase!=app.phase {
+        || e.model_id!=Some(v.model_id) || e.target_kind!=crate::codebook::CallExecutionTarget::Model || e.phase!=app.phase {
         return Err("action execution scope mismatch".into());
     }
     if let Some(reason)=e.reason {return Err(ProofAdmissionError {reason,message:"action invocation unresolved"});}
     let frame=|id| {let mut rows=support.frames.iter().filter(|r|r.snapshot_id==e.snapshot_id && r.frame_exit_id==id);
         let first=rows.next();if rows.next().is_some() {None} else {first}};
-    let source=|id| {let mut rows=support.source_calls.iter().filter(|r|r.snapshot_id==e.snapshot_id && r.certificate_id==id);
-        let first=rows.next();if rows.next().is_some() {None} else {first}};
-    crate::call_execution::admit_with_calls(e,support.invocation_steps,frame,source)?;
+    let source=|id|support.source.normal(e.snapshot_id,id);
+    crate::call_execution::admit_with_calls(e,support.invocation_steps,frame,source,
+        |id|support.source.binding(e.snapshot_id,id))?;
     if e.default_formal_count.is_some_and(|n|n>0) && !app.target_call_defaults_available {
         return Err("action lacks an authored pinned-default availability promise".into());
     }

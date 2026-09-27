@@ -24,6 +24,7 @@ use lctx_analytics::summaries::finite::{
 
 cpg_schema::relations! {
     inventory relations;
+    admitted_source_call_bindings = "summary_source_call_bindings", deps = ["source_call_bindings"], sql = "SELECT * FROM source_call_bindings".to_owned();
     source_call_normals = "summary_source_call_normals", deps = ["source_call_normals"], sql = "SELECT * FROM source_call_normals".to_owned();
     source_call_targets = "summary_source_call_targets", deps = ["call_targets"], sql = "SELECT * FROM call_targets".to_owned();
     source_call_resolutions = "summary_source_call_resolutions", deps = ["resolutions"], sql = "SELECT * FROM resolutions".to_owned();
@@ -284,9 +285,10 @@ pub async fn finite_flows(
     let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
     let return_certificates=sql::fetch(ctx,&return_certificates(),sql::Params::new()).await?;
     let model_frames=sql::fetch(ctx,&model_frames(),sql::Params::new()).await?;
+    let source_bindings=sql::fetch(ctx,&admitted_source_call_bindings(),sql::Params::new()).await?;
     let source_calls=sql::fetch(ctx,&source_call_normals(),sql::Params::new()).await?;
     let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
-        source_calls,model_frames,modeled_identities,diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,context_identities,context_arguments,
+        source_bindings,source_calls,model_frames,modeled_identities,diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,context_identities,context_arguments,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates, identities,
     });
@@ -463,7 +465,7 @@ pub async fn execution(ctx:&SessionContext)->Result<lctx_analytics::execution::O
         parameters:&parameters,transfers:&transfers,unconditional_conditions:&unconditional_conditions,
         ..Default::default()
     },lctx_analytics::completion::Inputs {
-        model_frames:&[],source_calls:&[],references:&references,resolutions:&resolutions,invocations:&[],
+        model_frames:&[],source_bindings:&[],source_calls:&[],references:&references,resolutions:&resolutions,invocations:&[],
         context_protocols:&context_protocols,context_sites:&context_sites,context_arguments:&context_arguments,
         declarations:&declarations,parameters:&source_parameters,syntax:&nodes,expressions:&[],expression_steps:&[],
         bindings:&bindings,scopes:&scopes,exits:&exits,handler_types:&handler_types,classes:&classes,mro:&mro,
@@ -503,6 +505,7 @@ pub async fn source_contexts(ctx:&SessionContext)->Result<lctx_analytics::contex
 /// Acquire already-owned candidates and independent execution/outcome proofs; no action
 /// meaning or timing policy lives in orchestration.
 pub async fn action_assessments(ctx:&SessionContext)->Result<lctx_analytics::actions::Outcome,CoreError> {
+    let source_bindings=sql::fetch(ctx,&admitted_source_call_bindings(),sql::Params::new()).await?;
     let source_calls=sql::fetch(ctx,&source_call_normals(),sql::Params::new()).await?;
     let frames=sql::fetch(ctx,&model_frames(),sql::Params::new()).await?;
     let frame_arguments=sql::fetch(ctx,&model_frame_arguments(),sql::Params::new()).await?;
@@ -516,7 +519,7 @@ pub async fn action_assessments(ctx:&SessionContext)->Result<lctx_analytics::act
     let execution_steps=sql::fetch(ctx,&action_execution_steps(),sql::Params::new()).await?;
     let expressions=sql::fetch(ctx,&completion_expressions(),sql::Params::new()).await?;
     let expression_steps=sql::fetch(ctx,&completion_expression_steps(),sql::Params::new()).await?;
-    Ok(lctx_analytics::actions::assess(lctx_analytics::actions::Inputs {source_calls:&source_calls,
+    Ok(lctx_analytics::actions::assess(lctx_analytics::actions::Inputs {source_bindings:&source_bindings,source_calls:&source_calls,
         frames:&frames,frame_arguments:&frame_arguments,bindings:&bindings,arguments:&arguments,effects:&effects,callbacks:&callbacks,resources:&resources,applications:&applications,
         executions:&executions,execution_steps:&execution_steps,expressions:&expressions,expression_steps:&expression_steps,
     }))

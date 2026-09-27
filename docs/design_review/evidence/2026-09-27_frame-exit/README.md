@@ -139,3 +139,49 @@ expectations, the affected nextest replay **passed**, one case, 226 skipped, 12.
 (`/tmp/lctx-stage3-source-call-regressions3.log`). The full 30-case selection was not repeated.
 The selection also rebuilt the Python fixture with the new required support files;
 `uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -q` **passed**, 13 cases.
+
+
+## Reached source invocation
+
+**Implemented and focused Tested, 2026-09-27; compiler100.** The common invocation owner now
+accepts explicitly typed source targets through independent fresh binding/header support, with
+no model identifier or normal-body premise. Reached raising, captured and unknown-body calls
+can invoke while their normal summaries remain withheld. Failed headers and unreachable callers
+withhold. An independently indexed callee scope excludes generators, including unreachable
+yields. Duplicate-aware indexes replace repeated global binding/normal/candidate scans.
+
+The schema migration adds `source_call_bindings`, keys header steps by binding, reduces normals
+to binding/body support, makes call execution targets explicit and appends `SourceInvocation`.
+Four table contracts, codebooks, reference rules and three served projections were inspected and
+accepted. Publication independently reconstructs binding, invocation and normal relations; native
+exports only bindings referenced by served normals. Full native source-invocation serving and
+raw-source reconstruction remain open. Existing expanded proof caps are unchanged.
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 LCTX_PY_FIXTURE=/home/paul/library-context/build/py-fixture cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts --test codebooks --test compile --test bundle -E 'binary(contracts) | binary(codebooks) | test(completion::) | test(source_body::) | test(source_call::) | test(call_execution::) | test(evaluation::) | test(actions::) | test(summaries::finite::) | test(reach_fixed_point_tests::) | test(source_body_outcomes_do_not_invent_value_flows_or_caller_continuation) | test(fresh_source_calls_require_body_binding_and_release) | test(serving_schema_digests_are_the_shared_known_answers) | test(pinned_identity_models_require_and_publish_their_real_formals) | test(action_triggers_preserve_partial_io_and_withhold_unproved_outcomes) | test(composed_argument_reads_keep_ordered_source_evidence) | test(finite_depth_and_unsupported_refusals_reach_the_native_response) | test(finalizer_proof_round_trips_through_the_native_generation_reader) | test(writes_the_python_fixture_generation)' --status-level fail --final-status-level fail
+```
+
+**passed:** 87 tests, 141 skipped, 28.477 s (`/tmp/lctx-source100-tests3.log`). The real fixture
+runs 25 [native controls](native_source_call.py), including whole-table removal and foreign-caller
+substitution. Shared Rust tests reject mixed source/model variants, missing or foreign binding
+support and duplicate normal/binding IDs, and distinguish expanded 64 versus 65 invocation steps.
+The prior 63/65 invocation-versus-action test remains unchanged in meaning.
+The first run **failed:** 45 passed, five failures from pending schema/serving migrations and the
+old native installation (`/tmp/lctx-source100-tests1.log`). The 49-case second run used
+`INSTA_FORCE_PASS=1` only to generate all pending migrations; it is not the qualification receipt.
+Review also found the generator phase and quadratic preparation defects; both were corrected
+before the final no-update run.
+
+`CARGO_TARGET_DIR=/home/paul/library-context/target uv sync --frozen --reinstall-package lctx-semantics`
+**passed**, 31.21 s (`/tmp/lctx-source100-native-sync.log`), before the final native checks.
+`uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -q` **passed**, 13 tests
+against the newly generated fixture (`/tmp/lctx-source100-python.log`).
+
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_frame-exit/source_call_oracle.py`
+**passed**, 14 independently generated CPython 3.14.7 controls. The current harness extends the
+prior ten-case receipt above with explicit body-entry observations, failed header, unknown body,
+and two generator controls. The [current hashed receipt](raw/source_invocation_receipt.json)
+distinguishes generator creation from body entry and caller return. No fixture or compiler
+output is executed or used as an oracle expectation. Ruff for the oracle/native/generation files
+and Pyrefly for `generation.py` **passed** with zero errors. The fixture was parsed only.
+Integrated Stage 3 gates remain `not_run` until the remaining S1–S7 work is assembled.

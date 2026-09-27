@@ -57,6 +57,7 @@ fn one<'a,T>(rows:Option<&Vec<&'a T>>)->Result<&'a T,R> {
 /// Shared exact fresh-definition window. Default availability and source-call normality add
 /// their own obligations to these same source premises; neither implies the other.
 pub struct FreshDefinition<'a> {
+    pub declaration:&'a DeclarationsRow,
     pub header:&'a SyntaxNodesRow,pub call:&'a SyntaxNodesRow,pub statement:&'a SyntaxNodesRow,
     pub binding:&'a BindingsRow,pub reference:&'a ReferencesRow,pub resolution:&'a ReferenceResolutionsRow,
     pub header_steps:Vec<&'a StatementCompletionStepsRow>,
@@ -124,7 +125,7 @@ impl<'a> FreshDefinitionIndex<'a> {
         if header_steps.is_empty() || header_steps.iter().enumerate().any(|(i,s)|s.ordinal!=i as i64) {
             return Err(R::MissingEvidence);
         }
-        Ok(FreshDefinition {header,call,statement:returned,binding,reference,resolution,header_steps})
+        Ok(FreshDefinition {declaration,header,call,statement:returned,binding,reference,resolution,header_steps})
     }
 }
 
@@ -160,7 +161,7 @@ pub fn bind(inputs:Inputs<'_>)->Vec<SourceCallBinding> {
             }
             if bound.defaults.is_empty() {return Ok(out);}
             let fresh=fresh.admit(req)?;
-            let FreshDefinition {header,call,statement:returned,binding,reference,resolution,header_steps}=fresh;
+            let FreshDefinition {header,call,statement:returned,binding,reference,resolution,header_steps,..}=fresh;
             // Reuse evidence of creation as availability, never as another invocation-time
             // expression evaluation. Ordered evaluation already belongs to the entry proof.
             out.proof.extend(header_steps.iter().map(|s|(K::DefaultAvailabilityEvidence,s.evidence_id)));

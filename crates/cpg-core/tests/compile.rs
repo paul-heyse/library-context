@@ -6000,7 +6000,7 @@ budget = 1
         let diagnostic=sql::query(&ctx,&format!("SELECT d.name, s.kind, e.normal, e.reason, e.status FROM expression_evaluations e \
             JOIN syntax_nodes s ON s.fact_id=e.syntax_fact_id JOIN declarations d ON d.node_id=s.owner_node_id \
             WHERE d.name='{name}'")).await.unwrap().collect().await.unwrap();
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals c JOIN declarations d \
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals n JOIN source_call_bindings c ON c.binding_id=n.binding_id JOIN declarations d \
             ON d.node_id=c.function_node_id WHERE d.name='{name}'")).await,1,"{name}: {}",pretty_format_batches(&diagnostic).unwrap());
         assert!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
             ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await>0,"{name}");
@@ -6008,19 +6008,29 @@ budget = 1
             ON s.summary_id=p.summary_id JOIN declarations d ON d.node_id=s.function_node_id \
             WHERE d.name='{name}' AND p.kind={}",cpg_schema::codebook::SummaryFlowStepKind::SourceCallNormal.code())).await>0,"{name}");
     }
-    for name in ["call_raises","call_local_read","call_default","call_captured","call_intervening","call_alias"] {
-        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals c JOIN declarations d \
+    for name in ["call_raises","call_local_read","call_default","call_captured","call_intervening","call_alias","call_failed_header","call_unknown_body","call_generator","call_unreachable_yield"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals n JOIN source_call_bindings c ON c.binding_id=n.binding_id JOIN declarations d \
             ON d.node_id=c.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
             ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
     }
+    for name in ["call_literal","call_fallthrough","call_return_finally","call_modeled","call_raises","call_local_read","call_captured","call_unknown_body"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
+            WHERE d.name='{name}' AND e.target_kind={} AND e.model_id IS NULL AND e.source_binding_id IS NOT NULL AND e.reason IS NULL",
+            cpg_schema::codebook::CallExecutionTarget::Source.code())).await,1,"source invocation {name}: {}",
+            sql::render(&ctx,&format!("SELECT d.name,e.reason FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='{name}'")).await.unwrap());
+    }
+    for name in ["call_default","call_intervening","call_alias","call_failed_header","call_unreachable","call_generator","call_unreachable_yield"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
+            WHERE d.name='{name}' AND e.target_kind={} AND e.reason IS NULL",cpg_schema::codebook::CallExecutionTarget::Source.code())).await,0,"withheld invocation {name}");
+    }
     // Normality under entry to an expression never asserts the caller reached it.
-    assert_eq!(count(&ctx,"SELECT count(*) FROM source_call_normals c JOIN declarations d \
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_call_normals n JOIN source_call_bindings c ON c.binding_id=n.binding_id JOIN declarations d \
         ON d.node_id=c.function_node_id WHERE d.name='call_unreachable'").await,1);
     assert_eq!(count(&ctx,"SELECT count(*) FROM summary_flows s JOIN declarations d \
         ON d.node_id=s.function_node_id WHERE d.name='call_unreachable'").await,0);
     assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions c JOIN declarations d ON d.node_id=c.function_node_id \
-        WHERE d.name='call_prefix_small' AND c.reason IS NULL").await,1);
+        WHERE d.name='call_prefix_small' AND c.model_id IS NOT NULL AND c.reason IS NULL").await,1);
     assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions c JOIN declarations d ON d.node_id=c.function_node_id \
         WHERE d.name='call_prefix_over_limit' AND c.reason={}",BoundaryReason::SummaryProofLimit.code())).await,1);
     assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments a JOIN declarations d ON d.node_id=a.function_node_id \
@@ -6034,7 +6044,7 @@ budget = 1
         "docs/design_review/evidence/2026-09-27_frame-exit/native_source_call.py",generation.dir.to_str().unwrap()])
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
     assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
-    for table in ["source_call_normals","source_call_header_steps"] {
+    for table in ["source_call_bindings","source_call_normals","source_call_header_steps"] {
         let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
         let changed=sql::query(&ctx,&format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
         ctx.deregister_table(table).unwrap();ctx.register_table(table,changed).unwrap();

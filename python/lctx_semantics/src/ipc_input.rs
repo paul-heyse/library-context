@@ -23,7 +23,7 @@ const NAMES: &[&str] = &[
     "public_paths",
     "callable_parameters",
     "summary_flows",
-    "source_parameter_identities", "source_context_value_identities", "source_modeled_identities", "model_frame_exits", "model_frame_exit_arguments", "model_frame_exit_steps", "source_body_completions", "source_body_steps", "source_body_release_inputs", "source_call_normals", "source_call_header_steps",
+    "source_parameter_identities", "source_context_value_identities", "source_modeled_identities", "model_frame_exits", "model_frame_exit_arguments", "model_frame_exit_steps", "source_body_completions", "source_body_steps", "source_body_release_inputs", "source_call_bindings", "source_call_normals", "source_call_header_steps",
     "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
     "summary_flow_steps",
     "summary_boundaries",
@@ -36,6 +36,7 @@ pub(super) struct Inputs {
     pub source_body_completions:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,
     pub source_body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>,
     pub source_body_release_inputs:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>,
+    pub source_call_bindings:Vec<cpg_schema::source_call::SourceCallBindingsRow>,
     pub source_call_normals:Vec<cpg_schema::source_call::SourceCallNormalsRow>,
     pub source_call_header_steps:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>,
 
@@ -313,9 +314,9 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         proof_digest:super::digest(&table.digest("proof_digest",row)?)?,
         evaluation_evidence_id:super::id(&table.id("evaluation_evidence_id",row)?)?,
     })).collect::<PyResult<_>>()?;
-    let table=batch(&batches,"source_call_normals");
-    let source_call_normals=(0..table.len()).map(|row|Ok(cpg_schema::source_call::SourceCallNormalsRow {snapshot_id:Id::ZERO,
-        certificate_id:super::id(&table.id("certificate_id",row)?)?,
+    let table=batch(&batches,"source_call_bindings");
+    let source_call_bindings=(0..table.len()).map(|row|Ok(cpg_schema::source_call::SourceCallBindingsRow {snapshot_id:Id::ZERO,
+        binding_id:super::id(&table.id("binding_id",row)?)?,
         function_node_id:super::id(&table.id("function_node_id",row)?)?,
         call_node_id:super::id(&table.id("call_node_id",row)?)?,
         call_fact_id:super::id(&table.id("call_fact_id",row)?)?,
@@ -323,7 +324,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         callee_node_id:super::id(&table.id("callee_node_id",row)?)?,
         pysa_fact_id:super::id(&table.id("pysa_fact_id",row)?)?,
         signature_fact_id:super::id(&table.id("signature_fact_id",row)?)?,
-        body_id:super::id(&table.id("body_id",row)?)?,
+        declaration_fact_id:super::id(&table.id("declaration_fact_id",row)?)?,
         header_fact_id:super::id(&table.id("header_fact_id",row)?)?,
         statement_fact_id:super::id(&table.id("statement_fact_id",row)?)?,
         binding_fact_id:super::id(&table.id("binding_fact_id",row)?)?,
@@ -331,15 +332,21 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         resolution_fact_id:super::id(&table.id("resolution_fact_id",row)?)?,
         header_count:table.integer("header_count",row)?,
         header_digest:super::digest(&table.digest("header_digest",row)?)?,
+    })).collect::<PyResult<_>>()?;
+    let table=batch(&batches,"source_call_normals");
+    let source_call_normals=(0..table.len()).map(|row|Ok(cpg_schema::source_call::SourceCallNormalsRow {snapshot_id:Id::ZERO,
+        certificate_id:super::id(&table.id("certificate_id",row)?)?,
+        binding_id:super::id(&table.id("binding_id",row)?)?,
+        body_id:super::id(&table.id("body_id",row)?)?,
         body_count:table.integer("body_count",row)?,
         body_kind:table.code::<cpg_schema::codebook::CompletionKind>("body_kind",row)?,
     })).collect::<PyResult<_>>()?;
     let table=batch(&batches,"source_call_header_steps");
     let source_call_header_steps=(0..table.len()).map(|row|Ok(cpg_schema::source_call::SourceCallHeaderStepsRow {snapshot_id:Id::ZERO,
-        certificate_id:super::id(&table.id("certificate_id",row)?)?,
+        binding_id:super::id(&table.id("binding_id",row)?)?,
+        evidence_id:super::id(&table.id("evidence_id",row)?)?,
         ordinal:table.integer("ordinal",row)?,
         kind:table.code::<cpg_schema::codebook::SummaryFlowStepKind>("kind",row)?,
-        evidence_id:super::id(&table.id("evidence_id",row)?)?,
     })).collect::<PyResult<_>>()?;
     let table=batch(&batches,"model_frame_exits");
     let model_frame_exits=(0..table.len()).map(|row|Ok(cpg_schema::frame_exit::ModelFrameExitsRow {snapshot_id:Id::ZERO,
@@ -504,6 +511,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         source_body_completions,
         source_body_steps,
         source_body_release_inputs,
+        source_call_bindings,
         source_call_normals,
         source_call_header_steps,
         model_frame_exits,model_frame_exit_arguments,model_frame_exit_steps,

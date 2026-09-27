@@ -210,6 +210,7 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_source_call_bindings = "validate_source_call_bindings", deps = ["source_call_bindings"], sql = "SELECT * FROM source_call_bindings".to_owned();
     stored_source_call_normals = "validate_source_call_normals", deps = ["source_call_normals"], sql = "SELECT * FROM source_call_normals".to_owned();
     stored_source_call_headers = "validate_source_call_headers", deps = ["source_call_header_steps"], sql = "SELECT * FROM source_call_header_steps".to_owned();
     stored_source_bodies = "validate_source_bodies", deps = ["source_body_completions"], sql = "SELECT * FROM source_body_completions".to_owned();
@@ -800,10 +801,12 @@ async fn validate_exit_sites(ctx: &SessionContext,
     certificates.sort_by_key(|r|(r.snapshot_id,r.certificate_id));
     if certificates!=expected.certificates {violations.push(Violation {rule:"completion-certificate-source-equality".into(),rows:1,
         sample:"return evidence commitment differs from independently reconstructed entry and exit obligations".into()});}
+    let mut source_bindings:Vec<cpg_schema::source_call::SourceCallBindingsRow>=sql::fetch(ctx,&stored_source_call_bindings(),sql::Params::new()).await?;
+    source_bindings.sort_by_key(|r|(r.snapshot_id,r.binding_id));
     let mut source_calls:Vec<cpg_schema::source_call::SourceCallNormalsRow>=sql::fetch(ctx,&stored_source_call_normals(),sql::Params::new()).await?;
     let mut source_headers:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>=sql::fetch(ctx,&stored_source_call_headers(),sql::Params::new()).await?;
-    source_calls.sort_by_key(|r|(r.snapshot_id,r.certificate_id));source_headers.sort_by_key(|r|(r.snapshot_id,r.certificate_id,r.ordinal));
-    if source_calls!=expected.source_calls || source_headers!=expected.source_call_headers {violations.push(Violation {
+    source_calls.sort_by_key(|r|(r.snapshot_id,r.certificate_id));source_headers.sort_by_key(|r|(r.snapshot_id,r.binding_id,r.ordinal));
+    if source_bindings!=expected.source_bindings || source_calls!=expected.source_calls || source_headers!=expected.source_call_headers {violations.push(Violation {
         rule:"source-call-source-equality".into(),rows:1,sample:"fresh call binding, body or retention differs from base source preparation".into(),
     });}
     let mut bodies:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>=sql::fetch(ctx,&stored_source_bodies(),sql::Params::new()).await?;

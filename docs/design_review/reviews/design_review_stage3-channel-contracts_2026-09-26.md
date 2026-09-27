@@ -2259,3 +2259,101 @@ retains generated program hashes. Fixtures were parsed, never executed. Full `ju
 F17's broader lifetime/source domains, target-neutral source invocation, channel composition,
 coverage/discharge, action serving and integrated Stage 3 qualification remain open in the
 forward plan. The next channel design review is separate from this implementation acceptance.
+
+## 35. Bounded implementation follow-up: source invocation independent of outcome
+
+**2026-09-27 · change/conformance · Implemented; focused Tested as attributed below.**
+Compiler 100 factors the §34 source-call contract under ADR-0057/0058, preserving ADR-0063's
+independent frame/outcome obligations. This is ordinary implementation of the accepted ownership
+and composition decisions; no new ADR is needed. The reviewer inspected production source and
+receipts, ran no product tests, and edited only this review.
+
+`SourceCallBindings` now independently owns the exact caller/callee, call, source/provider
+signature, declaration, header, lexical binding and reference premises. Header steps belong to
+that binding. The reduced `SourceCallNormals` joins the admitted binding to an independently
+qualified body; binding identity no longer depends on the body outcome. Schema admission checks
+both links, required declaration/binding header evidence, scope and bounded support. A live
+binding at entry is not an assertion that arbitrary body execution preserves its retainer.
+
+Existing `CallExecutions` gains explicit Source/Model variants. Model invocations require their
+model ID and no source binding; successful source invocations require a source binding and no
+model ID. Failed source binding can retain an attributed refusal without invented support.
+The evaluator uses the same `invoke` entry point for both variants. Its zero-argument source
+branch supplies no result value; expression normality separately consumes `SourceCallNormal`.
+Completion still proves the reached prefix under enclosing callable entry. A captured, raising
+or unknown body may therefore have an admitted invocation while normal evaluation, release and
+value-summary claims remain withheld. Unsupported binding, failed header, unreachable prefix,
+decorated/deferred domains and other scope refusals remain explicit.
+
+**F18 — Eager source invocation must exclude generator bodies (corrected in this slice).**
+Decoupling binding from body outcomes initially removed the effective generator barrier.
+`source_call::prepare` now independently indexes owned Yield/YieldFrom syntax and rejects those
+callees before admitting a binding. A syntactically unreachable yield still selects generator
+semantics. Async declarations remain excluded by the fresh-definition contract. The two real
+source controls and independent generated runtime controls distinguish generator creation from
+body entry; no creation/resume semantics are pulled forward from Stage 5. Owner: analytics source
+invocation admission; closure is bounded to this eager domain.
+
+**F19 — Factoring must not add repeated whole-input joins (corrected in this slice).**
+The initial normal/binding join scanned both relations per normal and scanned invocation
+candidates per expression. Shared `SourceCallIndex` now builds `(snapshot, id)` indexes once,
+with duplicate keys remaining refused. Evaluation, completion, finite summaries and actions
+consume the same checked joined support; invocation candidates are indexed by call site.
+Duplicate binding/normal controls retain ambiguity refusal. This is source-inspected removal of
+the new quadratic preparation, not a measured whole-corpus cost claim.
+
+Invocation charges binding/header evidence; normal completion additionally charges body
+evidence. Shared admission retains the original expanded 64-step limit and rejects an invocation
+marker as completed predecessor/operand evidence, including an isolated marker. Action admission
+still requires the matching Model variant and does not activate a source call's body actions.
+Source publication reconstructs binding, normal and header relations from raw inputs through the
+existing acyclic preparation. Native admits the binding/header before the normal
+join, rejects missing/foreign/duplicate/orphan support and exports only bindings referenced by
+served normal certificates. It does **not** export or serve source invocation claims in this slice.
+
+| Judgment/gate | Bounded verdict | Basis and boundary |
+|---|---|---|
+| A1 — Localize change | satisfied | One schema owner defines binding/target/outcome contracts; the existing evaluation and completion owners supply invocation and reach. |
+| A2 — Encode meaning structurally | satisfied | Explicit target variants, independent binding/normal identities and refusal shapes prevent fabricated model IDs or outcome evidence. |
+| A3 — Extend through composition | satisfied | Invocation and normality consume the same binding; existing actions/finite/native consumers use shared joined admission rather than another invocation table or interpreter. |
+| G1–G8 | pass within the slice | Indexed preparation, preserved proof bounds, source reconstruction and focused source/native mutation controls support the stated zero-argument domain. |
+| CI-G1 | pass within the corrected eager domain | Source invocation is independent of body success and value identity; generator creation is not relabelled eager body entry. |
+| CI-G2 | pass for the bounded contracts | Source/Delta reconstruction and native normal-support closure pass; native source-invocation serving and full raw-source semantic closure remain open. |
+| CI-G3 | pass for the named qualification | Independent generated runtime programs challenge entry/outcome distinctions; real extracted fixtures exercise publication/native consumers without executing fixture code. |
+
+**Attributed receipts, inspected 2026-09-27.** The final focused command was:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 LCTX_PY_FIXTURE=/home/paul/library-context/build/py-fixture cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts --test codebooks --test compile --test bundle -E 'binary(contracts) | binary(codebooks) | test(completion::) | test(source_body::) | test(source_call::) | test(call_execution::) | test(evaluation::) | test(actions::) | test(summaries::finite::) | test(reach_fixed_point_tests::) | test(source_body_outcomes_do_not_invent_value_flows_or_caller_continuation) | test(fresh_source_calls_require_body_binding_and_release) | test(serving_schema_digests_are_the_shared_known_answers) | test(pinned_identity_models_require_and_publish_their_real_formals) | test(action_triggers_preserve_partial_io_and_withhold_unproved_outcomes) | test(composed_argument_reads_keep_ordered_source_evidence) | test(finite_depth_and_unsupported_refusals_reach_the_native_response) | test(finalizer_proof_round_trips_through_the_native_generation_reader) | test(writes_the_python_fixture_generation)' --status-level fail --final-status-level fail
+```
+
+`/tmp/lctx-source100-tests3.log` **passed: 87, 141 skipped, 28.477 s, seven binaries**.
+It covers contracts/codebooks, source binding/body/invocation/completion, evaluation/actions,
+finite/reach behavior, source→Delta→bundle→native, adjacent default/action/refusal cases and
+fresh Python fixture generation. The real source fixture invokes
+[twenty-five native controls](../evidence/2026-09-27_frame-exit/native_source_call.py), including
+the new binding support table and unchanged positive/withholding/foreign-occurrence obligations.
+
+The first focused run had **45 passed, five failed** on migrations and the old installed native.
+A later 49-case run used `INSTA_FORCE_PASS=1` to execute checks while producing pending snapshots;
+that is migration execution, not final qualification. The author read and accepted the new
+binding and changed normal/header/invocation schemas, append-only codebooks and serving
+projections before the final no-update receipt above.
+
+`CARGO_TARGET_DIR=/home/paul/library-context/target uv sync --frozen --reinstall-package lctx-semantics`
+**passed** in 31.21 s (`/tmp/lctx-source100-native-sync.log`) before the final source/native run.
+With the fresh fixture,
+`uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -q` **passed: 13**
+(`/tmp/lctx-source100-python.log`). The author reports **passed** for
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_frame-exit/source_call_oracle.py`
+(fourteen generated CPython controls) and corresponding Ruff/Pyrefly checks with zero type
+errors. The [invocation receipt](../evidence/2026-09-27_frame-exit/raw/source_invocation_receipt.json)
+retains source hashes and entry/outcome observations. Fixtures were not executed.
+
+**Decision: Accept scoped.** The independent fresh source-invocation contract and corrected
+normal-support migration conform to the accepted target. General source bindings/defaults,
+source/local outcome composition, all-channel SCC facts, claim-specific coverage/discharge,
+concrete resource identity and callback fates remain open. Native action/invocation/postcondition
+serving, full raw-source evidence closure, F17's broader lifetime domains and integrated Stage 3
+qualification are not accepted here. Full `just test-all`, `just pilot` and assembled review
+remain **not_run**.

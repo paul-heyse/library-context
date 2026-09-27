@@ -532,6 +532,7 @@ type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 #[derive(Clone)]
 pub struct FiniteSummaryInputs {
+    pub source_bindings:Vec<cpg_schema::source_call::SourceCallBindingsRow>,
     pub source_calls:Vec<cpg_schema::source_call::SourceCallNormalsRow>,
     pub model_frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
     pub modeled_identities: Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
@@ -1094,7 +1095,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     -> FiniteSummaryOutcome
 {
     let FiniteSummaryInputs {
-        source_calls, model_frames, modeled_identities, identities, context_identities, context_arguments,
+        source_bindings,source_calls, model_frames, modeled_identities, identities, context_identities, context_arguments,
         diagrams, boundaries, mut pass_steps, entries, entry_steps, components, context_sites, return_certificates,
         mut direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates,
@@ -1679,8 +1680,10 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     }
     // Source and native consumers share lifecycle admission. Check complete witnesses after
     // finalizer insertion, in dependency order, and refuse callers of a rejected witness.
+    let source_index=cpg_schema::source_call::SourceCallIndex::new(&source_calls,&source_bindings);
     let mut source_call_index=HashMap::new();
-    for r in &source_calls {source_call_index.entry((r.snapshot_id,r.certificate_id)).and_modify(|r|*r=None).or_insert(Some(r));}
+    for r in &source_calls {source_call_index.entry((r.snapshot_id,r.certificate_id)).and_modify(|r|*r=None)
+        .or_insert(source_index.normal(r.snapshot_id,r.certificate_id));}
     let mut frame_index=HashMap::new();
     for frame in &model_frames {
         frame_index.entry((frame.snapshot_id,frame.frame_exit_id)).and_modify(|prior|*prior=None).or_insert(Some(frame));
@@ -1905,7 +1908,7 @@ mod tests {
     fn inputs() -> FiniteSummaryInputs {
         let always = Diagram::always();
         FiniteSummaryInputs {
-            source_calls:Vec::new(),model_frames:Vec::new(),
+            source_bindings:Vec::new(),source_calls:Vec::new(),model_frames:Vec::new(),
             identities: Vec::new(),
             diagrams: HashMap::from([(always.id(), always)]),
             boundaries: HashMap::new(),

@@ -120,7 +120,7 @@ pub struct Published {
 /// 94: explicit authored action triggers and candidate-backed action assessments.
 /// 95: pinned default availability and independently committed omitted-formal obligations.
 /// 96: normal-exit action implications with mandatory undischarged outcome obligations.
-pub const COMPILER_OUTPUT_VERSION: u32 = 99;
+pub const COMPILER_OUTPUT_VERSION: u32 = 100;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -830,6 +830,7 @@ async fn finish(
         write_analysis_query::<ModeledAssignmentReturnPaths>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::modeled_assignment_return_paths(), w).await?;
         let completions = prepared.completions;
+        write_analysis::<cpg_schema::source_call::SourceCallBindings>(&ctx,root,snapshot_id,&completions.source_bindings,w).await?;
         write_analysis::<cpg_schema::source_call::SourceCallNormals>(&ctx,root,snapshot_id,&completions.source_calls,w).await?;
         write_analysis::<cpg_schema::source_call::SourceCallHeaderSteps>(&ctx,root,snapshot_id,&completions.source_call_headers,w).await?;
         write_analysis::<cpg_schema::source_body::SourceBodyCompletions>(&ctx,root,snapshot_id,&completions.bodies,w).await?;

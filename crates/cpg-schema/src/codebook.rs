@@ -1471,6 +1471,7 @@ codebook!(
         ModelDefaultFormal = 35 => "model_default_formal",
         ModelFrameExit = 36 => "model_frame_exit",
         SourceCallNormal = 37 => "source_call_normal",
+        SourceInvocation = 38 => "source_invocation",
     }
 );
 
@@ -1853,8 +1854,17 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ConceptAttributeKind>(),
         CodebookEntry::of::<ContextEntryKind>(),
         CodebookEntry::of::<ContextExitKind>(),
+        CodebookEntry::of::<CallExecutionTarget>(),
     ]
 }
+
+codebook!(
+    /// The independently admitted target premise for an eager reached call.
+    CallExecutionTarget = "call_execution_target" {
+        Model = 0 => "model",
+        Source = 1 => "source",
+    }
+);
 
 /// The inclusive code range of a codebook, for local validation (never a Delta CHECK: codebooks
 /// grow, DESIGN §8).

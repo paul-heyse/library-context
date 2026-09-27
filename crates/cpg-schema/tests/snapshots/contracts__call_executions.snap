@@ -16,7 +16,9 @@ call_fact_id: FixedSizeBinary(16) NOT NULL
 syntax_fact_id: FixedSizeBinary(16) NOT NULL
 target_node_id: FixedSizeBinary(16) NOT NULL
 pysa_fact_id: FixedSizeBinary(16) NOT NULL
-model_id: FixedSizeBinary(16) NOT NULL
+target_kind: Int16 NOT NULL [lctx.codebook=call_execution_target]
+model_id: FixedSizeBinary(16) NULL
+source_binding_id: FixedSizeBinary(16) NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
 argument_count: Int64 NOT NULL

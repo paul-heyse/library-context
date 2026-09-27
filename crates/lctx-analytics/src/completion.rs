@@ -22,6 +22,7 @@ type Result = std::result::Result<Completion, BoundaryReason>;
 
 #[derive(Clone,Copy)]
 pub struct Inputs<'a> {
+    pub source_bindings:&'a [cpg_schema::source_call::SourceCallBindingsRow],
     pub model_frames:&'a [cpg_schema::frame_exit::ModelFrameExitsRow],
     pub source_calls:&'a [cpg_schema::source_call::SourceCallNormalsRow],
     pub references:&'a [cpg_schema::tables::ReferencesRow],
@@ -51,6 +52,7 @@ pub struct Inputs<'a> {
 
 #[derive(Default)]
 pub struct Outcome {
+    pub source_bindings:Vec<cpg_schema::source_call::SourceCallBindingsRow>,
     pub source_calls:Vec<cpg_schema::source_call::SourceCallNormalsRow>,
     pub source_call_headers:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>,
     pub bodies:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,
@@ -184,7 +186,7 @@ struct PreparedContext<'a> {
 }
 
 struct Kernel<'a> {
-    source_calls:HashMap<Id,&'a cpg_schema::source_call::SourceCallNormalsRow>,
+    source_calls:HashMap<Id,cpg_schema::source_call::NormalSupport<'a>>,
     body_releases:Option<Vec<(Id,cpg_schema::codebook::ReleaseSafety,usize,usize,Id)>>,
     contexts: HashMap<(Id,Id),PreparedContext<'a>>,
     definitions: HashMap<(Id,Id),DefinitionHeader<'a>>,
@@ -803,7 +805,8 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
         if inputs.context_sites.iter().filter(|s|(s.snapshot_id,s.item_node_id)==key).count()!=1 {continue;}
         contexts.insert(key,PreparedContext {site,protocol,arguments});
     }
-    let mut kernel = Kernel {source_calls:inputs.source_calls.iter().map(|r|(r.certificate_id,r)).collect(), body_releases:None, contexts, definitions, children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
+    let source_index=cpg_schema::source_call::SourceCallIndex::new(inputs.source_calls,inputs.source_bindings);
+    let mut kernel = Kernel {source_calls:inputs.source_calls.iter().filter_map(|r|source_index.normal(r.snapshot_id,r.certificate_id).map(|s|(r.certificate_id,s))).collect(), body_releases:None, contexts, definitions, children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
         handler_types,classes,mro,modules,active_exception:None,
         entry_mode:false,initialized:BTreeSet::new(),path_initializations:eligible,
         remaining: MAX_WORK, proof: Vec::new(),
@@ -919,7 +922,7 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
         let mut row=CallExecutionsRow {snapshot_id:invocation.snapshot_id,execution_id:Id::ZERO,
             function_node_id:invocation.function_node_id,call_node_id:invocation.call_node_id,call_fact_id:invocation.call_fact_id,
             syntax_fact_id:invocation.syntax_fact_id,target_node_id:invocation.target_node_id,pysa_fact_id:invocation.pysa_fact_id,
-            model_id:invocation.model_id,condition_id:condition,phase:cpg_schema::codebook::InvocationPhase::Call,
+            target_kind:invocation.target_kind,source_binding_id:invocation.source_binding_id,model_id:invocation.model_id,condition_id:condition,phase:cpg_schema::codebook::InvocationPhase::Call,
             argument_count:invocation.argument_count,
             default_formal_count:invocation.default_formals.as_ref().map(|d|d.len() as i64),
             default_formals_digest:invocation.default_formals.as_ref().map(|d|cpg_schema::call_execution::defaults_digest(d)),prefix_count:before.len() as i64,invocation_count:invoke.len() as i64,
@@ -930,7 +933,8 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
         // Structural admission is an invariant of this producer, independently of later action consumers.
         if let Err(error)=admit_with_calls(&row,&proof,
             |id|inputs.model_frames.iter().find(|r|r.snapshot_id==row.snapshot_id && r.frame_exit_id==id),
-            |id|kernel.source_calls.get(&id).copied()) {
+            |id|kernel.source_calls.get(&id).copied(),
+            |id|source_index.binding(row.snapshot_id,id)) {
             row.reason=Some(error.reason);row.prefix_count=0;row.invocation_count=0;
             row.prefix_digest=proof_digest(&[]);row.invocation_digest=proof_digest(&[]);row.execution_id=identity(&row);
         } else if row.reason.is_none() {
@@ -1045,7 +1049,7 @@ mod tests {
     }
     fn run(nodes:&[SyntaxNodesRow], exits:&[ExitSitesRow]) -> Outcome {
         let expressions=evaluate(EvaluationInputs {source_calls:&[],syntax:nodes,..Default::default()});
-        complete(Inputs {model_frames:&[],source_calls:&[],references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
+        complete(Inputs {model_frames:&[],source_bindings:&[],source_calls:&[],references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
             handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&[],entry_conditions:&[],boundaries:&HashMap::new(),diagrams:&HashMap::new()})
     }
     fn exit(site:u8) -> ExitSitesRow {
@@ -1261,7 +1265,7 @@ mod tests {
             let diagrams=HashMap::from([(path.id(),path),(predicate.id(),predicate)]);
             let exits=[target];let tests=[test];
             let check=|diagrams:&HashMap<Id,Diagram>,boundaries:&HashMap<Id,BoundaryReason>| {
-                let out=complete(Inputs {model_frames:&[],source_calls:&[],references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+                let out=complete(Inputs {model_frames:&[],source_bindings:&[],source_calls:&[],references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                     bindings:&[],scopes:&[],exits:&exits,handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,entry_conditions:&[],boundaries,diagrams});
                 assert_eq!(out.entries[0].reason,Some(expected));assert!(out.entry_steps.is_empty());
             };
@@ -1291,7 +1295,7 @@ mod tests {
         let check=|nodes:&[SyntaxNodesRow]| {
             let evaluations=evaluate(EvaluationInputs {source_calls:&[],syntax:nodes,reads:std::slice::from_ref(&read),..Default::default()});
             assert!(!evaluations.evaluations.iter().find(|e|e.syntax_fact_id==id(11)).unwrap().normal);
-            complete(Inputs {model_frames:&[],source_calls:&[],references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+            complete(Inputs {model_frames:&[],source_bindings:&[],source_calls:&[],references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                 bindings:&[],scopes:&[],exits:std::slice::from_ref(&target),handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,
                 entry_conditions:&[(id(1),id(99),Diagram::always().id())],boundaries:&HashMap::new(),diagrams:&diagrams})
         };

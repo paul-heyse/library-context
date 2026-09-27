@@ -4,12 +4,12 @@ expression: text
 ---
 table source_call_header_steps
 family findings
-key snapshot_id, certificate_id, ordinal
+key snapshot_id, binding_id, ordinal
 check ordinal_nonnegative: ordinal >= 0
 @lctx.family=findings
 @lctx.table=source_call_header_steps
 snapshot_id: FixedSizeBinary(16) NOT NULL
-certificate_id: FixedSizeBinary(16) NOT NULL
+binding_id: FixedSizeBinary(16) NOT NULL
 ordinal: Int64 NOT NULL
 kind: Int16 NOT NULL [lctx.codebook=summary_flow_step_kind]
 evidence_id: FixedSizeBinary(16) NOT NULL

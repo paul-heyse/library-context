@@ -1,0 +1,27 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table source_call_bindings
+family findings
+key snapshot_id, binding_id
+check bounded_header: header_count > 0 AND header_count <= 64
+@lctx.family=findings
+@lctx.table=source_call_bindings
+snapshot_id: FixedSizeBinary(16) NOT NULL
+binding_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+call_node_id: FixedSizeBinary(16) NOT NULL
+call_fact_id: FixedSizeBinary(16) NOT NULL
+syntax_fact_id: FixedSizeBinary(16) NOT NULL
+callee_node_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+signature_fact_id: FixedSizeBinary(16) NOT NULL
+declaration_fact_id: FixedSizeBinary(16) NOT NULL
+header_fact_id: FixedSizeBinary(16) NOT NULL
+statement_fact_id: FixedSizeBinary(16) NOT NULL
+binding_fact_id: FixedSizeBinary(16) NOT NULL
+reference_fact_id: FixedSizeBinary(16) NOT NULL
+resolution_fact_id: FixedSizeBinary(16) NOT NULL
+header_count: Int64 NOT NULL
+header_digest: FixedSizeBinary(32) NOT NULL

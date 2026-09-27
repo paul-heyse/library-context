@@ -5,7 +5,7 @@ use cpg_schema::codebook::{BoundaryReason as R,CompletionKind as C,InvocationPha
     PysaSiteKind,PysaTargetKind,ResolutionStatus,SyntaxKind as S,SyntaxField as F};
 use cpg_schema::derived::{CallTargetsRow,ResolutionsRow,ProviderNodeMapRow};
 use cpg_schema::id::Id;
-use cpg_schema::source_call::{SourceCallNormalsRow,SourceCallHeaderStepsRow};
+use cpg_schema::source_call::{SourceCallBindingsRow,SourceCallNormalsRow,SourceCallHeaderStepsRow};
 use cpg_schema::tables::{CallSyntaxRow,PysaCallsRow,PysaFunctionsRow,ParameterSemanticsRow};
 use crate::{call_binding,completion};
 
@@ -17,8 +17,18 @@ pub struct Targets<'a> {
 }
 #[derive(Default)]
 pub struct Outcome {
+    pub bindings:Vec<SourceCallBindingsRow>,
+    pub invocations:Vec<InvocationCandidate>,
     pub normals:Vec<SourceCallNormalsRow>,pub headers:Vec<SourceCallHeaderStepsRow>,
     pub refusals:Vec<(Id,Id,R)>,
+}
+/// Source target observations and the independent binding assessment. The evaluator supplies
+/// invocation proof; completion supplies reached-prefix proof. Neither depends on body Normal.
+#[derive(Clone,Copy)]
+pub struct InvocationCandidate {
+    pub snapshot_id:Id,pub function_node_id:Id,pub call_node_id:Id,pub call_fact_id:Id,
+    pub syntax_fact_id:Id,pub target_node_id:Id,pub pysa_fact_id:Id,pub argument_count:i64,
+    pub binding_id:Option<Id>,pub reason:Option<R>,
 }
 fn grouped<'a,T,K:std::hash::Hash+Eq>(rows:&'a [T],key:impl Fn(&'a T)->K)->HashMap<K,Vec<&'a T>> {
     let mut out=HashMap::new();for row in rows {out.entry(key(row)).or_insert_with(Vec::new).push(row);}out
@@ -40,20 +50,26 @@ pub fn prepare(source:Targets<'_>,inputs:&completion::Inputs<'_>,base:&completio
     let signatures=grouped(source.parameters,|r|(r.snapshot_id,r.module_node_id,r.function_key.as_str()));
     let arguments=grouped(source.arguments,|r|(r.snapshot_id,r.call_node_id));
     let parameters=grouped(inputs.parameters,|r|(r.snapshot_id,r.function_node_id));
+    let declarations=grouped(inputs.declarations,|r|(r.snapshot_id,r.node_id));
     let bodies=grouped(&base.bodies,|r|(r.snapshot_id,r.function_node_id));
     let body_steps=grouped(&base.body_steps,|r|(r.snapshot_id,r.body_id));
     let releases=grouped(&base.body_releases,|r|(r.snapshot_id,r.body_id));
     let children=grouped(inputs.syntax,|r|(r.snapshot_id,r.parent_node_id));
+    let deferred:std::collections::HashSet<_>=inputs.syntax.iter().filter(|n|matches!(n.kind,S::ExprYield|S::ExprYieldFrom))
+        .filter_map(|n|n.owner_node_id.map(|owner|(n.snapshot_id,owner))).collect();
+    let nodes=grouped(inputs.syntax,|r|(r.snapshot_id,r.node_id));
     let mut out=Outcome::default();
     for call in source.calls {
         let Some(caller)=call.owner_node_id else {continue;};
         let key=(call.snapshot_id,call.node_id);
+        let Ok(syntax)=one(nodes.get(&key)) else {continue;};
         // Only local direct targets enter this adapter. Other forms keep their evaluator's
         // existing refusal; candidates are never relabelled as exact source calls.
         let Ok(target)=one(targets.get(&key)) else {continue;};
         let Some(callee)=target.target_node_id else {continue;};
-        if !bodies.contains_key(&(call.snapshot_id,callee)) {continue;}
+        if !declarations.contains_key(&(call.snapshot_id,callee)) {continue;}
         let result=(|| {
+            if deferred.contains(&(call.snapshot_id,callee)) {return Err(R::ScopeBoundary);}
             let resolution=one(resolutions.get(&key))?;
             let provider=one(providers.get(&(call.snapshot_id,target.pysa_fact_id)))?;
             if resolution.status!=ResolutionStatus::Resolved || resolution.call_fact_id!=call.fact_id
@@ -86,32 +102,51 @@ pub fn prepare(source:Targets<'_>,inputs:&completion::Inputs<'_>,base:&completio
                 && n.node_id==fresh.reference.name_node_id && n.owner_node_id==Some(caller)) {
                 return Err(R::MissingEvidence);
             }
-            let body=one(bodies.get(&(call.snapshot_id,callee)))?;
-            if map.declaration_fact_id!=Some(body.declaration_fact_id) {return Err(R::MissingEvidence);}
-            if let Some(reason)=body.reason.or(body.release_reason) {return Err(reason);}
-            if !matches!(body.kind,C::Normal|C::Return) {return Err(R::UnsupportedControlFlow);}
-            let mut steps:Vec<_>=body_steps.get(&(call.snapshot_id,body.body_id)).into_iter().flatten().map(|s|(**s).clone()).collect();
-            let mut releases:Vec<_>=releases.get(&(call.snapshot_id,body.body_id)).into_iter().flatten().map(|s|(**s).clone()).collect();
-            steps.sort_by_key(|s|s.ordinal);releases.sort_by_key(|s|s.ordinal);
+            if map.declaration_fact_id!=Some(fresh.declaration.fact_id) {return Err(R::MissingEvidence);}
             let mut header:Vec<_>=fresh.header_steps.iter().enumerate().map(|(i,s)|SourceCallHeaderStepsRow {
-                snapshot_id:call.snapshot_id,certificate_id:Id::ZERO,ordinal:i as i64,kind:s.kind,evidence_id:s.evidence_id}).collect();
-            if header.len()+steps.len()+9>64 {return Err(R::SummaryProofLimit);}
-            let mut row=SourceCallNormalsRow {snapshot_id:call.snapshot_id,certificate_id:Id::ZERO,
+                snapshot_id:call.snapshot_id,binding_id:Id::ZERO,ordinal:i as i64,kind:s.kind,evidence_id:s.evidence_id}).collect();
+            let mut row=SourceCallBindingsRow {snapshot_id:call.snapshot_id,binding_id:Id::ZERO,
                 function_node_id:caller,call_node_id:call.node_id,call_fact_id:call.fact_id,syntax_fact_id:fresh.call.fact_id,
-                callee_node_id:callee,pysa_fact_id:provider.fact_id,signature_fact_id:function.fact_id,body_id:body.body_id,
+                callee_node_id:callee,pysa_fact_id:provider.fact_id,signature_fact_id:function.fact_id,declaration_fact_id:fresh.declaration.fact_id,
                 header_fact_id:fresh.header.fact_id,statement_fact_id:fresh.statement.fact_id,binding_fact_id:fresh.binding.fact_id,
                 reference_fact_id:fresh.reference.fact_id,resolution_fact_id:fresh.resolution.fact_id,
-                header_count:header.len() as i64,header_digest:cpg_schema::source_call::header_digest(&header),body_count:body.step_count,
-                body_kind:body.kind};
-            row.certificate_id=cpg_schema::source_call::identity(&row);
-            for s in &mut header {s.certificate_id=row.certificate_id;}
-            cpg_schema::source_call::admit(&row,&header,body,&steps,&releases).map_err(|e|e.reason)?;
+                header_count:header.len() as i64,header_digest:cpg_schema::source_call::header_digest(&header)};
+            row.binding_id=cpg_schema::source_call::binding_identity(&row);
+            for s in &mut header {s.binding_id=row.binding_id;}
+            cpg_schema::source_call::admit_binding(&row,&header).map_err(|e|e.reason)?;
             Ok((row,header))
         })();
-        match result {Ok((row,header))=>{out.normals.push(row);out.headers.extend(header);},
-            Err(reason)=>out.refusals.push((call.snapshot_id,call.node_id,reason))}
+        let candidate=InvocationCandidate {snapshot_id:call.snapshot_id,function_node_id:caller,
+            call_node_id:call.node_id,call_fact_id:call.fact_id,
+            syntax_fact_id:syntax.fact_id,
+            target_node_id:callee,pysa_fact_id:target.pysa_fact_id,argument_count:call.positional_count+call.keyword_count,
+            binding_id:result.as_ref().ok().map(|(r,_)|r.binding_id),reason:result.as_ref().err().copied()};
+        out.invocations.push(candidate);
+        match result {
+            Ok((binding,header))=>{
+                let normal=(|| {
+                    let body=one(bodies.get(&(call.snapshot_id,callee)))?;
+                    if let Some(reason)=body.reason.or(body.release_reason) {return Err(reason);}
+                    if !matches!(body.kind,C::Normal|C::Return) {return Err(R::UnsupportedControlFlow);}
+                    let mut steps:Vec<_>=body_steps.get(&(call.snapshot_id,body.body_id)).into_iter().flatten().map(|s|(**s).clone()).collect();
+                    let mut releases:Vec<_>=releases.get(&(call.snapshot_id,body.body_id)).into_iter().flatten().map(|s|(**s).clone()).collect();
+                    steps.sort_by_key(|s|s.ordinal);releases.sort_by_key(|s|s.ordinal);
+                    if header.len()+steps.len()+9>64 {return Err(R::SummaryProofLimit);}
+                    let mut row=SourceCallNormalsRow {snapshot_id:call.snapshot_id,certificate_id:Id::ZERO,
+                        binding_id:binding.binding_id,body_id:body.body_id,body_count:body.step_count,body_kind:body.kind};
+                    row.certificate_id=cpg_schema::source_call::identity(&row);
+                    cpg_schema::source_call::admit(&row,&binding,&header,body,&steps,&releases).map_err(|e|e.reason)?;
+                    Ok(row)
+                })();
+                match normal {Ok(row)=>out.normals.push(row),Err(reason)=>out.refusals.push((call.snapshot_id,call.node_id,reason))}
+                out.bindings.push(binding);out.headers.extend(header);
+            },
+            Err(reason)=>out.refusals.push((call.snapshot_id,call.node_id,reason)),
+        }
     }
+    out.bindings.sort_by_key(|r|(r.snapshot_id,r.binding_id));
+    out.invocations.sort_by_key(|r|(r.snapshot_id,r.call_node_id));
     out.normals.sort_by_key(|r|(r.snapshot_id,r.certificate_id));
-    out.headers.sort_by_key(|r|(r.snapshot_id,r.certificate_id,r.ordinal));
+    out.headers.sort_by_key(|r|(r.snapshot_id,r.binding_id,r.ordinal));
     out.refusals.sort();out
 }

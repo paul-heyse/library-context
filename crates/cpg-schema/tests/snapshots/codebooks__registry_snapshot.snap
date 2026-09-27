@@ -834,6 +834,7 @@ summary_flow_step_kind
   35 model_default_formal
   36 model_frame_exit
   37 source_call_normal
+  38 source_invocation
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal
@@ -887,3 +888,6 @@ context_entry_kind
 context_exit_kind
   0 preserve
   1 suppress_classes
+call_execution_target
+  0 model
+  1 source

@@ -485,6 +485,7 @@ macro_rules! for_each_analysis_table {
             $crate::context_protocol::ModelContextProtocols,
             $crate::context_protocol::SourceContextSites,
             $crate::call_execution::CallExecutions,
+            $crate::source_call::SourceCallBindings,
             $crate::source_call::SourceCallNormals,
             $crate::source_call::SourceCallHeaderSteps,
             $crate::source_body::SourceBodyCompletions,
