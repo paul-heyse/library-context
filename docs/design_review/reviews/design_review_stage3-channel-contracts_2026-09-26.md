@@ -1570,3 +1570,81 @@ blocker identified.** Native call/action support, full raw-fact semantics, neste
 broader local/default-value domains, positive resource/callback fates, all-channel composition
 and assembled Stage 3 remain open. Full `just test-all`, fresh `just pilot` and integrated
 qualification were **not_run** for this slice. Only this review artifact was changed by the reviewer.
+
+## 29. Target review: normal-exit action postconditions
+
+**2026-09-27 · design/target · Proposed architecture; documentation/source-interface inspection.**
+This reviews [ADR-0062](../../adr/0062-normal-action-postconditions.md), §9.9's proposed
+normal-exit postcondition owner and §11.3's serving boundary under core 3.0, CI 1.1 and the
+repository binding. Existing activated assessments, candidate subject/binding checks, ordered
+invocation admission and the compiler95 default contract are the inspected baseline. This is
+acceptance of a distinct implication contract, not positive execution or implementation acceptance.
+
+The target makes a useful distinction without weakening ADR-0060: a reached/bound exact
+invocation can support the model-relative implication “if this callee returns normally, this
+authored Normal rule holds,” while its activated assessment still lacks a normal-outcome proof.
+The pending obligation is separate from Definite/Potential modality, path compatibility and
+outcome feasibility. It must not set expression normality, discharge a `call_transfer` boundary,
+establish a possible successful execution, or close any outcome/channel domain. Exceptional is
+not inferred as the complement of Normal; divergence and unresolved outcomes remain open.
+
+Schema remains the semantic owner. Analytics composes exact candidate/application/input and
+invocation evidence; core acquires and reconstructs publication; the native consumer must retain
+the same meaning and evidence before Python adapts it. Factor the common candidate, model,
+binding and invocation admission once for assessments and postconditions. A postcondition must
+not be implemented by clearing an assessment's outcome refusal or by duplicating its admission
+logic. The original activated relation and its proved-trigger requirement remain unchanged.
+
+**Mandatory implementation detail:** an undischarged Normal obligation must be structurally
+required by the postcondition relation and bound to the exact call occurrence, target, invocation,
+phase and condition. Its requirement cannot depend on a retained witness or optional field
+being present. Shared admission and source reconstruction must reject whole-obligation deletion,
+retagging and cross-occurrence substitution. A caller's return or finalizer cannot satisfy that
+callee obligation. A future discharge requires a closed normal-completion domain under the
+admitted entry inputs/condition, not merely one normal-return witness.
+
+The symbolic-result exception is narrow: an authored Normal acquisition at Output/ReturnValue
+may describe the returned endpoint inside the implication without claiming an existing resource.
+Its source call coordinates locate the occurrence; they do not prove resource identity or aliasing.
+Admission must check that exact shape rather than blanket-ignore `resource_identity_unavailable`
+or other candidate refusals. Input resources, callbacks, effect subjects and runtime schemas keep
+their exact argument bindings; subjectless effects remain explicitly subjectless. Open targets,
+wrong phases, missing required subjects, refused invocations and exceeded bounds still withhold
+the postcondition. Concrete acquire/release pairing and negative release claims remain excluded.
+
+The change scenario is another ordinary Normal model rule. It adds a declaration/qualification
+and uses the existing shared candidate/invocation contracts, with the same explicit pending
+outcome. A genuinely new exit domain or concrete alias/fate proof invokes the ADR's revisit
+trigger rather than growing per-API exceptions. Retaining only generic refusals loses this
+qualified meaning; activating on invocation or inventing a success BDD premise invents evidence.
+The chosen separate relation avoids both. This is domain-specific contract composition, with no
+new generic interpreter, provider framework or library dependency justified by this scope.
+
+| Judgment/gate | Target verdict | Basis and limit |
+|---|---|---|
+| A1 — Localize change | satisfied | Shared schema admission separates common invocation support from activation versus implication; core and serving do not reclassify library names |
+| A2 — Encode meaning structurally | satisfied | Mandatory exact-occurrence Normal obligation, authored modality and symbolic result endpoint retain different meanings |
+| A3 — Extend through composition | satisfied | Existing candidates, source bindings and invocation proofs feed the new relation; future completion can discharge its explicit obligation |
+| G1/G2/G3/G5/G6; CI-G1 | pass for the target contract | No inference of execution, feasibility, complement outcome, identity or completeness; malformed/missing obligations and unsupported inputs must be rejected |
+| G4/G7/G8; CI-G3 | pass for this target | Proposed capability and boundaries are explicit; no runtime execution or oracle-derived production fact is introduced |
+| CI-G2 | pass as a target obligation; implementation unassessed | S6 must expose outcome qualification separately or omit/report unsupported, with shared structural and raw-fact evidence closure |
+
+The §11.3 amendment closes the important adjacent-consumer question: a postcondition cannot
+enter ordinary positive action or compatibility selection by losing its pending obligation.
+Rendering it as merely Potential is also insufficient. Interprocedural composition must retain
+occurrence, phase and obligation; current FCA/RCA scope is unchanged. The active plan explicitly
+retains source/local completion, concrete resource fates, transform/value composition and S6;
+this new relation completes none of those obligations.
+
+Focused acceptance must preserve an unactivated Normal assessment beside its valid postcondition,
+challenge a call that enters then raises, and reject failed argument evaluation, missing subjects,
+open/foreign targets, wrong phase/condition, removed/swapped obligations and original proof caps.
+Include symbolic-return versus actual-resource identity and input-binding controls. Any future
+serving test must retain the pending obligation in both selection and output. Independent runtime
+cases challenge named examples and cannot prove the implication's antecedent universally.
+
+**Decision: Accept the ADR-0062 target within these boundaries.** The author may mark the ADR
+accepted and both owners “Accepted target; implementation Proposed.” No postcondition producer,
+activated action, native consumer, resource identity or Stage 3 completion is accepted here.
+Product tests, full `just test-all` and fresh `just pilot` were **not_run** for this documentation
+review. Only this existing review artifact was changed by the reviewer.

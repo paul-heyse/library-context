@@ -36,6 +36,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0059](0059-synchronous-context-protocols.md) | Bind synchronous context protocols to pinned classes and source lifecycle sites | 2026-09-27 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
 | [ADR-0060](0060-action-triggers.md) | Activate authored actions only at an independently proved callee trigger | 2026-09-27 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Proposed |  |
 | [ADR-0061](0061-pinned-call-defaults.md) | Prove pinned call default availability independently of callee outcomes | 2026-09-27 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Proposed |  |
+| [ADR-0062](0062-normal-action-postconditions.md) | Keep normal-exit model postconditions separate from activated actions | 2026-09-27 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
 
 ## Proposed: open choices, not accepted decisions
 

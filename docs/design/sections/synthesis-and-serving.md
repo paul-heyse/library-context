@@ -614,7 +614,14 @@ assignment, later cleanup and return scope. A mandatory local value basis reject
 when completion obligations are intact. Full raw-fact semantic support and remaining S6 queries
 stay open; these structural checks do not independently prove a forged raw identity.
 
-> Decision: ADR-0057, ADR-0058, ADR-0059
+**Normal-exit model postconditions (Accepted target; implementation Proposed).** A future semantic response may expose a model
+implication under an explicitly undischarged Normal outcome of its exact call occurrence. It must
+keep that obligation distinct from path compatibility, proved actions and Definite/Potential
+modality. A symbolic returned-resource endpoint is not a concrete resource or release pair.
+The native executor retains the shared candidate/invocation contract and source support; Python
+adapts it. Until this consumer is implemented, the relation is not served as a successful action.
+
+> Decision: ADR-0057, ADR-0058, ADR-0059, ADR-0062
 
 **Implemented so far toward that target** (**Implemented** and **Tested**, 2026-09-25, focused
 and internal):

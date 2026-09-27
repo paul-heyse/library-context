@@ -89,6 +89,25 @@ native action support remain open; no omitted subject is manufactured.
 
 > Decision: ADR-0061
 
+## Normal-exit postconditions
+
+**Accepted target; implementation Proposed.** A separate relation preserves the exact pinned Normal rule as an implication:
+under a proved reached/bound invocation, if that exact callee returns normally, the authored
+effect/callback/resource action holds with its declared modality. The Normal obligation remains
+undischarged; no outcome feasibility, expression completion, action occurrence, transfer discharge
+or coverage is inferred. Existing activated assessments retain ADR-0060's proved-trigger rule.
+Both consumers compose the same schema-owned candidate/input/invocation admission.
+
+A Normal acquisition's return-value path is a symbolic result inside that implication. It is
+never a runtime resource identity, alias or acquire/release pairing. Input subjects retain their
+bound identities. Only Normal rules are initially represented; Exceptional and Finally require
+separate outcome domains. Composition and native serving must preserve the exact occurrence,
+phase and pending outcome obligation. Unsupported consumers cannot treat it as an active claim.
+Source/local-callee completion can discharge an obligation only with a closed normal-completion
+domain under that occurrence's admitted inputs and condition. See the active plan's S3/S4/S6 queue.
+
+> Decision: ADR-0062
+
 ## Models catalog
 
 A model is committed, typed data about a callable we do not analyze from source.

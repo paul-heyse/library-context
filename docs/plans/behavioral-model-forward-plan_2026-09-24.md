@@ -246,6 +246,14 @@ the real source applications produces DefaultUnavailable and invalidates publica
 ([evidence](../design_review/evidence/2026-09-27_pinned-defaults/README.md)); native actions,
 nested default-proof ownership and broader local/default/model domains remain open.
 
+**Next S3 outcome contract (Accepted target; implementation Proposed, ADR-0062).** Retain fallible models' Normal rules as explicit
+normal-exit postconditions, separate from activated assessments. Reuse shared invocation/binding
+admission; carry an undischarged exact-callee outcome obligation through composition and S6.
+Returned-resource endpoints remain symbolic until independent identity/fate evidence exists.
+This adds useful model-relative implications without weakening proved triggers or asserting
+that normal completion is feasible. Value-independent source/local-callee completion and concrete
+resource/transform fates remain required; this relation alone closes none of them.
+
 ### 3.1 Contract repairs before extension
 
 | Order | Work (§6 item) | Targeted acceptance |
