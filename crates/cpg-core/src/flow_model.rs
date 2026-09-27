@@ -376,6 +376,20 @@ fn decorated_functions(
         .collect()
 }
 
+/// The decorated set alone, for consumers outside the flow model (the summary producer): the
+/// same relations and the same predicate `run` uses.
+pub async fn decorated(ctx: &SessionContext) -> Result<BTreeSet<Id>, CoreError> {
+    let p = sql::Params::new;
+    let body_rows: Vec<BodyRow> = sql::fetch(ctx, &bodies(), p()).await?;
+    let root_rows: Vec<NameRootRow> = sql::fetch(ctx, &roots(), p()).await?;
+    let descriptor_rows: Vec<DescriptorRow> = sql::fetch(ctx, &descriptors(), p()).await?;
+    Ok(decorated_functions(
+        &body_rows,
+        &root_rows,
+        &descriptor_rows,
+    ))
+}
+
 fn release_modules() -> String {
     format!(
         "SELECT module_node_id FROM source_files WHERE role = {}",

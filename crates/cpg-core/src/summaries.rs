@@ -332,6 +332,7 @@ pub async fn finite_flows(ctx: &SessionContext) -> Result<FiniteSummaryOutcome, 
     let source_bindings =
         sql::fetch(ctx, &admitted_source_call_bindings(), sql::Params::new()).await?;
     let source_calls = sql::fetch(ctx, &source_call_normals(), sql::Params::new()).await?;
+    let decorated = crate::flow_model::decorated(ctx).await?;
     let mut result = lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
         source_bindings,
         source_calls,
@@ -358,6 +359,7 @@ pub async fn finite_flows(ctx: &SessionContext) -> Result<FiniteSummaryOutcome, 
         local_bindings,
         boundary_candidates,
         identities,
+        decorated,
     });
     // Require the published premise, not a root available only in raw provider conditions.
     let statements = sql::fetch(

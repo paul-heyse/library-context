@@ -124,7 +124,8 @@ pub struct Published {
 /// 101: nondominated depth/proof-cost progress through shared bounded scheduling helpers.
 /// 102: agree on repeated pinned context observations without counting them as overloads.
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
-pub const COMPILER_OUTPUT_VERSION: u32 = 103;
+/// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
+pub const COMPILER_OUTPUT_VERSION: u32 = 104;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

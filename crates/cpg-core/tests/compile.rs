@@ -259,6 +259,50 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
             "{access}"
         );
     }
+    // No path composes through, or starts in, a decorated function (ADR-0064, review F02); the
+    // same predicate keeps builtin descriptors' own paths.
+    for (access, summaries) in [
+        ("transferpkg.through_decorated", 0),
+        ("transferpkg.decorated", 0),
+        ("transferpkg.Descriptors.stacked", 0),
+        ("transferpkg.Shadowed.build", 0),
+        ("transferpkg.loose", 0),
+        ("transferpkg.Descriptors.make", 1),
+    ] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM summary_flows s JOIN operations o \
+                     ON o.node_id = s.function_node_id WHERE o.access_path = '{access}'"
+                )
+            )
+            .await,
+            summaries,
+            "{access}"
+        );
+    }
+    assert!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM summary_boundaries s JOIN operations o \
+             ON o.node_id = s.function_node_id \
+             WHERE o.access_path = 'transferpkg.through_decorated' AND s.reason = 10"
+        )
+        .await
+            > 0
+    );
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
+             ON o.node_id = b.operation_node_id \
+             WHERE o.access_path = 'transferpkg.through_decorated' AND b.kind = 11 \
+               AND b.verdict IN (0, 1)"
+        )
+        .await,
+        0
+    );
     // The exempt descriptor's unread formal is judged like any other body (descriptor review F01).
     assert_eq!(
         count(

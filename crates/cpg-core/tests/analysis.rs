@@ -1384,6 +1384,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             20,
             "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
         ),
+        // Decorated functions neither start nor carry summary paths (ADR-0064).
+        (
+            104,
+            20,
+            "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(

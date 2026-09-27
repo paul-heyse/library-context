@@ -703,6 +703,10 @@ pub struct FiniteSummaryInputs {
     pub local_value_links: Vec<LocalCallValueLink>,
     pub local_bindings: Vec<SourceCallBinding>,
     pub boundary_candidates: Vec<SummaryBoundaryCandidate>,
+    /// Functions whose binding a decorator may replace (`cpg-core::flow_model`'s one predicate,
+    /// with its builtin descriptor exemption). Neither their own paths nor calls into them
+    /// compose (ADR-0064).
+    pub decorated: BTreeSet<Id>,
 }
 
 fn entry_proof(
@@ -1485,15 +1489,16 @@ fn finite_flows_with_pair_limit(
         context_sites,
         return_certificates,
         mut direct_seeds,
-        modeled_seeds,
+        mut modeled_seeds,
         chain_arguments,
         evaluations,
-        assignment_seeds,
-        local_seeds,
+        mut assignment_seeds,
+        mut local_seeds,
         local_arguments,
         local_value_links,
         local_bindings,
         boundary_candidates,
+        decorated,
     } = inputs;
     for row in &context_identities {
         if direct_seeds.iter().any(|s| {
@@ -1536,6 +1541,43 @@ fn finite_flows_with_pair_limit(
         });
     }
     let mut refusals = Vec::new();
+    // A decorator may replace the callable a call reaches (ADR-0064, target review F02): a
+    // decorated function has no paths of its own, and no caller composes through one.
+    for c in boundary_candidates
+        .iter()
+        .filter(|c| decorated.contains(&c.function_node_id))
+    {
+        let key = (
+            c.snapshot_id,
+            c.function_node_id,
+            c.parameter_node_id,
+            c.source_flow_fact_id,
+            c.condition_id,
+            c.source_origin_id,
+        );
+        refuse(&mut refusals, key, BoundaryReason::OutsideProviderModel);
+    }
+    direct_seeds.retain(|s| !decorated.contains(&s.function_node_id));
+    modeled_seeds.retain(|s| !decorated.contains(&s.function_node_id));
+    assignment_seeds.retain(|s| !decorated.contains(&s.function_node_id));
+    local_seeds.retain(|s| {
+        if decorated.contains(&s.function_node_id) {
+            return false;
+        }
+        if decorated.contains(&s.callee_node_id) {
+            let key = (
+                s.snapshot_id,
+                s.function_node_id,
+                s.parameter_node_id,
+                s.source_flow_fact_id,
+                s.condition_id,
+                s.source_origin_id,
+            );
+            refuse(&mut refusals, key, BoundaryReason::OutsideProviderModel);
+            return false;
+        }
+        true
+    });
     for passes in pass_steps.values_mut() {
         passes.sort_by_key(|pass| (pass.ordinal, pass.pass_fact_id));
     }
@@ -1984,7 +2026,6 @@ fn finite_flows_with_pair_limit(
             .or_default()
             .push(row);
     }
-    let mut local_seeds = local_seeds;
     local_seeds.sort_by_key(|seed| {
         (
             component_by_function
@@ -2992,6 +3033,7 @@ mod tests {
             local_arguments: Vec::new(),
             local_value_links: Vec::new(),
             local_bindings: Vec::new(),
+            decorated: BTreeSet::new(),
             boundary_candidates: vec![SummaryBoundaryCandidate {
                 snapshot_id: id(1),
                 function_node_id: id(2),
@@ -3009,6 +3051,21 @@ mod tests {
                 reach_budget: false,
             }],
         }
+    }
+
+    #[test]
+    fn decorated_functions_have_no_paths_and_refuse_their_origins() {
+        let admitted = finite_flows(inputs());
+        assert_eq!(admitted.flows.len(), 1);
+        let mut input = inputs();
+        input.decorated.insert(id(2));
+        let out = finite_flows(input);
+        assert!(out.flows.is_empty() && out.steps.is_empty());
+        let [boundary] = out.boundaries.as_slice() else {
+            panic!("{:?}", out.boundaries)
+        };
+        assert_eq!(boundary.reason, BoundaryReason::OutsideProviderModel);
+        assert_eq!(boundary.source_origin_id, id(9));
     }
 
     #[test]
