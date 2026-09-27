@@ -504,9 +504,10 @@ BERTopic or UMAP in the pipeline; rust-bert, ort, fastembed.
 **Stage 3 channel review F17 — open.** Owner: schema model/frame contracts and analytics
 expression/completion, with finite-summary and native consumers. ADR-0063 records the accepted
 correction to unqualified pinned normal return. Its bounded compiler97 implementation and focused
-qualification are under follow-up review; require exact
+qualification received **Accept scoped** in review §32 (2026-09-27): exact
 binding/release-domain mutation rejection, preserved invocation/postconditions, original proof
-bounds and root-certificate survival through Delta/native. Source review and ten independent
+bounds and root-certificate survival through Delta/native are checked in that domain. Broader
+source/release domains and full S6 raw-fact closure remain open. Source review and ten independent
 runtime controls are in [review §31](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#31-source-review-callee-frame-cleanup-before-normal-completion).
 
 

@@ -1946,3 +1946,114 @@ append-only correction; existing codes must remain unchanged. These observations
 implementation, not acceptance failures assigned to a claimed completed slice. No product tests
 were run. The ADR may be accepted as the target with these admission obligations; implementation,
 F17 closure and integrated qualification require separate evidence.
+
+## 32. Bounded implementation follow-up: pinned body and frame completion
+
+**2026-09-27 · change/conformance · Implemented; focused Tested as attributed below.**
+This reviews compiler 97/catalog 7 against accepted ADR-0063, separately from §31's target
+acceptance. The reviewer inspected source, contracts and receipts, changed only this review,
+and ran no product tests. FORMAT 9 frame support is included; native action/postcondition
+export, general source outcomes and full S6 raw-fact semantic closure are excluded.
+
+**F17 bounded correction accepted; wider disposition remains open in forward-plan §6.**
+The catalog's unqualified `normal_return` has been replaced by the typed direct-return-parameter
+body assertion. `evaluation.rs` separately tracks Closed, CallerRetained and Unknown release
+provenance through the existing effect-free expression grammar. Every explicit bound argument
+must qualify; omitted defaults can establish invocation while retaining `FrameExitCleanup`.
+The body assertion cannot establish cleanup or identity by itself. Function-owned reads and
+`PinnedCallTarget.caller_function_scope` exclude class namespaces, whose custom `__getitem__`
+can return an unretained temporary. No provider approximation flags are weakened.
+
+The schema owner, `cpg-schema/src/frame_exit.rs`, commits the ordered argument domain, exact
+argument/operand identities, formal names, all-signature binding evidence and each operand's
+proof segment. Source reconstruction remains the semantic authority for those release labels.
+`ModelFrameExit` and `PrecedingCallNormal` conclude the exact call occurrence; direct, nested
+and assignment modeled summaries retain them. Finite source admission (`finite.rs:1711`) now
+uses the same duplicate-checked frame lookup and shared occurrence guard as native, before
+coverage, and refuses dependent callers of rejected witnesses. Normal action admission
+(`action.rs:274`) additionally matches the exact invocation, actual arguments, model/body
+and ordered normal extension under the original proof cap. Invocation and qualified Normal
+postconditions remain independent.
+
+The final omission correction is stronger than a surviving-ModelRule check: each retained
+CallSite/CallTarget must conclude with its own frame/normal pair or the separately admitted
+local control-links/CalleeSummary form. Thus deleting the outer frame, normal and model-rule
+group while retaining an inner transfer does not discharge the outer call. A nested normal
+expression without an identity-transfer rule also requires its frame conclusion. Native
+`lib.rs:625` applies that completed-call check only to the nested operand prefix of a frame's
+invocation proof: `frame_exit::admit` has already checked its final root CallSite/CallTarget,
+which has not completed inside its own invocation. Complete summary proofs retain strict
+admission. Nested certificates require decreasing proof counts and the matching operand.
+
+This is structural/catalog closure plus source reconstruction, not an independent native
+interpretation of raw signatures or lexical provenance. Deleting an entire occurrence including
+its source anchors, or forging a self-consistent release domain against raw source facts,
+remains a full S6 closure obligation. No unsupported release domain becomes complete coverage.
+
+| Judgment/gate | Bounded verdict | Evidence and limit |
+|---|---|---|
+| A1 — Localize change | satisfied | Release qualification is owned by the evaluator and schema admission; core reconstructs and native reuses it. A new body/release domain must extend these owners rather than add consumer classifiers. |
+| A2 — Encode meaning structurally | satisfied | Body assertion, reached invocation, release domain and completed occurrence are distinct; counted ordered obligations resist retained-group omission. |
+| A3 — Extend through composition | satisfied | Existing expression, summary and action owners compose the certificate; no second evaluator or lifetime framework is introduced. |
+| G1/G3/G5/G6 | pass within the slice | Shared schemas/admission, source reconstruction, fresh generation and affected native omission controls; full raw-fact closure is expressly excluded. |
+| G2/G4/G7; CI-G1 | pass within the stated runtime/release domain | Unknown/default/class domains remain withheld; body events are not relabelled caller continuation; coverage and execution retain their separate obligations. |
+| G8 | pass within the slice | The existing custom bounded Python kernel remains the suitable owner under §B5; no new library API or bespoke general interpreter is required. |
+| CI-G2 | pass for the retained frame/occurrence contract; broader S6 unresolved | Exact support, orphan/missing support and native omission controls passed; native does not yet reconstruct all raw source premises. |
+| CI-G3 | pass for this qualification | Independent generated runtime programs challenge cleanup semantics; analyzed fixtures are not executed and the runtime probe does not consume compiler conclusions. |
+
+FP-01–06 and their applicable authority, explicit-contract, composition and local-reasoning
+rules are satisfied for this bounded correction. The unresolved S6 boundary cannot be certified
+by the passing structural tests or by this architecture judgment.
+
+**Attributed receipts, inspected 2026-09-27.** The author ran the following focused command;
+`/tmp/lctx-stage3-frame-tests4.log` records **passed: 69, 151 skipped, 28.569 s**:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 LCTX_PY_FIXTURE=/home/paul/library-context/build/py-fixture cargo nextest run --release -p cpg-schema -p cpg-core -p lctx-analytics --lib --test contracts --test codebooks --test compile --test bundle -E 'binary(contracts) | binary(codebooks) | test(models::) | test(actions::) | test(evaluation::) | test(summaries::finite::) | test(pinned_identity_models_require_and_publish_their_real_formals) | test(action_triggers_preserve_partial_io_and_withhold_unproved_outcomes) | test(composed_argument_reads_keep_ordered_source_evidence) | test(finite_depth_and_unsupported_refusals_reach_the_native_response) | test(finalizer_proof_round_trips_through_the_native_generation_reader) | test(serving_schema_digests_are_the_shared_known_answers) | test(writes_the_python_fixture_generation)' --status-level fail --final-status-level fail
+```
+
+The subsequent source-admission selection **passed 28** (`frame-tests5.log`). Adding the final
+retained-occurrence guard then **failed: 27 passed, one failed** (`frame-tests6.log`): initial
+native generation loading wrongly applied completed-call admission to the invocation-only root.
+After the narrowly scoped correction described above and a fresh native rebuild via
+`CARGO_TARGET_DIR=/home/paul/library-context/target uv sync --frozen --reinstall-package lctx-semantics`,
+the affected cached test **passed: one, 13.02 s**, in
+`/tmp/lctx-stage3-frame-native-replay.log`, using:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target RUST_MIN_STACK=16777216 target/release/deps/bundle-cea1e98b65ba0b62 --exact finite_depth_and_unsupported_refusals_reach_the_native_response
+```
+
+This is a corrected affected-test replay, not a claim that the final 28-case selection was
+rerun in full. `uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -q`
+**passed: 13** again against the rebuilt native (`/tmp/lctx-stage3-frame-python3.log`).
+The author also reports **passed**, zero errors, for
+`uv run --no-sync pyrefly check python/lctx_mcp/src/lctx_mcp/generation.py`. The earlier stale
+Python fixture failed eight cases for missing mandatory frame files; fresh fixture generation
+corrected the input without relaxing admission. Changed schema/codebook snapshots were read
+and accepted by the author as migrations.
+
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_frame-exit/runtime_oracle.py`
+and its corresponding Ruff check **passed**; the [evidence](../evidence/2026-09-27_frame-exit/README.md)
+now contains ten generated CPython controls, including the class-namespace case. Temporary
+arguments show body return followed by delayed finalization; retained/literal controls resume
+the caller. The worker timeout proves neither divergence nor an admitted compiler false
+positive. Full `just test-all`, `just pilot` and assembled Stage 3 acceptance remain **not_run**.
+
+**Next source-domain guidance — Proposed, not implementation acceptance.** Reusing
+`completion::Kernel::suite` for zero-declared-parameter synchronous undecorated functions is
+the smallest suitable next route. Preserve Normal fallthrough, Return, exact primitive-raise
+TypeError and unknown independently of value-flow seeds. Exclude closures/cells, nested dynamic
+definitions, generators/async, defaults and unsupported owned values. Closed executed
+expressions and first local assignments may support a separately committed release domain;
+a local read needs its exact executed initialization, not an unordered initializer lookup or
+normal-read status. Withhold it until that link exists. The function object itself also needs
+an independent live retainer: the later fresh nested-call adapter must prove its exact definition
+binding survives the effect-free invocation. Body/local-release certificates alone do not prove
+caller continuation. These obligations are now explicit in owning §9.9; no second statement
+interpreter or Stage 5 lifecycle expansion is warranted.
+
+**Decision: Accept scoped.** The inspected compiler 97 correction addresses the admitted pinned
+body/frame domain and retained-occurrence omissions. F17 remains open for broader release/source
+domains and S6 semantic evidence closure, with current disposition owned by the forward plan.
+Neither this correction nor the proposed next domain certifies enclosing S1/S2, S6 or Stage 3.
