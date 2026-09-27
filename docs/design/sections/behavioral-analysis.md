@@ -65,6 +65,19 @@ remain S6 work; structural admission does not replace raw-fact source validation
 
 > Decision: ADR-0060
 
+## Pinned call default availability
+
+**Accepted target; implementation Proposed.** An exact pinned callable may author
+`call_defaults_available` independently of its normal-return assertion. The promise concerns
+already-created defaults for every omitted optional fixed formal in each admitted signature;
+it supplies no default value, control truth, mutable-value stability or omitted-argument subject.
+Known requiredness and cross-signature agreement remain mandatory. The common invocation owner
+cites the availability model and omitted-formal context facts without evaluating default
+expressions at the call. Source publication reconstructs the same evidence. Remove the existing
+normal-return shortcut when this premise lands; broader local-default domains remain separate.
+
+> Decision: ADR-0061
+
 ## Models catalog
 
 A model is committed, typed data about a callable we do not analyze from source.

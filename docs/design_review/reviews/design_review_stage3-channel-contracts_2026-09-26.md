@@ -1416,3 +1416,72 @@ domains, positive resource/callback fates, all-channel propagation and complete 
 open under the active plan. Stage 5 is unchanged. Full `just test-all`, fresh `just pilot` and
 assembled Stage 3 acceptance were **not_run** for this slice. Only this review artifact was
 changed by the reviewer.
+
+## 27. Target review: pinned call default availability
+
+**2026-09-27 · design/target · Proposed architecture; documentation/source-interface inspection.**
+This reviews [ADR-0061](../../adr/0061-pinned-call-defaults.md) and the proposed §9.9
+“Pinned call default availability” owner under core 3.0, CI 1.1 and the repository binding.
+The inspected baseline is the common signature binder, `evaluation::prepare_calls`/`invoke`,
+call-execution admission and the action consumer accepted in §26. This is target acceptance,
+not implementation or qualification of new authored assertions.
+
+Separating availability from `normal_return` corrects the ownership of a call-entry premise.
+`call_defaults_available=true` is a universal assertion about the exact pinned callable's
+omitted optional fixed formals across the admitted signature domain. Absence/false is unasserted,
+not evidence that runtime defaults are absent. Qualification concerns already-created runtime
+defaults; stub optionality alone is insufficient. The assertion supplies no value, truth,
+mutable-value stability, resource identity, callback fate or normal outcome. Omitted subjects
+remain unresolved in model argument bindings; no synthetic argument or call-time default
+evaluation is introduced. The stated pinned-implementation assumptions exclude arbitrary
+mutation of callable metadata; they must remain attached to the model claim.
+
+The Boolean is sufficient for this universal promise. Named-default declarations would add
+unneeded machinery for a target whose complete runtime/default interface has been qualified.
+If a target's admitted overloads cannot be reconciled with that runtime interface, leave the
+promise unasserted and revisit the recorded contract; do not use the Boolean to waive mapping
+ambiguity. Requiredness, argument shape and all-signature agreement remain independent checks.
+An empty variadic collection is not an omitted fixed default. Initial JSON/compression targets
+must be individually qualified against their pinned implementation before authoring true;
+this review does not infer a blanket standard-library guarantee from the existing runtime case.
+
+**Mandatory proof detail for implementation acceptance:** reconstruct the complete omitted-fixed-
+formal obligation domain from the admitted signatures and raw arguments, independently of which
+witnesses remain. Require the availability model and exactly the corresponding omitted-formal
+facts, retaining signature-specific identity when names repeat. Removing the entire availability
+group, not only one witness, must fail admission. This follows the contract's “each omitted
+formal” requirement and avoids repeating the evidence-dependent obligation defect in §24.
+Availability evidence joins the same ordered invocation and condition scope; it counts toward
+existing work/proof caps. Shared admission must not infer its own obligations from proof presence.
+
+The change scenario is a fallible pinned call with omitted optional arguments. The catalog owns
+its availability assertion; the existing binder owns the obligation set; common invocation
+composition cites it; normal-expression and action consumers reuse the result. Core reconstructs
+publication and immutable consumers retain the same contract as they migrate. Remove the current
+`target.normal_return || bound.defaults.is_empty()` shortcut and the binder comment that assigns
+availability to a total model. Keep the local fresh-definition/default-value certificates separate.
+This is a new model premise composed through existing owners, not a second binder/interpreter or
+a generic capability requiring another library.
+
+| Judgment/gate | Target verdict | Basis and limit |
+|---|---|---|
+| A1 — Localize change | satisfied | One authored premise and the common invocation owner serve expression and action consumers; no target-name switch is added |
+| A2 — Encode meaning structurally | satisfied | Availability, requiredness, value/identity and normal outcome remain distinct; exact model and signature-formal evidence own the obligation |
+| A3 — Extend through composition | satisfied | Existing binding, ordered invocation, completion and action contracts compose without a new evaluator |
+| G1/G2/G3/G5/G6; CI-G1 | pass for the target contract | Exact qualification and complete omitted-formal obligations are mandatory; unsupported mappings and bounded refusals remain explicit |
+| G4/G7/G8; CI-G3 | pass for this target | No call-time default evaluation or hidden input; implementation is labelled Proposed and independent challenges remain evaluation evidence |
+| CI-G2 | pass as a target obligation; implementation unassessed | Model/formal evidence and scope must survive publication and immutable-consumer admission, including whole-group omission controls |
+
+Focused implementation acceptance must pair omitted-default invocation with unasserted
+availability, missing required arguments, raising explicit arguments, omitted action subjects
+and fallible outcomes. Challenge wrong target/phase/signature/formal, duplicate/missing/whole-group
+evidence and the unchanged proof/work limits. A successful availability proof must permit reached
+Invocation while still refusing unproved Normal actions. Existing fully explicit calls and local
+default certificates remain adjacent regression controls; independent generated runtime programs
+qualify only their named cases.
+
+**Decision: Accept the ADR-0061 target within these boundaries.** The author may mark the ADR
+accepted and the owner “Accepted target; implementation Proposed.” No new production default
+assertion, native action support, broader local-default domain or Stage 3 completion is accepted.
+Product tests, full `just test-all` and fresh `just pilot` were **not_run** for this documentation
+review. Only this existing review artifact was changed by the reviewer.
