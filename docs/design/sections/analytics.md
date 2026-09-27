@@ -500,6 +500,11 @@ facets is the Stage 4 target consumer (**Proposed**; plan Stage 4 item 7).
   lost modality. Candidate-derived `+rca` output is therefore not a behavioral claim, and FCA/RCA
   are not extended before this is fixed
   ([plan W10](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+- **Accepted target; Proposed implementation (2026-09-26).** Stage 3 replaces presentation
+  labels as attribute identity with typed relation, endpoint, modality and evidence. One renderer
+  produces labels after analysis; Stage F consumes the typed attributes and rejects unsupported
+  forms explicitly. This repairs the current FCA/RCA consumers. New behavioral attributes and
+  the Stage 4 registry remain deferred (ADR-0058).
 - **Findings.** Each frequent concept with a non-empty intent is an `applicable_case` finding
   (`extent_member` APIs, `intent_attribute`s; score = extent size); each basis implication an
   `implication` finding (`premise`, `conclusion`; score = support). The subject is the scope. Both
@@ -528,7 +533,7 @@ facets is the Stage 4 target consumer (**Proposed**; plan Stage 4 item 7).
   `relations_become_attributes_of_the_objects_in_scope` and
   `variants_add_relational_attributes_and_layers` for RCA.
 
-> Decision: ADR-0020
+> Decision: ADR-0020, ADR-0058
 
 
 ### §9.7 Embeddings in analytics

@@ -287,3 +287,48 @@ def unresolved_first_handler(value):
             pass
         except TypeError:
             pass
+
+
+def literal_default_header(value):
+    def inner(enabled=True):
+        return enabled
+    return value
+
+
+def keyword_default_header(value):
+    def inner(*, enabled=False):
+        return enabled
+    return value
+
+
+def unexecuted_body_header(value):
+    def inner(enabled=True):
+        return missing_body_name()
+    return value
+
+
+def missing_default_header(value):
+    def inner(enabled=missing_default_name()):
+        return enabled
+    return value
+
+
+def decorated_header(value):
+    @missing_decorator
+    def inner(enabled=True):
+        return enabled
+    return value
+
+
+def rebound_definition_header(value, inner):
+    def inner(enabled=True):
+        return enabled
+    return value
+
+
+async def deferred_completion_async():
+    pass
+
+
+def deferred_completion_generator():
+    yield None

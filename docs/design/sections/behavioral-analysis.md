@@ -424,8 +424,15 @@ predecessor queries and classifier are deleted. See the
 
 **Origin coverage (Implemented and focused Tested, 2026-09-26).**
 `summary_origin_coverage` separates completeness, refusal, retained witness count and omitted
-witnesses per contribution, condition, channel and phase. Only Value/Call rows are currently
-produced. A positive finite call path does not close its callee's alternatives: every call crossing
+witnesses per typed subject, condition, channel and phase. Value/Call origins retain actual
+parameter and flow evidence. Execution-site completion coverage uses its syntax identity without
+a fabricated formal. `summary_contract::coverage_domain` and the checked subject/channel pairs
+define site Exception as **escaping exceptions under entry to the statement**: a handled raise
+can leave an empty escaping domain while its nested raise site has an exception witness. This
+never closes generic raise/catch/convert/suppress activity, nor proves operation entry. Async and
+generator scopes are excluded from Call-phase site coverage. Complete zero-witness certificates
+are reconstructed from actual completion outcomes, independently of witness omission.
+A positive finite call path does not close its callee's alternatives: every call crossing
 remains open until S4/S5 compose coverage. Raw or retained-summary approximation also leaves it
 open. Complete direct-origin coverage is neither operation-wide completeness nor a negative
 claim about another channel. Core publishes and reconstructs the pure producer's full rows.
@@ -435,9 +442,17 @@ See the [bounded review](../../design_review/reviews/design_review_stage3-origin
 explicit source-ordered arguments from omitted definition-time default requirements. Every fixed
 source formal currently needs an explicit argument; syntax alone does not prove that a mutable
 function default remains available. This applies even to unused parameters. Pinned total models
-own their signature-default promise separately. Fresh-definition completion and source-default
-stability certificates remain S2 targets. The [semantic-frontier review](../../design_review/reviews/design_review_stage3-semantic-frontier_2026-09-26.md)
+own their signature-default promise separately. Fresh undecorated nested definition headers now
+evaluate their defaults in definition order, cite declaration/signature/binding evidence and leave
+the nested body unevaluated. Rebinding, decorators and unsupported default expressions refuse.
+Source-default availability/stability at invocation remains an S2 target. The [semantic-frontier review](../../design_review/reviews/design_review_stage3-semantic-frontier_2026-09-26.md)
 covers this guard and the bounded value worklist change.
+
+**Shared callee proof admission (Implemented, 2026-09-26).** Schema-owned structural admission
+checks contiguous scoped controls, the cited condition, decreasing callee depth and the common
+proof cap. Source composition and native loading use it; native's independent adjacency policy
+is deleted. Typed admission failures preserve `summary_proof_limit` rather than replacing it with
+missing evidence. This is the current value proof subset; other channel obligations remain S1/S4.
 
 **Schedule and recursion.** `summary_components` records every release function's SCC, sorted
 members, canonical component id and a callee-first schedule over attributed local call targets;
@@ -514,3 +529,20 @@ Serve-time semantic selection remains a proposed ADR-0025 target
 > Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053, ADR-0054, ADR-0055, ADR-0056
 
 ---
+
+## Channel composition contracts
+
+**Proposed implementation, 2026-09-26.** Stage 3 uses typed channel subjects and origins instead
+of forcing all channels through parameter-return identifiers. Coverage concerns a subject,
+condition, channel and phase, with separate semantic completeness, refusal and witness omission.
+A complete empty channel cites its coverage proof; a positive path alone never closes alternatives.
+Shared structural proof admission owns evaluation, binding, completion, model and callee links.
+Model rules/coverage declare phase applicability; dynamic validation schema identity is distinct
+from a named static schema. Effects before a raise use reached-prefix evidence. Analytics remains
+pure; core acquires and publishes, and native serving admits the same proofs.
+
+The [active execution queue](../../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
+owns implementation. Transfer projections preserve kind/condition alternatives and the current
+RCA projection retains typed modality and evidence. No Stage 5 lifecycle execution is pulled forward.
+
+> Decision: ADR-0058

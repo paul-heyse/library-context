@@ -6,7 +6,7 @@ use cpg_schema::behavior::{ExpressionEvaluationsRow, ExpressionEvaluationStepsRo
 use cpg_schema::codebook::{BindingKind, BoundaryReason, Codebook, CompletionKind as C,
     ExitSiteKind, LexicalScopeKind, SummaryFlowStepKind as K, SyntaxField as F, SyntaxKind as S};
 use cpg_schema::id::Id;
-use cpg_schema::tables::{SyntaxNodesRow, BindingsRow, ScopesRow, FlowTestsRow};
+use cpg_schema::tables::{SyntaxNodesRow, BindingsRow, ScopesRow, FlowTestsRow, DeclarationsRow, ParameterSyntaxRow};
 use cpg_schema::condition_kernel::Diagram;
 use crate::summaries::finite::condition_limit;
 use cpg_schema::summary_contract::{ExactRuntimeException, CompletionOutcome as Completion};
@@ -20,6 +20,8 @@ type Proof = Vec<(K, Id)>;
 type Result = std::result::Result<Completion, BoundaryReason>;
 
 pub struct Inputs<'a> {
+    pub declarations: &'a [DeclarationsRow],
+    pub parameters: &'a [ParameterSyntaxRow],
     pub syntax: &'a [SyntaxNodesRow],
     pub expressions: &'a [ExpressionEvaluationsRow],
     pub expression_steps: &'a [ExpressionEvaluationStepsRow],
@@ -47,7 +49,113 @@ pub struct Outcome {
     pub entry_steps: Vec<ReturnEntryStepsRow>,
 }
 
+/// For source-admitted eager synchronous scopes, complete statement outcomes close the completion and escaping-exception domains under
+/// entry to this site. A normal/return/break/continue outcome has an exhaustive empty escaping
+/// exception domain. This says nothing about whether the enclosing callable reaches the site,
+/// exceptions caught within it, other channels, or deferred execution.
+pub fn coverage(statements: &[StatementCompletionsRow]) -> Vec<cpg_schema::behavior::SummaryOriginCoverageRow> {
+    use cpg_schema::codebook::{InvocationPhase, SummaryChannel};
+    statements.iter().flat_map(|statement| {
+        let (subject_kind,subject_id,source_fact_id,parameter_node_id)=
+            cpg_schema::summary_contract::SummarySubject::ExecutionSite {
+                node_id:statement.statement_node_id,syntax_fact_id:statement.source_fact_id,
+            }.columns();
+        [SummaryChannel::Completion,SummaryChannel::Exception].map(|channel| {
+            let complete=statement.kind!=C::Unknown && statement.reason.is_none();
+            cpg_schema::behavior::SummaryOriginCoverageRow {
+                snapshot_id:statement.snapshot_id,function_node_id:statement.function_node_id,
+                subject_kind,subject_id,source_fact_id,parameter_node_id,
+                condition_id:Diagram::always().id(),channel,phase:InvocationPhase::Call,
+                complete,reason:if complete {None} else {Some(statement.reason.unwrap_or(BoundaryReason::MissingEvidence))},
+                witness_count:i64::from(complete && (channel==SummaryChannel::Completion || statement.kind==C::Raise)),
+                witnesses_omitted:false,
+            }
+        })
+    }).collect()
+}
+
+/// Definition-time header evidence is prepared separately: the body belongs to the new
+/// function and is neither evaluated nor checked as part of its enclosing function's suite.
+struct DefinitionHeader<'a> {
+    binding: &'a BindingsRow,
+    defaults: Vec<&'a SyntaxNodesRow>,
+    evidence: Vec<Id>,
+}
+
+fn definition_headers<'a>(inputs: &Inputs<'a>, children: &HashMap<(Id,Id),Vec<&'a SyntaxNodesRow>>)
+    -> HashMap<(Id,Id),DefinitionHeader<'a>> {
+    let mut declarations:HashMap<_,Vec<_>>=HashMap::new();
+    for row in inputs.declarations {declarations.entry((row.snapshot_id,row.node_id)).or_default().push(row);}
+    let mut parameters:HashMap<_,Vec<_>>=HashMap::new();
+    for row in inputs.parameters {parameters.entry((row.snapshot_id,row.function_node_id)).or_default().push(row);}
+    for rows in parameters.values_mut() {rows.sort_by_key(|p|(p.ordinal,p.fact_id));}
+    let scopes:HashMap<_,_>=inputs.scopes.iter().map(|s|((s.snapshot_id,s.node_id),s)).collect();
+    let mut bindings:HashMap<_,Vec<_>>=HashMap::new();
+    let mut names:HashMap<_,usize>=HashMap::new();
+    let mut generic=BTreeSet::new();
+    for row in inputs.bindings {
+        bindings.entry((row.snapshot_id,row.site_node_id)).or_default().push(row);
+        *names.entry((row.snapshot_id,row.scope_id,row.name.as_str())).or_default()+=1;
+        if row.kind==BindingKind::TypeParam {
+            if let Some(scope)=scopes.get(&(row.snapshot_id,row.scope_id)) {
+                generic.insert((row.snapshot_id,scope.owner_node_id));
+            }
+        }
+    }
+    let mut out=HashMap::new();
+    for node in inputs.syntax.iter().filter(|n|n.kind==S::StmtFunctionDef) {
+        let key=(node.snapshot_id,node.node_id);
+        let Some(owner)=node.owner_node_id else {continue;};
+        if node.parent_node_id!=owner || node.field!=F::Body || generic.contains(&key) {continue;}
+        let Some(decls)=declarations.get(&key).filter(|rows|rows.len()==1) else {continue;};
+        let declaration=decls[0];
+        if declaration.kind!=cpg_schema::codebook::DeclarationKind::Function
+            || declaration.parent_node_id!=Some(owner) || !declaration.decorators.is_empty()
+            || declaration.module_node_id!=node.module_node_id
+            || declaration.start_byte!=node.start_byte || declaration.end_byte!=node.end_byte {continue;}
+        let Some(writes)=bindings.get(&key).filter(|rows|rows.len()==1) else {continue;};
+        let binding=writes[0];
+        let Some(scope)=scopes.get(&(binding.snapshot_id,binding.scope_id)) else {continue;};
+        if binding.kind!=BindingKind::FunctionDef || binding.name!=declaration.name
+            || binding.module_node_id!=node.module_node_id || scope.kind!=LexicalScopeKind::Function
+            || scope.owner_node_id!=owner || names.get(&(binding.snapshot_id,binding.scope_id,binding.name.as_str()))!=Some(&1) {continue;}
+        let body=children.get(&key).map_or(&[][..],Vec::as_slice);
+        let statements:Vec<_>=body.iter().filter(|n|n.field==F::Body).collect();
+        if statements.is_empty() || statements.iter().enumerate().any(|(i,n)|n.ordinal!=i as i64)
+            || body.iter().any(|n|n.module_node_id!=node.module_node_id || n.start_byte<node.start_byte
+                || n.end_byte>node.end_byte || match n.field {
+                    F::Body=>n.owner_node_id!=Some(node.node_id),
+                    F::Default=>n.owner_node_id!=node.owner_node_id,
+                    _=>true,
+                }) {continue;}
+        let params=parameters.get(&key).map_or(&[][..],Vec::as_slice);
+        if params.len()>128 || params.iter().enumerate().any(|(i,p)|p.ordinal!=i as i64)
+            || params.iter().map(|p|&p.name).collect::<BTreeSet<_>>().len()!=params.len()
+            || params.iter().map(|p|p.fact_id).collect::<BTreeSet<_>>().len()!=params.len() {continue;}
+        let mut defaults=Vec::new();
+        let mut valid=true;
+        for parameter in params {
+            match (parameter.default_start_byte,parameter.default_end_byte,parameter.default_text.as_ref()) {
+                (None,None,None)=>{},
+                (Some(start),Some(end),Some(_))=>{
+                    let found:Vec<_>=body.iter().filter(|n|n.field==F::Default
+                        && n.start_byte==start && n.end_byte==end).collect();
+                    if found.len()!=1 || found[0].ordinal!=defaults.len() as i64 {valid=false;break;}
+                    defaults.push(**found.first().unwrap());
+                },
+                _=>{valid=false;break;},
+            }
+        }
+        if !valid || defaults.len()!=body.iter().filter(|n|n.field==F::Default).count() {continue;}
+        let mut evidence=vec![declaration.fact_id,binding.fact_id,scope.fact_id];
+        evidence.extend(params.iter().map(|p|p.fact_id));
+        out.insert(key,DefinitionHeader {binding,defaults,evidence});
+    }
+    out
+}
+
 struct Kernel<'a> {
+    definitions: HashMap<(Id,Id),DefinitionHeader<'a>>,
     children: HashMap<(Id, Id), Vec<&'a SyntaxNodesRow>>,
     expressions: HashMap<(Id, Id), &'a ExpressionEvaluationsRow>,
     expression_steps: HashMap<(Id, Id), Vec<&'a ExpressionEvaluationStepsRow>>,
@@ -336,6 +444,20 @@ impl Kernel<'_> {
         let children = self.children.get(&(node.snapshot_id, node.node_id)).cloned().unwrap_or_default();
         if children.len() > self.remaining { return Err(BoundaryReason::CompletionWorkLimit); }
         self.remaining -= children.len();
+        if node.kind==S::StmtFunctionDef {
+            let header=self.definitions.get(&(node.snapshot_id,node.node_id)).ok_or(BoundaryReason::UnsupportedControlFlow)?;
+            let binding=header.binding;
+            let defaults=header.defaults.clone();
+            self.remaining=self.remaining.checked_sub(header.evidence.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
+            let evidence=header.evidence.clone();
+            if !self.initialized.insert((binding.snapshot_id,binding.scope_id,binding.name.clone())) {
+                return Err(BoundaryReason::UnsupportedControlFlow);
+            }
+            for default in defaults {self.expression(default)?;}
+            self.proof.extend(evidence.into_iter().map(|id|(K::DefinitionHeaderEvidence,id)));
+            self.proof.push((K::CompletionStatement,node.fact_id));
+            return Ok(Completion::Normal);
+        }
         if children.iter().any(|child| child.owner_node_id != node.owner_node_id
             || child.module_node_id != node.module_node_id || child.start_byte < node.start_byte
             || child.end_byte > node.end_byte) { return Err(BoundaryReason::MissingEvidence); }
@@ -468,7 +590,8 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
     let mut mro:HashMap<_,Vec<_>>=HashMap::new();
     for ancestor in inputs.mro {mro.entry((ancestor.snapshot_id,ancestor.class_node_id)).or_default().push(ancestor);}
     for ancestors in mro.values_mut() {ancestors.sort_by_key(|a|(a.ordinal,a.fact_id));}
-    let mut kernel = Kernel { children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
+    let definitions=definition_headers(&inputs,&children);
+    let mut kernel = Kernel { definitions, children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
         handler_types,classes,mro,modules,active_exception:None,
         entry_mode:false,initialized:BTreeSet::new(),path_initializations:eligible,
         remaining: MAX_WORK, proof: Vec::new(),
@@ -566,13 +689,44 @@ mod tests {
     }
     fn run(nodes:&[SyntaxNodesRow], exits:&[ExitSitesRow]) -> Outcome {
         let expressions=evaluate(EvaluationInputs {syntax:nodes,..Default::default()});
-        complete(Inputs {syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
+        complete(Inputs {declarations:&[],parameters:&[],syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
             handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&[],entry_conditions:&[],boundaries:&HashMap::new(),diagrams:&HashMap::new()})
     }
     fn exit(site:u8) -> ExitSitesRow {
         ExitSitesRow { snapshot_id:id(1),function_node_id:id(3),site_node_id:id(site),
             kind:ExitSiteKind::Return,module_node_id:id(2),source_fact_id:id(site),
             region_fact_id:id(90),start_byte:0,end_byte:100,condition_id:id(91),approximated:false }
+    }
+    #[test]
+    fn site_coverage_distinguishes_empty_exception_domains_from_unexamined_and_open() {
+        use cpg_schema::codebook::{SummaryChannel,SummarySubjectKind};
+        let nodes=vec![node(10,3,S::StmtPass,F::Body,0,""),
+            node(11,3,S::StmtRaise,F::Body,1,""),node(12,11,S::ExprNoneLiteral,F::Exc,0,"None"),
+            node(13,3,S::StmtExpr,F::Body,2,""),node(14,13,S::ExprCall,F::Value,0,"unknown()")];
+        let out=run(&nodes,&[]);
+        let rows=coverage(&out.statements);
+        let exception=|site|rows.iter().find(|r|r.subject_id==id(site) && r.channel==SummaryChannel::Exception).unwrap();
+        let empty=exception(10);
+        assert_eq!(empty.subject_kind,SummarySubjectKind::ExecutionSite);
+        assert_eq!(empty.parameter_node_id,None);
+        assert!(empty.complete && empty.reason.is_none());
+        assert_eq!(empty.witness_count,0);
+        assert!(exception(11).complete);
+        assert_eq!(exception(11).witness_count,1);
+        assert!(!exception(13).complete);
+        assert!(exception(13).reason.is_some());
+        assert_eq!(exception(13).witness_count,0);
+        assert!(!rows.iter().any(|r|r.subject_id==id(99)));
+        assert_eq!(cpg_schema::summary_contract::coverage_domain(empty.subject_kind,empty.channel),
+            Some(cpg_schema::summary_contract::CoverageDomain::EscapingException));
+        // A handled exception is activity, but is absent from the escaping domain.
+        let caught=run(&[node(20,3,S::StmtTry,F::Body,0,""),node(21,20,S::StmtRaise,F::Body,0,""),
+            node(22,21,S::ExprNoneLiteral,F::Exc,0,"None"),node(23,20,S::ExceptHandlerExceptHandler,F::Handler,0,""),
+            node(24,23,S::StmtPass,F::Body,0,"")],&[]);
+        let caught_rows=coverage(&caught.statements);
+        let whole=caught_rows.iter().find(|r|r.subject_id==id(20) && r.channel==SummaryChannel::Exception).unwrap();
+        assert!(whole.complete && whole.witness_count==0);
+        assert!(caught_rows.iter().any(|r|r.subject_id==id(21) && r.channel==SummaryChannel::Exception && r.witness_count==1));
     }
     #[test]
     fn nested_handler_entry_restores_the_outer_active_exception() {
@@ -751,7 +905,7 @@ mod tests {
             let diagrams=HashMap::from([(path.id(),path),(predicate.id(),predicate)]);
             let exits=[target];let tests=[test];
             let check=|diagrams:&HashMap<Id,Diagram>,boundaries:&HashMap<Id,BoundaryReason>| {
-                let out=complete(Inputs {syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+                let out=complete(Inputs {declarations:&[],parameters:&[],syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                     bindings:&[],scopes:&[],exits:&exits,handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,entry_conditions:&[],boundaries,diagrams});
                 assert_eq!(out.entries[0].reason,Some(expected));assert!(out.entry_steps.is_empty());
             };
@@ -781,7 +935,7 @@ mod tests {
         let check=|nodes:&[SyntaxNodesRow]| {
             let evaluations=evaluate(EvaluationInputs {syntax:nodes,reads:std::slice::from_ref(&read),..Default::default()});
             assert!(!evaluations.evaluations.iter().find(|e|e.syntax_fact_id==id(11)).unwrap().normal);
-            complete(Inputs {syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+            complete(Inputs {declarations:&[],parameters:&[],syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                 bindings:&[],scopes:&[],exits:std::slice::from_ref(&target),handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,
                 entry_conditions:&[(id(1),id(99),Diagram::always().id())],boundaries:&HashMap::new(),diagrams:&diagrams})
         };

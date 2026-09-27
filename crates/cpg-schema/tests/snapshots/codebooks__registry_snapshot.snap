@@ -799,6 +799,7 @@ summary_flow_step_kind
   19 local_assignment_binding
   20 statement_condition
   21 handler_class_evidence
+  22 definition_header_evidence
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal
@@ -828,3 +829,6 @@ summary_channel
   5 callback
   6 resource
   7 role
+summary_subject_kind
+  0 value_origin
+  1 execution_site

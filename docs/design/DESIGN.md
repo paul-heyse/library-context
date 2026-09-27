@@ -340,7 +340,11 @@ The accepted Stage 3 consolidation target uses shared typed evaluation, completi
 binding and coverage contracts across summary channels (ADR-0057; implementation remains
 partial in §9.9). Providers observe; the pure semantic layer owns these conclusions.
 
-> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056, ADR-0057
+**Accepted target, Proposed implementation (2026-09-26).** Channel composition uses typed
+subjects, independent phase/coverage and shared proof admission (§9.9). Current transfer and
+RCA projections preserve semantic alternatives and modality; deferred execution remains Stage 5.
+
+> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058
 
 <a id="section-b6"></a>
 
@@ -360,7 +364,11 @@ partial in §9.9). Providers observe; the pure semantic layer owns these conclus
   config and the `compiler_digest`. Summary proof steps retain source evidence and condition ids
   in the same snapshot.
 
-> Decision: ADR-0047, ADR-0045
+**Accepted target, Proposed implementation (2026-09-26).** Coverage certificates distinguish
+complete empty channels from missing analysis and omitted witnesses; non-value channels cite
+their actual subjects and sources instead of invented parameter-return identities (§9.9).
+
+> Decision: ADR-0047, ADR-0045, ADR-0058
 
 <a id="section-b7"></a>
 

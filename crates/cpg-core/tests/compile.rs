@@ -5116,7 +5116,7 @@ budget = 1
         &raw_version("expression_completion_shapes", snapshot, (3, 14, 7)), Some(&analysis))
         .await.unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
-    for name in ["typed_exception_finalizer", "superclass_exception_finalizer", "later_matching_finalizer", "reraised_caught_finalizer", "selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer", "literal_predecessor", "initialized_predecessor", "skipped_predecessor"] {
+    for name in ["literal_default_header", "keyword_default_header", "unexecuted_body_header", "typed_exception_finalizer", "superclass_exception_finalizer", "later_matching_finalizer", "reraised_caught_finalizer", "selected_parameter", "selected_builtin", "short_circuited", "nested_call_sibling", "nested_call_selected", "nested_call_predecessor", "normal_call_finalizer", "selected_finalizer", "literal_predecessor", "initialized_predecessor", "skipped_predecessor"] {
         assert!(count(&ctx, &format!("SELECT count(*) FROM summary_flows s \
             JOIN declarations d ON d.node_id = s.function_node_id \
             WHERE d.name = '{name}' AND s.verdict IN (0,1)")).await > 0, "{name}");
@@ -5132,6 +5132,12 @@ budget = 1
     assert!(count(&ctx,"SELECT count(*) FROM statement_completions WHERE kind=2 AND exception=0").await>0);
     assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE complete").await>0);
     assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE NOT complete").await>0);
+    assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE subject_kind=1 AND channel=4 AND complete AND witness_count=0 AND parameter_node_id IS NULL").await>0);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage c JOIN declarations d ON d.node_id=c.function_node_id WHERE c.subject_kind=1 AND d.name IN ('deferred_completion_async','deferred_completion_generator')").await,0);
+    assert!(count(&ctx,"SELECT count(*) FROM summary_flow_steps WHERE kind=22").await>0);
+    for name in ["missing_default_header","decorated_header","rebound_definition_header"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
+    }
     let original_coverage=sql::query(&ctx,"SELECT * FROM summary_origin_coverage").await.unwrap().into_view();
     let forged_coverage=sql::query(&ctx,"SELECT * EXCEPT (complete,reason), true AS complete, CAST(NULL AS SMALLINT) AS reason FROM summary_origin_coverage").await.unwrap().into_view();
     ctx.deregister_table("summary_origin_coverage").unwrap();ctx.register_table("summary_origin_coverage",forged_coverage).unwrap();

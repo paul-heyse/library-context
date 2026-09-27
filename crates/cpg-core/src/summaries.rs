@@ -35,8 +35,17 @@ cpg_schema::relations! {
     expression_call_arguments = "summary_expression_arguments", deps = ["arguments"], sql = "SELECT * FROM arguments".to_owned();
     expression_parameters = "summary_expression_parameters", deps = ["context_parameters"], sql = "SELECT * FROM context_parameters".to_owned();
     expression_transfers = "summary_expression_transfers", deps = ["modeled_transfer_sites"], sql = "SELECT * FROM modeled_transfer_sites".to_owned();
+    completion_declarations = "summary_completion_declarations", deps = ["declarations"], sql = "SELECT * FROM declarations".to_owned();
+    completion_parameters = "summary_completion_parameters", deps = ["parameter_syntax"], sql = "SELECT * FROM parameter_syntax".to_owned();
     completion_expressions = "summary_completion_expressions", deps = ["expression_evaluations"], sql = "SELECT * FROM expression_evaluations".to_owned();
     completion_expression_steps = "summary_completion_expression_steps", deps = ["expression_evaluation_steps"], sql = "SELECT * FROM expression_evaluation_steps".to_owned();
+    completion_outcomes = "summary_completion_outcomes", deps = ["statement_completions", "declarations", "syntax_nodes"],
+        sql = format!("SELECT s.* FROM statement_completions s JOIN declarations d \
+            ON d.snapshot_id=s.snapshot_id AND d.node_id=s.function_node_id AND d.kind={} \
+            WHERE NOT EXISTS (SELECT 1 FROM syntax_nodes n WHERE n.snapshot_id=d.snapshot_id \
+                AND n.owner_node_id=d.node_id AND n.kind IN ({},{}))",
+            cpg_schema::codebook::DeclarationKind::Function.code(),
+            cpg_schema::codebook::SyntaxKind::ExprYield.code(),cpg_schema::codebook::SyntaxKind::ExprYieldFrom.code());
     completion_bindings = "summary_completion_bindings", deps = ["bindings"], sql = "SELECT * FROM bindings".to_owned();
     completion_scopes = "summary_completion_scopes", deps = ["scopes"], sql = "SELECT * FROM scopes".to_owned();
     completion_exits = "summary_completion_exits", deps = ["exit_sites"], sql = "SELECT * FROM exit_sites".to_owned();
@@ -236,11 +245,14 @@ pub async fn finite_flows(
     let local_arguments: Vec<LocalCallArgument> = sql::fetch(ctx, &cpg_schema::behavior::local_call_arguments(), sql::Params::new()).await?;
     let local_value_links: Vec<LocalCallValueLink> = sql::fetch(ctx, &cpg_schema::behavior::local_call_value_links(), sql::Params::new()).await?;
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
-    Ok(lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
+    let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
         diagrams, boundaries, pass_steps, entries, entry_steps, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, boundary_candidates,
-    }))
+    });
+    let statements=sql::fetch(ctx,&completion_outcomes(),sql::Params::new()).await?;
+    result.coverage.extend(lctx_analytics::completion::coverage(&statements));
+    Ok(result)
 }
 
 async fn load_conditions(
@@ -327,6 +339,8 @@ pub async fn expression_evaluations(ctx: &SessionContext)
 
 /// Mechanical acquisition for statement and frame completion.
 pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::completion::Outcome, CoreError> {
+    let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
+    let parameters = sql::fetch(ctx, &completion_parameters(), sql::Params::new()).await?;
     let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
     let expressions = sql::fetch(ctx, &completion_expressions(), sql::Params::new()).await?;
     let expression_steps = sql::fetch(ctx, &completion_expression_steps(), sql::Params::new()).await?;
@@ -342,6 +356,7 @@ pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::complet
     let requests:Vec<EntryCondition> = sql::fetch(ctx,&completion_entry_conditions(),sql::Params::new()).await?;
     let entry_conditions:Vec<_>=requests.iter().map(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id)).collect();
     Ok(lctx_analytics::completion::complete(lctx_analytics::completion::Inputs {
+        declarations: &declarations, parameters: &parameters,
         syntax: &syntax, expressions: &expressions, expression_steps: &expression_steps, bindings: &bindings, scopes: &scopes, exits: &exits,
         handler_types:&handler_types,classes:&classes,mro:&mro,modules:&modules,tests: &tests, diagrams: &diagrams, boundaries:&boundaries,entry_conditions:&entry_conditions,
     }))

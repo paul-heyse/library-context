@@ -35,7 +35,7 @@ use crate::codebook::{
     ModelTransferEndpointStatus, ModelTransferKind, ModeledArgumentEvaluationStatus,
     ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase,
     SourceRole, SummaryFlowKind, SummaryFlowStepKind, SyntaxKind, TestValueLinkOrigin, ValueClass,
-    Verdict, SummaryChannel,
+    Verdict, SummaryChannel, SummarySubjectKind,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -1490,21 +1490,28 @@ table!(
 );
 
 table!(
-    /// Coverage of one source contribution in one channel under its cited condition. Even a
-    /// complete row closes only this origin, never the operation's other paths or channels.
+    /// Coverage of a typed subject in one channel under its cited condition. Publication
+    /// reconstructs the certificate from source, including exhaustive empty domains. Witness
+    /// count and omitted renderings do not determine semantic completeness. Missing rows are
+    /// unexamined, never complete. An execution site is interpreted only under entry to it.
+    /// `summary_contract::coverage_domain` owns the subject/channel meaning: site Exception
+    /// is escaping exceptions only, never generic raise/catch/convert/suppress activity.
     SummaryOriginCoverage, SummaryOriginCoverageRow = "summary_origin_coverage",
     family = Findings,
-    key = [snapshot_id, source_origin_id, condition_id, channel, phase],
+    key = [snapshot_id, subject_kind, subject_id, condition_id, channel, phase],
     checks = [
-        ("coverage_shape", "(complete AND reason IS NULL AND witness_count > 0) OR (NOT complete AND reason IS NOT NULL)"),
+        ("coverage_shape", "(complete AND reason IS NULL) OR (NOT complete AND reason IS NOT NULL)"),
+        ("subject_shape", "(subject_kind = 0 AND parameter_node_id IS NOT NULL) OR (subject_kind = 1 AND parameter_node_id IS NULL)"),
+        ("subject_channel", "(subject_kind = 0 AND channel = 1) OR (subject_kind = 1 AND channel IN (0, 4))"),
         ("witness_count_nonnegative", "witness_count >= 0"),
     ],
     {
         snapshot_id: Id,
         function_node_id: Id,
-        parameter_node_id: Id,
-        source_flow_fact_id: Id,
-        source_origin_id: Id,
+        subject_kind: SummarySubjectKind,
+        subject_id: Id,
+        source_fact_id: Id,
+        parameter_node_id: Option<Id>,
         condition_id: Id,
         channel: SummaryChannel,
         phase: InvocationPhase,

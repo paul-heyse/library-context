@@ -8,6 +8,43 @@ use crate::condition::Atom;
 use crate::condition_kernel::{Diagram, KernelBoundary};
 use crate::id::{Id, recipe::SummaryFlowProofStep};
 
+/// A source subject retains its own identity. Site channels require neither a fabricated
+/// formal nor a successful return. Additional subject variants require actual producers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SummarySubject {
+    ValueOrigin { origin_id: Id, flow_fact_id: Id, parameter_node_id: Id },
+    ExecutionSite { node_id: Id, syntax_fact_id: Id },
+}
+
+/// Claim-specific domains; a consumer must match this meaning before using completeness.
+/// In particular, no escaping exception says nothing about caught/converted/suppressed
+/// exception activity or about whether an operation reaches the subject.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoverageDomain { ValueTransfer, CompletionOutcome, EscapingException }
+
+pub fn coverage_domain(subject: crate::codebook::SummarySubjectKind, channel: crate::codebook::SummaryChannel)
+    -> Option<CoverageDomain> {
+    use crate::codebook::{SummarySubjectKind as S,SummaryChannel as C};
+    match (subject,channel) {
+        (S::ValueOrigin,C::Value)=>Some(CoverageDomain::ValueTransfer),
+        (S::ExecutionSite,C::Completion)=>Some(CoverageDomain::CompletionOutcome),
+        (S::ExecutionSite,C::Exception)=>Some(CoverageDomain::EscapingException),
+        _=>None,
+    }
+}
+
+impl SummarySubject {
+    pub fn columns(self) -> (crate::codebook::SummarySubjectKind, Id, Id, Option<Id>) {
+        use crate::codebook::SummarySubjectKind as K;
+        match self {
+            Self::ValueOrigin { origin_id, flow_fact_id, parameter_node_id } =>
+                (K::ValueOrigin, origin_id, flow_fact_id, Some(parameter_node_id)),
+            Self::ExecutionSite { node_id, syntax_fact_id } =>
+                (K::ExecutionSite, node_id, syntax_fact_id, None),
+        }
+    }
+}
+
 crate::query_row! {
     pub struct LocalCallArgument {
         call_fact_id: Id,
@@ -88,10 +125,97 @@ pub fn validate_fixed_control_proof(
     Ok(())
 }
 
+/// The admitted semantic target of a callee reference. Both source composition and immutable
+/// native loading supply this view; neither consumer interprets proof adjacency itself.
+pub struct CalleeProofTarget<'a> {
+    pub function_node_id: Id,
+    pub condition: &'a Diagram,
+    pub verdict: crate::codebook::Verdict,
+    pub path_depth: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProofAdmissionError {
+    pub reason: BoundaryReason,
+    pub message: &'static str,
+}
+
+impl From<&'static str> for ProofAdmissionError {
+    fn from(message: &'static str) -> Self {Self {reason:BoundaryReason::MissingEvidence,message}}
+}
+
+/// Admit the complete structural callee obligations in a proof. Source reconstruction still
+/// owns binding/evaluation evidence. A link belongs to exactly one following callee reference;
+/// references decrease depth, cite the callee's actual condition, and cover every control.
+pub fn admit_callee_proof<'a>(
+    caller: Id, condition: &Diagram, path_depth: i64, steps: &[SummaryFlowProofStep],
+    links: &HashMap<Id, DirectValueLink>,
+    resolve: impl Fn(Id) -> Option<CalleeProofTarget<'a>>,
+) -> Result<(), ProofAdmissionError> {
+    use crate::codebook::Verdict;
+    if steps.len()>MAX_SUMMARY_PROOF_STEPS {
+        return Err(ProofAdmissionError {reason:BoundaryReason::SummaryProofLimit,message:"summary proof exceeds step limit"});
+    }
+    let mut start=None;
+    for (index,step) in steps.iter().enumerate() {
+        match step.kind {
+            SummaryFlowStepKind::CallerConditionLink | SummaryFlowStepKind::CalleeConditionLink => {
+                start.get_or_insert(index);
+            },
+            SummaryFlowStepKind::CalleeSummary => {
+                let callee=resolve(step.evidence_id).ok_or("missing cited callee summary")?;
+                if callee.path_depth<0 || callee.path_depth>=path_depth {
+                    return Err("cyclic or unordered callee proof".into());
+                }
+                if step.condition_id!=callee.condition.id() {return Err("callee reference condition mismatch".into());}
+                let controls=&steps[start.take().unwrap_or(index)..index];
+                match callee.verdict {
+                    Verdict::Established if callee.condition.is_true() => {
+                        if !controls.is_empty() {return Err("unexpected unconditional callee controls".into());}
+                    },
+                    Verdict::Conditional if !callee.condition.is_true() && !callee.condition.is_false() => {
+                        validate_fixed_control_proof(caller,condition,callee.function_node_id,
+                            callee.condition,controls,links)?;
+                    },
+                    _=>return Err("callee proof has no admitted verdict".into()),
+                }
+            },
+            _ if start.is_some()=>return Err("orphan condition proof link".into()),
+            _=>{},
+        }
+    }
+    if start.is_some() {return Err("orphan condition proof link".into());}
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::condition::EvaluationIdentity;
+
+    #[test]
+    fn callee_reference_structure_rejects_orphans_wrong_conditions_and_cycles() {
+        use crate::codebook::Verdict;
+        let root=Diagram::always();
+        let reference=SummaryFlowProofStep {kind:SummaryFlowStepKind::CalleeSummary,
+            evidence_id:Id([2;16]),condition_id:root.id()};
+        let check=|steps:&[SummaryFlowProofStep],depth|admit_callee_proof(Id([1;16]),&root,depth,steps,
+            &HashMap::new(),|id| (id==Id([2;16])).then_some(CalleeProofTarget {
+                function_node_id:Id([3;16]),condition:&root,verdict:Verdict::Established,path_depth:0,
+            })).map_err(|error|error.message);
+        assert!(check(std::slice::from_ref(&reference),1).is_ok());
+        assert_eq!(check(std::slice::from_ref(&reference),0),Err("cyclic or unordered callee proof"));
+        let mut wrong=reference.clone();wrong.condition_id=Diagram::never().id();
+        assert_eq!(check(&[wrong],1),Err("callee reference condition mismatch"));
+        let mut missing=reference.clone();missing.evidence_id=Id([4;16]);
+        assert_eq!(check(&[missing],1),Err("missing cited callee summary"));
+        let link=SummaryFlowProofStep {kind:SummaryFlowStepKind::CalleeConditionLink,
+            evidence_id:Id([5;16]),condition_id:root.id()};
+        assert_eq!(check(std::slice::from_ref(&link),1),Err("orphan condition proof link"));
+        assert_eq!(check(&[link.clone(),reference.clone()],1),Err("unexpected unconditional callee controls"));
+        let other=SummaryFlowProofStep {kind:SummaryFlowStepKind::ReturnExit,..reference.clone()};
+        assert_eq!(check(&[link,other,reference],1),Err("orphan condition proof link"));
+    }
 
     #[test]
     fn every_callee_atom_needs_its_own_scoped_link() {

@@ -503,7 +503,7 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
     let mut actual_coverage:Vec<cpg_schema::behavior::SummaryOriginCoverageRow> =
         sql::fetch(ctx,&stored_summary_origin_coverage(),sql::Params::new()).await?;
     let mut expected_coverage=summary.coverage;
-    let key=|r:&cpg_schema::behavior::SummaryOriginCoverageRow|(r.snapshot_id,r.source_origin_id,r.condition_id,r.channel,r.phase);
+    let key=|r:&cpg_schema::behavior::SummaryOriginCoverageRow|(r.snapshot_id,r.subject_kind,r.subject_id,r.condition_id,r.channel,r.phase);
     actual_coverage.sort_by_key(key);expected_coverage.sort_by_key(key);
     if actual_coverage!=expected_coverage {
         violations.push(Violation {rule:"summary-origin-coverage-source-equality".to_owned(),rows:1,

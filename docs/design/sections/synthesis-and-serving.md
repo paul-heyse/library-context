@@ -583,7 +583,11 @@ admission replaces shape-specific native rules, with full bounded source support
 truncation and omitted evidence remain separate. The existing path-inspection API remains
 path-local; FORMAT 8 is still the implemented format pending this migration.
 
-> Decision: ADR-0057
+The channel contract additionally separates complete empty results from unanalyzed emptiness.
+Conjoined semantic terms require compatible conditions and subject/phase scopes. Structural proof
+admission and evidence closure are shared with compile-time semantics; labels are not query logic.
+
+> Decision: ADR-0057, ADR-0058
 
 **Implemented so far toward that target** (**Implemented** and **Tested**, 2026-09-25, focused
 and internal):

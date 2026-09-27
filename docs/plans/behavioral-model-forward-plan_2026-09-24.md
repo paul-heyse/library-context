@@ -1,7 +1,7 @@
 # Plan: the behavioral model, going forward
 
 **Status:** Active; the sole product execution plan. **Revised:** 2026-09-26 (targeted
-default-binding obligations and semantic value fixed point; integrated acceptance deferred).
+operator-approved remaining Stage 3 execution and triggered fidelity repairs; implementation underway).
 **Authority.** The [architecture map](../design/README.md), DESIGN and its section owners own
 contracts and accepted targets; current ADRs own rationale. This plan owns execution order, the
 current disposition of scheduled findings (§6) and deferred triggers. A change to a §B decision
@@ -95,102 +95,65 @@ acceptance. Findings are identified in §6; their priority follows the follow-up
 
 ### 3.0 Consolidated execution
 
-**Accepted target; implementation in progress (2026-09-26, ADR-0057).** The operator selected
-shared-contract consolidation before further Stage 3 extension. This queue refines orders 1–10
-below; their semantic requirements and W1–W16 closure obligations remain in force. The
-[target review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
-records the additional architecture findings F01–F04; this table owns their disposition.
+**Accepted target; implementation in progress (2026-09-26, ADR-0057 and ADR-0058).** This is the
+operator-approved detailed execution queue. Orders 1–10 below retain their semantic requirements;
+§6 retains finding disposition. The [composition review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
+F01–F04 remain applicable. Accepted targets do not certify their implementation.
 
-| Step | Functional work and deletion obligation | Focused acceptance | State |
-|---|---|---|---|
-| S1 | Schema-owned evaluation/completion/binding/proof/coverage contracts; pure analytics owners and mechanical core adapters. Replace the flattened one-control local-call shape and native adjacency assumptions as consumers migrate | Existing semantics retained; malformed groups, missing witnesses and mixed origins rejected | Partial: normalized arguments, expression/statement/frame certificates and shared proof capacity and initial value-origin coverage implemented; other channel contracts and general proof admission remain |
-| S2 | Compose expression, predecessor and frame evaluation, including nested supported expressions/calls, exact bindings/defaults, ordered finalizers, handlers and synchronous context exits. Separate normal evaluation, exact value, normal return and exceptional/control outcomes | Raising/skipped operands, unbound reads, terminating/base-free recursion, overriding finalizers, suppression, callback-not-run and unreleased resources | Partial: normal reads, nested pinned calls, exact signature binding, path-specific predecessor sequencing, bounded statement/finalizer completion and exact-TypeError typed handlers/re-raise implemented; handler/else/finalizer entry added; default values/context exits remain; omitted source defaults are withheld pending certificates |
-| S3 | Activate §3.3 model families for supported source consumers with independent channel coverage, phase and exact pins. Add typed dynamic-schema identity before validation effects; retain unsupported/deferred consumers as named candidates | Source-backed positive/withholding pair per activated family; catalog equality and isolated pure-model challenge | Pending S1/S2 |
-| S4 | Bounded simultaneous condition substitution and multi-control bindings; extend the SCC producer to completion/value/transform/effect/exception/role channels. Separate semantic progress from bounded witnesses; retain origins/parallel calls. Recompare Ascent/datafrog on the actual multi-channel state/refusal contract | Capture/swapped-formal controls, exact primitive links, finite/no-base SCCs, shuffled bytes and typed cap outcomes | Partial: bounded simultaneous kernel substitution and multi-control pure contract; value-channel semantic/witness separation implemented; source stability, residual conditions and multi-channel engine remain |
-| S5 | Explicit channel/origin coverage and shared reconstruction discharge only matching proofs. Prepare handlers before summaries. Activate W14/F15 for affected SQL-only table construction, preserving semantic rederivation | behavior_shapes part 2; sibling unknown retained; tampered coverage/proofs refused | Partial prerequisites: handlers now precede summaries; twenty SQL-only derivations use Arrow transport. Initial value-origin coverage is reconstructed; call/channel coverage composition and discharge remain |
-| S6 | FORMAT 9 replaces FORMAT 8 for expanded structural proof/summary/coverage support; native effect/role/operation-compatibility terms, exact primitive bindings, shared proof admission and complete cited spans. Delete superseded adapter interpretation; rebuild current stores under ADR-0048 | Native/MCP unknown/empty/cap/cursor/closure cases; path inspection remains path-local | Pending S5 |
-| S7 | Close W5 work/node, W7 reach-work and W12 pair-work production-cap traces through actual producer outcomes, Delta and native. Broaden independent CPython/Hypothesis, CrossHair and real-rule Pysa TITO controls throughout S1–S6 | Default-limit traces distinguished from injected-budget tests; oracle inconclusive is not equivalence | Partial: 120 generated CPython/Hypothesis completion controls and implicit-execution counter-controls; expression and summary-proof cap traces added. Original W5/W7/W12 default-cap obligations remain |
-| S8 | Only after all functional work: format, test-all, fresh pilot, all-techniques digest, Stage 3 structured evaluation, clean-wheel query, W9 live replay/conformance, cost measurements and assembled target review | Existing Stage 3 exit rule; named command outcomes, baseline deltas and restart-safe STATUS | not_run |
+**Current implementation checkpoint.** Compiler output 82 adds typed value-origin and execution-site
+coverage, including complete empty escaping-exception domains under statement entry. Async and
+generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
+source/Delta controls; source-default invocation remains open. Shared callee proof admission replaces
+the independent native adjacency policy and preserves typed proof-limit refusals. FORMAT 8 remains
+current. These are partial S1/S2 changes, not an assembled Stage 3 receipt. STATUS owns the latest
+focused command/outcome; the [bounded review](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md)
+keeps target acceptance separate from implementation scope and corrected findings F01–F03.
 
-**Current implementation boundary (2026-09-26; Implemented, partial S1/S2).** Compiler output 81
-retains the replacement of `closed_expression_evaluations` with `expression_evaluations` and ordered operand proofs,
-and adds statement completion, pending-return frame proofs and condition-keyed return-entry
-certificates. Source-origin requests avoid a return/condition cross product; complete ordered
-predecessors replace the call-only queries/classifier. Single comparison guards use same-site
-outcome premises after independently normal operands, without granting total completion or
-primitive stability. Existing and operation-time BDD refusal causes survive acquisition.
-The [predecessor review](../design_review/reviews/design_review_stage3-predecessor-completion_2026-09-26.md)
-F01/F02 are corrected by inspection; 36 focused expression/completion/finite and source/Delta/native
-cases passed, plus 13 reviewed schema contract/codebook cases (2026-09-26).
-The next bounded handler extension adds proof kind 21 and a required `context_class_mro`
-`linearization_complete` field. Pysa's report drops native completeness and omits self/object;
-public pinned `get_all_classes`/`get_class_mro` APIs preserve the needed flag without a fork.
-The [typed-handler review](../design_review/reviews/design_review_stage3-typed-handler-completion_2026-09-26.md)
-F01 is corrected. Eleven focused pure/source/Delta/native cases and 13 reviewed schema cases
-passed after that change; 100 independent generated CPython controls passed. Exact-TypeError
-catches, ordered nonmatches and active re-raise are supported. Named-handler cleanup, exception
-groups and opaque exception construction remain conservative. Handler/else/finalizer entry now uses
-the same try/handler owner as statement completion. These receipts
-are scoped checks, not S2/S7 completion. Reviewed snapshots apply
-under ADR-0048; stores must be rebuilt. New boundary codes 28–30 distinguish completion depth/work
-and the shared 64-step summary-proof limit. Normal reads and nested pinned total calls compose
-through all agreeing signatures. Local-call arguments retain failed mappings and
-normal-evaluation gaps instead of filtering away candidates. Missing required formals are
-checked with grouped relational counts (nested projected `EXISTS` is unsupported by this
-DataFusion plan). The raw source flow and normal-read witness are separate proof steps.
+| Step | Work, owner and deletion obligation | Acceptance / current state |
+|---|---|---|
+| S0 | Reconcile draft header work; update this plan and governing sections; record ADR-0058. Activate the already-triggered transfer and W10 repairs. Keep source finding IDs and one disposition owner | Current tree reconciled; plan adopted. Implementation and qualification remain open |
+| S1 | Schema owns typed subjects/origins for completion, value, transform, effect, exception, callback, resource and role; phase-specific coverage separates complete empty results, unresolved alternatives and omitted witnesses. Shared structural proof admission replaces native adjacency and seed-specific classifiers as consumers migrate. Add model phase and dynamic-schema contracts | Pure/schema tests and shared publication reject wrong channel/origin/phase, malformed groups and missing/reordered evidence; complete zero-effect differs from unanalyzed empty. Partial existing value contracts |
+| S2a | Complete definition-time header evaluation, then call-specific default availability, binding, value and stability certificates. Start with undecorated, unescaped synchronous nested definitions immediately followed by the sole direct call. Defaults are never evaluated at invocation; unused omitted formals still require availability | Fresh header completion implemented; source/Delta controls cover positional and keyword defaults, unevaluated body, missing defaults, decorators and rebinding. Default invocation admission remains open |
+| S2b/S3a | Bootstrap the minimum synchronous protocol models, then compose ordered entry and reverse exits, suppression and replacement of pending outcomes, resource identity and distinct callback fates. Named-handler cleanup requires a proof or a specific boundary | Later entry failure still exits earlier managers; exit raises; suppression; finalizer override; callback not run; acquire without release. Open |
+| S3b | Activate every §3.3 family's supported exact source targets by channel and phase; unsupported phase/binding and no-consumer targets remain explicit candidates. Typed runtime schema precedes validation effects. Source-backed total return is independent of transfer and effects | Per-target positive/withholding pairs, exact pins/signatures, catalog equality and independent pure-model challenge. Open |
+| S4 | Call-specific stable controls, simultaneous bounded substitution and residual caller/callee conjunction. Extend semantic fixed-point state to all channels; preserve origins, modality, phase, parallel calls and per-alternative refusal recovery; effects before raises use prefix evidence | Finite/base-free/self/mutual recursion, shuffled bytes, swapped/captured formals, later predicates and original typed caps. Existing value frontier retained; remaining channels open |
+| S4 engine | Compare current worklist, Ascent and datafrog on the actual shared semantic/refusal/witness contract. Keep ADR-0053 unless another conforming engine removes total machinery; measure build/preparation/run/memory after parity, record an ADR before replacement, delete superseded production path | No timeout treated as deterministic budget; no dual production engines. Comparison open |
+| S5 | Compose claim-specific source/model/callee/handler/exit coverage and discharge only matching origins. Remove unconditional strongest-transfer pruning; preserve kind/condition alternatives through value flows and receiver consumers. Move existing RCA attributes to typed meaning/modality/evidence and one renderer; reject unknown forms | behavior_shapes part 2, positive/open siblings, empty complete channels, transfer/lambda/decorator controls, candidate/definite RCA and relabeling invariance. Open |
+| S6 | FORMAT 9 structural proofs/coverage/support; typed effect, role and exact-entry-input conjunctions on existing operation queries. Rust canonicalizes and evaluates; Python adapts. Conditions/scopes of conjoined witnesses must be compatible. Partition matched/excluded/source-open/unexamined; preserve path-local inspection. Delete FORMAT 8/native adjacency interpretation | Delta/native/MCP empty/open/cap/cursor/closure/strict primitive cases; full bounded cited spans. Open |
+| S7 | Extend isolated CPython/Hypothesis comparisons to actual compiler completion, summaries, coverage and served results; use release binaries. CrossHair distinguishes exhaustive/bounded/counterexample; Pysa TITO uses real rules and pinned Pyrefly on identical source. Close original W5 work/node, W7 reach-work and W12 pair-work default-cap producer→Delta→native traces | Independent challenges accompany S2–S6. Original default-cap traces are separate from injected limits. Open |
+| S8 | After S1–S7: fmt, test-all including all-techniques digest, fresh-store pilot, structured Stage 3 packet with semantic queries, clean-wheel query, controlled live W9/W16 replay/conformance, cost measurements, assembled target review, docs-check and handoff | All not_run; frozen exit rule unchanged |
 
-**S1/S2 checkpoint (Implemented and focused Tested, 2026-09-26).** A schema-owned
-`CompletionOutcome` enum and persisted exact exception identity replace the private completion
-shape. Entry into handlers, else suites and finalizers reconstructs the pending outcome;
-named-handler cleanup remains unknown. `summary_origin_coverage` records only Value/Call
-contributions so far. Positive witnesses do not close call origins, approximated exits or
-unfinished alternatives; omission is a separate axis. Full-row reconstruction rejects tampering.
-The [bounded review](../design_review/reviews/design_review_stage3-origin-coverage_2026-09-26.md)
-F01–F03 are corrected by tests; their current disposition is W12 below. Twenty-seven focused
-schema, pure, source/Delta and native cases passed after snapshot review. No integrated gate ran.
+**Contract boundaries and defaults.** Contracts/source observations belong in schema/providers;
+pure semantics in analytics; acquisition, order and publication in core; bounded immutable selection
+in native Rust; protocol/rendering in Python. No general interpreter, provider framework, alias
+analysis, registry, solver migration or Stage 5 deferred execution is added. Existing pins and
+limits remain defaults. Async models assert only proved call/construction phases. Missing mappings,
+implicit protocols and incomplete coverage stay explicit unknowns.
 
-**S2/S4 checkpoint (Implemented and focused Tested, 2026-09-26).** Compiler output 81
-requires every fixed source formal to have an explicit argument until default availability and
-stability are certified. The shared binder now returns explicit bindings and omitted-default
-requirements separately; defaults have no invented argument ordinal. Explicit positional and
-keyword-only optional arguments retain their positive native paths. Omission remains unknown,
-even for unused formals. Eight independent [CPython controls](../design_review/evidence/2026-09-26_default-availability/README.md)
-confirm that removing positional/keyword defaults can make those calls raise.
+**Scope additions for the design standard.** S1 represents complete empty channels without fake
+value IDs (FP-04/05, DP-02/03, CI-04), shares actual proof admission (FP-02/03/04), and authors model
+phase/schema meaning once. S5 preserves transfer alternatives and current RCA fidelity (DP-07/08,
+CI-02/04/09); Stage 4 registry, behavioral FCA expansion and technique retention remain deferred.
+S7 challenges production results independently, not merely shared reconstruction (DP-22/23, CI-12).
+S6 and the evaluation packet exercise the new semantic interface and evidence closure (CI-11).
 
-The value SCC worklist now schedules a new semantic state or a strictly shorter representative,
-not every new proof ID. Semantic identity preserves origin, source, return site/region, condition,
-paths, kind, verdict and approximation. Alternate witnesses remain retained; suppressed expansion
-and its cited downstream dependencies set `witnesses_omitted` independently of coverage. Refusals
-are keyed by semantic alternative, so shorter-proof recovery removes only the superseded refusal.
-The [bounded review](../design_review/reviews/design_review_stage3-semantic-frontier_2026-09-26.md)
-F01 is corrected. Twenty-nine focused binding/evaluation/finite/source/Delta/native cases passed;
-the expanded recovery/same-caller blocked-alternative test passed separately. No integrated gate ran.
-This independent S4 prerequisite landed alongside the S2 default guard; S2 default admission still
-needs fresh-definition header completion, no-escape/stability evidence and default-to-formal
-certificates. Start with an undecorated nested definition immediately followed by its sole direct
-call; do not infer module-function default stability from syntax. Other channels and actual
-callee/model coverage remain open.
+**Verification and completion.** During S1–S7 run focused release compile/behavior/probe checks
+with `INSTA_UPDATE=no`; snapshots are reviewed migrations and codebooks append-only. Run `just fmt`
+and the integrated product gates at S8. Rebuild current stores under ADR-0048 without copying old
+analysis tables; verify the independent embedding-cache contract before reuse. The clean wheel runs
+outside editable checkout imports; fake vectors never qualify live embedding. Runtime workers execute
+only generated programs, never `fixtures/python/` or the analyzed pilot. Heldout stays sealed.
 
-The pure producer can bind several linked Boolean controls simultaneously. Real three-argument,
-reversed-keyword calls need every normal witness. A nested two-predicate callee still lacks a
-stable link after its first arbitrary truthiness evaluation; do not delete that barrier to make
-its positive fixture pass. S2/S4 must add call-specific stability/completion evidence before
-admitting it. The existing FORMAT 8 reader now shares control-group admission; FORMAT 9,
-operation-wide coverage and other channels are still targets. The
-[CPython controls](../design_review/evidence/2026-09-26_closed-expression-composition/README.md)
-are independent observations, not a complete generated-program challenge.
+The fixed Stage 3 set has **23 positive and five negative items** (Q01/Q03/Q05/Q09): at least 12
+positives present/partial, none incorrect/misleading, and no negative claim stated; behavior_shapes
+part 2 also passes. Add evaluation-only semantic requests without altering targets or the rule.
+A1–A3 and G1–G8/CI-G1–CI-G3 are settled independently at the assembled target review. A failed exit
+never silently relaxes the criterion or imports Stage 5 work.
 
-Contracts and source facts stay in `cpg-schema`/providers; pure semantic transformations stay
-in analytics; acquisition, dependency order and publication stay in core; native owns bounded
-selection and Python protocol/rendering. No general interpreter, provider framework, alias
-analysis, deferred-execution model, registry or solver migration is added. Existing dependency
-pins, depth/work limits and frozen evaluation criteria remain defaults. Missing mappings,
-unsupported implicit protocols and incomplete coverage remain explicit unknowns.
-
-During S1–S7 run only focused compile/behavior/probe checks. Formatting, full integrated tests
-and pilot/evaluation/live acceptance wait for S8. Schema snapshots are reviewed migrations;
-codebooks stay append-only. Each checkpoint updates this queue and §6 without treating an
-accepted ADR or a focused pass as integrated qualification.
+Small scoped commits stay on current main; preserve concurrent edits and never push unasked.
+Delete migrated competing semantic authorities and retire documents only after their last current
+consumer is gone. Each checkpoint updates this queue/§6 and a restart-safe STATUS without calling
+focused passes integrated qualification.
 
 ### 3.1 Contract repairs before extension
 
@@ -440,7 +403,7 @@ needs the named evidence, never an accepted ADR or a moved row.
 | **W7 · [RF/F05](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F05)** | `cpg-core::flow_model` | A sorted reverse-dependency worklist now computes the least source fixed point per receiver mode, with a one-million-work cap; unfinished uses and dependent parents publish `flow_reach_boundaries = budget_reached`, known source conditions widen to unknown, and dependent negative premises are withheld ([ADR-0051](../adr/0051-value-reach-worklist.md)). This deliberately uses a whole-use worklist in place of the premised SCC-local schedule; pilot cost can trigger that optimization | **Partial, targeted tests passed:** A-first/B-first/reversed cyclic transfer and low-budget controls, shared schema/rule snapshots, real compile and bundle cases. Reversing real extracted flow rows before two analyzed compiles leaves canonical Arrow IPC bytes equal for published contributions, value flows and negative premises. A pure-model fixture crosses the production one-million-work cap and leaves cyclic dependents open with `budget_reached` (2026-09-26). The production-cap snapshot/native trace and fresh pilot cost remain open; no integrated qualification | A5's acceptance |
 | **W8 · [RFU/F07](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F07)** | `cpg-extract` acquisition/context | The corpus identity includes content and membership of every analyzer-readable root, including unselected helpers; ordinary site-packages were already hashed | **Focused closure passed (2026-09-26):** content edit/addition changes the corpus identity and relocation preserves it. Warm extraction after editing an unselected imported helper or adding an unselected analyzer-readable helper produces exactly the same fact tables as a clean relocated extraction of each changed tree. Fresh pilot/integrated qualification remains open | Editing and adding an unselected helper changes identity or is refused before extraction; relocation invariance holds; facts equal a clean recomputation |
 | **W9 · [RFU/F06](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F06)** | `cpg-core::embed` | Both cache-fill entry points now share token admission, batching, insert-only merge and versioned readback of the committed winner. The focused fake-embedder race and over-cap controls passed; live replay remains | **Focused cache semantics passed** (`6c92ddc`): both fill routes share token admission, batching, insert-only merge and committed readback; live embedding replay pending | Two attempts with distinct valid vectors return exactly the committed values; an over-cap embedder is rejected through both entry points before insertion. Fake-embedder doubles qualify cache semantics only |
-| **W10 · [RFU/F04](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F04)** | Attribute schema, `lctx-analytics::concepts`, Stage F | FCA/RCA attributes are English labels; candidate calls render as "calls X". Typed attribute keys with modality and evidence, rendered after analysis; an interim fix keeps may-call meaning in one owned rendering and rejects unknown forms | **Deferred** · trigger: before claiming candidate-derived `+rca` behavior or extending FCA/RCA (Stage 4.7) | Candidate-only and definite controls keep distinct meaning in shared-signature and implication output; relabeling does not change membership |
+| **W10 · [RFU/F04](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F04)** | Attribute schema, `lctx-analytics::concepts`, Stage F | FCA/RCA attributes are English labels; candidate calls render as "calls X". Typed attribute keys with modality and evidence, rendered after analysis; an interim fix keeps may-call meaning in one owned rendering and rejects unknown forms | **In progress, S5 (scope activated 2026-09-26)**: typed fidelity for existing RCA assertions moves into Stage 3; new behavioral FCA and technique retention remain Stage 4.7 | Candidate-only and definite controls keep distinct meaning in shared-signature and implication output; relabeling does not change membership |
 | **W11 · [RF/F03](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F03), [RF/F04](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F04), [RF/F12](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F12)** | `condition_kernel`, `primitive_theory`, validation lane | F04 exact string membership and non-bool integer equality are implemented (`True in {1}` remains unknown). F03 cube factoring retains the equality proof; exact-input assessment uses bounded restriction and proof-link minimization. F12 has a ten-atom truth-table control and a recorded CPython 3.14.7 finite-literal lowering matrix. Synthetic and real-source Delta/native/MCP controls keep membership and equality refutations path-local; source-origin cases beyond the focused fixture and operation-wide Q09 remain | **Partial, targeted tests passed** (`96081b7`, `dd3bdcf`, `0db9eb9`, `7d02b42` plus 2026-09-26 CPython/native matrix): literal theory, cube/restriction, ten-atom truth table, independent finite-literal controls and native two-path refutations; a real source-origin Delta/MCP round trip passed on 2026-09-26; broader source lowering and operation-wide Q09 remain open | F04: a `transport.py`-shaped fixture with the bool/int control. F03: an over-budget DNF factor now factors with the equality gate; existing theory fixtures unchanged. F12: truth tables over ≤10 atoms in kernel tests; order 8 records disagreements as fixtures |
 | **W12 · [RF/F06](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F06)** | `lctx-analytics::summaries` | ADR-0053's SCC value worklist retains origin-specific proofs, depth and pair-work refusals. ADR-0057 adds bounded simultaneous BDD substitution, normalized source-ordered arguments, required-formal checks and shared whole-control-group admission. Closed expressions supply exact Boolean values separately from completion; direct-formal forwarding still requires a caller-fixed linked guard | **Partial, targeted tests passed (2026-09-26):** finite/no-base SCC, origin/shuffle/low-cap controls; real three-argument and reversed-keyword value paths; opposing, missing-required and raising arguments stay open. The pure multi-control contract passes, but a real later callee predicate remains unknown until call-specific stability is established. New default expression-depth/work caps survive Delta/native; these do not close the original BDD/work/pair-cap obligations. [Foundation review](../design_review/reviews/design_review_stage3-foundations_2026-09-26.md). The origin-coverage review F01–F03 are corrected: call crossings and approximated summaries remain open, and witness omission is independent. The [semantic-frontier review](../design_review/reviews/design_review_stage3-semantic-frontier_2026-09-26.md) F01 is corrected by per-semantic-alternative refusal replacement; value witnesses no longer drive recursive progress. Residual conjunction, other channels, engine comparison and pilot cost remain open | S4/S7: exact stable argument/predicate composition, per-origin default-cap traces, shuffled published bytes and measured pilot delta |
 | **W13 · [RF/F07](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F07), [RF/F08](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F08)** | `cpg-schema` recursive CTEs; `lctx-analytics::summaries` SCC | F07: unknown ancestry uses `UNION` over term id; the type layer uses `UNION` over function/term id. Both are set membership, so recursive distinct removes repeat paths without losing cited provenance. F08: [ADR-0052](../adr/0052-iterative-scc-schedule.md) chooses pinned petgraph's iterative `kosaraju_scc`; analytics retains canonical condensation ordering | **Focused functional controls passed (2026-09-26):** both type-term closures terminate on cyclic rows with unchanged membership/attributes, and real analytics concept/type-layer variants pass; a 30,000-edge SCC chain, order-independence and real component-order compile pass. Fresh pilot cost, integrated all-techniques digest and full acceptance remain open | Cyclic type-term fixture terminates with unchanged identity; existing SCC and component-order tests; a recorded stack-safety decision |
@@ -459,7 +422,7 @@ fresh-store execution is still pending. No other review finding is closed by doc
 | Per-claim assumption records | A served claim misread because of an assumption the `approximated` flag does not show |
 | A per-iteration unrolled loop model | An evaluation item graded `partial` for a loop condition |
 | Pyrefly-typed receivers for dynamic access; per-run largest-scope and residue reports | A refutation on a field read through a typed non-`self` receiver, or a report consumer |
-| The strongest-transfer filter; decorators and lambdas as value sources | Stage 3's summaries touch transfers |
+| Transfer/decorator/lambda fidelity | Trigger met; correction scheduled in S5 above. General deferred execution remains Stage 5 |
 | An unmapped argument at a multi-callee site; a lambda read's phase; inherited methods counted as field reads | A pilot or fixture row appears |
 | ty type inference as a second type provider; ty patches; the CPython bytecode CFG (`bytecode` 0.19) | A question Pyrefly's types cannot answer; a measurably degraded scope; an effectful-frame case runtime inputs cannot exercise (order 2) |
 | Analytics technique retention (ADR-0020's keep-rule outcome); deleting FCA, RCA, communities or kNN variants | Stage 4 gives them consumers; decide on that evidence |

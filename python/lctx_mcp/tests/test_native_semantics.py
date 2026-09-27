@@ -216,6 +216,22 @@ def test_native_index_refuses_missing_proof_steps(generation: Path) -> None:
              (caller, 2, "callee_summary", summary, condition)],
             [], [], [],
         )
+    other_condition = next(row[0] for row in conditions if row[0] != condition and row[1])
+    with pytest.raises(ValueError, match="callee reference condition mismatch"):
+        SemanticExecutor(
+            *args[:-1], conditional,
+            [(summary, 0, "raw_identity", "04" * 16, condition),
+             (caller, 0, "callee_summary", summary, other_condition)],
+            [], [], [],
+        )
+    with pytest.raises(ValueError, match="orphan condition proof link"):
+        SemanticExecutor(
+            *args[:-1], conditional,
+            [(summary, 0, "raw_identity", "04" * 16, condition),
+             (caller, 0, "callee_condition_link", "0b" * 16, condition),
+             (caller, 1, "return_exit", "0c" * 16, condition)],
+            [], [], [],
+        )
 
 
 def test_native_index_admits_schema_finalizer_kind_and_rejects_unknown_kind(

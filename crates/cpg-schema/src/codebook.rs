@@ -1392,6 +1392,8 @@ codebook!(
         /// A provider predicate fixed by the source return-path condition, not an exact value.
         StatementCondition = 20 => "statement_condition",
         HandlerClassEvidence = 21 => "handler_class_evidence",
+        /// Declaration, signature and fresh binding supporting definition-time completion.
+        DefinitionHeaderEvidence = 22 => "definition_header_evidence",
     }
 );
 
@@ -1741,6 +1743,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<CompletionKind>(),
         CodebookEntry::of::<ExactRuntimeException>(),
         CodebookEntry::of::<SummaryChannel>(),
+        CodebookEntry::of::<SummarySubjectKind>(),
     ]
 }
 
@@ -1785,5 +1788,14 @@ codebook!(
         Callback = 5 => "callback",
         Resource = 6 => "resource",
         Role = 7 => "role",
+    }
+);
+
+codebook!(
+    /// The domain whose alternatives a coverage certificate reconstructs. A source execution
+    /// site is conditional on entry, not evidence that it ran or that its enclosing call closed.
+    SummarySubjectKind = "summary_subject_kind" {
+        ValueOrigin = 0 => "value_origin",
+        ExecutionSite = 1 => "execution_site",
     }
 );

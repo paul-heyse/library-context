@@ -1491,6 +1491,15 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 },
             )
             );
+            if let Err(error)=cpg_schema::summary_contract::admit_callee_proof(seed.function_node_id,
+                &diagrams[&seed.condition_id],callee.path_depth+1,&proof,&local_value_links.by_id,
+                |id|by_id.get(&id).and_then(|target|Some(cpg_schema::summary_contract::CalleeProofTarget {
+                    function_node_id:target.function_node_id,condition:diagrams.get(&target.condition_id)?,
+                    verdict:target.verdict,path_depth:target.path_depth,
+                }))) {
+                path.refused.insert(semantic,error.reason);
+                continue;
+            }
             let previous_steps_len = steps.len();
             if !push_finite_path(
                 &mut flows,
@@ -1558,8 +1567,9 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         .map(|row|(row.snapshot_id,row.function_node_id,row.parameter_node_id,
             row.source_flow_fact_id,row.condition_id,row.source_origin_id)).collect();
     for row in &mut coverage {
-        row.witnesses_omitted |= omitted_origins.contains(&(row.snapshot_id,row.function_node_id,
-            row.parameter_node_id,row.source_flow_fact_id,row.condition_id,row.source_origin_id));
+        row.witnesses_omitted |= row.parameter_node_id.is_some_and(|parameter|
+            omitted_origins.contains(&(row.snapshot_id,row.function_node_id,
+                parameter,row.source_fact_id,row.condition_id,row.subject_id)));
     }
     FiniteSummaryOutcome { flows, steps, refusals, boundaries, coverage }
 }
@@ -1597,9 +1607,12 @@ fn origin_coverage(candidates: &[SummaryBoundaryCandidate], flows: &[SummaryFlow
                     Some(BoundaryReason::CallTransfer)
                 }
                 else if witness_count==0 {Some(BoundaryReason::CallTransfer)} else {None});
+        let (subject_kind,subject_id,source_fact_id,parameter_node_id)=cpg_schema::summary_contract::SummarySubject::ValueOrigin {
+            origin_id:c.source_origin_id,flow_fact_id:c.source_flow_fact_id,parameter_node_id:c.parameter_node_id,
+        }.columns();
         let row=cpg_schema::behavior::SummaryOriginCoverageRow {
-            snapshot_id:c.snapshot_id,function_node_id:c.function_node_id,parameter_node_id:c.parameter_node_id,
-            source_flow_fact_id:c.source_flow_fact_id,source_origin_id:c.source_origin_id,condition_id:c.condition_id,
+            snapshot_id:c.snapshot_id,function_node_id:c.function_node_id,parameter_node_id,
+            subject_kind,subject_id,source_fact_id,condition_id:c.condition_id,
             channel:SummaryChannel::Value,phase:InvocationPhase::Call,complete:reason.is_none(),reason,witness_count,
             witnesses_omitted:explicit.is_some_and(|r|r.contains(&BoundaryReason::SummaryProofLimit)),
         };
@@ -1705,13 +1718,13 @@ mod tests {
         sibling.through_call=true;sibling.local_through_call=true;
         input.boundary_candidates.push(sibling);
         let outcome=finite_flows(input.clone());
-        assert!(outcome.coverage.iter().find(|c|c.source_origin_id==id(9)).unwrap().complete);
-        assert!(!outcome.coverage.iter().find(|c|c.source_origin_id==id(99)).unwrap().complete);
+        assert!(outcome.coverage.iter().find(|c|c.subject_id==id(9)).unwrap().complete);
+        assert!(!outcome.coverage.iter().find(|c|c.subject_id==id(99)).unwrap().complete);
         let refusal=SummaryRefusal {snapshot_id:id(1),function_node_id:id(2),parameter_node_id:id(3),
             source_flow_fact_id:id(4),source_origin_id:id(9),condition_id:Diagram::always().id(),
             reason:BoundaryReason::SummaryProofLimit};
         let coverage=origin_coverage(&input.boundary_candidates,&outcome.flows,&[refusal],&outcome.boundaries);
-        let positive=coverage.iter().find(|c|c.source_origin_id==id(9)).unwrap();
+        let positive=coverage.iter().find(|c|c.subject_id==id(9)).unwrap();
         assert_eq!(positive.witness_count,1);
         assert!(!positive.complete && positive.witnesses_omitted);
         assert_eq!(positive.reason,Some(BoundaryReason::SummaryProofLimit));
@@ -1725,7 +1738,7 @@ mod tests {
         let first=origin_coverage(&input.boundary_candidates,&outcome.flows,&[],&outcome.boundaries);
         input.boundary_candidates.reverse();
         assert_eq!(first,origin_coverage(&input.boundary_candidates,&outcome.flows,&[],&outcome.boundaries));
-        assert!(!first.iter().find(|c|c.source_origin_id==id(9)).unwrap().complete);
+        assert!(!first.iter().find(|c|c.subject_id==id(9)).unwrap().complete);
     }
 
     #[test]
@@ -1914,7 +1927,7 @@ mod tests {
         assert!(result.boundaries.is_empty());
         assert_eq!(result.steps.iter().filter(|step|
             step.kind == SummaryFlowStepKind::CalleeSummary).count(), 2);
-        let coverage=result.coverage.iter().find(|row|row.source_origin_id==id(41)).unwrap();
+        let coverage=result.coverage.iter().find(|row|row.subject_id==id(41)).unwrap();
         assert!(coverage.witnesses_omitted);
         assert!(!coverage.complete); // Finite witnesses alone do not close source coverage.
     }
@@ -2379,6 +2392,25 @@ mod tests {
         let refused=finite_flows(input);
         assert!(refused.flows.is_empty());
         assert!(refused.boundaries.iter().any(|r|r.reason==BoundaryReason::SummaryProofLimit));
+    }
+
+    #[test]
+    fn oversized_local_application_retains_the_named_proof_limit() {
+        let mut input=inputs();
+        let edge=recursive_edge(30,31,2,3,40,41,50);
+        input.components.push(recursive_member(30,1));
+        input.boundary_candidates.push(recursive_candidate(&edge));
+        input.entry_steps=(0..cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS).map(|ordinal|
+            ReturnEntryStepsRow {snapshot_id:edge.snapshot_id,return_site_fact_id:edge.return_site_fact_id,
+                ordinal:ordinal as i64,evidence_id:id(70),kind:SummaryFlowStepKind::CompletionStatement,
+                condition_id:edge.condition_id}).collect();
+        input.local_seeds.push(edge);
+        let result=finite_flows(with_local_arguments(input));
+        assert!(!result.flows.iter().any(|f|f.source_origin_id==id(41)));
+        assert_eq!(result.boundaries.iter().find(|b|b.source_origin_id==id(41)).unwrap().reason,
+            BoundaryReason::SummaryProofLimit);
+        assert_eq!(result.coverage.iter().find(|c|c.subject_id==id(41)).unwrap().reason,
+            Some(BoundaryReason::SummaryProofLimit));
     }
 
     #[test]

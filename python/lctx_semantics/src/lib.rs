@@ -537,45 +537,24 @@ impl SemanticExecutor {
                         atom: leaf.atom.clone(),
                     }))).collect();
         for summary in summaries.values() {
-            for (index, (kind, evidence, _)) in summary.steps.iter().enumerate() {
-                if kind == "caller_condition_link" || kind == "callee_condition_link" {
-                    // Every link belongs to a contiguous group ending in a callee reference.
-                    if !summary.steps.get(index + 1).is_some_and(|step|
-                        matches!(step.0.as_str(), "caller_condition_link" | "callee_condition_link" | "callee_summary")) {
-                        return Err(PyValueError::new_err("orphan condition proof link"));
-                    }
-                }
-                if kind != "callee_summary" { continue; }
-                let Some(callee) = summaries.get(evidence) else {
-                    return Err(PyValueError::new_err("missing cited callee summary"));
-                };
-                if callee.path_depth >= summary.path_depth {
-                    return Err(PyValueError::new_err("cyclic or unordered callee proof"));
-                }
-                let mut start = index;
-                while start > 0 && matches!(summary.steps[start - 1].0.as_str(),
-                    "caller_condition_link" | "callee_condition_link") { start -= 1; }
-                if callee.verdict == "established" {
-                    if start != index { return Err(PyValueError::new_err("unexpected unconditional callee controls")); }
-                    continue;
-                }
-                if callee.verdict != "conditional" {
-                    return Err(PyValueError::new_err("callee proof has no admitted verdict"));
-                }
-                let controls: Vec<_> = summary.steps[start..index].iter().map(|step|
-                    cpg_schema::id::recipe::SummaryFlowProofStep {
-                        kind: if step.0 == "caller_condition_link" { SummaryFlowStepKind::CallerConditionLink }
-                            else { SummaryFlowStepKind::CalleeConditionLink },
-                        evidence_id: step.1, condition_id: step.2,
-                    }).collect();
-                let caller_root = graph.diagrams.get(&summary.condition_id)
-                    .ok_or_else(|| PyValueError::new_err("caller condition unavailable"))?;
-                let callee_root = graph.diagrams.get(&callee.condition_id)
-                    .ok_or_else(|| PyValueError::new_err("callee condition unavailable"))?;
-                cpg_schema::summary_contract::validate_fixed_control_proof(
-                    summary.function_node_id, caller_root, callee.function_node_id, callee_root,
-                    &controls, &control_links).map_err(PyValueError::new_err)?;
-            }
+            let steps:Vec<_>=summary.steps.iter().map(|(kind,evidence_id,condition_id)|
+                cpg_schema::id::recipe::SummaryFlowProofStep {
+                    kind:*SummaryFlowStepKind::all().iter().find(|k|k.text()==kind)
+                        .expect("step kind admitted above"),evidence_id:*evidence_id,condition_id:*condition_id,
+                }).collect();
+            // Unknown roots cannot support a positive callee application. Their raw proofs
+            // still pass structural admission using an inert root; no controls can be fixed.
+            let empty=cpg_schema::condition_kernel::Diagram::never();
+            let condition=graph.diagrams.get(&summary.condition_id).unwrap_or(&empty);
+            cpg_schema::summary_contract::admit_callee_proof(summary.function_node_id,
+                condition,summary.path_depth,&steps,&control_links,|id| {
+                    let target=summaries.get(&id)?;
+                    let verdict=*cpg_schema::codebook::Verdict::all().iter().find(|v|v.text()==target.verdict)?;
+                    Some(cpg_schema::summary_contract::CalleeProofTarget {
+                        function_node_id:target.function_node_id,
+                        condition:graph.diagrams.get(&target.condition_id)?,verdict,path_depth:target.path_depth,
+                    })
+                }).map_err(|error|PyValueError::new_err(error.message))?;
         }
         Ok(Self {
             graph,
